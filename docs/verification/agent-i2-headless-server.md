@@ -6,7 +6,7 @@ Base SHA: `f1db8932296f918ffb68fb43a26560e80dd99cbc`
 
 - `server::HeadlessServer::bootstrap` owns the headless composition root and
   does not require a Tauri runtime.
-- `ServerConfig` defaults to `127.0.0.1:3080`; non-loopback binding requires an
+- `ServerConfig` defaults to `127.0.0.1:17891`; non-loopback binding requires an
   explicit opt-in. Cross-origin browser access requires an exact allowlist.
 - `/api/v1/capabilities`, `/api/v1/call/{command}`, and `/api/v1/ws` require a
   bearer token. Only its SHA-256 digest is persisted.

@@ -39,6 +39,8 @@ pub enum ServerBootstrapError {
     Plugin(String),
     #[error("conversation recovery failed: {0}")]
     Conversation(String),
+    #[error("host identity failed: {0}")]
+    HostIdentity(String),
 }
 
 pub struct ServerBootstrapConfig {
@@ -76,7 +78,21 @@ pub struct HeadlessServer {
 }
 
 impl HeadlessServer {
-    pub async fn bootstrap(config: ServerBootstrapConfig) -> Result<Self, ServerBootstrapError> {
+    pub async fn bootstrap(
+        mut config: ServerBootstrapConfig,
+    ) -> Result<Self, ServerBootstrapError> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        config.server.host_id = utils::assets::load_or_create_host_id(&config.data_dir)
+            .map_err(|error| ServerBootstrapError::HostIdentity(error.to_string()))?;
+        if config.server.reachability.is_empty() {
+            let allow_lan = utils::net::listen_allows_lan(config.server.listen_addr);
+            config.server.reachability =
+                utils::net::advertised_http_origins(config.server.listen_addr.port(), allow_lan)
+                    .into_iter()
+                    .filter(|origin| !remote_protocol::is_loopback_origin(origin))
+                    .map(remote_protocol::ReachabilityOrigin::lan)
+                    .collect();
+        }
         let deployment = Arc::new(LocalDeployment::new_at(&config.data_dir).await?);
         let pool = deployment.db().pool.clone();
         let provisioned = SqliteTokenHashStore::new(pool.clone())
@@ -153,7 +169,7 @@ impl HeadlessServer {
                 {
                     if installed.config_schema.is_some() {
                         builtin
-                            .write_config(installed.config.clone())
+                            .write_adopted_config(installed.config.clone())
                             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
                         builtin = plugins::PluginPackage::inspect(
                             &builtin_root,
@@ -182,6 +198,10 @@ impl HeadlessServer {
                 Some(_) => {}
             }
         }
+        plugin_control_plane
+            .retire_replaced_builtins()
+            .await
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
         let enabled_worker_exists = plugin_control_plane
             .catalog()
             .await
@@ -284,11 +304,12 @@ impl HeadlessServer {
                 }
             }
         });
-        let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy(
+        let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy_and_pty(
             config.server,
             pool.clone(),
             core,
             preview_proxy,
+            deployment.pty().clone(),
         );
 
         Ok(Self {

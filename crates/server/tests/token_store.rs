@@ -5,7 +5,10 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use server::{ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore};
+use server::{
+    ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore, read_host_token,
+    resolve_console_token, write_host_token,
+};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tower::ServiceExt;
 
@@ -70,6 +73,46 @@ async fn token_store_persists_only_a_hash() {
 }
 
 #[tokio::test]
+async fn provisioning_the_same_plaintext_again_keeps_it_accepted() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let plaintext = "stable-host-token-with-at-least-32-bytes";
+    let store = SqliteTokenHashStore::new(pool.clone());
+    store
+        .provision(Some(ServerToken::new(plaintext)))
+        .await
+        .expect("first provision");
+    store
+        .provision(Some(ServerToken::new(plaintext)))
+        .await
+        .expect("second provision");
+
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool.clone()));
+    let app = ServerRuntime::from_sqlite_auth(ServerConfig::default(), pool, core).router();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/capabilities")
+                .header("authorization", format!("Bearer {plaintext}"))
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn bearer_token_in_a_url_is_never_accepted() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
         .expect("sqlite options")
@@ -102,4 +145,19 @@ async fn bearer_token_in_a_url_is_never_accepted() {
             .expect("response");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
+}
+
+#[test]
+fn serve_reprints_the_same_host_token_from_the_data_directory() {
+    let data_dir = tempfile::TempDir::new().expect("data dir");
+    let first = resolve_console_token(data_dir.path(), true);
+    write_host_token(data_dir.path(), &first).expect("write");
+    let again = resolve_console_token(data_dir.path(), false);
+    assert_eq!(again.as_str(), first.as_str());
+    assert_eq!(
+        read_host_token(data_dir.path())
+            .expect("saved token")
+            .as_str(),
+        first.as_str()
+    );
 }

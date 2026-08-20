@@ -14,8 +14,8 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use remote_protocol::{
-    ConversationId, ErrorCode, ErrorEnvelope, OperationId, SubscriptionClientMessage,
-    SubscriptionId, SubscriptionResource, SubscriptionServerMessage,
+    ConversationId, ErrorCode, ErrorEnvelope, OperationId, RemoteEvent, SubscriptionBootstrap,
+    SubscriptionClientMessage, SubscriptionId, SubscriptionResource, SubscriptionServerMessage,
 };
 
 use crate::{AuthenticatedCredential, runtime::ServerState};
@@ -196,8 +196,9 @@ async fn handle_socket<R>(
                     let Ok(bootstrap) = bootstrap else {
                         continue;
                     };
+                    let high_water_mark = bootstrap.high_water_mark;
                     let mut cursor = subscription.after_sequence();
-                    for event in bootstrap.replay {
+                    for event in live_events(bootstrap) {
                         cursor = cursor.max(event.sequence);
                         if send_message(
                             &mut sender,
@@ -213,7 +214,7 @@ async fn handle_socket<R>(
                         }
                     }
                     if let Some(active) = subscriptions.get_mut(&subscription_id) {
-                        active.advance(cursor.max(bootstrap.high_water_mark));
+                        active.advance(cursor.max(high_water_mark));
                     }
                 }
             }
@@ -334,4 +335,20 @@ where
         .send(Message::Text(text.into()))
         .await
         .map_err(|_| ())
+}
+
+/// Live polling reuses `attach`, which parks `after_sequence == 0` events in
+/// `snapshot` and leaves `replay` empty. A brand-new conversation attaches at
+/// sequence 0 before any events exist; the first turn would then be captured
+/// in a snapshot the poll loop never forwarded, and the cursor would skip it.
+fn live_events(bootstrap: SubscriptionBootstrap) -> Vec<RemoteEvent> {
+    if !bootstrap.replay.is_empty() {
+        return bootstrap.replay;
+    }
+    bootstrap
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.payload.get("events").cloned())
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
 }

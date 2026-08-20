@@ -208,6 +208,103 @@ async fn websocket_attach_ready_replay_and_reconnect() {
 }
 
 #[tokio::test]
+async fn websocket_delivers_the_first_events_after_an_empty_attach() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("focused event fixture");
+    let conversation_id = Uuid::new_v4();
+
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool.clone()));
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("websocket-secret-with-at-least-32-bytes"),
+        core,
+    )
+    .router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let subscription_id = SubscriptionId::new();
+    let mut socket = connect(address, "websocket-secret-with-at-least-32-bytes").await;
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&SubscriptionClientMessage::Attach {
+                request: SubscriptionRequest {
+                    subscription_id,
+                    resource: SubscriptionResource::Conversation {
+                        conversation_id: ConversationId::from_uuid(conversation_id),
+                        after_sequence: 0,
+                    },
+                },
+            })
+            .expect("attach")
+            .into(),
+        ))
+        .await
+        .expect("send attach");
+
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Ready {
+            subscription_id: ready
+        } if ready == subscription_id
+    ));
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Snapshot {
+            subscription_id: snapshot_id,
+            snapshot
+        } if snapshot_id == subscription_id && snapshot.through_sequence == 0
+    ));
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Live {
+            subscription_id: live_id,
+            high_water_mark: 0
+        } if live_id == subscription_id
+    ));
+
+    append(&pool, conversation_id, "user_turn_created").await;
+    append(&pool, conversation_id, "assistant_text_delta").await;
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Event {
+            subscription_id: event_id,
+            event
+        } if event_id == subscription_id
+            && event.sequence == 1
+            && event.kind == "user_turn_created"
+    ));
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Event {
+            subscription_id: event_id,
+            event
+        } if event_id == subscription_id
+            && event.sequence == 2
+            && event.kind == "assistant_text_delta"
+    ));
+
+    server.abort();
+}
+
+#[tokio::test]
 async fn websocket_rejects_an_oversized_frame_before_json_processing() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
         .expect("sqlite options")

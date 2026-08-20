@@ -1,4 +1,5 @@
 use std::{
+    net::IpAddr,
     path::{Component, Path as FsPath},
     sync::Arc,
 };
@@ -13,9 +14,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
+use local_deployment::pty::PtyService;
 use remote_protocol::{
-    CapabilityId, CommandRequest, ConversationId, CreatePairingRequest, DeviceId, ErrorCode,
-    ErrorEnvelope, OperationId, RedeemPairingRequest, ServerCapabilities,
+    CapabilityId, CommandRequest, ConversationId, CreatePairingRequest, DeviceId,
+    DevicePermissionPreset, ErrorCode, ErrorEnvelope, IssuedPairingInvitation, OperationId,
+    PairingInvitationPayload, RedeemPairingRequest, ServerCapabilities,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -33,6 +36,7 @@ pub(crate) struct ServerState<R> {
     pub(crate) config: ServerConfig,
     pub(crate) preview_proxy: crate::PreviewProxyRegistry,
     pub(crate) preview_client: reqwest::Client,
+    pub(crate) pty: PtyService,
 }
 
 pub struct ServerRuntime<R> {
@@ -67,11 +71,12 @@ where
         core: ApplicationCore<R>,
         preview_proxy: crate::PreviewProxyRegistry,
     ) -> Self {
-        Self::from_auth_with_preview_proxy(
+        Self::from_auth_with_preview_proxy_inner(
             config,
             Arc::new(StaticServerAuth::new(credentials)),
             core,
             preview_proxy,
+            PtyService::new(),
         )
     }
 
@@ -80,25 +85,28 @@ where
         pool: sqlx::SqlitePool,
         core: ApplicationCore<R>,
     ) -> Self {
-        Self::from_auth_with_preview_proxy(
+        Self::from_auth_with_preview_proxy_inner(
             config,
             Arc::new(SqliteServerAuth::new(pool)),
             core,
             crate::PreviewProxyRegistry::default(),
+            PtyService::new(),
         )
     }
 
-    pub fn from_sqlite_auth_with_preview_proxy(
+    pub fn from_sqlite_auth_with_preview_proxy_and_pty(
         config: ServerConfig,
         pool: sqlx::SqlitePool,
         core: ApplicationCore<R>,
         preview_proxy: crate::PreviewProxyRegistry,
+        pty: PtyService,
     ) -> Self {
-        Self::from_auth_with_preview_proxy(
+        Self::from_auth_with_preview_proxy_inner(
             config,
             Arc::new(SqliteServerAuth::new(pool)),
             core,
             preview_proxy,
+            pty,
         )
     }
 
@@ -107,6 +115,22 @@ where
         auth: Arc<dyn ServerAuth>,
         core: ApplicationCore<R>,
         preview_proxy: crate::PreviewProxyRegistry,
+    ) -> Self {
+        Self::from_auth_with_preview_proxy_inner(
+            config,
+            auth,
+            core,
+            preview_proxy,
+            PtyService::new(),
+        )
+    }
+
+    fn from_auth_with_preview_proxy_inner(
+        config: ServerConfig,
+        auth: Arc<dyn ServerAuth>,
+        core: ApplicationCore<R>,
+        preview_proxy: crate::PreviewProxyRegistry,
+        pty: PtyService,
     ) -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let capabilities = ServerCapabilities {
@@ -142,6 +166,17 @@ where
                 CapabilityId::new("device.revoke"),
                 CapabilityId::new("notification.summary"),
                 CapabilityId::new("offline.read"),
+                CapabilityId::new("file.read"),
+                CapabilityId::new("file.write"),
+                CapabilityId::new("git.read"),
+                CapabilityId::new("git.write"),
+                CapabilityId::new("terminal"),
+                CapabilityId::new("workspace.read"),
+                CapabilityId::new("workspace.write"),
+                CapabilityId::new("project.write"),
+                CapabilityId::new("session.write"),
+                CapabilityId::new("agent.read"),
+                CapabilityId::new("agent.write"),
             ],
         };
         let core = Arc::new(core);
@@ -156,6 +191,7 @@ where
                 preview_proxy,
                 preview_client: crate::preview_proxy::preview_client()
                     .expect("build loopback-only preview client"),
+                pty,
             }),
         }
     }
@@ -179,12 +215,13 @@ where
                 "/conversations/{conversation_id}/notification-summary",
                 get(notification_summary::<R>),
             )
+            .route("/terminals/{session_id}/output", get(terminal_output::<R>))
             .route_layer(middleware::from_fn_with_state(
                 Arc::clone(&self.state),
                 require_token::<R>,
             ));
         Router::new()
-            .route("/health", get(health))
+            .route("/health", get(health::<R>))
             .route("/api/v1/auth/pairings/redeem", post(redeem_pairing::<R>))
             .route(
                 "/api/v1/previews/{lease_id}",
@@ -216,7 +253,7 @@ fn host_listen_page(path: &str) -> Response {
     if !path.is_empty() && path != "index.html" {
         return StatusCode::NOT_FOUND.into_response();
     }
-    const HTML: &str = "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>VibeX Host</title><body><h1>VibeX Host</h1><p>远程协议已在运行。请在本机控制台出示配对邀请，不要扫描这个地址。</p></body></html>";
+    const HTML: &str = r#"<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>VibeX Host</title><style>html,body{margin:0;min-height:100%;background:#eef1f5;color:#46505b;font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}main{box-sizing:border-box;max-width:22.5rem;margin:18vh auto 0;padding:28px 24px;border:1px solid #0b16280f;border-radius:14px;background:#fafbfc}h1{margin:0 0 8px;color:#1d2530;font-size:1.125rem;font-weight:600}p{margin:0;color:#727b85}</style><body><main><h1>VibeX Host</h1><p>远程协议已在运行。请在本机控制台出示配对邀请，不要扫描这个地址。</p></main></body></html>"#;
     (
         [(
             header::CONTENT_TYPE,
@@ -325,14 +362,67 @@ fn origin_allowed(config: &ServerConfig, origin: &str) -> bool {
     if config.allowed_origins.contains(origin) {
         return true;
     }
-    origin
-        .parse::<axum::http::Uri>()
-        .ok()
-        .and_then(|uri| {
-            uri.authority()
-                .map(|authority| authority.as_str().to_owned())
-        })
-        .is_some_and(|authority| authority == config.listen_addr.to_string())
+    if config.reachability.iter().any(|item| item.origin == origin) {
+        return true;
+    }
+    let Ok(uri) = origin.parse::<axum::http::Uri>() else {
+        return false;
+    };
+    if !matches!(uri.scheme_str(), Some("http") | Some("https")) {
+        return false;
+    }
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    let origin_port = authority.port_u16().unwrap_or(match uri.scheme_str() {
+        Some("https") => 443,
+        _ => 80,
+    });
+    let host = authority.host();
+    let listen_ip = config.listen_addr.ip();
+    if is_loopback_host(host) {
+        return listen_ip.is_loopback() || listen_ip.is_unspecified();
+    }
+    if origin_port != config.listen_addr.port() {
+        return false;
+    }
+    let Ok(origin_ip) = host.parse::<IpAddr>() else {
+        return false;
+    };
+    origin_ip == listen_ip || (listen_ip.is_unspecified() && is_lan_ip(origin_ip))
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host
+        .trim_matches(|character| character == '[' || character == ']')
+        .to_ascii_lowercase();
+    host == "localhost"
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn is_lan_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_multicast()
+        }
+        IpAddr::V6(ip) => ip.is_unique_local() && !ip.is_loopback() && !ip.is_multicast(),
+    }
+}
+
+fn bearer_token(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    let rest = trimmed
+        .strip_prefix("Bearer ")
+        .or_else(|| trimmed.strip_prefix("bearer "))
+        .or_else(|| trimmed.strip_prefix("BEARER "))?;
+    let token = rest.trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_owned())
+    }
 }
 
 fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
@@ -370,8 +460,18 @@ where
     }
 }
 
-async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok" }))
+async fn health<R>(State(state): State<Arc<ServerState<R>>>) -> Json<serde_json::Value>
+where
+    R: Send + Sync + 'static,
+{
+    let mut body = json!({ "status": "ok" });
+    if !state.config.host_id.is_empty() {
+        body["host_id"] = json!(state.config.host_id);
+    }
+    if let Some(name) = utils::net::local_hostname() {
+        body["name"] = json!(name);
+    }
+    Json(body)
 }
 
 async fn capabilities<R>(
@@ -424,8 +524,7 @@ async fn require_token<R>(
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(ToOwned::to_owned)
+        .and_then(bearer_token)
         .or_else(|| {
             request
                 .headers()
@@ -461,8 +560,23 @@ async fn create_pairing<R>(
     Extension(credential): Extension<AuthenticatedCredential>,
     Json(request): Json<CreatePairingRequest>,
 ) -> Response {
+    let preset = request
+        .preset
+        .unwrap_or(DevicePermissionPreset::Workstation);
     match state.auth.create_pairing(&credential, request).await {
-        Ok(challenge) => (StatusCode::CREATED, Json(challenge)).into_response(),
+        Ok(challenge) => {
+            let payload = PairingInvitationPayload::from_challenge(
+                state.config.host_id.clone(),
+                preset,
+                &challenge,
+                state.config.reachability.clone(),
+            );
+            (
+                StatusCode::CREATED,
+                Json(IssuedPairingInvitation::from_payload(challenge, payload)),
+            )
+                .into_response()
+        }
         Err(error) => auth_error_response(error),
     }
 }
@@ -561,6 +675,48 @@ where
     }
 }
 
+async fn terminal_output<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Path(session_id): Path<uuid::Uuid>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    if !state.pty.session_exists(&session_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorEnvelope::new(
+                ErrorCode::NotFound,
+                format!("terminal {session_id} was not found"),
+                false,
+                OperationId::new(),
+            )),
+        )
+            .into_response();
+    }
+    let Ok(receiver) = state.pty.subscribe_output(session_id).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorEnvelope::new(
+                ErrorCode::NotFound,
+                format!("terminal {session_id} was not found"),
+                false,
+                OperationId::new(),
+            )),
+        )
+            .into_response();
+    };
+    let stream = futures::stream::unfold(receiver, |mut receiver| async move {
+        let chunk = receiver.recv().await?;
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, chunk);
+        Some((
+            Ok::<_, std::convert::Infallible>(axum::response::sse::Event::default().data(encoded)),
+            receiver,
+        ))
+    });
+    axum::response::Sse::new(stream).into_response()
+}
+
 fn bad_request(message: &str) -> Response {
     application_error_response(ErrorEnvelope::new(
         ErrorCode::BadRequest,
@@ -650,4 +806,67 @@ fn ws_token_from_protocols(protocols: &str) -> Option<String> {
         .find_map(|protocol| protocol.strip_prefix("vibex.token."))
         .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
         .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
+#[cfg(test)]
+mod origin_allowed_tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use remote_protocol::ReachabilityOrigin;
+
+    use super::{ServerConfig, origin_allowed};
+
+    fn config(listen: &str, allow_lan: bool) -> ServerConfig {
+        ServerConfig::default()
+            .with_listen_addr(listen.parse::<SocketAddr>().expect("listen"), allow_lan)
+            .expect("listen policy")
+    }
+
+    #[test]
+    fn loopback_listen_accepts_the_browser_origin() {
+        let config = ServerConfig::default();
+        assert!(origin_allowed(&config, "http://127.0.0.1:17891"));
+        assert!(origin_allowed(&config, "http://localhost:17891"));
+        assert!(origin_allowed(&config, "http://127.0.0.1:3001"));
+        assert!(!origin_allowed(&config, "http://192.168.1.20:17891"));
+        assert!(!origin_allowed(&config, "https://attacker.invalid"));
+    }
+
+    #[test]
+    fn unspecified_listen_accepts_loopback_and_lan_on_the_same_port() {
+        let config = config("0.0.0.0:17891", true);
+        assert!(origin_allowed(&config, "http://127.0.0.1:17891"));
+        assert!(origin_allowed(&config, "http://localhost:17891"));
+        assert!(origin_allowed(&config, "http://127.0.0.1:3001"));
+        assert!(origin_allowed(&config, "http://192.168.1.20:17891"));
+        assert!(!origin_allowed(&config, "http://192.168.1.20:3001"));
+        assert!(!origin_allowed(&config, "https://attacker.invalid"));
+        assert!(!origin_allowed(&config, "http://8.8.8.8:17891"));
+    }
+
+    #[test]
+    fn bearer_token_trims_and_accepts_common_prefixes() {
+        use super::bearer_token;
+        assert_eq!(
+            bearer_token("Bearer secret-token"),
+            Some("secret-token".to_string())
+        );
+        assert_eq!(
+            bearer_token("  bearer secret-token  "),
+            Some("secret-token".to_string())
+        );
+        assert_eq!(bearer_token("Bearer "), None);
+        assert_eq!(bearer_token("Basic abc"), None);
+    }
+
+    #[test]
+    fn published_reachability_is_accepted() {
+        let mut config = ServerConfig::default();
+        config.listen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 17891);
+        config.reachability = vec![ReachabilityOrigin {
+            origin: "https://host.example.ts.net".to_string(),
+            kind: "tailscale".to_string(),
+        }];
+        assert!(origin_allowed(&config, "https://host.example.ts.net"));
+    }
 }

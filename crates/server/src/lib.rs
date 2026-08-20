@@ -1,14 +1,18 @@
 //! Headless VibeX server composition and transport adapters.
 
+mod agent_install;
 mod artifact_sink;
 mod auth;
 mod automation_runtime;
 mod chat_inbound;
+mod cli;
 mod composition;
 mod config;
 mod delegation_runtime;
 mod domains;
 mod host_core;
+mod host_ops;
+mod host_token;
 mod preview_proxy;
 mod product_mcp;
 mod runtime;
@@ -17,17 +21,26 @@ mod update;
 mod weixin_ilink;
 mod ws;
 
+pub use agent_install::{AgentCatalogEntry, AgentCatalogGroup, run_agents_command};
 pub use artifact_sink::ServerArtifactEventSink;
 pub use auth::{
-    AuthClock, AuthStoreError, AuthenticatedCredential, CredentialKind, ServerAuth,
-    ServerCredentials, ServerToken, ServerTokenError, SqliteServerAuth, SystemAuthClock,
+    AuthClock, AuthStoreError, AuthenticatedCredential, CredentialKind, PairedDeviceRecord,
+    ServerAuth, ServerCredentials, ServerToken, ServerTokenError, SqliteServerAuth,
+    SystemAuthClock,
 };
 pub use automation_runtime::HeadlessAutomationRuntime;
 pub use chat_inbound::{chat_channel_connection_states, post_event_webhooks, start_chat_inbound};
+pub use cli::{
+    AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, parse_args, usage,
+};
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
 pub use host_core::host_application_core;
+pub use host_token::{
+    HOST_TOKEN_FILE, host_token_path, issue_host_token, read_host_token, resolve_console_token,
+    write_host_token,
+};
 pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };

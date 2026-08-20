@@ -608,6 +608,12 @@ impl DelegationInjector for HeadlessDelegationInjector {
                     command: locate_named_sibling("vibex-workflow-mcp"),
                     args: Vec::new(),
                 }),
+                "plugin-dev" => servers.push(self.product_server(
+                    context,
+                    "vibex-plugin-dev-mcp",
+                    "plugin-dev",
+                    false,
+                )),
                 _ => {}
             }
         }
@@ -629,6 +635,7 @@ impl HeadlessDelegationInjector {
         delegation: bool,
     ) -> InjectedMcpServer {
         let token = Uuid::new_v4().to_string();
+        let plugin_dev = name == "vibex-plugin-dev-mcp";
         self.tokens.register_with_permissions(
             token.clone(),
             TokenEntry {
@@ -638,25 +645,36 @@ impl HeadlessDelegationInjector {
             },
             TokenPermissions {
                 delegation,
-                feedback: !delegation,
-                ask: !delegation,
-                session_info: !delegation,
-                session_control: !delegation,
+                feedback: !delegation && !plugin_dev,
+                ask: !delegation && !plugin_dev,
+                session_info: !delegation && !plugin_dev,
+                session_control: !delegation && !plugin_dev,
             },
         );
+        let mut args = vec![
+            "--parent-connection-id".to_string(),
+            context.parent_connection_id.to_string(),
+            "--socket-path".to_string(),
+            self.socket_path.to_string_lossy().into_owned(),
+            "--token".to_string(),
+            token,
+            "--features".to_string(),
+            features.to_string(),
+            "--conversation-id".to_string(),
+            context.parent_conversation_id.to_string(),
+        ];
+        if plugin_dev {
+            args.push("--product".to_string());
+            args.push("plugin-dev".to_string());
+            if let Some(url) = self.official_mcp.http_base() {
+                args.push("--server-url".to_string());
+                args.push(url);
+            }
+        }
         InjectedMcpServer {
             name: name.to_string(),
             command: locate_companion(),
-            args: vec![
-                "--parent-connection-id".to_string(),
-                context.parent_connection_id.to_string(),
-                "--socket-path".to_string(),
-                self.socket_path.to_string_lossy().into_owned(),
-                "--token".to_string(),
-                token,
-                "--features".to_string(),
-                features.to_string(),
-            ],
+            args,
         }
     }
 }
@@ -758,26 +776,11 @@ fn process_socket_path() -> PathBuf {
 }
 
 fn locate_companion() -> PathBuf {
-    locate_named_sibling("vibex-mcp")
+    utils::host_bin::locate_host_family_binary("vibex-mcp")
 }
 
 fn locate_named_sibling(base: &str) -> PathBuf {
-    let name = if cfg!(windows) {
-        format!("{base}.exe")
-    } else {
-        base.to_string()
-    };
-    if let Ok(path) = std::env::var("VIBEX_MCP_BIN") {
-        let path = PathBuf::from(path);
-        if path.is_absolute() && path.is_file() {
-            return path;
-        }
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(&name)))
-        .filter(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from(name))
+    utils::host_bin::locate_host_family_binary(base)
 }
 
 fn preview(text: &str) -> String {

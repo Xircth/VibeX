@@ -12,11 +12,19 @@ use remote_protocol::{
     CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset, PairingChallenge,
     PairingId, RedeemPairingRequest, RevokeDeviceResponse,
 };
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 const PAIRING_TTL_SECONDS: i64 = 5 * 60;
+const PAIRING_TTL_CHOICES: &[i64] = &[300, 900, 1800, 3600];
+
+fn resolve_pairing_ttl(requested: Option<i64>, default: i64) -> i64 {
+    requested
+        .filter(|seconds| PAIRING_TTL_CHOICES.contains(seconds))
+        .unwrap_or(default)
+}
 const DEVICE_SCOPES: &[&str] = DevicePermissionPreset::workstation_scopes();
 
 pub(crate) const ADMIN_SCOPES: &[&str] = &[
@@ -52,6 +60,7 @@ pub(crate) const ADMIN_SCOPES: &[&str] = &[
 ///
 /// The server runtime immediately converts this value to a SHA-256 digest and
 /// never stores the plaintext in router state.
+#[derive(Clone)]
 pub struct ServerToken(String);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -76,6 +85,10 @@ impl ServerToken {
         TokenDigest::from_secret(&self.0)
     }
 
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     /// Consume a newly-issued token so a composition root can display it once.
     pub fn expose_once(self) -> String {
         self.0
@@ -88,7 +101,7 @@ impl fmt::Debug for ServerToken {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) struct TokenDigest([u8; 32]);
 
 impl TokenDigest {
@@ -146,6 +159,15 @@ pub enum CredentialKind {
     Device,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PairedDeviceRecord {
+    pub device_id: DeviceId,
+    pub device_name: String,
+    pub scopes: Vec<String>,
+    pub created_at: String,
+    pub preset: Option<DevicePermissionPreset>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthenticatedCredential {
     pub credential_id: String,
@@ -156,6 +178,20 @@ pub struct AuthenticatedCredential {
 }
 
 impl AuthenticatedCredential {
+    /// The Host console owner. It can issue any pairing preset; it is not a device.
+    pub fn host_console_owner() -> Self {
+        Self {
+            credential_id: "local-host-owner".to_owned(),
+            kind: CredentialKind::Server,
+            subject: "server-owner".to_owned(),
+            device_id: None,
+            scopes: ADMIN_SCOPES
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect(),
+        }
+    }
+
     pub fn principal(&self) -> Principal {
         Principal::remote_credential(
             self.subject.clone(),
@@ -177,6 +213,9 @@ impl AuthenticatedCredential {
     pub fn grants_capability(&self, capability: &str) -> bool {
         let required_scope = match capability {
             "preview.proxy" => "artifact.preview",
+            "file.read" | "file.write" | "git.read" | "git.write" | "terminal"
+            | "workspace.read" | "workspace.write" | "project.write" | "session.write"
+            | "agent.read" | "agent.write" => "application.call",
             scope => scope,
         };
         self.allows(required_scope)
@@ -246,6 +285,11 @@ pub trait ServerAuth: Send + Sync {
         actor: &AuthenticatedCredential,
         device_id: DeviceId,
     ) -> Result<RevokeDeviceResponse, AuthStoreError>;
+
+    async fn list_devices(
+        &self,
+        actor: &AuthenticatedCredential,
+    ) -> Result<Vec<PairedDeviceRecord>, AuthStoreError>;
 }
 
 pub(crate) struct StaticServerAuth {
@@ -311,6 +355,13 @@ impl ServerAuth for StaticServerAuth {
         _actor: &AuthenticatedCredential,
         _device_id: DeviceId,
     ) -> Result<RevokeDeviceResponse, AuthStoreError> {
+        Err(AuthStoreError::PairingUnavailable)
+    }
+
+    async fn list_devices(
+        &self,
+        _actor: &AuthenticatedCredential,
+    ) -> Result<Vec<PairedDeviceRecord>, AuthStoreError> {
         Err(AuthStoreError::PairingUnavailable)
     }
 }
@@ -425,12 +476,13 @@ impl ServerAuth for SqliteServerAuth {
         if !creator.allows("device.pair") {
             return Err(AuthStoreError::Forbidden);
         }
+        let ttl_seconds = resolve_pairing_ttl(request.ttl_seconds, self.pairing_ttl_seconds);
         let scopes = resolve_pairing_scopes(&creator.scopes, request)?;
         let pairing_id = PairingId::new();
         let pairing_token = remote_protocol::issue_connection_code();
         let digest = TokenDigest::from_secret(&pairing_token);
         let created_at = self.now();
-        let expires_at = created_at.saturating_add(self.pairing_ttl_seconds);
+        let expires_at = created_at.saturating_add(ttl_seconds);
         let mut transaction = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO server_pairing_challenges
@@ -609,6 +661,42 @@ impl ServerAuth for SqliteServerAuth {
             revoked: true,
         })
     }
+
+    async fn list_devices(
+        &self,
+        actor: &AuthenticatedCredential,
+    ) -> Result<Vec<PairedDeviceRecord>, AuthStoreError> {
+        if !actor.allows("device.pair") && !actor.allows("device.revoke") {
+            return Err(AuthStoreError::Forbidden);
+        }
+        let rows = sqlx::query(
+            "SELECT id, device_name, scopes_json, created_at_unix
+             FROM server_device_credentials
+             WHERE revoked_at_unix IS NULL
+             ORDER BY created_at_unix DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut devices = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: String = row.try_get("id")?;
+            let device_id = id
+                .parse()
+                .map_err(|error| sqlx::Error::Protocol(format!("invalid device id: {error}")))?;
+            let scopes: Vec<String> =
+                serde_json::from_str(row.try_get("scopes_json")?).map_err(|error| {
+                    sqlx::Error::Protocol(format!("invalid device scopes: {error}"))
+                })?;
+            devices.push(PairedDeviceRecord {
+                device_id,
+                device_name: row.try_get("device_name")?,
+                created_at: unix_timestamp(row.try_get("created_at_unix")?),
+                preset: infer_preset(&scopes),
+                scopes,
+            });
+        }
+        Ok(devices)
+    }
 }
 
 fn resolve_pairing_scopes(
@@ -665,4 +753,167 @@ fn unix_timestamp(seconds: i64) -> String {
     DateTime::<Utc>::from_timestamp(seconds, 0)
         .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
         .to_rfc3339()
+}
+
+fn infer_preset(scopes: &[String]) -> Option<DevicePermissionPreset> {
+    let set = scopes.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    for preset in [
+        DevicePermissionPreset::Companion,
+        DevicePermissionPreset::Workstation,
+    ] {
+        let expected = preset.scopes().iter().copied().collect::<BTreeSet<_>>();
+        if set == expected {
+            return Some(preset);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod host_console_pairing_tests {
+    use std::str::FromStr;
+
+    use chrono::{DateTime, Utc};
+    use remote_protocol::{CreatePairingRequest, DevicePermissionPreset, RedeemPairingRequest};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::{
+        AuthStoreError, AuthenticatedCredential, CredentialKind, ServerAuth, SqliteServerAuth,
+    };
+
+    async fn auth() -> SqliteServerAuth {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::from_str("sqlite::memory:")
+                    .expect("sqlite options")
+                    .foreign_keys(false),
+            )
+            .await
+            .expect("memory database");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+        SqliteServerAuth::new(pool)
+    }
+
+    #[tokio::test]
+    async fn host_console_owner_can_issue_companion_and_workstation_pairings() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        for preset in [
+            DevicePermissionPreset::Companion,
+            DevicePermissionPreset::Workstation,
+        ] {
+            let challenge = auth
+                .create_pairing(
+                    &owner,
+                    CreatePairingRequest {
+                        preset: Some(preset),
+                        requested_scopes: Vec::new(),
+                        ttl_seconds: None,
+                    },
+                )
+                .await
+                .expect("host console owner can issue pairing");
+            assert_eq!(challenge.requested_scopes.len(), preset.scopes().len());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_device_pair_only_identity_cannot_issue_a_workstation_preset() {
+        let auth = auth().await;
+        let limited = AuthenticatedCredential {
+            credential_id: "local-host-owner".to_owned(),
+            kind: CredentialKind::Server,
+            subject: "server-owner".to_owned(),
+            device_id: None,
+            scopes: ["device.pair".to_owned()].into_iter().collect(),
+        };
+        let result = auth
+            .create_pairing(
+                &limited,
+                CreatePairingRequest {
+                    preset: Some(DevicePermissionPreset::Workstation),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: None,
+                },
+            )
+            .await;
+        assert!(matches!(result, Err(AuthStoreError::InvalidScope)));
+    }
+
+    #[tokio::test]
+    async fn host_console_lists_and_revokes_paired_devices() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        assert!(
+            auth.list_devices(&owner)
+                .await
+                .expect("list empty")
+                .is_empty()
+        );
+
+        let challenge = auth
+            .create_pairing(
+                &owner,
+                CreatePairingRequest {
+                    preset: Some(DevicePermissionPreset::Companion),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: None,
+                },
+            )
+            .await
+            .expect("issue pairing");
+        let credential = auth
+            .redeem_pairing(RedeemPairingRequest {
+                pairing_token: challenge.pairing_token,
+                device_name: "Pixel 9".to_owned(),
+            })
+            .await
+            .expect("redeem pairing");
+
+        let devices = auth.list_devices(&owner).await.expect("list paired");
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, credential.device_id);
+        assert_eq!(devices[0].device_name, "Pixel 9");
+        assert_eq!(devices[0].preset, Some(DevicePermissionPreset::Companion));
+
+        auth.revoke_device(&owner, credential.device_id)
+            .await
+            .expect("revoke");
+        assert!(
+            auth.list_devices(&owner)
+                .await
+                .expect("list after revoke")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn pairing_ttl_honors_an_allowed_choice() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        let before = Utc::now().timestamp();
+        let challenge = auth
+            .create_pairing(
+                &owner,
+                CreatePairingRequest {
+                    preset: Some(DevicePermissionPreset::Companion),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: Some(900),
+                },
+            )
+            .await
+            .expect("issue pairing");
+        let expires = DateTime::parse_from_rfc3339(&challenge.expires_at)
+            .expect("expires_at")
+            .timestamp();
+        let elapsed = expires - before;
+        assert!(
+            (890..=910).contains(&elapsed),
+            "expected ~900s ttl, got {elapsed}"
+        );
+    }
 }

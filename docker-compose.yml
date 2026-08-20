@@ -6,12 +6,15 @@ services:
         HOST_FAMILY: dist/host-family
     # image: ghcr.io/vibex/vibex-server:latest
     ports:
-      - "127.0.0.1:3080:3080"
+      - "127.0.0.1:17891:17891"
     volumes:
       - vibex-data:/data
     environment:
-      VIBEX_SERVER_LISTEN: 127.0.0.1:3080
-      # Set to 0.0.0.0:3080 and VIBEX_SERVER_ALLOW_LAN=1 only behind TLS.
+      # Bind all container interfaces so Docker port publishing can reach the
+      # process. Host publish stays loopback; set VIBEX_SERVER_ALLOW_LAN=1 on a
+      # real host NIC only behind TLS.
+      VIBEX_SERVER_LISTEN: 0.0.0.0:17891
+      VIBEX_SERVER_ALLOW_LAN: "1"
       VIBEX_STATIC_ROOT: /app/web
       VIBEX_DATA_DIR: /data
     restart: unless-stopped

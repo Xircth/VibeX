@@ -416,6 +416,7 @@ async fn authenticated_call_creates_a_conversation_through_application_core() {
     .expect("command response");
     assert_eq!(response.data["title"], "Created through HTTP");
     assert_eq!(response.data["workspace_id"], workspace_id.to_string());
+    assert_eq!(response.data["agent_id"], "codex");
 }
 
 #[tokio::test]

@@ -29,7 +29,7 @@ use crate::{PreviewProxyRegistry, automation_runtime::HeadlessAutomationRuntime}
 
 #[derive(Clone)]
 pub struct ServerApplicationDomains {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
     plugin_control_plane: Arc<plugins::PluginControlPlane>,
     preview_host: Arc<dyn plugins::PluginPreviewHost>,
     capability_broker: Arc<plugins::HostCapabilityBroker>,
@@ -38,7 +38,7 @@ pub struct ServerApplicationDomains {
     automation: HeadlessAutomationRuntime,
     owns_automation_engine: bool,
     conversations: ConversationContext,
-    deployment: Arc<LocalDeployment>,
+    pub(crate) deployment: Arc<LocalDeployment>,
     runtime_root: std::path::PathBuf,
     worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
 }
@@ -115,6 +115,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginControlInstallRuntime => {
                 self.plugin_control_install_runtime(args).await
             }
+            DomainCommand::PluginControlImport => self.plugin_control_import(args).await,
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
             DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
@@ -145,6 +146,7 @@ impl ServerApplicationDomains {
             DomainCommand::AutomationUnseenFailures => self.automation_unseen_failures().await,
             DomainCommand::AutomationMarkSeen => self.automation_mark_seen().await,
             DomainCommand::DelegationCancel => self.delegation_cancel(args).await,
+            other => self.host_ops(other, args).await,
         }
     }
 
@@ -255,6 +257,11 @@ impl ServerApplicationDomains {
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
         plugin.write_config(args.config).map_err(internal_error)?;
+        self.plugin_control_plane()
+            .await?
+            .sync_official_product_mcp_gate()
+            .await
+            .map_err(internal_error)?;
         let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
             .map_err(internal_error)?;
         serialize(refreshed.product_detail().map_err(internal_error)?)
@@ -407,6 +414,41 @@ impl ServerApplicationDomains {
             .await
             .map_err(plugin_error)?;
         Ok(installation)
+    }
+
+    async fn plugin_control_import(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        struct PluginImportArgs {
+            path: String,
+            #[serde(default)]
+            conflict: Option<String>,
+        }
+        let args: PluginImportArgs = parse(args)?;
+        let source = std::path::PathBuf::from(&args.path);
+        if !source.exists() {
+            return Err(ApplicationError::not_found(format!(
+                "plugin path {}",
+                args.path
+            )));
+        }
+        let decision = match args.conflict.as_deref() {
+            Some("keep") => plugins::ConflictDecision::KeepInstalled,
+            Some("replace") => plugins::ConflictDecision::Replace,
+            _ => plugins::ConflictDecision::Reject,
+        };
+        let storage = self.runtime_root.join("plugins/snapshots");
+        let package = plugins::PluginPackage::materialize(
+            &source,
+            &storage,
+            plugins::PluginSourceKind::Snapshot,
+        )
+        .map_err(plugin_error)?;
+        let imported = self
+            .plugin_control_plane
+            .import(package, decision)
+            .await
+            .map_err(plugin_error)?;
+        Ok(plugin_control_item(&imported.plugin))
     }
 
     async fn plugin_surface_open(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1434,15 +1476,15 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
     }
 }
 
-fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {
+pub(crate) fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {
     serde_json::from_value(value).map_err(|error| ApplicationError::bad_request(error.to_string()))
 }
 
-fn serialize(value: impl Serialize) -> Result<Value, ApplicationError> {
+pub(crate) fn serialize(value: impl Serialize) -> Result<Value, ApplicationError> {
     serde_json::to_value(value).map_err(internal_error)
 }
 
-fn internal_error(error: impl std::fmt::Display) -> ApplicationError {
+pub(crate) fn internal_error(error: impl std::fmt::Display) -> ApplicationError {
     ApplicationError::internal(error.to_string())
 }
 

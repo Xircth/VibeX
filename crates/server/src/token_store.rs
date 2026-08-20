@@ -29,6 +29,16 @@ impl SqliteTokenHashStore {
     ) -> Result<ProvisionedToken, sqlx::Error> {
         if let Some(token) = supplied {
             let credentials = ServerCredentials::from_token(&token);
+            if self
+                .active_credentials()
+                .await?
+                .is_some_and(|active| active.token_digest == credentials.token_digest)
+            {
+                return Ok(ProvisionedToken {
+                    credentials,
+                    issued_token: None,
+                });
+            }
             self.rotate(&credentials).await?;
             return Ok(ProvisionedToken {
                 credentials,

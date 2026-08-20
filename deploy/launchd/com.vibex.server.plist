@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vibex.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/vibex-server</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>VIBEX_DATA_DIR</key>
+    <string>/usr/local/var/vibex</string>
+    <key>VIBEX_STATIC_ROOT</key>
+    <string>/usr/local/share/vibex/web</string>
+    <key>VIBEX_SERVER_LISTEN</key>
+    <string>127.0.0.1:17891</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/usr/local/var/log/vibex-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/usr/local/var/log/vibex-server.err</string>
+</dict>
+</plist>

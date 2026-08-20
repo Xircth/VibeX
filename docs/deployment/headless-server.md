@@ -6,13 +6,14 @@ services, and Automation Engine used by desktop VibeX. It does not load Tauri.
 
 ## Distribution status
 
-P0 ships a Host family directory: `vibex-server`, sibling `vibex-mcp`, production
-`web/`, and `plugins/bundled/`. Assemble it with:
+P0 ships a Host family directory: `vibex-server`, sibling `vibex-mcp`,
+`vibex-workflow-mcp`, production `web/`, and `plugins/bundled/`. Assemble it with:
 
 ```bash
 node scripts/package-host-family.js \
   --server target/release/vibex-server \
   --mcp target/release/vibex-mcp \
+  --workflow-mcp target/release/vibex-workflow-mcp \
   --web frontend/dist \
   --plugins assets/plugins \
   --output dist/host-family
@@ -23,12 +24,39 @@ Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
 present.
 
 `npx vibex` downloads
-`vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz`
+`vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64,windows-arm64}.tar.gz`
 from the matching GitHub Release, verifies the sidecar `.sha256` and the inner
 `SHA256SUMS`, then runs `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
 
-Docker defaults to loopback. Compose publishes `127.0.0.1:3080`. LAN or public
-bind requires `VIBEX_SERVER_ALLOW_LAN=1` and an external TLS proxy.
+Start the Web UI on the LAN and print the long-lived host token:
+
+```bash
+npx vibex serve
+```
+
+`serve` (alias `web`) is the opt-in. It binds `0.0.0.0:17891`, lists reachable
+HTTP origins, and prints the host token. Loopback-only Web UI is
+`npx vibex serve --local`. Replace the token with `npx vibex serve --rotate-token`.
+The token is stored as `host.token` in the data directory (mode `0600` on Unix)
+so later `serve` runs print the same value. SQLite still stores only the hash.
+
+Plain `npx vibex` stays on loopback. Docker Compose still publishes
+`127.0.0.1:17891`. Public exposure still needs an external TLS proxy.
+
+Install Agent Runtime and ACP into the Host machine's user environment
+without starting the HTTP server:
+
+```bash
+npx vibex list
+npx vibex list --refresh
+npx vibex install claude_code --yes
+```
+
+`list` groups Built-in Agents above other ACP Registry entries. `install`
+writes `npm` / `uv` / Binary packages into the user environment, then binds
+the Installation lock used by later `serve` sessions. Pass `--yes` to skip
+the confirmation prompt. The remote control command `npx vibex agent list`
+still talks to a running Host and is not this installer.
 
 In-place upgrade: verify `SHA256SUMS`, snapshot the data directory, then replace
 `vibex-server`, `vibex-mcp`, and `web/`. See `server::apply_host_upgrade`.
@@ -69,15 +97,15 @@ not appear in process output.
 | Variable | Default | Policy |
 |---|---|---|
 | `VIBEX_DATA_DIR` | platform VibeX data directory | One desktop/Server owner at a time runs Automation for this directory. |
-| `VIBEX_SERVER_LISTEN` | `127.0.0.1:3080` | Non-loopback is rejected unless LAN exposure is acknowledged. |
+| `VIBEX_SERVER_LISTEN` | `127.0.0.1:17891` | Non-loopback is rejected unless LAN exposure is acknowledged. |
 | `VIBEX_SERVER_ALLOW_LAN` | unset | Set to `1` only with an external TLS/auth boundary and reviewed network policy. |
 | `VIBEX_SERVER_TOKEN` | generated once | Prefer generated credentials. Supplied values must be at least 32 bytes with at least 12 distinct byte values; use a secret manager, never a URL or command argument. |
 | `VIBEX_STATIC_ROOT` | unset | Point to the production `frontend/dist` tree. |
 | `VIBEX_SERVER_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins; same-origin requests need no entry. |
 
-Tokens are persisted only as SHA-256 digests. If the Server generates the first
-token, stdout shows it exactly once; capture it as a secret, then remove the
-bootstrap output. Routine logs do not contain it.
+SQLite stores only the SHA-256 digest. `serve` also writes `host.token` in the
+data directory so the same long-lived token can be printed again. Routine logs
+do not contain it.
 
 ## Network boundary
 

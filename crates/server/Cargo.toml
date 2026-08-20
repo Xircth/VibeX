@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { workspace = true }
 application = { path = "../application" }
 agents = { path = "../agents" }
+api-types = { path = "../api-types" }
 artifacts = { path = "../artifacts" }
 async-trait = { workspace = true }
 automation = { path = "../automation" }
@@ -15,11 +16,12 @@ base64 = "0.22"
 chrono = { workspace = true }
 conversations = { path = "../conversations" }
 db = { path = "../db" }
+dirs = { workspace = true }
 delegation = { path = "../delegation" }
 delegation-proto = { path = "../delegation-proto" }
 deployment = { path = "../deployment" }
-dirs = { workspace = true }
 futures = { workspace = true }
+git = { path = "../git" }
 local-deployment = { path = "../local-deployment" }
 prost = "0.13"
 plugins = { path = "../plugins" }
@@ -39,6 +41,7 @@ thiserror = { workspace = true }
 tool-runtime = { path = "../tool-runtime" }
 uuid = { workspace = true }
 utils = { path = "../utils" }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 futures = { workspace = true }

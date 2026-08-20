@@ -48,11 +48,29 @@ async fn headless_bootstrap_uses_loopback_and_reuses_the_persisted_hash() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
+    let capabilities: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("capabilities body"),
+    )
+    .expect("capabilities json");
+    let host_id = capabilities["host_id"]
+        .as_str()
+        .expect("host identity")
+        .to_string();
+    assert!(
+        !host_id.is_empty(),
+        "headless Host must persist an identity"
+    );
+    assert_eq!(
+        host_id,
+        utils::assets::load_or_create_host_id(data_dir.path()).expect("reload identity")
+    );
 }
 
 #[test]
 fn non_loopback_listen_requires_explicit_opt_in() {
-    let lan: SocketAddr = "0.0.0.0:3080".parse().expect("address");
+    let lan: SocketAddr = "0.0.0.0:17891".parse().expect("address");
     assert!(
         ServerConfig::default()
             .with_listen_addr(lan, false)
@@ -149,7 +167,7 @@ async fn owner_runs_the_scheduler_instead_of_only_holding_the_lock() {
                     },
                     mode_id: None,
                     config_values: Vec::new(),
-                    workflow_refs: Vec::new(),
+                    plugin_actions: Vec::new(),
                     skills: Vec::new(),
                     workspace: WorkspaceTarget {
                         project_id: Uuid::new_v4(),

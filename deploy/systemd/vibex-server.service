@@ -1,0 +1,23 @@
+[Unit]
+Description=VibeX headless Host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vibex
+Group=vibex
+Environment=VIBEX_DATA_DIR=/var/lib/vibex
+Environment=VIBEX_STATIC_ROOT=/usr/lib/vibex/web
+Environment=VIBEX_SERVER_LISTEN=127.0.0.1:17891
+ExecStart=/usr/bin/vibex-server
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vibex
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

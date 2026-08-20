@@ -76,7 +76,7 @@ impl ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3080),
+            listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 17891),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             minimum_client_version: "0.1.0".to_string(),
             allowed_origins: BTreeSet::new(),

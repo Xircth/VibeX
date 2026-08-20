@@ -97,6 +97,7 @@ async fn expired_pairing_returns_a_stable_reason() {
                     serde_json::to_vec(&CreatePairingRequest {
                         preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
+                        ttl_seconds: None,
                     })
                     .expect("pairing request"),
                 ))
@@ -152,6 +153,7 @@ async fn revoking_a_device_invalidates_http_and_an_existing_websocket() {
                             "notification.summary".to_owned(),
                             "offline.read".to_owned(),
                         ],
+                        ttl_seconds: None,
                     })
                     .expect("pairing request"),
                 ))
@@ -298,6 +300,7 @@ async fn pairing_token_can_be_redeemed_exactly_once() {
                     serde_json::to_vec(&CreatePairingRequest {
                         preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
+                        ttl_seconds: None,
                     })
                     .expect("pairing request"),
                 ))
@@ -387,6 +390,7 @@ async fn concurrent_pairing_redemption_has_one_winner() {
                     serde_json::to_vec(&CreatePairingRequest {
                         preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
+                        ttl_seconds: None,
                     })
                     .expect("pairing request"),
                 ))
@@ -445,6 +449,7 @@ async fn companion_preset_expands_to_the_companion_scope_set() {
                     serde_json::to_vec(&CreatePairingRequest {
                         preset: Some(DevicePermissionPreset::Companion),
                         requested_scopes: Vec::new(),
+                        ttl_seconds: None,
                     })
                     .expect("pairing request"),
                 ))

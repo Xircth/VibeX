@@ -86,9 +86,6 @@ vi.mock('@/pages/settings/AutomationEditorRoutes', () => ({
 vi.mock('@/pages/settings/ChatChannelSettings', () => ({
   ChatChannelSettings: () => <div data-testid="settings-chat-channels" />,
 }));
-vi.mock('@/pages/settings/DeviceSettings', () => ({
-  DeviceSettings: () => <div data-testid="settings-devices" />,
-}));
 vi.mock('@/pages/settings/EditorSettings', () => ({
   EditorSettings: () => <div data-testid="settings-editor" />,
 }));
@@ -193,6 +190,15 @@ describe('MainAppRoutes', () => {
     expect(await screen.findByTestId('settings-agents')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('redirects the standalone devices page to remote connection', async () => {
+    renderAt('/settings/devices');
+
+    expect(
+      await screen.findByTestId('settings-web-service')
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-devices')).not.toBeInTheDocument();
   });
 
   it('keeps the product plugin module inside the settings layout', async () => {

@@ -188,6 +188,26 @@ describe('AgentSettings', () => {
     });
   });
 
+  it('shows the Agent page skeleton while the management bar is loading', () => {
+    api.bar.mockReturnValue(new Promise(() => undefined));
+
+    render(<AgentSettings />);
+
+    const status = screen.getByRole('status', {
+      name: /正在读取 Agent|Loading Agent/,
+    });
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(
+      status.querySelectorAll('.agent-settings-loading-mark')
+    ).toHaveLength(7);
+    expect(
+      status.querySelectorAll('.agent-settings-loading-rows li')
+    ).toHaveLength(5);
+    expect(
+      screen.queryByRole('button', { name: 'Codex' })
+    ).not.toBeInTheDocument();
+  });
+
   it('renders the management projection as the only Agent settings source', async () => {
     render(<AgentSettings />);
     expect(await screen.findByRole('button', { name: 'Codex' })).toBeVisible();

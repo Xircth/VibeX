@@ -24,6 +24,7 @@ import { fileSystemApi } from '@/lib/api';
 import { DirectoryEntry, DirectoryListResponse } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
+import { parentDirectory } from '@/utils/string';
 
 export interface FolderPickerDialogProps {
   value?: string;
@@ -100,8 +101,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
     };
 
     const handleParentDirectory = () => {
-      const parentPath = currentPath.split('/').slice(0, -1).join('/');
-      const newPath = parentPath || '/';
+      const newPath = parentDirectory(currentPath);
       loadDirectory(newPath);
       setManualPath(newPath);
     };

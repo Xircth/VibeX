@@ -311,7 +311,7 @@ export function ShortcutSettings() {
                 <div className="text-sm font-medium">
                   {t('shortcuts.sendLabel')}
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {selectedShortcutHelper}
                 </p>
               </div>
@@ -343,7 +343,7 @@ export function ShortcutSettings() {
                 <Keyboard className="h-4 w-4 text-muted-foreground" />
                 {t('shortcuts.sectionTitle')}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
                 {t('shortcuts.sectionDescription')}
               </p>
             </div>
@@ -393,7 +393,7 @@ export function ShortcutSettings() {
               <Keyboard className="h-4 w-4 text-muted-foreground" />
               {t('shortcuts.sequentialTitle')}
             </h3>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
               {t('shortcuts.sequentialDescription')}
             </p>
           </div>
@@ -419,7 +419,7 @@ export function ShortcutSettings() {
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('shortcuts.readOnlyNote')}
           </p>
         </section>

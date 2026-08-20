@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationStatus } from '@/contexts/ConversationStatusContext';
-import { useTodos } from '@/hooks/useTodos';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';

@@ -93,9 +93,7 @@ export function GeneralSettings() {
   );
 
   const [importOpen, setImportOpen] = useState(false);
-  const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>(
-    []
-  );
+  const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>([]);
   const [sessionControls, setSessionControls] =
     useState<AgentSessionControlsSnapshot | null>(null);
   const [sessionControlsLoading, setSessionControlsLoading] = useState(false);
@@ -121,15 +119,11 @@ export function GeneralSettings() {
       .bar()
       .then((rows) => {
         if (!active) return;
-        setEnabledAgents(
-          rows.filter((row) => row.enabled && !row.retired)
-        );
+        setEnabledAgents(rows.filter((row) => row.enabled && !row.retired));
       })
       .catch((error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : t('general.agentsLoadFailed')
+          error instanceof Error ? error.message : t('general.agentsLoadFailed')
         );
       });
     return () => {
@@ -282,87 +276,83 @@ export function GeneralSettings() {
           description={t('general.promptEnhancementDescription')}
         >
           <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-4">
-                <Label
-                  htmlFor="prompt-enhancement-enabled"
-                  className="cursor-pointer text-xs"
-                >
-                  {t('general.enablePromptEnhancement')}
-                </Label>
-                <Switch
-                  id="prompt-enhancement-enabled"
-                  className="settings-switch"
-                  checked={draft.prompt_enhancement_enabled ?? false}
-                  onCheckedChange={(checked: boolean) =>
-                    updateDraft({ prompt_enhancement_enabled: checked })
-                  }
-                />
-              </div>
+            <div className="settings-row">
+              <Label
+                htmlFor="prompt-enhancement-enabled"
+                className="cursor-pointer"
+              >
+                {t('general.enablePromptEnhancement')}
+              </Label>
+              <Switch
+                id="prompt-enhancement-enabled"
+                className="settings-switch"
+                checked={draft.prompt_enhancement_enabled ?? false}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ prompt_enhancement_enabled: checked })
+                }
+              />
             </div>
 
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-4">
-                <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {t('general.promptEnhancementAgent')}
-                </Label>
-                <div className="flex items-center justify-end gap-2">
-                  <Select
-                    value={selectedEnhancementAgentId || undefined}
-                    onValueChange={(value: string) =>
-                      updateDraft({
-                        prompt_enhancement_agent_id: value,
-                        prompt_enhancement_mode: null,
-                        prompt_enhancement_session_config: {},
-                      })
-                    }
-                    disabled={enabledAgents.length === 0}
+            <div className="settings-row">
+              <Label className="shrink-0">
+                {t('general.promptEnhancementAgent')}
+              </Label>
+              <div className="flex items-center justify-end gap-2">
+                <Select
+                  value={selectedEnhancementAgentId || undefined}
+                  onValueChange={(value: string) =>
+                    updateDraft({
+                      prompt_enhancement_agent_id: value,
+                      prompt_enhancement_mode: null,
+                      prompt_enhancement_session_config: {},
+                    })
+                  }
+                  disabled={enabledAgents.length === 0}
+                >
+                  <SelectTrigger
+                    className="!w-72"
+                    aria-label={t('general.promptEnhancementAgent')}
                   >
-                    <SelectTrigger
-                      className="!w-72"
-                      aria-label={t('general.promptEnhancementAgent')}
-                    >
-                      <SelectValue
-                        placeholder={t('general.selectAgentPlaceholder')}
-                      />
-                    </SelectTrigger>
-                    <SelectContent align="start" className="max-h-72">
-                      {enabledAgents.map((agent) => (
-                        <SelectItem
-                          key={agent.agent_id}
-                          value={agent.agent_id}
-                          textValue={agent.display_name}
-                        >
-                          <span className="truncate">{agent.display_name}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() =>
-                      selectedEnhancementAgentId
-                        ? void loadSessionControls(
-                            selectedEnhancementAgentId,
-                            true
-                          )
-                        : undefined
-                    }
-                    disabled={
-                      !selectedEnhancementAgentId || sessionControlsLoading
-                    }
-                    title={t('general.refreshSessionControls')}
-                    aria-label={t('general.refreshSessionControls')}
-                  >
-                    <RefreshCw
-                      className={`h-3.5 w-3.5 ${
-                        sessionControlsLoading ? 'animate-spin' : ''
-                      }`}
+                    <SelectValue
+                      placeholder={t('general.selectAgentPlaceholder')}
                     />
-                  </Button>
-                </div>
+                  </SelectTrigger>
+                  <SelectContent align="start" className="max-h-72">
+                    {enabledAgents.map((agent) => (
+                      <SelectItem
+                        key={agent.agent_id}
+                        value={agent.agent_id}
+                        textValue={agent.display_name}
+                      >
+                        <span className="truncate">{agent.display_name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() =>
+                    selectedEnhancementAgentId
+                      ? void loadSessionControls(
+                          selectedEnhancementAgentId,
+                          true
+                        )
+                      : undefined
+                  }
+                  disabled={
+                    !selectedEnhancementAgentId || sessionControlsLoading
+                  }
+                  title={t('general.refreshSessionControls')}
+                  aria-label={t('general.refreshSessionControls')}
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${
+                      sessionControlsLoading ? 'animate-spin' : ''
+                    }`}
+                  />
+                </Button>
               </div>
             </div>
 
@@ -393,10 +383,10 @@ export function GeneralSettings() {
             ) : null}
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-4">
+              <div className="settings-row">
                 <Label
                   htmlFor="use-custom-pe-prompt"
-                  className="cursor-pointer text-xs"
+                  className="cursor-pointer"
                 >
                   {t('general.useCustomPrompt')}
                 </Label>
@@ -425,13 +415,13 @@ export function GeneralSettings() {
                   })
                 }
                 placeholder={t('general.customPromptPlaceholder')}
-                className={`min-h-32 font-mono text-xs ${
+                className={`min-h-32 font-mono text-sm ${
                   draft.prompt_enhancement_prompt == null
                     ? 'cursor-not-allowed opacity-50'
                     : ''
                 }`}
               />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="settings-row__description">
                 {t('general.customPromptHint')}
               </p>
             </div>
@@ -477,7 +467,6 @@ export function GeneralSettings() {
             <Button
               type="button"
               variant="outline"
-              size="sm"
               onClick={() => setImportOpen(true)}
             >
               {t('general.importLocalSessionsAction')}
@@ -491,8 +480,8 @@ export function GeneralSettings() {
           description={t('general.notificationsDescription')}
         >
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="sound-enabled" className="cursor-pointer text-xs">
+            <div className="settings-row">
+              <Label htmlFor="sound-enabled" className="cursor-pointer">
                 {t('general.soundNotification')}
               </Label>
               <Switch
@@ -511,10 +500,8 @@ export function GeneralSettings() {
             </div>
 
             {draft.notifications.sound_enabled ? (
-              <div className="flex items-center justify-between gap-4">
-                <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {t('general.sound')}
-                </Label>
+              <div className="settings-row">
+                <Label className="shrink-0">{t('general.sound')}</Label>
                 <div className="flex items-center justify-end gap-2">
                   <Select
                     value={draft.notifications.sound_file}
@@ -550,11 +537,8 @@ export function GeneralSettings() {
               </div>
             ) : null}
 
-            <div className="flex items-center justify-between gap-4">
-              <Label
-                htmlFor="push-notifications"
-                className="cursor-pointer text-xs"
-              >
+            <div className="settings-row">
+              <Label htmlFor="push-notifications" className="cursor-pointer">
                 {t('general.pushNotification')}
               </Label>
               <Switch
@@ -572,10 +556,8 @@ export function GeneralSettings() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                {t('general.notifyWhen')}
-              </Label>
+            <div className="settings-row">
+              <Label className="shrink-0">{t('general.notifyWhen')}</Label>
               <Select
                 value={draft.notifications.notify_when ?? 'unfocused'}
                 onValueChange={(value: NotificationWhen) =>
@@ -612,13 +594,18 @@ export function GeneralSettings() {
           description={t('general.crashReportsDescription')}
         >
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <Label
-                htmlFor="crash-reports-enabled"
-                className="cursor-pointer text-xs"
-              >
-                {t('general.crashReportsToggle')}
-              </Label>
+            <div className="settings-row">
+              <div>
+                <Label
+                  htmlFor="crash-reports-enabled"
+                  className="cursor-pointer"
+                >
+                  {t('general.crashReportsToggle')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.crashReportsPrivacy')}
+                </p>
+              </div>
               <Switch
                 id="crash-reports-enabled"
                 className="settings-switch"
@@ -628,9 +615,6 @@ export function GeneralSettings() {
                 }
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t('general.crashReportsPrivacy')}
-            </p>
           </div>
         </SettingsSection>
 
@@ -661,7 +645,7 @@ export function GeneralSettings() {
                   }
                   className="w-24"
                 />
-                <span className="text-xs text-muted-foreground">px</span>
+                <span className="text-sm text-muted-foreground">px</span>
               </div>
             </div>
 

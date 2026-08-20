@@ -238,7 +238,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     const user = userEvent.setup();
     renderSettings();
 
-    expect(screen.getByText('本地会话')).toBeInTheDocument();
+    expect(screen.getByText('本地对话')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '导入' }));
     expect(screen.getByText('import-dialog')).toBeInTheDocument();
   });

@@ -67,6 +67,7 @@ import {
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
+import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
 import { formatFileRangeRef } from '@/utils/codeSelection';
 import {
@@ -95,6 +96,7 @@ import {
   type SessionComposerStructuredTokenKind,
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
+import { composerBareEnterInsertsNewline } from './sessionComposerSubmitHotkey';
 
 export type SessionComposerImage = {
   id: string;
@@ -740,6 +742,8 @@ export function SessionComposerInput({
   onAttachImages,
 }: SessionComposerInputProps) {
   const { t } = useTranslation('tasks');
+  const sendShortcut =
+    useOptionalUserSystem()?.config?.send_message_shortcut ?? 'Enter';
   const {
     workspaceId,
     workspacePath,
@@ -1278,6 +1282,19 @@ export function SessionComposerInput({
           pasteAsToken={false}
           triggers={triggers}
           handleRef={composerHandleRef}
+          onKeyDown={(event) => {
+            if (
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            ) {
+              return;
+            }
+            if (!composerBareEnterInsertsNewline(sendShortcut, event)) {
+              return;
+            }
+            event.preventDefault();
+            composerHandleRef.current?.insertText('\n');
+          }}
           onSubmit={onSubmit}
           onFiles={onAttachImages}
           onDrop={handleDrop}

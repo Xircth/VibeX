@@ -1,4 +1,4 @@
-import { Loader2, Puzzle, RefreshCw } from 'lucide-react';
+import { Puzzle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -26,6 +26,7 @@ import {
 } from '@/features/agent-management';
 
 import { AgentBar } from './AgentBar';
+import { AgentSettingsLoading } from './AgentSettingsLoading';
 import {
   AgentConfigPathMeta,
   AgentConfigurationAndDiagnostics,
@@ -719,16 +720,7 @@ export function AgentSettings() {
   }, [selectedAgentId]);
 
   if (management.loading && management.state.agents.length === 0) {
-    return (
-      <div className="space-y-4" aria-label={t('settings:agents.loadingAgent')}>
-        <div className="agent-management-bar animate-pulse">
-          <span aria-hidden="true" className="agent-management-bar-surface" />
-        </div>
-        <div className="settings-surface flex min-h-40 items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      </div>
-    );
+    return <AgentSettingsLoading />;
   }
 
   return (

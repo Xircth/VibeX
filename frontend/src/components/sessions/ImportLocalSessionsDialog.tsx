@@ -196,7 +196,9 @@ export function ImportLocalSessionsDialog({
   };
 
   const busy = phase === 'importing';
-  const allImportableKeys = filteredFolders.flatMap(folderImportableKeys);
+  const allImportableKeys = filteredFolders.flatMap((folder) =>
+    workspaceForFolder(folder) ? folderImportableKeys(folder) : []
+  );
 
   return (
     <Dialog
@@ -205,7 +207,7 @@ export function ImportLocalSessionsDialog({
       uncloseable={busy}
       className="max-w-3xl gap-0 overflow-hidden p-0"
     >
-      <DialogHeader className="border-b border-border/60 px-5 py-4 pr-12">
+      <DialogHeader className="px-5 pb-2 pt-4 pr-12">
         <DialogTitle className="flex items-center gap-2">
           <History className="h-4 w-4 text-muted-foreground" />
           {t('importSessions.title')}
@@ -275,7 +277,7 @@ export function ImportLocalSessionsDialog({
         phase === 'ready' ||
         phase === 'importing' ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
-            <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
               <Select
                 value={selectedAgentId}
                 onValueChange={(agentId) => {
@@ -341,7 +343,7 @@ export function ImportLocalSessionsDialog({
               </Button>
             </div>
 
-            <div className="min-h-0 flex-1 bg-[var(--surface-control)]">
+            <div className="min-h-0 flex-1">
               {phase === 'idle' ? (
                 <EmptyState title={t('importSessions.chooseAgent')} />
               ) : phase === 'scanning' ? (
@@ -357,7 +359,7 @@ export function ImportLocalSessionsDialog({
                 <EmptyState title={t('importSessions.noMatches')} />
               ) : (
                 <ScrollArea className="h-full">
-                  <div className="space-y-2 px-3 py-2">
+                  <div className="space-y-2 px-5 pb-3">
                     {filteredFolders.map((folder) => {
                       const importable = folderImportableKeys(folder);
                       const selectedCount = importable.filter((key) =>
@@ -417,7 +419,7 @@ export function ImportLocalSessionsDialog({
                                 return (
                                   <div
                                     key={key}
-                                    className="flex min-h-10 items-center gap-2 border-t border-border/50 bg-[var(--surface-control)] px-3 py-1.5 pl-9"
+                                    className="flex min-h-10 items-center gap-2 px-3 py-1.5 pl-9"
                                   >
                                     <Checkbox
                                       checked={selected.has(key)}
@@ -469,7 +471,7 @@ export function ImportLocalSessionsDialog({
           </div>
         ) : null}
       </DialogContent>
-      <DialogFooter className="flex-row items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5 sm:justify-between">
+      <DialogFooter className="flex-row items-center justify-between gap-3 px-5 pb-4 pt-1 sm:justify-between">
         {phase === 'ready' || phase === 'importing' ? (
           <span className="text-xs text-muted-foreground">
             {scan

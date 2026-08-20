@@ -369,11 +369,9 @@ export function getEffectiveKeyBindings(
 const CONFIGURABLE_BINDING_IDS = new Set([
   bindingKey(Action.EXIT, [Scope.DIALOG]),
   bindingKey(Action.EXIT, [Scope.EDIT_COMMENT]),
-  bindingKey(Action.CREATE, [Scope.PROJECTS]),
   bindingKey(Action.SUBMIT, [Scope.DIALOG]),
   bindingKey(Action.APPROVE_REQUEST, [Scope.APPROVALS]),
   bindingKey(Action.DENY_APPROVAL, [Scope.APPROVALS]),
-  bindingKey(Action.SUBMIT_FOLLOW_UP, [Scope.FOLLOW_UP_READY]),
   bindingKey(Action.SUBMIT_TASK, [Scope.DIALOG]),
   bindingKey(Action.SUBMIT_COMMENT, [Scope.EDIT_COMMENT]),
 ]);

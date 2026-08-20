@@ -13,7 +13,6 @@
     "automations": "Automations",
     "plugins": "Plugins",
     "webService": "Remote connection",
-    "devices": "Devices",
     "logs": "Runtime logs",
     "system": "System"
   },
@@ -425,12 +424,11 @@
     "surfaceCapabilityUnavailable": "This Host does not provide the isolated App surface capability.",
     "surfaceProtocolViolation": "The App surface bridge sent an invalid message and was revoked.",
     "devHostReady": "Local Plugin Dev Host is ready",
+    "devHostUnavailable": "Local Plugin Dev Host is not ready",
     "developerTools": "Plugin development",
     "devHostDescription": "A local development endpoint for plugin authors. It is not needed to use plugins.",
-    "devHostUsage": "Copy the connection for vibex-plugin dev, install --link, and doctor to install linked builds, hot-reload candidate generations, and inspect diagnostics. The endpoint listens on loopback only.",
-    "copyDevConnection": "Copy CLI connection",
-    "devConnectionCopied": "Connection copied",
-    "devConnectionCopyFailed": "Could not copy the plugin development connection",
+    "pluginDevDocs": "Developer docs",
+    "enablePluginDevelopment": "Enable plugin development",
     "builtinBadge": "VibeX built-in",
     "pageDescription": "Manage plugins supported by Codex, Claude Code, and the VibeX platform here.",
     "import": "Import plugin",
@@ -632,7 +630,7 @@
     "installedCount": "Installed {{count}}",
     "loadingPlugins": "Loading plugins",
     "loadingPluginDetail": "Loading plugin details",
-    "productSearchPlaceholder": "Search installed plugins",
+    "productSearchPlaceholder": "Search plugins",
     "noSummary": "This plugin has not provided a summary.",
     "localPublisher": "Local",
     "enableNamed": "Enable {{name}}",
@@ -643,12 +641,99 @@
     "productEnabled": "{{name}} enabled",
     "productDisabled": "{{name}} disabled",
     "productEnableFailed": "Could not change {{name}}",
+    "productUninstalled": "{{name}} uninstalled",
+    "productUninstallFailed": "Could not uninstall {{name}}",
+    "openPlugin": "Open",
     "backToPlugins": "Back to plugins",
     "productNotFound": "Plugin not found",
     "productDetailFailed": "Could not load plugin content",
     "productDetailTabs": "Plugin detail",
     "productMetadata": "Plugin metadata",
+    "sourceBuiltin": "Built-in",
+    "sourceLinked": "Linked",
+    "sourceInstalled": "Installed",
     "versionTitle": "Version",
+    "official": {
+      "office": {
+        "name": "VibeX Office",
+        "summary": "Create, edit, analyze, and preview DOCX, XLSX, and PPTX files in VibeX.",
+        "readme": "# VibeX Office\n\nKeep Word, Excel, and PowerPoint work inside the VibeX workspace.\n\nAfter you enable it:\n\n- Open `.docx`, `.xlsx`, and `.pptx` files for a read-only preview.\n- Agents get three Skills for documents, spreadsheets, and slides.\n- Composer shows six Workflows for create, modify, analyze, and generate.\n\n## Enable\n\nThis plugin ships with the Host, starts off, and cannot be uninstalled. Turn it on in Plugins. The first enable binds Skills and Workflows to compatible installed Agents.\n\nPreview uses the Host-locked `officecli` Runtime. Do not replace it with another copy from your PATH.\n\n## Preview\n\nOpening a supported file starts a read-only preview. It is not an in-window editor. After the idle timeout the preview process stops; opening the file again starts a new one.\n\nSupported files: `.docx`, `.xlsx`, `.pptx`. Legacy `.doc` / `.xls` / `.ppt` are out of scope.\n\n## Agent work\n\nDescribe the result. The Agent should use this plugin's Skills and the locked `officecli`, then return a workspace-relative path. Leave unnamed structure, styles, sheets, and slides alone. Validate before calling the work done.\n\n## Configuration\n\nThe only setting is preview idle timeout (1–60 minutes, default 10). Saving writes this plugin's `config.json`. Open previews are unchanged.\n\n## Troubleshooting\n\nIf a file will not open, check the extension and that the plugin is enabled. If preview exits immediately, re-enable the plugin so Host can probe `officecli` again.",
+        "config": {
+          "idleTimeoutMinutes": {
+            "title": "Stop preview after idle",
+            "description": "Minutes of inactivity before the preview process exits."
+          }
+        }
+      },
+      "workflowCreator": {
+        "name": "Workflow Creator",
+        "summary": "Create, inspect, debug, and safely revise VibeX DAG workflows from conversations and editable file tabs.",
+        "readme": "# Workflow Creator\n\nAuthor VibeX DAG workflows as real files, then validate, debug, and publish them.\n\nOnce enabled, the Skill, the workflow MCP, and Workflow Studio work together. The source file is the authoring fact. Saving uses an artifact revision and refuses a stale overwrite. Publishing creates an immutable version. Automations stay on the version they already reference.\n\n## Enable\n\nThis plugin ships with the Host, starts off, and cannot be uninstalled. VibeX Desktop must be running so Host can start the loopback gateway and inject a short-lived token. That token is never stored in this package.\n\n## Edit, debug, publish\n\nOpen a `*.vibex-workflow.json` file to use Workflow Studio. Save and validate before any test. `workflow_debug_source` tests unpublished source without creating a catalog version. Publish only when you want a release.\n\n## Configuration\n\nDefault Agent Step completion is the authoring default for new steps that do not declare a policy. It does not rewrite existing steps or running workflows.\n\n## Troubleshooting\n\nIf MCP says VibeX is unavailable, keep Desktop open and re-enable the plugin. A save conflict means the source changed outside the tab — reload, then save. An Automation that ignores edits is pinned to an older published version.",
+        "config": {
+          "defaultCompletionPolicy": {
+            "title": "Default Agent Step completion",
+            "description": "How a new Agent Step finishes when the source does not say otherwise.",
+            "enum": {
+              "automatic": "Automatic",
+              "manual": "Manual"
+            }
+          }
+        }
+      },
+      "sessionEnhance": {
+        "name": "Session Enhance",
+        "summary": "Let the agent ask questions, read mid-turn notes, query a mentioned session, and control this session or its children.",
+        "readme": "# Session Enhance\n\nThese tools come from the VibeX Host, not from a particular Agent. After you enable the plugin, Host injects them only into sessions opened or rebound later.\n\n## Capabilities\n\n- Live feedback: the agent should call `check_user_feedback` before work and after each stage.\n- Ask the user: `ask_user_question` blocks until you answer a real decision.\n- Session info: read-only lookup of a session you linked.\n- Session control: send input, cancel a turn, or wait, only on this session or its descendants.\n\n## Configuration\n\nEach capability has its own switch, on by default. Saving writes this plugin's `config.json` and affects later new or rebound sessions only.\n\n## Troubleshooting\n\nIf the agent has no these tools, enable the matching switch and open or rebind a session. An already injected session keeps its tool list until it ends.",
+        "config": {
+          "feedback": {
+            "title": "Live feedback",
+            "description": "Send notes and course-corrections while the agent is working."
+          },
+          "question": {
+            "title": "Ask the user",
+            "description": "Allow the agent to pause and ask you a multiple-choice question."
+          },
+          "sessionInfo": {
+            "title": "Session info",
+            "description": "Allow the agent to look up a session you mention in the message."
+          },
+          "sessionControl": {
+            "title": "Session control",
+            "description": "Allow input, cancel, or wait on this session or its child sessions."
+          }
+        }
+      },
+      "multiAgent": {
+        "name": "Multi-agent",
+        "summary": "Let a parent agent hand a subtask to another agent.",
+        "readme": "# Multi-agent\n\nThe parent agent hands a bounded subtask to another agent. `&` in the composer names a target; `delegate_to_agent` is what actually starts the work.\n\nTurning this plugin on or off is the delegation switch. Depth, result cache, and child-agent defaults live only on this page, and they apply only to new child sessions started by delegation.\n\n## Enable\n\nThe plugin ships with the Host, starts off, and cannot be uninstalled. After you turn it on, Host injects `vibex-delegation-mcp` into later new or rebound sessions, and `&` appears in the composer.\n\n## Configuration\n\nMaximum depth limits root → child → grandchild recursion (1–8, default 1). Completed-result cache is in-memory for the running delegation session (MB, default 512, 0 means no cap). Child-agent defaults override only delegated child sessions, not global new-session defaults.\n\n## Troubleshooting\n\nIf `&` is missing, the plugin is off or the session was opened before it was enabled. A mention is not a started task — the parent must call `delegate_to_agent`.",
+        "config": {
+          "depthLimit": {
+            "title": "Maximum delegation depth",
+            "description": "How deep a root → child → grandchild chain may go."
+          },
+          "completedCacheMaxMb": {
+            "title": "Completed result cache (MB)",
+            "description": "In-memory cache for finished child results in a running delegation session. 0 means no cap; the cache still clears when the session ends."
+          },
+          "agentDefaults": {
+            "title": "Child agent defaults",
+            "description": "Applies only to new child sessions started by delegation, not to ordinary new sessions."
+          }
+        }
+      },
+      "pluginDevelopment": {
+        "name": "Plugin Development",
+        "summary": "Let an agent develop, validate, and link plugins with this Host's SDK and CLI.",
+        "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, CLI, and an optional development MCP. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development MCP stays off until you turn it on, so ordinary sessions do not get tools that link a local directory.\n\n## Toolchain\n\nAsk the running Host for the toolchain with `vibex plugin toolchain`, or use the `vibex-plugin` next to the Host binary. Then validate, test, build, and pack against those local contracts.\n\n## Link a local directory\n\nTurn on Development MCP, open or rebind a session, and let the agent call `plugin_dev_link_request`. Confirm Full Trust in VibeX. Do not paste a loopback token into the chat.\n\n## Troubleshooting\n\nIf link tools are missing, Development MCP is off — enable it and start a new session. If a link stays pending, confirm Full Trust in VibeX.",
+        "config": {
+          "devMcp": {
+            "title": "Development MCP",
+            "description": "Allow later sessions to request linking a local plugin after you confirm Full Trust."
+          }
+        }
+      }
+    },
     "contentTab": "Content",
     "configTab": "Config",
     "contentTree": "Plugin content",
@@ -692,10 +777,32 @@
     "tokenGenerated": "Access token generated",
     "tokenGenerateFailed": "Failed to generate token",
     "copied": "{{label}} copied",
+    "hostSectionTitle": "Remote connection service",
+    "hostSectionDescription": "Serves both the Web UI and paired clients.",
+    "clientSectionTitle": "Client access",
+    "clientSectionDescription": "Create a connection code or QR so phones and other computers can reach this Host.",
+    "webSectionTitle": "Web access",
+    "webSectionDescription": "Token and addresses for opening the Web UI in a browser.",
+    "enableServiceFirst": "Turn on the remote connection service first",
+    "tunnelLabel": "Public tunnel",
+    "tunnelDescription": "Origins published through Tailscale, Cloudflare, or a TLS reverse proxy.",
+    "tunnelEmpty": "No published public origin yet.",
     "statusSectionTitle": "Service Status",
-    "statusSectionDescription": "Start Remote Protocol on this Host. Loopback by default; LAN needs the switch below.",
+    "statusSectionDescription": "One listen port serves the Web UI and Remote Protocol. Loopback by default; LAN needs the switch below.",
     "currentStatusLabel": "Current status",
     "serviceNotStarted": "Service not started",
+    "browserAddressLabel": "Web UI",
+    "browserAddressDescription": "Open this in a browser on this computer. Connect it to the Host address below.",
+    "thisComputerAddressLabel": "This computer",
+    "thisComputerAddressDescription": "Open this in a browser. Paired devices also use this Host.",
+    "hostAddressLabel": "Host",
+    "hostAddressDescription": "The Web UI and paired devices connect here.",
+    "lanAddressLabel": "LAN",
+    "lanAddressDescription": "Phones and other computers on this network.",
+    "publishedAddressLabel": "Published",
+    "publishedAddressDescription": "A checked remote origin for this Host.",
+    "copyOrigin": "Copy address",
+    "openOrigin": "Open",
     "refreshStatus": "Refresh status",
     "serviceControlLabel": "Service control",
     "serviceControlDescription": "Configuration changes must be saved before starting the service.",
@@ -705,7 +812,7 @@
     "accessSectionTitle": "Access Configuration",
     "accessSectionDescription": "The port and token are saved to the local configuration; the token is only used for subsequently protected endpoints.",
     "portLabel": "Listen port",
-    "portDescription": "Default 3080, same as vibex-server and the Host family.",
+    "portDescription": "Host listen port. Default 17891. Browsers and paired devices use this same port.",
     "probe": "Probe",
     "portProbeResult": "Port {{port}}: {{result}}",
     "available": "Available",
@@ -737,13 +844,62 @@
     "pairingQrAlt": "Device pairing QR code",
     "pairingQrLoading": "Generating device pairing QR code",
     "pairingCodeLabel": "Connection code",
+    "pairingTtlLabel": "Expires in",
+    "pairingTtl5m": "5 minutes",
+    "pairingTtl15m": "15 minutes",
+    "pairingTtl30m": "30 minutes",
+    "pairingTtl60m": "1 hour",
+    "pairingStatusLabel": "Status",
+    "pairingStatusWaiting": "Waiting",
+    "pairingStatusConnected": "Connected",
+    "pairingStatusFailed": "Failed",
+    "pairingAddressesLabel": "Addresses",
+    "pairingAddressesExpand": "Show all addresses",
+    "pairingAddressesCollapse": "Hide extra addresses",
     "pairingOneTime": "Shown once and expires at {{expiresAt}}. It does not contain the Server access token.",
     "copyPairingCode": "Copy connection code",
-    "actionBarMessage": "Remote connection settings changed; they take effect after saving."
-  },
-  "devices": {
-    "title": "Devices",
-    "description": "Pair and manage clients with narrowly scoped, revocable access."
+    "pairedDevicesTitle": "Paired devices",
+    "pairedDevicesEmpty": "No paired devices yet",
+    "pairedDeviceUnknownPreset": "Paired",
+    "revokeDevice": "Revoke",
+    "revokeDeviceTitle": "Revoke this device?",
+    "revokeDeviceMessage": "{{name}} will need to pair again to connect.",
+    "deviceRevoked": "Device revoked",
+    "deviceRevokeFailed": "Failed to revoke device",
+    "actionBarMessage": "Remote connection settings changed; they take effect after saving.",
+    "roleServer": "Server",
+    "roleClient": "Client",
+    "roleTabsAria": "Remote connection role",
+    "discoverTitle": "LAN Hosts",
+    "discoverEmpty": "No other Hosts found",
+    "discoverRefresh": "Scan",
+    "clientDiscoverFailed": "LAN scan failed",
+    "clientStatusFailed": "Failed to load client status",
+    "manualTitle": "Manual connection",
+    "manualOriginLabel": "Host address",
+    "manualOriginPlaceholder": "192.168.1.10:17891",
+    "clientCodeLabel": "Connection code",
+    "clientCodePlaceholder": "8-character connection code",
+    "clientConnect": "Connect",
+    "switchHost": "Switch",
+    "clientDisconnect": "Disconnect",
+    "clientDisconnected": "Disconnected",
+    "savedTitle": "Saved Hosts",
+    "savedEmpty": "No saved Hosts yet",
+    "connectedBadge": "Connected",
+    "hostIdLabel": "Host ID",
+    "lastConnectedLabel": "Last connected",
+    "deleteHost": "Delete",
+    "deleteHostTitle": "Delete this Host?",
+    "deleteHostMessage": "Connecting to {{name}} again will require a connection code.",
+    "clientHostDeleted": "Deleted",
+    "clientDeleteFailed": "Failed to delete",
+    "clientConnected": "Connected",
+    "clientConnectFailed": "Connection failed",
+    "clientNeedsCode": "Enter a connection code",
+    "clientOriginRequired": "Enter a Host address",
+    "clientRevoked": "This Host revoked the device. Enter a connection code to connect again.",
+    "stoppedHostForClient": "Stopped the local remote connection service"
   },
   "instructions": {
     "title": "Instructions",
@@ -1245,8 +1401,8 @@
     "sessionContinuationDescription": "Control whether a new conversation can connect to a previous Agent session in the same workspace.",
     "enablePreviousSessionContinuation": "Allow choosing a previous session when creating a conversation",
     "enablePreviousSessionContinuationHint": "Off by default. When enabled, the entry appears only for an existing workspace and an Agent that supports listing sessions.",
-    "importLocalSessionsTitle": "Local sessions",
-    "importLocalSessions": "Import local Agent sessions",
+    "importLocalSessionsTitle": "Local conversations",
+    "importLocalSessions": "Import local Agent conversations",
     "importLocalSessionsAction": "Import",
     "notificationsTitle": "Notifications",
     "notificationsDescription": "Alert with sound or a desktop window for permission requests, notices, and completed turns.",

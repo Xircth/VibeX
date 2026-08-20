@@ -86,12 +86,12 @@ describe('settings shortcut catalog', () => {
     expect(configurable).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          action: Action.CREATE,
-          scopes: [Scope.PROJECTS],
+          action: Action.EXIT,
+          scopes: [Scope.DIALOG],
         }),
         expect.objectContaining({
-          action: Action.SUBMIT_FOLLOW_UP,
-          scopes: [Scope.FOLLOW_UP_READY],
+          action: Action.SUBMIT_COMMENT,
+          scopes: [Scope.EDIT_COMMENT],
         }),
       ])
     );
@@ -99,6 +99,13 @@ describe('settings shortcut catalog', () => {
       expect.arrayContaining([
         expect.objectContaining({ scopes: [Scope.KANBAN] }),
         expect.objectContaining({ scopes: [Scope.SETTINGS] }),
+        expect.objectContaining({
+          action: Action.CREATE,
+          scopes: [Scope.PROJECTS],
+        }),
+        expect.objectContaining({
+          action: Action.SUBMIT_FOLLOW_UP,
+        }),
       ])
     );
   });

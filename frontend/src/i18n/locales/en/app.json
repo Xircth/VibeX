@@ -136,6 +136,20 @@
     "open": "Open",
     "tagline": "Super Agent Coding Platform"
   },
+  "webConnect": {
+    "formLabel": "Connect to VibeX",
+    "title": "Connect this browser",
+    "description": "Use the Host address and token from Settings → Remote connection.",
+    "hostLabel": "Host",
+    "tokenLabel": "Access token",
+    "showToken": "Show token",
+    "hideToken": "Hide token",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "hostMismatch": "This page is the Web UI. Keep the Host address above.",
+    "notAHost": "This address is not a VibeX Host. Use the Host URL from Settings → Remote connection.",
+    "authFailed": "Could not reach that Host. Check the address and token."
+  },
   "kanbanSessions": {
     "sessionFallback": "New session"
   },

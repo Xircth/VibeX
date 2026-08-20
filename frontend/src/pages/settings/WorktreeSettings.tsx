@@ -18,10 +18,8 @@ import {
   worktreeSettingsApi,
 } from '@/lib/api';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
-import {
-  SettingsActionBar,
-  SettingsSection,
-} from './SettingsUi';
+import { cn } from '@/lib/utils';
+import { SettingsActionBar, SettingsSection } from './SettingsUi';
 
 const EMPTY_SETTINGS: ProjectWorktreeSettings = {
   create_command: null,
@@ -238,13 +236,16 @@ export function WorktreeSettings() {
     }
   }, [draft, projectId, t]);
 
+  const selectedProject = projects.find((project) => project.id === projectId);
+
+  const selectProject = (id: string) => {
+    if (id === projectId) return;
+    dirtyRef.current = false;
+    setProjectId(id);
+  };
+
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('worktrees.title')}
-        description={t('worktrees.description')}
-      />
-
       <div className="settings-sections">
         <SettingsSection
           icon={FolderGit2}
@@ -312,7 +313,7 @@ export function WorktreeSettings() {
             </div>
 
             {worktreeDirty ? (
-              <div className="flex justify-end gap-2 border-t pt-3">
+              <div className="flex justify-end gap-2 pt-1">
                 <Button
                   variant="outline"
                   size="sm"
@@ -345,130 +346,143 @@ export function WorktreeSettings() {
           title={t('worktrees.projectTitle')}
           description={t('worktrees.projectDescription')}
         >
-          <div className="settings-row items-center gap-4 px-4 py-3">
-            <Label htmlFor="worktree-project" className="min-w-32">
-              {t('worktrees.projectLabel')}
-            </Label>
-            <select
-              id="worktree-project"
-              className="raised-control h-8 min-w-0 flex-1 px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-              disabled={loading || projects.length === 0}
+          <div className="settings-worktree-board">
+            <div
+              className="settings-worktree-board__list"
+              role="listbox"
+              aria-label={t('worktrees.projectLabel')}
             >
               {projects.length === 0 ? (
-                <option value="">{t('worktrees.noProjects')}</option>
-              ) : null}
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="border-t px-4 py-3">
-            <h4 className="text-sm font-semibold">
-              {t('worktrees.commandsTitle')}
-            </h4>
-            <div className="mt-3 space-y-2">
-              <Label htmlFor="worktree-create-command">
-                {t('worktrees.createCommand')}
-              </Label>
-              <Textarea
-                id="worktree-create-command"
-                className="min-h-20 font-mono text-xs"
-                value={draft.create_command ?? ''}
-                onChange={(event) =>
-                  updateDraft({ create_command: event.target.value || null })
-                }
-                placeholder={t('worktrees.createCommandPlaceholder')}
-                disabled={loading || !projectId}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('worktrees.createCommandHint')}
-              </p>
-            </div>
-            <div className="mt-4 space-y-2">
-              <Label htmlFor="worktree-delete-command">
-                {t('worktrees.deleteCommand')}
-              </Label>
-              <Textarea
-                id="worktree-delete-command"
-                className="min-h-20 font-mono text-xs"
-                value={draft.delete_command ?? ''}
-                onChange={(event) =>
-                  updateDraft({ delete_command: event.target.value || null })
-                }
-                placeholder={t('worktrees.deleteCommandPlaceholder')}
-                disabled={loading || !projectId}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('worktrees.deleteCommandHint')}
-              </p>
-            </div>
-          </div>
-
-          <div className="border-t px-4 py-3">
-            <h4 className="text-sm font-semibold">
-              {t('worktrees.cleanupTitle')}
-            </h4>
-            <div className="mt-3 settings-row items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="worktree-cleanup-prompt">
-                  {t('worktrees.cleanupPrompt')}
-                </Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('worktrees.cleanupPromptHint')}
+                <p className="settings-worktree-board__empty">
+                  {t('worktrees.noProjects')}
                 </p>
-              </div>
-              <Switch
-                id="worktree-cleanup-prompt"
-                checked={draft.cleanup_prompt_enabled}
-                onCheckedChange={(checked) =>
-                  updateDraft({ cleanup_prompt_enabled: checked })
-                }
-                disabled={loading || !projectId}
-              />
+              ) : (
+                projects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    role="option"
+                    aria-selected={project.id === projectId}
+                    className={cn(
+                      'settings-worktree-board__item',
+                      project.id === projectId && 'is-selected'
+                    )}
+                    onClick={() => selectProject(project.id)}
+                  >
+                    {project.name}
+                  </button>
+                ))
+              )}
             </div>
-            <div className="mt-4 settings-row items-center justify-between gap-4">
-              <Label htmlFor="worktree-cleanup-threshold">
-                {t('worktrees.cleanupThreshold')}
-              </Label>
-              <Input
-                id="worktree-cleanup-threshold"
-                type="number"
-                min={1}
-                max={999}
-                className="w-24 text-right"
-                value={draft.cleanup_prompt_threshold}
-                onChange={(event) =>
-                  updateDraft({
-                    cleanup_prompt_threshold: Math.max(
-                      1,
-                      Number.parseInt(event.target.value, 10) || 1
-                    ),
-                  })
-                }
-                disabled={
-                  loading || !projectId || !draft.cleanup_prompt_enabled
-                }
-              />
-            </div>
-            {status?.should_prompt ? (
-              <div
-                className="settings-row mt-4 gap-2 text-sm text-warning"
-                role="status"
-              >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  {t('worktrees.cleanupRecommended', {
-                    count: status.current_count,
-                    threshold: status.threshold,
-                  })}
-                </span>
+
+            <div className="settings-worktree-board__pane">
+              <div className="space-y-3">
+                <h4>
+                  {t('worktrees.commandsTitle')}
+                  {selectedProject ? ` · ${selectedProject.name}` : ''}
+                </h4>
+                <div className="space-y-2">
+                  <Label htmlFor="worktree-create-command">
+                    {t('worktrees.createCommand')}
+                  </Label>
+                  <Textarea
+                    id="worktree-create-command"
+                    className="min-h-20 font-mono text-sm"
+                    value={draft.create_command ?? ''}
+                    onChange={(event) =>
+                      updateDraft({
+                        create_command: event.target.value || null,
+                      })
+                    }
+                    placeholder={t('worktrees.createCommandPlaceholder')}
+                    disabled={loading || !projectId}
+                  />
+                  <p className="settings-row__description">
+                    {t('worktrees.createCommandHint')}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="worktree-delete-command">
+                    {t('worktrees.deleteCommand')}
+                  </Label>
+                  <Textarea
+                    id="worktree-delete-command"
+                    className="min-h-20 font-mono text-sm"
+                    value={draft.delete_command ?? ''}
+                    onChange={(event) =>
+                      updateDraft({
+                        delete_command: event.target.value || null,
+                      })
+                    }
+                    placeholder={t('worktrees.deleteCommandPlaceholder')}
+                    disabled={loading || !projectId}
+                  />
+                  <p className="settings-row__description">
+                    {t('worktrees.deleteCommandHint')}
+                  </p>
+                </div>
               </div>
-            ) : null}
+
+              <div className="space-y-3">
+                <h4>{t('worktrees.cleanupTitle')}</h4>
+                <div className="settings-row items-center justify-between gap-4">
+                  <div>
+                    <Label htmlFor="worktree-cleanup-prompt">
+                      {t('worktrees.cleanupPrompt')}
+                    </Label>
+                    <p className="settings-row__description">
+                      {t('worktrees.cleanupPromptHint')}
+                    </p>
+                  </div>
+                  <Switch
+                    id="worktree-cleanup-prompt"
+                    checked={draft.cleanup_prompt_enabled}
+                    onCheckedChange={(checked) =>
+                      updateDraft({ cleanup_prompt_enabled: checked })
+                    }
+                    disabled={loading || !projectId}
+                  />
+                </div>
+                <div className="settings-row items-center justify-between gap-4">
+                  <Label htmlFor="worktree-cleanup-threshold">
+                    {t('worktrees.cleanupThreshold')}
+                  </Label>
+                  <Input
+                    id="worktree-cleanup-threshold"
+                    type="number"
+                    min={1}
+                    max={999}
+                    className="w-24 text-right"
+                    value={draft.cleanup_prompt_threshold}
+                    onChange={(event) =>
+                      updateDraft({
+                        cleanup_prompt_threshold: Math.max(
+                          1,
+                          Number.parseInt(event.target.value, 10) || 1
+                        ),
+                      })
+                    }
+                    disabled={
+                      loading || !projectId || !draft.cleanup_prompt_enabled
+                    }
+                  />
+                </div>
+                {status?.should_prompt ? (
+                  <div
+                    className="settings-row gap-2 text-sm text-warning"
+                    role="status"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {t('worktrees.cleanupRecommended', {
+                        count: status.current_count,
+                        threshold: status.threshold,
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </SettingsSection>
       </div>

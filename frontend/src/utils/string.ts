@@ -17,8 +17,28 @@ export const toPrettyCase = (value: string): string => {
  * @returns Formatted project name
  */
 export const generateProjectNameFromPath = (path: string): string => {
-  const dirName = path.split('/').filter(Boolean).pop() || '';
+  const dirName = path.split(/[\\/]/).filter(Boolean).pop() || '';
   return dirName.replace(/[-_]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+};
+
+/** Parent of a native host path. Handles `/`, `\`, and `C:\` roots. */
+export const parentDirectory = (path: string): string => {
+  const trimmed = path.replace(/[\\/]+$/, '');
+  if (!trimmed || trimmed === '/') {
+    return trimmed || '/';
+  }
+  if (/^[A-Za-z]:$/.test(trimmed)) {
+    return `${trimmed}\\`;
+  }
+  const lastSep = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  if (lastSep <= 0) {
+    return trimmed.startsWith('/') ? '/' : trimmed;
+  }
+  const parent = trimmed.slice(0, lastSep);
+  if (/^[A-Za-z]:$/.test(parent)) {
+    return `${parent}\\`;
+  }
+  return parent || '/';
 };
 
 /**

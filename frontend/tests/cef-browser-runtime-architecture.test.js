@@ -170,7 +170,7 @@ test('macOS desktop dev runs CEF from the required app bundle', () => {
 
 test('macOS desktop dev re-signs the bundle after replacing executables', () => {
   const runner = readRepoFile('scripts/run-tauri-dev-macos.js');
-  const refresh = runner.indexOf('refreshBundleExecutables(paths);');
+  const refresh = runner.indexOf('refreshBundleExecutables(paths, profileDirectory);');
   const sign = runner.indexOf('signDevBundle(paths.appRoot);');
   const launch = runner.indexOf(
     'const child = spawn(paths.appExecutable, parsed.appArgs'
@@ -179,8 +179,30 @@ test('macOS desktop dev re-signs the bundle after replacing executables', () => 
   assert.ok(refresh >= 0);
   assert.ok(sign > refresh);
   assert.ok(launch > sign);
+  assert.match(runner, /removeCodesignTempFiles\(appRoot\)/);
   assert.match(runner, /\['--force', '--deep', '--sign', '-', appRoot\]/);
   assert.match(runner, /\['--verify', '--deep', '--strict', appRoot\]/);
+  assert.match(runner, /'-p', 'vibex-mcp'/);
+});
+
+test('macOS CEF dev runner removes leftover codesign temp files before signing', () => {
+  const runnerPath = path.join(repoRoot, 'scripts', 'run-tauri-dev-macos.js');
+  const { removeCodesignTempFiles } = require(runnerPath);
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-cef-sign-'));
+  const macos = path.join(fixture, 'Contents', 'MacOS');
+
+  try {
+    fs.mkdirSync(macos, { recursive: true });
+    fs.writeFileSync(path.join(macos, 'vibex'), 'app');
+    fs.writeFileSync(path.join(macos, 'vibex.cstemp'), 'stale codesign copy');
+    fs.writeFileSync(path.join(macos, 'vibex.next-42277'), 'interrupted copy');
+    removeCodesignTempFiles(fixture);
+    assert.equal(fs.existsSync(path.join(macos, 'vibex.cstemp')), false);
+    assert.equal(fs.existsSync(path.join(macos, 'vibex.next-42277')), false);
+    assert.equal(fs.readFileSync(path.join(macos, 'vibex'), 'utf8'), 'app');
+  } finally {
+    fs.rmSync(fixture, { force: true, recursive: true });
+  }
 });
 
 test('macOS CEF dev bundle cache ignores packaging-only overlay links', () => {

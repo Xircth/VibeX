@@ -108,7 +108,7 @@ export function SessionControlsFields({
       ) : null}
       {hasDangerousPermissionsMode ? (
         <div className="flex h-8 items-center justify-between rounded-md border border-input bg-background px-3">
-          <span className="truncate text-xs">
+          <span className="truncate text-sm">
             {t('sessionModeSelector.allowDangerousOperations', {
               defaultValue: '允许危险操作',
             })}
@@ -130,7 +130,7 @@ export function SessionControlsFields({
               key={option.key}
               className="flex h-8 items-center justify-between rounded-md border border-input bg-background px-3"
             >
-              <span className="truncate text-xs">
+              <span className="truncate text-sm">
                 {option.label || t('sessionConfigSelector.fallbackLabel')}
               </span>
               <Switch
@@ -209,7 +209,7 @@ function ControlField({
             type="button"
             variant="outline"
             size="sm"
-            className="w-full justify-between text-xs"
+            className="w-full justify-between text-sm"
             disabled={disabled}
             data-testid={`session-control-${id}`}
             title={`${label}: ${valueLabel}`}

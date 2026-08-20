@@ -78,6 +78,8 @@ import {
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
 import { useBackendTransport } from '@/lib/transport';
+import { PluginDevelopmentDialog } from '@/pages/plugins/PluginCatalogControls';
+import { PLUGIN_DEVELOPMENT_PLUGIN_ID } from '@/pages/plugins/officialPlugins';
 import { SettingsSection } from './SettingsUi';
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -1027,7 +1029,6 @@ export function PluginsSettings({
     useState<PluginContributionCatalog | null>(null);
   const [devConnection, setDevConnection] =
     useState<PluginDevConnection | null>(null);
-  const [devConnectionCopied, setDevConnectionCopied] = useState(false);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PluginEcosystem>(
@@ -1146,14 +1147,6 @@ export function PluginsSettings({
       setIsLoading(false);
     }
   }, [api, ecosystem, transport.environment]);
-
-  const copyDevConnection = async () => {
-    if (!devConnection) return;
-    const shellEnvironment = `export VIBEX_PLUGIN_DEV_HOST='${devConnection.endpoint}'`;
-    await navigator.clipboard.writeText(shellEnvironment);
-    setDevConnectionCopied(true);
-    window.setTimeout(() => setDevConnectionCopied(false), 1600);
-  };
 
   useEffect(() => {
     void reload();
@@ -2168,41 +2161,16 @@ export function PluginsSettings({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <PluginDevelopmentDialog
         open={devToolsOpen}
+        connection={devConnection}
         onOpenChange={setDevToolsOpen}
-        aria-label={t('plugins.developerTools')}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('plugins.developerTools')}</DialogTitle>
-            <DialogDescription>
-              {t('plugins.devHostDescription')}
-            </DialogDescription>
-          </DialogHeader>
-          {devConnection ? (
-            <div className="plugin-dev-tool-details">
-              <span>
-                <i aria-hidden="true" />
-                {t('plugins.devHostReady')}
-              </span>
-              <code>{devConnection.endpoint}</code>
-              <p>{t('plugins.devHostUsage')}</p>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDevToolsOpen(false)}>
-              {t('common:close')}
-            </Button>
-            <Button onClick={() => void copyDevConnection()}>
-              <TerminalSquare className="mr-1.5 h-3.5 w-3.5" />
-              {devConnectionCopied
-                ? t('plugins.devConnectionCopied')
-                : t('plugins.copyDevConnection')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenPlugin={() =>
+          navigate(
+            `/plugins/${encodeURIComponent(PLUGIN_DEVELOPMENT_PLUGIN_ID)}`
+          )
+        }
+      />
 
       <AstryxDialog
         isOpen={Boolean(permissionReview)}

@@ -136,6 +136,20 @@
     "open": "打开",
     "tagline": "超级 Agent Coding 平台"
   },
+  "webConnect": {
+    "formLabel": "连接到 VibeX",
+    "title": "连接此浏览器",
+    "description": "使用「设置 → 远程连接」中的主机地址和 Token。",
+    "hostLabel": "主机地址",
+    "tokenLabel": "访问 Token",
+    "showToken": "显示 Token",
+    "hideToken": "隐藏 Token",
+    "connect": "连接",
+    "connecting": "正在连接…",
+    "hostMismatch": "当前页面是 Web UI，请保持上面的主机地址。",
+    "notAHost": "这不是 VibeX Host 地址。请填写「设置 → 远程连接」中的主机地址。",
+    "authFailed": "无法连接到该主机。请检查地址和 Token。"
+  },
   "kanbanSessions": {
     "sessionFallback": "新会话"
   },

@@ -5,7 +5,28 @@ import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope'
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { ProjectRail } from '@/components/layout/ProjectRail';
 import { Loader } from '@/components/ui/loader';
+import {
+  loadAgentSettings,
+  loadAppearanceSettings,
+  loadAutomationCenter,
+  loadAutomationEditorRoutes,
+  loadChatChannelSettings,
+  loadEditorSettings,
+  loadGeneralSettings,
+  loadInstructionsSettings,
+  loadLogsSettings,
+  loadMcpSettings,
+  loadPluginDetailPage,
+  loadPluginsPage,
+  loadShortcutSettings,
+  loadSkillsSettings,
+  loadSystemSettings,
+  loadVersionControlSettings,
+  loadWebServiceSettings,
+  loadWorktreeSettings,
+} from '@/lib/settingsPreload';
 import { Projects } from '@/pages/Projects';
+import { SettingsLayout } from '@/pages/settings/SettingsLayout';
 
 function lazyNamed<
   T extends Record<Name, ComponentType>,
@@ -26,93 +47,52 @@ const FullAttemptLogsPage = lazyNamed(
   () => import('@/pages/FullAttemptLogs'),
   'FullAttemptLogsPage'
 );
-const PluginsPage = lazyNamed(() => import('@/pages/Plugins'), 'PluginsPage');
-const PluginDetailPage = lazyNamed(
-  () => import('@/pages/plugins/ProductPlugins'),
-  'PluginDetailPage'
-);
+const PluginsPage = lazyNamed(loadPluginsPage, 'PluginsPage');
+const PluginDetailPage = lazyNamed(loadPluginDetailPage, 'PluginDetailPage');
 const WorkflowInspector = lazyNamed(
   () => import('@/pages/workflows/WorkflowInspector'),
   'WorkflowInspector'
 );
-const SettingsLayout = lazyNamed(
-  () => import('@/pages/settings/SettingsLayout'),
-  'SettingsLayout'
-);
-const AgentSettings = lazyNamed(
-  () => import('@/pages/settings/AgentSettings'),
-  'AgentSettings'
-);
+const AgentSettings = lazyNamed(loadAgentSettings, 'AgentSettings');
 const AppearanceSettings = lazyNamed(
-  () => import('@/pages/settings/AppearanceSettings'),
+  loadAppearanceSettings,
   'AppearanceSettings'
 );
-const AutomationCenter = lazyNamed(
-  () => import('@/pages/settings/AutomationCenter'),
-  'AutomationCenter'
-);
+const AutomationCenter = lazyNamed(loadAutomationCenter, 'AutomationCenter');
 const AutomationEditRoute = lazyNamed(
-  () => import('@/pages/settings/AutomationEditorRoutes'),
+  loadAutomationEditorRoutes,
   'AutomationEditRoute'
 );
 const TurnAutomationEditorRoute = lazyNamed(
-  () => import('@/pages/settings/AutomationEditorRoutes'),
+  loadAutomationEditorRoutes,
   'TurnAutomationEditorRoute'
 );
 const WorkflowAutomationEditorRoute = lazyNamed(
-  () => import('@/pages/settings/AutomationEditorRoutes'),
+  loadAutomationEditorRoutes,
   'WorkflowAutomationEditorRoute'
 );
 const ChatChannelSettings = lazyNamed(
-  () => import('@/pages/settings/ChatChannelSettings'),
+  loadChatChannelSettings,
   'ChatChannelSettings'
 );
-const DeviceSettings = lazyNamed(
-  () => import('@/pages/settings/DeviceSettings'),
-  'DeviceSettings'
-);
-const EditorSettings = lazyNamed(
-  () => import('@/pages/settings/EditorSettings'),
-  'EditorSettings'
-);
-const GeneralSettings = lazyNamed(
-  () => import('@/pages/settings/GeneralSettings'),
-  'GeneralSettings'
-);
+const EditorSettings = lazyNamed(loadEditorSettings, 'EditorSettings');
+const GeneralSettings = lazyNamed(loadGeneralSettings, 'GeneralSettings');
 const InstructionsSettings = lazyNamed(
-  () => import('@/pages/settings/InstructionsSettings'),
+  loadInstructionsSettings,
   'InstructionsSettings'
 );
-const LogsSettings = lazyNamed(
-  () => import('@/pages/settings/LogsSettings'),
-  'LogsSettings'
-);
-const McpSettings = lazyNamed(
-  () => import('@/pages/settings/McpSettings'),
-  'McpSettings'
-);
-const ShortcutSettings = lazyNamed(
-  () => import('@/pages/settings/ShortcutSettings'),
-  'ShortcutSettings'
-);
-const SkillsSettings = lazyNamed(
-  () => import('@/pages/settings/SkillsSettings'),
-  'SkillsSettings'
-);
-const SystemSettings = lazyNamed(
-  () => import('@/pages/settings/SystemSettings'),
-  'SystemSettings'
-);
+const LogsSettings = lazyNamed(loadLogsSettings, 'LogsSettings');
+const McpSettings = lazyNamed(loadMcpSettings, 'McpSettings');
+const ShortcutSettings = lazyNamed(loadShortcutSettings, 'ShortcutSettings');
+const SkillsSettings = lazyNamed(loadSkillsSettings, 'SkillsSettings');
+const SystemSettings = lazyNamed(loadSystemSettings, 'SystemSettings');
 const VersionControlSettings = lazyNamed(
-  () => import('@/pages/settings/VersionControlSettings'),
+  loadVersionControlSettings,
   'VersionControlSettings'
 );
-const WorktreeSettings = lazyNamed(
-  () => import('@/pages/settings/WorktreeSettings'),
-  'WorktreeSettings'
-);
+const WorktreeSettings = lazyNamed(loadWorktreeSettings, 'WorktreeSettings');
 const WebServiceSettings = lazyNamed(
-  () => import('@/pages/settings/WebServiceSettings'),
+  loadWebServiceSettings,
   'WebServiceSettings'
 );
 
@@ -209,7 +189,10 @@ export function MainAppRoutes() {
           />
           <Route path="plugins" element={<Navigate to="/plugins" replace />} />
           <Route path="web-service" element={<WebServiceSettings />} />
-          <Route path="devices" element={<DeviceSettings />} />
+          <Route
+            path="devices"
+            element={<Navigate to="/settings/web-service" replace />}
+          />
           <Route path="logs" element={<LogsSettings />} />
           <Route path="system" element={<SystemSettings />} />
         </Route>

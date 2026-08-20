@@ -72,12 +72,19 @@ describe('WorktreeSettings', () => {
     const user = userEvent.setup();
     render(<WorktreeSettings />);
 
-    const projectSelect = await screen.findByRole('combobox', {
-      name: /项目|project/i,
+    const selectedProject = await screen.findByRole('option', {
+      name: 'MySite',
+      selected: true,
     });
-    expect(projectSelect.closest('.settings-content')).toBeInTheDocument();
-    expect(projectSelect.closest('.max-w-3xl')).not.toBeInTheDocument();
-    expect(projectSelect).toHaveValue('project-1');
+    expect(selectedProject.closest('.settings-content')).toBeInTheDocument();
+    expect(selectedProject.closest('.max-w-3xl')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/按项目配置工作树|Configure project-specific/i)
+    ).not.toBeInTheDocument();
+    expect(selectedProject.closest('.settings-worktree-board')).toBeTruthy();
+    expect(selectedProject.closest('.settings-worktree-board')).toHaveClass(
+      'settings-worktree-board'
+    );
     expect(await screen.findByDisplayValue('pnpm install')).toBeInTheDocument();
     expect(screen.getByDisplayValue('pnpm run clean')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton')).toHaveValue(4);
@@ -100,6 +107,33 @@ describe('WorktreeSettings', () => {
         cleanup_prompt_enabled: true,
         cleanup_prompt_threshold: 4,
       })
+    );
+  });
+
+  it('loads the selected project in the split pane', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation(async (projectId: string) =>
+      projectId === 'project-2'
+        ? {
+            create_command: 'cargo build',
+            delete_command: null,
+            cleanup_prompt_enabled: false,
+            cleanup_prompt_threshold: 5,
+          }
+        : {
+            create_command: 'pnpm install',
+            delete_command: 'pnpm run clean',
+            cleanup_prompt_enabled: true,
+            cleanup_prompt_threshold: 4,
+          }
+    );
+    render(<WorktreeSettings />);
+
+    await user.click(await screen.findByRole('option', { name: 'ApiServer' }));
+    expect(await screen.findByDisplayValue('cargo build')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'ApiServer' })).toHaveAttribute(
+      'aria-selected',
+      'true'
     );
   });
 

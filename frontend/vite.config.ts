@@ -72,9 +72,7 @@ function createManualChunks(id: string): string | undefined {
     return 'vendor-codemirror';
   }
 
-  if (
-    normalizedId.includes('/node_modules/@git-diff-view/')
-  ) {
+  if (normalizedId.includes('/node_modules/@git-diff-view/')) {
     return 'vendor-diff';
   }
 
@@ -86,22 +84,12 @@ function createManualChunks(id: string): string | undefined {
     return 'vendor-dockview';
   }
 
-  if (normalizedId.includes('/node_modules/@radix-ui/')) {
-    return 'vendor-radix';
-  }
-
-  if (normalizedId.includes('/node_modules/@dnd-kit/')) {
-    return 'vendor-dnd';
-  }
-
-  if (normalizedId.includes('/node_modules/lucide-react/')) {
-    return 'vendor-icons';
-  }
-
   if (normalizedId.includes('/node_modules/@tauri-apps/')) {
     return 'vendor-tauri';
   }
 
+  // React UI libraries stay here with React. A separate icons/radix chunk
+  // boots before React.forwardRef exists and leaves the Host Web UI blank.
   return 'vendor';
 }
 
@@ -136,14 +124,23 @@ export default defineConfig({
     },
   },
   server: {
-    port: parseInt(process.env.FRONTEND_PORT || '3000'),
-    proxy: {
-      '/api': {
-        target: `http://localhost:${process.env.BACKEND_PORT || '3001'}`,
-        changeOrigin: true,
-        ws: true,
-      },
-    },
+    port: parseInt(process.env.FRONTEND_PORT || '3000', 10),
+    proxy: (() => {
+      const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+      const backendPort = process.env.BACKEND_PORT
+        ? parseInt(process.env.BACKEND_PORT, 10)
+        : undefined;
+      if (!backendPort || backendPort === frontendPort) {
+        return undefined;
+      }
+      return {
+        '/api': {
+          target: `http://127.0.0.1:${backendPort}`,
+          changeOrigin: true,
+          ws: true,
+        },
+      };
+    })(),
     fs: {
       allow: [path.resolve(__dirname, '.'), path.resolve(__dirname, '..')],
     },

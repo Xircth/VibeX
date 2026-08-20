@@ -541,10 +541,10 @@ export function SystemSettings() {
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="system-proxy-enabled" className="text-xs">
+                <Label htmlFor="system-proxy-enabled">
                   {t('system.enableProxy')}
                 </Label>
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="settings-row__description">
                   {t('system.proxyValidateHint')}
                 </p>
               </div>
@@ -563,12 +563,7 @@ export function SystemSettings() {
             </div>
 
             <div className="space-y-1.5">
-              <Label
-                htmlFor="system-proxy-url"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {t('system.proxyUrl')}
-              </Label>
+              <Label htmlFor="system-proxy-url">{t('system.proxyUrl')}</Label>
               <div className="flex gap-2">
                 <Input
                   id="system-proxy-url"
@@ -596,7 +591,7 @@ export function SystemSettings() {
                   {t('common:save')}
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="settings-row__description">
                 {t('system.proxyProtocolHint')}
               </p>
             </div>
@@ -610,8 +605,8 @@ export function SystemSettings() {
         >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-xs">{t('system.accelerationMode')}</Label>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <Label>{t('system.accelerationMode')}</Label>
+              <p className="settings-row__description">
                 {t('system.accelerationModeDesc')}
               </p>
             </div>

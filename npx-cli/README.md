@@ -11,8 +11,13 @@ sidecar SHA-256 and the inner `SHA256SUMS`, then starts `vibex-server` with
 
 ```bash
 npx vibex
+npx vibex serve
 npx vibex --mcp
 ```
+
+`npx vibex` starts the Host on loopback. `npx vibex serve` opens the Web UI on
+the LAN and prints the long-lived host token. Use `--local` to keep loopback, or
+`--rotate-token` to replace the token.
 
 Artifacts:
 

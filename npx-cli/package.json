@@ -25,6 +25,7 @@
     "bin/cli.js",
     "bin/control.js",
     "bin/download.js",
+    "bin/help.js",
     "bin/plugin.js",
     "dist",
     "plugin-cli"

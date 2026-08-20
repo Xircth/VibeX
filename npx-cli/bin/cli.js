@@ -44,12 +44,15 @@ function getPlatformDir() {
   if (platform === "linux" && arch === "x64") return "linux-x64";
   if (platform === "linux" && arch === "arm64") return "linux-arm64";
   if (platform === "win32" && arch === "x64") return "windows-x64";
+  if (platform === "win32" && arch === "arm64") return "windows-arm64";
   if (platform === "darwin" && arch === "x64") return "macos-x64";
   if (platform === "darwin" && arch === "arm64") return "macos-arm64";
 
   console.error(`Unsupported platform: ${platform}-${arch}`);
   console.error("Host family tarballs are published for:");
-  console.error("  linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64");
+  console.error(
+    "  linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64, windows-arm64",
+  );
   process.exit(1);
 }
 
@@ -61,23 +64,53 @@ function showProgress(downloaded, total) {
 }
 
 function runBinary(binPath, args, env) {
-  const proc = spawn(binPath, args, { stdio: "inherit", env });
+  const proc = spawn(binPath, args, { stdio: "inherit", env, windowsHide: false });
+  const stop = () => {
+    if (process.platform === "win32" && proc.pid) {
+      spawn("taskkill", ["/pid", String(proc.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      return;
+    }
+    proc.kill("SIGTERM");
+  };
   proc.on("exit", (code) => process.exit(code || 0));
   proc.on("error", (error) => {
     console.error(`${path.basename(binPath)} failed: ${error.message}`);
     process.exit(1);
   });
-  process.on("SIGINT", () => proc.kill("SIGINT"));
-  process.on("SIGTERM", () => proc.kill("SIGTERM"));
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
 }
 
 async function main() {
   const args = process.argv.slice(2);
+  const help = require("./help");
+  if (help.isVersion(args)) {
+    help.printVersion();
+    return;
+  }
+  if (help.isHelp(args)) {
+    help.print(help.helpTopic(args));
+    return;
+  }
   if (args[0] === "plugin") {
     await require("./plugin").run(args.slice(1));
     return;
   }
-  if (args[0] === "conversation" || args[0] === "workflow") {
+  if (
+    [
+      "conversation",
+      "workflow",
+      "project",
+      "workspace",
+      "session",
+      "file",
+      "git",
+      "agent",
+    ].includes(args[0])
+  ) {
     await require("./control").run(args);
     return;
   }
@@ -116,7 +149,12 @@ async function main() {
     }
   }
 
-  if (!isMcpMode) {
+  const hostCommand = serverArgs[0];
+  const isHostUtility =
+    hostCommand === "list" ||
+    hostCommand === "install" ||
+    hostCommand === "agents";
+  if (!isMcpMode && !isHostUtility) {
     console.error(`Starting VibeX Host ${CLI_VERSION} (${family.source})...`);
   }
   runBinary(binPath, serverArgs, env);

@@ -38,7 +38,7 @@ function operationId(flags) {
 }
 
 async function call(command, args, flags) {
-  const baseUrl = (process.env.VIBEX_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+  const baseUrl = (process.env.VIBEX_URL || 'http://127.0.0.1:17891').replace(/\/+$/, '');
   const token = process.env.VIBEX_TOKEN;
   if (!token) throw new Error('VIBEX_TOKEN is required');
   const response = await fetch(`${baseUrl}/api/v1/call/${encodeURIComponent(command)}`, {
@@ -258,11 +258,177 @@ async function workflow(action, flags) {
   throw new Error(`Unknown workflow action: ${action || '<missing>'}`);
 }
 
+async function project(action, flags) {
+  if (action === 'list') {
+    return call('get_projects', {}, flags);
+  }
+  if (action === 'show') {
+    return call('get_project', { id: required(flags, 'id') }, flags);
+  }
+  if (action === 'create') {
+    return call(
+      'create_project',
+      {
+        payload: {
+          name: required(flags, 'name'),
+          repositories: flags.path
+            ? [
+                {
+                  display_name: flags.name,
+                  git_repo_path: flags.path,
+                },
+              ]
+            : [],
+        },
+      },
+      flags
+    );
+  }
+  if (action === 'delete') {
+    return call('delete_project', { id: required(flags, 'id') }, flags);
+  }
+  throw new Error(`Unknown project action: ${action || '<missing>'}`);
+}
+
+async function workspace(action, flags) {
+  if (action === 'list') {
+    return flags.project
+      ? call('get_project_workspaces', { projectId: flags.project }, flags)
+      : call('get_workspaces', {}, flags);
+  }
+  if (action === 'show') {
+    return call('get_workspace', { workspaceId: required(flags, 'id') }, flags);
+  }
+  throw new Error(`Unknown workspace action: ${action || '<missing>'}`);
+}
+
+async function session(action, flags) {
+  if (action === 'list') {
+    return call(
+      'get_sessions',
+      { workspaceId: required(flags, 'workspace') },
+      flags
+    );
+  }
+  if (action === 'show') {
+    return call('get_session', { sessionId: required(flags, 'id') }, flags);
+  }
+  if (action === 'create') {
+    if (flags.project) {
+      return call(
+        'create_project_session',
+        {
+          payload: {
+            project_id: flags.project,
+            workspace_id: flags.workspace || null,
+            executor: flags.agent || null,
+            name: flags.title || null,
+            initial_prompt: flags.prompt || null,
+          },
+        },
+        flags
+      );
+    }
+    return call(
+      'create_session',
+      {
+        workspaceId: required(flags, 'workspace'),
+        executor: flags.agent || null,
+        name: flags.title || null,
+        initialPrompt: flags.prompt || null,
+      },
+      flags
+    );
+  }
+  if (action === 'delete') {
+    return call('delete_session', { sessionId: required(flags, 'id') }, flags);
+  }
+  throw new Error(`Unknown session action: ${action || '<missing>'}`);
+}
+
+async function file(action, flags) {
+  if (action === 'tree') {
+    return call(
+      'get_file_tree',
+      { rootPath: required(flags, 'path'), depth: flags.depth ? Number(flags.depth) : 3 },
+      flags
+    );
+  }
+  if (action === 'read') {
+    return call('read_file_content', { path: required(flags, 'path') }, flags);
+  }
+  if (action === 'write') {
+    const content =
+      typeof flags.text === 'string'
+        ? flags.text
+        : fs.readFileSync(required(flags, 'file'), 'utf8');
+    return call(
+      'save_file_content',
+      { path: required(flags, 'path'), content },
+      flags
+    );
+  }
+  throw new Error(`Unknown file action: ${action || '<missing>'}`);
+}
+
+async function git(action, flags) {
+  const workspaceId = required(flags, 'workspace');
+  const repoId = required(flags, 'repo');
+  if (action === 'status') {
+    return call('get_workspace_git_status', { workspaceId, repoId }, flags);
+  }
+  if (action === 'stage') {
+    return call(
+      'stage_workspace_file',
+      { workspaceId, repoId, filePath: required(flags, 'path') },
+      flags
+    );
+  }
+  if (action === 'commit') {
+    return call(
+      'commit_workspace_changes',
+      { workspaceId, repoId, message: required(flags, 'message') },
+      flags
+    );
+  }
+  throw new Error(`Unknown git action: ${action || '<missing>'}`);
+}
+
+async function agent(action, flags) {
+  if (action === 'list') {
+    return call('agent_management_bar', {}, flags);
+  }
+  throw new Error(`Unknown agent action: ${action || '<missing>'}`);
+}
+
+const RESOURCES = {
+  conversation,
+  workflow,
+  project,
+  workspace,
+  session,
+  file,
+  git,
+  agent,
+};
+
 async function run(argv) {
   const { resource, action, flags } = parseArgs(argv);
-  const result = resource === 'conversation'
-    ? await conversation(action, flags)
-    : await workflow(action, flags);
+  const handler = RESOURCES[resource];
+  if (!handler) {
+    throw new Error(`Unknown resource: ${resource || '<missing>'}`);
+  }
+  if (
+    !action ||
+    action === 'help' ||
+    action === '--help' ||
+    action === '-h' ||
+    flags.help
+  ) {
+    require('./help').print(resource);
+    return;
+  }
+  const result = await handler(action, flags);
   print(result, flags);
 }
 

@@ -1643,11 +1643,11 @@ base_url = "https://example.test/v1"
     }
 
     #[test]
-    fn uv_tool_install_keeps_python_and_cache_inside_the_staging_component() {
-        let component_root = Path::new("/managed/.staging/0-combined_runtime");
+    fn uv_tool_install_keeps_python_and_cache_inside_the_user_environment() {
+        let user_env = agents::UserEnvironmentLayout::for_home(Path::new("/tmp/home"));
         let mut command = tokio::process::Command::new("uv");
 
-        configure_uv_tool_install_command(&mut command, component_root, "kimi-cli==1.2.3");
+        configure_uv_tool_install_command(&mut command, &user_env, "kimi-cli==1.2.3");
 
         let command = command.as_std();
         let env = command
@@ -1656,24 +1656,24 @@ base_url = "https://example.test/v1"
             .collect::<BTreeMap<_, _>>();
         assert_eq!(
             env.get(std::ffi::OsStr::new("UV_PYTHON_INSTALL_DIR")),
-            Some(&component_root.join("python").as_os_str())
+            Some(&user_env.uv_python_dir.as_os_str())
         );
         assert_eq!(
             env.get(std::ffi::OsStr::new("UV_CACHE_DIR")),
-            Some(&component_root.join("cache").as_os_str())
+            Some(&user_env.uv_cache_dir.as_os_str())
+        );
+        assert_eq!(
+            env.get(std::ffi::OsStr::new("UV_TOOL_BIN_DIR")),
+            Some(&user_env.uv_tool_bin.as_os_str())
         );
     }
 
     #[test]
     fn hermes_uv_install_pins_the_upstream_python_runtime() {
-        let component_root = Path::new("/managed/.staging/0-combined_runtime");
+        let user_env = agents::UserEnvironmentLayout::for_home(Path::new("/tmp/home"));
         let mut command = tokio::process::Command::new("uv");
 
-        configure_uv_tool_install_command(
-            &mut command,
-            component_root,
-            "hermes-agent[acp,mcp]==0.19.0",
-        );
+        configure_uv_tool_install_command(&mut command, &user_env, "hermes-agent[acp,mcp]==0.19.0");
 
         let args = command
             .as_std()
@@ -2015,9 +2015,11 @@ base_url = "https://example.test/v1"
             }],
         };
         let cancellation = tokio_util::sync::CancellationToken::new();
+        let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
         let installation = install_locked_plan(
             &plan,
             temp.path(),
+            &user_env,
             &cancellation,
             &std::collections::HashMap::new(),
             None,
@@ -2125,9 +2127,11 @@ base_url = "https://example.test/v1"
                 }],
             };
             let cancellation = tokio_util::sync::CancellationToken::new();
+            let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
             let installation = install_locked_plan(
                 &plan,
                 temp.path(),
+                &user_env,
                 &cancellation,
                 &std::collections::HashMap::new(),
                 None,
@@ -2170,9 +2174,11 @@ base_url = "https://example.test/v1"
             }],
         };
         let cancellation = tokio_util::sync::CancellationToken::new();
+        let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
         let installation = install_locked_plan(
             &plan,
             temp.path(),
+            &user_env,
             &cancellation,
             &std::collections::HashMap::new(),
             None,
@@ -2231,12 +2237,14 @@ use agents::{
     AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
     InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
     LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
-    NativeFileMutation, NativeFileSystem, OfficialRegistryHttpFetcher, PlannedDistributionKind,
-    PlannedInstallComponent, ProfileComponent, ProfileInstallSource, ProfileManagementActionKind,
-    ProfileTopology, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
-    ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint,
-    TokioNativeFileSystem, publish_managed_runtime_cli, remove_managed_runtime_cli,
-    switch_managed_runtime_cli, verify_artifact_bytes,
+    NativeFileMutation, NativeFileSystem, ObservedUserComponent, OfficialRegistryHttpFetcher,
+    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileInstallSource,
+    ProfileManagementActionKind, ProfileTopology, RegistryCache, RegistryCacheFreshness,
+    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock,
+    TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
+    decide_user_environment_adopt, ensure_user_cli_path, observed_satisfies_profile,
+    plan_required_components, publish_managed_runtime_cli, remove_managed_runtime_cli,
+    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes,
 };
 use api_types::{
     AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView,
@@ -2717,13 +2725,6 @@ fn configured_shell_family() -> ShellFamily {
 struct ManagedRuntimeCli {
     runtime_executable: PathBuf,
     runtime_path_entries: Vec<PathBuf>,
-}
-
-fn is_cli_base_runtime_component(kind: &str) -> bool {
-    matches!(
-        kind,
-        "base_runtime_node" | "base_runtime_npm" | "base_runtime_uv"
-    )
 }
 
 fn deduplicated_parent_directories(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -3531,6 +3532,18 @@ async fn probe_one_built_in_external_installation(
     };
     if !required_components_present {
         anyhow::bail!("not every Profile-declared external component is available");
+    }
+    let observed = components
+        .iter()
+        .map(|component| ObservedUserComponent {
+            component_id: component.kind.clone(),
+            version: Some(component.version.clone()),
+        })
+        .collect::<Vec<_>>();
+    if !observed_satisfies_profile(profile, &observed) {
+        anyhow::bail!(
+            "user-environment Agent is older than the Built-in Profile pin and must be reinstalled"
+        );
     }
     let runtime = components
         .iter()
@@ -4730,34 +4743,11 @@ async fn preflight_component_is_healthy(path: &Path, expected_sha256: Option<&st
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn relocate_managed_path(path: &Path, from: &Path, to: &Path) -> PathBuf {
     path.strip_prefix(from)
         .map(|relative| to.join(relative))
         .unwrap_or_else(|_| path.to_path_buf())
-}
-
-fn relocate_installed_plan(
-    mut installation: InstalledPlan,
-    from: &Path,
-    to: &Path,
-) -> InstalledPlan {
-    installation.launch_lock.absolute_acp_program =
-        relocate_managed_path(&installation.launch_lock.absolute_acp_program, from, to);
-    if let Some(path_value) = installation.launch_lock.env.get("PATH").cloned() {
-        let rewritten = std::env::split_paths(&path_value)
-            .map(|entry| relocate_managed_path(&entry, from, to))
-            .collect::<Vec<_>>();
-        if let Ok(joined) = std::env::join_paths(rewritten) {
-            installation
-                .launch_lock
-                .env
-                .insert("PATH".to_string(), joined.to_string_lossy().into_owned());
-        }
-    }
-    for component in &mut installation.components {
-        component.absolute_path = relocate_managed_path(&component.absolute_path, from, to);
-    }
-    installation
 }
 
 async fn codex_provider_projection_ready(codex_home: &Path) -> bool {
@@ -5234,10 +5224,12 @@ async fn revalidate_external_installation(
     {
         return Ok(None);
     }
+    if !user_environment_lock_satisfies_plan(pool, agent_id).await? {
+        return Ok(None);
+    }
 
     // External files remain owned by their installer. The install/repair action
-    // only refreshes evidence and may adopt an official fingerprint; it must
-    // never enter the managed staging or terminal-shim pipeline (ADR-0011/0038).
+    // only refreshes evidence when the locked versions already satisfy the plan.
     refresh_agent_management_evidence(app, pool, true).await?;
     let lifecycle = sqlx::query_scalar::<_, String>(
         "SELECT lifecycle FROM agent_installation WHERE agent_id = ?",
@@ -5262,10 +5254,47 @@ async fn revalidate_external_installation(
     }))
 }
 
+async fn user_environment_lock_satisfies_plan(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<bool, AgentManagementErrorView> {
+    let Ok(plan) = resolve_install_plan(pool, agent_id).await else {
+        return Ok(false);
+    };
+    let lock_id = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT current_lock_id FROM agent_installation WHERE agent_id = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .flatten();
+    let Some(lock_id) = lock_id else {
+        return Ok(false);
+    };
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT component_kind, version FROM agent_install_component WHERE lock_id = ?",
+    )
+    .bind(&lock_id)
+    .fetch_all(pool)
+    .await
+    .map_err(internal_error)?;
+    let observed = rows
+        .into_iter()
+        .map(|(component_id, version)| ObservedUserComponent {
+            component_id,
+            version: Some(version),
+        })
+        .collect::<Vec<_>>();
+    Ok(matches!(
+        decide_user_environment_adopt(&plan_required_components(&plan), &observed),
+        UserEnvironmentAdoptDecision::Adopt
+    ))
+}
+
 /// Bind a user-environment install (PATH) as the current external lock.
-/// After a data wipe this is the preferred repair/install path: do not
-/// create a second managed staging tree when the official CLI is already
-/// on PATH.
+/// After a data wipe this is the preferred repair/install path only when
+/// the leftover CLI is complete and at least as new as the Profile pin.
 async fn try_adopt_user_environment(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
@@ -5587,9 +5616,16 @@ async fn run_install_operation(
             } else {
                 None
             };
+            let home_dir = app
+                .path()
+                .home_dir()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            let user_env = UserEnvironmentLayout::for_current_user(home_dir);
+            prepare_user_environment(&user_env).await?;
             install_locked_plan(
                 &plan,
                 &staging,
+                &user_env,
                 &cancellation,
                 &tofu_fingerprints,
                 Some(&install_log),
@@ -5630,12 +5666,7 @@ async fn run_install_operation(
             let _ = tokio::fs::remove_dir_all(&staging).await;
             anyhow::bail!("operation canceled");
         }
-        let release = root.join(lock_id.to_string());
-        if let Err(error) = tokio::fs::rename(&staging, &release).await {
-            let _ = tokio::fs::remove_dir_all(&staging).await;
-            return Err(error.into());
-        }
-        let installation = relocate_installed_plan(installation, &staging, &release);
+        let _ = tokio::fs::remove_dir_all(&staging).await;
         emit_operation(
             &app,
             agent_id.clone(),
@@ -5643,53 +5674,9 @@ async fn run_install_operation(
             kind,
             AgentOperationStatus::Running,
             Some(85),
-            Some("正在发布本地终端命令".to_string()),
+            Some("正在绑定用户环境命令".to_string()),
         );
-        let previous_runtime = current_managed_runtime_cli(&pool, &agent_id).await?;
-        let runtime_executable = installation.runtime_executable()?.to_path_buf();
-        let runtime_path_entries = installation.runtime_path_entries();
-        let home_dir = app
-            .path()
-            .home_dir()
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        let shell = configured_shell_family();
-        let _ = utils::shell::refresh_process_path_after_install().await;
-        switch_managed_runtime_cli(
-            &home_dir,
-            &agent_id,
-            &root,
-            previous_runtime
-                .as_ref()
-                .map(|runtime| runtime.runtime_executable.as_path()),
-            &runtime_executable,
-            &runtime_path_entries,
-            shell,
-        )?;
-        if let Err(error) =
-            persist_installed_lock(&pool, lock_id, &plan, &installation, "managed").await
-        {
-            if let Err(restore_error) = restore_managed_cli_switch(
-                &home_dir,
-                &agent_id,
-                &root,
-                previous_runtime.as_ref(),
-                &runtime_executable,
-                shell,
-            ) {
-                tracing::error!(
-                    agent_id = %agent_id,
-                    %restore_error,
-                    "failed to restore Agent terminal command after lock persistence failure"
-                );
-            }
-            let _ = tokio::fs::remove_dir_all(&release).await;
-            return Err(error);
-        }
-        CLI_EXPOSURES
-            .get_or_init(|| AsyncMutex::new(HashSet::new()))
-            .lock()
-            .await
-            .insert(agent_id.clone());
+        persist_installed_lock(&pool, lock_id, &plan, &installation, "external").await?;
         let _ = utils::shell::refresh_process_path_after_install().await;
         record_post_install_probe(&app, &pool, &agent_id).await?;
         Ok::<_, anyhow::Error>(())
@@ -6099,30 +6086,6 @@ impl<'a> OperationLogEmitter<'a> {
             None,
             Some(message),
         );
-    }
-}
-
-impl InstalledPlan {
-    fn runtime_executable(&self) -> anyhow::Result<&Path> {
-        self.components
-            .iter()
-            .find(|component| {
-                matches!(
-                    component.kind.as_str(),
-                    "agent_runtime" | "combined_runtime"
-                )
-            })
-            .map(|component| component.absolute_path.as_path())
-            .ok_or_else(|| anyhow::anyhow!("安装方案没有本地 Runtime 组件"))
-    }
-
-    fn runtime_path_entries(&self) -> Vec<PathBuf> {
-        deduplicated_parent_directories(
-            self.components
-                .iter()
-                .filter(|component| is_cli_base_runtime_component(&component.kind))
-                .map(|component| component.absolute_path.clone()),
-        )
     }
 }
 
@@ -6570,9 +6533,68 @@ async fn ensure_managed_uv(
     result
 }
 
+async fn prepare_user_environment(layout: &UserEnvironmentLayout) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(&layout.user_bin).await?;
+    tokio::fs::create_dir_all(&layout.npm_bin).await?;
+    tokio::fs::create_dir_all(&layout.uv_tool_dir).await?;
+    for directory in layout.path_entries() {
+        utils::shell::expose_user_bin_to_process_path(&directory);
+    }
+    let _ = ensure_user_cli_path(&layout.home, configured_shell_family());
+    #[cfg(windows)]
+    {
+        let _ = ensure_user_cli_path(&layout.home, ShellFamily::Windows);
+    }
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    Ok(())
+}
+
+async fn existing_user_environment_component(
+    component: &PlannedInstallComponent,
+) -> Option<(PathBuf, String)> {
+    let command = component.command.trim();
+    if command.is_empty() || command == "npm" || command == "uv" {
+        return None;
+    }
+    let executable = utils::shell::resolve_executable_path(command).await?;
+    let executable = tokio::fs::canonicalize(&executable).await.ok()?;
+    let version = probe_installed_component_version(&executable).await?;
+    if agents::version_at_least(&version, &component.version) {
+        Some((executable, version))
+    } else {
+        None
+    }
+}
+
+async fn probe_installed_component_version(executable: &Path) -> Option<String> {
+    let mut command = agent_process_command(executable);
+    command.arg("--version").kill_on_drop(true);
+    let output = tokio::time::timeout(EXTERNAL_COMPONENT_VERSION_TIMEOUT, command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
 async fn install_locked_plan(
     plan: &ResolvedInstallPlan,
     staging: &Path,
+    user_env: &UserEnvironmentLayout,
     cancellation: &CancellationToken,
     previous_tofu_fingerprints: &HashMap<String, String>,
     log: Option<&OperationLogEmitter<'_>>,
@@ -6580,15 +6602,41 @@ async fn install_locked_plan(
     managed_uv: Option<&Path>,
 ) -> anyhow::Result<InstalledPlan> {
     let mut components = Vec::new();
-    let mut path_entries = node_runtime
-        .map(|runtime| vec![runtime.bin_dir.clone()])
-        .unwrap_or_default();
+    let mut path_entries = user_env.path_entries();
+    if let Some(runtime) = node_runtime {
+        path_entries.insert(0, runtime.bin_dir.clone());
+    }
     for (index, component) in plan.components.iter().enumerate() {
+        if let Some((absolute_path, version)) = existing_user_environment_component(component).await
+        {
+            if let Some(log) = log {
+                log.emit(format!(
+                    "Reusing user-environment {} {} at {}",
+                    component.component_id,
+                    version,
+                    absolute_path.display()
+                ));
+            }
+            let sha256 = format!(
+                "{:x}",
+                Sha256::digest(tokio::fs::read(&absolute_path).await?)
+            );
+            components.push(InstalledComponent {
+                kind: component.component_id.clone(),
+                absolute_path,
+                version,
+                sha256: Some(sha256),
+                trust_state: "user_environment".to_string(),
+                ownership: "external".to_string(),
+                shared_resource_key: None,
+            });
+            continue;
+        }
         let component_root = staging.join(format!("{index}-{}", component.component_id));
         tokio::fs::create_dir_all(&component_root).await?;
         clear_macos_quarantine(&component_root).map_err(|error| {
             anyhow::anyhow!(
-                "failed to prepare managed runtime directory {}: {error}",
+                "failed to prepare user-environment staging directory {}: {error}",
                 component_root.display()
             )
         })?;
@@ -6598,7 +6646,8 @@ async fn install_locked_plan(
                     let package = npm_package_name(&component.resolved_source)
                         .unwrap_or(&component.component_id);
                     log.emit(format!(
-                        "$ npm install --prefix <managed> {package}@{}",
+                        "$ npm install -g --prefix {} {package}@{}",
+                        user_env.npm_prefix.display(),
                         component.version
                     ));
                 }
@@ -6619,8 +6668,9 @@ async fn install_locked_plan(
                 }
                 command
                     .arg("install")
+                    .arg("-g")
                     .arg("--prefix")
-                    .arg(&component_root)
+                    .arg(&user_env.npm_prefix)
                     .arg("--no-audit")
                     .arg("--no-fund")
                     .arg("--save=false")
@@ -6632,12 +6682,11 @@ async fn install_locked_plan(
                 } else {
                     cancellable_command_output(command, cancellation).await?
                 };
-                ensure_success("npm install", &output)?;
-                let bin_dir = component_root.join("node_modules").join(".bin");
-                path_entries.push(bin_dir.clone());
+                ensure_success("npm install -g", &output)?;
+                path_entries.push(user_env.npm_bin.clone());
                 let executable = resolve_npm_package_executable(
-                    &component_root,
-                    &bin_dir,
+                    &user_env.npm_global_root(),
+                    &user_env.npm_bin,
                     &component.resolved_source,
                 )
                 .await?;
@@ -6652,12 +6701,11 @@ async fn install_locked_plan(
                 )
             }
             PlannedDistributionKind::Uvx => {
-                let bin_dir = component_root.join("bin");
                 let mut command =
                     agent_process_command(managed_uv.unwrap_or_else(|| Path::new("uv")));
                 configure_uv_tool_install_command(
                     &mut command,
-                    &component_root,
+                    user_env,
                     &component.resolved_source,
                 );
                 if let Some(log) = log {
@@ -6672,9 +6720,9 @@ async fn install_locked_plan(
                     cancellable_command_output(command, cancellation).await?
                 };
                 ensure_success("uv tool install", &output)?;
-                path_entries.push(bin_dir.clone());
+                path_entries.push(user_env.uv_tool_bin.clone());
                 let executable = resolve_uv_tool_executable(
-                    &bin_dir,
+                    &user_env.uv_tool_bin,
                     &component.resolved_source,
                     &component.command,
                 )
@@ -6730,7 +6778,11 @@ async fn install_locked_plan(
                 if let Some(log) = log {
                     log.emit(format!("Extracted {}", component.component_id));
                 }
-                let executable = safe_archive_executable(&component_root, &component.command)?;
+                let staged = safe_archive_executable(&component_root, &component.command)?;
+                let executable =
+                    publish_user_bin_executable(&user_env.user_bin, &component.command, &staged)
+                        .await?;
+                path_entries.push(user_env.user_bin.clone());
                 (
                     executable,
                     Some(verified.sha256),
@@ -6775,62 +6827,8 @@ async fn install_locked_plan(
             version: component.version.clone(),
             sha256,
             trust_state,
-            ownership: "managed".to_string(),
+            ownership: "external".to_string(),
             shared_resource_key: None,
-        });
-    }
-    if let Some(runtime) = node_runtime {
-        let (trust_state, ownership, shared_resource_key) = match runtime.source {
-            RuntimeSource::System => ("system_verified".to_string(), "external".to_string(), None),
-            RuntimeSource::Managed => (
-                "verified_sha256".to_string(),
-                "shared".to_string(),
-                Some(format!(
-                    "node:{}:{}",
-                    runtime.version,
-                    agents::current_platform()
-                )),
-            ),
-        };
-        components.push(InstalledComponent {
-            kind: "base_runtime_node".to_string(),
-            absolute_path: runtime.node.clone(),
-            version: runtime.version.clone(),
-            sha256: Some(format!(
-                "{:x}",
-                Sha256::digest(tokio::fs::read(&runtime.node).await?)
-            )),
-            trust_state: trust_state.clone(),
-            ownership: ownership.clone(),
-            shared_resource_key: shared_resource_key.clone(),
-        });
-        if let Some(npm_version) = &runtime.npm_version {
-            components.push(InstalledComponent {
-                kind: "base_runtime_npm".to_string(),
-                absolute_path: runtime.npm.clone(),
-                version: npm_version.clone(),
-                sha256: Some(format!(
-                    "{:x}",
-                    Sha256::digest(tokio::fs::read(&runtime.npm).await?)
-                )),
-                trust_state,
-                ownership,
-                shared_resource_key,
-            });
-        }
-    }
-    if let Some(uv) = managed_uv {
-        components.push(InstalledComponent {
-            kind: "base_runtime_uv".to_string(),
-            absolute_path: uv.to_path_buf(),
-            version: MANAGED_UV_VERSION.to_string(),
-            sha256: Some(format!("{:x}", Sha256::digest(tokio::fs::read(uv).await?))),
-            trust_state: "verified_sha256".to_string(),
-            ownership: "shared".to_string(),
-            shared_resource_key: Some(format!(
-                "uv:{MANAGED_UV_VERSION}:{}",
-                agents::current_platform()
-            )),
         });
     }
     let acp = components
@@ -6867,7 +6865,7 @@ async fn install_locked_plan(
 
 fn configure_uv_tool_install_command(
     command: &mut tokio::process::Command,
-    component_root: &Path,
+    user_env: &UserEnvironmentLayout,
     package: &str,
 ) {
     command
@@ -6883,10 +6881,56 @@ fn configure_uv_tool_install_command(
     }
     command
         .arg(package)
-        .env("UV_TOOL_DIR", component_root.join("tools"))
-        .env("UV_TOOL_BIN_DIR", component_root.join("bin"))
-        .env("UV_PYTHON_INSTALL_DIR", component_root.join("python"))
-        .env("UV_CACHE_DIR", component_root.join("cache"));
+        .env("UV_TOOL_DIR", &user_env.uv_tool_dir)
+        .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin)
+        .env("UV_PYTHON_INSTALL_DIR", &user_env.uv_python_dir)
+        .env("UV_CACHE_DIR", &user_env.uv_cache_dir);
+}
+
+async fn publish_user_bin_executable(
+    user_bin: &Path,
+    command: &str,
+    staged: &Path,
+) -> anyhow::Result<PathBuf> {
+    tokio::fs::create_dir_all(user_bin).await?;
+    let file_name = if cfg!(windows) {
+        let raw = Path::new(command)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(command);
+        if raw.to_ascii_lowercase().ends_with(".cmd")
+            || raw.to_ascii_lowercase().ends_with(".exe")
+            || raw.to_ascii_lowercase().ends_with(".bat")
+        {
+            raw.to_string()
+        } else if staged
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+        {
+            format!("{raw}.cmd")
+        } else {
+            format!("{raw}.exe")
+        }
+    } else {
+        Path::new(command)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(command)
+            .to_string()
+    };
+    let destination = user_bin.join(file_name);
+    tokio::fs::copy(staged, &destination).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = tokio::fs::metadata(&destination).await?.permissions();
+        permissions.set_mode(0o755);
+        tokio::fs::set_permissions(&destination, permissions).await?;
+    }
+    Ok(tokio::fs::canonicalize(&destination)
+        .await
+        .unwrap_or(destination))
 }
 
 #[cfg(target_os = "macos")]
@@ -7275,7 +7319,8 @@ async fn resolve_uv_tool_executable(
     package_spec: &str,
     preferred_command: &str,
 ) -> anyhow::Result<PathBuf> {
-    let package_name = uv_distribution_name(package_spec)?;
+    let package_name = uv_distribution_name(package_spec)
+        .ok_or_else(|| anyhow::anyhow!("uv package spec has an invalid distribution name"))?;
     let normalized_package_name = normalize_python_command(package_name);
     let mut entries = tokio::fs::read_dir(bin_dir).await?;
     let mut executables = Vec::new();
@@ -7318,27 +7363,6 @@ async fn resolve_uv_tool_executable(
     anyhow::bail!(
         "uv package `{package_name}` publishes multiple executables without a canonical entry: {names}"
     )
-}
-
-fn uv_distribution_name(package_spec: &str) -> anyhow::Result<&str> {
-    let without_version = if let Some((name, _version)) = package_spec.split_once("==") {
-        name
-    } else if let Some((name, _version)) = package_spec.rsplit_once('@') {
-        name
-    } else {
-        anyhow::bail!("uv package spec is not version-locked: `{package_spec}`");
-    };
-    let name = without_version
-        .split_once('[')
-        .map_or(without_version, |(name, _extras)| name);
-    if name.is_empty()
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        anyhow::bail!("uv package spec has an invalid distribution name");
-    }
-    Ok(name)
 }
 
 fn normalize_python_command(value: &str) -> String {
@@ -7931,6 +7955,10 @@ async fn uninstall_managed_installation(
     .fetch_optional(pool)
     .await
     .map_err(internal_error)?;
+    if ownership.as_deref() == Some("external") {
+        uninstall_user_environment_installation(app, pool, agent_id).await?;
+        return clear_installation_lock(pool, agent_id).await;
+    }
     if ownership.as_deref() == Some("managed") {
         let managed_artifacts_dir = app_managed_artifacts_directory(app).map_err(internal_error)?;
         let home_dir = app.path().home_dir().map_err(internal_error)?;
@@ -7972,6 +8000,13 @@ async fn uninstall_managed_installation(
             }
         }
     }
+    clear_installation_lock(pool, agent_id).await
+}
+
+async fn clear_installation_lock(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<(), AgentManagementErrorView> {
     let mut transaction = pool.begin().await.map_err(internal_error)?;
     sqlx::query(
         r#"UPDATE agent_installation
@@ -7997,6 +8032,155 @@ async fn uninstall_managed_installation(
         .await
         .remove(agent_id);
     Ok(())
+}
+
+async fn uninstall_user_environment_installation(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<(), AgentManagementErrorView> {
+    let resolved_json = sqlx::query_scalar::<_, String>(
+        r#"SELECT lock.resolved_json
+           FROM agent_installation installation
+           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?;
+    let Some(resolved_json) = resolved_json else {
+        return Ok(());
+    };
+    let payload: serde_json::Value =
+        serde_json::from_str(&resolved_json).map_err(internal_error)?;
+    let plan = payload.get("frozen_plan").cloned().ok_or_else(|| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            "Installation lock is missing its frozen plan",
+            Some(agent_id.clone()),
+        )
+    })?;
+    let plan: ResolvedInstallPlan = serde_json::from_value(plan).map_err(internal_error)?;
+    let home_dir = app.path().home_dir().map_err(internal_error)?;
+    let user_env = UserEnvironmentLayout::for_current_user(home_dir);
+    let node_runtime = discover_system_node_runtime(node_requirement_for_agent(agent_id))
+        .await
+        .ok();
+    for component in &plan.components {
+        match component.distribution_kind {
+            PlannedDistributionKind::Npx => {
+                let Ok(package) = npm_package_name(&component.resolved_source) else {
+                    continue;
+                };
+                let mut command = agent_process_command(
+                    node_runtime
+                        .as_ref()
+                        .map(|runtime| runtime.npm.as_path())
+                        .unwrap_or_else(|| Path::new("npm")),
+                );
+                if let Some(runtime) = node_runtime.as_ref() {
+                    prepend_command_path(&mut command, &runtime.bin_dir).map_err(internal_error)?;
+                }
+                command
+                    .arg("uninstall")
+                    .arg("-g")
+                    .arg("--prefix")
+                    .arg(&user_env.npm_prefix)
+                    .arg(package);
+                let output = cancellable_command_output(command, &CancellationToken::new())
+                    .await
+                    .map_err(internal_error)?;
+                if !output.status.success() {
+                    return Err(management_error(
+                        AgentManagementErrorCode::InvalidState,
+                        format!(
+                            "npm uninstall -g {package} failed: {}",
+                            redact_operation_output(&String::from_utf8_lossy(&output.stderr))
+                        ),
+                        Some(agent_id.clone()),
+                    ));
+                }
+            }
+            PlannedDistributionKind::Uvx => {
+                let Some(package) = uv_distribution_name(&component.resolved_source) else {
+                    continue;
+                };
+                let mut command = agent_process_command(Path::new("uv"));
+                command
+                    .arg("tool")
+                    .arg("uninstall")
+                    .arg(package)
+                    .env("UV_TOOL_DIR", &user_env.uv_tool_dir)
+                    .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin);
+                let output = cancellable_command_output(command, &CancellationToken::new())
+                    .await
+                    .map_err(internal_error)?;
+                if !output.status.success() {
+                    return Err(management_error(
+                        AgentManagementErrorCode::InvalidState,
+                        format!(
+                            "uv tool uninstall {package} failed: {}",
+                            redact_operation_output(&String::from_utf8_lossy(&output.stderr))
+                        ),
+                        Some(agent_id.clone()),
+                    ));
+                }
+            }
+            PlannedDistributionKind::Binary => {
+                let command_name = Path::new(&component.command)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(component.command.as_str());
+                let destination = if cfg!(windows) {
+                    user_env.user_bin.join(format!("{command_name}.exe"))
+                } else {
+                    user_env.user_bin.join(command_name)
+                };
+                match tokio::fs::remove_file(&destination).await {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(management_error(
+                            AgentManagementErrorCode::Internal,
+                            format!("无法删除用户环境 Binary：{error}"),
+                            Some(agent_id.clone()),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    let leftover = leftover_user_environment_commands(&plan).await;
+    if !leftover.is_empty() {
+        return Err(management_error(
+            AgentManagementErrorCode::InvalidState,
+            format!(
+                "卸载后 PATH 上仍能找到 {}，已保留 Installation lock",
+                leftover.join(", ")
+            ),
+            Some(agent_id.clone()),
+        ));
+    }
+    Ok(())
+}
+
+async fn leftover_user_environment_commands(plan: &ResolvedInstallPlan) -> Vec<String> {
+    let mut leftover = Vec::new();
+    for component in &plan.components {
+        let command = component.command.trim();
+        if command.is_empty() || command == "npm" || command == "uv" {
+            continue;
+        }
+        if utils::shell::resolve_executable_path(command)
+            .await
+            .is_some()
+        {
+            leftover.push(command.to_string());
+        }
+    }
+    leftover
 }
 
 #[tauri::command]
@@ -10210,22 +10394,18 @@ fn opencode_provider_paths(
     environment: &HashMap<String, String>,
 ) -> Result<OpenCodeNativePaths, AgentManagementErrorView> {
     let home = dirs::home_dir().ok_or_else(|| internal_error("用户目录不可用"))?;
-    let resolve_root = |variable: &str, fallback: &str| {
-        environment
-            .get(variable)
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| expand_agent_home_path(&home, value))
-            .or_else(|| {
-                std::env::var_os(variable)
-                    .filter(|value| !value.is_empty())
-                    .map(|value| expand_agent_home_path(&home, &value.to_string_lossy()))
-            })
-            .unwrap_or_else(|| home.join(fallback))
-    };
-    let data_root = resolve_root("XDG_DATA_HOME", ".local/share");
-    let config_root = resolve_root("XDG_CONFIG_HOME", ".config");
-    let cache_root = resolve_root("XDG_CACHE_HOME", ".cache");
-    let config_dir = config_root.join("opencode");
+    let cache_root = environment
+        .get("XDG_CACHE_HOME")
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| expand_agent_home_path(&home, value))
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .filter(|value| !value.is_empty())
+                .map(|value| expand_agent_home_path(&home, &value.to_string_lossy()))
+        })
+        .unwrap_or_else(|| home.join(".cache"));
+    let config_dir =
+        agents::metadata::opencode_config_dir().ok_or_else(|| internal_error("用户目录不可用"))?;
     let primary_config = config_dir.join("opencode.json");
     let legacy_config = config_dir.join("config.json");
     let config_path = if !primary_config.is_file() && legacy_config.is_file() {
@@ -10234,7 +10414,8 @@ fn opencode_provider_paths(
         primary_config
     };
     Ok(OpenCodeNativePaths {
-        auth_path: data_root.join("opencode/auth.json"),
+        auth_path: agents::metadata::opencode_auth_path()
+            .ok_or_else(|| internal_error("用户目录不可用"))?,
         config_path,
         cache_dir: cache_root.join("opencode"),
     })

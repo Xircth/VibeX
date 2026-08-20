@@ -49,6 +49,7 @@ pub mod skills;
 pub mod state;
 pub mod terminal;
 pub mod user_definition;
+pub mod user_environment;
 
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
@@ -66,8 +67,8 @@ pub use auth_status::{
 };
 pub use capability::AcpCapabilityNormalizer;
 pub use cli_exposure::{
-    CliExposureError, PublishedCliCommand, ShellFamily, publish_managed_runtime_cli,
-    remove_managed_runtime_cli, switch_managed_runtime_cli,
+    CliExposureError, PublishedCliCommand, ShellFamily, ensure_user_cli_path,
+    publish_managed_runtime_cli, remove_managed_runtime_cli, switch_managed_runtime_cli,
 };
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
@@ -88,9 +89,9 @@ pub use conversation::{
     ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
     ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
     ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-    ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn,
-    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-    TurnBlockedReason, TurnRole, TurnUsage,
+    ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn, SessionLoadFailureReason,
+    SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole,
+    TurnUsage,
 };
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, CompanionInjectionList,
@@ -138,6 +139,7 @@ pub use lifecycle::{
     BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
     LifecycleComponent, LifecycleFacts, LifecyclePlan, LifecycleService,
 };
+pub use local_detection::{npm_package_name, version_at_least};
 pub use management_boundary::{
     BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,
     NativeFileMutation, NativeFileSystem, RegistryFetchResponse, RegistryFetcher, SystemClock,
@@ -209,3 +211,8 @@ pub use terminal::{
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalOutputSnapshot,
 };
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
+pub use user_environment::{
+    ObservedUserComponent, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
+    decide_user_environment_adopt, observed_satisfies_profile, plan_required_components,
+    profile_required_versions, uv_distribution_name,
+};

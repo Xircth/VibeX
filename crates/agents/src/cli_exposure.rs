@@ -76,6 +76,12 @@ pub enum CliExposureError {
     Io(#[from] std::io::Error),
 }
 
+/// Ensure `~/.local/bin` is on the user PATH so user-environment Agent CLIs
+/// are visible after install. Does not write a VibeX-owned shim.
+pub fn ensure_user_cli_path(home_dir: &Path, shell: ShellFamily) -> Result<(), CliExposureError> {
+    ensure_shell_path(home_dir, shell)
+}
+
 pub fn publish_managed_runtime_cli(
     home_dir: &Path,
     agent_id: &AgentId,

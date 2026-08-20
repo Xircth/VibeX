@@ -46,38 +46,44 @@ pub fn opencode_config_path() -> Option<std::path::PathBuf> {
 }
 
 pub fn opencode_config_dir() -> Option<std::path::PathBuf> {
-    #[cfg(not(windows))]
-    {
-        dirs::home_dir().map(|path| path.join(".config").join("opencode"))
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let trimmed = xdg.trim();
+        if !trimmed.is_empty() {
+            return Some(std::path::PathBuf::from(trimmed).join("opencode"));
+        }
     }
+    let home = dirs::home_dir()?;
+    let xdg_style = home.join(".config").join("opencode");
     #[cfg(windows)]
     {
-        std::env::var("XDG_CONFIG_HOME")
+        let appdata = std::env::var_os("APPDATA")
             .map(std::path::PathBuf::from)
-            .ok()
-            .or_else(|| dirs::home_dir().map(|home| home.join("AppData").join("Roaming")))
-            .map(|base| base.join("opencode"))
+            .unwrap_or_else(|| home.join("AppData").join("Roaming"))
+            .join("opencode");
+        if !xdg_style.exists() && appdata.exists() {
+            return Some(appdata);
+        }
     }
+    Some(xdg_style)
 }
 
 pub fn opencode_auth_path() -> Option<std::path::PathBuf> {
-    #[cfg(not(windows))]
-    {
-        dirs::home_dir().map(|path| {
-            path.join(".local")
-                .join("share")
-                .join("opencode")
-                .join("auth.json")
-        })
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        let trimmed = xdg.trim();
+        if !trimmed.is_empty() {
+            return Some(
+                std::path::PathBuf::from(trimmed)
+                    .join("opencode")
+                    .join("auth.json"),
+            );
+        }
     }
-    #[cfg(windows)]
-    {
-        std::env::var("XDG_DATA_HOME")
-            .map(std::path::PathBuf::from)
-            .ok()
-            .or_else(|| dirs::home_dir().map(|path| path.join(".local").join("share")))
-            .map(|path| path.join("opencode").join("auth.json"))
-    }
+    dirs::home_dir().map(|home| {
+        home.join(".local")
+            .join("share")
+            .join("opencode")
+            .join("auth.json")
+    })
 }
 
 #[cfg(test)]

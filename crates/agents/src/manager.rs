@@ -47,7 +47,9 @@ use tokio_util::{
     compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt},
     io::ReaderStream,
 };
-use workspace_utils::process::new_hidden_tokio_command;
+use workspace_utils::process::{
+    group_spawn_no_window, kill_process_group, new_hidden_tokio_command,
+};
 
 use crate::{
     AcpAuthStatusAdapter, AcpCapabilityNormalizer, AcpCapabilitySnapshot, AgentAutoApproveMode,
@@ -1548,18 +1550,19 @@ impl AgentConnectionRunner {
             }
         }
 
-        let mut child = command
-            .spawn()
+        let mut child = group_spawn_no_window(&mut command)
             .map_err(|error| AgentError::Runtime(format!("failed to spawn ACP agent: {error}")))?;
         let stdout = child
+            .inner()
             .stdout
             .take()
             .ok_or_else(|| AgentError::Runtime("ACP child missing stdout".to_string()))?;
         let stdin = child
+            .inner()
             .stdin
             .take()
             .ok_or_else(|| AgentError::Runtime("ACP child missing stdin".to_string()))?;
-        let stderr = child.stderr.take();
+        let stderr = child.inner().stderr.take();
 
         let (mut to_acp_writer, acp_incoming_reader) = tokio::io::duplex(64 * 1024);
         tokio::spawn(async move {
@@ -2026,7 +2029,7 @@ impl AgentConnectionRunner {
             })
             .await;
 
-        let _ = child.kill().await;
+        let _ = kill_process_group(&mut child).await;
         if handshake_timed_out.load(Ordering::SeqCst) {
             let stderr = stderr_buffer.lock().await.summary();
             return Err(AgentError::Runtime(format_handshake_timeout_error(

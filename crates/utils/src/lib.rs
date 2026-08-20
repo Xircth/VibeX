@@ -1,4 +1,4 @@
-use std::{env, sync::OnceLock};
+use std::sync::OnceLock;
 
 use directories::ProjectDirs;
 
@@ -6,8 +6,10 @@ pub mod approvals;
 pub mod assets;
 pub mod browser;
 pub mod diff;
+pub mod host_bin;
 pub mod log_msg;
 pub mod msg_store;
+pub mod net;
 pub mod path;
 pub mod port_file;
 pub mod process;
@@ -43,16 +45,27 @@ pub fn is_wsl2() -> bool {
 }
 
 pub fn cache_dir() -> std::path::PathBuf {
-    let proj = if cfg!(debug_assertions) {
-        ProjectDirs::from("ai", "bloop-dev", env!("CARGO_PKG_NAME"))
-            .expect("OS didn't give us a home directory")
-    } else {
-        ProjectDirs::from("ai", "bloop", env!("CARGO_PKG_NAME"))
-            .expect("OS didn't give us a home directory")
-    };
+    ProjectDirs::from("app", "vibex", "vibex")
+        .expect("OS didn't give us a home directory")
+        .cache_dir()
+        .to_path_buf()
+}
 
-    // ✔ macOS → ~/Library/Caches/MyApp
-    // ✔ Linux → ~/.cache/myapp (respects XDG_CACHE_HOME)
-    // ✔ Windows → %LOCALAPPDATA%\Example\MyApp
-    proj.cache_dir().to_path_buf()
+#[cfg(test)]
+mod tests {
+    use super::cache_dir;
+
+    #[test]
+    fn cache_dir_uses_the_vibex_project_identity() {
+        let path = cache_dir();
+        let rendered = path.to_string_lossy();
+        assert!(
+            rendered.to_ascii_lowercase().contains("vibex"),
+            "cache directory should belong to VibeX, got {rendered}"
+        );
+        assert!(
+            !rendered.to_ascii_lowercase().contains("bloop"),
+            "cache directory still uses the leftover bloop identity: {rendered}"
+        );
+    }
 }

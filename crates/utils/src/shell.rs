@@ -13,10 +13,13 @@ use crate::tokio::block_on;
 /// Returns the appropriate shell command and argument for the current platform.
 ///
 /// Returns (shell_program, shell_arg) where:
-/// - Windows: ("cmd", "/C")
-/// - Unix-like: ("sh", "-c") or ("bash", "-c") if available
+/// - Windows: Git Bash `bash.exe -c` when present, otherwise `cmd /C`
+/// - Unix-like: ("sh", "-c") or the user's login shell
 pub fn get_shell_command() -> (String, &'static str) {
     if cfg!(windows) {
+        if let Ok(bash) = which::which("bash").or_else(|_| which::which("bash.exe")) {
+            return (bash.to_string_lossy().into_owned(), "-c");
+        }
         ("cmd".into(), "/C")
     } else {
         UnixShell::current_shell().get_shell_command()
@@ -209,6 +212,7 @@ fn user_bin_directories(
                 .unwrap_or_else(|| home.join("AppData/Local"));
             push(app_data.join("npm"));
             push(local_app_data.join("pnpm"));
+            push(home.join(".local/bin"));
         }
         UserBinPlatform::Unix => {
             push(home.join(".local/bin"));
@@ -487,6 +491,7 @@ mod tests {
                 Path::new(r"D:\npm-prefix").to_path_buf(),
                 Path::new(r"C:\Users\developer\AppData\Roaming").join("npm"),
                 Path::new(r"C:\Users\developer\AppData\Local").join("pnpm"),
+                home.join(".local/bin"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
             ]

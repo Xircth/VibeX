@@ -1,17 +1,26 @@
+use std::path::{Path, PathBuf};
+
 use directories::ProjectDirs;
 use rust_embed::RustEmbed;
 use sha2::{Digest, Sha256};
 
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
-pub fn asset_dir() -> std::path::PathBuf {
+/// Default Host data directory shared by Desktop release builds and `vibex-server`.
+///
+/// Desktop debug builds still use the repo `dev_assets/` tree via [`asset_dir`].
+pub fn default_host_data_dir() -> PathBuf {
+    ProjectDirs::from("app", "vibex", "vibex")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .or_else(|| dirs::data_dir().map(|path| path.join("vibex")))
+        .unwrap_or_else(|| PathBuf::from(".vibex-data"))
+}
+
+pub fn asset_dir() -> PathBuf {
     let path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(PROJECT_ROOT).join("../../dev_assets")
+        PathBuf::from(PROJECT_ROOT).join("../../dev_assets")
     } else {
-        ProjectDirs::from("app", "vibex", "vibex")
-            .expect("OS didn't give us a home directory")
-            .data_dir()
-            .to_path_buf()
+        default_host_data_dir()
     };
 
     // Ensure the directory exists
@@ -20,34 +29,133 @@ pub fn asset_dir() -> std::path::PathBuf {
     }
 
     path
-    // ✅ macOS → ~/Library/Application Support/MyApp
-    // ✅ Linux → ~/.local/share/myapp   (respects XDG_DATA_HOME)
-    // ✅ Windows → %APPDATA%\Example\MyApp
 }
 
-pub fn config_path() -> std::path::PathBuf {
-    asset_dir().join("config.json")
+/// Canonical Host data directory for Desktop and `vibex-server`.
+///
+/// `VIBEX_DATA_DIR` wins. Otherwise this is [`asset_dir`] so debug Desktop
+/// keeps using `dev_assets/` and release builds share ProjectDirs with Server.
+pub fn host_data_dir() -> PathBuf {
+    if let Some(explicit) = std::env::var_os("VIBEX_DATA_DIR") {
+        let path = PathBuf::from(explicit);
+        let _ = std::fs::create_dir_all(&path);
+        return path;
+    }
+    asset_dir()
 }
 
-/// Canonical, user-editable settings document shared by the UI and agents.
-pub fn settings_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .expect("OS didn't give us a home directory")
-        .join(".vibex")
-        .join("settings.json")
+pub fn config_path() -> PathBuf {
+    host_data_dir().join("config.json")
+}
+
+/// Settings live next to the Host database. `~/.vibex/settings.json` is copied
+/// once if the Host file does not exist yet.
+pub fn settings_path() -> PathBuf {
+    let dest = host_data_dir().join("settings.json");
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".vibex").join("settings.json")),
+        &dest,
+    );
+    dest
+}
+
+pub fn im_env_path() -> PathBuf {
+    let dest = host_data_dir().join(".env");
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".vibex").join(".env")),
+        &dest,
+    );
+    dest
+}
+
+fn adopt_legacy_file(legacy: Option<PathBuf>, dest: &Path) {
+    let Some(legacy) = legacy else {
+        return;
+    };
+    if dest.exists() || !legacy.exists() {
+        return;
+    }
+    if let Some(parent) = dest.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::copy(legacy, dest);
 }
 
 /// Directory for rotating application log files (P2-8). Created on first use.
-pub fn logs_dir() -> std::path::PathBuf {
-    let path = asset_dir().join("logs");
+pub fn logs_dir() -> PathBuf {
+    let path = host_data_dir().join("logs");
     if !path.exists() {
         let _ = std::fs::create_dir_all(&path);
     }
     path
 }
 
-pub fn profiles_path() -> std::path::PathBuf {
-    asset_dir().join("profiles.json")
+pub fn profiles_path() -> PathBuf {
+    host_data_dir().join("profiles.json")
+}
+
+pub fn host_identity_path(data_root: &Path) -> PathBuf {
+    data_root.join("host-identity.json")
+}
+
+/// Stable Host identity for the given data directory.
+///
+/// Desktop and `vibex-server` must persist this next to the database so pairing
+/// and capabilities keep the same identity across restarts and Host family
+/// processes.
+pub fn load_or_create_host_id(data_root: &Path) -> std::io::Result<String> {
+    let path = host_identity_path(data_root);
+    if let Ok(text) = std::fs::read_to_string(&path)
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+        && let Some(host_id) = value
+            .get("host_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return Ok(host_id.to_string());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let host_id = uuid::Uuid::new_v4().to_string();
+    let encoded = serde_json::to_vec_pretty(&serde_json::json!({ "host_id": host_id }))
+        .map_err(std::io::Error::other)?;
+    let staging = path.with_extension("json.tmp");
+    std::fs::write(&staging, encoded)?;
+    restrict_owner_read_write(&staging);
+    match std::fs::rename(&staging, &path) {
+        Ok(()) => {}
+        Err(_) if path.exists() => {
+            let _ = std::fs::remove_file(&staging);
+            if let Ok(text) = std::fs::read_to_string(&path)
+                && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(existing) = value
+                    .get("host_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            {
+                return Ok(existing.to_string());
+            }
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&staging);
+            return Err(error);
+        }
+    }
+    restrict_owner_read_write(&path);
+    Ok(host_id)
+}
+
+fn restrict_owner_read_write(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 #[derive(RustEmbed)]
@@ -63,8 +171,9 @@ pub struct ScriptAssets;
 pub struct BuiltinPluginAssets;
 
 /// Materializes every bundled VibeX plugin from application-owned bytes.
-/// Adding another builtin package under `assets/plugins/<name>` requires no
-/// Host code change or plugin-id branch.
+/// Builtin product plugins live in git submodules under `assets/plugins/<name>`.
+/// Adding another checked-out package there requires no Host code change or
+/// plugin-id branch.
 pub fn materialize_builtin_plugins(
     data_root: &std::path::Path,
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
@@ -223,25 +332,40 @@ fn is_builtin_runtime_asset(path: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::materialize_builtin_plugins;
+    use super::{load_or_create_host_id, materialize_builtin_plugins};
 
     #[test]
     fn discovers_builtin_packages_without_plugin_specific_host_code() {
         let data = tempfile::tempdir().unwrap();
         let roots = materialize_builtin_plugins(data.path()).unwrap();
 
-        assert_eq!(roots.len(), 2);
+        let mut ids = roots
+            .iter()
+            .map(|root| {
+                let manifest: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.join(".vibex-plugin/plugin.json")).unwrap(),
+                )
+                .unwrap();
+                manifest["id"].as_str().unwrap().to_owned()
+            })
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(
+            ids,
+            [
+                "vibex.multi-agent",
+                "vibex.office",
+                "vibex.plugin-development",
+                "vibex.session-enhance",
+                "vibex.workflow-creator",
+            ]
+        );
         let office = roots
             .iter()
             .find(|root| root.to_string_lossy().contains("vibex.office"))
             .unwrap();
-        let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(office.join(".vibex-plugin/plugin.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(manifest["id"], "vibex.office");
 
-        std::fs::write(office.join("config.json"), br#"{"previewMode":"editable"}"#).unwrap();
+        std::fs::write(office.join("config.json"), br#"{"idleTimeoutMinutes": 7}"#).unwrap();
         let repeated = materialize_builtin_plugins(data.path()).unwrap();
         assert_eq!(repeated, roots);
         let repeated_office = repeated
@@ -250,7 +374,20 @@ mod tests {
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(repeated_office.join("config.json")).unwrap(),
-            r#"{"previewMode":"editable"}"#
+            r#"{"idleTimeoutMinutes": 7}"#
+        );
+    }
+
+    #[test]
+    fn host_identity_is_stable_for_a_data_directory() {
+        let data = tempfile::tempdir().unwrap();
+        let first = load_or_create_host_id(data.path()).unwrap();
+        let second = load_or_create_host_id(data.path()).unwrap();
+        assert!(!first.is_empty());
+        assert_eq!(first, second);
+        assert!(
+            data.path().join("host-identity.json").is_file(),
+            "host identity must live in the Host data directory"
         );
     }
 }

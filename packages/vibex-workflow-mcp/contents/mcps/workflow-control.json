@@ -1,0 +1,8 @@
+{
+  "managedRuntime": {
+    "source": "runtime/mcp-server.mjs",
+    "entrypoint": "dist/mcp/workflow-control.mjs",
+    "protocolRevision": "2026-07-28",
+    "defaultBinding": "all-compatible-agents"
+  }
+}

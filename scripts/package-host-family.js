@@ -8,6 +8,7 @@ function parseArgs(argv) {
   const options = {
     server: null,
     mcp: null,
+    workflowMcp: null,
     web: null,
     plugins: null,
     output: null,
@@ -17,7 +18,7 @@ function parseArgs(argv) {
     if (!key.startsWith("--")) {
       throw new Error(`unexpected argument: ${key}`);
     }
-    const name = key.slice(2);
+    const name = key.slice(2) === "workflow-mcp" ? "workflowMcp" : key.slice(2);
     if (!(name in options)) {
       throw new Error(`unknown option: ${key}`);
     }
@@ -76,8 +77,22 @@ function packageHostFamily(options) {
 
   const serverName = path.basename(options.server);
   const mcpName = path.basename(options.mcp);
+  const workflowMcpName = path.basename(options.workflowMcp);
   copyFile(options.server, path.join(output, serverName));
   copyFile(options.mcp, path.join(output, mcpName));
+  copyFile(options.workflowMcp, path.join(output, workflowMcpName));
+  const workflowScript = path.join(
+    path.dirname(options.plugins),
+    "..",
+    "packages",
+    "vibex-workflow-mcp",
+    "dist",
+    "mcp",
+    "workflow-control.mjs",
+  );
+  if (fs.existsSync(workflowScript)) {
+    copyFile(workflowScript, path.join(output, "workflow-control.mjs"));
+  }
   copyDirectory(options.web, path.join(output, "web"));
   const repoRoot = path.resolve(path.dirname(options.plugins), "..");
   const sdkRoot = path.join(repoRoot, "packages");
@@ -107,6 +122,7 @@ function packageHostFamily(options) {
   const checksums = [
     serverName,
     mcpName,
+    workflowMcpName,
     ...walkFiles(output)
       .map((filePath) => path.relative(output, filePath))
       .filter((relative) => relative !== "SHA256SUMS")

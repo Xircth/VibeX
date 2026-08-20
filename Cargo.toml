@@ -8,6 +8,7 @@ members = [
     "crates/delegation-proto",
     "crates/delegation",
     "crates/vibex-mcp",
+    "crates/vibex-workflow-mcp",
     "crates/db",
     "crates/conversations",
     "crates/executors",

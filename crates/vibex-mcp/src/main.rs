@@ -55,6 +55,7 @@ struct CompanionFeatures {
     ask: bool,
     session_info: bool,
     session_control: bool,
+    plugin_dev: bool,
 }
 
 impl CompanionFeatures {
@@ -68,6 +69,7 @@ impl CompanionFeatures {
                 ask: false,
                 session_info: false,
                 session_control: false,
+                plugin_dev: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -77,6 +79,7 @@ impl CompanionFeatures {
                     ask: has("ask"),
                     session_info: has("sessions"),
                     session_control: has("session-control"),
+                    plugin_dev: has("plugin-dev"),
                 }
             }
         }
@@ -91,6 +94,7 @@ impl CompanionFeatures {
             "send_session_input" | "cancel_session_turn" | "wait_for_session" => {
                 self.session_control
             }
+            "plugin_dev_link_request" | "plugin_dev_link_status" => self.plugin_dev,
             _ => false,
         }
     }
@@ -213,12 +217,16 @@ struct Companion {
 
 impl Companion {
     fn new(args: Args) -> Self {
-        let tools = enabled_tools(&args.features);
+        let mut features = args.features;
+        if args.product == "plugin-dev" {
+            features.plugin_dev = true;
+        }
+        let tools = enabled_tools(&features);
         Self {
             parent_connection_id: args.parent_connection_id,
             socket_path: args.socket_path,
             token: args.token,
-            features: args.features,
+            features,
             tools,
             server_url: args.server_url,
             server_token: args.server_token,
@@ -304,6 +312,20 @@ impl Companion {
             .await;
             return;
         }
+        if matches!(
+            name.as_str(),
+            "plugin_dev_link_request" | "plugin_dev_link_status"
+        ) {
+            match self.call_plugin_dev(&name, &arguments).await {
+                Ok(value) => {
+                    write_opt(&stdout, respond(id, render_result(&value))).await;
+                }
+                Err(error) => {
+                    write_opt(&stdout, respond_error(id, -32603, &error)).await;
+                }
+            }
+            return;
+        }
         let message = match self.build_message(&name, &arguments, meta.as_ref()) {
             Ok(message) => message,
             Err(err) => {
@@ -374,6 +396,26 @@ impl Companion {
                 )
                 .await;
             }
+        }
+    }
+
+    async fn call_plugin_dev(&self, name: &str, arguments: &Value) -> Result<Value, String> {
+        match name {
+            "plugin_dev_link_request" => {
+                let source_path = required_string(arguments, "source_path")?;
+                Ok(json!({
+                    "status": "pending_confirmation",
+                    "sourcePath": source_path,
+                    "conversationId": self.conversation_id,
+                    "message": "Confirm Full Trust in VibeX for this package. After confirmation, run vibex-plugin dev on the Host. Do not paste a token."
+                }))
+            }
+            "plugin_dev_link_status" => Ok(json!({
+                "requestId": required_string(arguments, "request_id")?,
+                "status": "pending_confirmation",
+                "message": "Waiting for Full Trust confirmation in VibeX."
+            })),
+            other => Err(format!("unknown tool: {other}")),
         }
     }
 
@@ -713,6 +755,33 @@ mod tests {
         assert!(names.contains(&"cancel_delegation"));
         assert!(!names.contains(&"check_user_feedback"));
         assert!(!names.contains(&"ask_user_question"));
+        assert!(!names.contains(&"plugin_dev_link_request"));
+    }
+
+    #[test]
+    fn plugin_dev_product_exposes_link_tools() {
+        let value = respond_text({
+            let companion = Arc::new(Companion::new(Args {
+                parent_connection_id: "conn-1".to_string(),
+                socket_path: "/tmp/does-not-matter.sock".to_string(),
+                token: "tok".to_string(),
+                features: CompanionFeatures::parse(Some("plugin-dev")),
+                server_url: None,
+                server_token: None,
+                conversation_id: None,
+                product: "plugin-dev".to_string(),
+            }));
+            companion.classify(&serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}))
+        });
+        let names: Vec<&str> = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert!(names.contains(&"plugin_dev_link_request"));
+        assert!(names.contains(&"plugin_dev_link_status"));
+        assert!(!names.contains(&"delegate_to_agent"));
     }
 
     #[test]

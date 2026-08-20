@@ -23,7 +23,6 @@ use crate::state::AppState;
 /// written into plugin content or user configuration.
 pub struct WorkflowMcpGatewayConnection {
     pub endpoint: String,
-    token: String,
     task: JoinHandle<()>,
 }
 
@@ -104,11 +103,12 @@ impl ServerAuth for WorkflowMcpAuth {
     ) -> Result<RevokeDeviceResponse, AuthStoreError> {
         Err(AuthStoreError::PairingUnavailable)
     }
-}
 
-impl WorkflowMcpGatewayConnection {
-    pub fn token(&self) -> &str {
-        &self.token
+    async fn list_devices(
+        &self,
+        _actor: &AuthenticatedCredential,
+    ) -> Result<Vec<server::PairedDeviceRecord>, AuthStoreError> {
+        Err(AuthStoreError::PairingUnavailable)
     }
 }
 
@@ -155,7 +155,6 @@ pub async fn start(state: &AppState) -> Result<WorkflowMcpGatewayConnection, Str
     });
     Ok(WorkflowMcpGatewayConnection {
         endpoint: format!("http://{address}"),
-        token,
         task,
     })
 }

@@ -34,12 +34,18 @@ thiserror = { workspace = true }
 command-group = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2"
 nix = { version = "0.29", features = ["signal", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 dunce = "1.0"
 winreg = "0.55"
-windows-sys = { version = "0.61", features = ["Win32_System_Environment"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_Environment",
+] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -150,21 +150,55 @@ pub fn get_vibex_temp_dir() -> std::path::PathBuf {
         "vibex"
     };
 
-    if cfg!(target_os = "macos") {
-        // macOS already uses /var/folders/... which is persistent storage
-        std::env::temp_dir().join(dir_name)
-    } else if cfg!(target_os = "linux") {
-        // Linux: use /var/tmp instead of /tmp to avoid RAM usage
-        std::path::PathBuf::from("/var/tmp").join(dir_name)
-    } else {
-        // Windows and other platforms: use temp dir with vibex subdirectory
-        std::env::temp_dir().join(dir_name)
+    let mut candidates = Vec::new();
+    if cfg!(target_os = "linux") {
+        // Prefer /var/tmp over tmpfs /tmp when the location is writable.
+        candidates.push(std::path::PathBuf::from("/var/tmp").join(dir_name));
+    }
+    candidates.push(std::env::temp_dir().join(dir_name));
+
+    for path in candidates {
+        if directory_is_writable(&path) {
+            return path;
+        }
+    }
+
+    std::env::temp_dir().join(dir_name)
+}
+
+fn directory_is_writable(path: &Path) -> bool {
+    if std::fs::create_dir_all(path).is_err() {
+        return false;
+    }
+    let probe = path.join(format!(".vibex-write-{}", std::process::id()));
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
     }
 }
 
-/// Expand leading ~ to user's home directory.
+/// Expand leading `~`, `~/`, or `~\` to the user's home directory.
 pub fn expand_tilde(path_str: &str) -> std::path::PathBuf {
-    shellexpand::tilde(path_str).as_ref().into()
+    let rest = path_str
+        .strip_prefix("~/")
+        .or_else(|| path_str.strip_prefix("~\\"))
+        .or_else(|| (path_str == "~").then_some(""));
+    if let Some(rest) = rest
+        && let Some(home) = dirs::home_dir()
+    {
+        let mut path = home;
+        for component in rest
+            .split(['/', '\\'])
+            .filter(|component| !component.is_empty())
+        {
+            path.push(component);
+        }
+        return path;
+    }
+    PathBuf::from(path_str)
 }
 
 #[cfg(test)]
@@ -264,5 +298,35 @@ mod tests {
         assert_eq!(root, home.join(".local/share/vibex"));
         #[cfg(not(target_os = "macos"))]
         assert_eq!(root, app_data);
+    }
+
+    #[test]
+    fn expand_tilde_accepts_posix_and_windows_home_prefixes() {
+        let home = dirs::home_dir().expect("home");
+        assert_eq!(expand_tilde("~"), home);
+        assert_eq!(expand_tilde("~/Projects"), home.join("Projects"));
+        assert_eq!(expand_tilde("~\\Projects"), home.join("Projects"));
+        assert_eq!(
+            expand_tilde("~\\.codex\\auth.json"),
+            home.join(".codex").join("auth.json")
+        );
+        assert_eq!(
+            expand_tilde("relative/path"),
+            PathBuf::from("relative/path")
+        );
+    }
+
+    #[test]
+    fn vibex_temp_dir_is_writable_on_the_current_platform() {
+        let path = get_vibex_temp_dir();
+        let probe = path.join(format!("probe-{}", std::process::id()));
+        std::fs::write(&probe, b"ok").expect("temp directory must be writable");
+        let _ = std::fs::remove_file(&probe);
+        #[cfg(target_os = "linux")]
+        assert!(
+            path.starts_with("/var/tmp") || path.starts_with(std::env::temp_dir()),
+            "linux temp dir should use /var/tmp or the process temp dir, got {}",
+            path.display()
+        );
     }
 }

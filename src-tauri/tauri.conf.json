@@ -7,7 +7,7 @@
     "beforeDevCommand": "pnpm --filter ./frontend dev --host 127.0.0.1 --strictPort",
     "devUrl": "http://127.0.0.1:3000",
     "beforeBuildCommand": "pnpm --filter ./frontend build",
-    "beforeBundleCommand": "node scripts/stage-cef-runtime.js",
+    "beforeBundleCommand": "node scripts/stage-cef-runtime.js && cargo build --release -p vibex-mcp -p vibex-workflow-mcp && node scripts/stage-host-sidecars.js",
     "frontendDist": "../frontend/dist"
   },
   "app": {
@@ -36,6 +36,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/vibex-mcp",
+      "binaries/vibex-workflow-mcp"
     ]
   },
   "plugins": {

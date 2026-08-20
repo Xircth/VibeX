@@ -81,6 +81,14 @@ impl DelegationInjector for VibexDelegationInjector {
                     command: locate_named_sibling("vibex-workflow-mcp"),
                     args: Vec::new(),
                 }),
+                "plugin-dev" => servers.push(self.product_server(
+                    context,
+                    "vibex-plugin-dev-mcp",
+                    "plugin-dev",
+                    TokenPermissions {
+                        ..TokenPermissions::default()
+                    },
+                )),
                 _ => {}
             }
         }
@@ -175,6 +183,9 @@ impl VibexDelegationInjector {
                             args.push("--server-token".to_string());
                             args.push(plugin_token);
                         }
+                    } else if name == "vibex-plugin-dev-mcp" {
+                        args.push("--product".to_string());
+                        args.push("plugin-dev".to_string());
                     } else {
                         args.push("--product".to_string());
                         args.push("session".to_string());
@@ -204,30 +215,11 @@ fn session_feature_arg(bits: u8) -> String {
 }
 
 pub(crate) fn locate_vibex_mcp_binary() -> PathBuf {
-    if let Ok(path) = std::env::var("VIBEX_MCP_BIN") {
-        let candidate = PathBuf::from(path);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    locate_named_sibling("vibex-mcp")
+    utils::host_bin::locate_host_family_binary("vibex-mcp")
 }
 
 fn locate_named_sibling(base: &str) -> PathBuf {
-    let name = if cfg!(windows) {
-        format!("{base}.exe")
-    } else {
-        base.to_string()
-    };
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let candidate = dir.join(&name);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    PathBuf::from(name)
+    utils::host_bin::locate_host_family_binary(base)
 }
 
 #[cfg(test)]
@@ -333,6 +325,29 @@ mod tests {
             CompanionInjectionList::Unsupported {
                 code: "official_product_mcp_disabled"
             }
+        );
+    }
+
+    #[test]
+    fn plugin_dev_binding_injects_named_server() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[("plugin-dev", 0)]),
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected plugin-dev injection");
+        };
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "vibex-plugin-dev-mcp");
+        assert!(
+            servers[0]
+                .args
+                .windows(2)
+                .any(|window| window == ["--features", "plugin-dev"])
         );
     }
 

@@ -1,0 +1,11 @@
+[package]
+name = "vibex-workflow-mcp"
+version = "0.1.3"
+edition = "2024"
+
+[[bin]]
+name = "vibex-workflow-mcp"
+path = "src/main.rs"
+
+[dependencies]
+utils = { path = "../utils" }

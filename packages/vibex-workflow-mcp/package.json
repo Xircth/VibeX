@@ -1,0 +1,26 @@
+{
+  "name": "@vibex/plugin-workflow-creator",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vibex-plugin build",
+    "test": "vibex-plugin test",
+    "test:plugin": "node --test test/plugin.test.mjs",
+    "test:mcp": "node --test test-mcp/mcp-server.test.mjs",
+    "test:live": "node test-mcp/live-host.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@vibex/plugin-sdk": "file:vendor/vibex-plugin-sdk-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@vibex/plugin-cli": "file:vendor/vibex-plugin-cli-1.0.0.tgz"
+  },
+  "pnpm": {
+    "overrides": {
+      "@vibex/plugin-sdk": "file:vendor/vibex-plugin-sdk-1.0.0.tgz"
+    }
+  }
+}

@@ -1,7 +1,9 @@
 packages:
   - frontend
   - packages/*
-  - assets/plugins/*
+  # Duplicate @vibex/plugin-workflow-creator name plus unpublished vendored
+  # tarballs; keep it out of the workspace.
+  - '!packages/vibex-workflow-mcp'
 
 onlyBuiltDependencies:
   - core-js

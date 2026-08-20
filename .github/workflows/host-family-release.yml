@@ -41,8 +41,13 @@ jobs:
           - name: windows-x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+          - name: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node
@@ -60,7 +65,7 @@ jobs:
         run: pnpm run frontend:build
 
       - name: Build Host binaries
-        run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp --bin vibex-server --bin vibex-mcp
+        run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p vibex-workflow-mcp --bin vibex-server --bin vibex-mcp --bin vibex-workflow-mcp
 
       - name: Package Host family
         shell: bash
@@ -72,6 +77,7 @@ jobs:
           node scripts/package-host-family.js \
             --server "target/${{ matrix.target }}/release/vibex-server${ext}" \
             --mcp "target/${{ matrix.target }}/release/vibex-mcp${ext}" \
+            --workflow-mcp "target/${{ matrix.target }}/release/vibex-workflow-mcp${ext}" \
             --web frontend/dist \
             --plugins assets/plugins \
             --output "dist/host-family/${{ matrix.name }}"

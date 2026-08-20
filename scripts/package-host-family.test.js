@@ -10,8 +10,10 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-host-family-"));
   const server = path.join(root, "vibex-server");
   const mcp = path.join(root, "vibex-mcp");
+  const workflowMcp = path.join(root, "vibex-workflow-mcp");
   fs.writeFileSync(server, "server-bin");
   fs.writeFileSync(mcp, "mcp-bin");
+  fs.writeFileSync(workflowMcp, "workflow-mcp-bin");
   fs.mkdirSync(path.join(root, "web"));
   fs.writeFileSync(path.join(root, "web", "index.html"), "<html></html>");
   const plugin = path.join(root, "plugins", "multi-agent");
@@ -26,6 +28,7 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   const output = packageHostFamily({
     server,
     mcp,
+    workflowMcp,
     web: path.join(root, "web"),
     plugins: path.join(root, "plugins"),
     output: path.join(root, "out"),
@@ -33,6 +36,10 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
 
   assert.equal(fs.readFileSync(path.join(output, "vibex-server"), "utf8"), "server-bin");
   assert.equal(fs.readFileSync(path.join(output, "vibex-mcp"), "utf8"), "mcp-bin");
+  assert.equal(
+    fs.readFileSync(path.join(output, "vibex-workflow-mcp"), "utf8"),
+    "workflow-mcp-bin",
+  );
   assert.equal(
     fs.readFileSync(path.join(output, "web", "index.html"), "utf8"),
     "<html></html>",
@@ -47,6 +54,7 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   const checksums = fs.readFileSync(path.join(output, "SHA256SUMS"), "utf8");
   assert.match(checksums, /  vibex-server\n/);
   assert.match(checksums, /  vibex-mcp\n/);
+  assert.match(checksums, /  vibex-workflow-mcp\n/);
   assert.match(checksums, /  web\/index.html\n/);
   assert.doesNotMatch(checksums, /scratch/);
 });

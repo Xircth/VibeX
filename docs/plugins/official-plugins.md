@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。Office、会话增强、工作流创建器在 `assets/plugins/`；插件开发是 git 子仓库 `assets/plugins/plugin-development`；多智能体协同在独立产品目录 `plugins/vibex-multi-agent/`。公共货架还没开，这里只讲已经装进 Host 的这几个。
+我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。Office、会话增强、工作流创建器在 `assets/plugins/`；插件开发和多智能体协同是 git 子仓库 `assets/plugins/plugin-development` 与 `assets/plugins/multi-agent`。公共货架还没开，这里只讲已经装进 Host 的这几个。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
@@ -85,7 +85,7 @@ Skill `vibex-session-enhance` 写明了六种工具。
 
 ## 多智能体协同
 
-身份 `vibex.multi-agent`，版本 `1.0.0`，产品名「多智能体协同」。简介是让父 Agent 把子任务委托给其它 Agent。
+身份 `vibex.multi-agent`，版本 `1.0.0`，产品名「多智能体协同」。简介是让父 Agent 把子任务委托给其它 Agent。源码是 git 子仓库 `assets/plugins/multi-agent`。
 
 启用后两件事一起发生。输入框可以用 `&` 点名其它已安装 Agent。之后新开或重新绑定的会话会注入 `vibex-delegation-mcp`。
 

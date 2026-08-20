@@ -1,3 +1,6 @@
 [submodule "assets/plugins/plugin-development"]
 	path = assets/plugins/plugin-development
 	url = https://github.com/Xircth/vibex-plugin-development.git
+[submodule "assets/plugins/multi-agent"]
+	path = assets/plugins/multi-agent
+	url = https://github.com/Xircth/vibex-plugin-multi-agent.git

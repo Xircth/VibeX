@@ -37,6 +37,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag_name }}
+          submodules: true
 
       - name: Setup Node
         uses: ./.github/actions/setup-node

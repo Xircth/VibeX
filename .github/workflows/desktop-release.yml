@@ -38,6 +38,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Require a release tag
         run: test -n "$RELEASE_TAG"
@@ -168,6 +170,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -400,6 +404,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Download desktop build artifacts
         uses: actions/download-artifact@v4

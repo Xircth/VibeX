@@ -1,0 +1,3 @@
+[submodule "assets/plugins/plugin-development"]
+	path = assets/plugins/plugin-development
+	url = https://github.com/Xircth/vibex-plugin-development.git

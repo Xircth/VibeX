@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 发行物里随包带上的五份产品包，清单、README、`config.json`、Skill 和 MCP 描述都在 `assets/plugins/`。公共货架还没开，这里只讲已经装进 Host 的这几个。
+我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。Office、会话增强、工作流创建器在 `assets/plugins/`；插件开发是 git 子仓库 `assets/plugins/plugin-development`；多智能体协同在独立产品目录 `plugins/vibex-multi-agent/`。公共货架还没开，这里只讲已经装进 Host 的这几个。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
@@ -41,10 +41,7 @@
 
 预览进程走 Runtime `officecli`，参数是 `watch {artifact} --port {port}`，环境变量带 `OFFICECLI_SKIP_UPDATE=1`，就绪超时 15 秒，最多同时 4 个预览。Worker 协议 1.1，handler `office-preview` 只是把 `artifact.preview` 的 `open` 转给 Host。
 
-配置页两项。
-
-- `previewMode`，`read-only` 或 `editable`，默认只读
-- `idleTimeoutMinutes`，1 到 60，默认 10
+配置页一项 `idleTimeoutMinutes`，1 到 60，默认 10。打开文件走只读预览。
 
 空闲超时到了，预览进程会停。过一会儿再点文件，会重新拉起。
 
@@ -176,21 +173,15 @@ Desktop 必须在跑。Host 起回环命令网关，用托管 Node 拉起 MCP。
 
 ## 插件开发
 
-身份 `vibex.plugin-development`，版本 `1.0.0`，产品名「插件开发」。简介是让 Agent 用当前 Host 自带的 SDK 和 CLI，在本机开发、校验并链接插件。
+身份 `vibex.plugin-development`，版本 `1.0.0`，产品名「插件开发」。简介是让 Agent 用当前 Host 自带的 SDK 和 CLI，在本机开发、校验并链接插件。源码是 git 子仓库 `assets/plugins/plugin-development`。
 
-当前随 Host 带上的这份包，integrations 里只声明了一条 Skill `vibex-plugin-development`。目标是 `codex`、`claude-code`、`acp`。首次启用默认投影给已安装、支持 Skill 的 Agent。
+当前随 Host 带上的这份包声明了 Skill `vibex-plugin-development`（触发含 `/create-skill`、`/create-plugin`）和开发 MCP `vibex-plugin-dev-mcp`。Skill 目标是 `codex`、`claude-code`、`acp`。首次启用默认投影给已安装、支持 Skill 的 Agent。Skill 旁的 `references/` 写清单、模板、Node stdio 入口和链接步骤。
 
-配置只有一项 `devMcp`，默认 `false`。打开它表示允许当前会话在你确认之后链接本机插件。链接仍要走 Host 开发工具给出的回环地址和 grant，不要让模型向你要粘贴 token。
+配置只有一项 `devMcp`，默认 `false`。关掉时官方运行时不会注入开发 MCP。打开后，之后新开或重新绑定的会话才会看到 `plugin_dev_link_request` 和 `plugin_dev_link_status`。链接仍要你在 Host 里确认 Full Trust。不要让模型向你要粘贴 token。
 
-这份包自己不带 Worker，也不带 `content.mcp`。它把写插件这件事教给 Agent。校验、测试、链接由 Host 家族里的 `vibex-plugin` CLI 完成。
+这份包自己不带 Worker。校验、测试、链接由 Host 家族里的 `vibex-plugin` CLI 完成。
 
-Skill 要求 Agent 先向正在跑的 Host 问工具链。
-
-```text
-vibex plugin toolchain
-```
-
-没有这条命令时，用 Host 二进制旁边的 `vibex-plugin`。然后读 Host 自带的 SDK 类型和 `packages/plugin-contract` 目录。不要去搜一份 VibeX git 仓库来当工具链。
+Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `locate_toolchain.py` 与 `node packages/plugin-cli/dist/cli.js`；否则用 `vibex-plugin toolchain` 或 Host 二进制旁边的 `vibex-plugin`。读 Skill 旁 `references/` 与 Host 自带 SDK 类型。
 
 它让 Agent 做一个产品包。README 的 `summary`、`contents/`、根上的 `config.json`、以及声明过的 integrations。常用命令是 `init`、`validate`、`test`、`build`。链接必须你在 Host 里确认 Full Trust。公共 SDK 表达不了的能力，应先加 Host 目录，再写进包。
 

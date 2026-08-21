@@ -8,6 +8,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional GitHub Release tag to upload Server archives to"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -17,6 +22,8 @@ env:
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
   SQLX_OFFLINE: "true"
+  NODE_OPTIONS: --max-old-space-size=6144
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
 
 jobs:
   package:
@@ -105,10 +112,10 @@ jobs:
             dist/${{ env.SERVER_ARCHIVE }}.sha256
 
       - name: Attach Server archive to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ env.RELEASE_TAG != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             dist/${{ env.SERVER_ARCHIVE }}
             dist/${{ env.SERVER_ARCHIVE }}.sha256

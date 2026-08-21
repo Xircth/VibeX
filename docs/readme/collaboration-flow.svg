@@ -1,32 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
-  <title id="title">VibeX multi-agent collaboration flow</title>
-  <desc id="desc">A task moves from a session through an isolated worktree and multi-agent orchestration into review and delivery.</desc>
-  <rect width="1200" height="320" fill="#ffffff"/>
-  <g fill="none" stroke="#000000" stroke-width="1.5">
-    <rect x="24" y="24" width="1152" height="272" rx="8"/>
-    <path d="M150 156 H1050"/>
-    <circle cx="150" cy="156" r="36"/>
-    <circle cx="375" cy="156" r="36"/>
-    <circle cx="600" cy="156" r="42"/>
-    <circle cx="825" cy="156" r="36"/>
-    <circle cx="1050" cy="156" r="36"/>
-    <circle cx="262" cy="156" r="5"/>
-    <circle cx="487" cy="156" r="5"/>
-    <circle cx="712" cy="156" r="5"/>
-    <circle cx="937" cy="156" r="5"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360">
+  <title>VibeX multi-agent collaboration flow</title>
+  <desc>A task moves from a session through an isolated worktree and multi-agent orchestration into review and delivery.</desc>
+  <rect width="1200" height="360" fill="#ffffff"/>
+  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+    <text x="600" y="48" text-anchor="middle" fill="#000" font-size="18" font-weight="700">Multi-Agent Collaboration</text>
+    <text x="600" y="74" text-anchor="middle" fill="#000" font-size="12">session / worktree / delegation / graph workflow / review</text>
+    <g><rect x="130" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="148" cy="128" r="3" fill="#fff"/><circle cx="160" cy="128" r="3" fill="#fff"/><circle cx="172" cy="128" r="3" fill="#fff"/><path d="M150 148 h16 v20 h-16 z M154 144 h8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="200" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">创建会话</text><text x="200" y="228" text-anchor="middle" fill="#fff" font-size="11">Goal and Agent</text></g><g><rect x="355" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="373" cy="128" r="3" fill="#fff"/><circle cx="385" cy="128" r="3" fill="#fff"/><circle cx="397" cy="128" r="3" fill="#fff"/><path d="M375 146 h10 v22 h-10 z M389 146 h10 v22 h-10 z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="425" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">隔离 Worktree</text><text x="425" y="228" text-anchor="middle" fill="#fff" font-size="11">Branch isolation</text></g><g><rect x="580" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="598" cy="128" r="3" fill="#fff"/><circle cx="610" cy="128" r="3" fill="#fff"/><circle cx="622" cy="128" r="3" fill="#fff"/><path d="M592 152 a8 8 0 1 1 0.1 0 M616 146 a8 8 0 1 1 0.1 0 M616 168 a8 8 0 1 1 0.1 0" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="650" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Multi-Agent</text><text x="650" y="228" text-anchor="middle" fill="#fff" font-size="11">Delegate and Graph</text></g><g><rect x="805" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="823" cy="128" r="3" fill="#fff"/><circle cx="835" cy="128" r="3" fill="#fff"/><circle cx="847" cy="128" r="3" fill="#fff"/><path d="M817 158 l8 8 16-18" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="875" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">检查与审查</text><text x="875" y="228" text-anchor="middle" fill="#fff" font-size="11">Git / Diff / Test</text></g><g><rect x="1030" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="1048" cy="128" r="3" fill="#fff"/><circle cx="1060" cy="128" r="3" fill="#fff"/><circle cx="1072" cy="128" r="3" fill="#fff"/><path d="M1046 158 h24 M1058 148 l12 10 -12 10" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="1100" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">合并与交付</text><text x="1100" y="228" text-anchor="middle" fill="#fff" font-size="11">Commit and ship</text></g>
   </g>
-  <g fill="#000000" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">
-    <text x="600" y="64" font-size="16" font-weight="700">Multi-Agent Collaboration</text>
-    <text x="600" y="88" font-size="12">session · worktree · delegation · graph workflow · review</text>
-    <text x="150" y="230" font-size="14" font-weight="700">创建会话</text>
-    <text x="150" y="250" font-size="11">Goal and Agent</text>
-    <text x="375" y="230" font-size="14" font-weight="700">隔离 Worktree</text>
-    <text x="375" y="250" font-size="11">Branch isolation</text>
-    <text x="600" y="234" font-size="14" font-weight="700">Multi-Agent</text>
-    <text x="600" y="254" font-size="11">Delegate and Graph</text>
-    <text x="825" y="230" font-size="14" font-weight="700">检查与审查</text>
-    <text x="825" y="250" font-size="11">Git · Diff · Test</text>
-    <text x="1050" y="230" font-size="14" font-weight="700">合并与交付</text>
-    <text x="1050" y="250" font-size="11">Commit and ship</text>
-  </g>
+  <g><path d="M270 185 H355" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.00s" repeatCount="indefinite"/></path><path d="M495 185 H580" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.12s" repeatCount="indefinite"/></path><path d="M720 185 H805" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.24s" repeatCount="indefinite"/></path><path d="M945 185 H1030" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.36s" repeatCount="indefinite"/></path></g>
 </svg>

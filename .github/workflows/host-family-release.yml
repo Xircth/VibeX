@@ -100,7 +100,16 @@ jobs:
           tar -C dist/server -czf "dist/${ARCHIVE}" "${{ matrix.release_name }}"
           (
             cd dist
-            shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+            node -e '
+              const fs = require("node:fs");
+              const crypto = require("node:crypto");
+              const name = process.argv[1];
+              const digest = crypto
+                .createHash("sha256")
+                .update(fs.readFileSync(name))
+                .digest("hex");
+              fs.writeFileSync(`${name}.sha256`, `${digest}  ${name}\n`);
+            ' "${ARCHIVE}"
           )
 
       - name: Upload Server archive

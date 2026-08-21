@@ -84,9 +84,11 @@ describe('release workflow contract', () => {
 
     const workflow = read('.github/workflows/desktop-release.yml');
     expect(workflow).toMatch(/push:\s+tags:\s+- ['"]v\*['"]/);
-    expect(workflow).toContain('bundles: msi,nsis');
-    expect(workflow).toContain('bundles: appimage,deb');
+    expect(workflow).toContain('bundles: nsis');
+    expect(workflow).toContain('bundles: appimage');
     expect(workflow).toContain('bundles: app,dmg');
+    expect(workflow).not.toContain('bundles: msi,nsis');
+    expect(workflow).not.toContain('bundles: appimage,deb');
     expect(workflow).toContain('xdg-utils');
     expect(workflow).toContain('NODE_OPTIONS: --max-old-space-size=6144');
     expect(workflow).toContain("printf 'APPLE_SIGNING_IDENTITY=%s\\n'");
@@ -106,6 +108,8 @@ describe('release workflow contract', () => {
     expect(workflow).toContain(
       "needs.prepare-release.outputs.windows_signing_enabled == 'true'"
     );
+    expect(workflow).toContain('windows_signing_method=evsign');
+    expect(workflow).toContain('scripts/sign-windows-evsign.ps1');
     expect(workflow).not.toContain(
       'Require desktop release signing credentials'
     );
@@ -115,15 +119,9 @@ describe('release workflow contract', () => {
     expect(read('scripts/smoke-macos-desktop.sh')).toContain(
       'kill -KILL "$app_pid"'
     );
-    for (const extension of [
-      '*.msi',
-      '*.exe',
-      '*.AppImage',
-      '*.deb',
-      '*.dmg',
-    ]) {
-      expect(workflow).toContain(extension);
-    }
+    expect(workflow).toContain('vibex.exe');
+    expect(workflow).toContain('bundles: appimage');
+    expect(workflow).toContain('bundles: app,dmg');
     expect(workflow).toContain(
       "RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}"
     );

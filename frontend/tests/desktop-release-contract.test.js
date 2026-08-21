@@ -93,12 +93,23 @@ test('desktop release signs and verifies macOS and Windows artifacts', () => {
     'APPLE_API_KEY',
     'WINDOWS_CERTIFICATE',
     'WINDOWS_CERTIFICATE_PASSWORD',
+    'EVSIGN_LICENSE_KEY',
     'Import-PfxCertificate',
+    'scripts/sign-windows-evsign.ps1',
     'codesign --verify --deep --strict',
     'Get-AuthenticodeSignature',
   ]) {
     assert.match(workflow, new RegExp(requiredText));
   }
+});
+
+test('Windows EVSign signing refreshes updater signatures after Authenticode', () => {
+  const script = read('scripts/sign-windows-evsign.ps1');
+
+  assert.match(script, /evsign-client-cli-windows-latest/);
+  assert.match(script, /-cdn/);
+  assert.match(script, /tauri signer sign/);
+  assert.match(script, /TAURI_SIGNING_PRIVATE_KEY/);
 });
 
 test('desktop release runs platform-native startup smoke tests', () => {

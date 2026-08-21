@@ -35,6 +35,7 @@ jobs:
     outputs:
       apple_signing_enabled: ${{ steps.signing.outputs.apple_signing_enabled }}
       windows_signing_enabled: ${{ steps.signing.outputs.windows_signing_enabled }}
+      windows_signing_method: ${{ steps.signing.outputs.windows_signing_method }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,6 +56,7 @@ jobs:
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          EVSIGN_LICENSE_KEY: ${{ secrets.EVSIGN_LICENSE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
@@ -105,11 +107,21 @@ jobs:
             APPLE_API_ISSUER \
             APPLE_API_KEY \
             APPLE_API_KEY_P8_BASE64
-          check_optional_signing \
-            "Windows" \
-            windows_signing_enabled \
-            WINDOWS_CERTIFICATE \
-            WINDOWS_CERTIFICATE_PASSWORD
+          if [ -n "$EVSIGN_LICENSE_KEY" ]; then
+            echo "windows_signing_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "windows_signing_method=evsign" >> "$GITHUB_OUTPUT"
+          else
+            check_optional_signing \
+              "Windows" \
+              windows_signing_enabled \
+              WINDOWS_CERTIFICATE \
+              WINDOWS_CERTIFICATE_PASSWORD
+            if [ -n "$WINDOWS_CERTIFICATE" ] && [ -n "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+              echo "windows_signing_method=pfx" >> "$GITHUB_OUTPUT"
+            else
+              echo "windows_signing_method=" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Create release if missing
         env:
@@ -248,7 +260,7 @@ jobs:
           echo "VIBEX_MACOS_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
       - name: Import Windows signing certificate
-        if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_enabled == 'true' }}
+        if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_method == 'pfx' }}
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -297,6 +309,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Sign Windows installers with EVSign
+        if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_method == 'evsign' }}
+        shell: pwsh
+        env:
+          EVSIGN_LICENSE_KEY: ${{ secrets.EVSIGN_LICENSE_KEY }}
+          EVSIGN_SIGN_PASSWORD: ${{ secrets.EVSIGN_SIGN_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          scripts/sign-windows-evsign.ps1 -BundleRoot "target/${{ matrix.target }}/release/bundle"
 
       - name: Verify signed and notarized macOS bundle
         if: ${{ runner.os == 'macOS' && needs.prepare-release.outputs.apple_signing_enabled == 'true' }}
@@ -352,7 +375,7 @@ jobs:
             "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
 
       - name: Remove temporary Windows signing material
-        if: ${{ always() && runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_enabled == 'true' }}
+        if: ${{ always() && runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_method == 'pfx' }}
         shell: pwsh
         run: |
           if ($env:VIBEX_WINDOWS_CERTIFICATE_THUMBPRINT) {

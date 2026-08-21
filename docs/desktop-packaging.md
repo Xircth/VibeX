@@ -83,9 +83,13 @@ parent-window requirement.
 
 When `upload_to_release` is enabled, the prepare job requires the Tauri updater
 signing secrets. Apple Developer ID/notarization and Windows Authenticode
-credentials are optional platform groups: when every secret in a group is
-present, the build imports it into an ephemeral runner store, signs and verifies
-the native artifacts, and removes the temporary key material in an `always()`
-cleanup step. When an entire group is absent, that platform is published
-unsigned, matching the 0.1.2 release behavior. A partially configured group is
-rejected so the workflow cannot silently produce an unexpected signing state.
+credentials are optional platform groups.
+
+Windows Authenticode prefers `EVSIGN_LICENSE_KEY` (cloud signing through the
+EVSign CLI after NSIS finishes). The installer bytes change, so the script
+refreshes each adjacent Tauri updater `.sig` with `tauri signer sign`. If that
+license is absent, a complete `WINDOWS_CERTIFICATE` +
+`WINDOWS_CERTIFICATE_PASSWORD` pair still imports a PFX for Tauri-time signing.
+`EVSIGN_SIGN_PASSWORD` is optional. A partially configured PFX pair is rejected
+so the workflow cannot silently produce an unexpected signing state. When
+neither Windows group is present, that platform is published unsigned.

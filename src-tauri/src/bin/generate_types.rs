@@ -44,8 +44,9 @@ use agents::{
     },
 };
 use api_types::{
-    AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView,
-    AgentDiscoveryPhase, AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
+    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
+    AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
     AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
     AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
     AgentEnvironmentView, AgentId, AgentKind, AgentLifecycleState, AgentLocalRuntimeView,
@@ -401,6 +402,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentManagementActionView>(&mut decls);
     insert_declaration::<AgentManagementActionsView>(&mut decls);
     insert_declaration::<AgentManagementActionReceipt>(&mut decls);
+    insert_declaration::<AgentAccountFlowStatus>(&mut decls);
+    insert_declaration::<AgentAccountFlowView>(&mut decls);
     insert_declaration::<OpenCodeProviderConnectionView>(&mut decls);
     insert_declaration::<OpenCodeProviderModelView>(&mut decls);
     insert_declaration::<OpenCodeProviderConnectionsView>(&mut decls);

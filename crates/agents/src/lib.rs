@@ -4,6 +4,7 @@
 //! does not depend on VibeX's legacy executor, provider-runtime, `MsgStore`, or
 //! `ExecutionProcess` systems.
 
+mod account_session;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
@@ -13,6 +14,7 @@ mod community_acp_presets;
 pub mod contribution_capability;
 pub mod conversation;
 mod cursor_ask;
+mod cursor_auth;
 pub mod delegation_inject;
 pub mod distribution;
 pub mod elicitation;
@@ -51,6 +53,12 @@ pub mod terminal;
 pub mod user_definition;
 pub mod user_environment;
 
+pub use account_session::{
+    AccountSessionConfirmation, account_label_from_codex_auth, account_label_from_document,
+    account_session_from_http, account_still_present, authentication_from_account_command,
+    confirm_account_session, extract_codex_access_token, jwt_identity,
+    prefer_recorded_account_over_residue, resolve_account_label,
+};
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
 };
@@ -93,6 +101,7 @@ pub use conversation::{
     SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole,
     TurnUsage,
 };
+pub use cursor_auth::cursor_account_token;
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, CompanionInjectionList,
     DelegationInjector, InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport,

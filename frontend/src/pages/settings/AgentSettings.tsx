@@ -1,5 +1,5 @@
 import { Puzzle, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentDiagnosticView,
@@ -129,6 +129,11 @@ export function AgentSettings() {
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
+  const liveConfig = config?.agent_id === selectedAgentId ? config : null;
+  const hasAuthenticationMode = Boolean(
+    selectedAgent?.settings_features?.includes('authentication_mode') ||
+      liveConfig?.settings_features.includes('authentication_mode')
+  );
   const selectedAgentSource = selectedAgent?.source ?? null;
   const selectedAgentLifecycle = selectedAgent?.lifecycle ?? null;
   const selectedAgentOperation = selectedAgent?.active_operation ?? null;
@@ -139,6 +144,7 @@ export function AgentSettings() {
         ? 'claude_code'
         : null;
   const refreshManagement = management.refresh;
+  const authWatchGeneration = useRef(0);
 
   useEffect(() => {
     if (!configDirty) return;
@@ -377,6 +383,80 @@ export function AgentSettings() {
     }
   }, [management, selectedAgentId, t]);
 
+  const pullAuthentication = useCallback(async () => {
+    if (!selectedAgentId) return null;
+    try {
+      setConfig(await agentManagementApi.readConfig(selectedAgentId));
+      return await refreshManagement();
+    } catch {
+      return null;
+    }
+  }, [refreshManagement, selectedAgentId]);
+
+  const mergeAuthenticationPreflight = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      const report = await agentManagementApi.preflight(
+        selectedAgentId,
+        'authentication'
+      );
+      setPreflight((current) =>
+        current ? mergeAuthPreflightItems(current, report) : current
+      );
+    } catch {
+      return;
+    }
+  }, [selectedAgentId]);
+
+  const refreshAuthentication = useCallback(async () => {
+    await pullAuthentication();
+    await mergeAuthenticationPreflight();
+  }, [mergeAuthenticationPreflight, pullAuthentication]);
+
+  const watchAccountFlow = useCallback(
+    async (agentId: string, expectPending: boolean) => {
+      const watchId = ++authWatchGeneration.current;
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let sawPending = false;
+      while (Date.now() < deadline) {
+        if (authWatchGeneration.current !== watchId) return;
+        let flow;
+        try {
+          flow = await agentManagementApi.accountFlow(agentId);
+        } catch {
+          return;
+        }
+        if (flow.status === 'pending') {
+          sawPending = true;
+        } else if (flow.status === 'succeeded') {
+          await refreshAuthentication();
+          return;
+        } else if (flow.status === 'failed') {
+          toast.error(t('settings:agents.accountFlowCommandFailed'));
+          return;
+        } else if (!expectPending && !sawPending) {
+          return;
+        }
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 1000);
+        });
+      }
+    },
+    [refreshAuthentication, t]
+  );
+
+  useEffect(() => {
+    authWatchGeneration.current += 1;
+    return () => {
+      authWatchGeneration.current += 1;
+    };
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    if (!selectedAgentId || registryOpen) return;
+    void watchAccountFlow(selectedAgentId, false);
+  }, [registryOpen, selectedAgentId, watchAccountFlow]);
+
   const runManagementAction = useCallback(
     async (actionId: string) => {
       if (!selectedAgentId) return;
@@ -395,11 +475,14 @@ export function AgentSettings() {
         toast.error(
           errorMessage(error, t('settings:agents.accountFlowFailed'))
         );
+        return;
       } finally {
         setActionRunning(null);
       }
+      if (actionId !== 'login' && actionId !== 'logout') return;
+      await watchAccountFlow(selectedAgentId, true);
     },
-    [selectedAgentId, t]
+    [selectedAgentId, t, watchAccountFlow]
   );
 
   const setEnabled = useCallback(
@@ -569,13 +652,17 @@ export function AgentSettings() {
   }, [management, selectedAgent?.display_name, selectedAgentId, t]);
 
   const saveConfig = useCallback(
-    async (request: AgentNativeConfigPatchRequest) => {
+    async (
+      request: AgentNativeConfigPatchRequest,
+      options?: { refreshAuth?: boolean }
+    ) => {
       setSavingConfig(true);
       try {
         setConfig(await agentManagementApi.writeConfig(request));
         setConfigConflict(null);
         toast.success(t('settings:agents.configSaved'));
         await management.refresh();
+        if (options?.refreshAuth) await mergeAuthenticationPreflight();
       } catch (error) {
         if (isConfigConflict(error)) {
           const external = await agentManagementApi.readConfig(
@@ -600,7 +687,7 @@ export function AgentSettings() {
         setSavingConfig(false);
       }
     },
-    [management, t]
+    [management, mergeAuthenticationPreflight, t]
   );
 
   const saveConfigFile = useCallback(
@@ -723,6 +810,76 @@ export function AgentSettings() {
     return <AgentSettingsLoading />;
   }
 
+  const authenticationPanel =
+    selectedAgent?.agent_id === 'deepseek_harness' ? (
+      <DshAuthPanel
+        onDirtyChange={setDshProviderDirty}
+        onChanged={refreshAuthentication}
+      />
+    ) : selectedAgent && hasAuthenticationMode ? (
+      <AgentAuthModeControl
+        key={selectedAgent.agent_id}
+        actions={actions}
+        actionRunning={actionRunning}
+        authentication={selectedAgent.authentication}
+        agentId={selectedAgent.agent_id}
+        busy={Boolean(
+          selectedAgent.retired ||
+            selectedAgent.active_operation ||
+            management.state.operations[selectedAgent.agent_id]
+        )}
+        headingExtra={
+          liveConfig ? (
+            <AgentConfigPathMeta
+              paths={configFilePathsForSurface(liveConfig, 'authentication')}
+              saving={savingConfig}
+            />
+          ) : null
+        }
+        configuration={
+          liveConfig?.fields.some(
+            (field) => (field.surface ?? 'configuration') === 'authentication'
+          ) ? (
+            <AgentConfigurationAndDiagnostics
+              config={liveConfig}
+              fieldSurface="authentication"
+              saving={savingConfig}
+              conflictMessage={configConflict?.message}
+              embedded
+              onSave={(request) =>
+                void saveConfig(request, { refreshAuth: true })
+              }
+              onReloadConflict={() => void reloadConflict()}
+              onAdoptExternal={() => setConfigConflict(null)}
+              onOverwriteConflict={() => void overwriteConflict()}
+              onDirtyChange={setAuthConfigurationDirty}
+            />
+          ) : undefined
+        }
+        modelProvider={
+          liveConfig?.settings_features.includes('reusable_model_providers') ? (
+            <AgentModelProviderManager
+              agentId={selectedAgent.agent_id}
+              disabled={savingConfig}
+              embedded
+              onDirtyChange={setModelProviderDirty}
+            />
+          ) : undefined
+        }
+        onChanged={refreshAuthentication}
+        onDirtyChange={setAuthModeDirty}
+        onAuthenticated={refreshAuthentication}
+        onRunAction={(actionId) => void runManagementAction(actionId)}
+        nativeCredentialPresent={(fieldId) =>
+          Boolean(
+            liveConfig?.fields.some(
+              (field) => field.id === fieldId && field.present
+            )
+          )
+        }
+      />
+    ) : null;
+
   return (
     <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
       <div className="flex shrink-0 items-center gap-2">
@@ -780,87 +937,7 @@ export function AgentSettings() {
                 management.state.operations[selectedAgent.agent_id] ?? null
               }
               preflight={preflight}
-              authentication={
-                selectedAgent.agent_id === 'deepseek_harness' ? (
-                  <DshAuthPanel
-                    onDirtyChange={setDshProviderDirty}
-                    onChanged={async () => {
-                      setConfig(
-                        await agentManagementApi.readConfig(
-                          selectedAgent.agent_id
-                        )
-                      );
-                      await management.refresh();
-                      await runPreflight();
-                    }}
-                  />
-                ) : config?.settings_features.includes(
-                    'authentication_mode'
-                  ) ? (
-                  <AgentAuthModeControl
-                    actions={actions}
-                    actionRunning={actionRunning}
-                    agentId={selectedAgent.agent_id}
-                    busy={Boolean(
-                      selectedAgent.retired ||
-                        selectedAgent.active_operation ||
-                        management.state.operations[selectedAgent.agent_id]
-                    )}
-                    headingExtra={
-                      <AgentConfigPathMeta
-                        paths={configFilePathsForSurface(
-                          config,
-                          'authentication'
-                        )}
-                        saving={savingConfig}
-                      />
-                    }
-                    configuration={
-                      config.fields.some(
-                        (field) =>
-                          (field.surface ?? 'configuration') ===
-                          'authentication'
-                      ) ? (
-                        <AgentConfigurationAndDiagnostics
-                          config={config}
-                          fieldSurface="authentication"
-                          saving={savingConfig}
-                          conflictMessage={configConflict?.message}
-                          embedded
-                          onSave={(request) => void saveConfig(request)}
-                          onReloadConflict={() => void reloadConflict()}
-                          onAdoptExternal={() => setConfigConflict(null)}
-                          onOverwriteConflict={() => void overwriteConflict()}
-                          onDirtyChange={setAuthConfigurationDirty}
-                        />
-                      ) : undefined
-                    }
-                    modelProvider={
-                      config.settings_features.includes(
-                        'reusable_model_providers'
-                      ) ? (
-                        <AgentModelProviderManager
-                          agentId={selectedAgent.agent_id}
-                          disabled={savingConfig}
-                          embedded
-                          onDirtyChange={setModelProviderDirty}
-                        />
-                      ) : undefined
-                    }
-                    onChanged={runPreflight}
-                    onDirtyChange={setAuthModeDirty}
-                    onAuthenticated={runPreflight}
-                    onRunAction={(actionId) =>
-                      void runManagementAction(actionId)
-                    }
-                    nativeCredentialPresent={(fieldId) =>
-                      config.fields.some(
-                        (field) => field.id === fieldId && field.present
-                      )
-                    }
-                  />
-                ) : null
-              }
+              authentication={authenticationPanel}
               diagnostics={diagnostics}
               onMarkAllDiagnosticsRead={markAllDiagnosticsRead}
               checking={checking}
@@ -1006,6 +1083,23 @@ export function AgentSettings() {
       )}
     </div>
   );
+}
+
+function mergeAuthPreflightItems(
+  current: AgentPreflightView,
+  next: AgentPreflightView
+): AgentPreflightView {
+  const replacements = new Map(next.items.map((item) => [item.id, item]));
+  const items = current.items.map((item) => replacements.get(item.id) ?? item);
+  for (const item of next.items) {
+    if (items.some((existing) => existing.id === item.id)) continue;
+    items.push(item);
+  }
+  return {
+    ...current,
+    checked_at: next.checked_at,
+    items,
+  };
 }
 
 function isConfigConflict(error: unknown): boolean {

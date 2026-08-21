@@ -209,8 +209,8 @@ describe('AgentBar', () => {
       const cursorArtwork = screen
         .getByRole('button', { name: 'Cursor' })
         .querySelector('img');
-      expect(getComputedStyle(cursorArtwork!).width).toBe('20px');
-      expect(getComputedStyle(cursorArtwork!).height).toBe('20px');
+      expect(getComputedStyle(cursorArtwork!).width).toBe('24px');
+      expect(getComputedStyle(cursorArtwork!).height).toBe('24px');
 
       for (const name of [
         'Cline',

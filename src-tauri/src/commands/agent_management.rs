@@ -450,22 +450,22 @@ mod tests {
         assert_eq!(subscription.mode, "chatgpt_subscription");
         assert_eq!(
             subscription.modes,
-            ["api_key", "chatgpt_subscription", "model_provider"]
+            ["chatgpt_subscription", "api_key", "model_provider"]
         );
         assert_eq!(subscription.options.len(), subscription.modes.len());
         assert_eq!(
-            subscription.options[0].credential_env.as_deref(),
+            subscription.options[0].description_key,
+            "agents.authDescCodexSubscription"
+        );
+        assert_eq!(
+            subscription.options[1].credential_env.as_deref(),
             Some("OPENAI_API_KEY")
         );
         assert_eq!(
-            subscription.options[0].native_config_field_id.as_deref(),
+            subscription.options[1].native_config_field_id.as_deref(),
             Some("openai_api_key")
         );
-        assert!(subscription.options[0].credential_required);
-        assert_eq!(
-            subscription.options[1].description_key,
-            "agents.authDescCodexSubscription"
-        );
+        assert!(subscription.options[1].credential_required);
 
         let api_key = project_codex_auth_mode(
             agent_id.clone(),
@@ -2199,6 +2199,8 @@ base_url = "https://example.test/v1"
     }
 }
 
+#[path = "agent_management/account_flow.rs"]
+mod account_flow;
 #[path = "agent_management/codex_device_auth.rs"]
 mod codex_device_auth;
 #[path = "agent_management/dsh_configuration.rs"]
@@ -2247,8 +2249,9 @@ use agents::{
     switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes,
 };
 use api_types::{
-    AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView,
-    AgentDiscoveryPhase, AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
+    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
+    AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
     AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
     AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
     AgentEnvironmentView, AgentId, AgentLifecycleState, AgentLocalRuntimeView,
@@ -3101,7 +3104,72 @@ async fn refresh_agent_management_evidence(
         .await
         .map_err(internal_error)?;
     revalidate_recoverable_external_installations(app, pool).await;
+    refresh_authentication_probes(app, pool).await;
     Ok(())
+}
+
+async fn refresh_authentication_probes(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    let Ok(home) = app.path().home_dir() else {
+        return;
+    };
+    let agent_ids = match sqlx::query_scalar::<_, String>("SELECT agent_id FROM agent_membership")
+        .fetch_all(pool)
+        .await
+    {
+        Ok(agent_ids) => agent_ids,
+        Err(error) => {
+            tracing::warn!(%error, "failed to load Agents for authentication refresh");
+            return;
+        }
+    };
+    for raw_agent_id in agent_ids {
+        let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
+            continue;
+        };
+        let Ok(agent_env) = read_agent_environment(pool, &agent_id).await else {
+            continue;
+        };
+        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
+        let provider = NativeConfigProvider::with_environment(
+            Arc::new(TokioNativeFileSystem),
+            home.clone(),
+            agent_env.into_iter().collect(),
+        );
+        let native_authentication = match provider.read(&agent_id, account_logged_in).await {
+            Ok(snapshot) => snapshot.authentication,
+            Err(agents::NativeConfigError::Unsupported(_)) => {
+                AgentAuthenticationStatus::NotRequired
+            }
+            Err(_) => continue,
+        };
+        let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+            .profile(&agent_id)
+            .is_some_and(|profile| profile.authentication_required_by_default);
+        let (observed, authentication_required) = resolve_authentication_observation(
+            native_authentication,
+            None,
+            authentication_required_by_default,
+        );
+        let authentication = recorded_account_over_residue(pool, &agent_id, observed).await;
+        if let Err(error) = sync_authentication_probe_with_requirement(
+            pool,
+            &agent_id,
+            authentication,
+            authentication_required
+                && !matches!(
+                    authentication,
+                    AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+                ),
+        )
+        .await
+        {
+            tracing::debug!(
+                agent_id = %agent_id,
+                message = %error.message,
+                "failed to refresh Agent authentication"
+            );
+        }
+    }
 }
 
 async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
@@ -4111,7 +4179,11 @@ pub async fn agent_management_preflight(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
+    scope: Option<String>,
 ) -> Result<AgentPreflightView, AgentManagementErrorView> {
+    if scope.as_deref() == Some("authentication") {
+        return preflight_authentication_scope(app, state, agent_id).await;
+    }
     refresh_agent_management_evidence(&app, &state.deployment.db().pool, true).await?;
     let _ = utils::shell::refresh_process_path_after_install().await;
     let view = agent_management_detail(state.clone(), agent_id.clone()).await?;
@@ -4259,7 +4331,7 @@ pub async fn agent_management_preflight(
         }
     }
     let native_authentication = if let Ok(home) = app.path().home_dir() {
-        let account_logged_in = detect_account_login(&home, &agent_id, &agent_env).await;
+        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
         let provider = NativeConfigProvider::with_environment(
             Arc::new(TokioNativeFileSystem),
             home,
@@ -4338,225 +4410,8 @@ pub async fn agent_management_preflight(
         runtime_ok = validation.found;
     }
     let (auth_mode_item, auth_mode_ready, auth_mode_satisfies_authentication) =
-        if agent_id.as_str() == "codex" {
-            match read_codex_auth_mode_view(&app, pool).await {
-                Ok(auth_mode) => {
-                    let codex_home = app
-                        .path()
-                        .home_dir()
-                        .map(|home| {
-                            resolve_agent_home_directory(&home, &agent_env, "CODEX_HOME", ".codex")
-                        })
-                        .map_err(internal_error)?;
-                    let provider_projection_ready = if auth_mode.mode == "model_provider" {
-                        codex_provider_projection_ready(&codex_home).await
-                            && auth_mode.credential_present
-                    } else {
-                        true
-                    };
-                    let ready = match auth_mode.mode.as_str() {
-                        "api_key" => auth_mode.credential_present,
-                        "model_provider" => provider_projection_ready,
-                        "chatgpt_subscription" => matches!(
-                            authentication,
-                            AgentAuthenticationStatus::Account
-                                | AgentAuthenticationStatus::MultipleUnknown
-                        ),
-                        _ => false,
-                    };
-                    let detail = match auth_mode.mode.as_str() {
-                    "api_key" if ready => {
-                        "api_key 模式已配置 OPENAI_API_KEY（凭据内容不会显示）。".to_string()
-                    }
-                    "api_key" => {
-                        "api_key 模式缺少 OPENAI_API_KEY，请在鉴权模式中保存凭据。".to_string()
-                    }
-                    "model_provider" if ready => {
-                        "Model Provider 绑定、Codex 原生配置与凭据投影已对齐。".to_string()
-                    }
-                    "model_provider" => {
-                        "Model Provider 绑定与 Codex auth.json/config.toml 投影不一致，请重新绑定。"
-                            .to_string()
-                    }
-                    "chatgpt_subscription" if ready => {
-                        "ChatGPT 订阅模式已检测到有效账号会话。".to_string()
-                    }
-                    "chatgpt_subscription" => {
-                        "ChatGPT 订阅模式尚未检测到有效账号会话，请使用设备码登录。".to_string()
-                    }
-                    _ => format!("无法验证鉴权模式 `{}`。", auth_mode.mode),
-                };
-                    (
-                        Some(AgentPreflightItemView {
-                            id: "auth.mode".to_string(),
-                            label: "鉴权模式".to_string(),
-                            status: status(ready),
-                            detail,
-                            version: Some(auth_mode.mode),
-                            path: Some(codex_home.join("auth.json").display().to_string()),
-                            source: None,
-                            repairable: !ready,
-                        }),
-                        ready,
-                        ready,
-                    )
-                }
-                Err(error) => (
-                    Some(AgentPreflightItemView {
-                        id: "auth.mode".to_string(),
-                        label: "鉴权模式".to_string(),
-                        status: "fail".to_string(),
-                        detail: error.message,
-                        version: None,
-                        path: None,
-                        source: None,
-                        repairable: true,
-                    }),
-                    false,
-                    false,
-                ),
-            }
-        } else if agent_id.as_str() == "deepseek_harness" {
-            match read_dsh_auth_mode_view(&app, pool).await {
-                Ok(auth_mode) => {
-                    let ready = auth_mode.credential_present;
-                    (
-                        Some(AgentPreflightItemView {
-                            id: "auth.mode".to_string(),
-                            label: "鉴权模式".to_string(),
-                            status: status(ready),
-                            detail: if ready {
-                                "已从 DeepSeek Harness 原生凭据检测到 API 配置。".to_string()
-                            } else {
-                                "尚未检测到 DeepSeek API Key 或自定义模型供应商凭据。".to_string()
-                            },
-                            version: Some(auth_mode.mode),
-                            path: Some(
-                                dsh_paths(&app.path().home_dir().unwrap_or_default(), &agent_env)
-                                    .credentials
-                                    .display()
-                                    .to_string(),
-                            ),
-                            source: None,
-                            repairable: !ready,
-                        }),
-                        ready,
-                        ready,
-                    )
-                }
-                Err(error) => (
-                    Some(AgentPreflightItemView {
-                        id: "auth.mode".to_string(),
-                        label: "鉴权模式".to_string(),
-                        status: "fail".to_string(),
-                        detail: error.message,
-                        version: None,
-                        path: None,
-                        source: None,
-                        repairable: true,
-                    }),
-                    false,
-                    false,
-                ),
-            }
-        } else if matches!(agent_id.as_str(), "claude_code" | "gemini") {
-            match evaluate_profile_auth_mode_preflight(&app, pool, agent_id.clone(), authentication)
-                .await
-            {
-                Ok((auth_mode, ready, detail, path)) => (
-                    Some(AgentPreflightItemView {
-                        id: "auth.mode".to_string(),
-                        label: "鉴权模式".to_string(),
-                        status: status(ready),
-                        detail,
-                        version: Some(auth_mode.mode),
-                        path,
-                        source: None,
-                        repairable: !ready,
-                    }),
-                    ready,
-                    ready,
-                ),
-                Err(error) => (
-                    Some(AgentPreflightItemView {
-                        id: "auth.mode".to_string(),
-                        label: "鉴权模式".to_string(),
-                        status: "fail".to_string(),
-                        detail: error.message,
-                        version: None,
-                        path: None,
-                        source: None,
-                        repairable: true,
-                    }),
-                    false,
-                    false,
-                ),
-            }
-        } else if let Some(policy) = agents::built_in_auth_mode_policy(&agent_id) {
-            let auth_mode = project_agent_auth_mode(agent_id.clone(), policy, &agent_env);
-            let needs_credential = policy.credential_modes.contains(&auth_mode.mode.as_str());
-            let custom_ready = if agent_id.as_str() == "grok" && auth_mode.mode == "custom" {
-                let home = app.path().home_dir().map_err(internal_error)?;
-                let provider = NativeConfigProvider::with_environment(
-                    Arc::new(TokioNativeFileSystem),
-                    home,
-                    agent_env.clone().into_iter().collect(),
-                );
-                provider
-                    .read(&agent_id, false)
-                    .await
-                    .ok()
-                    .is_some_and(|snapshot| {
-                        native_field_present(&snapshot, "grok_api_key")
-                            && native_field_text(&snapshot, "grok_base_url").is_some()
-                            && native_field_text(&snapshot, "grok_custom_model_id").is_some()
-                    })
-            } else {
-                true
-            };
-            let subscription_ready = auth_mode.mode != "subscription"
-                || matches!(
-                    authentication,
-                    AgentAuthenticationStatus::Account | AgentAuthenticationStatus::MultipleUnknown
-                );
-            let ready = (!needs_credential || auth_mode.credential_present)
-                && custom_ready
-                && subscription_ready;
-            let detail = if auth_mode.mode == "subscription" {
-                format!(
-                    "订阅登录模式；启动时会清除冲突的 {}。",
-                    policy.subscription_scrub_env.join("、")
-                )
-            } else if needs_credential && !auth_mode.credential_present {
-                format!(
-                    "{} 模式缺少 {}，请在鉴权模式中保存凭据。",
-                    auth_mode.mode, auth_mode.credential_env
-                )
-            } else if auth_mode.credential_present {
-                format!(
-                    "{} 模式已配置 {}（凭据内容不会显示）。",
-                    auth_mode.mode, auth_mode.credential_env
-                )
-            } else {
-                format!("已选择 {} 模式。", auth_mode.mode)
-            };
-            (
-                Some(AgentPreflightItemView {
-                    id: "auth.mode".to_string(),
-                    label: "鉴权模式".to_string(),
-                    status: status(ready),
-                    detail,
-                    version: Some(auth_mode.mode),
-                    path: None,
-                    source: None,
-                    repairable: !ready,
-                }),
-                ready,
-                ready,
-            )
-        } else {
-            (None, true, false)
-        };
+        evaluate_auth_mode_preflight(&app, pool, agent_id.clone(), &agent_env, authentication)
+            .await?;
     let lifecycle = if !runtime_ok || !acp_ok || !required_dependencies_ok {
         AgentLifecycleState::NeedsRepair
     } else if !auth_mode_ready
@@ -4722,6 +4577,303 @@ pub async fn agent_management_preflight(
         checked_at: Utc::now().to_rfc3339(),
         items,
     })
+}
+
+async fn preflight_authentication_scope(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<AgentPreflightView, AgentManagementErrorView> {
+    let pool = &state.deployment.db().pool;
+    refresh_authentication_probes(&app, pool).await;
+    let agent_env_json = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .flatten();
+    let agent_env = parse_agent_env(agent_env_json.as_deref()).map_err(internal_error)?;
+    let native_authentication = if let Ok(home) = app.path().home_dir() {
+        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
+        let provider = NativeConfigProvider::with_environment(
+            Arc::new(TokioNativeFileSystem),
+            home,
+            agent_env.clone().into_iter().collect(),
+        );
+        match provider.read(&agent_id, account_logged_in).await {
+            Ok(snapshot) => snapshot.authentication,
+            Err(agents::NativeConfigError::Unsupported(_)) => {
+                AgentAuthenticationStatus::NotRequired
+            }
+            Err(_) => AgentAuthenticationStatus::NotLoggedIn,
+        }
+    } else {
+        AgentAuthenticationStatus::NotLoggedIn
+    };
+    let native_authentication = if agent_id.as_str() == "deepseek_harness" {
+        if let Ok(home) = app.path().home_dir() {
+            let paths = dsh_paths(&home, &agent_env);
+            if dsh_configuration::any_credential_present(&paths) {
+                AgentAuthenticationStatus::ApiKey
+            } else {
+                native_authentication
+            }
+        } else {
+            native_authentication
+        }
+    } else {
+        native_authentication
+    };
+    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+        .profile(&agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
+    let (authentication, _) = resolve_authentication_observation(
+        native_authentication,
+        None,
+        authentication_required_by_default,
+    );
+    let (auth_mode_item, _, _) =
+        evaluate_auth_mode_preflight(&app, pool, agent_id.clone(), &agent_env, authentication)
+            .await?;
+    Ok(AgentPreflightView {
+        agent_id,
+        checked_at: Utc::now().to_rfc3339(),
+        items: auth_mode_item.into_iter().collect(),
+    })
+}
+
+async fn evaluate_auth_mode_preflight(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: AgentId,
+    agent_env: &HashMap<String, String>,
+    authentication: AgentAuthenticationStatus,
+) -> Result<(Option<AgentPreflightItemView>, bool, bool), AgentManagementErrorView> {
+    let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
+    if agent_id.as_str() == "codex" {
+        return Ok(match read_codex_auth_mode_view(app, pool).await {
+            Ok(auth_mode) => {
+                let codex_home = app
+                    .path()
+                    .home_dir()
+                    .map(|home| {
+                        resolve_agent_home_directory(&home, agent_env, "CODEX_HOME", ".codex")
+                    })
+                    .map_err(internal_error)?;
+                let provider_projection_ready = if auth_mode.mode == "model_provider" {
+                    codex_provider_projection_ready(&codex_home).await
+                        && auth_mode.credential_present
+                } else {
+                    true
+                };
+                let ready = match auth_mode.mode.as_str() {
+                    "api_key" => auth_mode.credential_present,
+                    "model_provider" => provider_projection_ready,
+                    "chatgpt_subscription" => matches!(
+                        authentication,
+                        AgentAuthenticationStatus::Account
+                            | AgentAuthenticationStatus::MultipleUnknown
+                    ),
+                    _ => false,
+                };
+                let detail = match auth_mode.mode.as_str() {
+                    "api_key" if ready => {
+                        "api_key 模式已配置 OPENAI_API_KEY（凭据内容不会显示）。".to_string()
+                    }
+                    "api_key" => {
+                        "api_key 模式缺少 OPENAI_API_KEY，请在鉴权模式中保存凭据。".to_string()
+                    }
+                    "model_provider" if ready => {
+                        "Model Provider 绑定、Codex 原生配置与凭据投影已对齐。".to_string()
+                    }
+                    "model_provider" => {
+                        "Model Provider 绑定与 Codex auth.json/config.toml 投影不一致，请重新绑定。"
+                            .to_string()
+                    }
+                    "chatgpt_subscription" if ready => {
+                        "ChatGPT 订阅模式已检测到有效账号会话。".to_string()
+                    }
+                    "chatgpt_subscription" => {
+                        "ChatGPT 订阅模式尚未检测到有效账号会话，请使用设备码登录。".to_string()
+                    }
+                    _ => format!("无法验证鉴权模式 `{}`。", auth_mode.mode),
+                };
+                (
+                    Some(AgentPreflightItemView {
+                        id: "auth.mode".to_string(),
+                        label: "鉴权模式".to_string(),
+                        status: status(ready),
+                        detail,
+                        version: Some(auth_mode.mode),
+                        path: Some(codex_home.join("auth.json").display().to_string()),
+                        source: None,
+                        repairable: !ready,
+                    }),
+                    ready,
+                    ready,
+                )
+            }
+            Err(error) => (
+                Some(AgentPreflightItemView {
+                    id: "auth.mode".to_string(),
+                    label: "鉴权模式".to_string(),
+                    status: "fail".to_string(),
+                    detail: error.message,
+                    version: None,
+                    path: None,
+                    source: None,
+                    repairable: true,
+                }),
+                false,
+                false,
+            ),
+        });
+    }
+    if agent_id.as_str() == "deepseek_harness" {
+        return Ok(match read_dsh_auth_mode_view(app, pool).await {
+            Ok(auth_mode) => {
+                let ready = auth_mode.credential_present;
+                (
+                    Some(AgentPreflightItemView {
+                        id: "auth.mode".to_string(),
+                        label: "鉴权模式".to_string(),
+                        status: status(ready),
+                        detail: if ready {
+                            "已从 DeepSeek Harness 原生凭据检测到 API 配置。".to_string()
+                        } else {
+                            "尚未检测到 DeepSeek API Key 或自定义模型供应商凭据。".to_string()
+                        },
+                        version: Some(auth_mode.mode),
+                        path: Some(
+                            dsh_paths(&app.path().home_dir().unwrap_or_default(), agent_env)
+                                .credentials
+                                .display()
+                                .to_string(),
+                        ),
+                        source: None,
+                        repairable: !ready,
+                    }),
+                    ready,
+                    ready,
+                )
+            }
+            Err(error) => (
+                Some(AgentPreflightItemView {
+                    id: "auth.mode".to_string(),
+                    label: "鉴权模式".to_string(),
+                    status: "fail".to_string(),
+                    detail: error.message,
+                    version: None,
+                    path: None,
+                    source: None,
+                    repairable: true,
+                }),
+                false,
+                false,
+            ),
+        });
+    }
+    if matches!(agent_id.as_str(), "claude_code" | "gemini") {
+        return Ok(
+            match evaluate_profile_auth_mode_preflight(app, pool, agent_id.clone(), authentication)
+                .await
+            {
+                Ok((auth_mode, ready, detail, path)) => (
+                    Some(AgentPreflightItemView {
+                        id: "auth.mode".to_string(),
+                        label: "鉴权模式".to_string(),
+                        status: status(ready),
+                        detail,
+                        version: Some(auth_mode.mode),
+                        path,
+                        source: None,
+                        repairable: !ready,
+                    }),
+                    ready,
+                    ready,
+                ),
+                Err(error) => (
+                    Some(AgentPreflightItemView {
+                        id: "auth.mode".to_string(),
+                        label: "鉴权模式".to_string(),
+                        status: "fail".to_string(),
+                        detail: error.message,
+                        version: None,
+                        path: None,
+                        source: None,
+                        repairable: true,
+                    }),
+                    false,
+                    false,
+                ),
+            },
+        );
+    }
+    let Some(policy) = agents::built_in_auth_mode_policy(&agent_id) else {
+        return Ok((None, true, false));
+    };
+    let auth_mode = project_agent_auth_mode(agent_id.clone(), policy, agent_env);
+    let needs_credential = policy.credential_modes.contains(&auth_mode.mode.as_str());
+    let custom_ready = if agent_id.as_str() == "grok" && auth_mode.mode == "custom" {
+        let home = app.path().home_dir().map_err(internal_error)?;
+        let provider = NativeConfigProvider::with_environment(
+            Arc::new(TokioNativeFileSystem),
+            home,
+            agent_env.clone().into_iter().collect(),
+        );
+        provider
+            .read(&agent_id, false)
+            .await
+            .ok()
+            .is_some_and(|snapshot| {
+                native_field_present(&snapshot, "grok_api_key")
+                    && native_field_text(&snapshot, "grok_base_url").is_some()
+                    && native_field_text(&snapshot, "grok_custom_model_id").is_some()
+            })
+    } else {
+        true
+    };
+    let subscription_ready = auth_mode.mode != "subscription"
+        || matches!(
+            authentication,
+            AgentAuthenticationStatus::Account | AgentAuthenticationStatus::MultipleUnknown
+        );
+    let ready =
+        (!needs_credential || auth_mode.credential_present) && custom_ready && subscription_ready;
+    let detail = if auth_mode.mode == "subscription" {
+        format!(
+            "订阅登录模式；启动时会清除冲突的 {}。",
+            policy.subscription_scrub_env.join("、")
+        )
+    } else if needs_credential && !auth_mode.credential_present {
+        format!(
+            "{} 模式缺少 {}，请在鉴权模式中保存凭据。",
+            auth_mode.mode, auth_mode.credential_env
+        )
+    } else if auth_mode.credential_present {
+        format!(
+            "{} 模式已配置 {}（凭据内容不会显示）。",
+            auth_mode.mode, auth_mode.credential_env
+        )
+    } else {
+        format!("已选择 {} 模式。", auth_mode.mode)
+    };
+    Ok((
+        Some(AgentPreflightItemView {
+            id: "auth.mode".to_string(),
+            label: "鉴权模式".to_string(),
+            status: status(ready),
+            detail,
+            version: Some(auth_mode.mode),
+            path: None,
+            source: None,
+            repairable: !ready,
+        }),
+        ready,
+        ready,
+    ))
 }
 
 async fn preflight_component_is_healthy(path: &Path, expected_sha256: Option<&str>) -> bool {
@@ -5784,7 +5936,7 @@ async fn record_post_install_probe(
         let agent_env = read_agent_environment(pool, agent_id)
             .await
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        let account_logged_in = detect_account_login(&home, agent_id, &agent_env).await;
+        let account_logged_in = resolve_native_account_login(&home, agent_id, &agent_env).await;
         let provider = NativeConfigProvider::with_environment(
             Arc::new(TokioNativeFileSystem),
             home,
@@ -5803,19 +5955,49 @@ async fn record_post_install_probe(
     let authentication_required_by_default = BuiltInProfileCatalog::bundled()
         .profile(agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
-    let (authentication, authentication_required) = resolve_authentication_observation(
+    let (observed, authentication_required) = resolve_authentication_observation(
         native_authentication,
         capabilities.authentication.as_ref(),
         authentication_required_by_default,
     );
+    let authentication = recorded_account_over_residue(pool, agent_id, observed).await;
     sync_authentication_probe_with_requirement(
         pool,
         agent_id,
         authentication,
-        authentication_required,
+        authentication_required
+            && !matches!(
+                authentication,
+                AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+            ),
     )
     .await
     .map_err(|error| anyhow::anyhow!(error.message))
+}
+
+async fn resolve_native_account_login(
+    home: &Path,
+    agent_id: &AgentId,
+    environment: &HashMap<String, String>,
+) -> bool {
+    let local = detect_account_login(home, agent_id, environment).await;
+    let document = match agent_id.as_str() {
+        "codex" => read_account_evidence_document(home, agent_id, environment).await,
+        _ => None,
+    };
+    agents::account_still_present(
+        local,
+        agents::confirm_account_session(agent_id, local, document.as_ref()).await,
+    )
+}
+
+async fn read_account_evidence_document(
+    home: &Path,
+    agent_id: &AgentId,
+    environment: &HashMap<String, String>,
+) -> Option<serde_json::Value> {
+    let bytes = read_account_evidence_bytes(home, agent_id, environment).await?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 async fn detect_account_login(
@@ -5823,13 +6005,32 @@ async fn detect_account_login(
     agent_id: &AgentId,
     environment: &HashMap<String, String>,
 ) -> bool {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let Some(evidence) = catalog
-        .profile(agent_id)
-        .and_then(|profile| profile.account_evidence.as_ref())
-    else {
+    if agent_id.as_str() == "cursor" {
+        return agents::cursor_account_token().await.is_some();
+    }
+    let Some(bytes) = read_account_evidence_bytes(home, agent_id, environment).await else {
         return false;
     };
+    serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|value| {
+        if agent_id.as_str() == "kimi_code" && kimi_credential_is_synthetic(&value) {
+            return false;
+        }
+        BuiltInProfileCatalog::bundled()
+            .profile(agent_id)
+            .and_then(|profile| profile.account_evidence.as_ref())
+            .is_some_and(|evidence| evidence.matches(&value))
+    })
+}
+
+async fn read_account_evidence_bytes(
+    home: &Path,
+    agent_id: &AgentId,
+    environment: &HashMap<String, String>,
+) -> Option<Vec<u8>> {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let evidence = catalog
+        .profile(agent_id)
+        .and_then(|profile| profile.account_evidence.as_ref())?;
     let override_directory = evidence.directory_override_env.and_then(|name| {
         environment
             .get(name)
@@ -5844,15 +6045,9 @@ async fn detect_account_login(
     let directory = override_directory
         .map(|directory| directory.join(evidence.override_relative_directory))
         .unwrap_or_else(|| home.join(evidence.home_relative_directory));
-    let Ok(bytes) = tokio::fs::read(directory.join(evidence.relative_file)).await else {
-        return false;
-    };
-    serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|value| {
-        if agent_id.as_str() == "kimi_code" && kimi_credential_is_synthetic(&value) {
-            return false;
-        }
-        evidence.matches(&value)
-    })
+    tokio::fs::read(directory.join(evidence.relative_file))
+        .await
+        .ok()
 }
 
 fn expand_agent_home_path(home: &Path, value: &str) -> PathBuf {
@@ -8309,9 +8504,19 @@ pub async fn codex_poll_device_code(
     let agent_id = AgentId::parse("codex").expect("built-in id");
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
     let codex_home = resolve_agent_home_directory(&home, &environment, "CODEX_HOME", ".codex");
-    codex_device_auth::poll_device_code(&codex_home, device_auth_id, user_code)
+    let result = codex_device_auth::poll_device_code(&codex_home, device_auth_id, user_code)
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    if result.status == "success" {
+        sync_authentication_probe(
+            &state.deployment.db().pool,
+            &agent_id,
+            AgentAuthenticationStatus::Account,
+        )
+        .await?;
+        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -9035,13 +9240,22 @@ pub async fn agent_auth_mode(
     agent_id: AgentId,
 ) -> Result<AgentAuthModeView, AgentManagementErrorView> {
     if agent_id.as_str() == "codex" {
-        return read_codex_auth_mode_view(&app, &state.deployment.db().pool).await;
+        return with_account_label(
+            read_codex_auth_mode_view(&app, &state.deployment.db().pool).await?,
+        )
+        .await;
     }
     if agent_id.as_str() == "deepseek_harness" {
-        return read_dsh_auth_mode_view(&app, &state.deployment.db().pool).await;
+        return with_account_label(
+            read_dsh_auth_mode_view(&app, &state.deployment.db().pool).await?,
+        )
+        .await;
     }
     if matches!(agent_id.as_str(), "claude_code" | "gemini") {
-        return read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await;
+        return with_account_label(
+            read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await?,
+        )
+        .await;
     }
     let policy = agents::built_in_auth_mode_policy(&agent_id).ok_or_else(|| {
         management_error(
@@ -9059,7 +9273,7 @@ pub async fn agent_auth_mode(
     .map_err(internal_error)?
     .flatten();
     let env = parse_agent_env(env_json.as_deref()).map_err(internal_error)?;
-    Ok(project_agent_auth_mode(agent_id, policy, &env))
+    with_account_label(project_agent_auth_mode(agent_id, policy, &env)).await
 }
 
 #[tauri::command]
@@ -9071,13 +9285,22 @@ pub async fn agent_auth_mode_set(
     api_key: Option<String>,
 ) -> Result<AgentAuthModeView, AgentManagementErrorView> {
     if agent_id.as_str() == "codex" {
-        return set_codex_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
+        return with_account_label(
+            set_codex_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
+        )
+        .await;
     }
     if agent_id.as_str() == "deepseek_harness" {
-        return set_dsh_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
+        return with_account_label(
+            set_dsh_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
+        )
+        .await;
     }
     if matches!(agent_id.as_str(), "claude_code" | "gemini") {
-        return set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
+        return with_account_label(
+            set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
+        )
+        .await;
     }
     let policy = agents::built_in_auth_mode_policy(&agent_id).ok_or_else(|| {
         management_error(
@@ -9144,7 +9367,16 @@ pub async fn agent_auth_mode_set(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Agent 鉴权模式已更改")
         .await;
-    Ok(project_agent_auth_mode(agent_id, policy, &env))
+    with_account_label(project_agent_auth_mode(agent_id, policy, &env)).await
+}
+
+async fn with_account_label(
+    view: AgentAuthModeView,
+) -> Result<AgentAuthModeView, AgentManagementErrorView> {
+    Ok(AgentAuthModeView {
+        account_label: agents::resolve_account_label(&view.agent_id).await,
+        ..view
+    })
 }
 
 async fn read_dsh_auth_mode_view(
@@ -9306,6 +9538,7 @@ fn project_agent_auth_mode(
             .collect(),
         credential_env: credential_env.to_string(),
         credential_present,
+        account_label: None,
     }
 }
 
@@ -9331,7 +9564,7 @@ async fn read_profile_auth_mode_view(
     let providers = model_providers::list(&store_path, agent_id.clone())
         .await
         .map_err(internal_error)?;
-    let account_logged_in = detect_account_login(&home, &agent_id, &environment).await;
+    let account_logged_in = resolve_native_account_login(&home, &agent_id, &environment).await;
     let snapshot = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
@@ -9399,6 +9632,7 @@ async fn read_profile_auth_mode_view(
             .collect(),
         credential_env,
         credential_present,
+        account_label: None,
     })
 }
 
@@ -9410,7 +9644,7 @@ async fn evaluate_profile_auth_mode_preflight(
 ) -> Result<(AgentAuthModeView, bool, String, Option<String>), AgentManagementErrorView> {
     let home = app.path().home_dir().map_err(internal_error)?;
     let environment = read_agent_environment(pool, &agent_id).await?;
-    let account_logged_in = detect_account_login(&home, &agent_id, &environment).await;
+    let account_logged_in = resolve_native_account_login(&home, &agent_id, &environment).await;
     let snapshot = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home.clone(),
@@ -9637,7 +9871,7 @@ async fn set_profile_auth_mode(
     let mut native_patch = None;
     let mut file_rollback = Vec::new();
     let account_logged_in = if mode != "model_provider" {
-        let account_logged_in = detect_account_login(&home, &agent_id, &environment).await;
+        let account_logged_in = resolve_native_account_login(&home, &agent_id, &environment).await;
         let provider = NativeConfigProvider::with_environment(
             Arc::new(TokioNativeFileSystem),
             home.clone(),
@@ -10117,6 +10351,7 @@ fn project_codex_auth_mode(
             .collect(),
         credential_env: "OPENAI_API_KEY".to_string(),
         credential_present: projection.credential_present,
+        account_label: None,
     }
 }
 
@@ -10990,6 +11225,23 @@ pub async fn agent_management_run_action(
             .collect::<Vec<_>>()
             .join(" ");
         let command = management_command_with_environment(&command, &environment);
+        let watches_account = matches!(
+            action.kind,
+            ProfileManagementActionKind::Login | ProfileManagementActionKind::Logout
+        );
+        let command = if watches_account {
+            let result_path = account_flow::account_flow_result_path(&agent_id);
+            let _ = tokio::fs::remove_file(&result_path).await;
+            account_flow::register_account_flow(
+                &agent_id,
+                action.id,
+                action.kind,
+                result_path.clone(),
+            );
+            account_flow::wrap_account_flow_command(&command, &result_path)
+        } else {
+            command
+        };
         if agent_id.as_str() == "kimi_code" && action.id == "login" {
             let mutations = prepare_kimi_vibex_configuration_cleanup(&environment).await?;
             apply_config_transition_then(mutations, || {
@@ -11005,6 +11257,51 @@ pub async fn agent_management_run_action(
         agent_id,
         action_id,
         launched: true,
+    })
+}
+
+#[tauri::command]
+pub async fn agent_management_account_flow(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<AgentAccountFlowView, AgentManagementErrorView> {
+    let Some(pending) = account_flow::peek_account_flow(&agent_id) else {
+        return Ok(account_flow::idle_account_flow(agent_id));
+    };
+    let Ok(contents) = tokio::fs::read_to_string(&pending.result_path).await else {
+        return Ok(account_flow::pending_account_flow_view(
+            agent_id,
+            pending.action_id,
+        ));
+    };
+    let Some(exit_code) = account_flow::parse_account_flow_exit(&contents) else {
+        return Ok(account_flow::pending_account_flow_view(
+            agent_id,
+            pending.action_id,
+        ));
+    };
+    account_flow::take_account_flow(&agent_id);
+    let _ = tokio::fs::remove_file(&pending.result_path).await;
+    let recorded = recorded_authentication(&state.deployment.db().pool, &agent_id).await;
+    let authentication =
+        agents::authentication_from_account_command(pending.kind, exit_code).unwrap_or(recorded);
+    if authentication != recorded {
+        sync_authentication_probe(&state.deployment.db().pool, &agent_id, authentication).await?;
+    }
+    if exit_code == 0 {
+        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    }
+    Ok(AgentAccountFlowView {
+        agent_id,
+        action_id: Some(pending.action_id),
+        status: if exit_code == 0 {
+            AgentAccountFlowStatus::Succeeded
+        } else {
+            AgentAccountFlowStatus::Failed
+        },
+        exit_code: Some(exit_code),
+        authentication: Some(authentication),
     })
 }
 
@@ -11407,7 +11704,7 @@ pub async fn agent_management_config_read(
         return Err(internal_error("用户目录不可用"));
     };
     let agent_env = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
-    let account_logged_in = detect_account_login(&home, &agent_id, &agent_env).await;
+    let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
@@ -11429,7 +11726,7 @@ pub async fn agent_management_config_read(
         }
         Err(error) => return Err(internal_error(error)),
     };
-    sync_authentication_probe(
+    sync_authentication_without_account_residue(
         &state.deployment.db().pool,
         &agent_id,
         snapshot.authentication,
@@ -11533,7 +11830,8 @@ pub async fn agent_management_config_write(
     };
     validate_native_config_patch(&request)?;
     let agent_env = read_agent_environment(&state.deployment.db().pool, &request.agent_id).await?;
-    let account_logged_in = detect_account_login(&home, &request.agent_id, &agent_env).await;
+    let account_logged_in =
+        resolve_native_account_login(&home, &request.agent_id, &agent_env).await;
     let kimi_fields = (request.agent_id.as_str() == "kimi_code").then(|| request.fields.clone());
     let grok_fields = (request.agent_id.as_str() == "grok").then(|| request.fields.clone());
     let sync_launch_preferences = matches!(
@@ -11592,13 +11890,13 @@ pub async fn agent_management_config_write(
         }
         if reconciled {
             let account_logged_in =
-                detect_account_login(&home, &request.agent_id, &agent_env).await;
+                resolve_native_account_login(&home, &request.agent_id, &agent_env).await;
             result.snapshot = provider
                 .read(&request.agent_id, account_logged_in)
                 .await
                 .map_err(internal_error)?;
         }
-        sync_authentication_probe(
+        sync_authentication_without_account_residue(
             &state.deployment.db().pool,
             &request.agent_id,
             result.snapshot.authentication,
@@ -11728,7 +12026,8 @@ pub async fn agent_management_config_file_write(
         return Err(internal_error("用户目录不可用"));
     };
     let agent_env = read_agent_environment(&state.deployment.db().pool, &request.agent_id).await?;
-    let account_logged_in = detect_account_login(&home, &request.agent_id, &agent_env).await;
+    let account_logged_in =
+        resolve_native_account_login(&home, &request.agent_id, &agent_env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home.clone(),
@@ -11766,7 +12065,7 @@ pub async fn agent_management_config_file_write(
             sync_native_launch_preferences(&state.deployment.db().pool, &request.agent_id, &home)
                 .await?;
         }
-        sync_authentication_probe(
+        sync_authentication_without_account_residue(
             &state.deployment.db().pool,
             &request.agent_id,
             result.snapshot.authentication,
@@ -12349,6 +12648,51 @@ async fn write_bytes_document(
         .write_atomic(path, bytes, sensitive)
         .await
         .map_err(internal_error)
+}
+
+async fn recorded_authentication(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> AgentAuthenticationStatus {
+    let value = sqlx::query_scalar::<_, String>(
+        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    match value.as_deref() {
+        Some("account") => AgentAuthenticationStatus::Account,
+        Some("api_key") => AgentAuthenticationStatus::ApiKey,
+        Some("multiple_unknown") => AgentAuthenticationStatus::MultipleUnknown,
+        Some("not_required") => AgentAuthenticationStatus::NotRequired,
+        _ => AgentAuthenticationStatus::NotLoggedIn,
+    }
+}
+
+async fn recorded_account_over_residue(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    observed: AgentAuthenticationStatus,
+) -> AgentAuthenticationStatus {
+    agents::prefer_recorded_account_over_residue(
+        recorded_authentication(pool, agent_id).await,
+        observed,
+    )
+}
+
+async fn sync_authentication_without_account_residue(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    observed: AgentAuthenticationStatus,
+) -> Result<(), AgentManagementErrorView> {
+    sync_authentication_probe(
+        pool,
+        agent_id,
+        recorded_account_over_residue(pool, agent_id, observed).await,
+    )
+    .await
 }
 
 async fn sync_authentication_probe(

@@ -7,6 +7,7 @@ import type {
   AgentAuthModeView,
   AgentId,
   AgentManagementView,
+  AgentAccountFlowView,
   AgentManagementActionReceipt,
   AgentManagementActionsView,
   AgentModelCatalogView,
@@ -91,8 +92,11 @@ export const agentManagementApi = {
   reorder: (agentIds: AgentId[]): Promise<AgentManagementView[]> =>
     backendCall('agent_management_reorder', { agentIds }),
 
-  preflight: (agentId: AgentId): Promise<AgentPreflightView> =>
-    backendCall('agent_management_preflight', { agentId }),
+  preflight: (
+    agentId: AgentId,
+    scope?: 'authentication'
+  ): Promise<AgentPreflightView> =>
+    backendCall('agent_management_preflight', { agentId, scope }),
 
   environment: (agentId: AgentId): Promise<AgentEnvironmentView> =>
     backendCall('agent_management_environment', { agentId }),
@@ -115,6 +119,9 @@ export const agentManagementApi = {
     actionId: string
   ): Promise<AgentManagementActionReceipt> =>
     backendCall('agent_management_run_action', { agentId, actionId }),
+
+  accountFlow: (agentId: AgentId): Promise<AgentAccountFlowView> =>
+    backendCall('agent_management_account_flow', { agentId }),
 
   requestCodexDeviceCode: (): Promise<CodexDeviceCodeView> =>
     backendCall('codex_request_device_code'),

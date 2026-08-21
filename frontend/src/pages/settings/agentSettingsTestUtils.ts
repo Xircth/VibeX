@@ -14,3 +14,7 @@ export async function pickAstryxOption(
   await user.click(trigger);
   await user.click(await screen.findByRole('option', { name: optionName }));
 }
+
+export async function pickAuthModeTab(user: Clicker, optionName: string) {
+  await user.click(await screen.findByRole('tab', { name: optionName }));
+}

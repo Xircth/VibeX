@@ -378,6 +378,26 @@ pub struct AgentManagementActionReceipt {
     pub launched: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentAccountFlowStatus {
+    Idle,
+    Pending,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentAccountFlowView {
+    pub agent_id: AgentId,
+    pub action_id: Option<String>,
+    pub status: AgentAccountFlowStatus,
+    pub exit_code: Option<i32>,
+    pub authentication: Option<AgentAuthenticationStatus>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct OpenCodeProviderModelView {
@@ -803,6 +823,9 @@ pub struct AgentAuthModeView {
     pub options: Vec<AgentAuthModeOptionView>,
     pub credential_env: String,
     pub credential_present: bool,
+    #[serde(default)]
+    #[ts(optional)]
+    pub account_label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

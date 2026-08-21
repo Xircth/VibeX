@@ -812,6 +812,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::agent_management::agent_management_environment_diagnostics,
         commands::agent_management::agent_management_actions,
         commands::agent_management::agent_management_run_action,
+        commands::agent_management::agent_management_account_flow,
         commands::agent_management::opencode_provider_connections,
         commands::agent_management::opencode_provider_catalog,
         commands::agent_management::codex_request_device_code,

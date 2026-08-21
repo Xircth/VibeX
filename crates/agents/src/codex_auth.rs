@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-pub const CODEX_AUTH_MODES: &[&str] = &["api_key", "chatgpt_subscription", "model_provider"];
+pub const CODEX_AUTH_MODES: &[&str] = &["chatgpt_subscription", "api_key", "model_provider"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexAuthModeProjection {

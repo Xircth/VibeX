@@ -61,12 +61,11 @@ export function AgentConfigPathMeta({
     <div className="agent-config-path-meta">
       {paths.map((path) => (
         <div className="agent-config-path-item" key={path}>
-          <span>{fileName(path)}</span>
-          <code title={path}>{path}</code>
+          <span title={path}>{fileName(path)}</span>
           <Button
             size="sm"
             variant="ghost"
-            className="agent-config-open-folder h-7"
+            className="agent-config-open-folder h-7 w-7 p-0"
             aria-label={t('agents.openConfigFolderAria', {
               file: fileName(path),
             })}
@@ -77,8 +76,7 @@ export function AgentConfigPathMeta({
                 .catch(() => toast.error(t('agents.openConfigFolderFailed')));
             }}
           >
-            <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-            {t('agents.openConfigFolder')}
+            <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
         </div>
       ))}

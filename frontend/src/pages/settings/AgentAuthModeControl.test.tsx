@@ -1,12 +1,17 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
-import { pickAstryxOption } from './agentSettingsTestUtils';
+import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
+
+vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
+  ConfirmDialog: { show: vi.fn() },
+}));
 
 const claudeActions = {
   agent_id: 'claude_code' as const,
@@ -47,16 +52,16 @@ const grokOptions = [
 ];
 const codexOptions = [
   authOption(
+    'chatgpt_subscription',
+    'authModeChatGpt',
+    'authDescCodexSubscription'
+  ),
+  authOption(
     'api_key',
     'authModeOpenAiKey',
     'authDescCodexKey',
     'OPENAI_API_KEY',
     'openai_api_key'
-  ),
-  authOption(
-    'chatgpt_subscription',
-    'authModeChatGpt',
-    'authDescCodexSubscription'
   ),
   authOption('model_provider', 'authModeProvider', 'authDescCodexProvider'),
 ];
@@ -113,7 +118,7 @@ describe('AgentAuthModeControl', () => {
     vi.restoreAllMocks();
   });
 
-  it('switches Grok to subscription and delegates credential cleanup', async () => {
+  it('switches Grok to subscription immediately after confirming key cleanup', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'grok',
       mode: 'api_key',
@@ -130,28 +135,31 @@ describe('AgentAuthModeControl', () => {
       modes: ['subscription', 'api_key', 'custom'],
       options: grokOptions,
     });
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
     const user = userEvent.setup();
 
     render(<AgentAuthModeControl agentId="grok" />);
 
-    const select = await screen.findByLabelText('Grok 鉴权模式');
-    await pickAstryxOption(user, select, '官方订阅账号');
-    await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
+    await pickAuthModeTab(user, '官方订阅账号');
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
     );
+    expect(ConfirmDialog.show).toHaveBeenCalled();
     expect(
       screen.queryByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '保存鉴权模式' })
+    ).not.toBeInTheDocument();
   });
 
-  it('keeps an unsaved custom endpoint after the panel remounts', async () => {
+  it('keeps an unsaved API key mode after the panel remounts', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'grok',
-      mode: 'api_key',
+      mode: 'subscription',
       credential_env: 'XAI_API_KEY',
-      credential_present: true,
+      credential_present: false,
       modes: ['subscription', 'api_key', 'custom'],
       options: grokOptions,
     });
@@ -159,21 +167,55 @@ describe('AgentAuthModeControl', () => {
 
     const { unmount } = render(<AgentAuthModeControl agentId="grok" />);
 
-    await pickAstryxOption(
-      user,
-      await screen.findByLabelText('Grok 鉴权模式'),
-      '自定义模型端点'
+    await pickAuthModeTab(user, 'xAI API Key');
+    expect(screen.getByRole('tab', { name: 'xAI API Key' })).toHaveAttribute(
+      'aria-selected',
+      'true'
     );
-    expect(screen.getByLabelText('Grok 鉴权模式')).toHaveTextContent(
-      '自定义模型端点'
-    );
+    expect(screen.getByLabelText('XAI_API_KEY')).toBeVisible();
 
     unmount();
     render(<AgentAuthModeControl agentId="grok" />);
 
-    expect(await screen.findByLabelText('Grok 鉴权模式')).toHaveTextContent(
-      '自定义模型端点'
+    expect(
+      await screen.findByRole('tab', { name: 'xAI API Key' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('XAI_API_KEY')).toBeVisible();
+  });
+
+  it('notifies the parent only after an API key is saved', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'subscription',
+      credential_env: 'XAI_API_KEY',
+      credential_present: false,
+      modes: ['subscription', 'api_key', 'custom'],
+      options: grokOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'api_key',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom'],
+      options: grokOptions,
+    });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(<AgentAuthModeControl agentId="grok" onChanged={onChanged} />);
+
+    await pickAuthModeTab(user, 'xAI API Key');
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText('XAI_API_KEY'), 'xai-key');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith('grok', 'api_key', 'xai-key')
     );
+    expect(onChanged).toHaveBeenCalledOnce();
   });
 
   it('keeps the Codex API key inside the native configuration form', async () => {
@@ -182,7 +224,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'chatgpt_subscription',
       credential_env: 'OPENAI_API_KEY',
       credential_present: false,
-      modes: ['api_key', 'chatgpt_subscription', 'model_provider'],
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
       options: codexOptions,
     });
     const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
@@ -190,7 +232,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'api_key',
       credential_env: 'OPENAI_API_KEY',
       credential_present: true,
-      modes: ['api_key', 'chatgpt_subscription', 'model_provider'],
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
       options: codexOptions,
     });
     const user = userEvent.setup();
@@ -203,22 +245,26 @@ describe('AgentAuthModeControl', () => {
       />
     );
 
-    const select = await screen.findByLabelText('Codex 鉴权模式');
-    await user.click(select);
+    const tabs = await screen.findByRole('tablist', { name: 'Codex 鉴权模式' });
     expect(
-      screen.getByRole('option', { name: 'ChatGPT 官方订阅' })
-    ).toBeVisible();
+      within(tabs)
+        .getAllByRole('tab')
+        .map((tab) => tab.getAttribute('aria-label'))
+    ).toEqual(['ChatGPT 官方订阅', 'OpenAI API Key', '已绑定 Model Provider']);
+    expect(screen.getByRole('tab', { name: 'ChatGPT 官方订阅' })).toBeVisible();
     expect(
-      screen.getByRole('option', { name: '已绑定 Model Provider' })
+      screen.getByRole('tab', { name: '已绑定 Model Provider' })
     ).toBeVisible();
-    await user.click(screen.getByRole('option', { name: 'OpenAI API Key' }));
-    expect(screen.getByLabelText('OpenAI API Key')).toBeVisible();
+    await pickAuthModeTab(user, 'OpenAI API Key');
+    expect(
+      screen.getByLabelText('OpenAI API Key', { selector: 'input' })
+    ).toBeVisible();
     expect(screen.queryByLabelText('OPENAI_API_KEY')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('codex', 'api_key', null)
     );
+    expect(tabs).toBeInTheDocument();
   });
 
   it('keeps Claude credentials inside the native configuration form', async () => {
@@ -253,25 +299,30 @@ describe('AgentAuthModeControl', () => {
       />
     );
 
-    const select = await screen.findByLabelText('Claude Code 鉴权模式');
-    await user.click(select);
-    expect(screen.getByRole('option', { name: '官方订阅' })).toBeVisible();
-    await user.click(screen.getByRole('option', { name: '自定义模型端点' }));
+    expect(await screen.findByRole('tab', { name: '官方订阅' })).toBeVisible();
+    await pickAuthModeTab(user, '自定义模型端点');
     expect(screen.getByLabelText('API Key')).toBeVisible();
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('claude_code', 'custom', null)
     );
   });
 
-  it('shows only the workflow selected inside one authentication management region', async () => {
+  it('shows a session bar instead of duplicated login rows', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'claude_code',
       mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'custom', 'model_provider'],
+      options: claudeOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'model_provider',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
       modes: ['official_subscription', 'custom', 'model_provider'],
@@ -293,12 +344,17 @@ describe('AgentAuthModeControl', () => {
     );
 
     const region = await screen.findByRole('region', { name: '鉴权管理' });
-    const select = screen.getByLabelText('Claude Code 鉴权模式');
     expect(region).toBeInTheDocument();
+    expect(screen.getByText('未登录官方账号')).toBeVisible();
     expect(
       screen.getByRole('button', { name: '登录 Claude Code' })
     ).toBeVisible();
-    expect(screen.getByText('请先安装或修复此 Agent。')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '退出 Claude Code' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('请先安装或修复此 Agent。')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText('当前没有可退出的账号会话。')
     ).not.toBeInTheDocument();
@@ -312,7 +368,7 @@ describe('AgentAuthModeControl', () => {
       screen.queryByText('调用此 Agent 官方提供的账号管理流程')
     ).not.toBeInTheDocument();
 
-    await pickAstryxOption(user, select, '自定义模型端点');
+    await pickAuthModeTab(user, '自定义模型端点');
     expect(
       screen.queryByRole('button', { name: '登录 Claude Code' })
     ).not.toBeInTheDocument();
@@ -320,16 +376,135 @@ describe('AgentAuthModeControl', () => {
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
     expect(screen.getByTestId('auth-file-meta')).toBeVisible();
+    expect(
+      screen
+        .getByTestId('auth-file-meta')
+        .compareDocumentPosition(
+          screen.getByRole('tablist', { name: 'Claude Code 鉴权模式' })
+        ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.getByTestId('native-configuration')).toBeVisible();
     expect(screen.getByTestId('model-provider')).not.toBeVisible();
 
-    await pickAstryxOption(user, select, '已绑定 Model Provider');
+    await pickAuthModeTab(user, '已绑定 Model Provider');
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('auth-file-meta')).not.toBeInTheDocument();
     expect(screen.getByTestId('native-configuration')).not.toBeVisible();
     expect(screen.getByTestId('model-provider')).toBeVisible();
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith('claude_code', 'model_provider', null)
+    );
+  });
+
+  it('hides login and shows logout when the official account is signed in', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      account_label: 'linus@example.com',
+      modes: ['official_subscription', 'custom', 'model_provider'],
+      options: claudeOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        actions={{
+          ...claudeActions,
+          actions: claudeActions.actions.map((action) =>
+            action.kind === 'logout'
+              ? { ...action, available: true, unavailable_reason: null }
+              : action
+          ),
+        }}
+        agentId="claude_code"
+        authentication="account"
+        onRunAction={vi.fn()}
+      />
+    );
+
+    expect(
+      await screen.findByText('当前登录账户：linus@example.com')
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '登录 Claude Code' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '退出 Claude Code' })
+    ).toBeVisible();
+  });
+
+  it('falls back to signed-in copy when the account name is unknown', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'custom', 'model_provider'],
+      options: claudeOptions,
+    });
+
+    render(
+      <AgentAuthModeControl agentId="claude_code" authentication="account" />
+    );
+
+    expect(await screen.findByText('当前已登录')).toBeVisible();
+  });
+
+  it('shows login after logout even when the logout command is still available', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'custom', 'model_provider'],
+      options: claudeOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        actions={{
+          agent_id: 'claude_code',
+          actions: [
+            { ...claudeActions.actions[0], available: true },
+            {
+              ...claudeActions.actions[1],
+              available: true,
+              unavailable_reason: null,
+            },
+            {
+              id: 'subscription',
+              label: '管理 Claude 订阅',
+              description: '打开 Claude 订阅管理。',
+              label_key:
+                'agents.managementAction.claude_code.subscription.label',
+              description_key:
+                'agents.managementAction.claude_code.subscription.description',
+              kind: 'subscription',
+              available: true,
+              unavailable_reason: null,
+              url: 'https://claude.ai',
+            },
+          ],
+        }}
+        agentId="claude_code"
+        authentication="not_logged_in"
+        onRunAction={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText('未登录官方账号')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: '登录 Claude Code' })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '退出 Claude Code' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '管理 Claude 订阅' })
+    ).not.toBeInTheDocument();
   });
 
   it('maps all Gemini credentials to the native configuration form', async () => {
@@ -377,13 +552,13 @@ describe('AgentAuthModeControl', () => {
       />
     );
 
-    const select = await screen.findByLabelText('Gemini 鉴权模式');
-    await user.click(select);
-    expect(screen.getAllByRole('option')).toHaveLength(7);
-    await user.click(screen.getByRole('option', { name: 'Vertex AI API Key' }));
+    expect(
+      await screen.findByRole('tablist', { name: 'Gemini 鉴权模式' })
+    ).toBeVisible();
+    expect(screen.getAllByRole('tab')).toHaveLength(7);
+    await pickAuthModeTab(user, 'Vertex AI API Key');
     expect(screen.getByLabelText('Google API Key')).toBeVisible();
     expect(screen.queryByLabelText('GOOGLE_API_KEY')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('gemini', 'vertex_api_key', null)

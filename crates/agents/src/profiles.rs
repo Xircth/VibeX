@@ -175,6 +175,7 @@ pub enum AuthenticationPrecedence {
 pub enum AccountEvidenceKind {
     NonEmptyObject,
     NonEmptyObjectAt(&'static [&'static str]),
+    NonEmptyStringAt(&'static [&'static str]),
     ProviderEntryNotApiKey,
 }
 
@@ -204,6 +205,18 @@ impl AccountEvidence {
                     current = next;
                 }
                 current.as_object().is_some_and(|object| !object.is_empty())
+            }
+            AccountEvidenceKind::NonEmptyStringAt(path) => {
+                let mut current = value;
+                for segment in path {
+                    let Some(next) = current.get(*segment) else {
+                        return false;
+                    };
+                    current = next;
+                }
+                current
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty())
             }
             AccountEvidenceKind::ProviderEntryNotApiKey => {
                 value.as_object().is_some_and(|object| {
@@ -2179,7 +2192,7 @@ fn claude_code_profile() -> BuiltInProfile {
             directory_override_env: Some("CLAUDE_CONFIG_DIR"),
             override_relative_directory: "",
             relative_file: ".credentials.json",
-            kind: AccountEvidenceKind::NonEmptyObject,
+            kind: AccountEvidenceKind::NonEmptyStringAt(&["claudeAiOauth", "accessToken"]),
         }),
     }
 }
@@ -2229,7 +2242,7 @@ fn codex_profile() -> BuiltInProfile {
             directory_override_env: Some("CODEX_HOME"),
             override_relative_directory: "",
             relative_file: "auth.json",
-            kind: AccountEvidenceKind::NonEmptyObjectAt(&["tokens"]),
+            kind: AccountEvidenceKind::NonEmptyStringAt(&["tokens", "access_token"]),
         }),
     }
 }

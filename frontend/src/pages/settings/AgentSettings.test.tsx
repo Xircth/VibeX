@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
 
-import { pickAstryxOption } from './agentSettingsTestUtils';
+import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { AgentSettings } from './AgentSettings';
 
 const api = vi.hoisted(() => ({
@@ -30,6 +30,7 @@ const api = vi.hoisted(() => ({
   markDiagnosticsRead: vi.fn(),
   actions: vi.fn(),
   runAction: vi.fn(),
+  accountFlow: vi.fn(),
   authMode: vi.fn(),
   setAuthMode: vi.fn(),
   environment: vi.fn(),
@@ -85,6 +86,7 @@ describe('AgentSettings', () => {
         acp_version: '1.0.0',
         active_operation: null,
         rollback_available: false,
+        settings_features: ['authentication_mode'],
       },
     ]);
     api.readConfig.mockResolvedValue({
@@ -97,9 +99,21 @@ describe('AgentSettings', () => {
       files: [],
       applies_to_next_session: true,
     });
+    api.preflight.mockResolvedValue({
+      agent_id: 'codex',
+      checked_at: '2026-08-21T00:00:00Z',
+      items: [],
+    });
     api.diagnostics.mockResolvedValue([]);
     api.markDiagnosticsRead.mockResolvedValue(undefined);
     api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
+    api.accountFlow.mockResolvedValue({
+      agent_id: 'codex',
+      action_id: null,
+      status: 'idle',
+      exit_code: null,
+      authentication: null,
+    });
     api.environment.mockResolvedValue({
       agent_id: 'codex',
       revision: '0',
@@ -158,7 +172,7 @@ describe('AgentSettings', () => {
       mode: 'chatgpt_subscription',
       credential_env: 'OPENAI_API_KEY',
       credential_present: false,
-      modes: ['api_key', 'chatgpt_subscription', 'model_provider'],
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
       options: [
         {
           value: 'api_key',
@@ -206,6 +220,16 @@ describe('AgentSettings', () => {
     expect(
       screen.queryByRole('button', { name: 'Codex' })
     ).not.toBeInTheDocument();
+  });
+
+  it('shows Codex auth management before native config finishes', async () => {
+    api.readConfig.mockReturnValue(new Promise(() => undefined));
+
+    render(<AgentSettings />);
+
+    expect(
+      await screen.findByRole('region', { name: '鉴权管理' })
+    ).toBeVisible();
   });
 
   it('renders the management projection as the only Agent settings source', async () => {
@@ -269,16 +293,26 @@ describe('AgentSettings', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(screen.getByLabelText('推理强度')).toBeVisible();
-    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeVisible();
+    expect(
+      screen.queryByLabelText('OpenAI API Key', { selector: 'input' })
+    ).not.toBeVisible();
 
-    await pickAstryxOption(
-      user,
-      screen.getByLabelText('Codex 鉴权模式'),
-      'OpenAI API Key'
-    );
+    api.setAuthMode.mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'api_key',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: true,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: (await api.authMode()).options,
+    });
 
+    await pickAuthModeTab(user, 'OpenAI API Key');
+
+    expect(api.preflight).not.toHaveBeenCalled();
     expect(screen.getByLabelText('推理强度')).toBeVisible();
-    expect(screen.getByLabelText('OpenAI API Key')).toBeVisible();
+    expect(
+      screen.getByLabelText('OpenAI API Key', { selector: 'input' })
+    ).toBeVisible();
   });
 
   it('places DeepSeek Harness auth above the rest of the agent settings', async () => {
@@ -407,7 +441,6 @@ describe('AgentSettings', () => {
       name: '配置管理',
     });
     const plugins = screen.getByRole('button', { name: '插件' });
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     expect(plugins).toHaveAttribute('aria-expanded', 'false');
     expect(
       screen.queryByRole('region', { name: 'codex native plugins' })
@@ -708,6 +741,117 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument()
     );
+  });
+
+  it('refreshes login status after a terminal account flow finishes', async () => {
+    const user = userEvent.setup();
+    const loggedOut = {
+      agent_id: 'cursor',
+      display_name: 'Cursor',
+      description: 'Cursor ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'ready',
+      authentication: 'account',
+    };
+    api.bar.mockResolvedValue([loggedOut]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'cursor',
+      available: false,
+      settings_features: ['authentication_mode'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'cursor',
+      mode: 'subscription',
+      credential_env: 'CURSOR_API_KEY',
+      credential_present: false,
+      modes: ['subscription', 'custom'],
+      options: [
+        {
+          value: 'subscription',
+          label_key: 'agents.authModeSubscription',
+          description_key: 'agents.authDescCursorSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'custom',
+          label_key: 'agents.authModeCursorKey',
+          description_key: 'agents.authDescCursorKey',
+          credential_env: 'CURSOR_API_KEY',
+          native_config_field_id: null,
+          credential_required: true,
+        },
+      ],
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'cursor',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Cursor',
+          description: '使用 Cursor 订阅账号登录',
+          label_key: 'agents.managementAction.cursor.login.label',
+          description_key: 'agents.managementAction.cursor.login.description',
+          kind: 'login',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    });
+    api.runAction.mockImplementation(async () => {
+      api.bar.mockResolvedValue([loggedIn]);
+      api.accountFlow.mockResolvedValue({
+        agent_id: 'cursor',
+        action_id: 'login',
+        status: 'succeeded',
+        exit_code: 0,
+        authentication: 'account',
+      });
+      return {
+        agent_id: 'cursor',
+        action_id: 'login',
+        launched: true,
+      };
+    });
+
+    render(<AgentSettings />);
+    expect(await screen.findByText('暂未登录')).toBeVisible();
+    await user.click(
+      await screen.findByRole('button', { name: '登录 Cursor' })
+    );
+    await waitFor(() =>
+      expect(api.runAction).toHaveBeenCalledWith('cursor', 'login')
+    );
+    await waitFor(() => expect(api.accountFlow).toHaveBeenCalledWith('cursor'));
+    await waitFor(() =>
+      expect(screen.getByText('已通过账号登录')).toBeVisible()
+    );
+    expect(api.preflight).toHaveBeenCalledWith('cursor', 'authentication');
+    expect(api.preflight).not.toHaveBeenCalledWith('cursor');
+    expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 });
 

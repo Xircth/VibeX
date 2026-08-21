@@ -303,7 +303,7 @@ const CursorMonoIcon = memo(function CursorMonoIcon({
       fill="currentColor"
       height={size}
       style={baseSvgStyle}
-      viewBox="0 0 16 16"
+      viewBox="3.5 3 9 10"
       width={size}
       xmlns="http://www.w3.org/2000/svg"
     >

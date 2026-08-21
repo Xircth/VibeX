@@ -109,7 +109,11 @@ describe('AgentConfigurationAndDiagnostics', () => {
       .closest('.agent-section-heading');
     expect(screen.getByRole('region', { name: '配置管理' })).toBeVisible();
     expect(heading).toHaveTextContent('config.toml');
-    expect(heading).toHaveTextContent('/Users/example/.codex/config.toml');
+    expect(heading).not.toHaveTextContent('/Users/example/.codex/config.toml');
+    expect(screen.getByText('config.toml')).toHaveAttribute(
+      'title',
+      '/Users/example/.codex/config.toml'
+    );
     expect(heading).not.toHaveTextContent('auth.json');
     expect(screen.getByLabelText('推理强度')).toBeVisible();
     expect(screen.getByLabelText('模型')).toBeVisible();

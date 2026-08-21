@@ -477,6 +477,10 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         Some("CODEBUDDY_CONFIG_DIR")
     );
     assert!(
+        profile("cursor").account_evidence.is_none(),
+        "Cursor account login is stored in the platform secret store, not a config file"
+    );
+    assert!(
         profile("opencode")
             .settings_features
             .contains(&AgentSettingsFeature::OpenCodeProviders)
@@ -636,4 +640,35 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
         surface("cursor", "cursor_force"),
         NativeConfigSurface::Configuration
     );
+}
+
+#[test]
+fn official_account_evidence_requires_a_live_token_not_residue() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let evidence = |id: &str| {
+        catalog
+            .profile(&AgentId::parse(id).unwrap())
+            .unwrap()
+            .account_evidence
+            .as_ref()
+            .unwrap()
+    };
+
+    let claude = evidence("claude_code");
+    assert!(claude.matches(&serde_json::json!({
+        "claudeAiOauth": { "accessToken": "tok" }
+    })));
+    assert!(!claude.matches(&serde_json::json!({
+        "claudeAiOauth": {}
+    })));
+    assert!(!claude.matches(&serde_json::json!({})));
+
+    let codex = evidence("codex");
+    assert!(codex.matches(&serde_json::json!({
+        "tokens": { "access_token": "tok" }
+    })));
+    assert!(!codex.matches(&serde_json::json!({
+        "tokens": { "refresh_token": "stale" }
+    })));
+    assert!(!codex.matches(&serde_json::json!({ "tokens": {} })));
 }

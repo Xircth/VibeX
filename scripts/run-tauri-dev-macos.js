@@ -466,6 +466,30 @@ function isTrackedDevAppCommand(command, appExecutable) {
   );
 }
 
+function collectStaleDevAppPids(psOutput, appExecutable) {
+  const pids = [];
+  for (const line of String(psOutput).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separator = trimmed.search(/\s/);
+    if (separator === -1) {
+      continue;
+    }
+    const pid = Number.parseInt(trimmed.slice(0, separator), 10);
+    const command = trimmed.slice(separator).trim();
+    if (
+      Number.isInteger(pid) &&
+      pid > 0 &&
+      isTrackedDevAppCommand(command, appExecutable)
+    ) {
+      pids.push(pid);
+    }
+  }
+  return pids;
+}
+
 function removeTrackedPid(pidFile, expectedPid) {
   if (!fs.existsSync(pidFile)) {
     return;
@@ -480,33 +504,29 @@ function removeTrackedPid(pidFile, expectedPid) {
 }
 
 function terminateTrackedDevApp(paths) {
-  if (!fs.existsSync(paths.pidFile)) {
-    return;
+  // The pidfile disappears when the runner dies, but the CEF app can stay
+  // alive as an orphan. A leftover instance makes the next launch exit
+  // immediately through single-instance.
+  const processInfo = spawnSync('/bin/ps', ['-ax', '-o', 'pid=,command='], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const pids =
+    processInfo.status === 0
+      ? collectStaleDevAppPids(processInfo.stdout, paths.appExecutable)
+      : [];
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (error) {
+      if (error.code !== 'ESRCH') {
+        throw error;
+      }
+    }
   }
 
-  const pid = Number.parseInt(fs.readFileSync(paths.pidFile, 'utf8'), 10);
-  try {
-    if (!Number.isInteger(pid) || pid <= 0) {
-      return;
-    }
-    const processInfo = spawnSync(
-      '/bin/ps',
-      ['-p', String(pid), '-o', 'command='],
-      { encoding: 'utf8', windowsHide: true }
-    );
-    if (
-      processInfo.status === 0 &&
-      isTrackedDevAppCommand(processInfo.stdout, paths.appExecutable)
-    ) {
-      process.kill(pid, 'SIGKILL');
-    }
-  } catch (error) {
-    if (error.code !== 'ESRCH') {
-      throw error;
-    }
-  } finally {
-    removeTrackedPid(paths.pidFile);
-  }
+  removeTrackedPid(paths.pidFile);
 }
 
 async function run() {
@@ -577,6 +597,7 @@ async function run() {
 }
 
 module.exports = {
+  collectStaleDevAppPids,
   isStagedBundleReady,
   isTrackedDevAppCommand,
   parseCargoRunArgs,

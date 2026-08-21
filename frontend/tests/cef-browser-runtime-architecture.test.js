@@ -170,15 +170,18 @@ test('macOS desktop dev runs CEF from the required app bundle', () => {
 
 test('macOS desktop dev re-signs the bundle after replacing executables', () => {
   const runner = readRepoFile('scripts/run-tauri-dev-macos.js');
+  const terminate = runner.indexOf('terminateTrackedDevApp(paths);');
   const refresh = runner.indexOf('refreshBundleExecutables(paths, profileDirectory);');
   const sign = runner.indexOf('signDevBundle(paths.appRoot);');
   const launch = runner.indexOf(
     'const child = spawn(paths.appExecutable, parsed.appArgs'
   );
 
-  assert.ok(refresh >= 0);
+  assert.ok(terminate >= 0);
+  assert.ok(refresh > terminate);
   assert.ok(sign > refresh);
   assert.ok(launch > sign);
+  assert.match(runner, /collectStaleDevAppPids/);
   assert.match(runner, /removeCodesignTempFiles\(appRoot\)/);
   assert.match(runner, /\['--force', '--deep', '--sign', '-', appRoot\]/);
   assert.match(runner, /\['--verify', '--deep', '--strict', appRoot\]/);
@@ -283,5 +286,26 @@ test('macOS CEF dev runner identifies only its staged app command', () => {
       stagedExecutable
     ),
     false
+  );
+});
+
+test('macOS CEF dev runner collects orphaned staged app pids without a pidfile', () => {
+  const runnerPath = path.join(repoRoot, 'scripts', 'run-tauri-dev-macos.js');
+  const { collectStaleDevAppPids } = require(runnerPath);
+  const stagedExecutable =
+    '/workspace/target/cef-runtime/macos/app/vibex.app/Contents/MacOS/vibex';
+
+  assert.deepEqual(
+    collectStaleDevAppPids(
+      [
+        '  407 /usr/libexec/rapportd',
+        `94310 ${stagedExecutable}`,
+        `  512 ${stagedExecutable} --inspect`,
+        '  611 /Applications/VibeX.app/Contents/MacOS/vibex',
+        `  702 ${stagedExecutable}-helper`,
+      ].join('\n'),
+      stagedExecutable
+    ),
+    [94310, 512]
   );
 });

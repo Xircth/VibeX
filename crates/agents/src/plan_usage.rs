@@ -20,7 +20,7 @@ use tokio::{
 use ts_rs::TS;
 use workspace_utils::process::new_hidden_tokio_command;
 
-use crate::{AgentId, metadata};
+use crate::{AgentId, cursor_auth, metadata};
 
 const CODEX_APP_SERVER_TIMEOUT_SECS: u64 = 20;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -921,42 +921,13 @@ async fn probe_grok_plan_usage() -> PlanUsageResult {
 
 // ── Cursor: official DashboardService period usage ──────────────────────────
 
-#[cfg(target_os = "macos")]
-async fn read_cursor_keychain_token() -> Option<String> {
-    let output = new_hidden_tokio_command(
-        "security",
-        [
-            "find-generic-password",
-            "-s",
-            "cursor-access-token",
-            "-a",
-            "cursor-user",
-            "-w",
-        ],
-    )
-    .output()
-    .await
-    .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let raw = String::from_utf8(output.stdout).ok()?;
-    let trimmed = raw.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-#[cfg(not(target_os = "macos"))]
-async fn read_cursor_keychain_token() -> Option<String> {
-    None
-}
-
 async fn load_cursor_access_token() -> Result<String, PlanUsageResult> {
     if let Ok(token) = env::var("CURSOR_API_KEY")
         && !token.trim().is_empty()
     {
         return Ok(token.trim().to_string());
     }
-    if let Some(token) = read_cursor_keychain_token().await {
+    if let Some(token) = cursor_auth::cursor_account_token().await {
         return Ok(token);
     }
     Err(PlanUsageResult::unavailable(

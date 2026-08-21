@@ -4849,6 +4849,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tool-runtime",
+ "tracing",
  "url",
  "utils",
  "uuid",

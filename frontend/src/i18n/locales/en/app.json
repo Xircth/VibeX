@@ -105,12 +105,6 @@
     "statusIdle": "Idle"
   },
   "shell": {
-    "closeBehaviorTitle": "Choose close behavior",
-    "closeBehaviorDescription": "Exiting the app quits VibeX; minimizing preserves the current window state.",
-    "closeBehaviorDismissAria": "Dismiss prompt",
-    "closeBehaviorRemember": "Keep this behavior next time and don't ask again",
-    "closeBehaviorExit": "Exit app",
-    "closeBehaviorMinimize": "Minimize",
     "appUpdateAvailable": "VibeX {{version}} is available to update.",
     "openReleasePage": "Open release page",
     "viewUpdate": "View update",

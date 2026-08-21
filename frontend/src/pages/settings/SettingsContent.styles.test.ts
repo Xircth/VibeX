@@ -67,4 +67,11 @@ describe('settings page alignment', () => {
     expect(chatTitle.get('display')).toBe('flex');
     expect(pluginTitle.get('display')).toBe('flex');
   });
+
+  it('keeps updater release notes in a bounded scrolling well', () => {
+    const notes = declarationsFor('.settings-page .settings-release-notes');
+
+    expect(notes.get('max-height')).toBe('14rem');
+    expect(notes.get('overflow')).toBe('auto');
+  });
 });

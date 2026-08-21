@@ -5,190 +5,232 @@
 </p>
 
 <p align="center">
-  <strong>IAP · Integrated Agent Platform</strong><br />
-  A unified workspace for agents, tools, and collaboration in Vibe Coding.
+  <strong>IADE · Integrated Agent Development Environment</strong><br />
+  An all-in-one VibeCoding platform for agents, workspaces, and collaboration.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Xircth/VibeX/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_Release-2563EB?style=flat-square" alt="Download latest release" /></a>
-  <img src="https://img.shields.io/badge/macOS-Intel_%7C_Apple_Silicon-111827?style=flat-square" alt="macOS support" />
-  <img src="https://img.shields.io/badge/Windows-x64_%7C_ARM64-2563EB?style=flat-square" alt="Windows x64 and ARM64 support" />
-  <img src="https://img.shields.io/badge/Linux-x64_%7C_ARM64-F59E0B?style=flat-square" alt="Linux x64 and ARM64 support" />
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-16A34A?style=flat-square" alt="Apache 2.0 License" /></a>
+  <a href="https://vibex.com"><img src="https://img.shields.io/badge/Website-vibex.com-111111?style=flat-square" alt="Official website" /></a>
+  <a href="https://github.com/Xircth/VibeX/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_Release-111111?style=flat-square" alt="Download latest release" /></a>
+  <img src="https://img.shields.io/badge/Desktop-macOS_%7C_Windows_%7C_Linux-111111?style=flat-square" alt="Desktop platforms" />
+  <img src="https://img.shields.io/badge/Server-vibex--server_%7C_WebUI-111111?style=flat-square" alt="Server and WebUI" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-111111?style=flat-square" alt="Apache 2.0 License" /></a>
 </p>
 
 <p align="center">
+  <a href="https://vibex.com">Website</a> ·
+  <a href="https://vibex.com/docs">Docs</a> ·
   <a href="https://github.com/Xircth/VibeX/releases/latest">Download</a> ·
-  <a href="https://github.com/Xircth/VibeX/issues">Report an issue</a> ·
-  <a href="#local-development">Local development</a>
+  <a href="https://github.com/Xircth/VibeX/issues">GitHub Issues</a>
 </p>
 
-![VibeX IAP connects multiple agents to one orchestration core through ACP](./docs/readme/iap-hero.svg)
+![VibeX IADE connects built-in and ACP Registry agents to one Host, used from WebUI, Desktop, CLI, and Mobile APP](./docs/readme/iade-hero.svg)
 
-VibeX brings Claude Code, Codex, OpenCode, Pi, and ACP Registry agents into one desktop environment. Every agent uses a shared pipeline for detection, installation, authentication, configuration, updates, and conversations.
+Agents needed a new IDE, so VibeX exists.
 
-The project is built around three goals: connect more agents, isolate parallel work, and bring software delivery into one place. Developers can organize conversations, create worktrees, delegate subtasks, review code, and use the integrated browser, Git tools, terminals, and session board without leaving the application.
+VibeX is an IADE (Integrated Agent Development Environment). It connects multiple coding agents to one pipeline for install, authentication, conversation, and delivery, and keeps files, Git, the terminal, and the browser on the workspace bound to the current conversation. A person states the task. Agents edit files, run commands, and request permissions through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). The file tree, terminal, diffs, and built-in browser follow that workspace.
+
+Built-in agents include Claude Code, Codex, DeepSeek Harness, Gemini CLI, Cursor, OpenCode, Pi, Grok, OpenClaw, Hermes, Kimi Code, CodeBuddy, and Cline. Compatible agents from the official ACP Registry use the same pipeline.
 
 > [!IMPORTANT]
-> **Local operation and privacy:** VibeX is a local-first agent host. VibeX does not operate cloud storage and does not automatically upload projects, conversations, configuration, or diagnostics to a VibeX-operated service. When you explicitly connect a remote client to a user-controlled desktop or Headless Host, the data required for the selected remote workflows is sent to that Host.
+> **Local operation and data ownership:** VibeX is a local-first Host. Projects, conversations, configuration, and diagnostics stay on the Host you control. VibeX does not operate cloud storage and does not automatically upload that data to a VibeX-operated service. When a remote client connects to a user-controlled desktop or `vibex-server`, the data required for the selected remote workflows is sent to that Host.
 >
 > **Testing-stage notice:** VibeX is still in testing. Use version control, keep backups of important projects, and review agent-generated changes before committing, syncing, or merging them.
 >
-> Enabled agents, model providers, MCP servers, plugins, messaging channels, and browser sessions may connect to third-party services according to your configuration. Those services handle data under their own privacy policies.
+> Enabled agents, model providers, MCP servers, plugins, messaging channels, and browser sessions may connect to third-party services according to your configuration. Those services handle data under their own policies.
 
-## IAP Capabilities
+## Capabilities
 
-### Multiple agents, one platform
+### All-in-one agent lifecycle
 
-- **Built-in agent profiles:** First-class support for Claude Code, Codex, OpenCode, and Pi.
-- **ACP Registry:** Browse and add more compatible agents from the official ACP Registry.
-- **Unified lifecycle:** Inspect runtime, ACP adapter, version, location, authentication, configuration, and diagnostics in one place.
-- **Local runtime reuse:** Detect and validate compatible CLIs already installed on the machine.
-- **Managed installation:** Install missing components at pinned versions, persist installation locks, and expose update, repair, and uninstall actions.
-- **Managed foundation runtimes:** Agents that need npm use a Node.js runtime validated and managed by VibeX, without requiring a system Node/npm installation.
-- **Separate authentication state:** Complete account login or API configuration in the corresponding agent after installation.
+The Agents page in Settings covers detection, installation, authentication, native configuration, updates, preflight, repair, and uninstall. Built-in profiles and agents added from the ACP Registry have different identities and share one pipeline.
 
-Agents join the shared conversation pipeline through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). Model, mode, and reasoning controls are shown according to the capabilities of each agent, while preserving agent-specific behavior.
+Compatible local CLIs are reused after validation. Missing components install at pinned versions. Agents that need npm use a Node.js runtime managed by VibeX. Authentication and official configuration remain in each agent's own directory, for example `~/.claude` for Claude Code. Model, mode, and reasoning controls follow the capabilities of that agent.
 
-### Worktrees and multi-agent collaboration
+See the [user guide](https://vibex.com/docs) and [IADE](https://vibex.com/docs/reference/iade).
 
-![VibeX multi-agent workflow from task to delivery](./docs/readme/collaboration-flow.svg)
+### Multi-workspace collaboration and Git lifecycle
 
-- Create an isolated Git worktree for each task so parallel conversations have clear filesystem boundaries.
-- Run multiple agent conversations in the same project for implementation, testing, review, and debugging.
-- Use `&Agent` mentions to express delegation intent. When the parent agent has the required MCP capability, it can create asynchronous child conversations and collect their results.
-- Track each subtask independently with its own conversation history, status, and cancellation controls.
-- Fork, resume, cancel, retry, import, and export conversations while persistent events retain execution history.
+A conversation is bound to a workspace. The workspace is either the project root or a Git worktree carved from the same repository. Parallel tasks keep uncommitted files on separate trees.
 
-## Vibe Coding Tools
+Worktree-bound conversations expose rebase and merge-back actions and share the tree with the Git panel. The Git panel covers changes, diffs, history, branches, stashes, issues, and pull requests. The file tree, previews, review comments, and integrated terminal use the same workspace as the current conversation. The session board lists parallel conversations by project and state.
 
-| Component | What it provides |
+See [Worktree](https://vibex.com/docs/worktree) and [Git and review](https://vibex.com/docs/git-review).
+
+### Rust and Tauri architecture
+
+The desktop shell is Tauri 2. Domain logic lives in Rust crates. The UI is React and TypeScript. Desktop commands, web routes, and remote adapters call the same Application Core.
+
+The Host owns one data directory and serves the remote protocol. Agent processes, worktrees, plugin workers, the automation engine, and chat-channel adapters run on that Host. One data directory accepts one Host at a time. The Rust toolchain is pinned in `rust-toolchain.toml`.
+
+See [platform architecture](https://vibex.com/docs/developers/platform-overview).
+
+### A plugin ecosystem that can take any contribution
+
+A VibeX plugin is an installable, toggleable, configurable product unit. One package can contribute to the UI, agents, the Host, and runtimes. Install, enable, configuration, diagnostics, rollback, and uninstall go through the plugin control plane.
+
+Official bundled plugins cover session extras, multi-agent delegation, workflow authoring, Office previews, and plugin development. MCP servers and Skills are hosted by the Host. Authors can use the TypeScript, JavaScript, Python, and Rust SDKs, then publish through the [plugin marketplace](https://vibex.com/marketplace) or link a development directory.
+
+See [Plugin](https://vibex.com/docs/reference/plugin) and [plugin architecture](https://vibex.com/docs/developers/plugin-overview).
+
+### WebUI, Desktop, CLI, and Mobile APP
+
+| Surface | Role |
 | --- | --- |
-| **Session board** | Organize conversations by project and state, and inspect parallel work, agent status, and resource usage. |
-| **Integrated browser** | A dedicated Chromium/CEF runtime with tabs, navigation, device sizes, DevTools, element inspection, Console, and Network tools. |
-| **Git panel** | Inspect changes, diffs, history, branches, stashes, issues, and pull requests; stage and commit changes. |
-| **Files and diffs** | Browse the file tree, preview common formats, compare unified or side-by-side diffs, and add review comments. |
-| **Integrated terminal** | Manage multiple terminal sessions and run development servers, tests, and project scripts. |
-| **MCP, skills, and plugins** | Manage agent tools, reusable skills, and structured workflow actions. |
-| **Automations** | Save agent, workspace, branch, and action settings; launch isolated scheduled work and retain run history. |
-| **Messaging and remote foundations** | Send conversation notifications to external channels; a versioned Remote Protocol and headless Host foundation are available for tested remote workflows. |
-| **Office artifact previews** | Preview `.docx`, `.xlsx`, and `.pptx` artifacts through the managed OfficeCLI capability. |
+| **Desktop** | Default entry. The desktop app includes the window and a full Host. |
+| **Server + WebUI** | `vibex-server` is the headless Host. Open the packaged `web/` tree in a browser for WebUI. |
+| **CLI** | `npx vibex` downloads the Host-family archive for this platform, verifies checksums, and starts the Server. |
+| **Mobile APP** | The Android companion pairs to a Host and is used to read conversations, send input, and handle permissions. |
 
-### Remote access status
+Desktop and Server share the data directory, agents, conversations, automations, and plugins. The same data directory cannot run Desktop and Server as Host at the same time. A workstation desktop can connect as a client to a Host that already occupies that directory.
 
-VibeX contains a versioned Remote Protocol, device pairing and revocation, durable
-conversation replay, and a packable `vibex-server` Host family. Pair a Workstation
-desktop for near-full remote control, or a Companion for the thin mobile surface.
-Official Server containers and the Android companion remain later slices. See
-[ADR-0054](./docs/adr/0054-host-family-distribution-and-client-surfaces.md),
-the [host-family plan](./docs/plans/2026-08-17-host-family-distribution.md),
-and [headless deployment notes](./docs/deployment/headless-server.md).
+See [One Host](https://vibex.com/docs/reference/one-host) and [Connect a Host](https://vibex.com/docs/connect-host).
 
-VibeX does not operate a cloud relay. Remote clients connect to a user-controlled
-desktop or Headless Host; without an online Host they can only use supported read-only
-offline data.
+### Multi-agent collaboration
 
-## Download and Installation
+![VibeX multi-agent workflow from session to delivery](./docs/readme/collaboration-flow.svg)
 
-Download the installer for your platform from [GitHub Releases](https://github.com/Xircth/VibeX/releases/latest).
+Collaboration splits into delegation and Graph Workflow. Automation decides when to start.
+
+- **Delegation:** A parent agent hands work to another enabled agent during a conversation. `&` in the input box is a structured mention. Child conversations have their own timeline and turns. This capability comes from the official Multi-agent collaboration plugin.
+- **Graph Workflow:** Steps and dependencies are described as a JSON DAG, then executed. Source files can live in Git. A published definition version is immutable. This capability comes from the official Workflow creator plugin.
+- **Automation:** A manual action or a schedule starts an ordinary turn, or a published Workflow version.
+
+Use delegation for a one-off review chain. Write a Graph when the flow must be reused, versioned, and started on a schedule.
+
+See [Delegation](https://vibex.com/docs/delegation) and [Graph Workflow](https://vibex.com/docs/graph-workflow).
+
+## Download and installation
+
+Desktop installers and Host-family archives come from [GitHub Releases](https://github.com/Xircth/VibeX/releases/latest). Signing and notarization status are stated on the Release.
+
+### Desktop
+
+The desktop app is the default entry. The installer includes the Server and the app UI.
 
 | Platform | Baseline | Architecture | Package | Installation |
 | --- | --- | --- | --- | --- |
-| macOS | macOS 12 or later | Intel / ARM64 | `.dmg` | Open the image and drag `VibeX.app` into Applications. |
-| Windows | Windows 10/11 | x64 / ARM64 | `.exe` / `.msi` | Run the installer and follow the setup wizard. |
-| Linux | Ubuntu 22.04 equivalent | x64 / ARM64 | `.AppImage` / `.deb` | Run the AppImage or install the deb with your package manager. |
+| macOS | macOS 12 or later | Intel / Apple Silicon | `.dmg` | Open the image and drag `VibeX.app` into Applications. |
+| Windows | Windows 10 / 11 | x64 / ARM64 | `.exe` / `.msi` | Run the installer and follow the setup wizard. |
+| Linux | Ubuntu 22.04 equivalent | x64 / ARM64 | `.AppImage` / `.deb` | Run the AppImage, or install the deb with the system package manager. |
 
-Windows installers include the offline WebView2 installer, so first launch does not depend on a network download. VibeX and its background agent, Git, npm, and uv processes do not open visible console windows. The integrated Chromium/CEF child window on Linux requires X11 or XWayland. The `.deb` declares an `xwayland` dependency; pure Wayland systems using the AppImage must install and enable XWayland separately.
+Windows installers include the offline WebView2 installer. The integrated Chromium / CEF child window on Linux requires X11 or XWayland. The `.deb` declares an `xwayland` dependency. Pure Wayland systems using the AppImage must install and enable XWayland first.
 
-On first launch, VibeX checks local agent runtimes and the ACP Registry. Select the agents to enable, choose a default agent and external editor, and continue to the workspace. Missing managed components are installed in the background.
+First launch runs onboarding, probes local agent runtimes, and asks for enabled agents, a default agent, and an external editor. Missing managed components install in the background. Account login, browser authorization, and API configuration stay in each agent's official flow. When a runtime or ACP adapter is unhealthy, Settings → Agents shows version, location, diagnostics, and the available repair action.
 
-Compatible local runtimes are reused. Account login, browser authorization, and API configuration remain part of each agent's official authentication flow.
+If macOS blocks the first launch, confirm the installer came from the [official Releases page](https://github.com/Xircth/VibeX/releases/latest), then allow only that download under System Settings → Privacy & Security.
 
-### If macOS blocks the application
+Full steps: [Install the desktop app](https://vibex.com/docs/install-desktop).
 
-Official releases always use Tauri updater signatures. Developer ID signing and
-notarization are applied when the project credentials are configured; otherwise
-macOS installers can still be published unsigned and Gatekeeper may block their
-first launch. Confirm that the installer came from the
-[official VibeX Releases page](https://github.com/Xircth/VibeX/releases/latest),
-then review the reason under System Settings > Privacy & Security and use Open
-Anyway only for that verified download. Do not disable Gatekeeper globally or
-remove quarantine attributes from software obtained from an unknown source.
+### Server
 
-### Initial agent setup
+`vibex-server` is the headless Host and the service base for WebUI, IM channels, and the mobile app. The desktop app already contains a full Server. Install Server on its own when you need a windowless process or browser access.
 
-1. Select the agents you want to enable during onboarding.
-2. Choose the default agent used for new conversations.
-3. Select an external editor.
-4. Wait for background installation notifications and review preflight results under Settings > Agents.
-5. Complete login or API configuration through the agent's official flow.
+Download, verify, and start with the official helper:
 
-If a runtime or ACP adapter is unhealthy, Settings > Agents shows its version, location, diagnostics, and the available install or repair action.
+```bash
+npx vibex
+```
 
-## Local Development
+`npx vibex` fetches `vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. Host-family archives are also available on Releases.
 
-### Prerequisites
+The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `plugins/bundled/`.
 
-- [Node.js](https://nodejs.org/) 18 or later
-- [pnpm](https://pnpm.io/) 8 or later
-- [Rust](https://rustup.rs/); `rust-toolchain.toml` selects the repository toolchain
+| Platform | Baseline | Artifacts |
+| --- | --- | --- |
+| macOS | 12 or later | macos-x64 / macos-arm64 |
+| Windows | 10 / 11 | windows-x64 |
+| Linux | Ubuntu 22.04 equivalent | linux-x64 / linux-arm64; Docker is also available |
+
+The default listen address is `127.0.0.1:17891`. Open that address in a local browser for WebUI. Chrome-family browsers are recommended. LAN access requires `VIBEX_SERVER_ALLOW_LAN=1` and a TLS reverse proxy in front. The access token is at least 32 bytes and is printed to stdout only once when first generated.
+
+One data directory accepts one Host at a time. Desktop and Server must be the same version. The mobile app may be one minor version behind and negotiates capabilities.
+
+Full steps: [Install Server and WebUI](https://vibex.com/docs/install-server).
+
+## Development
+
+Official developer docs:
+
+- [Platform development](https://vibex.com/docs/developers/platform-overview)
+- [Plugin development](https://vibex.com/docs/developers/plugin-overview)
+- [Plugin development workflow](https://vibex.com/docs/developers/plugin-dev-flow)
+
+### Platform development
+
+This repository is a pnpm workspace plus a Cargo workspace. Use it to change Host capabilities, Application Core, the desktop shell, or the remote protocol.
+
+Prerequisites:
+
+- Node.js 22 and pnpm 10.x (the repo `packageManager` is `pnpm@10.13.1`)
+- Rust nightly, pinned in `rust-toolchain.toml`
 - The [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform
 - At least one agent CLI for integration testing
-
-### Start the desktop app
 
 ```bash
 pnpm install
 pnpm run dev
-```
-
-This starts the React/Vite frontend, Tauri desktop shell, and Rust services.
-
-### Checks and tests
-
-```bash
 pnpm run check
 pnpm run lint
 cd frontend && pnpm test
 cargo test --workspace
-```
-
-### Build installers
-
-```bash
 pnpm run tauri:build
 ```
 
-Platform-specific commands are also available:
-
-```bash
-pnpm run tauri:build:macos
-pnpm run tauri:build:windows
-pnpm run tauri:build:linux
-```
-
-## Architecture
+`pnpm run dev` starts the React / Vite frontend, the Tauri desktop shell, and the Rust services. Run `pnpm run generate-types` after changing shared Rust types. Platform-specific bundles: `pnpm run tauri:build:macos`, `pnpm run tauri:build:windows`, and `pnpm run tauri:build:linux`.
 
 ```text
 frontend/        React + TypeScript + Vite user interface
 src-tauri/       Tauri desktop shell, system integration, and IPC commands
-crates/agents/   Agent profiles, ACP, installation, and conversation runtime
-crates/git/      Git and worktree capabilities
-crates/browser-* Chromium/CEF browser runtime
-crates/          Conversations, automations, plugins, artifacts, and services
+crates/          Agents, conversations, Git, plugins, automations, and services
+packages/        Plugin SDK and CLI
 shared/          TypeScript types generated from Rust
 ```
 
-VibeX is built with Tauri, Rust, and React. Application data managed by VibeX stays on the selected user-controlled Host and is not automatically uploaded to a VibeX-operated service. Selected agents, model providers, MCP servers, plugins, messaging channels, and browser sessions may connect to external services under their respective data and account policies.
+See [build environment](https://vibex.com/docs/developers/platform-build) and [review and security](https://vibex.com/docs/developers/platform-pr-security).
 
-`shared/types.ts` is generated. Run `pnpm run generate-types` after changing shared Rust types.
+### Plugin development
 
-## Contributing
+A plugin package is identified by Publisher and Plugin ID, and declares contributions to the UI, agents, Host, or runtimes. Host, protocol, and SDK versions for the current release are listed in the developer docs.
 
-Bug reports and feature requests are welcome through [Issues](https://github.com/Xircth/VibeX/issues), and pull requests are welcome. Run the checks and tests relevant to your changes before submitting code.
+Locate the contract and initialize a template from the repository root:
 
-VibeX is licensed under the [Apache License 2.0](./LICENSE).
+```bash
+python3 .agents/skills/vibex-plugin-development/scripts/locate_toolchain.py
+node packages/plugin-cli/dist/cli.js toolchain
+node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template full
+```
+
+Implement the Worker or App, validate it, link it to a running Host, then pack a `.vxp`. The built CLI also supports `vibex plugin pack .`. Publish through the [plugin marketplace](https://vibex.com/marketplace).
+
+Language guides: [TypeScript SDK](https://vibex.com/docs/developers/sdk-typescript), [JavaScript SDK](https://vibex.com/docs/developers/sdk-javascript), [Python SDK](https://vibex.com/docs/developers/sdk-python), and [Rust SDK](https://vibex.com/docs/developers/sdk-rust).
+
+## Community
+
+### WeChat
+
+Scan the QR code to join the VibeX WeChat group.
+
+<p align="center">
+  <img src="./docs/readme/wechat.jpg" alt="VibeX WeChat group QR code" width="240" />
+</p>
+
+### QQ
+
+Scan the QR code to join the VibeX QQ group.
+
+<p align="center">
+  <img src="./docs/readme/qq.jpg" alt="VibeX QQ group QR code" width="240" />
+</p>
+
+### GitHub Issues
+
+Bug reports and feature requests go to [GitHub Issues](https://github.com/Xircth/VibeX/issues). Pull requests are welcome. Run the checks and tests that cover your changes before you submit code.
 
 ## Acknowledgements
 
-VibeX is built on [Tauri](https://tauri.app/), [React](https://react.dev/), [Rust](https://www.rust-lang.org/), and the [Agent Client Protocol](https://agentclientprotocol.com/).
+### ACP
+
+VibeX agent ingress is built on the [Agent Client Protocol](https://agentclientprotocol.com/). Built-in agents and Registry agents enter the same install, authentication, conversation, and delivery pipeline through ACP.
+
+VibeX is licensed under the [Apache License 2.0](./LICENSE).

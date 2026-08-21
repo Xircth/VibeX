@@ -1,14 +1,6 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Minimize2, Power, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
@@ -32,16 +24,9 @@ import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { settingsWindowApi } from '@/lib/api';
 import { checkAppUpdate } from '@/lib/appUpdate';
-import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
 import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
-import {
-  getSavedMainWindowCloseBehavior,
-  performMainWindowCloseBehavior,
-  saveMainWindowCloseBehavior,
-  type MainWindowCloseBehavior,
-} from '@/mainWindowCloseBehavior';
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
@@ -62,111 +47,6 @@ const FirstRunExperience = lazy(() =>
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
-
-function MainWindowCloseToastBridge() {
-  const { t } = useTranslation(['app', 'common']);
-  const [isOpen, setIsOpen] = useState(false);
-  const [rememberBehavior, setRememberBehavior] = useState(true);
-
-  const chooseBehavior = useCallback(
-    (behavior: MainWindowCloseBehavior) => {
-      if (rememberBehavior) {
-        saveMainWindowCloseBehavior(behavior);
-      }
-      setIsOpen(false);
-      void performMainWindowCloseBehavior(behavior);
-    },
-    [rememberBehavior]
-  );
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-
-    backendListen<void>('main-window-close-requested', () => {
-      const savedBehavior = getSavedMainWindowCloseBehavior();
-      if (savedBehavior) {
-        void performMainWindowCloseBehavior(savedBehavior);
-        return;
-      }
-      setRememberBehavior(true);
-      setIsOpen(true);
-    }).then((dispose) => {
-      unlisten = dispose;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, []);
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background/55 p-4 backdrop-blur-sm"
-      role="presentation"
-    >
-      <section
-        className="modal-surface w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-border text-foreground shadow-2xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="main-window-close-title"
-      >
-        <div className="flex items-start gap-4 px-6 pb-4 pt-6">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <Power className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2
-              id="main-window-close-title"
-              className="text-base font-semibold"
-            >
-              {t('shell.closeBehaviorTitle')}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t('shell.closeBehaviorDescription')}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={t('shell.closeBehaviorDismissAria')}
-            onClick={() => setIsOpen(false)}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <label className="mx-6 mb-5 flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-border accent-primary"
-            checked={rememberBehavior}
-            onChange={(event) => setRememberBehavior(event.target.checked)}
-          />
-          {t('shell.closeBehaviorRemember')}
-        </label>
-        <div className="grid grid-cols-2 gap-3 border-t border-border/80 p-4">
-          <button
-            type="button"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            onClick={() => chooseBehavior('exit')}
-          >
-            <Power className="h-4 w-4" />
-            {t('shell.closeBehaviorExit')}
-          </button>
-          <button
-            type="button"
-            className="raised-control inline-flex h-11 items-center justify-center gap-2 px-3 text-sm font-medium"
-            onClick={() => chooseBehavior('minimize')}
-          >
-            <Minimize2 className="h-4 w-4" />
-            {t('shell.closeBehaviorMinimize')}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
@@ -344,7 +224,6 @@ function MainAppContent() {
         <AgentWorkbenchProvider>
           {isMainDesktopWindow ? <ProjectWindowManager /> : null}
           {isDesktop ? <TrayBadgeSync /> : null}
-          {isDesktop ? <MainWindowCloseToastBridge /> : null}
           <ThemedToaster />
           <MainAppRoutes />
           {config && isDesktop && startupPromptStep === 'first-run' ? (

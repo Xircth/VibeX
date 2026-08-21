@@ -38,7 +38,6 @@ const APP_ICON_LIGHT_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-light-lite.png");
 const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
-const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
 const BROWSER_EVENT: &str = "browser://event";
 const CEF_COMMAND_CAPACITY: usize = 512;
 
@@ -516,7 +515,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             main_window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = app_handle.emit(MAIN_WINDOW_CLOSE_REQUESTED_EVENT, ());
+                    tray::hide_main_window(&app_handle);
                 }
             });
         }
@@ -1056,6 +1055,10 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             tauri::async_runtime::spawn(async move {
                 remote_desktop.disconnect_window(&label).await;
             });
+        }
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = &event {
+            tray::show_main_window(_app_handle);
         }
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {

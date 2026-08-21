@@ -18,7 +18,7 @@ use conversations::{
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
-use plugins::{ConflictDecision, PluginControlPlane, PluginPreviewHost, SqlitePluginRegistry};
+use plugins::{PluginControlPlane, PluginPreviewHost, SqlitePluginRegistry};
 use sqlx::SqlitePool;
 use tokio::{sync::Mutex, task::JoinHandle};
 
@@ -145,61 +145,8 @@ impl HeadlessServer {
         let worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
             config.data_dir.clone(),
         ));
-        let bundled_plugin_roots = utils::assets::materialize_builtin_plugins(&config.data_dir)
-            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-        for builtin_root in bundled_plugin_roots {
-            let mut builtin =
-                plugins::PluginPackage::inspect(&builtin_root, plugins::PluginSourceKind::Builtin)
-                    .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-            let installed = plugin_control_plane
-                .plugin(builtin.id.as_str())
-                .await
-                .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-            match installed {
-                None => {
-                    plugin_control_plane
-                        .import(builtin, ConflictDecision::Reject)
-                        .await
-                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                }
-                Some(installed)
-                    if installed.package_digest
-                        != plugins::package_content_digest(&builtin_root)
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))? =>
-                {
-                    if installed.config_schema.is_some() {
-                        builtin
-                            .write_adopted_config(installed.config.clone())
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                        builtin = plugins::PluginPackage::inspect(
-                            &builtin_root,
-                            plugins::PluginSourceKind::Builtin,
-                        )
-                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                    }
-                    if installed.activation == plugins::PluginActivation::Enabled {
-                        let grants = plugins::candidate_capability_grants(&builtin, &[], &[])
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                        let node = worker_runtime
-                            .resolve()
-                            .await
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                        plugin_control_plane
-                            .update_and_activate(&node, builtin, &grants, capability_broker.clone())
-                            .await
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                    } else {
-                        plugin_control_plane
-                            .import(builtin, ConflictDecision::Replace)
-                            .await
-                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-                    }
-                }
-                Some(_) => {}
-            }
-        }
         plugin_control_plane
-            .retire_replaced_builtins()
+            .install_bundled_official_plugins(&config.data_dir, None)
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
         let enabled_worker_exists = plugin_control_plane

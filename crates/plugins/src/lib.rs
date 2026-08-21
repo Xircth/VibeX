@@ -34,9 +34,9 @@ pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
 };
 pub use control_plane::{
-    ActivationRecoveryFailure, ConflictDecision, ImportConflict, ImportDisposition, ImportResult,
-    InMemoryPluginRegistry, InstalledPlugin, PluginControlPlane, PluginRegistry,
-    RuntimeInstallation, SqlitePluginRegistry, candidate_capability_grants,
+    ActivationRecoveryFailure, BundledPluginActivation, ConflictDecision, ImportConflict,
+    ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginControlPlane,
+    PluginRegistry, RuntimeInstallation, SqlitePluginRegistry, candidate_capability_grants,
 };
 pub use error::PluginError;
 pub use host_capability_broker::HostCapabilityBroker;

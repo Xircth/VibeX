@@ -17,33 +17,32 @@ function readFrontendFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('main window close is intercepted and routed to the frontend choice dialog', () => {
+test('main window close hides the window and dock reopen restores it', () => {
   const tauriSource = readRepoFile('src-tauri/src/lib.rs');
+  const traySource = readRepoFile('src-tauri/src/tray.rs');
 
-  assert.match(tauriSource, /MAIN_WINDOW_CLOSE_REQUESTED_EVENT/);
   assert.match(tauriSource, /WindowEvent::CloseRequested/);
   assert.match(tauriSource, /api\.prevent_close\(\)/);
-  assert.match(tauriSource, /emit\(MAIN_WINDOW_CLOSE_REQUESTED_EVENT/);
+  assert.match(tauriSource, /hide_main_window/);
+  assert.match(tauriSource, /RunEvent::Reopen/);
+  assert.match(tauriSource, /show_main_window/);
+  assert.doesNotMatch(tauriSource, /MAIN_WINDOW_CLOSE_REQUESTED_EVENT/);
+  assert.match(traySource, /fn hide_main_window/);
+  assert.match(traySource, /fn show_main_window/);
   assert.match(tauriSource, /async fn exit_app/);
-  assert.match(tauriSource, /app\.exit\(0\)/);
+  assert.match(traySource, /TRAY_MENU_ID_QUIT => app\.exit\(0\)/);
 });
 
-test('app shows a centered close-behavior dialog with saved-choice actions', () => {
+test('frontend does not ask whether closing the main window should quit', () => {
   const appSource = readFrontendFile('src/App.tsx');
   const apiSource = readFrontendFile('src/lib/api/misc.ts');
 
-  assert.match(appSource, /MainWindowCloseToastBridge/);
-  assert.match(appSource, /main-window-close-requested/);
-  assert.match(appSource, /MAIN_WINDOW_CLOSE_BEHAVIOR_KEY/);
-  assert.match(appSource, /vibex\.mainWindowCloseBehavior/);
-  assert.match(appSource, /fixed inset-0 z-\[10000\]/);
-  assert.match(appSource, /aria-modal="true"/);
-  assert.match(appSource, /type="checkbox"/);
-  assert.match(appSource, /checked=\{rememberBehavior\}/);
-  assert.match(appSource, /desktopApi\.exitApp\(\)/);
-  assert.match(appSource, /getCurrentWindow\(\)\.minimize\(\)/);
+  assert.doesNotMatch(appSource, /MainWindowCloseToastBridge/);
+  assert.doesNotMatch(appSource, /main-window-close-requested/);
+  assert.doesNotMatch(appSource, /mainWindowCloseBehavior/);
+  assert.doesNotMatch(appSource, /closeBehaviorTitle/);
   assert.match(apiSource, /exitApp: async/);
-  assert.match(apiSource, /tauriInvoke<void>\('exit_app'\)/);
+  assert.match(apiSource, /backendCall<void>\('exit_app'\)/);
 });
 
 test('local dependency update notification is Chinese, grouped, and minimum-version gated', () => {

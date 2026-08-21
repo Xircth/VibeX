@@ -5,30 +5,32 @@ interface ReleaseNotesProps {
   notes: string;
   locale: string;
   emptyLabel: string;
-  className?: string;
+  label: string;
 }
 
 export function ReleaseNotes({
   notes,
   locale,
   emptyLabel,
-  className,
+  label,
 }: ReleaseNotesProps) {
   const localized = localizeReleaseNotes(notes, locale);
 
   if (!localized) {
-    return (
-      <p className="text-xs leading-5 text-muted-foreground">{emptyLabel}</p>
-    );
+    return <p className="settings-row__description">{emptyLabel}</p>;
   }
 
   return (
-    <AstryxMarkdown
-      value={localized}
-      className={
-        className ??
-        'max-h-72 overflow-auto text-xs leading-6 text-muted-foreground'
-      }
-    />
+    <div
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+      className="settings-release-notes"
+    >
+      <AstryxMarkdown
+        value={localized}
+        className="settings-release-notes__body"
+      />
+    </div>
   );
 }

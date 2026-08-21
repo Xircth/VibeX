@@ -1,8 +1,10 @@
 //! System tray (P2-5): a menubar/tray icon with a Show / Hide / Quit menu, plus
 //! an activity badge fed from the frontend. Uses Tauri v2's built-in tray-icon
-//! API (no plugin). Menu clicks are dispatched from the app-wide `on_menu_event`
-//! in lib.rs so all menu ids share one handler. Deep-links are intentionally out
-//! of scope here (they need extra plugins + per-OS scheme registration).
+//! API (no plugin). Closing the main window hides it through the same helpers
+//! so Host stays in the background; Quit and `exit_app` are the only exits.
+//! Menu clicks are dispatched from the app-wide `on_menu_event` in lib.rs so
+//! all menu ids share one handler. Deep-links are intentionally out of scope
+//! here (they need extra plugins + per-OS scheme registration).
 
 use tauri::{AppHandle, Manager};
 
@@ -20,7 +22,7 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn hide_main_window(app: &AppHandle) {
+pub fn hide_main_window(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }

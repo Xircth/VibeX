@@ -989,6 +989,64 @@
     justify-content: flex-start;
   }
 
+  .settings-page .settings-release-notes {
+    max-height: 14rem;
+    overflow: auto;
+    min-inline-size: 0;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid var(--border-content);
+    border-radius: var(--radius);
+    background: var(--surface-control);
+    color: var(--text-secondary);
+  }
+
+  .settings-page .settings-release-notes:focus-visible {
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.5);
+  }
+
+  .settings-page .settings-release-notes__body,
+  .settings-page .settings-release-notes .conv-markdown {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  .settings-page .settings-release-notes :where(h1, h2, h3, h4, h5, h6) {
+    margin: 0 0 0.4rem;
+    color: var(--text-strong);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .settings-page .settings-release-notes :where(p, ul, ol, table) {
+    margin: 0 0 0.55rem;
+  }
+
+  .settings-page .settings-release-notes :where(p, ul, ol, table):last-child {
+    margin-bottom: 0;
+  }
+
+  .settings-page .settings-release-notes :where(ul, ol) {
+    padding-inline-start: 1.15rem;
+  }
+
+  .settings-page .settings-release-notes :where(p, li) {
+    color: var(--text-secondary);
+  }
+
+  .settings-page .settings-release-notes table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  .settings-page .settings-release-notes :where(th, td) {
+    padding: 0.25rem 0.5rem 0.25rem 0;
+    text-align: start;
+    vertical-align: top;
+  }
+
   .settings-page .settings-row__description {
     margin-top: 0.25rem;
     color: var(--text-muted);

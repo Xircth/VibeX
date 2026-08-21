@@ -52,8 +52,7 @@ The current document shape is:
     "editor_settings": {},
     "key_overrides": {},
     "skills_grouping": true,
-    "skills_host_mode": "copy",
-    "main_window_close_behavior": "minimize"
+    "skills_host_mode": "copy"
   },
   "worktrees": {
     "<project-uuid>": {

@@ -105,12 +105,6 @@
     "statusIdle": "空闲"
   },
   "shell": {
-    "closeBehaviorTitle": "选择关闭行为",
-    "closeBehaviorDescription": "退出应用会结束 VibeX，最小化会保留当前窗口状态。",
-    "closeBehaviorDismissAria": "关闭提示",
-    "closeBehaviorRemember": "下次保持该行为，不再询问",
-    "closeBehaviorExit": "退出应用",
-    "closeBehaviorMinimize": "最小化",
     "appUpdateAvailable": "VibeX {{version}} 可更新。",
     "openReleasePage": "打开发布页",
     "viewUpdate": "查看更新",

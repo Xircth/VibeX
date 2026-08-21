@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, RwLock,
         atomic::{AtomicU64, Ordering},
@@ -37,6 +37,11 @@ pub struct ImportConflict {
     pub plugin_id: String,
     pub installed_source: PathBuf,
     pub incoming_source: PathBuf,
+}
+
+pub struct BundledPluginActivation {
+    pub node_executable: PathBuf,
+    pub broker: Arc<dyn crate::CapabilityBroker>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1206,6 +1211,95 @@ impl PluginControlPlane {
 
     pub fn official_product_mcp_gate(&self) -> Arc<crate::OfficialMcpRuntime> {
         self.official_mcp.clone()
+    }
+
+    pub async fn install_bundled_official_plugins(
+        &self,
+        data_root: &Path,
+        activation: Option<BundledPluginActivation>,
+    ) -> Result<(), PluginError> {
+        let roots = utils::assets::materialize_builtin_plugins(data_root)
+            .map_err(|error| PluginError::io("materialize official plugins", error))?;
+        self.reconcile_bundled_plugins(&roots, activation.as_ref())
+            .await
+    }
+
+    pub async fn reconcile_bundled_plugins(
+        &self,
+        roots: &[PathBuf],
+        activation: Option<&BundledPluginActivation>,
+    ) -> Result<(), PluginError> {
+        let mut successes = 0usize;
+        let mut first_failure = None;
+        for builtin_root in roots {
+            match self
+                .reconcile_one_bundled_plugin(builtin_root, activation)
+                .await
+            {
+                Ok(()) => successes += 1,
+                Err(error) => {
+                    tracing::error!(
+                        root = %builtin_root.display(),
+                        error = %error,
+                        "official plugin could not be registered in the Host catalog"
+                    );
+                    if first_failure.is_none() {
+                        first_failure = Some(error);
+                    }
+                }
+            }
+        }
+        self.retire_replaced_builtins().await?;
+        if successes == 0
+            && let Some(error) = first_failure
+        {
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    async fn reconcile_one_bundled_plugin(
+        &self,
+        builtin_root: &Path,
+        activation: Option<&BundledPluginActivation>,
+    ) -> Result<(), PluginError> {
+        let mut builtin =
+            crate::PluginPackage::inspect(builtin_root, crate::PluginSourceKind::Builtin)?;
+        let installed = self.plugin(builtin.id.as_str()).await?;
+        match installed {
+            None => {
+                self.import(builtin, ConflictDecision::Reject).await?;
+            }
+            Some(installed)
+                if installed.package_digest != crate::package_content_digest(builtin_root)? =>
+            {
+                if installed.config_schema.is_some() {
+                    builtin.write_adopted_config(installed.config.clone())?;
+                    builtin = crate::PluginPackage::inspect(
+                        builtin_root,
+                        crate::PluginSourceKind::Builtin,
+                    )?;
+                }
+                if installed.activation == crate::PluginActivation::Enabled {
+                    let Some(activation) = activation else {
+                        return Ok(());
+                    };
+                    let grants = crate::candidate_capability_grants(&builtin, &[], &[])?;
+                    self.update_and_activate(
+                        &activation.node_executable,
+                        builtin,
+                        &grants,
+                        activation.broker.clone(),
+                    )
+                    .await
+                    .map_err(|error| PluginError::registry(format!("{}: {error}", error.code())))?;
+                } else {
+                    self.import(builtin, ConflictDecision::Replace).await?;
+                }
+            }
+            Some(_) => {}
+        }
+        Ok(())
     }
 
     pub async fn sync_official_product_mcp_gate(&self) -> Result<(), PluginError> {

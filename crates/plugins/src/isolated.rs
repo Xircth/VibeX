@@ -650,9 +650,7 @@ pub(crate) fn spawn_windows_appcontainer(
     use std::os::windows::{ffi::OsStrExt, io::FromRawHandle, raw::HANDLE as RawHandle};
 
     use windows_sys::Win32::{
-        Foundation::{
-            CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, SetHandleInformation,
-        },
+        Foundation::{CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, SetHandleInformation},
         Security::{
             Authorization::{
                 EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE,
@@ -687,10 +685,7 @@ pub(crate) fn spawn_windows_appcontainer(
 
     #[link(name = "advapi32")]
     unsafe extern "system" {
-        fn ConvertStringSidToSidW(
-            string_sid: *const u16,
-            sid: *mut *mut core::ffi::c_void,
-        ) -> i32;
+        fn ConvertStringSidToSidW(string_sid: *const u16, sid: *mut *mut core::ffi::c_void) -> i32;
     }
 
     fn wide(value: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {

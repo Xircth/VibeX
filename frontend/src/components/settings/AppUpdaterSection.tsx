@@ -253,7 +253,7 @@ export function AppUpdaterSection({
           </div>
         </div>
 
-        {state === 'available' && update ? (
+        {update ? (
           <div className="settings-row settings-row--stacked pb-3">
             <div className="text-xs font-medium">
               {t('appUpdater.releaseNotes')}
@@ -261,6 +261,7 @@ export function AppUpdaterSection({
             <ReleaseNotes
               notes={update.body}
               locale={i18n.language}
+              label={t('appUpdater.releaseNotes')}
               emptyLabel={t('appUpdater.noReleaseNotes')}
             />
           </div>

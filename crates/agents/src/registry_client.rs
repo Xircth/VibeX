@@ -20,8 +20,15 @@ const OFFICIAL_ICON_PREFIX: &str = "https://cdn.agentclientprotocol.com/registry
 const FRESH_FOR: Duration = Duration::hours(24);
 const MAX_REGISTRY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ICON_BYTES: usize = 128 * 1024;
-const REGISTRY_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(5);
-const REGISTRY_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(10);
+// The official catalog is on Cloudflare. From some networks the TLS
+// handshake alone exceeds 5s (observed ~5.3s to the LAX POP), and
+// `reqwest`'s connect timeout includes that handshake. A 5s connect
+// budget therefore fails with "error sending request" while curl still
+// gets HTTP 200. Keep enough headroom for a slow first handshake plus
+// the subsequent catalog download.
+const REGISTRY_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(15);
+const REGISTRY_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+const REGISTRY_USER_AGENT: &str = "vibex-acp-registry/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryPackageDistribution {
@@ -189,6 +196,7 @@ impl Default for OfficialRegistryHttpFetcher {
     fn default() -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let client = reqwest::Client::builder()
+            .user_agent(REGISTRY_USER_AGENT)
             .connect_timeout(REGISTRY_CONNECT_TIMEOUT)
             .timeout(REGISTRY_REQUEST_TIMEOUT)
             .build()
@@ -607,4 +615,16 @@ pub fn sanitize_registry_svg(svg: &str) -> Option<String> {
         return None;
     }
     Some(trimmed.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_registry_timeouts_outlast_slow_cloudflare_tls() {
+        assert!(REGISTRY_CONNECT_TIMEOUT >= StdDuration::from_secs(15));
+        assert!(REGISTRY_REQUEST_TIMEOUT >= StdDuration::from_secs(30));
+        assert!(REGISTRY_REQUEST_TIMEOUT > REGISTRY_CONNECT_TIMEOUT);
+    }
 }

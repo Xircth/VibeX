@@ -61,7 +61,10 @@ describe('AppUpdaterSection', () => {
     expect(await screen.findByText(/当前版本 v0.1.2/)).toBeVisible();
     expect(screen.getByText(/上次检查/)).toBeVisible();
     expect(screen.getByText('更新日志')).toBeVisible();
+    const notes = screen.getByRole('region', { name: '更新日志' });
+    expect(notes).toHaveClass('settings-release-notes');
     expect(screen.getByText(/中文更新说明/)).toBeVisible();
+    expect(notes).toContainElement(screen.getByText(/中文更新说明/));
     expect(screen.queryByText(/English notes/)).toBeNull();
     expect(screen.getByRole('button', { name: '下载并安装' })).toBeVisible();
   });

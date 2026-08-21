@@ -216,79 +216,8 @@ impl AppState {
             plugin_control_plane.clone(),
             plugin_preview_host.clone(),
         ));
-        let bundled_plugin_roots =
-            utils::assets::materialize_builtin_plugins(&utils::assets::asset_dir())
-                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
-        for builtin_root in bundled_plugin_roots {
-            let mut builtin =
-                plugins::PluginPackage::inspect(&builtin_root, plugins::PluginSourceKind::Builtin)
-                    .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
-            let installed = plugin_control_plane
-                .plugin(builtin.id.as_str())
-                .await
-                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
-            match installed {
-                None => {
-                    plugin_control_plane
-                        .import(builtin, plugins::ConflictDecision::Reject)
-                        .await
-                        .map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                        })?;
-                }
-                Some(installed)
-                    if installed.package_digest
-                        != plugins::package_content_digest(&builtin_root).map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                        })? =>
-                {
-                    if installed.config_schema.is_some() {
-                        builtin
-                            .write_adopted_config(installed.config.clone())
-                            .map_err(|error| {
-                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                            })?;
-                        builtin = plugins::PluginPackage::inspect(
-                            &builtin_root,
-                            plugins::PluginSourceKind::Builtin,
-                        )
-                        .map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                        })?;
-                    }
-                    if installed.activation == plugins::PluginActivation::Enabled {
-                        let grants = plugins::candidate_capability_grants(&builtin, &[], &[])
-                            .map_err(|error| {
-                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                            })?;
-                        let node = plugin_worker_runtime.resolve().await.map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                        })?;
-                        plugin_control_plane
-                            .update_and_activate(
-                                &node,
-                                builtin,
-                                &grants,
-                                plugin_capability_broker.clone(),
-                            )
-                            .await
-                            .map_err(|error| {
-                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                            })?;
-                    } else {
-                        plugin_control_plane
-                            .import(builtin, plugins::ConflictDecision::Replace)
-                            .await
-                            .map_err(|error| {
-                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                            })?;
-                    }
-                }
-                Some(_) => {}
-            }
-        }
         plugin_control_plane
-            .retire_replaced_builtins()
+            .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await
             .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
         let enabled_worker_exists = plugin_control_plane

@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
+};
 
 use directories::ProjectDirs;
 use rust_embed::RustEmbed;
@@ -177,19 +180,90 @@ pub struct BuiltinPluginAssets;
 pub fn materialize_builtin_plugins(
     data_root: &std::path::Path,
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
-    let mut directories = BuiltinPluginAssets::iter()
-        .filter_map(|path| {
-            path.strip_suffix("/.vibex-plugin/plugin.json")
-                .filter(|directory| !directory.contains('/'))
-                .map(str::to_owned)
-        })
-        .collect::<Vec<_>>();
-    directories.sort();
-    directories.dedup();
-    directories
-        .iter()
-        .map(|directory| materialize_builtin_plugin(data_root, directory))
-        .collect()
+    let directories = embedded_builtin_directories();
+    if directories.is_empty() {
+        tracing::error!("no official plugin manifests were embedded in this Host");
+    }
+    let mut by_id = existing_materialized_plugin_roots(data_root);
+    for directory in &directories {
+        let root = materialize_builtin_plugin(data_root, directory)?;
+        if let Some(plugin_id) = materialized_plugin_id(&root) {
+            by_id.insert(plugin_id, root);
+        }
+    }
+    Ok(by_id.into_values().collect())
+}
+
+fn embedded_builtin_directories() -> Vec<String> {
+    let mut directories = BTreeSet::new();
+    for path in BuiltinPluginAssets::iter() {
+        if let Some(directory) = path
+            .strip_suffix("/.vibex-plugin/plugin.json")
+            .filter(|directory| !directory.is_empty() && !directory.contains('/'))
+        {
+            directories.insert(directory.to_owned());
+        }
+        if let Some(directory) = path.split('/').next()
+            && !directory.is_empty()
+            && directory != "index"
+            && BuiltinPluginAssets::get(&format!("{directory}/.vibex-plugin/plugin.json")).is_some()
+        {
+            directories.insert(directory.to_owned());
+        }
+    }
+    directories.into_iter().collect()
+}
+
+/// Host data may already contain official packages from a previous launch.
+/// Keep those roots importable even if this binary's embed list is empty.
+fn existing_materialized_plugin_roots(data_root: &Path) -> BTreeMap<String, PathBuf> {
+    let mut found = BTreeMap::new();
+    let root = data_root.join("builtin-plugins");
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let plugin_dir = entry.path();
+        if !plugin_dir.is_dir() {
+            continue;
+        }
+        let Some(plugin_id) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+        let Ok(versions) = std::fs::read_dir(&plugin_dir) else {
+            continue;
+        };
+        for version in versions.flatten() {
+            let path = version.path();
+            if version.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if !path.join(".vibex-plugin/plugin.json").is_file() {
+                continue;
+            }
+            let modified = std::fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            if best
+                .as_ref()
+                .is_none_or(|(current, _)| modified >= *current)
+            {
+                best = Some((modified, path));
+            }
+        }
+        if let Some((_, path)) = best {
+            found.insert(plugin_id, path);
+        }
+    }
+    found
+}
+
+fn materialized_plugin_id(root: &Path) -> Option<String> {
+    root.parent()?
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
 }
 
 fn materialize_builtin_plugin(
@@ -376,6 +450,27 @@ mod tests {
             std::fs::read_to_string(repeated_office.join("config.json")).unwrap(),
             r#"{"idleTimeoutMinutes": 7}"#
         );
+    }
+
+    #[test]
+    fn keeps_already_materialized_packages_when_scanning_the_host_data_directory() {
+        let data = tempfile::tempdir().unwrap();
+        let extra = data
+            .path()
+            .join("builtin-plugins/dev.example.extra/aaaaaaaaaaaa");
+        std::fs::create_dir_all(extra.join(".vibex-plugin")).unwrap();
+        std::fs::write(
+            extra.join(".vibex-plugin/plugin.json"),
+            br#"{"id":"dev.example.extra"}"#,
+        )
+        .unwrap();
+
+        let roots = materialize_builtin_plugins(data.path()).unwrap();
+        assert!(
+            roots.iter().any(|root| root == &extra),
+            "already materialized packages must stay visible to Host import"
+        );
+        assert_eq!(roots.len(), 6);
     }
 
     #[test]

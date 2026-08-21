@@ -98,7 +98,7 @@ function moduleOptions(current: string, targets: TargetDirective[]): string[] {
   const used = new Set(
     targets.filter((t) => t.target !== current).map((t) => t.target)
   );
-  const options = LOG_MODULES.filter((module) => !used.has(module));
+  const options: string[] = LOG_MODULES.filter((module) => !used.has(module));
   return current && !options.includes(current)
     ? [current, ...options]
     : [...options];

@@ -48,7 +48,7 @@ export function ToolCallTarget({
   const resolvedPath = path || (isPath ? text : null);
   const label = resolvedPath ? fileNameFromPath(resolvedPath) : text;
   const title = resolvedPath || text;
-  const labelRef = useRef<HTMLButtonElement | HTMLSpanElement | null>(null);
+  const labelRef = useRef<HTMLElement | null>(null);
   const [overflows, setOverflows] = useState(false);
 
   useLayoutEffect(() => {
@@ -73,7 +73,9 @@ export function ToolCallTarget({
   const name = onClick ? (
     <button
       type="button"
-      ref={labelRef}
+      ref={(node) => {
+        labelRef.current = node;
+      }}
       className={labelClass}
       title={title}
       aria-label={title}
@@ -86,7 +88,13 @@ export function ToolCallTarget({
       {label}
     </button>
   ) : (
-    <span ref={labelRef} className={labelClass} title={title}>
+    <span
+      ref={(node) => {
+        labelRef.current = node;
+      }}
+      className={labelClass}
+      title={title}
+    >
       {label}
     </span>
   );

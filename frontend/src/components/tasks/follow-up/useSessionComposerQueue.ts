@@ -122,7 +122,10 @@ export function useSessionComposerQueue({
         text: agentMessage ?? message,
         displayText: message,
         images,
-        pluginActions,
+        workflowRefs: pluginActions.map((action) => ({
+          pluginId: action.pluginId,
+          workflowId: action.actionId,
+        })),
         modeOverride,
         configOverrides,
         fileRefs: getSessionComposerFileRefs(agentMessage ?? message),

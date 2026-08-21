@@ -967,7 +967,6 @@ export function TaskFollowUpSection({
               value={localMessage}
               onChange={handleEditorChange}
               disabled={!isEditable}
-              availableCommands={availableCommands}
               context={{
                 workspaceId: workspaceIdValue,
                 workspacePath: composerWorkspacePath,
@@ -975,6 +974,7 @@ export function TaskFollowUpSection({
                 repoIds: repos.map((repo) => repo.id),
                 executorProfile: effectiveExecutorProfile,
                 sessionId,
+                availableCommands,
                 transport: configuredBackendTransport,
               }}
               onSubmit={handleComposerSubmit}

@@ -248,7 +248,7 @@ export function GenericToolCard({
           openLink={openLink}
           openPath={(path, line) => {
             const resolved = resolveToolFilePath(path);
-            const title = deriveRelativeFilePath(resolved) ?? path;
+            const title = deriveRelativeFilePath(resolved, null) ?? path;
             panelActions?.openFilePreview(resolved, {
               displayPath: title,
               title,

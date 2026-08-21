@@ -48,11 +48,11 @@ function getTarget(args) {
 function getDefaultBundles(platform) {
   switch (platform) {
     case "win32":
-      return "msi,nsis";
+      return "nsis";
     case "darwin":
       return "app,dmg";
     case "linux":
-      return "appimage,deb";
+      return "appimage";
     default:
       return null;
   }

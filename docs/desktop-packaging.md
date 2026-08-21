@@ -3,9 +3,9 @@
 VibeX uses Tauri native bundlers, so desktop installers are built on the
 matching operating system:
 
-- Windows builds produce `.msi` and NSIS `.exe` installers.
+- Windows builds produce an NSIS `.exe` installer.
 - macOS builds produce `.app` and `.dmg` bundles.
-- Linux builds produce `.AppImage` and `.deb` packages.
+- Linux builds produce an `.AppImage`.
 
 `pnpm run tauri:build` is still the default local command. It now chooses the
 right bundle targets for the host OS automatically:
@@ -43,12 +43,16 @@ triggers `.github/workflows/desktop-release.yml`, which builds these artifacts:
 
 The generated installers are available from the workflow run's artifacts.
 
-Pushing a version tag such as `v0.1.3` automatically runs the same workflow,
-requires the Tauri updater signing credentials, uploads the installers to the
-tag's GitHub Release, publishes the updater manifest, and marks the release as
-latest. Apple and Windows code signing is applied when the complete credential
-set for that platform is configured. The tag release does not publish
-standalone backend binary archives.
+Pushing a version tag such as `v0.1.4` automatically runs the same workflow,
+requires the Tauri updater signing credentials, uploads one installer per
+platform using `VibeX-{version}-{os}-{arch}` names, publishes the updater
+manifest, and marks the release as latest. Apple and Windows code signing is
+applied when the complete credential set for that platform is configured.
+
+The matching `Server Release` workflow publishes
+`VibeX-{version}-{os}-{arch}-server.tar.gz` archives on the same GitHub
+Release. Each archive contains `vibex-server`, `vibex-mcp`, the built web UI,
+and bundled plugins.
 
 To publish installers to an existing tag manually, pass the release tag:
 

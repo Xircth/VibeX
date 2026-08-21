@@ -11,9 +11,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/appUpdate', () => ({
-  checkAppUpdate: (...args: unknown[]) => mocks.checkAppUpdate(...args),
-  readCachedAppUpdate: () => mocks.readCachedAppUpdate(),
-  subscribeAppUpdate: (...args: unknown[]) => mocks.subscribeAppUpdate(...args),
+  checkAppUpdate: mocks.checkAppUpdate,
+  readCachedAppUpdate: mocks.readCachedAppUpdate,
+  subscribeAppUpdate: mocks.subscribeAppUpdate,
 }));
 
 vi.mock('@/components/ConfigProvider', () => ({

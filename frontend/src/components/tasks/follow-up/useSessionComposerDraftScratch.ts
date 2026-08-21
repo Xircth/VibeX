@@ -6,13 +6,12 @@ import {
   useState,
   type RefObject,
 } from 'react';
-import type { ExecutorProfileId, Scratch } from 'shared/types';
+import type { DraftFollowUpData, ExecutorProfileId, Scratch } from 'shared/types';
 import { ScratchType } from 'shared/types';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import {
   buildDraftFollowUpScratchUpdate,
-  draftFollowUpContentsEqual,
   extractDraftFollowUpData,
   getDraftExecutorProfile,
   shouldPersistDraftFollowUp,
@@ -168,7 +167,7 @@ export function useSessionComposerDraftScratch({
     [localMessage, scratchData, updateScratch, workspaceId]
   );
 
-  const keepServerDraft = useCallback(() => {
+  const keepServerDraft = useCallback((): DraftFollowUpData | null => {
     if (!conflict) return null;
     discardInFlightSaves();
     const source =

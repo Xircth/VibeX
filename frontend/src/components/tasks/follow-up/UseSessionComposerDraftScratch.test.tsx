@@ -323,11 +323,11 @@ describe('useSessionComposerDraftScratch', () => {
     });
     expect(result.current.draftConflict).toEqual(server);
 
-    let applied: { message: string } | null = null;
     act(() => {
-      applied = result.current.keepServerDraft();
+      expect(result.current.keepServerDraft()).toMatchObject({
+        message: 'server draft',
+      });
     });
-    expect(applied?.message).toBe('server draft');
     expect(result.current.draftConflict).toBeNull();
 
     await act(async () => {

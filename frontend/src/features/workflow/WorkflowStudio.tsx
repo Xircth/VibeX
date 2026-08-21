@@ -1057,7 +1057,7 @@ export function WorkflowStudio({
     () => buildEdges(definition, latest),
     [definition, latest]
   );
-  const [edges, setEdges, onEdgesChange] = useEdgesState(derivedEdges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(derivedEdges);
   useEffect(() => {
     setEdges(derivedEdges);
   }, [derivedEdges, setEdges]);

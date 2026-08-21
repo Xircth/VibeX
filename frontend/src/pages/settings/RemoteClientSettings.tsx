@@ -135,7 +135,7 @@ export function RemoteClientSettings() {
         });
         await loadStatus();
         setToken('');
-        setManualToken('');
+        setManualCode('');
         setTokenFor(null);
         setExpandedId(result.profile.id);
         toast.success(t('webService.clientConnected'));
@@ -214,7 +214,7 @@ export function RemoteClientSettings() {
       return;
     }
     const saved = profiles.find((profile) => profile.origin === origin);
-    if (saved?.has_credential && !manualToken.trim()) {
+    if (saved?.has_credential && !manualCode.trim()) {
       await connect({
         origin,
         profile_id: saved.id,

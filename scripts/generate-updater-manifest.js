@@ -72,6 +72,27 @@ const updaterTargets = [
   },
 ];
 
+const installerTargets = [
+  {
+    artifactName: "VibeX-macos-x64",
+    assetName(version) {
+      return `VibeX-${version}-darwin-x86_64.dmg`;
+    },
+    matches(filePath) {
+      return filePath.endsWith(".dmg");
+    },
+  },
+  {
+    artifactName: "VibeX-macos-arm64",
+    assetName(version) {
+      return `VibeX-${version}-darwin-aarch64.dmg`;
+    },
+    matches(filePath) {
+      return filePath.endsWith(".dmg");
+    },
+  },
+];
+
 function walkFiles(root) {
   if (!fs.existsSync(root)) {
     throw new Error(`Updater artifact directory does not exist: ${root}`);
@@ -95,16 +116,38 @@ function walkFiles(root) {
   return files;
 }
 
-function findSignedBundle(artifactsDir, target) {
+function findMatchingFiles(artifactsDir, target, { requireSignature = false } = {}) {
   const artifactRoot = path.join(artifactsDir, target.artifactName);
-  const candidates = walkFiles(artifactRoot).filter(
-    (filePath) => target.matches(filePath) && fs.existsSync(`${filePath}.sig`),
-  );
+  return walkFiles(artifactRoot).filter((filePath) => {
+    if (!target.matches(filePath)) {
+      return false;
+    }
+    return !requireSignature || fs.existsSync(`${filePath}.sig`);
+  });
+}
+
+function findSignedBundle(artifactsDir, target) {
+  const candidates = findMatchingFiles(artifactsDir, target, {
+    requireSignature: true,
+  });
 
   if (candidates.length !== 1) {
     throw new Error(
       `Expected one signed updater bundle for ${target.platform} in ` +
-        `${artifactRoot}, found ${candidates.length}`,
+        `${path.join(artifactsDir, target.artifactName)}, found ${candidates.length}`,
+    );
+  }
+
+  return candidates[0];
+}
+
+function findInstaller(artifactsDir, target) {
+  const candidates = findMatchingFiles(artifactsDir, target);
+
+  if (candidates.length !== 1) {
+    throw new Error(
+      `Expected one installer for ${target.assetName("version")} in ` +
+        `${path.join(artifactsDir, target.artifactName)}, found ${candidates.length}`,
     );
   }
 
@@ -176,6 +219,18 @@ function generateUpdaterManifest({
       signature,
       url: releaseAssetUrl(repository, releaseTag, assetName),
     };
+  }
+
+  for (const target of installerTargets) {
+    const sourceBundle = findInstaller(artifactsDir, target);
+    fs.copyFileSync(sourceBundle, path.join(outputDir, target.assetName(version)));
+    const sourceSignature = `${sourceBundle}.sig`;
+    if (fs.existsSync(sourceSignature)) {
+      fs.copyFileSync(
+        sourceSignature,
+        path.join(outputDir, `${target.assetName(version)}.sig`),
+      );
+    }
   }
 
   const manifest = {

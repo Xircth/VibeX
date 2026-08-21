@@ -51,11 +51,21 @@ test("generates a six-platform updater manifest without asset collisions", () =>
         "macOS arm64 bundle",
         "macOS arm64 signature",
       ],
+      [
+        "VibeX-macos-x64/bundle/dmg/VibeX_0.1.1_x64.dmg",
+        "macOS x64 disk image",
+      ],
+      [
+        "VibeX-macos-arm64/bundle/dmg/VibeX_0.1.1_aarch64.dmg",
+        "macOS arm64 disk image",
+      ],
     ];
 
     for (const [relativePath, bundle, signature] of fixtures) {
       writeArtifact(artifactsDir, relativePath, bundle);
-      writeArtifact(artifactsDir, `${relativePath}.sig`, `${signature}\n`);
+      if (signature) {
+        writeArtifact(artifactsDir, `${relativePath}.sig`, `${signature}\n`);
+      }
     }
 
     const notesPath = path.join(temporaryRoot, "notes.md");
@@ -117,6 +127,13 @@ test("generates a six-platform updater manifest without asset collisions", () =>
         fs.existsSync(path.join(outputDir, `${assetName}.sig`)),
         true,
       );
+    }
+
+    for (const assetName of [
+      "VibeX-0.1.1-darwin-x86_64.dmg",
+      "VibeX-0.1.1-darwin-aarch64.dmg",
+    ]) {
+      assert.equal(fs.existsSync(path.join(outputDir, assetName)), true);
     }
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });

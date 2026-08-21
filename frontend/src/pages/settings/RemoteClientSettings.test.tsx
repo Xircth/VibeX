@@ -79,7 +79,9 @@ describe('RemoteClientSettings', () => {
     expect(
       screen.queryByRole('heading', { name: '手动连接' })
     ).not.toBeInTheDocument();
-    const lanRow = screen.getByText('Office').closest('.settings-host-row')!;
+    const lanRow = screen
+      .getByText('Office')
+      .closest('.settings-host-row') as HTMLElement;
     await user.click(within(lanRow).getByRole('button', { name: '连接' }));
 
     const codeField = await within(lanRow).findByPlaceholderText('8 位连接码');

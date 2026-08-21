@@ -145,19 +145,19 @@ jobs:
           - artifact_name: windows-x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
-            bundles: msi,nsis
+            bundles: nsis
           - artifact_name: windows-arm64
             runner: windows-11-arm
             target: aarch64-pc-windows-msvc
-            bundles: msi,nsis
+            bundles: nsis
           - artifact_name: linux-x64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            bundles: appimage,deb
+            bundles: appimage
           - artifact_name: linux-arm64
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: appimage,deb
+            bundles: appimage
           - artifact_name: macos-x64
             runner: macos-15-intel
             target: x86_64-apple-darwin
@@ -378,23 +378,6 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/bundle/**/*
             target/release/bundle/**/*
-
-      - name: Upload installers to GitHub Release
-        if: ${{ github.event_name == 'push' || (inputs.upload_to_release && inputs.release_tag != '') }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: |
-            target/${{ matrix.target }}/release/bundle/**/*.msi
-            target/${{ matrix.target }}/release/bundle/**/*.exe
-            target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            target/${{ matrix.target }}/release/bundle/**/*.deb
-            target/${{ matrix.target }}/release/bundle/**/*.dmg
-            target/release/bundle/**/*.msi
-            target/release/bundle/**/*.exe
-            target/release/bundle/**/*.AppImage
-            target/release/bundle/**/*.deb
-            target/release/bundle/**/*.dmg
 
   publish-updater:
     name: Publish updater manifest

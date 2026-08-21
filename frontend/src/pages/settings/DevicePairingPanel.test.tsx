@@ -112,14 +112,18 @@ describe('DevicePairingPanel', () => {
     expect(row).toContainElement(code);
     expect(row).toHaveClass('settings-pairing-code-row');
     expect(row?.parentElement).toHaveClass('settings-pairing-fields');
-    expect(invite).toContainElement(row);
-    expect(invite).not.toContainElement(addresses as HTMLElement);
+    expect(invite as HTMLElement | null).toContainElement(row as HTMLElement);
+    expect(invite as HTMLElement | null).not.toContainElement(
+      addresses as HTMLElement | null
+    );
     expect(addresses).toBeTruthy();
     expect(screen.getByText('等待连接')).toBeVisible();
-    expect(meta).toContainElement(
+    expect(meta as HTMLElement | null).toContainElement(
       screen.getByRole('combobox', { name: '有效期' })
     );
-    expect(meta).toContainElement(screen.getByText('等待连接'));
+    expect(meta as HTMLElement | null).toContainElement(
+      screen.getByText('等待连接')
+    );
     expect(screen.queryByText('状态')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '有效期' })).toHaveTextContent(
       '5 分钟'
@@ -299,7 +303,7 @@ describe('DevicePairingPanel', () => {
     expect(deviceClassRow).not.toBeNull();
     expect(pairedList).not.toBeNull();
     expect(pairedList).not.toBe(deviceClassRow);
-    expect(within(pairedList!).getByText('伴随端')).toHaveClass(
+    expect(within(pairedList as HTMLElement).getByText('伴随端')).toHaveClass(
       'settings-pairing-devices__preset'
     );
   });

@@ -1,7 +1,7 @@
-name: Host Family Release
+name: Server Release
 
-# Builds the unsigned Host family directory. Apple Developer ID and Windows
-# Authenticode are intentionally not required.
+# Builds the unsigned Server directory (vibex-server + web + bundled plugins).
+# Apple Developer ID and Windows Authenticode are intentionally not required.
 
 on:
   push:
@@ -27,21 +27,27 @@ jobs:
       matrix:
         include:
           - name: linux-x64
+            release_name: linux-x86_64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - name: linux-arm64
+            release_name: linux-aarch64
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: macos-arm64
+            release_name: darwin-aarch64
             runner: macos-15
             target: aarch64-apple-darwin
           - name: macos-x64
+            release_name: darwin-x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
           - name: windows-x64
+            release_name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
           - name: windows-arm64
+            release_name: windows-aarch64
             runner: windows-11-arm
             target: aarch64-pc-windows-msvc
     steps:
@@ -67,40 +73,43 @@ jobs:
       - name: Build Host binaries
         run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p vibex-workflow-mcp --bin vibex-server --bin vibex-mcp --bin vibex-workflow-mcp
 
-      - name: Package Host family
+      - name: Package Server
         shell: bash
         run: |
           ext=""
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             ext=".exe"
           fi
+          VERSION="$(node -p "require('./package.json').version")"
+          ARCHIVE="VibeX-${VERSION}-${{ matrix.release_name }}-server.tar.gz"
+          echo "SERVER_ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           node scripts/package-host-family.js \
             --server "target/${{ matrix.target }}/release/vibex-server${ext}" \
             --mcp "target/${{ matrix.target }}/release/vibex-mcp${ext}" \
             --workflow-mcp "target/${{ matrix.target }}/release/vibex-workflow-mcp${ext}" \
             --web frontend/dist \
             --plugins assets/plugins \
-            --output "dist/host-family/${{ matrix.name }}"
-          tar -C dist/host-family -czf "dist/vibex-host-family-${{ matrix.name }}.tar.gz" "${{ matrix.name }}"
+            --output "dist/server/${{ matrix.release_name }}"
+          tar -C dist/server -czf "dist/${ARCHIVE}" "${{ matrix.release_name }}"
           (
             cd dist
-            shasum -a 256 "vibex-host-family-${{ matrix.name }}.tar.gz" > "vibex-host-family-${{ matrix.name }}.tar.gz.sha256"
+            shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
           )
 
-      - name: Upload Host family
+      - name: Upload Server archive
         uses: actions/upload-artifact@v4
         with:
-          name: vibex-host-family-${{ matrix.name }}
+          name: VibeX-server-${{ matrix.release_name }}
           path: |
-            dist/vibex-host-family-${{ matrix.name }}.tar.gz
-            dist/vibex-host-family-${{ matrix.name }}.tar.gz.sha256
+            dist/${{ env.SERVER_ARCHIVE }}
+            dist/${{ env.SERVER_ARCHIVE }}.sha256
 
-      - name: Attach to GitHub Release
+      - name: Attach Server archive to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            dist/vibex-host-family-${{ matrix.name }}.tar.gz
-            dist/vibex-host-family-${{ matrix.name }}.tar.gz.sha256
+            dist/${{ env.SERVER_ARCHIVE }}
+            dist/${{ env.SERVER_ARCHIVE }}.sha256
           fail_on_unmatched_files: true

@@ -599,7 +599,12 @@ describe('conversation tool cards', () => {
       <ToolCallCard
         entry={toolEntry({
           toolName: 'plan',
-          status: { status: 'pending_approval' },
+          status: {
+            status: 'pending_approval',
+            approval_id: 'approval-1',
+            requested_at: '2026-08-21T00:00:00Z',
+            timeout_at: '2026-08-21T00:05:00Z',
+          },
           actionType: {
             action: 'plan_presentation',
             plan: '1. [in_progress] Review the proposed plan',

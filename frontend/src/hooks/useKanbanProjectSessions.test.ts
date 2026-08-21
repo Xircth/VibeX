@@ -81,6 +81,7 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     first_prompt: '修复会话标题功能并保持手动标题',
     is_running: false,
     continuity_mode: 'new_session',
+    pinned_at: null,
     ...overrides,
   };
 }

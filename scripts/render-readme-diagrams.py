@@ -113,15 +113,14 @@ def icon_at(key: str, x: float, y: float, size: float) -> str:
 
 def hero() -> str:
     chips = []
-    chip_w, chip_h, gap, left, top = 152, 54, 10, 36, 108
-    centers = []
+    chip_w, chip_h, gap, left, top = 146, 54, 22, 25, 108
+    row_gap = 36
+    boxes = []
     for i, (key, label) in enumerate(AGENTS):
         row, col = divmod(i, 7)
         x = left + col * (chip_w + gap)
-        y = top + row * (chip_h + 12)
-        cx = x + chip_w / 2
-        cy = y + chip_h
-        centers.append((cx, cy))
+        y = top + row * (chip_h + row_gap)
+        boxes.append((row, col, x, y, x + chip_w / 2, y + chip_h))
         chips.append(
             f'<g>'
             f'<rect x="{x}" y="{y}" width="{chip_w}" height="{chip_h}" rx="18" fill="#fff" stroke="#000" stroke-width="1.5"/>'
@@ -130,11 +129,22 @@ def hero() -> str:
             f"</g>"
         )
 
-    bus_y = 250
+    lower_bus_y = boxes[7][5] + 22
     acp = (600, 318)
     flows = []
-    for i, (cx, cy) in enumerate(centers):
-        flows.append(dash(f"M{cx:.1f} {cy:.1f} V{bus_y} H600 V{acp[1] - 40}", 0.08 * i))
+    for i, (row, col, x, _y, cx, cy) in enumerate(boxes):
+        if row == 0:
+            if col < 6:
+                start_x = x + chip_w
+                alley = x + chip_w + gap / 2
+            else:
+                start_x = x
+                alley = x - gap / 2
+            path = f"M{start_x:.1f} {cy:.1f} H{alley:.1f} V{lower_bus_y} H600"
+        else:
+            path = f"M{cx:.1f} {cy:.1f} V{lower_bus_y} H600"
+        flows.append(dash(path, 0.07 * i))
+    flows.append(dash(f"M600 {lower_bus_y} V{acp[1] - 40}", 0.12))
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860">
   <title>VibeX IADE</title>
@@ -142,10 +152,10 @@ def hero() -> str:
   <rect width="1200" height="860" fill="#ffffff"/>
   <text x="600" y="48" text-anchor="middle" fill="#000" font-size="22" font-weight="700" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">IADE / Integrated Agent Development Environment</text>
   <text x="600" y="76" text-anchor="middle" fill="#000" font-size="13" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">All Agents on one Host</text>
+  <g>{"".join(flows)}</g>
   <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
     {"".join(chips)}
   </g>
-  <g>{"".join(flows)}</g>
   {dash(f"M600 {acp[1] + 40} V430", 0.2)}
   <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
     <rect x="390" y="278" width="420" height="80" rx="24" fill="#000"/>

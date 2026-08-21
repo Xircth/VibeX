@@ -106,7 +106,11 @@ test('desktop release signs and verifies macOS and Windows artifacts', () => {
 test('Windows EVSign signing refreshes updater signatures after Authenticode', () => {
   const script = read('scripts/sign-windows-evsign.ps1');
 
-  assert.match(script, /evsign-client-cli-windows-latest/);
+  assert.match(
+    script,
+    /releases\/download\/evsign-cli-1\.0\.1\/evsign-client-cli-win_v1\.0\.1\.exe/
+  );
+  assert.match(script, /Get-FileHash -Algorithm SHA256/);
   assert.match(script, /-cdn/);
   assert.match(script, /tauri signer sign/);
   assert.match(script, /TAURI_SIGNING_PRIVATE_KEY/);

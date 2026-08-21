@@ -86,10 +86,13 @@ signing secrets. Apple Developer ID/notarization and Windows Authenticode
 credentials are optional platform groups.
 
 Windows Authenticode prefers `EVSIGN_LICENSE_KEY` (cloud signing through the
-EVSign CLI after NSIS finishes). The installer bytes change, so the script
-refreshes each adjacent Tauri updater `.sig` with `tauri signer sign`. If that
-license is absent, a complete `WINDOWS_CERTIFICATE` +
-`WINDOWS_CERTIFICATE_PASSWORD` pair still imports a PFX for Tauri-time signing.
+EVSign CLI after NSIS finishes). GitHub-hosted runners cannot download the
+official CLI from `mc.evsign.cn` (HTTP 444), so the job fetches the pinned
+`evsign-cli-1.0.1` release asset and checks its SHA-256 before signing. The
+installer bytes change, so the script refreshes each adjacent Tauri updater
+`.sig` with `tauri signer sign`. If that license is absent, a complete
+`WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` pair still imports a
+PFX for Tauri-time signing.
 `EVSIGN_SIGN_PASSWORD` is optional. A partially configured PFX pair is rejected
 so the workflow cannot silently produce an unexpected signing state. When
 neither Windows group is present, that platform is published unsigned.

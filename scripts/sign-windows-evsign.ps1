@@ -13,12 +13,21 @@ if (-not (Test-Path $BundleRoot)) {
     throw "Windows bundle directory does not exist: $BundleRoot"
 }
 
+# GitHub-hosted runners get HTTP 444 from mc.evsign.cn. Use the official CLI
+# mirrored as a repo release asset and verify the pin before signing.
+$cliUrl = 'https://github.com/Xircth/VibeX/releases/download/evsign-cli-1.0.1/evsign-client-cli-win_v1.0.1.exe'
+$cliSha256 = 'b1b2168a1d0ea757f26db18ac2e2b14e06fb74021f0d67add5e6be1a47dffd97'
 $cliPath = Join-Path $env:RUNNER_TEMP 'evsign-client.exe'
 Invoke-WebRequest `
-    -Uri 'https://mc.evsign.cn/evsign-client-cli-windows-latest' `
+    -Uri $cliUrl `
     -OutFile $cliPath `
     -UseBasicParsing
 Unblock-File $cliPath
+
+$actualSha256 = (Get-FileHash -Algorithm SHA256 -Path $cliPath).Hash.ToLowerInvariant()
+if ($actualSha256 -ne $cliSha256) {
+    throw "EVSign CLI checksum mismatch: expected $cliSha256, got $actualSha256"
+}
 
 $artifacts = Get-ChildItem $BundleRoot -Recurse -File |
     Where-Object { $_.Extension -in '.exe', '.msi' }

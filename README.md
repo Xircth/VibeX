@@ -24,7 +24,7 @@
   <a href="https://github.com/Xircth/VibeX/issues">GitHub Issues</a>
 </p>
 
-![VibeX IADE connects built-in and ACP Registry agents to one Host, used from WebUI, Desktop, CLI, and Mobile APP](./docs/readme/iade-hero.svg)
+![VibeX IADE connects built-in and ACP Registry agents to one Host, used from WebUI, Desktop, CLI, and Mobile APP](./docs/readme/iade-hero.png)
 
 Agents needed a new IDE, so VibeX exists.
 
@@ -88,7 +88,7 @@ See [One Host](https://vibex.com/docs/reference/one-host) and [Connect a Host](h
 
 ### Multi-agent collaboration
 
-![VibeX multi-agent workflow from session to delivery](./docs/readme/collaboration-flow.svg)
+![VibeX multi-agent workflow from session to delivery](./docs/readme/collaboration-flow.png)
 
 Collaboration splits into delegation and Graph Workflow. Automation decides when to start.
 

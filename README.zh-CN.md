@@ -24,7 +24,7 @@
   <a href="https://github.com/Xircth/VibeX/issues">GitHub Issue</a>
 </p>
 
-![VibeX IADE：内置 Agent 与 ACP Registry Agent 经 ACP 接入同一 Host，并由 WebUI、Desktop、CLI、Mobile APP 使用](./docs/readme/iade-hero.svg)
+![VibeX IADE：内置 Agent 与 ACP Registry Agent 经 ACP 接入同一 Host，并由 WebUI、Desktop、CLI、Mobile APP 使用](./docs/readme/iade-hero.png)
 
 Agent 需要新的 IDE，于是有了 VibeX。
 
@@ -88,7 +88,7 @@ VibeX 插件是可安装、可启停、可配置的产品功能单元。同一�
 
 ### 高效 Multi-Agent 协作
 
-![VibeX 从会话到交付的多 Agent 协作流程](./docs/readme/collaboration-flow.svg)
+![VibeX 从会话到交付的多 Agent 协作流程](./docs/readme/collaboration-flow.png)
 
 多 Agent 协作分为委派与 Graph Workflow。Automation 负责触发。
 

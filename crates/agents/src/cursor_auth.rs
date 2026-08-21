@@ -4,14 +4,14 @@
 //! store, not in `cli-config.json`. File-shaped `account_evidence` therefore
 //! cannot see a completed login.
 
-use workspace_utils::process::new_hidden_tokio_command;
-
 pub async fn cursor_account_token() -> Option<String> {
     read_cursor_keychain_token().await
 }
 
 #[cfg(target_os = "macos")]
 async fn read_cursor_keychain_token() -> Option<String> {
+    use workspace_utils::process::new_hidden_tokio_command;
+
     let output = new_hidden_tokio_command(
         "security",
         [

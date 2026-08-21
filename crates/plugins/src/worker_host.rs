@@ -951,7 +951,7 @@ fn assign_windows_job(child: &tokio::process::Child) -> Result<(), WorkerHostErr
     };
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job == 0 {
+        if job.is_null() {
             return Err(WorkerHostError::new(
                 "plugin_class_unsupported",
                 "CreateJobObjectW failed",
@@ -975,8 +975,8 @@ fn assign_windows_job(child: &tokio::process::Child) -> Result<(), WorkerHostErr
             ));
         }
         let process = OpenProcess(0x1F0FFF, 0, pid);
-        if process == 0 || AssignProcessToJobObject(job, process) == 0 {
-            if process != 0 {
+        if process.is_null() || AssignProcessToJobObject(job, process) == 0 {
+            if !process.is_null() {
                 CloseHandle(process);
             }
             CloseHandle(job);

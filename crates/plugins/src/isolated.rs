@@ -647,25 +647,19 @@ pub(crate) fn spawn_windows_appcontainer(
     grants: &[CapabilityGrant],
     current_dir: &Path,
 ) -> Result<WindowsIsolatedIo, WorkerHostError> {
-    use std::os::windows::{
-        ffi::OsStrExt,
-        io::{FromRawHandle, OwnedHandle},
-        raw::HANDLE as RawHandle,
-    };
+    use std::os::windows::{ffi::OsStrExt, io::FromRawHandle, raw::HANDLE as RawHandle};
 
     use windows_sys::Win32::{
         Foundation::{
-            BOOL, CloseHandle, DuplicateHandle, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
-            SetHandleInformation,
+            CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, SetHandleInformation,
         },
         Security::{
             Authorization::{
-                DACL_SECURITY_INFORMATION, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
-                NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-                SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_USER,
-                TRUSTEE_W,
+                EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE,
+                SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID,
+                TRUSTEE_IS_USER, TRUSTEE_W,
             },
-            ConvertStringSidToSidW, FreeSid,
+            FreeSid,
             Isolation::{CreateAppContainerProfile, DeriveAppContainerSidFromAppContainerName},
             SECURITY_ATTRIBUTES, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES,
         },
@@ -676,17 +670,28 @@ pub(crate) fn spawn_windows_appcontainer(
                 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
                 JobObjectExtendedLimitInformation, SetInformationJobObject,
             },
-            Memory::LocalFree,
             Pipes::CreatePipe,
             Threading::{
                 CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
                 DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
                 InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
                 PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread,
-                STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW, UpdateProcThreadAttribute,
+                STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute,
             },
         },
     };
+
+    // windows-sys 0.59 omits these Win32 items on aarch64; the values are stable.
+    const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
+    const SUB_CONTAINERS_AND_OBJECTS_INHERIT: u32 = 0x0000_0003;
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn ConvertStringSidToSidW(
+            string_sid: *const u16,
+            sid: *mut *mut core::ffi::c_void,
+        ) -> i32;
+    }
 
     fn wide(value: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
         value
@@ -887,7 +892,7 @@ pub(crate) fn spawn_windows_appcontainer(
     if attr_size == 0 {
         unsafe { FreeSid(app_sid) };
         if !capability_sid.is_null() {
-            unsafe { windows_sys::Win32::Foundation::LocalFree(capability_sid as _) };
+            unsafe { LocalFree(capability_sid as _) };
         }
         return Err(last_error("InitializeProcThreadAttributeList(size)"));
     }
@@ -1049,12 +1054,6 @@ pub(crate) fn spawn_windows_appcontainer(
 
     let stdin = unsafe { std::fs::File::from_raw_handle(parent_stdin_w as RawHandle) };
     let stdout = unsafe { std::fs::File::from_raw_handle(parent_stdout_r as RawHandle) };
-    let _ = (
-        OwnedHandle::from,
-        DuplicateHandle,
-        BOOL,
-        INVALID_HANDLE_VALUE,
-    );
     Ok(WindowsIsolatedIo {
         process: WindowsAppContainerProcess {
             process: info.hProcess as isize,

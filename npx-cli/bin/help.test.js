@@ -25,7 +25,16 @@ test('help topics cover serve and control commands', () => {
   assert.match(text('list'), /--refresh/);
   assert.match(text('install'), /--yes/);
   assert.match(text('conversation'), /send\s+--conversation/);
-  assert.match(text('plugin'), /plugin add/);
-  assert.match(text(), /plugin add <url>/);
+  assert.match(text('plugin'), /plugin add --web/);
+  assert.match(text('plugin'), /--profile/);
+  assert.match(text('plugin'), /--dev/);
+  assert.match(text('plugin'), /plugin list/);
+  assert.match(text('plugin'), /plugin update/);
+  assert.match(text('plugin'), /plugin remove/);
+  assert.match(text('plugin'), /gc-runtimes/);
+  assert.match(text('plugin'), /#tag/);
+  assert.match(text(), /plugin add/);
+  assert.match(text(), /plugin list/);
+  assert.match(text(), /plugin remove/);
   assert.match(text('unknown-cmd'), /Unknown command/);
 });

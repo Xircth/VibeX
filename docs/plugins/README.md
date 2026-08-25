@@ -26,6 +26,7 @@ VibeX Plugin 是一个用户可理解的功能产品，不是 Skill、MCP、Runt
 - [迁移与验收](migration-and-verification.md)：迁移顺序、门禁和 rollback；
 - [实现状态](implementation-status.md)：已落地能力与生产缺口。
 - [bb 对齐与产品完成度](bb-parity-and-product-readiness.md)：逐项对照与下一阶段优先级。
+- [优化方案](optimization-plan.md)：开发、测试、打包、发布、安装与装卸干净的分阶段计划。
 
 ## 决策
 

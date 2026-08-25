@@ -10,6 +10,7 @@ mod host_capability_broker;
 mod host_service;
 mod isolated;
 mod language_runtimes;
+mod link_watch;
 mod manifest;
 mod marketplace;
 mod native;

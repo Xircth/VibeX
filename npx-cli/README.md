@@ -36,6 +36,16 @@ vibex plugin pack .
 The default output is `dist/<plugin-id>-<version>.vxp`. Use
 `--output ./name.vxp` to choose another path.
 
+Install onto a running Desktop or Server Host:
+
+```bash
+vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
+vibex plugin add --profile ./search.vxp
+vibex plugin add --dev .
+vibex plugin list
+vibex plugin remove acme.search
+```
+
 ## What is VibeX?
 
 VibeX is a modern project management tool designed specifically for developers. It helps you organize your coding projects with kanban-style task management while providing powerful integrations with git repositories and AI coding agents.

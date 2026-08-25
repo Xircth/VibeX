@@ -123,6 +123,112 @@ test("plugin add resolves marketplace and GitHub sources", async () => {
   }
 });
 
+test("plugin add parses --web, --profile, and --dev", () => {
+  const { parseAddArgs, parseGitSource, inferAddMode } = require("./plugin");
+  const web = parseAddArgs(["--web", "https://github.com/acme/office", "-y"]);
+  assert.equal(web.mode, "web");
+  assert.equal(web.source, "https://github.com/acme/office");
+  assert.equal(web.flags.yes, true);
+  const profile = parseAddArgs(["--profile", "~/plugins/search.vxp"]);
+  assert.equal(profile.mode, "profile");
+  assert.match(profile.source, /plugins[\\/]search\.vxp$/);
+  const dev = parseAddArgs(["--dev", "~/Projects/office", "--detach"]);
+  assert.equal(dev.mode, "dev");
+  assert.equal(dev.flags.detach, true);
+  assert.throws(
+    () => parseAddArgs(["--web", "https://example.com", "--dev", "."]),
+    /only one/,
+  );
+  assert.throws(() => parseAddArgs([]), /--web/);
+  const git = parseGitSource("https://github.com/Xircth/vibex-plugin-office");
+  assert.equal(git.url, "https://github.com/Xircth/vibex-plugin-office.git");
+  assert.equal(git.ref, undefined);
+  const branch = parseGitSource(
+    "https://github.com/Xircth/vibex-plugin-office/tree/main",
+  );
+  assert.equal(branch.ref, "main");
+  const tagged = parseGitSource(
+    "https://github.com/Xircth/vibex-plugin-office#v1.2.0",
+  );
+  assert.equal(tagged.ref, "v1.2.0");
+  const spec = parseGitSource("github:Xircth/vibex-plugin-office#v1.2.0");
+  assert.equal(spec.url, "https://github.com/Xircth/vibex-plugin-office.git");
+  assert.equal(spec.ref, "v1.2.0");
+  const shorthandTag = parseGitSource("Xircth/vibex-plugin-office#v1.2.0");
+  assert.equal(shorthandTag.ref, "v1.2.0");
+  const commit = parseGitSource(
+    "https://github.com/Xircth/vibex-plugin-office/commit/abcdef1",
+  );
+  assert.equal(commit.ref, "abcdef1");
+  const archive = parseGitSource("https://example.com/search.vxp");
+  assert.equal(archive, null);
+  const root = mkdtempSync(join(tmpdir(), "vibex-plugin-infer-"));
+  try {
+    writeFixture(root);
+    assert.equal(inferAddMode(root), "dev");
+    const packed = join(root, "search.vxp");
+    writeFileSync(packed, "PK");
+    assert.equal(inferAddMode(packed), "profile");
+    assert.equal(inferAddMode("acme/office"), "web");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plugin list formats catalog rows", () => {
+  const { formatPluginList, pluginSourceLabel } = require("./plugin");
+  assert.equal(formatPluginList([]), "No plugins installed.");
+  assert.equal(
+    pluginSourceLabel({ builtin: true, sourceKind: "snapshot" }),
+    "builtin",
+  );
+  assert.equal(
+    pluginSourceLabel({ sourceKind: "developer_link" }),
+    "linked",
+  );
+  const table = formatPluginList([
+    {
+      id: "vibex.office",
+      version: "3.0.0",
+      sourceKind: "builtin",
+      builtin: true,
+      enabled: false,
+    },
+    {
+      id: "acme.search",
+      version: "1.2.0",
+      sourceKind: "snapshot",
+      enabled: true,
+      sourceLocked: true,
+      sourceRef: "v1.2.0",
+    },
+  ]);
+  assert.match(table, /ID\s+VERSION\s+SOURCE\s+ENABLED\s+LOCK/);
+  assert.match(table, /vibex\.office\s+3\.0\.0\s+builtin\s+off/);
+  assert.match(table, /acme\.search\s+1\.2\.0\s+installed\s+on\s+v1\.2\.0/);
+});
+
+test("plugin add parses GitHub release URLs", () => {
+  const { parseGithubReleaseSpec } = require("./plugin");
+  const tagged = parseGithubReleaseSpec(
+    "https://github.com/acme/search/releases/tag/v1.2.0",
+  );
+  assert.equal(tagged.owner, "acme");
+  assert.equal(tagged.repo, "search");
+  assert.equal(tagged.tag, "v1.2.0");
+  const latest = parseGithubReleaseSpec(
+    "https://github.com/acme/search/releases/latest",
+  );
+  assert.equal(latest.tag, "latest");
+  const asset = parseGithubReleaseSpec(
+    "https://github.com/acme/search/releases/download/v1.2.0/search-1.2.0.vxp",
+  );
+  assert.equal(asset.tag, "v1.2.0");
+  assert.match(asset.assetUrl, /\.vxp$/);
+  const spec = parseGithubReleaseSpec("github:acme/search/releases/v1.2.0");
+  assert.equal(spec.tag, "v1.2.0");
+});
+
 function writeFixture(root) {
   mkdirSync(join(root, ".vibex-plugin"), { recursive: true });
   mkdirSync(join(root, "contents", "skills", "test"), { recursive: true });

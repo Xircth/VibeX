@@ -483,6 +483,11 @@ async fn doctor(
             "version": plugin.version,
             "sourcePath": plugin.source.path,
             "sourceKind": plugin.source.kind,
+            "packageDigest": plugin.package_digest,
+            "origin": plugin.source.origin,
+            "gitRef": plugin.source.git_ref,
+            "gitSha": plugin.source.git_sha,
+            "locked": plugin.source.locked,
         },
         "activation": { "enabled": plugin.activation == plugins::PluginActivation::Enabled, "generation": generation },
         "sourceKind": match plugin.source.kind {

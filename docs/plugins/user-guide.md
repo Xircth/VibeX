@@ -32,6 +32,26 @@ Agent 自己的原生插件（Codex、Claude Code 那一套）仍在「设置 �
 
 新装进来默认禁用。先装后开，避免半成品直接进 Agent。
 
+### `vibex plugin add`
+
+本机已安装 Desktop 或 `vibex-server` 时，CLI 会发现 Host 并写入同一套控制面。Host 没在跑时，发布包进入 `~/.vibex/imports`，链接开发目录进入 `~/.vibex/imports/links.jsonl`，下次启动再导入。
+
+```bash
+vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
+vibex plugin add --web github:Xircth/vibex-plugin-office#v1.0.0 -y
+vibex plugin add --profile ~/plugins/search.vxp
+vibex plugin add --dev ~/Projects/office
+vibex plugin list
+vibex plugin update acme.search --ref v1.3.0
+vibex plugin remove acme.search
+vibex plugin remove acme.search --delete-data
+vibex plugin gc-runtimes
+```
+
+`--web` 接受 Git 仓库、GitHub、市场 URL 或归档 URL。`#tag`、`#branch`、`#commit` 钉住所装 tree，不再跟随默认分支。`--profile` 接受本地 `.vxp` / `.zip`。`--dev` 把目录链到 Host；源码变化后 Host 重新发布候选代，CLI 默认停在前台监视并在需要时 rebuild。`--detach` 只链接，由 Host 继续监视。
+
+`list` 与设置里的插件目录是同一份 Host catalog。`remove` 卸非内置包；默认保留用户配置，`--delete-data` 才删 Host 管理的 snapshot。链接开发目录不会被删除。
+
 ### 拖入或选择 `.vxp`
 
 桌面且具备 `plugin.write` 时，目录页可以「添加插件」，也可以把 `.vxp` 拖到页面上。只接受带 `.vibex-plugin/plugin.json` 并且通过校验的包。
@@ -44,9 +64,7 @@ Host 发行物带一份静态官方索引。列表里标成随 Host 安装的条
 
 ### 开发者链接目录
 
-自己写的插件用 CLI 链到正在跑的 Host（见开发文档）。界面上的开发工具会给出本机回环地址。VibeX 跟着那个目录走，不会删你的源码。
-
-安装成功后目录里多一条，开关仍是关的。
+`vibex plugin add --dev` 与 `vibex-plugin install --link` 都把同一份源目录登记为 linked development。VibeX 跟着那个目录走，不会删你的源码。
 
 ## 怎么启用
 
@@ -84,7 +102,14 @@ Host 会按反序拆这一代对外的投影。停后台 `host.service`，结束
 
 ## 怎么卸载
 
-详情里选卸载。确认文案写得很清楚，会去掉 membership、Agent 绑定、Skill 投影和相关信任。全局 Runtime 字节、产物、会话和自动化历史会留着。
+详情里选卸载，或：
+
+```bash
+vibex plugin remove <插件ID>
+vibex plugin remove <插件ID> --delete-data
+```
+
+确认后会去掉 membership、Agent 绑定、Skill 投影和相关信任。全局 Runtime 字节、产物、会话和自动化历史会留着。默认留下用户 `config.json`；`--delete-data` 删除 Host 管理的 snapshot。
 
 随 Host 带来的官方包不要按第三方包那样卸掉。目录里它们标成随 Host 安装。你能禁用，不能当普通快照删掉。
 

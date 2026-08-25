@@ -11,6 +11,41 @@ fn package(id: &str, source: PluginSourceKind, root: &std::path::Path) -> Plugin
     PluginPackage::for_test(id, "Test plugin", "1.0.0", source, root)
 }
 
+fn write_linked_package(root: &std::path::Path, body: &str) {
+    let skill = root.join("contents/skills/linked/SKILL.md");
+    std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.linked","publisher":"dev.vibex","name":"Linked","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","properties":{},"additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3","pluginSdk":"^1.0.0"},
+          "integrations":[{"id":"linked","kind":"content.skill","resource":"contents/skills/linked"}]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/linked/SKILL.md","kind":"skill","title":"Linked"}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("README.md"),
+        "---\nsummary: Linked development plugin.\n---\n# Linked\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("config.json"), "{}\n").unwrap();
+    std::fs::write(
+        &skill,
+        format!("---\nname: linked\ndescription: Linked skill.\n---\n{body}\n"),
+    )
+    .unwrap();
+}
+
 #[test]
 fn full_trust_candidates_implicitly_receive_every_declared_host_capability() {
     let root = tempfile::tempdir().unwrap();
@@ -119,6 +154,70 @@ async fn import_is_disabled_and_same_id_requires_an_explicit_decision() {
         replaced.plugin.source.path,
         second_root.path().canonicalize().unwrap()
     );
+}
+
+#[tokio::test]
+async fn refresh_developer_links_replaces_changed_source() {
+    let root = tempfile::tempdir().unwrap();
+    write_linked_package(root.path(), "original");
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::DeveloperLink).unwrap();
+    let control = PluginControlPlane::new(Arc::new(InMemoryPluginRegistry::default()));
+    control
+        .import(package, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    let before = control.plugin("dev.vibex.linked").await.unwrap().unwrap();
+    write_linked_package(root.path(), "changed");
+    let changed = control.refresh_developer_links().await.unwrap();
+    assert_eq!(changed, vec!["dev.vibex.linked".to_string()]);
+    let after = control.plugin("dev.vibex.linked").await.unwrap().unwrap();
+    assert_ne!(after.package_digest, before.package_digest);
+    let unchanged = control.refresh_developer_links().await.unwrap();
+    assert!(unchanged.is_empty());
+    let skill =
+        std::fs::read_to_string(root.path().join("contents/skills/linked/SKILL.md")).unwrap();
+    assert!(skill.contains("changed"));
+}
+
+#[tokio::test]
+async fn reclaim_drops_managed_runtimes_with_no_plugin_refs() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = tempfile::tempdir().unwrap();
+    let plugin_root = root.path();
+    write_linked_package(plugin_root, "runtime");
+    let package = PluginPackage::inspect(plugin_root, PluginSourceKind::Snapshot).unwrap();
+    control
+        .import(package, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    let artifact = runtime_root.path().join("orphan/bin");
+    std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+    std::fs::write(&artifact, "x").unwrap();
+    control
+        .record_runtime(
+            "dev.vibex.linked",
+            RuntimeInstallation {
+                id: "orphan".into(),
+                version: "1.0.0".into(),
+                target: "test-target".into(),
+                content_digest: "sha256:orphan".into(),
+                executable_path: artifact.clone(),
+                ownership: "managed".into(),
+                installer: "test".into(),
+                probe: Vec::new(),
+                referenced_plugins: vec!["dev.vibex.linked".into()],
+            },
+        )
+        .await
+        .unwrap();
+    control.uninstall("dev.vibex.linked").await.unwrap();
+    let reclaimed = control
+        .reclaim_unreferenced_runtimes(runtime_root.path())
+        .await
+        .unwrap();
+    assert!(!reclaimed.is_empty());
 }
 
 #[tokio::test]

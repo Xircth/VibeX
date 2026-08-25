@@ -20,7 +20,7 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir]\n  dev [dir] [--host url]\n  install --link [dir] [--host url]\n  uninstall [dir] [--delete-data] [--host url]\n  pack [dir] [--output file.vxp]\n  doctor [dir] [--host url]\n  toolchain\n\nHost-local only. Connection uses VIBEX_PLUGIN_DEV_HOST.`;
+const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir] [--host url]\n  install --link [dir] [--host url]\n  uninstall [dir] [--delete-data] [--host url]\n  pack [dir] [--output file.vxp]\n  doctor [dir] [--host url]\n  toolchain\n\nHost-local only. Connection uses VIBEX_PLUGIN_DEV_HOST. test --host installs, reloads a Skill, and uninstalls against the running Host.`;
 const [command = "help", ...args] = process.argv.slice(2);
 
 try {
@@ -48,7 +48,9 @@ try {
       break;
     }
     case "test":
-      await testPlugin(resolve(positional(args) ?? "."));
+      await testPlugin(resolve(positional(args) ?? "."), {
+        host: args.includes("--host"),
+      });
       break;
     case "pack": {
       const root = resolve(positional(args) ?? ".");

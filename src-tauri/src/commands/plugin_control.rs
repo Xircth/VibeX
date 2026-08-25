@@ -129,6 +129,10 @@ pub struct PluginControlItemDto {
     pub update_supported: bool,
     pub rollback_supported: bool,
     pub uninstall_supported: bool,
+    pub source_origin: Option<String>,
+    pub source_ref: Option<String>,
+    pub source_sha: Option<String>,
+    pub source_locked: bool,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -679,6 +683,10 @@ pub async fn plugin_install(
             conflict_decision,
             Some("vibex".into()),
             Vec::new(),
+            None,
+            None,
+            None,
+            None,
         )
         .await;
     }
@@ -710,6 +718,10 @@ pub async fn plugin_install(
             conflict_decision,
             Some("vibex".into()),
             Vec::new(),
+            None,
+            None,
+            None,
+            None,
         )
         .await;
     }
@@ -736,8 +748,24 @@ pub async fn plugin_uninstall(
     plugin_id: String,
     retain_data: Option<bool>,
 ) -> Result<(), AppError> {
-    let _ = retain_data;
-    plugin_control_uninstall(app, state, plugin_id).await
+    plugin_control_uninstall(app, state, plugin_id, retain_data).await
+}
+
+#[tauri::command]
+pub async fn plugin_control_gc_runtimes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let runtime_root = crate::managed_artifacts::directory(&app)
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .join("plugins")
+        .join("runtimes");
+    let reclaimed = state
+        .plugin_control_plane
+        .reclaim_unreferenced_runtimes(&runtime_root)
+        .await
+        .map_err(plugin_error)?;
+    Ok(serde_json::json!({ "reclaimed": reclaimed }))
 }
 
 #[tauri::command]
@@ -1267,6 +1295,10 @@ pub async fn plugin_control_import(
     conflict_decision: String,
     package_kind: Option<String>,
     permission_ids: Vec<String>,
+    origin: Option<String>,
+    git_ref: Option<String>,
+    git_sha: Option<String>,
+    locked: Option<bool>,
 ) -> Result<PluginControlItemDto, AppError> {
     let source_kind = if developer_link {
         plugins::PluginSourceKind::DeveloperLink
@@ -1328,13 +1360,16 @@ pub async fn plugin_control_import(
             plugins::ConflictDecision::Replace => {}
         }
     }
-    let package = if developer_link {
-        Ok(incoming)
+    let mut package = if developer_link {
+        incoming
     } else {
         let storage = plugin_snapshot_root(&app)?;
-        plugins::PluginPackage::materialize(source, &storage, source_kind)
-    }
-    .map_err(plugin_error)?;
+        plugins::PluginPackage::materialize(source, &storage, source_kind).map_err(plugin_error)?
+    };
+    package.source.origin = origin.or(package.source.origin);
+    package.source.git_ref = git_ref.or(package.source.git_ref);
+    package.source.git_sha = git_sha.or(package.source.git_sha);
+    package.source.locked = locked.unwrap_or(package.source.locked);
     let replacing_enabled = decision == plugins::ConflictDecision::Replace
         && installed
             .as_ref()
@@ -1384,6 +1419,11 @@ pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
     let Ok(entries) = std::fs::read_dir(&inbox) else {
         return Ok(());
     };
+    let _ = app
+        .state::<AppState>()
+        .plugin_control_plane
+        .import_queued_developer_links()
+        .await;
     for entry in entries.flatten() {
         let path = entry.path();
         if !is_cli_inbox_package(&path) {
@@ -1393,6 +1433,7 @@ pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
         if marker.exists() {
             continue;
         }
+        let lock = read_origin_sidecar(&path);
         let result = plugin_control_import(
             app.clone(),
             app.state(),
@@ -1401,6 +1442,10 @@ pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
             "keep".to_string(),
             None,
             Vec::new(),
+            lock.origin,
+            lock.git_ref,
+            lock.git_sha,
+            lock.locked,
         )
         .await;
         match result {
@@ -1436,6 +1481,46 @@ fn is_cli_inbox_package(path: &Path) -> bool {
     }
     let lower = name.to_ascii_lowercase();
     lower.ends_with(".vxp") || lower.ends_with(".zip")
+}
+
+fn read_origin_sidecar(path: &Path) -> InboxOriginLock {
+    let sidecar = {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(".origin.json");
+        PathBuf::from(name)
+    };
+    let Ok(text) = std::fs::read_to_string(sidecar) else {
+        return InboxOriginLock::default();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return InboxOriginLock::default();
+    };
+    InboxOriginLock {
+        origin: value
+            .get("origin")
+            .and_then(serde_json::Value::as_str)
+            .filter(|item| !item.is_empty())
+            .map(str::to_owned),
+        git_ref: value
+            .get("gitRef")
+            .and_then(serde_json::Value::as_str)
+            .filter(|item| !item.is_empty())
+            .map(str::to_owned),
+        git_sha: value
+            .get("gitSha")
+            .and_then(serde_json::Value::as_str)
+            .filter(|item| !item.is_empty())
+            .map(str::to_owned),
+        locked: value.get("locked").and_then(serde_json::Value::as_bool),
+    }
+}
+
+#[derive(Default)]
+struct InboxOriginLock {
+    origin: Option<String>,
+    git_ref: Option<String>,
+    git_sha: Option<String>,
+    locked: Option<bool>,
 }
 
 fn cli_inbox_marker(path: &Path) -> PathBuf {
@@ -2160,6 +2245,7 @@ pub async fn plugin_control_uninstall(
     app: AppHandle,
     state: State<'_, AppState>,
     plugin_id: String,
+    retain_data: Option<bool>,
 ) -> Result<(), AppError> {
     if state
         .plugin_control_plane
@@ -2168,7 +2254,8 @@ pub async fn plugin_control_uninstall(
         .map_err(plugin_error)?
         .is_some()
     {
-        return uninstall_portable_plugin(&app, &state, &plugin_id).await;
+        return uninstall_portable_plugin(&app, &state, &plugin_id, retain_data.unwrap_or(true))
+            .await;
     }
     let (adapter, descriptor, _) = find_native_cli_plugin(&plugin_id).await?;
     adapter
@@ -2188,6 +2275,7 @@ async fn uninstall_portable_plugin(
     app: &AppHandle,
     state: &AppState,
     plugin_id: &str,
+    retain_data: bool,
 ) -> Result<(), AppError> {
     let installed = state
         .plugin_control_plane
@@ -2206,14 +2294,20 @@ async fn uninstall_portable_plugin(
         .uninstall(plugin_id)
         .await
         .map_err(plugin_error)?;
-    if installed.source.kind == plugins::PluginSourceKind::Snapshot {
+    if !retain_data && installed.source.kind == plugins::PluginSourceKind::Snapshot {
         remove_managed_snapshot(app, &installed.source.path)?;
+    }
+    if let Ok(runtime_root) = crate::managed_artifacts::directory(app) {
+        let _ = state
+            .plugin_control_plane
+            .reclaim_unreferenced_runtimes(&runtime_root.join("plugins").join("runtimes"))
+            .await;
     }
     record_plugin_audit(
         state,
         plugin_id,
         "uninstall",
-        serde_json::json!({ "runtimeRetained": true }),
+        serde_json::json!({ "runtimeRetained": true, "dataRetention": if retain_data { "retained" } else { "deleted" } }),
     )
     .await
 }
@@ -2337,9 +2431,14 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
         permission_delta: Vec::new(),
         native_managed: false,
         enable_supported: true,
-        update_supported: false,
+        update_supported: plugin.source.kind == plugins::PluginSourceKind::Snapshot
+            && plugin.source.origin.is_some(),
         rollback_supported: false,
         uninstall_supported: plugin.source.kind != plugins::PluginSourceKind::Builtin,
+        source_origin: plugin.source.origin.clone(),
+        source_ref: plugin.source.git_ref.clone(),
+        source_sha: plugin.source.git_sha.clone(),
+        source_locked: plugin.source.locked,
     }
 }
 
@@ -2395,6 +2494,10 @@ fn native_plugin_dto(
         update_supported: capabilities.update,
         rollback_supported: false,
         uninstall_supported: capabilities.uninstall,
+        source_origin: None,
+        source_ref: None,
+        source_sha: None,
+        source_locked: false,
     }
 }
 

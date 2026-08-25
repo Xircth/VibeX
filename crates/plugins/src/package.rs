@@ -34,6 +34,41 @@ pub enum PluginSourceKind {
 pub struct PluginSource {
     pub kind: PluginSourceKind,
     pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
+}
+
+impl PluginSource {
+    pub fn new(kind: PluginSourceKind, path: PathBuf) -> Self {
+        Self {
+            kind,
+            path,
+            origin: None,
+            git_ref: None,
+            git_sha: None,
+            locked: false,
+        }
+    }
+
+    pub fn with_lock(
+        mut self,
+        origin: Option<String>,
+        git_ref: Option<String>,
+        git_sha: Option<String>,
+        locked: bool,
+    ) -> Self {
+        self.origin = origin;
+        self.git_ref = git_ref;
+        self.git_sha = git_sha;
+        self.locked = locked;
+        self
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -750,10 +785,7 @@ impl PluginPackage {
             permissions,
             app,
             mcp,
-            source: PluginSource {
-                kind: source_kind,
-                path: source_path,
-            },
+            source: PluginSource::new(source_kind, source_path),
             execution_root: None,
             formats,
             skills,
@@ -792,10 +824,10 @@ impl PluginPackage {
             permissions: Vec::new(),
             app: PackageAppContributions::default(),
             mcp: Value::Null,
-            source: PluginSource {
-                kind: source_kind,
-                path: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
-            },
+            source: PluginSource::new(
+                source_kind,
+                root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
+            ),
             execution_root: None,
             formats: vec![PackageFormat::VibeX],
             skills: vec![PackageSkill {

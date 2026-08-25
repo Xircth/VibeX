@@ -26,15 +26,35 @@ Install the Agent Runtime and ACP into the user environment
 `,
 
   plugin: `Usage: vibex plugin pack [dir] [--output file.vxp]
-       vibex plugin add <url> [--plugin ID] [--yes]
+       vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
+       vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
+       vibex plugin add --dev <dir> [--yes] [--detach]
+       vibex plugin list [--json]
+       vibex plugin update <id> [--ref tag] [--yes]
+       vibex plugin remove <id> [--yes] [--delete-data]
+       vibex plugin gc-runtimes
+       vibex plugin test --host [dir]
 
 pack    Validate and write a .vxp
-add     Install from a marketplace or GitHub URL
+add     Install onto the local Desktop or Server Host
+  --web URL       Git repository, GitHub, marketplace, or archive URL
+                  Pin with #tag, #branch, or #commit
+  --profile FILE  Local .vxp / .zip / archive
+  --dev DIR       Link a development directory; Host reloads on change
   --plugin ID     Choose one package when the archive has several
-  --yes, -y       Install on the running Host without a prompt
+  --yes, -y       Install without a prompt
+  --detach        With --dev, return after linking
+list    Show installed plugins on the running Host
+  --json          Print JSON
+update  Refresh a snapshot from its locked origin
+  --ref tag       New Git tag, branch, or commit
+remove  Uninstall a non-built-in plugin
+  --delete-data   Delete snapshot and config; reclaim unreferenced Runtimes
+gc-runtimes  Delete managed Runtimes with no plugin references
+test --host  Install, Skill-reload, and uninstall against the running Host
         Looks up a local Host token if VIBEX_TOKEN is unset.
-        If no Host is running, the .vxp stays in ~/.vibex/imports
-        and Desktop imports it on the next launch.
+        If no Host is running, .vxp and --dev links stay in ~/.vibex/imports
+        and Desktop or Server imports them on the next launch.
 `,
 
   conversation: `Usage: vibex conversation <command>
@@ -113,7 +133,12 @@ Control (needs a running Host, VIBEX_URL, VIBEX_TOKEN)
 
 Other
   plugin pack             Package a .vxp
-  plugin add <url>        Install a Plugin from marketplace or GitHub onto the local Host
+  plugin add              Install from --web, --profile, or --dev onto the local Host
+  plugin list             List plugins on the running Host
+  plugin update <id>      Refresh a snapshot from its locked origin
+  plugin remove <id>      Uninstall a plugin
+  plugin gc-runtimes      Reclaim unreferenced Runtimes
+  plugin test --host      Host install / Skill reload / uninstall journey
   help [command]          This help
   --version, -V
 

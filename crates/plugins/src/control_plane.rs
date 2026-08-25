@@ -189,6 +189,15 @@ pub trait PluginRegistry: Send + Sync {
         &self,
         plugin_id: &str,
     ) -> Result<Vec<crate::CapabilityGrant>, PluginError>;
+    async fn record_audit(
+        &self,
+        plugin_id: &str,
+        event: &str,
+        evidence: &serde_json::Value,
+    ) -> Result<(), PluginError>;
+    async fn delete_unreferenced_runtime_artifacts(
+        &self,
+    ) -> Result<Vec<RuntimeInstallation>, PluginError>;
 }
 
 #[derive(Default)]
@@ -546,6 +555,33 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .get(plugin_id)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn record_audit(
+        &self,
+        _plugin_id: &str,
+        _event: &str,
+        _evidence: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    async fn delete_unreferenced_runtime_artifacts(
+        &self,
+    ) -> Result<Vec<RuntimeInstallation>, PluginError> {
+        let mut runtimes = self.runtimes.write().map_err(lock_error)?;
+        let locks = self.runtime_locks.read().map_err(lock_error)?;
+        let referenced: BTreeSet<RuntimeArtifactKey> = locks.values().cloned().collect();
+        let mut removed = Vec::new();
+        runtimes.retain(|key, runtime| {
+            if referenced.contains(key) {
+                true
+            } else {
+                removed.push(runtime.clone());
+                false
+            }
+        });
+        Ok(removed)
     }
 }
 
@@ -1180,11 +1216,49 @@ impl PluginRegistry for SqlitePluginRegistry {
         let _ = plugin_id;
         Ok(Vec::new())
     }
+
+    async fn record_audit(
+        &self,
+        plugin_id: &str,
+        event: &str,
+        evidence: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        let evidence_json = serde_json::to_string(evidence).map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_audit_v4
+                 (plugin_id, publisher, operation_id, event, evidence_json, created_at)
+             SELECT ?, publisher, NULL, ?, ?, datetime('now','subsec')
+             FROM plugin_installations_v4 WHERE plugin_id = ?",
+        )
+        .bind(plugin_id)
+        .bind(event)
+        .bind(evidence_json)
+        .bind(plugin_id)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(())
+    }
+
+    async fn delete_unreferenced_runtime_artifacts(
+        &self,
+    ) -> Result<Vec<RuntimeInstallation>, PluginError> {
+        let inventory = self.list_runtimes().await?;
+        let orphans: Vec<RuntimeInstallation> = inventory
+            .into_iter()
+            .filter(|runtime| runtime.referenced_plugins.is_empty())
+            .collect();
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        gc_runtime_locks(&mut transaction).await?;
+        transaction.commit().await.map_err(registry_error)?;
+        Ok(orphans)
+    }
 }
 
 #[derive(Clone)]
 struct WorkerRestore {
     node_executable: PathBuf,
+    candidate_root: PathBuf,
     broker: Arc<dyn CapabilityBroker>,
 }
 
@@ -1628,6 +1702,25 @@ impl PluginControlPlane {
             package_digest,
         };
         self.registry.put_plugin(plugin.clone()).await?;
+        let _ = self
+            .registry
+            .record_audit(
+                plugin.id(),
+                match disposition {
+                    ImportDisposition::Installed => "install",
+                    ImportDisposition::Replaced => "update",
+                    ImportDisposition::KeptInstalled => "install_kept",
+                },
+                &serde_json::json!({
+                    "packageDigest": plugin.package_digest,
+                    "sourceKind": source_kind_key(plugin.source.kind),
+                    "origin": plugin.source.origin,
+                    "gitRef": plugin.source.git_ref,
+                    "gitSha": plugin.source.git_sha,
+                    "locked": plugin.source.locked,
+                }),
+            )
+            .await;
         Ok(ImportResult {
             disposition,
             plugin,
@@ -1640,6 +1733,225 @@ impl PluginControlPlane {
 
     pub async fn catalog(&self) -> Result<Vec<InstalledPlugin>, PluginError> {
         self.registry.list_plugins().await
+    }
+
+    pub async fn import_queued_developer_links(&self) -> Result<Vec<String>, PluginError> {
+        let Some(home) = dirs::home_dir() else {
+            return Ok(Vec::new());
+        };
+        let file = home.join(".vibex").join("imports").join("links.jsonl");
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            return Ok(Vec::new());
+        };
+        let mut remaining = Vec::new();
+        let mut imported = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                remaining.push(trimmed.to_owned());
+                continue;
+            };
+            let Some(path) = entry.get("path").and_then(serde_json::Value::as_str) else {
+                remaining.push(trimmed.to_owned());
+                continue;
+            };
+            match crate::PluginPackage::inspect(
+                Path::new(path),
+                crate::PluginSourceKind::DeveloperLink,
+            ) {
+                Ok(package) => match self.import(package, ConflictDecision::Replace).await {
+                    Ok(result) => imported.push(result.plugin.id().to_owned()),
+                    Err(error) => {
+                        tracing::warn!(path, error = %error, "queued linked Plugin import failed");
+                        remaining.push(trimmed.to_owned());
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(path, error = %error, "queued linked Plugin is invalid");
+                    remaining.push(trimmed.to_owned());
+                }
+            }
+        }
+        let body = if remaining.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", remaining.join("\n"))
+        };
+        if let Err(error) = std::fs::write(&file, body) {
+            tracing::warn!(
+                path = %file.display(),
+                error = %error,
+                "could not rewrite queued linked Plugin inbox"
+            );
+        }
+        Ok(imported)
+    }
+
+    pub async fn configure_developer_link_runtime(
+        &self,
+        node_executable: PathBuf,
+        candidate_root: PathBuf,
+        broker: Arc<dyn crate::CapabilityBroker>,
+    ) {
+        *self.worker_restore.write().await = Some(WorkerRestore {
+            node_executable,
+            candidate_root,
+            broker,
+        });
+    }
+
+    async fn remember_worker_restore(
+        &self,
+        node_executable: &Path,
+        broker: Arc<dyn crate::CapabilityBroker>,
+    ) {
+        let candidate_root = self
+            .worker_restore
+            .read()
+            .await
+            .as_ref()
+            .map(|restore| restore.candidate_root.clone())
+            .unwrap_or_default();
+        *self.worker_restore.write().await = Some(WorkerRestore {
+            node_executable: node_executable.to_path_buf(),
+            candidate_root,
+            broker,
+        });
+    }
+
+    pub fn spawn_developer_link_refresh(
+        this: Arc<Self>,
+        node_executable: PathBuf,
+        candidate_root: PathBuf,
+        broker: Arc<dyn crate::CapabilityBroker>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            this.configure_developer_link_runtime(node_executable, candidate_root, broker)
+                .await;
+            crate::link_watch::run_developer_link_watch(this).await;
+        })
+    }
+
+    pub async fn refresh_developer_links(&self) -> Result<Vec<String>, PluginError> {
+        let mut changed = Vec::new();
+        for plugin in self.registry.list_plugins().await? {
+            if plugin.source.kind != crate::PluginSourceKind::DeveloperLink {
+                continue;
+            }
+            if !plugin.source.path.is_dir() {
+                tracing::warn!(
+                    plugin_id = %plugin.id(),
+                    path = %plugin.source.path.display(),
+                    "linked Plugin source is missing"
+                );
+                continue;
+            }
+            let incoming = match crate::PluginPackage::inspect(
+                &plugin.source.path,
+                crate::PluginSourceKind::DeveloperLink,
+            ) {
+                Ok(mut package) => {
+                    package.source.origin = plugin.source.origin.clone();
+                    package.source.git_ref = plugin.source.git_ref.clone();
+                    package.source.git_sha = plugin.source.git_sha.clone();
+                    package.source.locked = plugin.source.locked;
+                    package
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        plugin_id = %plugin.id(),
+                        error = %error,
+                        "linked Plugin source failed inspection"
+                    );
+                    continue;
+                }
+            };
+            if incoming.id != plugin.package.id
+                || package_publisher(&incoming) != package_publisher(&plugin.package)
+            {
+                tracing::warn!(
+                    plugin_id = %plugin.id(),
+                    "linked Plugin identity changed; keeping the installed package"
+                );
+                continue;
+            }
+            let digest = match crate::package_content_digest(&plugin.source.path) {
+                Ok(digest) => digest,
+                Err(error) => {
+                    tracing::warn!(
+                        plugin_id = %plugin.id(),
+                        error = %error,
+                        "linked Plugin digest could not be computed"
+                    );
+                    continue;
+                }
+            };
+            if digest == plugin.package_digest {
+                continue;
+            }
+            if plugin.activation == PluginActivation::Enabled {
+                let restore = self.worker_restore.read().await.clone();
+                if let Some(restore) =
+                    restore.filter(|restore| !restore.candidate_root.as_os_str().is_empty())
+                {
+                    let mut package = incoming;
+                    if let Err(error) =
+                        package.freeze_execution_root(&restore.candidate_root, &digest)
+                    {
+                        tracing::warn!(
+                            plugin_id = %plugin.id(),
+                            error = %error,
+                            "linked Plugin candidate could not be frozen"
+                        );
+                        continue;
+                    }
+                    let grants = candidate_capability_grants(&package, &[], &[])?;
+                    match self
+                        .update_and_activate(
+                            &restore.node_executable,
+                            package,
+                            &grants,
+                            restore.broker,
+                        )
+                        .await
+                    {
+                        Ok(_) => changed.push(plugin.id().to_owned()),
+                        Err(error) => tracing::warn!(
+                            plugin_id = %plugin.id(),
+                            code = %error.code(),
+                            error = %error,
+                            "linked Plugin candidate failed to publish; previous generation remains"
+                        ),
+                    }
+                    continue;
+                }
+            }
+            match self.import(incoming, ConflictDecision::Replace).await {
+                Ok(_) => {
+                    if plugin.activation == PluginActivation::Enabled
+                        && plugin.entrypoints.worker.is_none()
+                    {
+                        if let Err(error) = self.set_enabled(plugin.id(), true).await {
+                            tracing::warn!(
+                                plugin_id = %plugin.id(),
+                                error = %error,
+                                "linked Plugin was updated but could not be re-enabled"
+                            );
+                        }
+                    }
+                    changed.push(plugin.id().to_owned());
+                }
+                Err(error) => tracing::warn!(
+                    plugin_id = %plugin.id(),
+                    error = %error,
+                    "linked Plugin source could not be imported"
+                ),
+            }
+        }
+        Ok(changed)
     }
 
     pub async fn rollback_available(&self, plugin_id: &str) -> Result<bool, PluginError> {
@@ -1749,10 +2061,8 @@ impl PluginControlPlane {
         if active_matches && self.plugin_is_live(plugin_id).await.unwrap_or(false) {
             return Ok(plugin);
         }
-        *self.worker_restore.write().await = Some(WorkerRestore {
-            node_executable: node_executable.to_path_buf(),
-            broker: broker.clone(),
-        });
+        self.remember_worker_restore(node_executable, broker.clone())
+            .await;
         let worker =
             plugin
                 .entrypoints
@@ -1793,10 +2103,8 @@ impl PluginControlPlane {
                 "candidate publisher does not own the installed plugin identity",
             ));
         }
-        *self.worker_restore.write().await = Some(WorkerRestore {
-            node_executable: node_executable.to_path_buf(),
-            broker: broker.clone(),
-        });
+        self.remember_worker_restore(node_executable, broker.clone())
+            .await;
         self.ensure_plugin_dependencies(&package).await?;
         self.ensure_runtime_readiness(&plugin_id, &package).await?;
         let generation = self
@@ -1914,10 +2222,12 @@ impl PluginControlPlane {
         candidate_root: &std::path::Path,
         broker: Arc<dyn CapabilityBroker>,
     ) -> Result<Vec<ActivationRecoveryFailure>, PluginError> {
-        *self.worker_restore.write().await = Some(WorkerRestore {
-            node_executable: node_executable.to_path_buf(),
-            broker: broker.clone(),
-        });
+        self.configure_developer_link_runtime(
+            node_executable.to_path_buf(),
+            candidate_root.to_path_buf(),
+            broker.clone(),
+        )
+        .await;
         let mut failures = Vec::new();
         for plugin in self.registry.list_plugins().await? {
             if plugin.activation != PluginActivation::Enabled || plugin.entrypoints.worker.is_none()
@@ -2119,9 +2429,27 @@ impl PluginControlPlane {
     }
 
     pub async fn uninstall(&self, plugin_id: &str) -> Result<(), PluginError> {
-        if self.registry.plugin(plugin_id).await?.is_none() {
-            return Err(PluginError::not_found(plugin_id));
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await?
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        if plugin.source.kind == crate::PluginSourceKind::DeveloperLink {
+            Self::forget_queued_developer_link(&plugin.source.path);
         }
+        let evidence = serde_json::json!({
+            "packageDigest": plugin.package_digest,
+            "sourceKind": source_kind_key(plugin.source.kind),
+            "origin": plugin.source.origin,
+            "gitRef": plugin.source.git_ref,
+            "gitSha": plugin.source.git_sha,
+            "locked": plugin.source.locked,
+            "sourcePathPreserved": plugin.source.kind == crate::PluginSourceKind::DeveloperLink,
+        });
+        let _ = self
+            .registry
+            .record_audit(plugin_id, "uninstall", &evidence)
+            .await;
         self.withdraw_with_dependents(plugin_id).await?;
         self.registry
             .set_activation(plugin_id, PluginActivation::Disabled)
@@ -2129,6 +2457,82 @@ impl PluginControlPlane {
             .ok();
         self.registry.delete_plugin(plugin_id).await?;
         self.refresh_live_projections().await
+    }
+
+    pub fn forget_queued_developer_link(source: &Path) {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        let file = home.join(".vibex").join("imports").join("links.jsonl");
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            return;
+        };
+        let wanted = source.to_string_lossy();
+        let remaining: Vec<String> = text
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return false;
+                }
+                serde_json::from_str::<serde_json::Value>(trimmed)
+                    .ok()
+                    .and_then(|entry| {
+                        entry
+                            .get("path")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .is_none_or(|path| path != wanted)
+            })
+            .map(str::to_owned)
+            .collect();
+        let body = if remaining.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", remaining.join("\n"))
+        };
+        let _ = std::fs::write(file, body);
+    }
+
+    pub async fn reclaim_unreferenced_runtimes(
+        &self,
+        runtime_root: &Path,
+    ) -> Result<Vec<String>, PluginError> {
+        let orphans = self
+            .registry
+            .delete_unreferenced_runtime_artifacts()
+            .await?;
+        let mut reclaimed = Vec::new();
+        let root = runtime_root
+            .canonicalize()
+            .unwrap_or_else(|_| runtime_root.to_path_buf());
+        for runtime in orphans {
+            if runtime.ownership != "managed" {
+                continue;
+            }
+            let path = runtime.executable_path.clone();
+            if let Ok(canonical) = path.canonicalize() {
+                if canonical.starts_with(&root) {
+                    let dir = canonical.parent().unwrap_or(canonical.as_path());
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+            }
+            reclaimed.push(format!(
+                "{}@{} ({})",
+                runtime.id, runtime.version, runtime.content_digest
+            ));
+        }
+        Ok(reclaimed)
+    }
+
+    pub async fn record_audit(
+        &self,
+        plugin_id: &str,
+        event: &str,
+        evidence: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        self.registry.record_audit(plugin_id, event, evidence).await
     }
 
     /// Builtins whose identity was replaced. The old id stays in the install

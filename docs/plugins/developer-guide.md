@@ -162,7 +162,9 @@ vibex-plugin uninstall
 vibex-plugin uninstall --delete-data
 ```
 
-`install` 现在只支持 `--link`。普通用户装发布物走桌面拖入 `.vxp`。
+`install` 现在只支持 `--link`。产品 CLI 也可以：`vibex plugin add --dev .` 链到正在跑的 Desktop 或 Server，不必再从界面拷 Dev grant。`--dev` 只负责 build；Host 用文件事件监视 digest 并发布候选代。
+
+普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走装、Skill 热更新、卸载。
 
 `dev` 会先 build，再 link，再监视源码。digest 变了才重载。重载走候选代，失败则上一完整代仍对外可见。
 

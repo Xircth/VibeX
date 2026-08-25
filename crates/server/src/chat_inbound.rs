@@ -9,7 +9,12 @@ use std::{
     time::Duration,
 };
 
-use conversations::{ConversationContext, ConversationSessionService};
+use agents::conversation::ConversationEvent;
+use conversations::{ConversationContext, ConversationEventAppender, ConversationSessionService};
+use db::models::{
+    conversation::{ConversationRecord, CreateConversationRecord},
+    conversation_event::AppendConversationEvent,
+};
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde_json::{Value, json};
@@ -146,6 +151,16 @@ fn connection_states() -> &'static StdMutex<HashMap<String, String>> {
     STATES.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
+fn paused_channels() -> &'static StdMutex<HashSet<String>> {
+    static PAUSED: OnceLock<StdMutex<HashSet<String>>> = OnceLock::new();
+    PAUSED.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+fn reconcile_notify() -> &'static tokio::sync::Notify {
+    static NOTIFY: OnceLock<tokio::sync::Notify> = OnceLock::new();
+    NOTIFY.get_or_init(tokio::sync::Notify::new)
+}
+
 pub(crate) fn set_connection_state(channel_id: &str, state: &str) {
     if let Ok(mut states) = connection_states().lock() {
         states.insert(channel_id.to_string(), state.to_string());
@@ -157,6 +172,30 @@ pub fn chat_channel_connection_states() -> HashMap<String, String> {
         .lock()
         .map(|states| states.clone())
         .unwrap_or_default()
+}
+
+pub fn connect_chat_channel(channel_id: &str) {
+    if let Ok(mut paused) = paused_channels().lock() {
+        paused.remove(channel_id);
+    }
+    set_connection_state(channel_id, "connecting");
+    reconcile_notify().notify_waiters();
+}
+
+pub fn disconnect_chat_channel(channel_id: &str) {
+    if let Ok(mut paused) = paused_channels().lock() {
+        paused.insert(channel_id.to_string());
+    }
+    set_connection_state(channel_id, "disconnected");
+    reconcile_notify().notify_waiters();
+}
+
+fn is_paused(channel_id: &str) -> bool {
+    paused_channels()
+        .lock()
+        .ok()
+        .map(|paused| paused.contains(channel_id))
+        .unwrap_or(false)
 }
 
 /// Start Telegram / Feishu / QQ inbound loops against the current Host.
@@ -204,9 +243,11 @@ pub fn start_chat_inbound(pool: SqlitePool, conversations: ConversationContext) 
                         let time = config_str(&channel.config, "daily_report_time");
                         if enabled && !time.is_empty() && stamp.ends_with(&time) {
                             let summary = today_conversations(&pool).await;
-                            let tokens = load_channel_tokens(&[channel.id.clone()]).await;
+                            let tokens =
+                                load_channel_tokens(std::slice::from_ref(&channel.id)).await;
                             let token = tokens.get(&channel.id);
                             let _ = services::services::chat_delivery::deliver_rich(
+                                &channel.id,
                                 &channel.kind,
                                 &channel.config,
                                 token.map(String::as_str),
@@ -219,7 +260,10 @@ pub fn start_chat_inbound(pool: SqlitePool, conversations: ConversationContext) 
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_secs(RECONCILE_SECS)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(RECONCILE_SECS)) => {}
+                _ = reconcile_notify().notified() => {}
+            }
         }
     })
 }
@@ -234,6 +278,9 @@ async fn inbound_targets() -> Result<Vec<InboundTarget>, String> {
     let tokens = load_channel_tokens(&ids).await;
     let mut targets = Vec::new();
     for channel in store.channels.into_iter().filter(|channel| channel.enabled) {
+        if is_paused(&channel.id) {
+            continue;
+        }
         let token = tokens
             .get(&channel.id)
             .cloned()
@@ -437,8 +484,13 @@ fn spawn_telegram_loop(
             );
             let body = match client.get(&url).send().await {
                 Ok(response) => {
-                    set_connection_state(&channel_id, "connected");
-                    response.json::<Value>().await.unwrap_or(Value::Null)
+                    let payload = response.json::<Value>().await.unwrap_or(Value::Null);
+                    if payload.get("ok").and_then(Value::as_bool) == Some(true) {
+                        set_connection_state(&channel_id, "connected");
+                    } else {
+                        set_connection_state(&channel_id, "error");
+                    }
+                    payload
                 }
                 Err(_) => {
                     set_connection_state(&channel_id, "error");
@@ -469,10 +521,7 @@ fn spawn_telegram_loop(
                 let Some(text) = update.pointer("/message/text").and_then(Value::as_str) else {
                     continue;
                 };
-                let Some(chat_id) = update
-                    .pointer("/message/chat/id")
-                    .and_then(|value| value_to_id(value))
-                else {
+                let Some(chat_id) = update.pointer("/message/chat/id").and_then(value_to_id) else {
                     continue;
                 };
                 let sender_id = update
@@ -511,6 +560,7 @@ fn spawn_telegram_loop(
                     .await;
             }
         }
+        set_connection_state(&channel_id, "disconnected");
     });
 }
 
@@ -540,6 +590,7 @@ fn spawn_qq_loop(
     tokio::spawn(async move {
         let ws_base = qq_ws_url(&config);
         let base_url = config_str(&config, "base_url");
+        set_connection_state(&channel_id, "connecting");
         while !shutdown.load(Ordering::Relaxed) {
             let url = if token.trim().is_empty() {
                 ws_base.clone()
@@ -549,6 +600,7 @@ fn spawn_qq_loop(
             };
             match tokio_tungstenite::connect_async(&url).await {
                 Ok((stream, _)) => {
+                    set_connection_state(&channel_id, "connected");
                     let (mut write, mut read) = stream.split();
                     while !shutdown.load(Ordering::Relaxed) {
                         match read.next().await {
@@ -577,6 +629,7 @@ fn spawn_qq_loop(
                 }
                 Err(error) => {
                     tracing::warn!(channel_id = %channel_id, %error, "QQ ws connect failed");
+                    set_connection_state(&channel_id, "error");
                 }
             }
             if shutdown.load(Ordering::Relaxed) {
@@ -584,6 +637,7 @@ fn spawn_qq_loop(
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
+        set_connection_state(&channel_id, "disconnected");
     });
 }
 
@@ -685,17 +739,20 @@ fn spawn_feishu_loop(
 ) {
     tokio::spawn(async move {
         let app_id = config_str(&config, "app_id");
+        set_connection_state(&channel_id, "connecting");
         while !shutdown.load(Ordering::Relaxed) {
             let ws_url = match feishu_ws_url(&app_id, &app_secret).await {
                 Ok(url) => url,
                 Err(error) => {
                     tracing::warn!(channel_id = %channel_id, %error, "Feishu ws endpoint failed");
+                    set_connection_state(&channel_id, "error");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;
                 }
             };
             match tokio_tungstenite::connect_async(&ws_url).await {
                 Ok((stream, _)) => {
+                    set_connection_state(&channel_id, "connected");
                     let (mut write, mut read) = stream.split();
                     let mut partials: HashMap<String, (i32, HashMap<i32, Vec<u8>>)> =
                         HashMap::new();
@@ -784,6 +841,7 @@ fn spawn_feishu_loop(
                 }
                 Err(error) => {
                     tracing::warn!(channel_id = %channel_id, %error, "Feishu ws connect failed");
+                    set_connection_state(&channel_id, "error");
                 }
             }
             if shutdown.load(Ordering::Relaxed) {
@@ -791,6 +849,7 @@ fn spawn_feishu_loop(
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
+        set_connection_state(&channel_id, "disconnected");
     });
 }
 
@@ -896,6 +955,7 @@ async fn handle_feishu_event(
 struct CommandReply {
     text: String,
     buttons: Vec<(String, String)>,
+    thread_id: Option<String>,
 }
 
 impl CommandReply {
@@ -903,11 +963,17 @@ impl CommandReply {
         Self {
             text: text.into(),
             buttons: Vec::new(),
+            thread_id: None,
         }
     }
 
     fn with_buttons(mut self, buttons: Vec<(String, String)>) -> Self {
         self.buttons = buttons;
+        self
+    }
+
+    fn with_thread(mut self, thread_id: impl Into<String>) -> Self {
+        self.thread_id = Some(thread_id.into());
         self
     }
 
@@ -924,7 +990,7 @@ async fn telegram_send_reply(
     reply: &CommandReply,
 ) {
     let mut payload = json!({ "chat_id": chat_id, "text": reply.text });
-    if let Some(thread) = thread_id {
+    if let Some(thread) = reply.thread_id.as_deref().or(thread_id) {
         payload["message_thread_id"] = json!(thread);
     }
     if !reply.buttons.is_empty() {
@@ -1006,6 +1072,7 @@ fn help_text(prefix: &str) -> String {
          {prefix} cancel\n\
          {prefix} approve [always]\n\
          {prefix} deny\n\
+         {prefix} answer [n|text]\n\
          {prefix} search <keyword>\n\
          {prefix} today\n\
          {prefix} status\n\
@@ -1064,9 +1131,18 @@ async fn dispatch_command_reply(
                 .await;
         }
         if selected_conversation(channel_id, sender_id).is_some() {
-            return CommandReply::text(
-                send_task(pool, conversations, channel_id, sender_id, text, &prefix).await,
-            );
+            return send_task(
+                pool,
+                conversations,
+                channel_id,
+                sender_id,
+                chat_id,
+                kind,
+                config,
+                text,
+                &prefix,
+            )
+            .await;
         }
         return CommandReply::text(String::new());
     };
@@ -1093,9 +1169,20 @@ async fn dispatch_command_reply(
         "agent" => select_agent(pool, channel_id, sender_id, args, &prefix).await,
         "search" => CommandReply::text(search_conversations(pool, args, &prefix).await),
         "today" => CommandReply::text(today_conversations(pool).await),
-        "task" | "do" | "ask" => CommandReply::text(
-            send_task(pool, conversations, channel_id, sender_id, args, &prefix).await,
-        ),
+        "task" | "do" | "ask" => {
+            send_task(
+                pool,
+                conversations,
+                channel_id,
+                sender_id,
+                chat_id,
+                kind,
+                config,
+                args,
+                &prefix,
+            )
+            .await
+        }
         "approve" | "allow" => {
             let intent = if args.eq_ignore_ascii_case("always") {
                 agents::RemotePermissionIntent::ApproveAlways
@@ -1120,6 +1207,9 @@ async fn dispatch_command_reply(
         ),
         "cancel" | "stop" => CommandReply::text(
             cancel_turn(pool, conversations, channel_id, sender_id, &prefix).await,
+        ),
+        "answer" => CommandReply::text(
+            answer_question(pool, conversations, channel_id, sender_id, args, &prefix).await,
         ),
         _ => CommandReply::text(format!("unknown command; {prefix} help")),
     }
@@ -1164,6 +1254,9 @@ async fn dispatch_callback(
                     .await,
             )
         }
+        "q" => CommandReply::text(
+            answer_question(pool, conversations, channel_id, sender_id, value, prefix).await,
+        ),
         _ => CommandReply::text(String::new()),
     }
 }
@@ -1445,7 +1538,34 @@ fn resolve_project<'a>(projects: &'a [(Uuid, String)], args: &str) -> Option<&'a
         })
 }
 
-async fn recent_agents(pool: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
+#[derive(Clone)]
+struct AgentChoice {
+    id: String,
+    label: String,
+}
+
+async fn recent_agents(pool: &SqlitePool) -> Result<Vec<AgentChoice>, sqlx::Error> {
+    let members = sqlx::query_as::<_, (String, Option<String>)>(
+        r#"SELECT agent_id, json_extract(retained_metadata_json, '$.name')
+           FROM agent_membership
+           WHERE retired = 0 AND enabled = 1
+           ORDER BY position ASC, agent_id ASC
+           LIMIT 20"#,
+    )
+    .fetch_all(pool)
+    .await?;
+    if !members.is_empty() {
+        return Ok(members
+            .into_iter()
+            .map(|(id, name)| {
+                let label = match name {
+                    Some(display) if !display.trim().is_empty() => display,
+                    _ => id.clone(),
+                };
+                AgentChoice { id, label }
+            })
+            .collect());
+    }
     let rows = sqlx::query_scalar::<_, Option<String>>(
         r#"SELECT DISTINCT COALESCE(s.agent_id, b.agent_type)
            FROM sessions s
@@ -1460,6 +1580,10 @@ async fn recent_agents(pool: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
         .into_iter()
         .flatten()
         .filter(|id| !id.is_empty())
+        .map(|id| AgentChoice {
+            label: id.clone(),
+            id,
+        })
         .collect())
 }
 
@@ -1480,16 +1604,16 @@ async fn select_agent(
         let text = agents
             .iter()
             .enumerate()
-            .map(|(index, id)| format!("{}. {id}", index + 1))
+            .map(|(index, agent)| format!("{}. {}", index + 1, agent.label))
             .collect::<Vec<_>>()
             .join("\n");
         let buttons = agents
             .iter()
             .enumerate()
             .take(8)
-            .map(|(index, id)| {
+            .map(|(index, agent)| {
                 (
-                    format!("{}. {id}", index + 1),
+                    format!("{}. {}", index + 1, agent.label),
                     format!("cb:a:{}", index + 1),
                 )
             })
@@ -1502,12 +1626,18 @@ async fn select_agent(
         let needle = args.trim().to_lowercase();
         agents
             .iter()
-            .find(|id| id.to_lowercase() == needle || id.to_lowercase().contains(&needle))
+            .find(|agent| {
+                agent.id.to_lowercase() == needle
+                    || agent.label.to_lowercase() == needle
+                    || agent.id.to_lowercase().contains(&needle)
+                    || agent.label.to_lowercase().contains(&needle)
+            })
             .cloned()
     };
-    let Some(agent_id) = selected else {
+    let Some(selected) = selected else {
         return CommandReply::text(format!("usage: {prefix} agent <n|id>"));
     };
+    let agent_id = selected.id;
     if agents::AgentId::parse(&agent_id).is_err() {
         return CommandReply::text(format!("invalid agent id: {agent_id}"));
     }
@@ -1535,64 +1665,187 @@ async fn latest_workspace_for_project(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_task(
     pool: &SqlitePool,
     conversations: &ConversationContext,
     channel_id: &str,
     sender_id: &str,
+    chat_id: &str,
+    kind: &str,
+    config: &Value,
     args: &str,
     prefix: &str,
-) -> String {
+) -> CommandReply {
     if args.trim().is_empty() {
-        return format!("usage: {prefix} task <text>");
+        return CommandReply::text(format!("usage: {prefix} task <text>"));
     }
     let Ok(rows) = recent_conversations(pool).await else {
-        return "No conversation available on this Host.".to_string();
+        return CommandReply::text("No conversation available on this Host.");
     };
     let selected = selected_conversation(channel_id, sender_id);
-    let target = selected
+    let existing = selected
         .and_then(|id| rows.iter().find(|row| row.id == id))
-        .or_else(|| (rows.len() == 1).then(|| rows.first()).flatten());
-    let Some(target) = target else {
-        return format!(
-            "select a conversation with {prefix} use <n> or a project with {prefix} folder <n>"
-        );
-    };
+        .or_else(|| {
+            (selected.is_none() && rows.len() == 1)
+                .then(|| rows.first())
+                .flatten()
+        });
+
     let selected_agent = agent_bridge().lock().ok().and_then(|bridge| {
         bridge
             .get(&(channel_id.to_string(), sender_id.to_string()))
             .cloned()
     });
-    let Some(agent_id) = selected_agent
-        .as_deref()
-        .or(target.agent_type.as_deref())
-        .and_then(|value| agents::AgentId::parse(value).ok())
-    else {
-        return format!("select an agent with {prefix} agent <n>");
-    };
-    let workspace_id = folder_bridge()
-        .lock()
-        .ok()
-        .and_then(|bridge| {
-            bridge
-                .get(&(channel_id.to_string(), sender_id.to_string()))
-                .copied()
-        })
-        .map(|project_id| async move { latest_workspace_for_project(pool, project_id).await });
-    let workspace_id = if let Some(lookup) = workspace_id {
-        match lookup.await {
-            Ok(Some(id)) => id,
-            Ok(None) => target.workspace_id,
-            Err(_) => target.workspace_id,
-        }
+    let folder_project = folder_bridge().lock().ok().and_then(|bridge| {
+        bridge
+            .get(&(channel_id.to_string(), sender_id.to_string()))
+            .copied()
+    });
+
+    let (conversation_id, workspace_id, agent_id, created) = if let Some(target) = existing {
+        let Some(agent_id) = selected_agent
+            .as_deref()
+            .or(target.agent_type.as_deref())
+            .and_then(|value| agents::AgentId::parse(value).ok())
+        else {
+            return CommandReply::text(format!("select an agent with {prefix} agent <n>"));
+        };
+        let workspace_id = if let Some(project_id) = folder_project {
+            latest_workspace_for_project(pool, project_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(target.workspace_id)
+        } else {
+            target.workspace_id
+        };
+        (target.id, workspace_id, agent_id, false)
     } else {
-        target.workspace_id
+        let Some(project_id) = folder_project else {
+            return CommandReply::text(format!(
+                "select a project with {prefix} folder <n> and an agent with {prefix} agent <n>"
+            ));
+        };
+        let Some(workspace_id) = latest_workspace_for_project(pool, project_id)
+            .await
+            .ok()
+            .flatten()
+        else {
+            return CommandReply::text(
+                "this project has no workspace yet; open it in VibeX once, then retry",
+            );
+        };
+        let Some(agent_id) = selected_agent
+            .as_deref()
+            .and_then(|value| agents::AgentId::parse(value).ok())
+        else {
+            return CommandReply::text(format!("select an agent with {prefix} agent <n>"));
+        };
+        let title = args
+            .lines()
+            .next()
+            .unwrap_or(args)
+            .chars()
+            .take(80)
+            .collect::<String>();
+        let conversation_id = Uuid::new_v4();
+        if let Err(error) = ConversationRecord::create(
+            pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id,
+                task_id: None,
+                title: Some(&title),
+                initial_prompt: Some(args),
+                status: None,
+                executor: Some(agent_id.as_str()),
+            },
+        )
+        .await
+        {
+            return CommandReply::text(format!("failed to create conversation: {error}"));
+        }
+        let _ = sqlx::query(
+            "UPDATE sessions SET agent_id = ?, agent_type = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
+        )
+        .bind(agent_id.as_str())
+        .bind(agent_id.as_str())
+        .bind(conversation_id)
+        .execute(pool)
+        .await;
+        if let Ok(mut bridge) = session_bridge().lock() {
+            bridge.insert(
+                (channel_id.to_string(), sender_id.to_string()),
+                conversation_id.to_string(),
+            );
+        }
+        let created_event = ConversationEvent::ConversationCreated {
+            title: Some(title.clone()),
+        };
+        if let Ok(value) = serde_json::to_value(&created_event)
+            && let Some(event_kind) = value.get("kind").and_then(Value::as_str)
+            && let Ok(normalized_json) = serde_json::to_string(&created_event)
+            && let Ok(record) = ConversationEventAppender::append(
+                pool,
+                AppendConversationEvent {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    source: "host",
+                    event_kind,
+                    normalized_json: &normalized_json,
+                    raw_json: None,
+                    idempotency_key: Some(&format!("im-created:{conversation_id}")),
+                },
+            )
+            .await
+        {
+            conversations.event_publisher.publish(&record).await;
+        }
+        (conversation_id, workspace_id, agent_id, true)
     };
+
+    let mut reply_thread = None;
+    let topic_mode = config
+        .get("topic_mode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if created && kind == "telegram" && topic_mode && !sender_id.contains(":topic:") {
+        let tokens = load_channel_tokens(&[channel_id.to_string()]).await;
+        if let Some(token) = tokens.get(channel_id) {
+            let title = args.lines().next().unwrap_or(args);
+            match services::services::chat_delivery::telegram_create_forum_topic(
+                token, chat_id, title,
+            )
+            .await
+            {
+                Ok(thread_id) => {
+                    let scoped = format!("{sender_id}:topic:{thread_id}");
+                    if let Ok(mut bridge) = session_bridge().lock()
+                        && let Some(value) = bridge
+                            .get(&(channel_id.to_string(), sender_id.to_string()))
+                            .cloned()
+                    {
+                        bridge.insert((channel_id.to_string(), scoped), value);
+                    }
+                    reply_thread = Some(thread_id.to_string());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to create Telegram topic");
+                }
+            }
+        }
+    }
+
     match ConversationSessionService::new(conversations.clone())
         .start_turn(conversations::ConversationStartTurnInput {
             agent_id,
             workspace_id,
-            conversation_id: target.id,
+            conversation_id,
             executor_profile_id: None,
             text: args.to_string(),
             display_text: None,
@@ -1606,8 +1859,115 @@ async fn send_task(
         })
         .await
     {
-        Ok(_) => format!("sent to {}", &target.id.to_string()[..8]),
-        Err(error) => format!("send failed: {error}"),
+        Ok(_) => {
+            let body = if created {
+                format!(
+                    "created {} and sent the task",
+                    &conversation_id.to_string()[..8]
+                )
+            } else {
+                format!("sent to {}", &conversation_id.to_string()[..8])
+            };
+            let mut reply = CommandReply::text(body);
+            if let Some(thread) = reply_thread {
+                reply = reply.with_thread(thread);
+            }
+            reply
+        }
+        Err(error) => CommandReply::text(format!("send failed: {error}")),
+    }
+}
+
+async fn pending_question(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Option<agents::conversation::ConversationQuestionRequest> {
+    let rows = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT event_kind, normalized_json
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind IN ('question_requested', 'question_responded')
+           ORDER BY sequence DESC
+           LIMIT 8"#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .ok()?;
+    let latest = rows.first()?;
+    if latest.0 != "question_requested" {
+        return None;
+    }
+    match serde_json::from_str::<ConversationEvent>(&latest.1) {
+        Ok(ConversationEvent::QuestionRequested { request }) => Some(request),
+        _ => None,
+    }
+}
+
+fn question_choices(request: &agents::conversation::ConversationQuestionRequest) -> Vec<String> {
+    if !request.options.is_empty() {
+        return request.options.clone();
+    }
+    let Some(schema) = &request.schema else {
+        return Vec::new();
+    };
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    for property in properties.values() {
+        if let Some(values) = property.get("enum").and_then(Value::as_array) {
+            return values
+                .iter()
+                .filter_map(|value| value.as_str().map(ToString::to_string))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+async fn answer_question(
+    pool: &SqlitePool,
+    conversations: &ConversationContext,
+    channel_id: &str,
+    sender_id: &str,
+    args: &str,
+    prefix: &str,
+) -> String {
+    let Some(conversation_id) = selected_conversation(channel_id, sender_id) else {
+        return format!("select a conversation with {prefix} resume [n|id]");
+    };
+    let Some(request) = pending_question(pool, conversation_id).await else {
+        return "No pending question.".to_string();
+    };
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return format!("usage: {prefix} answer <n|text>");
+    }
+    let choices = question_choices(&request);
+    let selected = if let Ok(index) = trimmed.parse::<usize>() {
+        choices.get(index.saturating_sub(1)).cloned()
+    } else {
+        None
+    };
+    let answer = selected.unwrap_or_else(|| trimmed.to_string());
+    let content = if let Some(schema) = &request.schema
+        && let Some(properties) = schema.get("properties").and_then(Value::as_object)
+        && let Some(key) = properties.keys().next()
+    {
+        json!({ key: answer })
+    } else {
+        json!({ "answer": answer })
+    };
+    match ConversationSessionService::new(conversations.clone())
+        .respond_question(
+            conversation_id,
+            request.question_id,
+            agents::AgentElicitationResponse::Accept { content },
+        )
+        .await
+    {
+        Ok(()) => "answered".to_string(),
+        Err(error) => format!("answer failed: {error}"),
     }
 }
 
@@ -1757,6 +2117,7 @@ mod tests {
             "cancel",
             "approve [always]",
             "deny",
+            "answer [n|text]",
             "search <keyword>",
             "today",
             "status",

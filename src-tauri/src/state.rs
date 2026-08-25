@@ -287,11 +287,13 @@ impl AppState {
                 deployment: deployment.clone(),
                 official_mcp: plugin_control_plane.official_product_mcp_gate(),
             }),
-            event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
-                app_handle: app_handle.clone(),
-                deployment: deployment.clone(),
-                row_projectors: conversation_row_projectors.clone(),
-            }),
+            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                crate::conversation_service::AppConversationEventPublisher {
+                    app_handle: app_handle.clone(),
+                    deployment: deployment.clone(),
+                    row_projectors: conversation_row_projectors.clone(),
+                },
+            ))),
         };
         plugin_control_plane
             .sync_official_product_mcp_gate()
@@ -358,11 +360,13 @@ impl AppState {
                 deployment: self.deployment.clone(),
                 official_mcp: self.plugin_control_plane.official_product_mcp_gate(),
             }),
-            event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
-                app_handle: self.app_handle.clone(),
-                deployment: self.deployment.clone(),
-                row_projectors: self.conversation_row_projectors.clone(),
-            }),
+            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                crate::conversation_service::AppConversationEventPublisher {
+                    app_handle: self.app_handle.clone(),
+                    deployment: self.deployment.clone(),
+                    row_projectors: self.conversation_row_projectors.clone(),
+                },
+            ))),
         }
     }
 }

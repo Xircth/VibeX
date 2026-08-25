@@ -5,6 +5,7 @@ mod artifact_sink;
 mod auth;
 mod automation_runtime;
 mod chat_inbound;
+mod chat_notify;
 mod cli;
 mod composition;
 mod config;
@@ -29,7 +30,11 @@ pub use auth::{
     SystemAuthClock,
 };
 pub use automation_runtime::HeadlessAutomationRuntime;
-pub use chat_inbound::{chat_channel_connection_states, post_event_webhooks, start_chat_inbound};
+pub use chat_inbound::{
+    chat_channel_connection_states, connect_chat_channel, disconnect_chat_channel,
+    post_event_webhooks, start_chat_inbound,
+};
+pub use chat_notify::{ChatDeliveryPublisher, notify_conversation_event};
 pub use cli::{
     AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, parse_args, usage,
 };

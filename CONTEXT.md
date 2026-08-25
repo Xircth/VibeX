@@ -88,11 +88,12 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Channel domain
 
-- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。它不是 Paired device，配置与适配器属于当前 Host。授权发送者可用 folder/agent/task/sessions/resume/cancel/approve/deny/search/today/status 完成与桌面等价的工作闭环。
-- **Telegram topic mode（Telegram 主题模式）** — 论坛超群中一题一会话；总题忽略纯文本。
-- **Weixin iLink（微信 iLink 机器人）** — 扫码接入的可收发微信机器人，与企业微信群机器人出站不是同一模式。
-- **Authorized sender（授权发送者）** — 某个聊天通道配置中被明确列入、允许下发入站命令的发送者身份。不在列表内的消息被静默丢弃；授权列表为空时该通道入站整体禁用（fail-closed）。
+- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。它不是 Paired device，配置、入站循环与出站投递都属于当前 Host（桌面与 `vibex-server` 同一接缝）。授权发送者可用 folder/agent/task/sessions/resume/cancel/approve/deny/answer/search/today/status 完成与桌面等价的工作闭环；未绑定会话时，已选 Project 与 Agent 上的 task 会新建 Conversation。见 [ADR-0056](docs/adr/0056-chat-channel-and-remote-access-codeg-parity.md) 与 [ADR-0062](docs/adr/0062-chat-channel-host-closed-loop.md)。
+- **Telegram topic mode（Telegram 主题模式）** — 论坛超群中一题一会话；总题忽略纯文本；总题上的 task 创建新主题并绑定该会话。
+- **Weixin iLink（微信 iLink 机器人）** — 扫码接入的可收发微信机器人。企业微信群机器人只出站。二者由 `config.mode` 区分，事件发送走各自 API。
+- **Authorized sender（授权发送者）** — 某个聊天通道配置中被明确列入、允许下发入站命令的发送者身份。绑定的 chat/group 目标也视为该聊天可信。不在列表内的消息被静默丢弃；既无绑定目标也无授权列表时该通道入站整体禁用（fail-closed）。
 - **Remote approval（远程审批）** — 授权发送者经聊天通道对某条待决权限请求做出的响应。语义与桌面端权限响应完全等同：作用于同一事件日志，二者互斥消解同一请求。
+- **Remote question answer（远程提问答复）** — 授权发送者经聊天通道对某条待决提问做出的响应。语义与桌面端 elicitation 答复完全等同。
 
 ## Automation domain
 

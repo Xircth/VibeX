@@ -567,6 +567,12 @@ export const chatChannelApi = {
       channelId,
     });
   },
+  connect: async (channelId: string): Promise<void> => {
+    return backendCall<void>('connect_chat_channel', { channelId });
+  },
+  disconnect: async (channelId: string): Promise<void> => {
+    return backendCall<void>('disconnect_chat_channel', { channelId });
+  },
   getEventFilter: async (): Promise<ChatEventFilter> => {
     return backendCall<ChatEventFilter>('get_chat_event_filter');
   },

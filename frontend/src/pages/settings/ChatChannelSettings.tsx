@@ -91,14 +91,24 @@ const EVENT_OPTIONS = [
     descriptionKey: 'chatChannels.events.connectionStatusChangedDescription',
   },
   {
+    value: 'question_requested',
+    labelKey: 'chatChannels.events.questionRequested',
+    descriptionKey: 'chatChannels.events.questionRequestedDescription',
+  },
+  {
+    value: 'turn_cancelled',
+    labelKey: 'chatChannels.events.turnCancelled',
+    descriptionKey: 'chatChannels.events.turnCancelledDescription',
+  },
+  {
+    value: 'turn_interrupted',
+    labelKey: 'chatChannels.events.turnInterrupted',
+    descriptionKey: 'chatChannels.events.turnInterruptedDescription',
+  },
+  {
     value: 'session_created',
     labelKey: 'chatChannels.events.sessionCreated',
     descriptionKey: 'chatChannels.events.sessionCreatedDescription',
-  },
-  {
-    value: 'turn_completed',
-    labelKey: 'chatChannels.events.turnCompleted',
-    descriptionKey: 'chatChannels.events.turnCompletedDescription',
   },
 ] as const;
 
@@ -114,6 +124,10 @@ const COMMAND_CATALOG = [
     descriptionKey: 'chatChannels.commands.approve',
   },
   { usage: 'deny', descriptionKey: 'chatChannels.commands.deny' },
+  {
+    usage: 'answer [n|text]',
+    descriptionKey: 'chatChannels.commands.answer',
+  },
   {
     usage: 'search <keyword>',
     descriptionKey: 'chatChannels.commands.search',
@@ -168,7 +182,11 @@ interface SecretMeta {
   optional: boolean;
 }
 
-function secretMeta(kind: string, t: Translate): SecretMeta {
+function secretMeta(
+  kind: string,
+  weixinMode: string,
+  t: Translate
+): SecretMeta {
   switch (kind) {
     case 'telegram':
       return {
@@ -183,11 +201,17 @@ function secretMeta(kind: string, t: Translate): SecretMeta {
         optional: false,
       };
     case 'weixin':
-      return {
-        label: 'Webhook Key',
-        placeholder: t('chatChannels.secret.weixinPlaceholder'),
-        optional: false,
-      };
+      return weixinMode === 'ilink'
+        ? {
+            label: t('chatChannels.secret.weixinIlinkLabel'),
+            placeholder: t('chatChannels.secret.weixinIlinkPlaceholder'),
+            optional: true,
+          }
+        : {
+            label: 'Webhook Key',
+            placeholder: t('chatChannels.secret.weixinPlaceholder'),
+            optional: false,
+          };
     case 'qq':
       return {
         label: 'Access Token',
@@ -253,7 +277,7 @@ function parseSenders(text: string): string[] {
 }
 
 /** Channel kinds that accept inbound commands and therefore gate on an allowlist. */
-const INBOUND_KINDS = new Set(['telegram', 'feishu', 'qq']);
+const INBOUND_KINDS = new Set(['telegram', 'feishu', 'qq', 'weixin']);
 
 function channelSummary(channel: ChatChannel, t: Translate): string {
   const c = channel.config ?? {};
@@ -263,7 +287,9 @@ function channelSummary(channel: ChatChannel, t: Translate): string {
     case 'feishu':
       return cfgStr(c, 'app_id') || t('chatChannels.summary.noAppId');
     case 'weixin':
-      return t('chatChannels.summary.weixinGroupBot');
+      return cfgStr(c, 'mode') === 'ilink'
+        ? t('chatChannels.summary.weixinIlink')
+        : t('chatChannels.summary.weixinGroupBot');
     case 'qq':
       return `${
         cfgStr(c, 'message_type') === 'private'
@@ -291,6 +317,7 @@ interface ChannelDraft {
   target_id: string;
   webhook_url: string;
   authorized_senders: string;
+  weixin_mode: string;
 }
 
 function emptyDraft(): ChannelDraft {
@@ -310,6 +337,7 @@ function emptyDraft(): ChannelDraft {
     target_id: '',
     webhook_url: '',
     authorized_senders: '',
+    weixin_mode: 'wecom',
   };
 }
 
@@ -331,6 +359,7 @@ function draftFromChannel(channel: ChatChannel): ChannelDraft {
     target_id: cfgStr(c, 'target_id'),
     webhook_url: cfgStr(c, 'webhook_url'),
     authorized_senders: cfgSendersText(c),
+    weixin_mode: cfgStr(c, 'mode') === 'ilink' ? 'ilink' : 'wecom',
   };
 }
 
@@ -352,7 +381,10 @@ function buildConfig(draft: ChannelDraft): Record<string, unknown> {
         authorized_senders: senders,
       };
     case 'weixin':
-      return {};
+      return {
+        mode: draft.weixin_mode === 'ilink' ? 'ilink' : 'wecom',
+        authorized_senders: senders,
+      };
     case 'qq':
       return {
         base_url: draft.base_url.trim(),
@@ -446,7 +478,7 @@ export function ChatChannelSettings() {
   const [weixinQrId, setWeixinQrId] = useState<string | null>(null);
   const [weixinQrStatus, setWeixinQrStatus] = useState('idle');
 
-  const secret = secretMeta(draft.kind, t);
+  const secret = secretMeta(draft.kind, draft.weixin_mode, t);
 
   const visibleChannels = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -501,6 +533,22 @@ export function ChatChannelSettings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void chatChannelApi
+        .statuses()
+        .then((channelStatuses) => {
+          setStatuses(
+            Object.fromEntries(
+              channelStatuses.map((item) => [item.channel_id, item.status])
+            )
+          );
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (
@@ -903,6 +951,41 @@ export function ChatChannelSettings() {
                           </div>
                         </button>
 
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 shrink-0 px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          onClick={() =>
+                            void (async () => {
+                              try {
+                                if (statuses[channel.id] === 'connected') {
+                                  await chatChannelApi.disconnect(channel.id);
+                                } else {
+                                  await chatChannelApi.connect(channel.id);
+                                }
+                                const channelStatuses =
+                                  await chatChannelApi.statuses();
+                                setStatuses(
+                                  Object.fromEntries(
+                                    channelStatuses.map((item) => [
+                                      item.channel_id,
+                                      item.status,
+                                    ])
+                                  )
+                                );
+                              } catch (error) {
+                                toast.error(
+                                  t('chatChannels.statusUpdateFailed'),
+                                  { description: errorMessage(error) }
+                                );
+                              }
+                            })()
+                          }
+                        >
+                          {statuses[channel.id] === 'connected'
+                            ? t('chatChannels.disconnect')
+                            : t('chatChannels.connect')}
+                        </Button>
                         <Switch
                           className="settings-switch shrink-0"
                           checked={channel.enabled}
@@ -1413,6 +1496,30 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
+          {draft.kind === 'weixin' ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                {t('chatChannels.weixinModeLabel')}
+              </Label>
+              <Select
+                value={draft.weixin_mode}
+                onValueChange={(value) => updateDraft({ weixin_mode: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="wecom">
+                    {t('chatChannels.weixinModeWecom')}
+                  </SelectItem>
+                  <SelectItem value="ilink">
+                    {t('chatChannels.weixinModeIlink')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
           {draft.kind === 'webhook' ? (
             <div className="space-y-1.5">
               <Label htmlFor="wh-url" className="text-xs">
@@ -1429,7 +1536,8 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {INBOUND_KINDS.has(draft.kind) ? (
+          {INBOUND_KINDS.has(draft.kind) &&
+          !(draft.kind === 'weixin' && draft.weixin_mode !== 'ilink') ? (
             <div className="space-y-1.5">
               <Label htmlFor="channel-allowlist" className="text-xs">
                 {t('chatChannels.allowlistLabel')}
@@ -1484,7 +1592,9 @@ export function ChatChannelSettings() {
                 </Button>
               ) : null}
             </div>
-            {draft.kind === 'weixin' && editingChannel ? (
+            {draft.kind === 'weixin' &&
+            draft.weixin_mode === 'ilink' &&
+            editingChannel ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -1521,7 +1631,9 @@ export function ChatChannelSettings() {
             ) : null}
             {draft.kind === 'weixin' ? (
               <p className="text-[11px] text-muted-foreground">
-                {t('chatChannels.weixinHint')}
+                {draft.weixin_mode === 'ilink'
+                  ? t('chatChannels.weixinIlinkHint')
+                  : t('chatChannels.weixinHint')}
               </p>
             ) : null}
           </div>

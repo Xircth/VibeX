@@ -1,9 +1,8 @@
 //! WeChat iLink bot: QR login, long-poll inbound, and reply send.
 
 use std::{
-    collections::HashMap,
     sync::{
-        Arc, Mutex as StdMutex, OnceLock,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -13,6 +12,9 @@ use base64::Engine;
 use conversations::ConversationContext;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use services::services::chat_delivery::{
+    IlinkReplyContext, ilink_context, ilink_send_text, remember_ilink_context,
+};
 use sqlx::SqlitePool;
 
 use crate::chat_inbound::{dispatch_command, set_connection_state};
@@ -34,19 +36,6 @@ pub struct WeixinQrcodeStatus {
     pub bot_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
-}
-
-#[derive(Clone)]
-struct ReplyContext {
-    to_user_id: String,
-    context_token: String,
-    base_url: String,
-    bot_token: String,
-}
-
-fn reply_contexts() -> &'static StdMutex<HashMap<String, ReplyContext>> {
-    static CONTEXTS: OnceLock<StdMutex<HashMap<String, ReplyContext>>> = OnceLock::new();
-    CONTEXTS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
 fn qr_client() -> reqwest::Client {
@@ -239,17 +228,16 @@ async fn handle_ilink_message(
         .unwrap_or("")
         .to_string();
     if !sender_id.is_empty() && !context_token.is_empty() {
-        if let Ok(mut contexts) = reply_contexts().lock() {
-            contexts.insert(
-                channel_id.to_string(),
-                ReplyContext {
-                    to_user_id: sender_id.clone(),
-                    context_token,
-                    base_url: base_url.to_string(),
-                    bot_token: bot_token.to_string(),
-                },
-            );
-        }
+        remember_ilink_context(
+            channel_id,
+            IlinkReplyContext {
+                to_user_id: sender_id.clone(),
+                context_token,
+                base_url: base_url.to_string(),
+                bot_token: bot_token.to_string(),
+                wechat_uin: wechat_uin.to_string(),
+            },
+        );
     }
     let reply = dispatch_command(
         pool,
@@ -265,37 +253,13 @@ async fn handle_ilink_message(
     if reply.is_empty() {
         return;
     }
-    let Some(context) = reply_contexts()
-        .lock()
-        .ok()
-        .and_then(|map| map.get(channel_id).cloned())
-    else {
+    let Some(context) = ilink_context(channel_id) else {
         return;
     };
-    let body = json!({
-        "msg": {
-            "from_user_id": "",
-            "to_user_id": context.to_user_id,
-            "client_id": format!("vibex-{}", uuid::Uuid::new_v4()),
-            "message_type": 2,
-            "message_state": 2,
-            "context_token": context.context_token,
-            "item_list": [{ "type": 1, "text_item": { "text": reply } }]
-        },
-        "base_info": { "channel_version": ILINK_CHANNEL_VERSION }
-    });
-    let _ = client
-        .post(format!(
-            "{}/ilink/bot/sendmessage",
-            context.base_url.trim_end_matches('/')
-        ))
-        .header("Content-Type", "application/json")
-        .header("AuthorizationType", "ilink_bot_token")
-        .header("Authorization", format!("Bearer {}", context.bot_token))
-        .header("X-WECHAT-UIN", wechat_uin)
-        .json(&body)
-        .send()
-        .await;
+    let _ = client;
+    let _ = bot_token;
+    let _ = base_url;
+    let _ = ilink_send_text(&context, &reply).await;
 }
 
 #[cfg(test)]

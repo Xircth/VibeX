@@ -116,7 +116,9 @@ impl HeadlessServer {
                 let gate = plugin_control_plane.official_product_mcp_gate();
                 std::sync::Arc::new(move || gate.product_mcp_names())
             })),
-            event_publisher: Arc::new(conversations::NoopConversationEventPublisher),
+            event_publisher: Arc::new(crate::chat_notify::ChatDeliveryPublisher::new(Arc::new(
+                conversations::NoopConversationEventPublisher,
+            ))),
         };
         let agent_event_task =
             start_agent_event_persistence(conversation_context.clone(), agent_events);

@@ -232,6 +232,7 @@ pub fn http_client() -> reqwest::Client {
 /// Takes the channel `kind` + `config` directly (not the shell's `ChatChannelRecord`)
 /// so this service stays decoupled from the command-layer store model.
 pub async fn deliver_rich(
+    channel_id: &str,
     kind: &str,
     config: &Value,
     token: Option<&str>,
@@ -240,7 +241,7 @@ pub async fn deliver_rich(
     match kind {
         "telegram" => telegram_send_rich(config, token, msg).await,
         "feishu" => feishu_send_rich(config, token, msg).await,
-        "weixin" => weixin_send_rich(token, msg).await,
+        "weixin" => weixin_send_rich(channel_id, config, token, msg).await,
         "qq" => qq_send_text(config, token, &msg.to_plain()).await,
         _ => webhook_send_rich(config, token, msg).await,
     }
@@ -351,6 +352,38 @@ async fn telegram_send_rich(
         // MarkdownV2 is finicky; fall back to plain text.
         Err(_) => telegram_post(bot_token, &chat_id, &msg.to_plain(), None).await,
     }
+}
+
+pub async fn telegram_create_forum_topic(
+    bot_token: &str,
+    chat_id: &str,
+    title: &str,
+) -> Result<i64, NotificationError> {
+    let mut name = title.trim().to_string();
+    if name.is_empty() {
+        name = "VibeX".to_string();
+    }
+    name = name.chars().take(128).collect();
+    let response = http_client()
+        .post(format!(
+            "https://api.telegram.org/bot{bot_token}/createForumTopic"
+        ))
+        .json(&json!({ "chat_id": chat_id, "name": name }))
+        .send()
+        .await
+        .map_err(|e| NotificationError::Internal(format!("Telegram 创建主题失败：{e}")))?;
+    let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
+    if payload.get("ok").and_then(Value::as_bool) != Some(true) {
+        let detail = payload
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("Telegram 返回错误");
+        return Err(NotificationError::BadRequest(detail.to_string()));
+    }
+    payload
+        .pointer("/result/message_thread_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| NotificationError::Internal("Telegram 未返回 message_thread_id".into()))
 }
 
 // ── Feishu (Lark) app mode ──
@@ -465,34 +498,144 @@ fn wecom_markdown(msg: &RichMessage) -> String {
     text
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeixinMode {
+    Wecom,
+    Ilink,
+}
+
+pub fn weixin_mode(config: &Value) -> WeixinMode {
+    match config_str(config, "mode").as_str() {
+        "ilink" => WeixinMode::Ilink,
+        _ => WeixinMode::Wecom,
+    }
+}
+
+const ILINK_CHANNEL_VERSION: &str = "1.0.2";
+
+#[derive(Clone)]
+pub struct IlinkReplyContext {
+    pub to_user_id: String,
+    pub context_token: String,
+    pub base_url: String,
+    pub bot_token: String,
+    pub wechat_uin: String,
+}
+
+fn ilink_contexts() -> &'static StdMutex<HashMap<String, IlinkReplyContext>> {
+    static CONTEXTS: OnceLock<StdMutex<HashMap<String, IlinkReplyContext>>> = OnceLock::new();
+    CONTEXTS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+pub fn remember_ilink_context(channel_id: &str, context: IlinkReplyContext) {
+    if let Ok(mut contexts) = ilink_contexts().lock() {
+        contexts.insert(channel_id.to_string(), context);
+    }
+}
+
+pub fn ilink_context(channel_id: &str) -> Option<IlinkReplyContext> {
+    ilink_contexts()
+        .lock()
+        .ok()
+        .and_then(|contexts| contexts.get(channel_id).cloned())
+}
+
+pub async fn ilink_send_text(
+    context: &IlinkReplyContext,
+    text: &str,
+) -> Result<Option<u16>, NotificationError> {
+    let body = json!({
+        "msg": {
+            "from_user_id": "",
+            "to_user_id": context.to_user_id,
+            "client_id": format!("vibex-{}", uuid::Uuid::new_v4()),
+            "message_type": 2,
+            "message_state": 2,
+            "context_token": context.context_token,
+            "item_list": [{ "type": 1, "text_item": { "text": text } }]
+        },
+        "base_info": { "channel_version": ILINK_CHANNEL_VERSION }
+    });
+    let response = http_client()
+        .post(format!(
+            "{}/ilink/bot/sendmessage",
+            context.base_url.trim_end_matches('/')
+        ))
+        .header("Content-Type", "application/json")
+        .header("AuthorizationType", "ilink_bot_token")
+        .header("Authorization", format!("Bearer {}", context.bot_token))
+        .header("X-WECHAT-UIN", &context.wechat_uin)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| NotificationError::Internal(format!("微信 iLink 发送失败：{e}")))?;
+    let status = response.status().as_u16();
+    let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
+    let ret = payload.get("ret").and_then(Value::as_i64).unwrap_or(0);
+    let errcode = payload.get("errcode").and_then(Value::as_i64).unwrap_or(0);
+    if ret == 0 && errcode == 0 {
+        Ok(Some(status))
+    } else {
+        let detail = payload
+            .get("errmsg")
+            .and_then(Value::as_str)
+            .unwrap_or("iLink 返回错误");
+        Err(NotificationError::BadRequest(format!(
+            "微信 iLink 发送失败：{detail}"
+        )))
+    }
+}
+
 async fn weixin_send_rich(
+    channel_id: &str,
+    config: &Value,
     token: Option<&str>,
     msg: &RichMessage,
 ) -> Result<Option<u16>, NotificationError> {
-    let key = token
-        .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| NotificationError::BadRequest("企业微信渠道缺少 Webhook Key".to_string()))?;
-    let response = http_client()
-        .post(format!(
-            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}"
-        ))
-        .json(&json!({
-            "msgtype": "markdown",
-            "markdown": { "content": wecom_markdown(msg) },
-        }))
-        .send()
-        .await
-        .map_err(|e| NotificationError::Internal(format!("企业微信发送失败：{e}")))?;
-    let status = response.status().as_u16();
-    let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
-    if payload.get("errcode").and_then(Value::as_i64) == Some(0) {
-        Ok(Some(status))
-    } else {
-        let msg = payload
-            .get("errmsg")
-            .and_then(Value::as_str)
-            .unwrap_or("企业微信返回错误");
-        Err(NotificationError::BadRequest(msg.to_string()))
+    match weixin_mode(config) {
+        WeixinMode::Ilink => {
+            let Some(mut context) = ilink_context(channel_id) else {
+                return Err(NotificationError::BadRequest(
+                    "微信 iLink 还没有可回复的会话，请先在微信里给机器人发一条消息".to_string(),
+                ));
+            };
+            if let Some(bot_token) = token.filter(|value| !value.trim().is_empty()) {
+                context.bot_token = bot_token.to_string();
+            }
+            if context.bot_token.trim().is_empty() {
+                return Err(NotificationError::BadRequest(
+                    "微信 iLink 渠道缺少 Bot Token".to_string(),
+                ));
+            }
+            ilink_send_text(&context, &msg.to_plain()).await
+        }
+        WeixinMode::Wecom => {
+            let key = token.filter(|t| !t.trim().is_empty()).ok_or_else(|| {
+                NotificationError::BadRequest("企业微信渠道缺少 Webhook Key".to_string())
+            })?;
+            let response = http_client()
+                .post(format!(
+                    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}"
+                ))
+                .json(&json!({
+                    "msgtype": "markdown",
+                    "markdown": { "content": wecom_markdown(msg) },
+                }))
+                .send()
+                .await
+                .map_err(|e| NotificationError::Internal(format!("企业微信发送失败：{e}")))?;
+            let status = response.status().as_u16();
+            let payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
+            if payload.get("errcode").and_then(Value::as_i64) == Some(0) {
+                Ok(Some(status))
+            } else {
+                let msg = payload
+                    .get("errmsg")
+                    .and_then(Value::as_str)
+                    .unwrap_or("企业微信返回错误");
+                Err(NotificationError::BadRequest(msg.to_string()))
+            }
+        }
     }
 }
 
@@ -631,8 +774,9 @@ pub fn event_key(event: &AgentEvent) -> Option<&'static str> {
         AgentEvent::SessionCreated { .. } => Some("session_created"),
         AgentEvent::PromptStarted { .. } => Some("prompt_started"),
         AgentEvent::PromptFinished { .. } => Some("prompt_finished"),
-        AgentEvent::TurnCompleted { .. } => Some("turn_completed"),
+        AgentEvent::TurnCompleted { .. } => Some("prompt_finished"),
         AgentEvent::PermissionRequested { .. } => Some("permission_requested"),
+        AgentEvent::ElicitationRequested { .. } => Some("question_requested"),
         AgentEvent::Error { .. } => Some("error"),
         AgentEvent::ConnectionStatusChanged { snapshot } => match snapshot.status {
             AgentConnectionStatus::Failed
@@ -641,6 +785,213 @@ pub fn event_key(event: &AgentEvent) -> Option<&'static str> {
             | AgentConnectionStatus::Ready => Some("connection_status_changed"),
         },
         _ => None,
+    }
+}
+
+pub const DEFAULT_CHAT_EVENTS: &[&str] = &[
+    "prompt_started",
+    "prompt_finished",
+    "permission_requested",
+    "question_requested",
+    "error",
+    "connection_status_changed",
+    "turn_cancelled",
+    "turn_interrupted",
+];
+
+pub fn conversation_event_key(
+    event: &agents::conversation::ConversationEvent,
+) -> Option<&'static str> {
+    use agents::conversation::ConversationEvent;
+    match event {
+        ConversationEvent::ConversationCreated { .. } => Some("session_created"),
+        ConversationEvent::UserTurnCreated { .. } => Some("prompt_started"),
+        ConversationEvent::PermissionRequested { .. } => Some("permission_requested"),
+        ConversationEvent::QuestionRequested { .. } => Some("question_requested"),
+        ConversationEvent::TurnCompleted { .. } => Some("prompt_finished"),
+        ConversationEvent::TurnFailed { .. } => Some("error"),
+        ConversationEvent::TurnCancelled { .. } => Some("turn_cancelled"),
+        ConversationEvent::TurnInterrupted { .. } => Some("turn_interrupted"),
+        ConversationEvent::AgentConnectionStatusChanged { .. } => Some("connection_status_changed"),
+        _ => None,
+    }
+}
+
+fn user_turn_text(blocks: &[agents::conversation::ConversationInputBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            agents::conversation::ConversationInputBlock::Text { text } => {
+                let trimmed = text.trim();
+                (!trimmed.is_empty()).then_some(trimmed.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn build_conversation_rich(
+    event: &agents::conversation::ConversationEvent,
+    include_prompt_text: bool,
+    lang: ImLang,
+) -> RichMessage {
+    use agents::conversation::ConversationEvent;
+    let zh = lang == ImLang::ZhCn;
+    match event {
+        ConversationEvent::ConversationCreated { title } => {
+            let body = title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| {
+                    if zh {
+                        "新的会话已创建。".into()
+                    } else {
+                        "A new conversation was created.".into()
+                    }
+                });
+            RichMessage::info(body).with_title(if zh {
+                "🆕 会话创建"
+            } else {
+                "🆕 Conversation created"
+            })
+        }
+        ConversationEvent::UserTurnCreated { blocks, .. } => {
+            let extracted = user_turn_text(blocks);
+            let body = if include_prompt_text && !extracted.is_empty() {
+                extracted
+            } else if zh {
+                "智能体开始执行任务。".to_string()
+            } else {
+                "The agent started a turn.".to_string()
+            };
+            RichMessage::info(body).with_title(if zh {
+                "🚀 任务开始"
+            } else {
+                "🚀 Turn started"
+            })
+        }
+        ConversationEvent::PermissionRequested { request } => RichMessage::info(if zh {
+            "智能体正在等待你的授权。回复 approve（或 approve always）批准、deny 拒绝。"
+        } else {
+            "The agent is waiting for approval. Reply approve, approve always, or deny."
+        })
+        .with_title(if zh {
+            "🔐 权限请求"
+        } else {
+            "🔐 Permission request"
+        })
+        .with_field(
+            if zh { "操作" } else { "Action" },
+            request.request.title.clone(),
+        )
+        .level(MsgLevel::Warning),
+        ConversationEvent::QuestionRequested { request } => {
+            let mut message = RichMessage::info(if zh {
+                "智能体向你提问。回复 answer <序号或文本>。"
+            } else {
+                "The agent asked a question. Reply answer <n or text>."
+            })
+            .with_title(if zh {
+                "❓ 智能体提问"
+            } else {
+                "❓ Agent question"
+            })
+            .with_field(if zh { "问题" } else { "Question" }, request.prompt.clone())
+            .level(MsgLevel::Warning);
+            for (index, option) in request.options.iter().enumerate() {
+                message = message.with_field(format!("{}", index + 1), option.clone());
+            }
+            message
+        }
+        ConversationEvent::TurnCompleted { .. } => RichMessage::info(if zh {
+            "智能体已完成本次任务。"
+        } else {
+            "The agent finished this turn."
+        })
+        .with_title(if zh {
+            "✅ 任务完成"
+        } else {
+            "✅ Turn complete"
+        }),
+        ConversationEvent::TurnFailed { error } => RichMessage::info(if zh {
+            "智能体运行出现错误。"
+        } else {
+            "The agent reported an error."
+        })
+        .with_title(if zh {
+            "❌ 运行错误"
+        } else {
+            "❌ Agent error"
+        })
+        .with_field(if zh { "信息" } else { "Detail" }, error.message.clone())
+        .level(MsgLevel::Error),
+        ConversationEvent::TurnCancelled { reason } => {
+            let body = reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| {
+                    if zh {
+                        "当前回合已取消。".into()
+                    } else {
+                        "The in-flight turn was cancelled.".into()
+                    }
+                });
+            RichMessage::info(body)
+                .with_title(if zh {
+                    "🛑 回合取消"
+                } else {
+                    "🛑 Turn cancelled"
+                })
+                .level(MsgLevel::Warning)
+        }
+        ConversationEvent::TurnInterrupted { reason } => {
+            let body = reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| {
+                    if zh {
+                        "宿主中断了当前回合，需要手动重试。".into()
+                    } else {
+                        "The host interrupted this turn. Retry it manually.".into()
+                    }
+                });
+            RichMessage::info(body)
+                .with_title(if zh {
+                    "⚠️ 回合中断"
+                } else {
+                    "⚠️ Turn interrupted"
+                })
+                .level(MsgLevel::Warning)
+        }
+        ConversationEvent::AgentConnectionStatusChanged { status } => {
+            RichMessage::info(format!("{status:?}")).with_title(if zh {
+                "🔌 连接状态"
+            } else {
+                "🔌 Connection"
+            })
+        }
+        _ => RichMessage::info("VibeX").with_title("VibeX"),
+    }
+}
+
+pub async fn post_event_webhooks(hooks: &[(String, bool)], event: &str, body: &str) {
+    for (url, enabled) in hooks {
+        if !enabled || url.trim().is_empty() {
+            continue;
+        }
+        let payload = json!({
+            "event": event,
+            "body": body,
+            "source": "vibex",
+        });
+        let _ = http_client().post(url).json(&payload).send().await;
     }
 }
 
@@ -796,6 +1147,51 @@ mod im_secret_tests {
         let key = token_key("abc-123-DEF");
         assert_eq!(key, "CHAT_CHANNEL_TOKEN_ABC_123_DEF");
         assert_eq!(token_key("abc-123-DEF"), key, "same id → same key");
+    }
+
+    #[test]
+    fn conversation_event_keys_match_the_settings_filter() {
+        use agents::conversation::{
+            ConversationEvent, ConversationInputBlock, ConversationQuestionRequest,
+        };
+
+        assert_eq!(
+            conversation_event_key(&ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                workflow_refs: Vec::new(),
+            }),
+            Some("prompt_started")
+        );
+        assert_eq!(
+            conversation_event_key(&ConversationEvent::TurnCompleted { stop_reason: None }),
+            Some("prompt_finished")
+        );
+        assert_eq!(
+            conversation_event_key(&ConversationEvent::TurnCancelled { reason: None }),
+            Some("turn_cancelled")
+        );
+        assert_eq!(
+            conversation_event_key(&ConversationEvent::TurnInterrupted { reason: None }),
+            Some("turn_interrupted")
+        );
+        assert_eq!(
+            conversation_event_key(&ConversationEvent::QuestionRequested {
+                request: ConversationQuestionRequest {
+                    question_id: "q1".into(),
+                    prompt: "pick".into(),
+                    options: vec!["a".into()],
+                    asked_at: None,
+                    schema: None,
+                },
+            }),
+            Some("question_requested")
+        );
+    }
+
+    #[test]
+    fn weixin_mode_defaults_to_wecom() {
+        assert_eq!(weixin_mode(&json!({})), WeixinMode::Wecom);
+        assert_eq!(weixin_mode(&json!({ "mode": "ilink" })), WeixinMode::Ilink);
     }
 
     #[test]

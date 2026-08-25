@@ -909,6 +909,8 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::chat_channel::get_chat_channel_has_token,
         commands::chat_channel::delete_chat_channel_token,
         commands::chat_channel::test_chat_channel,
+        commands::chat_channel::connect_chat_channel,
+        commands::chat_channel::disconnect_chat_channel,
         commands::chat_channel::get_chat_event_filter,
         commands::chat_channel::set_chat_event_filter,
         commands::chat_channel::get_chat_command_prefix,

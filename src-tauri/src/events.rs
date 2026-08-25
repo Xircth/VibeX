@@ -334,14 +334,6 @@ async fn handle_recorded_conversation_batch(
     batch: RecordedConversationBatch,
 ) {
     for event in batch.events {
-        if let Err(error) = crate::commands::chat_channel::notify_conversation_event(&event).await {
-            tracing::warn!(
-                conversation_id = %event.conversation_id,
-                sequence = event.sequence,
-                %error,
-                "Failed to dispatch chat channel conversation event"
-            );
-        }
         if let Some((kind, title, message)) = attention_from_event(&event.event)
             && let Err(error) = emit_desktop_session_attention(
                 pool,
@@ -617,7 +609,7 @@ mod tests {
     #[test]
     fn chat_notifications_are_sourced_from_normalized_conversation_events() {
         assert_eq!(
-            crate::commands::chat_channel::conversation_event_key(
+            services::services::chat_delivery::conversation_event_key(
                 &ConversationEvent::AssistantTextDelta {
                     text: "hi".to_string(),
                     message_id: None,
@@ -626,8 +618,13 @@ mod tests {
             None
         );
         assert_eq!(
-            crate::commands::chat_channel::conversation_event_key(
-                &ConversationEvent::UserTurnStarted
+            services::services::chat_delivery::conversation_event_key(
+                &ConversationEvent::UserTurnCreated {
+                    blocks: vec![agents::conversation::ConversationInputBlock::Text {
+                        text: "hi".to_string(),
+                    }],
+                    workflow_refs: Vec::new(),
+                }
             ),
             Some("prompt_started")
         );

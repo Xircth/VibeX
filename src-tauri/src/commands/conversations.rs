@@ -696,28 +696,11 @@ async fn conversation_last_sequence(
 }
 
 async fn notify_conversation_events_after(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-    after_sequence: i64,
+    _pool: &SqlitePool,
+    _conversation_id: Uuid,
+    _after_sequence: i64,
 ) {
-    // Row ops are published at the core append boundary. IM integrations still
-    // consume raw event envelopes after the command completes.
-    if let Ok(page) =
-        conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
-    {
-        for event in page.events {
-            if let Err(error) =
-                crate::commands::chat_channel::notify_conversation_event(&event).await
-            {
-                tracing::warn!(
-                    conversation_id = %conversation_id,
-                    sequence = event.sequence,
-                    %error,
-                    "Failed to notify chat channel for conversation event"
-                );
-            }
-        }
-    }
+    // IM delivery happens on ConversationEventPublisher after append.
 }
 
 #[tauri::command]

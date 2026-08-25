@@ -31,7 +31,6 @@ export function ExternalEditorPicker({
   onChange,
   className,
   compact = false,
-  modal = true,
   selectTriggerClassName,
   selectContentClassName,
 }: {
@@ -39,7 +38,6 @@ export function ExternalEditorPicker({
   onChange: (editor: EditorConfig) => void;
   className?: string;
   compact?: boolean;
-  modal?: boolean;
   selectTriggerClassName?: string;
   selectContentClassName?: string;
 }) {
@@ -126,7 +124,6 @@ export function ExternalEditorPicker({
           ) : null}
         </div>
         <Select
-          modal={modal}
           value={value.editor_type}
           onValueChange={(editorType) =>
             onChange({

@@ -323,7 +323,6 @@ export function AgentSetupPicker({
           <Select
             value={defaultAgentId ?? ''}
             open={defaultAgentOpen}
-            modal={false}
             onOpenChange={(open) => {
               if (open && !hasEnabledAgents) {
                 setShowEnableAgentPrompt(true);

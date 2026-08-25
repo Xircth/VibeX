@@ -920,7 +920,6 @@ export function FirstRunExperience({
                   value={editor}
                   onChange={setEditor}
                   compact
-                  modal={false}
                   selectTriggerClassName="onboarding-editor-select"
                   selectContentClassName="onboarding-popover-layer onboarding-editor-options !z-[13000]"
                 />

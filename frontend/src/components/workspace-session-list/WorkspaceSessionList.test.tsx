@@ -401,8 +401,12 @@ describe('WorkspaceSessionList', () => {
     );
 
     const row = document.querySelector('.workspace-session-row')!;
-    const title = row.querySelector('.workspace-session-title');
-    const actions = row.querySelector('.workspace-session-row-actions');
+    const title = row.querySelector(
+      '.workspace-session-title'
+    ) as HTMLElement | null;
+    const actions = row.querySelector(
+      '.workspace-session-row-actions'
+    ) as HTMLElement | null;
 
     fireEvent.mouseEnter(row);
 

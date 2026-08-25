@@ -126,7 +126,7 @@ fn detect_windows_proxy() -> Option<DetectedProxy> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn detect_gnome_proxy() -> Option<DetectedProxy> {
     let mode = gsettings_value(&["get", "org.gnome.system.proxy", "mode"])?;
-    match mode.trim_matches('\'').as_str() {
+    match mode.trim_matches('\'') {
         "manual" => {
             let https = gnome_protocol_proxy("https");
             let http = gnome_protocol_proxy("http");

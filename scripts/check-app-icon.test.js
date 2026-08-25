@@ -5,11 +5,14 @@ const zlib = require('node:zlib');
 const test = require('node:test');
 
 function readPngRgba(filePath) {
-  const data = fs.readFileSync(filePath);
+  return decodePngRgba(fs.readFileSync(filePath), filePath);
+}
+
+function decodePngRgba(data, label) {
   assert.deepEqual(
     data.subarray(0, 8),
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    `${filePath} is not a PNG`,
+    `${label} is not a PNG`,
   );
 
   let offset = 8;
@@ -38,11 +41,11 @@ function readPngRgba(filePath) {
     offset = end + 4;
   }
 
-  assert.equal(colorType, 6, `${filePath} must be 8-bit RGBA`);
+  assert.equal(colorType, 6, `${label} must be 8-bit RGBA`);
   const inflated = zlib.inflateSync(Buffer.concat(idat));
   const bytesPerPixel = 4;
   const stride = 1 + width * bytesPerPixel;
-  assert.equal(inflated.length, stride * height, `${filePath} has unexpected pixels`);
+  assert.equal(inflated.length, stride * height, `${label} has unexpected pixels`);
 
   const rgba = Buffer.alloc(width * height * bytesPerPixel);
   let previous = Buffer.alloc(width * bytesPerPixel);
@@ -63,7 +66,7 @@ function readPngRgba(filePath) {
       } else if (filter === 4) {
         value = (value + paethPredictor(left, up, upLeft)) & 255;
       } else if (filter !== 0) {
-        throw new Error(`${filePath} uses an unsupported PNG filter`);
+        throw new Error(`${label} uses an unsupported PNG filter`);
       }
       recon[index] = value;
     }
@@ -93,21 +96,234 @@ function pixel(rgba, width, x, y) {
   return [rgba[index], rgba[index + 1], rgba[index + 2], rgba[index + 3]];
 }
 
-test('bundle app icon fills the canvas so macOS does not add a plate', () => {
-  const iconPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.png');
-  const { width, height, rgba } = readPngRgba(iconPath);
+function extractIcoPng(filePath, targetSize) {
+  const data = fs.readFileSync(filePath);
+  assert.equal(data.readUInt16LE(0), 0, `${filePath} is not an ICO`);
+  assert.equal(data.readUInt16LE(2), 1, `${filePath} is not an ICO`);
+  const count = data.readUInt16LE(4);
+  for (let index = 0; index < count; index += 1) {
+    const offset = 6 + index * 16;
+    const width = data[offset] === 0 ? 256 : data[offset];
+    if (width !== targetSize) continue;
+    const size = data.readUInt32LE(offset + 8);
+    const pointer = data.readUInt32LE(offset + 12);
+    return data.subarray(pointer, pointer + size);
+  }
+  throw new Error(`${filePath} has no ${targetSize}x${targetSize} frame`);
+}
+
+function assertSquircleIcon(filePath, expectedSize) {
+  const { width, height, rgba } = readPngRgba(filePath);
+  assertSquirclePixels(rgba, width, height, expectedSize, filePath);
+}
+
+function assertSquircleBuffer(data, expectedSize, label) {
+  const { width, height, rgba } = decodePngRgba(data, label);
+  assertSquirclePixels(rgba, width, height, expectedSize, label);
+}
+
+function assertSquirclePixels(rgba, width, height, expectedSize, label) {
+  assert.equal(width, expectedSize, `${label} width`);
+  assert.equal(height, expectedSize, `${label} height`);
+
   const corners = [
     [0, 0],
     [width - 1, 0],
     [0, height - 1],
     [width - 1, height - 1],
   ];
-
   for (const [x, y] of corners) {
-    assert.deepEqual(pixel(rgba, width, x, y), [0, 0, 0, 255]);
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `${label} corner ${x},${y} must be transparent`
+    );
   }
 
-  const center = pixel(rgba, width, Math.floor(width / 2), Math.floor(height / 2));
+  const canvasEdge = [
+    [Math.floor(width / 2), 0],
+    [Math.floor(width / 2), height - 1],
+    [0, Math.floor(height / 2)],
+    [width - 1, Math.floor(height / 2)],
+  ];
+  for (const [x, y] of canvasEdge) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `${label} canvas edge ${x},${y} must be inset`
+    );
+  }
+
+  const inner = Math.round(width * 0.25);
+  const innerSamples = [
+    [Math.floor(width / 2), inner],
+    [Math.floor(width / 2), height - 1 - inner],
+    [inner, Math.floor(height / 2)],
+    [width - 1 - inner, Math.floor(height / 2)],
+  ];
+  for (const [x, y] of innerSamples) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      255,
+      `${label} inner ${x},${y} must be opaque`
+    );
+  }
+
+  const center = pixel(
+    rgba,
+    width,
+    Math.floor(width / 2),
+    Math.floor(height / 2)
+  );
   assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
   assert.equal(center[3], 255);
+
+  const rim = Math.round(width * 0.18);
+  const rimPixel = pixel(rgba, width, Math.floor(width / 2), rim);
+  assert.ok(
+    rimPixel[3] >= 240,
+    `${label} rim ${rim} must stay inside the squircle`
+  );
+  assert.ok(
+    rimPixel[0] + rimPixel[1] + rimPixel[2] < 40,
+    `${label} mark must not crowd the squircle rim`
+  );
+}
+
+function readIcoSizes(filePath) {
+  const data = fs.readFileSync(filePath);
+  assert.equal(data.readUInt16LE(0), 0, `${filePath} is not an ICO`);
+  assert.equal(data.readUInt16LE(2), 1, `${filePath} is not an ICO`);
+  const count = data.readUInt16LE(4);
+  const sizes = [];
+  for (let index = 0; index < count; index += 1) {
+    const offset = 6 + index * 16;
+    const width = data[offset] === 0 ? 256 : data[offset];
+    const height = data[offset + 1] === 0 ? 256 : data[offset + 1];
+    sizes.push(`${width}x${height}`);
+  }
+  return sizes;
+}
+
+function readIcnsEntries(filePath) {
+  const data = fs.readFileSync(filePath);
+  assert.equal(data.subarray(0, 4).toString('latin1'), 'icns');
+  const entries = [];
+  let offset = 8;
+  while (offset + 8 <= data.length) {
+    const type = data.subarray(offset, offset + 4).toString('latin1');
+    const size = data.readUInt32BE(offset + 4);
+    if (size < 8) break;
+    entries.push({
+      type,
+      payload: data.subarray(offset + 8, offset + size),
+    });
+    offset += size;
+  }
+  return entries;
+}
+
+test('desktop PNG icons are inset squircles', () => {
+  const iconsDir = path.join(__dirname, '..', 'src-tauri', 'icons');
+  assertSquircleIcon(path.join(iconsDir, 'icon.png'), 512);
+  assertSquircleIcon(path.join(iconsDir, '128x128.png'), 128);
+  assertSquircleIcon(path.join(iconsDir, '128x128@2x.png'), 256);
+  assertSquircleIcon(path.join(iconsDir, '32x32.png'), 32);
+  assertSquircleIcon(path.join(iconsDir, '64x64.png'), 64);
+});
+
+test('Windows ICO frames are the same inset squircle', () => {
+  const icoPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico');
+  for (const size of [32, 48, 128, 256]) {
+    assertSquircleBuffer(
+      extractIcoPng(icoPath, size),
+      size,
+      `icon.ico ${size}x${size}`
+    );
+  }
+});
+
+test('Windows Store logos are the same inset squircle', () => {
+  const iconsDir = path.join(__dirname, '..', 'src-tauri', 'icons');
+  assertSquircleIcon(path.join(iconsDir, 'Square44x44Logo.png'), 44);
+  assertSquircleIcon(path.join(iconsDir, 'Square150x150Logo.png'), 150);
+  assertSquircleIcon(path.join(iconsDir, 'StoreLogo.png'), 50);
+});
+
+test('Windows ICO includes the desktop icon sizes', () => {
+  const sizes = readIcoSizes(
+    path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico')
+  );
+  for (const required of [
+    '16x16',
+    '20x20',
+    '24x24',
+    '32x32',
+    '40x40',
+    '48x48',
+    '64x64',
+    '128x128',
+    '256x256',
+  ]) {
+    assert.ok(sizes.includes(required), `icon.ico missing ${required}`);
+  }
+});
+
+test('macOS ICNS includes the standard 1x and 2x slots', () => {
+  const types = readIcnsEntries(
+    path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.icns')
+  ).map((entry) => entry.type);
+  for (const required of [
+    'ic07',
+    'ic08',
+    'ic09',
+    'ic10',
+    'ic11',
+    'ic12',
+    'ic13',
+    'ic14',
+  ]) {
+    assert.ok(types.includes(required), `icon.icns missing ${required}`);
+  }
+});
+
+test('macOS ICNS bakes the squircle so Dock folders do not show a square', () => {
+  const icnsPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.icns');
+  const ic10 = readIcnsEntries(icnsPath).find((entry) => entry.type === 'ic10');
+  assert.ok(ic10, 'icon.icns missing 1024px ic10');
+  const { width, height, rgba } = decodePngRgba(ic10.payload, 'icon.icns ic10');
+  assert.equal(width, 1024);
+  assert.equal(height, 1024);
+  for (const [x, y] of [
+    [0, 0],
+    [width - 1, 0],
+    [0, height - 1],
+    [width - 1, height - 1],
+  ]) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `ic10 corner ${x},${y} must be transparent`
+    );
+  }
+  for (const [x, y] of [
+    [512, 0],
+    [512, 1023],
+    [0, 512],
+    [1023, 512],
+  ]) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `ic10 canvas edge ${x},${y} must be inset`
+    );
+  }
+  assert.equal(pixel(rgba, width, 512, 256)[3], 255);
+  assert.equal(pixel(rgba, width, 256, 512)[3], 255);
+  const center = pixel(rgba, width, 512, 512);
+  assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
+  assert.equal(center[3], 255);
+  const rim = pixel(rgba, width, 512, 133);
+  assert.equal(rim[3], 255);
+  assert.ok(rim[0] + rim[1] + rim[2] < 40, 'ic10 mark must not crowd the rim');
 });

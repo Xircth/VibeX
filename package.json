@@ -39,6 +39,7 @@
     "tauri:build:linux": "node scripts/run-tauri-build.js --bundles appimage",
     "tauri:build:all": "node scripts/run-tauri-build-all.js",
     "test:updater-manifest": "node --test scripts/generate-updater-manifest.test.js",
+    "generate-app-icons": "python3 scripts/generate-app-icons.py",
     "test:app-icon": "node --test scripts/check-app-icon.test.js",
     "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js",
     "test:web:e2e": "cd frontend && pnpm run test:e2e:web",

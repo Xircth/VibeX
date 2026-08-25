@@ -12,6 +12,7 @@ const STORAGE_KEYS = {
   'vibex:app-icon-style': 'app_icon_style',
   'vibex:layout-arrangement': 'workspace_layout',
   'vibex:kanban-layout-arrangement': 'kanban_layout',
+  'vibex:kanban-session-list-view': 'kanban_session_list_view',
   'editor-settings': 'editor_settings',
   'vibex:key-overrides': 'key_overrides',
   'vibex.skills.grouping': 'skills_grouping',

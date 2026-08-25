@@ -700,6 +700,22 @@ export function KanbanSessionHub({
     openSessionFromList(session.placement);
   };
 
+  const handlePinSession = async (
+    session: KanbanProjectSessionRecord,
+    pinned: boolean
+  ) => {
+    try {
+      await sessionsApi.setPinned(session.id, pinned);
+      await queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', session.workspace.id],
+      });
+    } catch (error) {
+      setDeleteErrorMessage(
+        mapSessionErrorMessage(error, t('sessionHub.pinFailed'))
+      );
+    }
+  };
+
   const handleSessionStatusChange = async (
     session: KanbanProjectSessionRecord,
     nextStatus: KanbanProjectSessionRecord['status']
@@ -999,6 +1015,7 @@ export function KanbanSessionHub({
       monitorPlacements={monitorPlacements}
       currentExecutionPlacement={currentExecutionPlacement}
       openingSessionId={openingSessionId}
+      activeWorkspaceId={activeWorktreeId}
       isArchiveView={isArchiveView}
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
@@ -1049,6 +1066,9 @@ export function KanbanSessionHub({
       }}
       onRestoreArchivedSession={(session) => {
         void handleRestoreArchivedSession(session);
+      }}
+      onPinSession={(session, pinned) => {
+        void handlePinSession(session, pinned);
       }}
       onExpandedChange={(status, expanded) => {
         setExpandedSections((current) => ({

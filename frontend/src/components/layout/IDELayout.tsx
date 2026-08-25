@@ -54,6 +54,10 @@ import {
   applyWorkspaceZoneConstraints,
   MIN_LEFT_PANEL_WIDTH,
 } from '@/utils/dockviewWorkspaceConstraints';
+import {
+  ensureWelcomeEditorGroup,
+  shouldPersistSessionColumnWidth,
+} from '@/utils/dockviewEditorGroup';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   arrangementsEqual,
@@ -75,7 +79,6 @@ import {
   BOTTOM_PANEL_IDS,
   compareEditorGroups,
   getGroupElement,
-  getNextEditorGroupId,
   isBottomGroup,
   isEditorGroup,
   isLeftGroup,
@@ -320,52 +323,15 @@ function buildDefaultLayout(api: DockviewApi) {
   ]);
 }
 
-function ensureWelcomeEditorGroup(api: DockviewApi): DockviewGroup | undefined {
-  const editorGroups = getEditorGroups(api);
-  if (editorGroups.length > 0) {
-    normalizeGroupIds(api);
-    return editorGroups[0];
-  }
-
-  const existingWelcome = api.getPanel(PANEL_IDS.WELCOME);
-  if (existingWelcome) {
-    normalizeGroupIds(api);
-    return existingWelcome.group;
-  }
-
-  const bottomGroup = getBottomGroup(api);
-  const bottomReferencePanel = bottomGroup?.panels[0];
-  const leftGroup = getLeftGroup(api);
-  const referencePanel =
-    bottomReferencePanel ??
-    leftGroup?.panels[0] ??
-    api.panels.find(
-      (panel) =>
-        !BOTTOM_PANEL_IDS.has(panel.id) && !SESSION_PANEL_IDS.has(panel.id)
-    );
-
-  const welcomePanel = api.addPanel({
-    id: PANEL_IDS.WELCOME,
-    component: PANEL_IDS.WELCOME,
-    title: 'Welcome',
-    ...(referencePanel
-      ? {
-          position: {
-            referencePanel,
-            direction: bottomReferencePanel
-              ? ('above' as const)
-              : leftGroup
-                ? ('right' as const)
-                : ('within' as const),
-          },
-        }
-      : {}),
-    inactive: true,
+function recreateWelcomeEditorGroup(
+  api: DockviewApi
+): DockviewGroup | undefined {
+  const group = ensureWelcomeEditorGroup(api, {
+    arrangement: getLayoutArrangement(),
+    sessionWidth: useLayoutStore.getState().rightPanelWidth,
   });
-
-  (welcomePanel.group as { id: string }).id = getNextEditorGroupId(api);
   normalizeGroupIds(api);
-  return welcomePanel.group;
+  return group;
 }
 
 function resolvePanelFromTabElement(
@@ -641,7 +607,7 @@ export function IDELayout({
       let leftGroup = getLeftGroup(api);
       if (!leftGroup) {
         const editorGroup =
-          getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+          getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
         const referencePanel = editorGroup?.panels[0];
         if (!referencePanel) return;
 
@@ -674,7 +640,7 @@ export function IDELayout({
       const wasTerminalVisible = bottomGroup?.api.isVisible ?? false;
       if (!bottomGroup) {
         const editorGroup =
-          getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+          getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
         const referencePanel = editorGroup?.panels[0];
         if (!referencePanel) return;
 
@@ -734,7 +700,7 @@ export function IDELayout({
     let rightGroup = getRightGroup(api);
     if (!rightGroup) {
       const editorGroup =
-        getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+        getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
       const referencePanel = editorGroup?.panels[0];
       if (!referencePanel) return undefined;
 
@@ -916,7 +882,7 @@ export function IDELayout({
           let bottomGroup = getBottomGroup(api);
           if (!bottomGroup) {
             const editorGroup =
-              getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+              getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
             const referencePanel = editorGroup?.panels[0];
             if (!referencePanel) return;
 
@@ -955,7 +921,7 @@ export function IDELayout({
 
         normalizeGroupIds(api);
         if (getEditorGroups(api).length === 0) {
-          ensureWelcomeEditorGroup(api);
+          recreateWelcomeEditorGroup(api);
         }
       });
 
@@ -1008,6 +974,8 @@ export function IDELayout({
             // cross-slot moves reuse the user's last column width. Center and
             // bottom slots are skipped: there the group width is the flexible
             // remainder / plain column width, not a meaningful column memory.
+            // A crushed editor column is also skipped: the session has absorbed
+            // leftover space, and that expanded width is not user intent.
             try {
               const rightGroup = getRightGroup(api);
               const sessionSlot = slotOfZone(getLayoutArrangement(), 'session');
@@ -1016,6 +984,7 @@ export function IDELayout({
                 sessionSlot !== 'center' &&
                 sessionSlot !== 'bottom' &&
                 rightGroup.api.width > 0 &&
+                shouldPersistSessionColumnWidth(api) &&
                 rightGroup.api.width !==
                   useLayoutStore.getState().rightPanelWidth
               ) {

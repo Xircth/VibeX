@@ -96,7 +96,8 @@ export function PluginCatalogPage() {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const { supports } = useBackendCapabilities();
-  const { api, plugins, setPlugins, loading, refresh } = usePluginControl();
+  const { api, plugins, runtimes, setPlugins, loading, refresh } =
+    usePluginControl();
   const canInstall = supports('plugin.write');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -117,6 +118,7 @@ export function PluginCatalogPage() {
   } | null>(null);
   const [uninstallTarget, setUninstallTarget] =
     useState<PluginControlItem | null>(null);
+  const [deletePluginData, setDeletePluginData] = useState(false);
 
   const contextMenuStyle = useMemo(() => {
     if (!contextMenu || typeof window === 'undefined') return null;
@@ -336,7 +338,7 @@ export function PluginCatalogPage() {
     const name = officialPluginName(target.id, target.name, t);
     setBusyId(target.id);
     try {
-      await api.uninstall(target.id);
+      await api.uninstall(target.id, !deletePluginData);
       setUninstallTarget(null);
       setPlugins((current) =>
         current.filter((plugin) => plugin.id !== target.id)
@@ -350,7 +352,15 @@ export function PluginCatalogPage() {
     } finally {
       setBusyId(null);
     }
-  }, [api, canInstall, refresh, setPlugins, t, uninstallTarget]);
+  }, [
+    api,
+    canInstall,
+    deletePluginData,
+    refresh,
+    setPlugins,
+    t,
+    uninstallTarget,
+  ]);
 
   return (
     <main className="product-plugins-page">
@@ -472,6 +482,60 @@ export function PluginCatalogPage() {
         ) : null}
       </section>
 
+      {!loading && runtimes.length > 0 ? (
+        <section
+          className="product-plugin-runtimes settings-surface"
+          aria-label={t('plugins.runtimeInventoryTitle')}
+        >
+          <header className="product-plugin-runtimes-header">
+            <h2>{t('plugins.runtimeInventoryTitle')}</h2>
+            {canInstall ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void api
+                    .gcRuntimes()
+                    .then((result) => {
+                      toast.success(
+                        t('plugins.runtimeReclaimed', {
+                          count: result.reclaimed.length,
+                        })
+                      );
+                      return refresh(false);
+                    })
+                    .catch((error) =>
+                      toast.error(t('plugins.runtimeGcFailed'), {
+                        description: errorMessage(error),
+                      })
+                    );
+                }}
+              >
+                {t('plugins.reclaimRuntimes')}
+              </Button>
+            ) : null}
+          </header>
+          {runtimes.map((runtime) => (
+            <div
+              className="product-plugin-runtime-row"
+              key={`${runtime.id}:${runtime.version}:${runtime.contentDigest ?? ''}`}
+            >
+              <strong>
+                {runtime.id} {runtime.version}
+              </strong>
+              <span>
+                {runtime.referencedPlugins.length
+                  ? t('plugins.runtimeReferencedBy', {
+                      plugins: runtime.referencedPlugins.join(', '),
+                    })
+                  : t('plugins.runtimeUnreferenced')}
+              </span>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
       {contextMenu && contextMenuStyle ? (
         <div
           className="product-plugin-context-menu tahoe-popover"
@@ -573,7 +637,12 @@ export function PluginCatalogPage() {
 
       <Dialog
         open={Boolean(uninstallTarget)}
-        onOpenChange={(open) => !open && setUninstallTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUninstallTarget(null);
+            setDeletePluginData(false);
+          }
+        }}
         aria-labelledby="plugin-uninstall-title"
       >
         <DialogContent className="max-w-md">
@@ -590,17 +659,34 @@ export function PluginCatalogPage() {
               })}
             </DialogTitle>
             <DialogDescription>
-              {t('plugins.uninstallDescription', {
-                name: uninstallTarget
-                  ? officialPluginName(
-                      uninstallTarget.id,
-                      uninstallTarget.name,
-                      t
-                    )
-                  : '',
-              })}
+              {t(
+                uninstallTarget?.sourceKind === 'developer_link'
+                  ? 'plugins.uninstallLinkedDescription'
+                  : deletePluginData
+                    ? 'plugins.uninstallDeleteDataDescription'
+                    : 'plugins.uninstallDescription',
+                {
+                  name: uninstallTarget
+                    ? officialPluginName(
+                        uninstallTarget.id,
+                        uninstallTarget.name,
+                        t
+                      )
+                    : '',
+                }
+              )}
             </DialogDescription>
           </DialogHeader>
+          {uninstallTarget?.sourceKind !== 'developer_link' ? (
+            <label className="product-plugin-delete-data">
+              <input
+                type="checkbox"
+                checked={deletePluginData}
+                onChange={(event) => setDeletePluginData(event.target.checked)}
+              />
+              {t('plugins.deletePluginData')}
+            </label>
+          ) : null}
           <DialogFooter>
             <Button
               variant="outline"

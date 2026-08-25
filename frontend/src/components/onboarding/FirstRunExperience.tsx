@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { ArrowLeft, Check, ShieldAlert, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentDiscoveryProgressView,
@@ -12,18 +12,25 @@ import type {
 
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { toast } from '@/components/ui/toast';
-import { PortalContainerContext } from '@/contexts/PortalContainerContext';
 import {
   agentManagementApi,
   agentManagementErrorMessage,
 } from '@/features/agent-management';
 import { backendListen } from '@/lib/backendTransport';
 import { APP_NAME } from '@/lib/branding';
-import { settingsWindowApi } from '@/lib/api';
+import { settingsWindowApi, versionControlApi } from '@/lib/api';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 import { AgentSetupPicker } from './AgentSetupPicker';
+import {
+  OnboardingDisclaimerDialog,
+  OnboardingDisclaimerNotice,
+} from './OnboardingDisclaimer';
+import { VersionControlSetup } from './VersionControlSetup';
 import type { AgentValidationError } from './AgentSetupPicker';
+import { AgentScatter } from './hero/AgentScatter';
+import { EquationLine } from './hero/EquationLine';
+import { ProductStack } from './hero/ProductStack';
 import {
   buildOnboardingAgentOptions,
   classifyOnboardingInstallResult,
@@ -40,6 +47,12 @@ gsap.registerPlugin(useGSAP);
 const AGENT_LIST_TIMEOUT_MS = 4_000;
 
 type FirstRunStep = 'intro' | 'configure' | 'welcome';
+
+function looksLikeEmail(value: string): boolean {
+  const trimmed = value.trim();
+  const at = trimmed.indexOf('@');
+  return at > 0 && at < trimmed.length - 1;
+}
 
 type SetupResult = {
   agentId: AgentId;
@@ -66,62 +79,6 @@ function rejectAfter<T>(
   });
 }
 
-type IntroAgent = {
-  id: string;
-  label: string;
-  light?: string;
-  dark?: string;
-  monogram?: string;
-};
-
-const INTRO_AGENTS: IntroAgent[] = [
-  {
-    id: 'claude',
-    label: 'Claude Code',
-    light: '/agents/claude-light.svg',
-    dark: '/agents/claude-dark.svg',
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    light: '/agents/codex-light.svg',
-    dark: '/agents/codex-dark.svg',
-  },
-  {
-    id: 'cursor',
-    label: 'Cursor',
-    light: '/agents/cursor-light.svg',
-    dark: '/agents/cursor-dark.svg',
-  },
-  { id: 'pi', label: 'Pi', light: '/agents/pi.svg' },
-  { id: 'kimi', label: 'Kimi Code', monogram: 'K' },
-  {
-    id: 'opencode',
-    label: 'OpenCode',
-    light: '/agents/opencode-light.svg',
-    dark: '/agents/opencode-dark.svg',
-  },
-];
-
-function IntroAgentIcon({ agent }: { agent: IntroAgent }) {
-  if (agent.monogram) {
-    return (
-      <span className="onboarding-intro-monogram" aria-hidden="true">
-        {agent.monogram}
-      </span>
-    );
-  }
-
-  const light = agent.light ?? agent.dark ?? '';
-  const dark = agent.dark ?? agent.light ?? '';
-  return (
-    <picture aria-hidden="true">
-      <source media="(prefers-color-scheme: dark)" srcSet={dark} />
-      <img alt="" src={light} />
-    </picture>
-  );
-}
-
 export function FirstRunExperience({
   open,
   initialEditor,
@@ -139,11 +96,9 @@ export function FirstRunExperience({
   }) => Promise<void>;
   onFinish: () => void;
 }) {
-  const { t } = useTranslation(['dialogs', 'common']);
+  const { t, i18n } = useTranslation(['dialogs', 'common']);
+  const heroLocale = i18n.language.startsWith('zh') ? 'zh' : 'en';
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
-    null
-  );
   const [visible, setVisible] = useState(open);
   const [step, setStep] = useState<FirstRunStep>('intro');
   const [agents, setAgents] = useState<OnboardingAgentOption[]>([]);
@@ -157,11 +112,23 @@ export function FirstRunExperience({
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [discoveryProgress, setDiscoveryProgress] =
     useState<AgentDiscoveryProgressView | null>(null);
+  const [discoverySnapshotStale, setDiscoverySnapshotStale] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [gitInstalled, setGitInstalled] = useState<boolean | null>(null);
+  const [gitUserName, setGitUserName] = useState('');
+  const [gitUserEmail, setGitUserEmail] = useState('');
+  const [versionControlError, setVersionControlError] = useState<string | null>(
+    null
+  );
+  const [versionControlInstallFailed, setVersionControlInstallFailed] =
+    useState(false);
+  const [installingVersionControl, setInstallingVersionControl] =
+    useState(false);
   const [validationError, setValidationError] =
     useState<AgentValidationError>(null);
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const agentCheckStartedRef = useRef(false);
   const agentCatalogLoadedRef = useRef(false);
   const enabledAgentIdsRef = useRef<Set<AgentId>>(new Set());
@@ -169,6 +136,8 @@ export function FirstRunExperience({
   const userModifiedAgentIdsRef = useRef<Set<AgentId>>(new Set());
   const agentLoadRequestRef = useRef(0);
   const agentLoadInFlightRef = useRef(false);
+  const agentLoadPendingRef = useRef(false);
+  const discoveryProgressRef = useRef<AgentDiscoveryProgressView | null>(null);
   const mountedRef = useRef(true);
   const handoffCompleteRef = useRef(false);
   const deferredResultsRef = useRef<SetupResult[]>([]);
@@ -181,11 +150,6 @@ export function FirstRunExperience({
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
   );
-  const captureRoot = useCallback((element: HTMLDivElement | null) => {
-    rootRef.current = element;
-    if (element) setPortalContainer(element);
-  }, []);
-
   const applyAgentSelection = useCallback(
     (enabledIds: Set<AgentId>, selectedDefaultId: AgentId | null) => {
       enabledAgentIdsRef.current = enabledIds;
@@ -356,8 +320,12 @@ export function FirstRunExperience({
     // Startup invalidation events may arrive while the initial snapshot is
     // still loading. Keep that request single-flight so those events cannot
     // continually replace its timeout and leave the skeleton visible forever.
-    if (agentLoadInFlightRef.current) return;
+    if (agentLoadInFlightRef.current) {
+      agentLoadPendingRef.current = true;
+      return;
+    }
     agentLoadInFlightRef.current = true;
+    agentLoadPendingRef.current = false;
     const requestId = ++agentLoadRequestRef.current;
     const initialCatalogLoad = !agentCatalogLoadedRef.current;
     if (initialCatalogLoad) setLoadingAgents(true);
@@ -468,6 +436,21 @@ export function FirstRunExperience({
       ) {
         setLoadingAgents(false);
       }
+      if (mountedRef.current && agentLoadPendingRef.current) {
+        agentLoadPendingRef.current = false;
+        void loadAgents();
+      } else {
+        const progress = discoveryProgressRef.current;
+        if (
+          mountedRef.current &&
+          agentLoadRequestRef.current === requestId &&
+          progress &&
+          progress.phase !== 'pending' &&
+          progress.phase !== 'checking'
+        ) {
+          setDiscoverySnapshotStale(false);
+        }
+      }
     }
   }, [applyAgentSelection, initialDefaultAgentId, t]);
 
@@ -488,12 +471,32 @@ export function FirstRunExperience({
   }, [loadAgents, visible]);
 
   useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    void versionControlApi
+      .detectGit()
+      .then((status) => {
+        if (active) setGitInstalled(status.installed);
+      })
+      .catch(() => {
+        if (active) setGitInstalled(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [visible]);
+
+  useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
     void backendListen<AgentDiscoveryProgressView>(
       'agent-management-discovery-progress',
       (progress) => {
-        if (active) setDiscoveryProgress(progress);
+        if (!active) return;
+        if (progress.phase === 'pending' || progress.phase === 'checking') {
+          setDiscoverySnapshotStale(true);
+        }
+        setDiscoveryProgress(progress);
       }
     ).then(async (dispose) => {
       if (!active) {
@@ -503,9 +506,22 @@ export function FirstRunExperience({
       unlisten = dispose;
       try {
         const progress = await agentManagementApi.discoveryProgress();
-        if (active) setDiscoveryProgress(progress);
+        if (!active) return;
+        if (progress.phase === 'pending' || progress.phase === 'checking') {
+          setDiscoverySnapshotStale(true);
+        }
+        setDiscoveryProgress(progress);
       } catch {
-        // The Agent catalog remains usable when optional progress reporting fails.
+        if (active) {
+          setDiscoveryProgress({
+            phase: 'complete',
+            completed: 0,
+            total: 0,
+            found: 0,
+            checked_agent_ids: [],
+            timed_out: false,
+          });
+        }
       }
     });
     return () => {
@@ -513,6 +529,21 @@ export function FirstRunExperience({
       unlisten?.();
     };
   }, []);
+
+  discoveryProgressRef.current = discoveryProgress;
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !discoverySnapshotStale ||
+      discoveryProgress == null ||
+      discoveryProgress.phase === 'pending' ||
+      discoveryProgress.phase === 'checking'
+    ) {
+      return;
+    }
+    void loadAgents();
+  }, [discoveryProgress, discoverySnapshotStale, loadAgents, visible]);
 
   useEffect(() => {
     let active = true;
@@ -534,6 +565,7 @@ export function FirstRunExperience({
       if (!visible) return;
       const media = gsap.matchMedia();
       media.add('(prefers-reduced-motion: no-preference)', () => {
+        if (step !== 'intro') return;
         gsap
           .timeline({ defaults: { ease: 'power3.out' } })
           .fromTo(
@@ -547,87 +579,14 @@ export function FirstRunExperience({
             { autoAlpha: 1, y: 0, duration: 0.45 },
             '-=0.32'
           );
-
-        gsap.to('.onboarding-aurora', {
-          backgroundPosition: '100% 50%',
-          duration: 10,
-          repeat: -1,
-          yoyo: true,
-          ease: 'sine.inOut',
-        });
-        gsap.to('.onboarding-aurora-layer-a', {
-          xPercent: 26,
-          yPercent: 18,
-          rotation: 12,
-          scale: 1.16,
-          duration: 7.2,
-          repeat: -1,
-          yoyo: true,
-          ease: 'sine.inOut',
-        });
-        gsap.to('.onboarding-aurora-layer-b', {
-          xPercent: -24,
-          yPercent: -20,
-          rotation: -14,
-          scale: 1.12,
-          duration: 8.8,
-          repeat: -1,
-          yoyo: true,
-          ease: 'sine.inOut',
-        });
-        gsap
-          .timeline({ repeat: -1, defaults: { ease: 'sine.inOut' } })
-          .to('.onboarding-aurora-layer-c', {
-            xPercent: -24,
-            yPercent: -28,
-            rotation: -8,
-            scaleX: 1.18,
-            duration: 5.4,
-          })
-          .to('.onboarding-aurora-layer-c', {
-            xPercent: 26,
-            yPercent: 22,
-            rotation: 10,
-            scaleX: 0.94,
-            duration: 6.2,
-          })
-          .to('.onboarding-aurora-layer-c', {
-            xPercent: 0,
-            yPercent: 0,
-            rotation: 0,
-            scaleX: 1,
-            duration: 5.4,
-          });
-
-        if (step === 'intro') {
-          gsap.fromTo(
-            '.onboarding-agent-orbit-item',
-            { autoAlpha: 0, scale: 0.72, y: 18 },
-            {
-              autoAlpha: 1,
-              scale: 1,
-              y: 0,
-              duration: 0.68,
-              stagger: 0.08,
-              ease: 'back.out(1.6)',
-            }
-          );
-          gsap.to('.onboarding-agent-orbit-item', {
-            y: 'random(-9, 9)',
-            x: 'random(-5, 5)',
-            duration: 'random(2.6, 4.2)',
-            repeat: -1,
-            yoyo: true,
-            stagger: 0.14,
-            ease: 'sine.inOut',
-          });
-        }
       });
       media.add('(prefers-reduced-motion: reduce)', () => {
-        gsap.set(
-          '.onboarding-step-copy > *, .onboarding-step-actions, .onboarding-agent-orbit-item',
-          { autoAlpha: 1, x: 0, y: 0, scale: 1 }
-        );
+        gsap.set('.onboarding-step-copy > *, .onboarding-step-actions', {
+          autoAlpha: 1,
+          x: 0,
+          y: 0,
+          scale: 1,
+        });
       });
       return () => media.revert();
     },
@@ -667,6 +626,61 @@ export function FirstRunExperience({
     setValidationError(null);
   };
 
+  const ensureVersionControlReady = async (): Promise<boolean> => {
+    let installed = gitInstalled;
+    if (installed === null) {
+      try {
+        const status = await versionControlApi.detectGit();
+        installed = status.installed;
+        setGitInstalled(installed);
+      } catch {
+        installed = false;
+        setGitInstalled(false);
+      }
+    }
+    if (installed) return true;
+
+    const name = gitUserName.trim();
+    const email = gitUserEmail.trim();
+    if (!name || !email) {
+      setVersionControlError(t('dialogs:onboarding.gitIdentityRequired'));
+      return false;
+    }
+    if (!looksLikeEmail(email)) {
+      setVersionControlError(t('dialogs:onboarding.gitEmailInvalid'));
+      return false;
+    }
+
+    setInstallingVersionControl(true);
+    setVersionControlError(null);
+    try {
+      const result = await versionControlApi.installTools({
+        user_name: name,
+        user_email: email,
+      });
+      if (result.error || !result.git.installed) {
+        setVersionControlInstallFailed(true);
+        setVersionControlError(
+          result.error || t('dialogs:onboarding.versionControlInstallFailed')
+        );
+        return false;
+      }
+      setVersionControlInstallFailed(false);
+      setGitInstalled(true);
+      return true;
+    } catch (error) {
+      setVersionControlInstallFailed(true);
+      setVersionControlError(
+        error instanceof Error
+          ? error.message
+          : t('dialogs:onboarding.versionControlInstallFailed')
+      );
+      return false;
+    } finally {
+      setInstallingVersionControl(false);
+    }
+  };
+
   const handleSkip = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -701,7 +715,13 @@ export function FirstRunExperience({
     setValidationError(null);
     setSubmitting(true);
     setSubmitError(null);
+    setVersionControlError(null);
     try {
+      if (!(await ensureVersionControlReady())) {
+        setSubmitting(false);
+        return;
+      }
+
       await Promise.all(
         agents
           .filter(
@@ -798,48 +818,32 @@ export function FirstRunExperience({
   if (!visible) return null;
 
   return (
-    <PortalContainerContext.Provider value={portalContainer}>
+    <div
+      ref={rootRef}
+      className="legacy-design onboarding-experience"
+      data-step={step}
+    >
       <div
-        ref={captureRoot}
-        className="legacy-design onboarding-experience"
-        data-step={step}
-      >
-        <div className="onboarding-aurora" aria-hidden="true">
-          <span className="onboarding-aurora-layer onboarding-aurora-layer-a" />
-          <span className="onboarding-aurora-layer onboarding-aurora-layer-b" />
-          <span className="onboarding-aurora-layer onboarding-aurora-layer-c" />
-        </div>
-        <div className="onboarding-noise" aria-hidden="true" />
+        className="onboarding-hero-glow"
+        data-testid="onboarding-hero-glow"
+        aria-hidden="true"
+      />
 
-        {step === 'intro' ? (
-          <main className="onboarding-intro-step">
-            <div
-              className="onboarding-agent-orbit"
-              aria-label={t('dialogs:onboarding.agentEcosystem')}
-            >
-              {INTRO_AGENTS.map((agent, index) => (
-                <div
-                  key={agent.id}
-                  className="onboarding-agent-orbit-item"
-                  data-position={index + 1}
-                >
-                  <span className="onboarding-agent-orbit-icon">
-                    <IntroAgentIcon agent={agent} />
-                  </span>
-                  <span>{agent.label}</span>
-                </div>
-              ))}
-            </div>
-
+      {step === 'intro' ? (
+        <main className="onboarding-intro-step">
+          <AgentScatter />
+          <div className="onboarding-intro-hero">
             <div className="onboarding-step-copy onboarding-intro-copy">
-              <span className="onboarding-eyebrow">
-                <Sparkles aria-hidden="true" />
-                {APP_NAME}
-              </span>
-              <h1 id="onboarding-title" tabIndex={-1}>
-                {t('dialogs:onboarding.journeyTitle')}
+              <h1
+                id="onboarding-title"
+                tabIndex={-1}
+                aria-label={t('dialogs:onboarding.journeyTitle')}
+              >
+                <span>{t('dialogs:onboarding.journeyTitleA')}</span>
+                <span>{t('dialogs:onboarding.journeyTitleB')}</span>
               </h1>
               <p>{t('dialogs:onboarding.journeyDescription')}</p>
+              <EquationLine locale={heroLocale} />
             </div>
 
             <div className="onboarding-step-actions onboarding-intro-actions">
@@ -853,117 +857,162 @@ export function FirstRunExperience({
               </button>
               <button
                 type="button"
-                className="onboarding-skip-button"
+                className="onboarding-primary-button"
                 onClick={() => setStep('configure')}
               >
                 {t('dialogs:onboarding.next')}
               </button>
             </div>
+          </div>
+          <ProductStack />
+          {submitError ? (
+            <p className="onboarding-inline-error" role="alert">
+              {submitError}
+            </p>
+          ) : null}
+        </main>
+      ) : null}
+
+      {step === 'configure' ? (
+        <main className="onboarding-config-step">
+          <div className="onboarding-config-grid" inert={disclaimerOpen}>
+            <section className="onboarding-config-section">
+              <h2
+                id="onboarding-title"
+                className="onboarding-config-section-title"
+                tabIndex={-1}
+              >
+                {t('dialogs:onboarding.agentsTitle')}
+              </h2>
+              <div className="onboarding-config-panel onboarding-agent-panel">
+                <AgentSetupPicker
+                  agents={agents}
+                  enabledAgentIds={enabledAgentIds}
+                  defaultAgentId={defaultAgentId}
+                  loading={
+                    !loadError &&
+                    (loadingAgents ||
+                      discoverySnapshotStale ||
+                      discoveryProgress == null ||
+                      discoveryProgress.phase === 'pending' ||
+                      discoveryProgress.phase === 'checking')
+                  }
+                  discoveryProgress={discoveryProgress}
+                  error={loadError}
+                  validationError={validationError}
+                  onRetry={() => void loadAgents()}
+                  onEnabledChange={toggleAgent}
+                  onDefaultChange={selectDefault}
+                />
+                <p className="onboarding-login-note">
+                  <ShieldAlert aria-hidden="true" />
+                  {t('dialogs:onboarding.loginNotice')}
+                </p>
+              </div>
+            </section>
+
+            <section className="onboarding-config-section">
+              <h2 className="onboarding-config-section-title">
+                {t('dialogs:onboarding.editorTitle')}
+              </h2>
+              <div className="onboarding-config-panel onboarding-editor-panel">
+                <ExternalEditorPicker
+                  value={editor}
+                  onChange={setEditor}
+                  compact
+                  modal={false}
+                  selectTriggerClassName="onboarding-editor-select"
+                  selectContentClassName="onboarding-popover-layer onboarding-editor-options !z-[13000]"
+                />
+              </div>
+            </section>
+
+            {gitInstalled === false ? (
+              <section className="onboarding-config-section">
+                <h2 className="onboarding-config-section-title">
+                  {t('dialogs:onboarding.versionControlTitle')}
+                </h2>
+                <p className="onboarding-version-control-copy">
+                  {t('dialogs:onboarding.versionControlDescription')}
+                </p>
+                <VersionControlSetup
+                  userName={gitUserName}
+                  userEmail={gitUserEmail}
+                  installing={installingVersionControl}
+                  error={versionControlError}
+                  disabled={submitting}
+                  onUserNameChange={(value) => {
+                    setGitUserName(value);
+                    setVersionControlError(null);
+                  }}
+                  onUserEmailChange={(value) => {
+                    setGitUserEmail(value);
+                    setVersionControlError(null);
+                  }}
+                />
+              </section>
+            ) : null}
+          </div>
+
+          <footer className="onboarding-config-footer" inert={disclaimerOpen}>
+            <OnboardingDisclaimerNotice
+              onOpen={() => setDisclaimerOpen(true)}
+            />
             {submitError ? (
               <p className="onboarding-inline-error" role="alert">
                 {submitError}
               </p>
             ) : null}
-          </main>
-        ) : null}
-
-        {step === 'configure' ? (
-          <main className="onboarding-config-step">
-            <div className="onboarding-config-grid">
-              <section className="onboarding-config-section">
-                <h2
-                  id="onboarding-title"
-                  className="onboarding-config-section-title"
-                  tabIndex={-1}
-                >
-                  {t('dialogs:onboarding.agentsTitle')}
-                </h2>
-                <div className="onboarding-config-panel onboarding-agent-panel">
-                  <AgentSetupPicker
-                    agents={agents}
-                    enabledAgentIds={enabledAgentIds}
-                    defaultAgentId={defaultAgentId}
-                    loading={loadingAgents}
-                    discoveryProgress={discoveryProgress}
-                    error={loadError}
-                    validationError={validationError}
-                    onRetry={() => void loadAgents()}
-                    onEnabledChange={toggleAgent}
-                    onDefaultChange={selectDefault}
-                  />
-                  <p className="onboarding-login-note">
-                    <ShieldAlert aria-hidden="true" />
-                    {t('dialogs:onboarding.loginNotice')}
-                  </p>
-                </div>
-              </section>
-
-              <section className="onboarding-config-section">
-                <h2 className="onboarding-config-section-title">
-                  {t('dialogs:onboarding.editorTitle')}
-                </h2>
-                <div className="onboarding-config-panel onboarding-editor-panel">
-                  <ExternalEditorPicker
-                    value={editor}
-                    onChange={setEditor}
-                    compact
-                    selectTriggerClassName="onboarding-editor-select"
-                    selectContentClassName="onboarding-popover-layer onboarding-editor-options"
-                  />
-                </div>
-              </section>
-            </div>
-
-            <footer className="onboarding-config-footer">
-              <p className="onboarding-safety-copy">
-                <ShieldAlert aria-hidden="true" />
-                {t('dialogs:onboarding.safetyNotice')}
-              </p>
-              {submitError ? (
-                <p className="onboarding-inline-error" role="alert">
-                  {submitError}
-                </p>
-              ) : null}
-              <div className="onboarding-step-actions onboarding-config-actions">
-                <button
-                  type="button"
-                  className="onboarding-back-button"
-                  disabled={submitting}
-                  onClick={() => setStep('intro')}
-                >
-                  <ArrowLeft aria-hidden="true" />
-                  {t('dialogs:onboarding.back')}
-                </button>
-                <button
-                  type="button"
-                  className="onboarding-skip-button"
-                  disabled={submitting || !editorValid}
-                  onClick={() => void handleStartSetup()}
-                >
-                  {submitting
+            <div className="onboarding-step-actions onboarding-config-actions">
+              <button
+                type="button"
+                className="onboarding-back-button"
+                disabled={submitting}
+                onClick={() => {
+                  setDisclaimerOpen(false);
+                  setStep('intro');
+                }}
+              >
+                <ArrowLeft aria-hidden="true" />
+                {t('dialogs:onboarding.back')}
+              </button>
+              <button
+                type="button"
+                className="onboarding-primary-button"
+                disabled={submitting || !editorValid}
+                onClick={() => void handleStartSetup()}
+              >
+                {installingVersionControl
+                  ? t('dialogs:onboarding.installingVersionControl')
+                  : submitting
                     ? t('dialogs:onboarding.startingInstall')
-                    : t('dialogs:onboarding.startJourney')}
-                </button>
-              </div>
-            </footer>
-          </main>
-        ) : null}
+                    : versionControlInstallFailed
+                      ? t('dialogs:onboarding.retryVersionControl')
+                      : t('dialogs:onboarding.startJourney')}
+              </button>
+            </div>
+          </footer>
+          <OnboardingDisclaimerDialog
+            open={disclaimerOpen}
+            onClose={() => setDisclaimerOpen(false)}
+          />
+        </main>
+      ) : null}
 
-        {step === 'welcome' ? (
-          <main className="onboarding-welcome-step">
-            <div className="onboarding-welcome-mark" aria-hidden="true">
-              <Check />
-            </div>
-            <div className="onboarding-step-copy onboarding-welcome-copy">
-              <span className="onboarding-step-count">03 / 03</span>
-              <h1 id="onboarding-title" tabIndex={-1}>
-                {t('dialogs:onboarding.welcomeTitle', { appName: APP_NAME })}
-              </h1>
-              <p>{t('dialogs:onboarding.welcomeDescription')}</p>
-            </div>
-          </main>
-        ) : null}
-      </div>
-    </PortalContainerContext.Provider>
+      {step === 'welcome' ? (
+        <main className="onboarding-welcome-step">
+          <div className="onboarding-welcome-mark" aria-hidden="true">
+            <Check />
+          </div>
+          <div className="onboarding-step-copy onboarding-welcome-copy">
+            <span className="onboarding-step-count">03 / 03</span>
+            <h1 id="onboarding-title" tabIndex={-1}>
+              {t('dialogs:onboarding.welcomeTitle', { appName: APP_NAME })}
+            </h1>
+            <p>{t('dialogs:onboarding.welcomeDescription')}</p>
+          </div>
+        </main>
+      ) : null}
+    </div>
   );
 }

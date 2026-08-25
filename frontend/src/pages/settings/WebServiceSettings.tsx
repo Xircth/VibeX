@@ -31,8 +31,8 @@ import { cn } from '@/lib/utils';
 
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import { DevicePairingPanel } from './DevicePairingPanel';
+import { HostTunnelPanel } from './HostTunnelPanel';
 import { presentRemoteAccess, type RemoteAccessRowKind } from './hostEndpoints';
-import { isLoopbackOrigin } from './pairingInvitation';
 import { RemoteClientSettings } from './RemoteClientSettings';
 
 type RemoteRoleTab = 'server' | 'client';
@@ -299,14 +299,6 @@ export function WebServiceSettings({
     [t]
   );
 
-  const publishedOrigins = useMemo(
-    () =>
-      (status?.reachability ?? []).filter(
-        (item) => item.kind !== 'lan' && !isLoopbackOrigin(item.origin)
-      ),
-    [status?.reachability]
-  );
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -558,28 +550,10 @@ export function WebServiceSettings({
                 />
               </div>
 
-              <div className="settings-row settings-row--stacked">
-                <div>
-                  <Label>{t('webService.tunnelLabel')}</Label>
-                  <p className="settings-row__description">
-                    {t('webService.tunnelDescription')}
-                  </p>
-                </div>
-                {publishedOrigins.length === 0 ? (
-                  <p className="settings-row__description">
-                    {t('webService.tunnelEmpty')}
-                  </p>
-                ) : (
-                  publishedOrigins.map((item) => (
-                    <p
-                      key={item.origin}
-                      className="settings-row__description font-mono"
-                    >
-                      {item.origin}
-                    </p>
-                  ))
-                )}
-              </div>
+              <HostTunnelPanel
+                serviceRunning={serviceRunning}
+                onReachabilityChange={() => void refreshStatus()}
+              />
             </SettingsSection>
           ) : null}
 
@@ -594,6 +568,7 @@ export function WebServiceSettings({
                   : []
             }
             reachability={status?.reachability ?? []}
+            listenAddresses={status?.listen_addresses ?? []}
             serviceRunning={serviceRunning}
           />
 

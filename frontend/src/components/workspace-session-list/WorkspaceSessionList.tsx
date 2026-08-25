@@ -12,6 +12,7 @@ import {
   KeyboardSensor,
   PointerSensor,
   closestCenter,
+  useDndMonitor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -27,22 +28,32 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   Archive,
   Bot,
+  Check,
   FileCode,
   FileDown,
   Folder,
   GitFork,
   Loader2,
+  Pencil,
   Pin,
+  Trash2,
+  X,
 } from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/utils/date';
-import { getExecutorDisplayName } from '@/components/kanban/session-hub/utils';
+import {
+  SESSION_ARCHIVE_DROP_ID,
+  getExecutorDisplayName,
+  getSessionMarker,
+  type SessionMarker,
+} from '@/components/kanban/session-hub/utils';
 import {
   formatCompactSessionAge,
   groupWorkspaceSessions,
@@ -64,6 +75,16 @@ interface WorkspaceSessionListProps {
   onSessionClick: (session: KanbanProjectSessionRecord) => void;
   onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
   onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
+  onRenameSession?: (
+    session: KanbanProjectSessionRecord,
+    name: string | null
+  ) => void | Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
+  dndContextProvided?: boolean;
+  monitorPlacements?: Array<{ sessionId: string }>;
+  currentExecutionPlacement?: { sessionId: string } | null;
 }
 
 const STATUS_LABEL_KEY: Record<WorkspaceSessionStatusTone, string> = {
@@ -81,6 +102,11 @@ export function WorkspaceSessionList({
   onSessionClick,
   onPinSession,
   onArchiveSession,
+  onRenameSession,
+  onDeleteSession,
+  dndContextProvided = false,
+  monitorPlacements = [],
+  currentExecutionPlacement = null,
 }: WorkspaceSessionListProps) {
   const { t } = useTranslation(['panels']);
   const [orderByWorkspace, setOrderByWorkspace] = useState(
@@ -96,6 +122,13 @@ export function WorkspaceSessionList({
   );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
     () => new Set(readCollapsedWorkspaceIds())
+  );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
   );
 
   const reorderGroup = (workspaceId: string, nextIds: string[]) => {
@@ -135,6 +168,33 @@ export function WorkspaceSessionList({
     });
   };
 
+  const handleDragStart = ({ active }: DragStartEvent) => {
+    setActiveId(String(active.id));
+  };
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    setActiveId(null);
+    if (!over || over.id === SESSION_ARCHIVE_DROP_ID) return;
+
+    const activeSessionIdValue = String(active.id);
+    const overId = String(over.id);
+    const group = groups.find((candidate) =>
+      candidate.sessions.some((session) => session.id === activeSessionIdValue)
+    );
+    if (!group || !group.sessions.some((session) => session.id === overId)) {
+      return;
+    }
+
+    const nextIds = moveSessionInOrder(
+      group.sessions.map((session) => session.id),
+      activeSessionIdValue,
+      overId
+    );
+    if (nextIds) reorderGroup(group.workspaceId, nextIds);
+  };
+
+  const activeSession = sessions.find((session) => session.id === activeId);
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -152,128 +212,61 @@ export function WorkspaceSessionList({
     );
   }
 
-  return (
-    <div className="workspace-session-list space-y-3">
-      {groups.map((group) => {
-        const expanded = !collapsedIds.has(group.workspaceId);
-        const listId = `workspace-session-group-${group.workspaceId}`;
-        return (
-          <section
-            key={group.workspaceId}
-            className="workspace-session-group min-w-0"
-          >
-            <button
-              type="button"
-              className="workspace-session-group-header"
-              aria-label={group.label}
-              aria-expanded={expanded}
-              aria-controls={listId}
-              onClick={() => toggleGroup(group.workspaceId)}
+  const list = (
+    <>
+      {dndContextProvided ? (
+        <WorkspaceSessionListDndMonitor
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
+        />
+      ) : null}
+      <div className="workspace-session-list space-y-3">
+        {groups.map((group) => {
+          const expanded = !collapsedIds.has(group.workspaceId);
+          const listId = `workspace-session-group-${group.workspaceId}`;
+          return (
+            <section
+              key={group.workspaceId}
+              className="workspace-session-group min-w-0"
             >
-              <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span
-                className="min-w-0 flex-1 truncate text-left"
-                title={group.label}
+              <button
+                type="button"
+                className="workspace-session-group-header"
+                aria-label={group.label}
+                aria-expanded={expanded}
+                aria-controls={listId}
+                onClick={() => toggleGroup(group.workspaceId)}
               >
-                {group.label}
-              </span>
-              <span className="workspace-session-group-count">
-                {group.sessions.length}
-              </span>
-            </button>
-            {expanded ? (
-              <WorkspaceSessionGroupList
-                listId={listId}
-                sessions={group.sessions}
-                activeSessionId={activeSessionId}
-                onSessionClick={onSessionClick}
-                onPinSession={onPinSession}
-                onArchiveSession={onArchiveSession}
-                onReorder={(nextIds) =>
-                  reorderGroup(group.workspaceId, nextIds)
-                }
-              />
-            ) : null}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-function WorkspaceSessionGroupList({
-  listId,
-  sessions,
-  activeSessionId,
-  onSessionClick,
-  onPinSession,
-  onArchiveSession,
-  onReorder,
-}: {
-  listId: string;
-  sessions: KanbanProjectSessionRecord[];
-  activeSessionId: string | null;
-  onSessionClick: (session: KanbanProjectSessionRecord) => void;
-  onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
-  onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
-  onReorder: (nextIds: string[]) => void;
-}) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const sessionIds = sessions.map((session) => session.id);
-  const activeSession = sessions.find((session) => session.id === activeId);
-
-  const handleDragStart = ({ active }: DragStartEvent) => {
-    setActiveId(String(active.id));
-  };
-
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    setActiveId(null);
-    if (!over) return;
-    const nextIds = moveSessionInOrder(
-      sessionIds,
-      String(active.id),
-      String(over.id)
-    );
-    if (nextIds) onReorder(nextIds);
-  };
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setActiveId(null)}
-    >
-      <SortableContext
-        items={sessionIds}
-        strategy={verticalListSortingStrategy}
-      >
-        <div id={listId} role="list" className="workspace-session-rail">
-          {sessions.map((session) => (
-            <SortableWorkspaceSessionRow
-              key={session.id}
-              session={session}
-              isSelected={session.id === activeSessionId}
-              onClick={() => onSessionClick(session)}
-              onPin={
-                onPinSession
-                  ? (pinned) => onPinSession(session, pinned)
-                  : undefined
-              }
-              onArchive={
-                onArchiveSession ? () => onArchiveSession(session) : undefined
-              }
-            />
-          ))}
-        </div>
-      </SortableContext>
+                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span
+                  className="min-w-0 flex-1 truncate text-left"
+                  title={group.label}
+                >
+                  {group.label}
+                </span>
+                <span className="workspace-session-group-count">
+                  {group.sessions.length}
+                </span>
+              </button>
+              {expanded ? (
+                <WorkspaceSessionGroupList
+                  listId={listId}
+                  sessions={group.sessions}
+                  activeSessionId={activeSessionId}
+                  monitorPlacements={monitorPlacements}
+                  currentExecutionPlacement={currentExecutionPlacement}
+                  onSessionClick={onSessionClick}
+                  onPinSession={onPinSession}
+                  onArchiveSession={onArchiveSession}
+                  onRenameSession={onRenameSession}
+                  onDeleteSession={onDeleteSession}
+                />
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
       <DragOverlay>
         {activeSession ? (
           <WorkspaceSessionRow
@@ -284,22 +277,128 @@ function WorkspaceSessionGroupList({
           />
         ) : null}
       </DragOverlay>
+    </>
+  );
+
+  if (dndContextProvided) {
+    return list;
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      {list}
     </DndContext>
+  );
+}
+
+function WorkspaceSessionListDndMonitor({
+  onDragStart,
+  onDragEnd,
+  onDragCancel,
+}: {
+  onDragStart: (event: DragStartEvent) => void;
+  onDragEnd: (event: DragEndEvent) => void;
+  onDragCancel: () => void;
+}) {
+  useDndMonitor({
+    onDragStart,
+    onDragEnd,
+    onDragCancel,
+  });
+  return null;
+}
+
+function WorkspaceSessionGroupList({
+  listId,
+  sessions,
+  activeSessionId,
+  monitorPlacements,
+  currentExecutionPlacement,
+  onSessionClick,
+  onPinSession,
+  onArchiveSession,
+  onRenameSession,
+  onDeleteSession,
+}: {
+  listId: string;
+  sessions: KanbanProjectSessionRecord[];
+  activeSessionId: string | null;
+  monitorPlacements: Array<{ sessionId: string }>;
+  currentExecutionPlacement: { sessionId: string } | null;
+  onSessionClick: (session: KanbanProjectSessionRecord) => void;
+  onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
+  onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
+  onRenameSession?: (
+    session: KanbanProjectSessionRecord,
+    name: string | null
+  ) => void | Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
+}) {
+  const sessionIds = sessions.map((session) => session.id);
+
+  return (
+    <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
+      <div id={listId} role="list" className="workspace-session-rail">
+        {sessions.map((session) => (
+          <SortableWorkspaceSessionRow
+            key={session.id}
+            session={session}
+            isSelected={session.id === activeSessionId}
+            marker={getSessionMarker(
+              session.id,
+              monitorPlacements,
+              currentExecutionPlacement
+            )}
+            onClick={() => onSessionClick(session)}
+            onPin={
+              onPinSession
+                ? (pinned) => onPinSession(session, pinned)
+                : undefined
+            }
+            onArchive={
+              onArchiveSession ? () => onArchiveSession(session) : undefined
+            }
+            onRename={
+              onRenameSession
+                ? (name) => onRenameSession(session, name)
+                : undefined
+            }
+            onDelete={
+              onDeleteSession ? () => onDeleteSession(session) : undefined
+            }
+          />
+        ))}
+      </div>
+    </SortableContext>
   );
 }
 
 function SortableWorkspaceSessionRow({
   session,
   isSelected,
+  marker,
   onClick,
   onPin,
   onArchive,
+  onRename,
+  onDelete,
 }: {
   session: KanbanProjectSessionRecord;
   isSelected: boolean;
+  marker: SessionMarker | null;
   onClick: () => void;
   onPin?: (pinned: boolean) => void;
   onArchive?: () => void;
+  onRename?: (name: string | null) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
 }) {
   const {
     attributes,
@@ -317,9 +416,12 @@ function SortableWorkspaceSessionRow({
     <WorkspaceSessionRow
       session={session}
       isSelected={isSelected}
+      marker={marker}
       onClick={onClick}
       onPin={onPin}
       onArchive={onArchive}
+      onRename={onRename}
+      onDelete={onDelete}
       setNodeRef={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -335,9 +437,12 @@ function SortableWorkspaceSessionRow({
 function WorkspaceSessionRow({
   session,
   isSelected,
+  marker = null,
   onClick,
   onPin,
   onArchive,
+  onRename,
+  onDelete,
   overlay = false,
   setNodeRef,
   style,
@@ -347,9 +452,12 @@ function WorkspaceSessionRow({
 }: {
   session: KanbanProjectSessionRecord;
   isSelected: boolean;
+  marker?: SessionMarker | null;
   onClick: () => void;
   onPin?: (pinned: boolean) => void;
   onArchive?: () => void;
+  onRename?: (name: string | null) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
   overlay?: boolean;
   setNodeRef?: (node: HTMLElement | null) => void;
   style?: CSSProperties;
@@ -364,10 +472,21 @@ function WorkspaceSessionRow({
   const agentName = getExecutorDisplayName(session.executor);
   const compactAge = formatCompactSessionAge(session.updatedAt);
   const isPinned = Boolean(session.pinnedAt);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [draftName, setDraftName] = useState(title);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
   } | null>(null);
+  const showRowActions = Boolean(onPin || onRename || onDelete);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftName(title);
+    }
+  }, [isEditing, title]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -380,112 +499,214 @@ function WorkspaceSessionRow({
     };
   }, [contextMenu]);
 
+  const submitRename = async () => {
+    if (!onRename || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onRename(draftName.trim() || null);
+      setIsEditing(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const cancelRename = () => {
+    setDraftName(title);
+    setIsEditing(false);
+    setIsSubmitting(false);
+  };
+
   return (
-    <div role="listitem" ref={setNodeRef} className="min-w-0" style={style}>
+    <div
+      role="listitem"
+      ref={setNodeRef}
+      className="max-w-full min-w-0"
+      style={style}
+    >
       <div
         className={cn(
           'workspace-session-row',
           isSelected && 'is-selected',
           isDragging && 'is-dragging',
-          overlay && 'is-overlay'
+          overlay && 'is-overlay',
+          isHovered && !isEditing && 'is-hovered'
         )}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
           setContextMenu({ x: event.clientX, y: event.clientY });
         }}
       >
-        <button
-          type="button"
-          aria-current={isSelected ? 'true' : undefined}
-          aria-label={
-            session.isRunning
-              ? `${title}, ${agentName}, ${statusLabel}, ${t('workspaceSessionList.statusRunning')}`
-              : `${title}, ${agentName}, ${statusLabel}`
-          }
-          onClick={onClick}
-          className="workspace-session-row-main"
-          {...(overlay ? {} : attributes)}
-          {...(overlay ? {} : listeners)}
-        >
-          <span className="workspace-session-icon" aria-hidden="true">
-            {session.executor ? (
-              <AgentIcon
-                agent={session.executor as ExecutorProfileId['executor']}
-                className="h-4 w-4"
-              />
-            ) : (
-              <Bot className="h-4 w-4 text-muted-foreground" />
-            )}
-            <span
-              className={cn(
-                'workspace-session-status',
-                `workspace-session-status--${tone}`
+        <span
+          className={cn(
+            'workspace-session-row-marker',
+            marker?.bar ?? 'bg-muted-foreground/35'
+          )}
+          aria-hidden="true"
+        />
+        {isEditing ? (
+          <div className="workspace-session-row-main is-editing">
+            <span className="workspace-session-icon" aria-hidden="true">
+              {session.executor ? (
+                <AgentIcon
+                  agent={session.executor as ExecutorProfileId['executor']}
+                  className="h-4 w-4"
+                />
+              ) : (
+                <Bot className="h-4 w-4 text-muted-foreground" />
               )}
-            />
-          </span>
-          <span
-            className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground"
-            title={title}
-          >
-            {title}
-          </span>
-          <span className="workspace-session-meta-idle">
-            {session.isRunning ? (
-              <Loader2
-                className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
-                aria-hidden="true"
-              />
-            ) : (
-              <span
-                className="workspace-session-age"
-                title={formatRelativeTime(session.updatedAt)}
-              >
-                {compactAge}
-              </span>
-            )}
-          </span>
-        </button>
-        {onPin || onArchive ? (
-          <span className="workspace-session-row-actions">
-            {onPin ? (
-              <button
-                type="button"
-                className={cn(
-                  'workspace-session-row-action',
-                  isPinned && 'is-active'
-                )}
-                aria-label={
-                  isPinned
-                    ? t('workspaceSessionList.unpin')
-                    : t('workspaceSessionList.pin')
+            </span>
+            <Input
+              value={draftName}
+              onChange={(event) => setDraftName(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => void submitRename()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void submitRename();
                 }
-                aria-pressed={isPinned}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onPin(!isPinned);
-                }}
-              >
-                <Pin className="h-3.5 w-3.5" />
-              </button>
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelRename();
+                }
+              }}
+              className="h-7 min-w-0 flex-1 rounded-md border-border/60 bg-[var(--surface-control)] text-xs"
+              autoFocus
+              disabled={isSubmitting}
+            />
+            <button
+              type="button"
+              className="workspace-session-row-action"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation();
+                void submitRename();
+              }}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="workspace-session-row-action"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation();
+                cancelRename();
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              aria-current={isSelected ? 'true' : undefined}
+              aria-label={
+                session.isRunning
+                  ? `${title}, ${agentName}, ${statusLabel}, ${t('workspaceSessionList.statusRunning')}`
+                  : `${title}, ${agentName}, ${statusLabel}`
+              }
+              onClick={onClick}
+              className="workspace-session-row-main"
+              {...(overlay ? {} : attributes)}
+              {...(overlay ? {} : listeners)}
+            >
+              <span className="workspace-session-icon" aria-hidden="true">
+                {session.executor ? (
+                  <AgentIcon
+                    agent={session.executor as ExecutorProfileId['executor']}
+                    className="h-4 w-4"
+                  />
+                ) : (
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span
+                  className={cn(
+                    'workspace-session-status',
+                    `workspace-session-status--${tone}`
+                  )}
+                />
+              </span>
+              <span className="workspace-session-title" title={title}>
+                {title}
+              </span>
+              <span className="workspace-session-meta-idle">
+                {session.isRunning ? (
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className="workspace-session-age"
+                    title={formatRelativeTime(session.updatedAt)}
+                  >
+                    {compactAge}
+                  </span>
+                )}
+              </span>
+            </button>
+            {showRowActions ? (
+              <span className="workspace-session-row-actions">
+                {onPin ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      'workspace-session-row-action',
+                      isPinned && 'is-active'
+                    )}
+                    aria-label={
+                      isPinned
+                        ? t('workspaceSessionList.unpin')
+                        : t('workspaceSessionList.pin')
+                    }
+                    aria-pressed={isPinned}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPin(!isPinned);
+                    }}
+                  >
+                    <Pin className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {onRename ? (
+                  <button
+                    type="button"
+                    className="workspace-session-row-action"
+                    aria-label={t('workspaceSessionList.edit')}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDraftName(title);
+                      setIsEditing(true);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {onDelete ? (
+                  <button
+                    type="button"
+                    className="workspace-session-row-action"
+                    aria-label={t('workspaceSessionList.deleteSession')}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void onDelete();
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </span>
             ) : null}
-            {onArchive ? (
-              <button
-                type="button"
-                className="workspace-session-row-action"
-                aria-label={t('workspaceSessionList.archive')}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onArchive();
-                }}
-              >
-                <Archive className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </span>
-        ) : null}
+          </>
+        )}
       </div>
       {contextMenu ? (
         <div
@@ -494,6 +715,19 @@ function WorkspaceSessionRow({
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.preventDefault()}
         >
+          {onArchive ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                onArchive();
+              }}
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {t('workspaceSessionList.archive')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"

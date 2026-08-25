@@ -86,6 +86,12 @@ import {
 import { cn } from '@/lib/utils';
 import { latestWorkflowStepAttempts } from './workflowProjection';
 import { WorkflowStepConversation } from './WorkflowStepConversation';
+import {
+  resolveWorkflowAgentId,
+  type WorkflowStudioAgentOption,
+} from './workflowAgent';
+
+export type { WorkflowStudioAgentOption };
 
 type StudioMode = 'edit' | 'run';
 
@@ -110,14 +116,6 @@ type StudioNodeData = {
 };
 
 type StudioNode = Node<StudioNodeData, 'workflowStep'>;
-
-export type WorkflowStudioAgentOption = {
-  value: string;
-  label: string;
-  iconLight?: string | null;
-  iconDark?: string | null;
-  iconSvg?: string | null;
-};
 
 export type WorkflowStudioProps = {
   definition: WorkflowDefinition;
@@ -1333,7 +1331,10 @@ export function WorkflowStudio({
         ? {
             ...common,
             kind: 'agent',
-            agentId: agentOptions[0]?.value ?? 'codex',
+            agentId: resolveWorkflowAgentId(
+              agentOptions,
+              config?.executor_profile?.executor
+            ),
             prompt: '',
             executorProfileId: null,
             modeOverride: null,
@@ -1475,7 +1476,14 @@ export function WorkflowStudio({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" sideOffset={8}>
                     <DropdownMenuItem onSelect={() => addStep('agent')}>
-                      <AgentIcon agent="codex" className="size-4" />
+                      <StudioAgentIcon
+                        agentId={resolveWorkflowAgentId(
+                          agentOptions,
+                          config?.executor_profile?.executor
+                        )}
+                        agentOptions={agentOptions}
+                        className="size-4"
+                      />
                       {t('studio.agentStep')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => addStep('notify')}>
@@ -1686,7 +1694,14 @@ export function WorkflowStudio({
                         setContextMenu(null);
                       }}
                     >
-                      <AgentIcon agent="codex" className="size-4" />
+                      <StudioAgentIcon
+                        agentId={resolveWorkflowAgentId(
+                          agentOptions,
+                          config?.executor_profile?.executor
+                        )}
+                        agentOptions={agentOptions}
+                        className="size-4"
+                      />
                       {t('studio.agentStep')}
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -2031,7 +2046,11 @@ export function WorkflowStudio({
                                   },
                                 ]
                             ).map((agent) => (
-                              <SelectItem key={agent.value} value={agent.value}>
+                              <SelectItem
+                                key={agent.value}
+                                value={agent.value}
+                                disabled={agent.runnable === false}
+                              >
                                 <span className="flex items-center gap-2">
                                   <StudioAgentIcon
                                     agentId={agent.value}

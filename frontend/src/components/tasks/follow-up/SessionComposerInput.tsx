@@ -43,7 +43,6 @@ import { AgentIcon } from '@/components/agents/AgentIcon';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
-import { useSlashCommands } from '@/hooks/useSlashCommands';
 import {
   fileTreeApi,
   repoApi,
@@ -59,7 +58,6 @@ import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
 import {
   agentAvailableCommandsToSlashCommands,
   localSkillsToDollarCommands,
-  localSkillsToSlashCommands,
   mergeComposerSlashCommands,
   pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
@@ -113,7 +111,8 @@ export type SessionComposerInputContext = {
   repoIds?: string[];
   projectId?: string;
   executorProfile?: ExecutorProfileId | null;
-  availableCommands?: AgentAvailableCommand[];
+  availableCommands?: AgentAvailableCommand[] | null;
+  commandsLoading?: boolean;
   transport?: BackendTransport;
 };
 
@@ -745,13 +744,13 @@ export function SessionComposerInput({
   const sendShortcut =
     useOptionalUserSystem()?.config?.send_message_shortcut ?? 'Enter';
   const {
-    workspaceId,
     workspacePath,
     repoId,
     repoIds,
     projectId,
     executorProfile,
-    availableCommands = [],
+    availableCommands = null,
+    commandsLoading = false,
     transport = configuredBackendTransport,
   } = context ?? {};
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
@@ -878,10 +877,6 @@ export function SessionComposerInput({
     return () => observer.disconnect();
   }, []);
 
-  const slashCommandsQuery = useSlashCommands(executorProfile, {
-    workspaceId,
-    repoId,
-  });
   const pluginApi = useMemo(() => createPluginApi(transport), [transport]);
   const pluginControlApi = useMemo(
     () => createPluginControlApi(transport),
@@ -911,7 +906,7 @@ export function SessionComposerInput({
         agentType: executor!,
         workspacePath: workspacePath ?? null,
       }) as Promise<AgentSkillsListResult>,
-    enabled: !!executor,
+    enabled: executor === 'codex',
     staleTime: 0,
   });
   const hostedPluginSkillIds = useMemo(
@@ -931,22 +926,17 @@ export function SessionComposerInput({
   const allSlashCommands = useMemo(
     () =>
       mergeComposerSlashCommands({
-        catalogCommands: slashCommandsQuery.commands ?? [],
-        runtimeCommands:
-          agentAvailableCommandsToSlashCommands(availableCommands),
-        skillCommands: localSkillsToSlashCommands(localSkills),
+        catalogCommands: [],
+        runtimeCommands: agentAvailableCommandsToSlashCommands(
+          availableCommands ?? []
+        ),
+        skillCommands: [],
         pluginCommands: [
           ...pluginInvocationsToSlashCommands(pluginControlCatalog),
           ...pluginComposerSlashContributions(composerSlashContributions),
         ],
       }),
-    [
-      availableCommands,
-      composerSlashContributions,
-      localSkills,
-      pluginControlCatalog,
-      slashCommandsQuery.commands,
-    ]
+    [availableCommands, composerSlashContributions, pluginControlCatalog]
   );
   const allDollarCommands = useMemo(
     () =>
@@ -959,18 +949,48 @@ export function SessionComposerInput({
 
   // --- Trigger search sources (adapted to the Astryx SearchSource contract) ---
 
+  const liveCommandsReadyRef = useRef(!commandsLoading);
+  liveCommandsReadyRef.current = !commandsLoading;
+  const allSlashCommandsRef = useRef(allSlashCommands);
+  allSlashCommandsRef.current = allSlashCommands;
+  const executorRef = useRef(executor);
+  executorRef.current = executor;
+  const liveCommandsWaitersRef = useRef<Array<() => void>>([]);
+  useEffect(() => {
+    if (commandsLoading) return;
+    const waiters = liveCommandsWaitersRef.current;
+    liveCommandsWaitersRef.current = [];
+    waiters.forEach((resolve) => resolve());
+  }, [commandsLoading]);
+
   const slashSource = useMemo<SearchSource>(
     () => ({
-      search: (query) =>
-        slashCommandsToTypeaheadOptions(allSlashCommands, query, executor).map(
-          toSearchableItem
-        ),
-      bootstrap: () =>
-        slashCommandsToTypeaheadOptions(allSlashCommands, '', executor).map(
-          toSearchableItem
-        ),
+      search: async (query) => {
+        if (!liveCommandsReadyRef.current) {
+          await new Promise<void>((resolve) => {
+            liveCommandsWaitersRef.current.push(resolve);
+          });
+        }
+        return slashCommandsToTypeaheadOptions(
+          allSlashCommandsRef.current,
+          query,
+          executorRef.current
+        ).map(toSearchableItem);
+      },
+      bootstrap: async () => {
+        if (!liveCommandsReadyRef.current) {
+          await new Promise<void>((resolve) => {
+            liveCommandsWaitersRef.current.push(resolve);
+          });
+        }
+        return slashCommandsToTypeaheadOptions(
+          allSlashCommandsRef.current,
+          '',
+          executorRef.current
+        ).map(toSearchableItem);
+      },
     }),
-    [allSlashCommands, executor]
+    []
   );
   const dollarSource = useMemo<SearchSource>(
     () => ({

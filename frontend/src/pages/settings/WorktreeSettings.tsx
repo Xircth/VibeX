@@ -345,6 +345,7 @@ export function WorktreeSettings() {
           icon={GitFork}
           title={t('worktrees.projectTitle')}
           description={t('worktrees.projectDescription')}
+          bare
         >
           <div className="settings-worktree-board">
             <div

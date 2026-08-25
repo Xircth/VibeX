@@ -5,7 +5,7 @@ import { AgentIcon } from './AgentIcon';
 
 describe('AgentIcon', () => {
   it.each([
-    ['gemini', 'Gemini CLI', '/agents/gemini-light.svg'],
+    ['antigravity', 'Google Antigravity', '/agents/antigravity.svg'],
     ['openclaw', 'OpenClaw', '/agents/openclaw.svg'],
     ['cline', 'Cline', '/agents/cline.svg'],
     ['hermes', 'Hermes Agent', '/agents/hermes.png'],

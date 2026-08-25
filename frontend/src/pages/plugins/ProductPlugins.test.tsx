@@ -706,7 +706,10 @@ describe('product plugin experience', () => {
         if (command === 'plugin_control_catalog') {
           return { plugins: catalogPlugins, runtimes: [] };
         }
-        if (command === 'plugin_control_uninstall') {
+        if (
+          command === 'plugin_control_uninstall' ||
+          command === 'plugin_uninstall'
+        ) {
           catalogPlugins = catalogPlugins.filter(
             (item) => item.id !== args?.pluginId
           );
@@ -740,8 +743,9 @@ describe('product plugin experience', () => {
     );
 
     await waitFor(() =>
-      expect(call).toHaveBeenCalledWith('plugin_control_uninstall', {
+      expect(call).toHaveBeenCalledWith('plugin_uninstall', {
         pluginId: 'drawio',
+        retainData: true,
       })
     );
     await waitFor(() =>

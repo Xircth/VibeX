@@ -12,12 +12,12 @@ import { Loader2, X } from 'lucide-react';
 import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
 import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient } from '@tanstack/react-query';
-import { AgentKind } from 'shared/types';
 import type {
   AgentElicitationResponse,
+  AgentKind,
   AgentPermissionResponse,
   ConversationFileChange,
   MessageTurn,
@@ -35,7 +35,12 @@ import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFil
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { SessionNoticeActions } from '@/components/tasks/follow-up/SessionNoticeActions';
+import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
+import {
+  appendChildConversationStack,
+  popChildConversationStack,
+} from '@/components/NormalizedConversation/conversation/childConversationStack';
 import {
   hostDelegationToolUseIds,
   shouldInlineDelegationSideRow,
@@ -49,6 +54,7 @@ import { publishLiveSessionControls } from '@/features/agents/sessionControlsQue
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
+import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
 import { ResendCheckpointDialog } from '@/components/dialogs';
@@ -82,7 +88,6 @@ import {
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
-import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { useLayoutStore } from '@/stores/useLayoutStore';
@@ -570,23 +575,18 @@ const AgentTimelineConversation = forwardRef<
     respondingQuestionId,
     usesComposerStatusDock,
   ]);
-  // A delegated sub-agent runs in the parent's workspace (the spawner inherits
-  // parent.workspace_id), so the child transcript lives at the same project +
-  // workspace route — only the session id changes. Open it only when the route
-  // context is known.
-  const navigate = useNavigate();
-  const routeParams = useParams<{ projectId?: string; workspaceId?: string }>();
-  const { projectId, workspaceId } = routeParams;
   const isEditorAreaVisible = useLayoutStore(
     (state) => state.isEditorAreaVisible
   );
-  const handleOpenChild = useMemo(() => {
-    if (!projectId || !workspaceId) return undefined;
-    return (childConversationId: string, childWorkspaceId = workspaceId) =>
-      navigate(
-        paths.projectSession(projectId, childWorkspaceId, childConversationId)
-      );
-  }, [navigate, projectId, workspaceId]);
+  const [childStack, setChildStack] = useState<string[]>([]);
+  const handleOpenChild = useCallback((childConversationId: string) => {
+    setChildStack((stack) =>
+      appendChildConversationStack(stack, childConversationId)
+    );
+  }, []);
+  const handleCloseChild = useCallback(() => {
+    setChildStack((stack) => popChildConversationStack(stack));
+  }, []);
   // Read the composer's live profile selection so resend stays same-source.
   const { getActiveExecutorProfile } = useActiveExecutorProfile();
   // Keep the latest turn error in full (message + the agent's real ACP error
@@ -1179,11 +1179,17 @@ const AgentTimelineConversation = forwardRef<
       latestSessionNoticeRow?.row.kind === 'session_notice' &&
       latestSessionNoticeRow.row.notice
     ) {
+      const notice = latestSessionNoticeRow.row.notice;
       notices.push({
         id: latestSessionNoticeRow.row_id,
         kind: 'session-notice' as const,
-        notice: latestSessionNoticeRow.row.notice,
-        onRebind: conversationRebindSession,
+        notice,
+        onRebind: sessionNoticeNeedsRebind(
+          notice,
+          latestSessionNoticeRow.row_id
+        )
+          ? conversationRebindSession
+          : undefined,
       });
     }
     return notices;
@@ -1228,7 +1234,7 @@ const AgentTimelineConversation = forwardRef<
   }, [composerPermissions, setConversationStatusPermissions]);
 
   return (
-    <div ref={panelRef} className="flex h-full min-h-0 flex-col">
+    <div ref={panelRef} className="relative flex h-full min-h-0 flex-col">
       {findOpen ? (
         <ConversationFindBar
           query={findQuery}
@@ -1422,6 +1428,17 @@ const AgentTimelineConversation = forwardRef<
           </div>
         )}
       </div>
+      {childStack.map((childConversationId) => (
+        <ChildConversationViewer
+          key={childConversationId}
+          conversationId={childConversationId}
+          attempt={attempt}
+          task={task}
+          workspacePath={workspaceRoot}
+          onClose={handleCloseChild}
+          onOpenChild={handleOpenChild}
+        />
+      ))}
     </div>
   );
 });

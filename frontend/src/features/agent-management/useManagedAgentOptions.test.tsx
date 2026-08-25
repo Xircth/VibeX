@@ -9,18 +9,21 @@ vi.mock('@/features/agents/useSelectableAgents', () => ({
       agentId: 'codex',
       displayName: 'Codex',
       enabled: true,
+      runnable: true,
       settingsFeatures: ['native_mcp'],
     },
     {
       agentId: 'pi',
       displayName: 'Pi',
       enabled: false,
+      runnable: false,
       settingsFeatures: ['pi_configuration'],
     },
     {
       agentId: 'custom.agent',
       displayName: 'Custom',
       enabled: true,
+      runnable: false,
       settingsFeatures: [],
     },
   ],
@@ -36,6 +39,7 @@ describe('useManagedAgentOptions', () => {
         iconLight: null,
         iconDark: null,
         iconSvg: null,
+        runnable: true,
       },
     ]);
   });
@@ -56,6 +60,10 @@ describe('useManagedAgentOptions', () => {
     expect(result.current.map((option) => option.value)).toEqual([
       'codex',
       'custom.agent',
+    ]);
+    expect(result.current.map((option) => option.runnable)).toEqual([
+      true,
+      false,
     ]);
   });
 });

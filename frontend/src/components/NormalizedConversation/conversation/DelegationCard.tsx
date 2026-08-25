@@ -19,7 +19,8 @@ import { AstryxMarkdown } from '../AstryxMarkdown';
 /**
  * Host-mediated MCP delegation. One product card per `delegate_to_agent` call,
  * fed by the tool use plus the folded `delegation_started` /
- * `delegation_completed` row. Native vendor subagents stay on SubagentCard.
+ * `delegation_completed` row. Opening the child stays in the parent session
+ * overlay. Native vendor subagents stay on SubagentCard.
  */
 export function DelegationCard({
   delegation,

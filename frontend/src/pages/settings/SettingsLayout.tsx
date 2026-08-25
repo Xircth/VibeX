@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { useBackendCapabilities } from '@/lib/transport';
 
 import { AgentSettingsLoading } from './AgentSettingsLoading';
+import { syncSettingsWindowTitle } from './syncSettingsWindowTitle';
 
 interface SettingsNavItem {
   path: string;
@@ -124,7 +125,7 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { t } = useTranslation('settings');
+  const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
 
   const navigateTo = useCallback(
@@ -136,6 +137,10 @@ export function SettingsLayout() {
   );
 
   useEffect(() => scheduleRemainingSettingsPreload(), []);
+
+  useEffect(() => {
+    void syncSettingsWindowTitle(t('windowTitle'));
+  }, [i18n.language, t]);
 
   return (
     <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">

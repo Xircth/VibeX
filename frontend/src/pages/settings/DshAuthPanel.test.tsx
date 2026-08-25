@@ -6,7 +6,7 @@ import type { DshProvidersView } from 'shared/types';
 import { agentManagementApi } from '@/features/agent-management';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
-import { pickAstryxOption } from './agentSettingsTestUtils';
+import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { DshAuthPanel } from './DshAuthPanel';
 
 vi.mock('@/features/agent-management', async () => {
@@ -83,6 +83,13 @@ describe('DshAuthPanel', () => {
     render(<DshAuthPanel />);
 
     expect(
+      await screen.findByRole('tab', { name: 'DeepSeek' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '自定义' })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+    expect(
       await screen.findByDisplayValue('https://api.deepseek.com')
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText('API Key'), 'sk-test');
@@ -113,6 +120,10 @@ describe('DshAuthPanel', () => {
     });
     render(<DshAuthPanel />);
 
+    expect(await screen.findByRole('tab', { name: '自定义' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     expect(await screen.findByLabelText('显示名称')).toBeInTheDocument();
     expect(screen.getByLabelText('备注')).toBeInTheDocument();
     expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
@@ -126,11 +137,7 @@ describe('DshAuthPanel', () => {
       await screen.findByDisplayValue('https://api.deepseek.com')
     ).toBeInTheDocument();
 
-    await pickAstryxOption(
-      user,
-      screen.getByLabelText('DeepSeek Harness 鉴权模式'),
-      '自定义模型端点'
-    );
+    await pickAuthModeTab(user, '自定义');
     await user.type(
       screen.getByLabelText('Base URL'),
       'https://example.com/v1'

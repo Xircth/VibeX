@@ -90,7 +90,12 @@ export function sessionListTitle(session: KanbanProjectSessionRecord): string {
 
 export function workspaceSessionStatusTone(session: {
   status: string;
+  isRunning?: boolean;
 }): WorkspaceSessionStatusTone {
+  if (session.isRunning) {
+    return 'inprogress';
+  }
+
   switch (session.status) {
     case 'inprogress':
       return 'inprogress';

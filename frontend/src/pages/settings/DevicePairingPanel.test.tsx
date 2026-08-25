@@ -158,17 +158,24 @@ describe('DevicePairingPanel', () => {
           createDevicePairing,
         }}
         hostUrls={['http://127.0.0.1:17891', 'http://192.168.1.20:17891']}
+        listenAddresses={[
+          {
+            origin: 'http://192.168.1.20:17891',
+            interface: 'en0',
+          },
+        ]}
       />
     );
     await user.click(screen.getByRole('button', { name: '生成连接码' }));
 
+    expect(screen.getByText('en0')).toBeVisible();
     expect(screen.getByText('http://192.168.1.20:17891')).toBeVisible();
+    expect(screen.getByText('https://host.example.ts.net')).toBeVisible();
     expect(
-      screen.queryByText('https://host.example.ts.net')
+      screen.queryByText('http://127.0.0.1:17891')
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '显示全部地址' }));
-    expect(screen.getByText('https://host.example.ts.net')).toBeVisible();
     expect(screen.getByText('http://127.0.0.1:17891')).toBeVisible();
 
     await user.click(

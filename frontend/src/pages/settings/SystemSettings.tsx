@@ -17,7 +17,6 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -43,8 +42,10 @@ import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 type SystemSettingsConfig = Config;
 
 const DEFAULT_PROXY_SETTINGS: SystemProxySettings = {
-  enabled: false,
+  mode: 'auto',
   proxy_url: null,
+  detected_url: null,
+  detected_source: null,
 };
 const DEFAULT_RENDERING_SETTINGS: SystemRenderingSettings = {
   acceleration_mode: 'auto',
@@ -101,6 +102,20 @@ function deepMerge<T extends Record<string, unknown>>(
 
 function deepEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function proxyDetectionCopy(
+  settings: SystemProxySettings,
+  t: (key: string, options?: Record<string, string>) => string
+): string {
+  const detected = settings.detected_url?.trim();
+  if (!detected) {
+    return t('system.proxyDetectedNone');
+  }
+  if (settings.detected_source === 'pac') {
+    return t('system.proxyDetectedPac', { url: detected });
+  }
+  return t('system.proxyDetected', { url: detected });
 }
 
 function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
@@ -214,7 +229,9 @@ export function SystemSettings() {
   }, [config, draft]);
 
   const proxyDirty = useMemo(
-    () => !deepEqual(proxyDraft, proxySettings),
+    () =>
+      proxyDraft.mode !== proxySettings.mode ||
+      (proxyDraft.proxy_url ?? '') !== (proxySettings.proxy_url ?? ''),
     [proxyDraft, proxySettings]
   );
 
@@ -541,30 +558,62 @@ export function SystemSettings() {
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="system-proxy-enabled">
-                  {t('system.enableProxy')}
+                <Label htmlFor="system-proxy-mode">
+                  {t('system.proxyMode')}
                 </Label>
                 <p className="settings-row__description">
-                  {t('system.proxyValidateHint')}
+                  {proxyDraft.mode === 'auto'
+                    ? proxyDetectionCopy(proxyDraft, t)
+                    : t('system.proxyManualHint')}
                 </p>
               </div>
-              <Switch
-                id="system-proxy-enabled"
-                className="settings-switch"
-                checked={proxyDraft.enabled}
-                disabled={proxyLoading || proxySaving}
-                onCheckedChange={(checked: boolean) =>
-                  setProxyDraft((previous) => ({
-                    ...previous,
-                    enabled: checked,
-                  }))
-                }
-              />
+              <div className="flex items-center gap-2">
+                <Select
+                  value={proxyDraft.mode}
+                  onValueChange={(value: SystemProxySettings['mode']) =>
+                    setProxyDraft((previous) => ({
+                      ...previous,
+                      mode: value,
+                      proxy_url:
+                        value === 'manual' &&
+                        !previous.proxy_url?.trim() &&
+                        previous.detected_source !== 'pac'
+                          ? (previous.detected_url ?? previous.proxy_url)
+                          : previous.proxy_url,
+                    }))
+                  }
+                  disabled={proxyLoading || proxySaving}
+                >
+                  <SelectTrigger id="system-proxy-mode" className="!w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="auto">
+                      {t('system.proxyModeAuto')}
+                    </SelectItem>
+                    <SelectItem value="manual">
+                      {t('system.proxyModeManual')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  className="shrink-0"
+                  onClick={() => void handleSaveProxy()}
+                  disabled={proxyLoading || proxySaving || !proxyDirty}
+                >
+                  {proxySaving ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {t('common:save')}
+                </Button>
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="system-proxy-url">{t('system.proxyUrl')}</Label>
-              <div className="flex gap-2">
+            {proxyDraft.mode === 'manual' ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="system-proxy-url">{t('system.proxyUrl')}</Label>
                 <Input
                   id="system-proxy-url"
                   value={proxyDraft.proxy_url ?? ''}
@@ -577,24 +626,11 @@ export function SystemSettings() {
                     }))
                   }
                 />
-                <Button
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
-                  onClick={() => void handleSaveProxy()}
-                  disabled={proxyLoading || proxySaving || !proxyDirty}
-                >
-                  {proxySaving ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {t('common:save')}
-                </Button>
+                <p className="settings-row__description">
+                  {t('system.proxyProtocolHint')}
+                </p>
               </div>
-              <p className="settings-row__description">
-                {t('system.proxyProtocolHint')}
-              </p>
-            </div>
+            ) : null}
           </div>
         </SettingsSection>
 
@@ -638,8 +674,7 @@ export function SystemSettings() {
                 </SelectContent>
               </Select>
               <Button
-                size="sm"
-                className="h-8 shrink-0 text-xs"
+                className="shrink-0"
                 onClick={() => void handleSaveRendering()}
                 disabled={
                   renderingLoading || renderingSaving || !renderingDirty
@@ -663,9 +698,7 @@ export function SystemSettings() {
         >
           <div className="space-y-4">
             <div className="space-y-2">
-              <div className="text-xs font-semibold">
-                {t('system.exportBackup')}
-              </div>
+              <Label className="text-sm">{t('system.exportBackup')}</Label>
               <div className="flex gap-2">
                 <Input
                   value={backupPath}
@@ -674,8 +707,7 @@ export function SystemSettings() {
                   disabled={backupBusy}
                 />
                 <Button
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
+                  className="shrink-0"
                   onClick={() => void handleCreateBackup()}
                   disabled={backupBusy}
                 >
@@ -697,9 +729,7 @@ export function SystemSettings() {
             </div>
 
             <div className="space-y-2">
-              <div className="text-xs font-semibold">
-                {t('system.restoreBackup')}
-              </div>
+              <Label className="text-sm">{t('system.restoreBackup')}</Label>
               <div className="flex gap-2">
                 <Input
                   value={restorePath}
@@ -709,8 +739,7 @@ export function SystemSettings() {
                 />
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
+                  className="shrink-0"
                   onClick={() => void handleInspectBackup()}
                   disabled={restoreBusy}
                 >
@@ -718,8 +747,7 @@ export function SystemSettings() {
                   {t('system.preview')}
                 </Button>
                 <Button
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
+                  className="shrink-0"
                   onClick={handleRestoreBackup}
                   disabled={
                     restoreBusy ||
@@ -748,14 +776,14 @@ export function SystemSettings() {
               <div className="settings-inline-group p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold">
+                    <div className="text-sm font-semibold">
                       {t('system.backupPreviewTitle')}
                     </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
+                    <div className="settings-row__description">
                       {backupPreviewPath}
                     </div>
                   </div>
-                  <div className="text-right text-[11px] text-muted-foreground">
+                  <div className="text-right text-xs text-muted-foreground">
                     <div>
                       {t('system.fileCount', {
                         count: backupPreview.manifest.entry_count,
@@ -764,7 +792,7 @@ export function SystemSettings() {
                     <div>{formatBytes(backupPreview.manifest.total_bytes)}</div>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                   <div>
                     {t('system.formatLabel', {
                       format: backupPreview.manifest.format,
@@ -792,12 +820,12 @@ export function SystemSettings() {
                   {backupPreview.entries.slice(0, 8).map((entry) => (
                     <div
                       key={entry.path}
-                      className="flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]"
+                      className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs"
                     >
                       <span className="min-w-0 truncate">{entry.path}</span>
                       <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                         {previewIsRestore && entry.already_exists ? (
-                          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-300">
+                          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-xs text-amber-600 dark:text-amber-300">
                             {t('system.willOverwrite')}
                           </span>
                         ) : null}
@@ -806,7 +834,7 @@ export function SystemSettings() {
                     </div>
                   ))}
                   {backupPreview.entries.length > 8 ? (
-                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
                       {t('system.moreEntries', {
                         count: backupPreview.entries.length - 8,
                       })}
@@ -826,7 +854,6 @@ export function SystemSettings() {
             </span>
             <Button
               variant="destructive"
-              size="sm"
               onClick={handleClearLocalData}
               disabled={isClearingLocalData}
             >

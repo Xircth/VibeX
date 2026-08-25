@@ -46,8 +46,11 @@ describe('DshSessionDefaults', () => {
     const user = userEvent.setup();
     render(<DshSessionDefaults />);
 
-    expect(await screen.findByText('标准模式')).toBeInTheDocument();
-    await user.click(screen.getByRole('radio', { name: /极简模式/ }));
+    expect(
+      await screen.findByRole('radio', { name: 'Standard' })
+    ).toBeChecked();
+    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    await user.click(screen.getByRole('radio', { name: 'Minimal' }));
     await user.click(screen.getByRole('button', { name: '保存' }));
 
     expect(agentManagementApi.writeEnvironment).toHaveBeenCalledWith(

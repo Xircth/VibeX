@@ -128,7 +128,12 @@ describe('SystemSettings', () => {
     }
     mocks.updateAndSaveConfig.mockResolvedValue(true);
     mocks.getSettingsPath.mockResolvedValue('/Users/test/.vibex/settings.json');
-    mocks.getProxy.mockResolvedValue({ enabled: false, proxy_url: null });
+    mocks.getProxy.mockResolvedValue({
+      mode: 'auto',
+      proxy_url: null,
+      detected_url: null,
+      detected_source: null,
+    });
     mocks.updateProxy.mockImplementation(async (settings) => settings);
     mocks.getRendering.mockResolvedValue({ acceleration_mode: 'auto' });
     mocks.updateRendering.mockImplementation(async (settings) => settings);
@@ -149,9 +154,14 @@ describe('SystemSettings', () => {
 
     expect(await screen.findByText('updater boundary')).toBeVisible();
 
+    expect(screen.getByText('导出备份')).toHaveClass('text-sm');
+    expect(screen.getByText('恢复备份')).toHaveClass('text-sm');
+
     const proxySection = screen.getByText('网络代理').closest('section');
     expect(proxySection).not.toBeNull();
-    await user.click(within(proxySection!).getByRole('switch'));
+    expect(within(proxySection!).getByText('未检测到系统代理')).toBeVisible();
+    await user.click(within(proxySection!).getByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: '手动配置' }));
     await user.type(
       within(proxySection!).getByPlaceholderText('http://127.0.0.1:7890'),
       'http://proxy.local:7890'
@@ -161,8 +171,10 @@ describe('SystemSettings', () => {
     );
     await waitFor(() => {
       expect(mocks.updateProxy).toHaveBeenCalledWith({
-        enabled: true,
+        mode: 'manual',
         proxy_url: 'http://proxy.local:7890',
+        detected_url: null,
+        detected_source: null,
       });
     });
 

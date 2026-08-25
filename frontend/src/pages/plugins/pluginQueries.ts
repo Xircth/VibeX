@@ -6,6 +6,7 @@ import { toast } from '@/components/ui/toast';
 import {
   createPluginControlApi,
   type PluginControlItem,
+  type PluginRuntimeInventoryItem,
 } from '@/lib/api/plugins';
 
 export const pluginCatalogQueryKey = ['plugin-control-catalog'] as const;
@@ -35,7 +36,10 @@ export function useProductPluginCatalog(
     queryFn: async () => {
       try {
         const catalog = await api.catalog();
-        return catalog.plugins.filter(isProductPlugin);
+        return {
+          plugins: catalog.plugins.filter(isProductPlugin),
+          runtimes: catalog.runtimes ?? [],
+        };
       } catch (error) {
         toast.error(t('plugins.productCatalogFailed'), {
           description: errorMessage(error),
@@ -54,11 +58,16 @@ export function useProductPluginCatalog(
         | PluginControlItem[]
         | ((current: PluginControlItem[]) => PluginControlItem[])
     ) => {
-      queryClient.setQueryData<PluginControlItem[]>(
-        pluginCatalogQueryKey,
-        (current = []) =>
-          typeof updater === 'function' ? updater(current) : updater
-      );
+      queryClient.setQueryData<{
+        plugins: PluginControlItem[];
+        runtimes: PluginRuntimeInventoryItem[];
+      }>(pluginCatalogQueryKey, (current) => {
+        const plugins =
+          typeof updater === 'function'
+            ? updater(current?.plugins ?? [])
+            : updater;
+        return { plugins, runtimes: current?.runtimes ?? [] };
+      });
     },
     [queryClient]
   );
@@ -80,7 +89,8 @@ export function useProductPluginCatalog(
   );
 
   return {
-    plugins: query.data ?? [],
+    plugins: query.data?.plugins ?? [],
+    runtimes: query.data?.runtimes ?? [],
     loading: query.isPending,
     setPlugins,
     refresh,

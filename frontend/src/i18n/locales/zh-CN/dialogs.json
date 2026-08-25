@@ -220,9 +220,10 @@
     "saveAndTest": "保存并测试"
   },
   "onboarding": {
-    "journeyTitle": "开启你的 Coding Agent 之旅",
-    "journeyDescription": "集成且全能的Agent开发平台",
-    "agentEcosystem": "支持的 Coding Agent",
+    "journeyTitle": "Agent 需要新的 IDE 于是有了 VibeX",
+    "journeyTitleA": "Agent 需要新的 IDE",
+    "journeyTitleB": "于是有了 VibeX",
+    "journeyDescription": "All in One 的综合 VibeCoding 强大平台",
     "skip": "跳过设置",
     "agentsTitle": "选择出战的 Agent",
     "enabledAgents": "启用的 Agent",
@@ -252,7 +253,76 @@
     "enableAgentAria": "启用 {{agent}}",
     "loginNotice": "安装只负责 Runtime 与 ACP。安装完成后，请自行登录 Agent 账户或配置 API。会话模型、权限和推理选项将在创建会话时读取，不在这里设置。",
     "editorTitle": "选择外部编辑器",
-    "safetyNotice": "Coding Agent 可以在本机执行代码与命令。继续即表示你已了解需要监督 Agent 行为，并已备份重要工作。",
+    "disclaimerAcceptHint": "继续即表示你已阅读并同意",
+    "disclaimerLink": "免责声明",
+    "disclaimerTitle": "免责声明",
+    "disclaimerClose": "关闭",
+    "disclaimerPreamble": "{{appName}} 会在你的计算机上编排多个 AI 编程 Agent，并可能安装软件、读写仓库、执行命令、连接远程设备与聊天通道。继续初始化或使用本软件，即表示你已阅读、理解并同意本声明。若不同意，请立即停止使用并卸载。",
+    "disclaimerSections": {
+      "nature": {
+        "title": "软件性质与无担保",
+        "body": "{{appName}} 是本地优先的实验性开发工具，按「现状」提供，不对安全性、可用性、准确性、不中断运行或适合特定用途作明示或默示担保。功能可能变更、中断或包含缺陷。你应自行判断是否适合你的工作，并在使用前备份重要数据。"
+      },
+      "agents": {
+        "title": "Agent 与本机执行",
+        "body": "你启用的 ACP Agent（含内置 Agent）在本机以与 {{appName}} 相同的权限运行。它们可以读写、修改或删除文件，执行终端命令，安装软件，访问网络，读取环境变量与凭据，并启动其他程序。{{appName}} 不为 Agent 提供操作系统级沙箱，也不能保证阻止有害、错误或越权操作。无工作区会话使用专用临时目录，并不构成安全隔离。权限请求、会话权限模式和「始终允许」只是你自己的控制开关，不是安全边界。你必须亲自监督 Agent 行为。Agent 在崩溃、取消或中断前可能已经产生不可撤销的副作用；中断的回合不会自动重试，已发生的文件、网络或命令变更也不会被回滚。"
+      },
+      "thirdPartyAgents": {
+        "title": "第三方 Agent、安装与凭据",
+        "body": "Agent 二进制、适配器、模型与账号由第三方提供。官方 Registry 之外的用户声明或社区 ACP Agent 不表示 {{appName}} 已验证其来源或行为。部分分发仅在首次使用时记录指纹（TOFU），这不等于完整性验证。安装会写入你的用户环境（PATH、npm、uv 等），并可能修改本机已有工具。凭据通常由对应 Agent 的原生配置或你的外部环境持有；{{appName}} 不采集终端登录过程，也不对账号盗用、订阅费用、API Key 泄露、自定义端点或封禁负责。你须遵守各 Agent 与模型供应商的服务条款。"
+      },
+      "plugins": {
+        "title": "插件与扩展",
+        "body": "你安装或启用的 {{appName}} 插件（含链接开发插件、官方产品 MCP、会话增强与多智能体协同插件）采用全信任模型。插件的 Worker、界面和声明的 Runtime 拥有与宿主相同的本机文件、网络、环境变量和进程能力。独立进程或界面框架只用于生命周期与崩溃隔离，不是安全沙箱。Agent 原生插件（Skill、MCP、Hook 等）的信任由其各自 Runtime 负责。不要安装你不信任的来源。"
+      },
+      "git": {
+        "title": "Git、工作区与破坏性操作",
+        "body": "{{appName}} 会创建与管理 Git worktree，并可能执行提交、变基、重置、还原、强制推送、克隆与拉取请求。这些操作可能改写本地和远程历史、丢弃未提交更改或覆盖远程分支。仓库中的 setup、cleanup、archive 与开发服务器脚本会经系统 shell 执行。恶意或不可信仓库可能包含有害脚本或 Git 内容。初始化时安装 Git 或 GitHub CLI 会改动你的本机环境。你对所有 Git 操作及其后果负责。"
+      },
+      "automation": {
+        "title": "自动化、工作流与无人值守运行",
+        "body": "自动化与工作流可在你不在场时启动 Agent 回合。默认每次运行使用独立 worktree，但共享根目录模式会直接在你指定的仓库中工作。运行不会自动合并、推送、发布或部署，但运行中的 Agent 仍可能按已授予的权限执行这些操作。暂停、取消或中断不会回滚已经发生的文件或外部副作用。定时任务可能在你不在场时产生费用与变更。"
+      },
+      "delegation": {
+        "title": "多智能体委派",
+        "body": "多智能体协同允许父 Agent 创建子会话并并行执行任务。子 Agent 在其工作区内同样具有本机执行能力，其操作可能同时修改文件、执行命令或调用外部服务。你对委派策略、深度、结果以及子 Agent 的副作用负责。"
+      },
+      "remote": {
+        "title": "远程访问、配对与隧道",
+        "body": "开启远程访问、设备配对、局域网发布或主机隧道后，已配对的工作站设备几乎可以接管会话、文件、Git、终端、工作流、自动化与已安装插件；伴随设备可以查看会话并处理审批。配对邀请包含可达地址；公网 HTTP 可能以明文传输。FRP、Tailscale、Cloudflare 等隧道由你自行配置与维护，{{appName}} 不运营这些中继。任何取得已授权设备、邀请或凭据的人，都可能对你的 Host 执行与你本人等价的操作。你必须保管凭据、及时撤销失联设备，并理解把 Host 暴露到网络的风险。"
+      },
+      "channels": {
+        "title": "聊天通道与外部指令",
+        "body": "聊天通道（Telegram、飞书、QQ、微信、Webhook 等）可将会话通知外发，并允许授权发送者远程发任务、审批权限、取消回合。通道密钥按产品设计以明文保存在本机配置中。授权名单为空时入站关闭；一旦授权，该发送者的指令与桌面操作等效。泄露的机器人 Token、错误的授权名单或被冒用的发送者身份可能导致未授权操作。"
+      },
+      "data": {
+        "title": "数据、模型服务与隐私",
+        "body": "会话、事件、草稿、产物元数据与配置主要保存在本机。当你使用第三方模型或 Agent 时，提示词、代码、文件摘录、仓库上下文与对话内容可能被发送到对应供应商或其自定义端点。{{appName}} 不控制这些服务如何存储或使用数据。崩溃报告仅在你选择提交时离开本机。伴随设备上的离线缓存为只读。你有责任遵守适用的数据保护、保密与出口管制要求，以及各供应商条款。"
+      },
+      "runtime": {
+        "title": "预览、脚本与终端",
+        "body": "Web Preview 使用独立 Chromium 运行时加载本地或远程页面，可能访问你的开发服务器、Cookie 与下载。交互式终端打开真实登录壳。外部编辑器由你选择并在本机启动。仓库脚本与 Agent 创建的终端命令在你的用户环境中执行。这些能力都不是隔离沙箱。"
+      },
+      "costs": {
+        "title": "费用、合规与第三方条款",
+        "body": "Agent 订阅、API 调用、云模型、自动化重复运行与第三方插件产生的费用由你的账户承担。{{appName}} 不承担欠费、配额耗尽或意外高额账单。你须确保使用方式合法，并遵守所连接服务、开源许可证与所在司法辖区的规定。本软件生成或修改的代码、提交与发布内容的知识产权与法律责任由你承担；你应在用于生产前自行审查。"
+      },
+      "liability": {
+        "title": "责任限制",
+        "body": "在适用法律允许的最大范围内，{{appName}} 及其开发者、贡献者不对下列事项承担责任：数据丢失或损坏；代码、仓库或生产环境被破坏；安全事件、凭据泄露或未授权访问；第三方服务中断、变更或违约；自动化、委派、远程访问或聊天通道造成的意外后果；生成代码的质量、合法性、知识产权或适用性；利润、商誉或其他间接、附带、特殊或后果性损害。你应自行备份重要工作并监督所有 Agent 与插件行为。本声明构成你使用本软件的条件；某一条款无法执行时，其余条款仍然有效。"
+      }
+    },
+    "versionControlTitle": "版本管理器配置",
+    "versionControlDescription": "本机还没有 Git。填写提交所用的名称和邮箱后，将安装 Git 和 GitHub CLI。",
+    "gitUserNameLabel": "名称",
+    "gitUserNamePlaceholder": "例如：张三",
+    "gitUserEmailLabel": "邮箱",
+    "gitUserEmailPlaceholder": "name@example.com",
+    "gitIdentityRequired": "请填写名称和邮箱",
+    "gitEmailInvalid": "请输入有效邮箱",
+    "installingVersionControl": "正在安装 Git 和 GitHub CLI…",
+    "retryVersionControl": "重试安装",
+    "versionControlInstallFailed": "安装失败，请重试",
     "back": "上一步",
     "next": "下一步",
     "startJourney": "开始安装并继续",

@@ -40,7 +40,7 @@ const EXTERNAL_LINKS = [
   {
     label: 'Docs',
     icon: BookOpen,
-    href: 'https://vibex.com/docs',
+    href: 'https://vibex.xforever.xin/docs',
   },
   {
     label: 'Support',

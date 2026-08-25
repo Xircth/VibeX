@@ -82,6 +82,7 @@
   },
   "sessionHub": {
     "updateStatusFailed": "更新会话状态失败，请稍后重试。",
+    "pinFailed": "无法置顶会话。",
     "restoreArchivedFailed": "恢复归档会话失败，请稍后重试。",
     "deleteSessionTitle": "删除会话",
     "deleteSessionConfirm": "确定删除会话“{{name}}”吗？正在执行中的会话不会被删除。",

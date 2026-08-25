@@ -29,6 +29,7 @@ import {
   pairingDisplayOrigins,
   pairingLiveStatus,
   pairingVisibleOrigins,
+  type PairingListenAddress,
   type PairingReachability,
   type PairingTtlSeconds,
 } from './pairingInvitation';
@@ -39,12 +40,14 @@ type PairingPreset = 'companion' | 'workstation';
 
 const EMPTY_HOST_URLS: string[] = [];
 const EMPTY_REACHABILITY: PairingReachability[] = [];
+const EMPTY_LISTEN_ADDRESSES: PairingListenAddress[] = [];
 
 export function DevicePairingPanel({
   transport,
   hostUrls = EMPTY_HOST_URLS,
   hostId,
   reachability = EMPTY_REACHABILITY,
+  listenAddresses = EMPTY_LISTEN_ADDRESSES,
   autoIssue = false,
   serviceRunning = true,
   onEnsureListening,
@@ -53,6 +56,7 @@ export function DevicePairingPanel({
   hostUrls?: string[];
   hostId?: string | null;
   reachability?: PairingReachability[];
+  listenAddresses?: PairingListenAddress[];
   autoIssue?: boolean;
   serviceRunning?: boolean;
   onEnsureListening?: () => Promise<string[]>;
@@ -237,8 +241,13 @@ export function DevicePairingPanel({
   );
 
   const displayOrigins = useMemo(
-    () => pairingDisplayOrigins(resolvedReachability, resolvedUrls),
-    [resolvedReachability, resolvedUrls]
+    () =>
+      pairingDisplayOrigins(
+        resolvedReachability,
+        resolvedUrls,
+        listenAddresses
+      ),
+    [listenAddresses, resolvedReachability, resolvedUrls]
   );
   const visibleOrigins = pairingVisibleOrigins(
     displayOrigins,
@@ -479,7 +488,12 @@ export function DevicePairingPanel({
                     className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
                     title={item.origin}
                   >
-                    {item.origin}
+                    {item.interface ? (
+                      <span className="settings-pairing-addresses__iface">
+                        {item.interface}
+                      </span>
+                    ) : null}
+                    <span>{item.origin}</span>
                   </p>
                   <Button
                     variant="outline"

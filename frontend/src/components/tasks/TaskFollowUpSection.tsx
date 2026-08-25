@@ -3,7 +3,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { AgentKind } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
@@ -107,7 +107,7 @@ import {
 } from '@/lib/codexGoalState';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
-import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
+import { useConversationAvailableCommands } from '@/features/conversation/useConversationAvailableCommands';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -144,7 +144,6 @@ export function TaskFollowUpSection({
   sessionState,
 }: TaskFollowUpSectionProps) {
   const { t } = useTranslation('app');
-  const { availableCommandsByScope } = useAgentWorkbench();
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -163,9 +162,7 @@ export function TaskFollowUpSection({
     isNewSessionMode,
     sessionId: session?.id,
   });
-  const availableCommands = sessionId
-    ? (availableCommandsByScope[sessionId] ?? [])
-    : [];
+  const liveCommands = useConversationAvailableCommands(sessionId);
   const { profiles, config } = useUserSystem();
   const { selectedSessionLabel, compactSessionLabel } =
     getComposerSessionLabels({
@@ -974,7 +971,8 @@ export function TaskFollowUpSection({
                 repoIds: repos.map((repo) => repo.id),
                 executorProfile: effectiveExecutorProfile,
                 sessionId,
-                availableCommands,
+                availableCommands: liveCommands.commands,
+                commandsLoading: liveCommands.loading,
                 transport: configuredBackendTransport,
               }}
               onSubmit={handleComposerSubmit}

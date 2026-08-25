@@ -4,6 +4,7 @@ import { Download, Upload } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { conversationApi } from './conversationApi';
 import type { ConversationBundlePayload } from 'shared/types';
@@ -69,17 +70,15 @@ export function ConversationBundlePanel() {
       aria-labelledby="conversation-bundle-title"
     >
       <div className="space-y-1">
-        <div id="conversation-bundle-title" className="text-xs font-semibold">
+        <div id="conversation-bundle-title" className="text-sm font-semibold">
           {t('bundle.title')}
         </div>
-        <div className="mt-1 text-[11px] text-muted-foreground">
-          {t('bundle.description')}
-        </div>
+        <p className="settings-row__description">{t('bundle.description')}</p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <fieldset className="min-w-0 space-y-2 border-0 p-0">
-          <legend className="mb-2 text-[11px] font-medium text-foreground">
+          <legend className="mb-2 text-sm font-medium text-foreground">
             {t('bundle.exportGroupTitle')}
           </legend>
           <Input
@@ -98,8 +97,7 @@ export function ConversationBundlePanel() {
               disabled={busy}
             />
             <Button
-              size="sm"
-              className="h-8 shrink-0 text-xs"
+              className="shrink-0"
               onClick={() => void exportBundle()}
               disabled={busy}
             >
@@ -110,7 +108,7 @@ export function ConversationBundlePanel() {
         </fieldset>
 
         <fieldset className="min-w-0 space-y-2 border-0 p-0">
-          <legend className="mb-2 text-[11px] font-medium text-foreground">
+          <legend className="mb-2 text-sm font-medium text-foreground">
             {t('bundle.importGroupTitle')}
           </legend>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -123,8 +121,7 @@ export function ConversationBundlePanel() {
             />
             <Button
               variant="outline"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
+              className="shrink-0"
               onClick={() => void importBundle()}
               disabled={busy || !bundleText.trim()}
             >
@@ -136,12 +133,9 @@ export function ConversationBundlePanel() {
       </div>
 
       <div className="space-y-2">
-        <label
-          htmlFor="conversation-bundle-json"
-          className="text-[11px] font-medium text-foreground"
-        >
+        <Label htmlFor="conversation-bundle-json">
           {t('bundle.jsonLabel')}
-        </label>
+        </Label>
         <Textarea
           id="conversation-bundle-json"
           value={bundleText}

@@ -32,9 +32,13 @@ const BUILT_IN_ICON_PATHS: Partial<
     light: '/agents/codex-light.svg',
     dark: '/agents/codex-dark.svg',
   },
+  antigravity: {
+    light: '/agents/antigravity.svg',
+    dark: '/agents/antigravity.svg',
+  },
   gemini: {
-    light: '/agents/gemini-light.svg',
-    dark: '/agents/gemini-dark.svg',
+    light: '/agents/antigravity.svg',
+    dark: '/agents/antigravity.svg',
   },
   openclaw: {
     light: '/agents/openclaw.svg',
@@ -67,7 +71,8 @@ const BUILT_IN_ICON_PATHS: Partial<
 const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
-  gemini: 'Gemini CLI',
+  antigravity: 'Google Antigravity',
+  gemini: 'Google Antigravity',
   openclaw: 'OpenClaw',
   opencode: 'OpenCode',
   cline: 'Cline',

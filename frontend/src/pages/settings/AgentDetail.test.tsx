@@ -83,6 +83,7 @@ describe('AgentDetail', () => {
           "button:not([role='switch']):not([role='checkbox'])"
         ) ||
         rule.selector === '.settings-page .agent-preflight-layout' ||
+        rule.selector.includes("data-expanded='true'") ||
         rule.selector === '.settings-page .agent-preflight-trigger' ||
         rule.selector === '.settings-page .agent-preflight-identity' ||
         rule.selector === '.settings-page .agent-preflight-identity strong' ||
@@ -132,6 +133,8 @@ describe('AgentDetail', () => {
       const layout = runtimeResult.querySelector('.agent-preflight-layout');
       expect(layout).not.toBeNull();
       expect(getComputedStyle(layout!).minHeight).toBe('52px');
+      expect(getComputedStyle(layout!).alignItems).toBe('center');
+      expect(getComputedStyle(runtimeToggle).alignSelf).toBe('center');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
         '160px minmax(320px, 1fr) auto'
       );
@@ -160,6 +163,8 @@ describe('AgentDetail', () => {
       );
 
       await userEvent.click(runtimeToggle);
+      expect(getComputedStyle(layout!).alignItems).toBe('start');
+      expect(getComputedStyle(runtimeToggle).alignSelf).toBe('start');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
         '160px minmax(320px, 1fr) auto'
       );

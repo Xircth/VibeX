@@ -1,4 +1,5 @@
 import type {
+  AgentAvailableCommand,
   AgentSessionConfigOption,
   AgentSessionControlsSnapshot,
   AgentSessionMode,
@@ -83,6 +84,8 @@ export type ConversationStoreEntry = {
   // composer's mode/config picker; empty until the agent advertises them.
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
+  /** Agent-advertised slash/skill catalog. `null` until the first update. */
+  availableCommands: AgentAvailableCommand[] | null;
 };
 
 export type ConversationStoreState = {
@@ -173,6 +176,11 @@ export function conversationStoreReducer(
             action.detail.session_config_options.length > 0
               ? action.detail.session_config_options
               : entry.sessionConfigOptions,
+          availableCommands:
+            action.detail.available_commands !== undefined &&
+            action.detail.available_commands !== null
+              ? action.detail.available_commands
+              : entry.availableCommands,
         };
       });
     case 'load_error':
@@ -189,6 +197,8 @@ export function conversationStoreReducer(
           modes: action.controls.modes,
         },
         sessionConfigOptions: action.controls.config_options,
+        availableCommands:
+          action.controls.available_commands ?? entry.availableCommands,
       }));
     case 'row_ops':
       return updateEntry(state, action.batch.conversation_id, (entry) =>
@@ -316,6 +326,7 @@ function applyRowOpBatch(
       : entry.sessionModes,
     sessionConfigOptions:
       batch.session_config_options ?? entry.sessionConfigOptions,
+    availableCommands: batch.available_commands ?? entry.availableCommands,
   };
 }
 
@@ -542,6 +553,7 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     optimisticTurns: [],
     sessionModes: { current: null, modes: [] },
     sessionConfigOptions: [],
+    availableCommands: null,
   };
 }
 

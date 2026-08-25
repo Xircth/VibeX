@@ -24,10 +24,28 @@ describe('encodePairingInvitation', () => {
     expect(invitation).not.toContain('127.0.0.1');
     expect(invitation).not.toContain('vbx_device_');
   });
+
+  it('keeps a published HTTP origin in the invitation payload', () => {
+    const invitation = encodePairingInvitation({
+      hostId: 'host-stable-1',
+      preset: 'companion',
+      pairingId: 'pair-1',
+      pairingToken: 'K7M2NPQX',
+      expiresAt: '2026-08-18T06:00:00Z',
+      reachability: [
+        { origin: 'http://47.109.140.92:13630', kind: 'published' },
+        { origin: 'http://192.168.1.20:17891', kind: 'lan' },
+      ],
+    });
+
+    expect(invitation).toContain('http://47.109.140.92:13630');
+    expect(invitation).toContain('"kind":"published"');
+    expect(invitation).toContain('K7M2NPQX');
+  });
 });
 
 describe('pairingDisplayOrigins', () => {
-  it('keeps LAN first and includes loopback only in the expanded list', () => {
+  it('keeps published first and hides loopback until expanded', () => {
     const origins = pairingDisplayOrigins(
       [
         { origin: 'https://host.example.ts.net', kind: 'tailscale' },
@@ -37,14 +55,45 @@ describe('pairingDisplayOrigins', () => {
     );
 
     expect(origins.map((item) => item.origin)).toEqual([
-      'http://192.168.1.20:17891',
       'https://host.example.ts.net',
+      'http://192.168.1.20:17891',
       'http://127.0.0.1:17891',
     ]);
     expect(pairingVisibleOrigins(origins, false)).toEqual([
+      { origin: 'https://host.example.ts.net', kind: 'published' },
       { origin: 'http://192.168.1.20:17891', kind: 'lan' },
     ]);
     expect(pairingVisibleOrigins(origins, true)).toEqual(origins);
+  });
+
+  it('attaches NIC names to matching listen addresses', () => {
+    const origins = pairingDisplayOrigins(
+      [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
+      ['http://192.168.1.20:17891', 'http://[fd7a:115c:a1e0::1]:17891'],
+      [
+        {
+          origin: 'http://192.168.1.20:17891',
+          interface: 'en0',
+        },
+        {
+          origin: 'http://[fd7a:115c:a1e0::1]:17891',
+          interface: 'utun4',
+        },
+      ]
+    );
+
+    expect(origins).toEqual([
+      {
+        origin: 'http://192.168.1.20:17891',
+        kind: 'lan',
+        interface: 'en0',
+      },
+      {
+        origin: 'http://[fd7a:115c:a1e0::1]:17891',
+        kind: 'lan',
+        interface: 'utun4',
+      },
+    ]);
   });
 });
 

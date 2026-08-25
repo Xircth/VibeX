@@ -1,9 +1,16 @@
 import { useState, type ComponentProps } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionHubSidebar } from './SessionHubSidebar';
+import { SESSION_LIST_NOTICE_DURATION_MS } from './utils';
 
 vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => (
@@ -24,6 +31,7 @@ vi.mock('@dnd-kit/core', () => ({
     setNodeRef: vi.fn(),
     isOver: false,
   }),
+  useDndMonitor: vi.fn(),
   useSensor: vi.fn(),
   useSensors: vi.fn(() => []),
 }));
@@ -48,6 +56,28 @@ vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({
     config: { previous_session_continuation_enabled: false },
   }),
+}));
+
+const listView = vi.hoisted(() => ({
+  current: 'status' as 'status' | 'workspace',
+}));
+
+vi.mock('@/lib/kanbanSessionListView', () => ({
+  useKanbanSessionListView: () => listView.current,
+}));
+
+vi.mock('@/components/workspace-session-list/WorkspaceSessionList', () => ({
+  WorkspaceSessionList: ({
+    sessions,
+  }: {
+    sessions: Array<{ id: string; fullName: string }>;
+  }) => (
+    <div data-testid="workspace-session-list">
+      {sessions.map((session) => (
+        <div key={session.id}>{session.fullName}</div>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('@/components/ui/scroll-area', () => ({
@@ -88,13 +118,19 @@ beforeAll(() => {
 type SidebarProps = ComponentProps<typeof SessionHubSidebar>;
 
 function Harness({
+  sessions = [],
   archivedSessions = [],
   isArchiveView = false,
+  deleteSuccessMessage = null,
+  deleteErrorMessage = null,
   onArchiveViewChange = vi.fn(),
   onRestoreArchivedSession = vi.fn(),
 }: {
+  sessions?: SidebarProps['sessions'];
   archivedSessions?: SidebarProps['archivedSessions'];
   isArchiveView?: boolean;
+  deleteSuccessMessage?: string | null;
+  deleteErrorMessage?: string | null;
   onArchiveViewChange?: SidebarProps['onArchiveViewChange'];
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
 }) {
@@ -108,7 +144,7 @@ function Harness({
       <SessionHubSidebar
         width={320}
         isLoading={false}
-        sessions={[]}
+        sessions={sessions}
         archivedSessions={archivedSessions}
         groupedSessions={{}}
         flatSessions={[]}
@@ -171,8 +207,8 @@ function Harness({
         expandedSections={{}}
         isDeleteMode={false}
         selectedSessionIdSet={new Set()}
-        deleteErrorMessage={null}
-        deleteSuccessMessage={null}
+        deleteErrorMessage={deleteErrorMessage}
+        deleteSuccessMessage={deleteSuccessMessage}
         isDeletingSessions={false}
         canCreateSession={true}
         isCreatePending={false}
@@ -209,6 +245,10 @@ function Harness({
 }
 
 describe('SessionHubSidebar', () => {
+  beforeEach(() => {
+    listView.current = 'status';
+  });
+
   it('keeps the create-session popover open when the workspace select is clicked twice', async () => {
     const user = userEvent.setup();
     const { container } = render(<Harness />);
@@ -312,5 +352,102 @@ describe('SessionHubSidebar', () => {
     await user.click(screen.getByText('移至会话列表'));
 
     expect(onRestoreArchivedSession).toHaveBeenCalledWith(archivedSession);
+  });
+
+  it('reuses the workspace session list when grouping by workspace', () => {
+    const session: SidebarProps['sessions'][number] = {
+      id: 'session-1',
+      placement: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+      },
+      workspace: {
+        id: 'workspace-1',
+        project_id: 'project-1',
+        task_id: 'task-1',
+        parent_workspace_id: null,
+        container_ref: null,
+        branch: 'main',
+        use_worktree: true,
+        agent_working_dir: null,
+        setup_completed_at: null,
+        created_at: '2026-04-15T00:00:00.000Z',
+        updated_at: '2026-04-15T00:00:00.000Z',
+        archived: false,
+        pinned: false,
+        name: 'Main',
+      },
+      task: null,
+      taskId: null,
+      name: 'Workspace grouped session',
+      status: 'todo',
+      branch: 'main',
+      workspaceName: 'Main',
+      workspaceDisplayLabel: 'Main · main',
+      executor: null,
+      updatedAt: '2026-04-15T00:00:00.000Z',
+      createdAt: '2026-04-15T00:00:00.000Z',
+      firstPrompt: null,
+      fullName: 'Workspace grouped session',
+      shortName: 'Workspace',
+      taskTitle: null,
+      isCompleted: false,
+      isRunning: false,
+      isErrored: false,
+      pinnedAt: null,
+    };
+
+    const { rerender } = render(<Harness sessions={[session]} />);
+
+    expect(
+      screen.queryByTestId('workspace-session-list')
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '排序' })).toBeInTheDocument();
+
+    listView.current = 'workspace';
+    rerender(<Harness sessions={[session]} />);
+
+    expect(screen.getByTestId('workspace-session-list')).toBeInTheDocument();
+    expect(screen.getByText('Workspace grouped session')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '排序' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the archive drop zone hidden until a session is dragged', () => {
+    render(<Harness sessions={[]} />);
+
+    expect(screen.queryByText('拖到这里归档')).not.toBeInTheDocument();
+    expect(document.querySelector('.session-hub-inset')).toHaveAttribute(
+      'data-expanded',
+      'false'
+    );
+  });
+
+  it('shows a dismissible session notice below the toolbar', () => {
+    render(<Harness deleteSuccessMessage="已删除 1 个会话。" />);
+
+    expect(screen.getByText('已删除 1 个会话。')).toBeInTheDocument();
+    expect(document.querySelector('.session-hub-inset')).toHaveAttribute(
+      'data-expanded',
+      'true'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByText('已删除 1 个会话。')).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it('auto-dismisses session notices after 8 seconds', () => {
+    vi.useFakeTimers();
+    render(<Harness deleteErrorMessage="删除失败" />);
+
+    expect(screen.getByText('删除失败')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(SESSION_LIST_NOTICE_DURATION_MS);
+    });
+    expect(screen.queryByText('删除失败')).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

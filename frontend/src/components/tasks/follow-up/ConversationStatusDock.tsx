@@ -1,11 +1,16 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { RefreshCw, RotateCcw, X } from 'lucide-react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
-import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
+import {
+  rememberVisibleSessionAnnouncements,
+  useConversationStatusDismissal,
+} from '@/features/conversation/conversationStatusDismissal';
+import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { SessionNoticeActions } from './SessionNoticeActions';
 
 type ConversationStatusDockProps = {
@@ -25,6 +30,10 @@ export function ConversationStatusDock({
   const { dismiss: dismissNotice, isDismissed } =
     useConversationStatusDismissal(dismissalScope);
   const visibleNotices = notices.filter((notice) => !isDismissed(notice));
+
+  useEffect(() => {
+    rememberVisibleSessionAnnouncements(dismissalScope, visibleNotices);
+  }, [dismissalScope, visibleNotices]);
 
   if (visibleNotices.length === 0 && !localError) return null;
 
@@ -142,7 +151,8 @@ export function ConversationStatusDock({
                   {notice.notice.action ? (
                     <SessionNoticeActions action={notice.notice.action} />
                   ) : null}
-                  {notice.onRebind ? (
+                  {notice.onRebind &&
+                  sessionNoticeNeedsRebind(notice.notice, notice.id) ? (
                     <button
                       type="button"
                       className="composer-status-action"

@@ -28,6 +28,69 @@ export type AgentValidationError =
 
 const LOADING_AGENT_ROWS = 4;
 
+function DiscoveryProgressMeter({
+  progress,
+}: {
+  progress: AgentDiscoveryProgressView;
+}) {
+  const { t } = useTranslation('dialogs');
+  return (
+    <div className="onboarding-discovery-progress">
+      <div className="onboarding-discovery-progress-heading">
+        <span className="onboarding-discovery-progress-title">
+          <Loader2
+            className="h-4 w-4 motion-safe:animate-spin"
+            aria-hidden="true"
+          />
+          <strong>{t('onboarding.detectingAgents')}</strong>
+        </span>
+        {progress.total > 0 ? (
+          <span>
+            {t('onboarding.discoveryProgress', {
+              completed: progress.completed,
+              total: progress.total,
+            })}
+          </span>
+        ) : (
+          <span>{t('onboarding.discoveryPreparing')}</span>
+        )}
+      </div>
+      <div
+        className={cn(
+          'onboarding-discovery-progress-track',
+          progress.total === 0 && 'is-indeterminate'
+        )}
+        role="progressbar"
+        aria-label={t('onboarding.discoveryProgressAria')}
+        aria-valuemin={0}
+        aria-valuenow={progress.total > 0 ? progress.completed : undefined}
+        aria-valuemax={progress.total > 0 ? progress.total : undefined}
+      >
+        <span
+          style={
+            progress.total > 0
+              ? {
+                  width: `${Math.min(
+                    100,
+                    (progress.completed / progress.total) * 100
+                  )}%`,
+                }
+              : undefined
+          }
+        />
+      </div>
+      <div className="onboarding-discovery-progress-meta">
+        <span>
+          {t('onboarding.discoveryFound', {
+            count: progress.found,
+          })}
+        </span>
+        <span>{t('onboarding.discoveryNonBlocking')}</span>
+      </div>
+    </div>
+  );
+}
+
 function DefaultAgentLabel({ agent }: { agent: OnboardingAgentOption }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
@@ -87,10 +150,13 @@ export function AgentSetupPicker({
     validationError === 'default-required' &&
     hasEnabledAgents &&
     defaultAgentId === null;
-  const discoveryActive =
+  const discoveryBusy =
     discoveryProgress?.phase === 'pending' ||
     discoveryProgress?.phase === 'checking';
   const checkedAgentIds = new Set(discoveryProgress?.checked_agent_ids ?? []);
+  const loadingLabel = discoveryBusy
+    ? t('onboarding.detectingAgents')
+    : t('onboarding.loadingAgentCatalog');
 
   useEffect(() => {
     if (hasEnabledAgents) {
@@ -105,7 +171,7 @@ export function AgentSetupPicker({
       <div
         className="onboarding-agent-loading"
         role="status"
-        aria-label={t('onboarding.loadingAgentCatalog')}
+        aria-label={loadingLabel}
         aria-live="polite"
       >
         <div className="onboarding-agent-loading-indicator">
@@ -113,8 +179,11 @@ export function AgentSetupPicker({
             className="h-4 w-4 motion-safe:animate-spin"
             aria-hidden="true"
           />
-          <strong>{t('onboarding.loadingAgentCatalog')}</strong>
+          <strong>{loadingLabel}</strong>
         </div>
+        {discoveryProgress && discoveryBusy ? (
+          <DiscoveryProgressMeter progress={discoveryProgress} />
+        ) : null}
         <div
           className="onboarding-agent-loading-preview"
           data-testid="agent-loading-preview"
@@ -154,68 +223,8 @@ export function AgentSetupPicker({
 
   return (
     <div className="onboarding-agent-picker">
-      {discoveryActive && discoveryProgress ? (
-        <div className="onboarding-discovery-progress">
-          <div className="onboarding-discovery-progress-heading">
-            <span className="onboarding-discovery-progress-title">
-              <Loader2
-                className="h-4 w-4 motion-safe:animate-spin"
-                aria-hidden="true"
-              />
-              <strong>{t('onboarding.detectingAgents')}</strong>
-            </span>
-            {discoveryProgress.total > 0 ? (
-              <span>
-                {t('onboarding.discoveryProgress', {
-                  completed: discoveryProgress.completed,
-                  total: discoveryProgress.total,
-                })}
-              </span>
-            ) : (
-              <span>{t('onboarding.discoveryPreparing')}</span>
-            )}
-          </div>
-          <div
-            className={cn(
-              'onboarding-discovery-progress-track',
-              discoveryProgress.total === 0 && 'is-indeterminate'
-            )}
-            role="progressbar"
-            aria-label={t('onboarding.discoveryProgressAria')}
-            aria-valuemin={0}
-            aria-valuenow={
-              discoveryProgress.total > 0
-                ? discoveryProgress.completed
-                : undefined
-            }
-            aria-valuemax={
-              discoveryProgress.total > 0 ? discoveryProgress.total : undefined
-            }
-          >
-            <span
-              style={
-                discoveryProgress.total > 0
-                  ? {
-                      width: `${Math.min(
-                        100,
-                        (discoveryProgress.completed /
-                          discoveryProgress.total) *
-                          100
-                      )}%`,
-                    }
-                  : undefined
-              }
-            />
-          </div>
-          <div className="onboarding-discovery-progress-meta">
-            <span>
-              {t('onboarding.discoveryFound', {
-                count: discoveryProgress.found,
-              })}
-            </span>
-            <span>{t('onboarding.discoveryNonBlocking')}</span>
-          </div>
-        </div>
+      {discoveryBusy && discoveryProgress ? (
+        <DiscoveryProgressMeter progress={discoveryProgress} />
       ) : discoveryProgress?.timed_out ? (
         <div className="onboarding-discovery-timeout" role="status">
           <CircleAlert aria-hidden="true" />
@@ -228,7 +237,7 @@ export function AgentSetupPicker({
           {agents.map((agent) => {
             const enabled = enabledAgentIds.has(agent.agentId);
             const checking =
-              discoveryActive && !checkedAgentIds.has(agent.agentId);
+              discoveryBusy && !checkedAgentIds.has(agent.agentId);
             return (
               <article
                 key={agent.agentId}
@@ -314,6 +323,7 @@ export function AgentSetupPicker({
           <Select
             value={defaultAgentId ?? ''}
             open={defaultAgentOpen}
+            modal={false}
             onOpenChange={(open) => {
               if (open && !hasEnabledAgents) {
                 setShowEnableAgentPrompt(true);
@@ -343,7 +353,7 @@ export function AgentSetupPicker({
             </SelectTrigger>
             <SelectContent
               align="start"
-              className="onboarding-popover-layer max-h-72"
+              className="onboarding-popover-layer !z-[13000] max-h-72"
             >
               {enabledAgents.map((agent) => (
                 <SelectItem key={agent.agentId} value={agent.agentId}>

@@ -85,6 +85,7 @@ describe('WorktreeSettings', () => {
     expect(selectedProject.closest('.settings-worktree-board')).toHaveClass(
       'settings-worktree-board'
     );
+    expect(selectedProject.closest('.settings-card')).toBeNull();
     expect(await screen.findByDisplayValue('pnpm install')).toBeInTheDocument();
     expect(screen.getByDisplayValue('pnpm run clean')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton')).toHaveValue(4);

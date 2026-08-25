@@ -38,11 +38,15 @@ import {
   isSessionGroup,
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
-  SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
+import {
+  ensureWelcomeEditorGroup,
+  isEditorColumnCrushed,
+  restoreFlexibleEditorColumn,
+} from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
   registerImagePreviewSource,
@@ -241,57 +245,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [getBottomGroup, getLeftGroup, getRightGroup]
   );
 
-  const ensureWelcomeEditorGroup = useCallback(() => {
+  const recreateWelcomeEditorGroup = useCallback(() => {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
 
-    const existingEditorGroups = getEditorGroups(dockviewApi);
-    if (existingEditorGroups.length > 0) {
-      normalizeEditorGroupIds(dockviewApi);
-      return existingEditorGroups[0];
-    }
-
-    const existingWelcome = dockviewApi.getPanel(PANEL_IDS.WELCOME);
-    if (existingWelcome) {
-      normalizeEditorGroupIds(dockviewApi);
-      return existingWelcome.group;
-    }
-
-    const bottomGroup = getBottomGroup(dockviewApi);
-    const bottomReferencePanel = bottomGroup?.panels[0];
-    const leftGroup = getLeftGroup(dockviewApi);
-    const referencePanel =
-      bottomReferencePanel ??
-      leftGroup?.panels[0] ??
-      dockviewApi.panels.find(
-        (panel) =>
-          !BOTTOM_PANEL_IDS.has(panel.id) && !SESSION_PANEL_IDS.has(panel.id)
-      );
-
-    const welcomePanel = dockviewApi.addPanel({
-      id: PANEL_IDS.WELCOME,
-      component: PANEL_IDS.WELCOME,
-      title: 'Welcome',
-      ...(referencePanel
-        ? {
-            position: {
-              referencePanel,
-              direction: bottomReferencePanel
-                ? ('above' as const)
-                : leftGroup
-                  ? ('right' as const)
-                  : ('within' as const),
-            },
-          }
-        : {}),
-      inactive: true,
+    const group = ensureWelcomeEditorGroup(dockviewApi, {
+      arrangement: getLayoutArrangement(),
+      sessionWidth: useLayoutStore.getState().rightPanelWidth,
     });
-
-    (welcomePanel.group as { id: string }).id =
-      getNextEditorGroupId(dockviewApi);
     normalizeEditorGroupIds(dockviewApi);
-    return welcomePanel.group;
-  }, [getBottomGroup, getEditorGroups, getLeftGroup, normalizeEditorGroupIds]);
+    return group;
+  }, [normalizeEditorGroupIds]);
 
   const getActiveEditorGroup = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -308,8 +272,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return dockviewApi.activePanel.group;
     }
 
-    return getEditorGroups(dockviewApi)[0] ?? ensureWelcomeEditorGroup();
-  }, [ensureWelcomeEditorGroup, getEditorGroups]);
+    return getEditorGroups(dockviewApi)[0] ?? recreateWelcomeEditorGroup();
+  }, [getEditorGroups, recreateWelcomeEditorGroup]);
 
   const addPanelToActiveEditorGroup = useCallback(
     (options: AddPanelOptions) => {
@@ -318,6 +282,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const targetGroup = getActiveEditorGroup();
       if (!targetGroup) return undefined;
+
+      if (isEditorColumnCrushed(dockviewApi)) {
+        restoreFlexibleEditorColumn(
+          dockviewApi,
+          getLayoutArrangement(),
+          useLayoutStore.getState().rightPanelWidth
+        );
+      }
 
       targetGroup.api.setVisible(true);
 
@@ -599,7 +571,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       const targetGroup =
-        getEditorGroups(dockviewApi)[0] ?? ensureWelcomeEditorGroup();
+        getEditorGroups(dockviewApi)[0] ?? recreateWelcomeEditorGroup();
       const referencePanel = targetGroup?.panels[0];
       if (!referencePanel) return;
 
@@ -625,7 +597,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     },
     [
       applyDefaultTerminalHeight,
-      ensureWelcomeEditorGroup,
+      recreateWelcomeEditorGroup,
       getBottomGroup,
       getEditorGroups,
       normalizeEditorGroupIds,
@@ -648,7 +620,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
     const editorGroups = getEditorGroups(dockviewApi);
     if (editorGroups.length === 0) {
-      const welcomeGroup = ensureWelcomeEditorGroup();
+      const welcomeGroup = recreateWelcomeEditorGroup();
       welcomeGroup?.api.setVisible(true);
       dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
       return;
@@ -669,13 +641,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (focusPanel) {
       focusPanel.api.setActive();
     } else {
-      const welcomeGroup = ensureWelcomeEditorGroup();
+      const welcomeGroup = recreateWelcomeEditorGroup();
       welcomeGroup?.api.setVisible(true);
       dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
     }
 
     normalizeEditorGroupIds(dockviewApi);
-  }, [ensureWelcomeEditorGroup, getEditorGroups, normalizeEditorGroupIds]);
+  }, [getEditorGroups, normalizeEditorGroupIds, recreateWelcomeEditorGroup]);
 
   const canOpenPanelInNewEditorGroup = useCallback(
     (panelId: string) => {
@@ -860,7 +832,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       let leftGroup = existingLeftGroup ?? null;
       if (!leftGroup) {
-        const editorHost = ensureWelcomeEditorGroup();
+        const editorHost = recreateWelcomeEditorGroup();
         const referencePanel = editorHost?.panels[0];
         if (!referencePanel) return;
 
@@ -900,7 +872,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },
-    [ensureWelcomeEditorGroup, getLeftGroup, normalizeEditorGroupIds]
+    [getLeftGroup, normalizeEditorGroupIds, recreateWelcomeEditorGroup]
   );
 
   const showLeftPanel = useCallback(
@@ -938,7 +910,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       let leftGroup = existingLeftGroup ?? null;
       if (!leftGroup) {
-        const editorHost = ensureWelcomeEditorGroup();
+        const editorHost = recreateWelcomeEditorGroup();
         const referencePanel = editorHost?.panels[0];
         if (!referencePanel) return;
 
@@ -978,7 +950,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },
-    [ensureWelcomeEditorGroup, getLeftGroup, normalizeEditorGroupIds]
+    [getLeftGroup, normalizeEditorGroupIds, recreateWelcomeEditorGroup]
   );
 
   const toggleFileTree = useCallback(() => {

@@ -140,6 +140,13 @@ export interface GitHubCliStatus {
   message: string | null;
 }
 
+export interface VersionControlInstallResult {
+  git: GitVersionStatus;
+  github: GitHubCliStatus;
+  identity_configured: boolean;
+  error: string | null;
+}
+
 export const versionControlApi = {
   getSettings: async (): Promise<VersionControlCliSettings> => {
     return backendCall<VersionControlCliSettings>(
@@ -171,6 +178,18 @@ export const versionControlApi = {
     return backendCall<GitHubCliStatus>('install_github_cli', {
       host: host ?? null,
     });
+  },
+  installTools: async (data: {
+    user_name: string;
+    user_email: string;
+  }): Promise<VersionControlInstallResult> => {
+    return backendCall<VersionControlInstallResult>(
+      'install_version_control_tools',
+      {
+        userName: data.user_name,
+        userEmail: data.user_email,
+      }
+    );
   },
   openGithubCliLogin: async (host?: string | null): Promise<void> => {
     return backendCall<void>('open_github_cli_login', { host: host ?? null });
@@ -239,9 +258,13 @@ export const frontendPreferencesApi = {
   },
 };
 
+export type ProxyMode = 'auto' | 'manual';
+
 export interface SystemProxySettings {
-  enabled: boolean;
+  mode: ProxyMode;
   proxy_url: string | null;
+  detected_url?: string | null;
+  detected_source?: 'system' | 'env' | 'pac' | string | null;
 }
 
 export interface SystemRenderingSettings {
@@ -345,11 +368,19 @@ export interface WebServiceConfig {
   allow_lan?: boolean;
 }
 
+export interface AdvertisedListenAddress {
+  origin: string;
+  interface: string;
+  ip: string;
+  family: string;
+}
+
 export interface WebServerStatus {
   running: boolean;
   port: number;
   address: string | null;
   addresses?: string[];
+  listen_addresses?: AdvertisedListenAddress[];
   token_configured: boolean;
   started_at: string | null;
   message: string | null;
@@ -434,6 +465,61 @@ export const hostClientApi = {
     await backendCall('host_client_delete', {
       request: { profile_id: profileId },
     });
+  },
+};
+
+export type SavedHostTunnel = {
+  id: string;
+  origin: string;
+  host: string;
+  port: number;
+  kind: string;
+};
+
+export type HostTunnelStatus = {
+  enabled: boolean;
+  saved: SavedHostTunnel[];
+  active_id: string | null;
+  pending: { host: string; port: number; command: string } | null;
+  relay_state: string;
+  last_error: string | null;
+};
+
+export type TunnelCheckResult = {
+  origin: string;
+  http: boolean;
+};
+
+export const hostTunnelApi = {
+  get: async (): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('get_host_tunnel');
+  },
+  setEnabled: async (enabled: boolean): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('set_host_tunnel_enabled', {
+      enabled,
+    });
+  },
+  checkExisting: async (address: string): Promise<TunnelCheckResult> => {
+    return backendCall<TunnelCheckResult>('check_existing_host_tunnel', {
+      address,
+    });
+  },
+  selectSaved: async (id: string): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('select_saved_host_tunnel', { id });
+  },
+  startCreate: async (address: string): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('start_create_host_tunnel', {
+      address,
+    });
+  },
+  confirmCreate: async (): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('confirm_create_host_tunnel');
+  },
+  cancelCreate: async (): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('cancel_create_host_tunnel');
+  },
+  removeSaved: async (id: string): Promise<HostTunnelStatus> => {
+    return backendCall<HostTunnelStatus>('remove_saved_host_tunnel', { id });
   },
 };
 
@@ -793,12 +879,5 @@ export const profilesApi = {
   },
   save: async (content: string): Promise<string> => {
     return backendCall<string>('update_profiles', { body: content });
-  },
-};
-
-// Settings Window API
-export const settingsWindowApi = {
-  open: async (): Promise<void> => {
-    return backendCall<void>('open_settings_window');
   },
 };

@@ -137,6 +137,10 @@ export function AgentSettings() {
   const selectedAgentSource = selectedAgent?.source ?? null;
   const selectedAgentLifecycle = selectedAgent?.lifecycle ?? null;
   const selectedAgentOperation = selectedAgent?.active_operation ?? null;
+  const canConfigureAuthentication =
+    selectedAgentLifecycle != null &&
+    selectedAgentLifecycle !== 'uninstalled' &&
+    selectedAgentLifecycle !== 'platform_unsupported';
   const nativePluginEcosystem: PluginEcosystem | null =
     selectedAgentId === 'codex'
       ? 'codex'
@@ -145,6 +149,7 @@ export function AgentSettings() {
         : null;
   const refreshManagement = management.refresh;
   const authWatchGeneration = useRef(0);
+  const inspectGeneration = useRef(0);
 
   useEffect(() => {
     if (!configDirty) return;
@@ -203,11 +208,42 @@ export function AgentSettings() {
   useEffect(() => {
     if (!selectedAgentId || registryOpen) return;
     let active = true;
+    const watchId = ++inspectGeneration.current;
     setPreflight(null);
     setActions(null);
     setConfig(null);
     setConfigConflict(null);
     setUpdateCheck(null);
+    setChecking(false);
+    void (async () => {
+      try {
+        const authReport = await agentManagementApi.preflight(
+          selectedAgentId,
+          'authentication'
+        );
+        if (!active || inspectGeneration.current !== watchId) return;
+        setPreflight((current) =>
+          current ? mergeAuthPreflightItems(current, authReport) : authReport
+        );
+        await refreshManagement().catch(() => undefined);
+      } catch {
+        // Full preflight still includes auth.mode.
+      }
+      if (!active || inspectGeneration.current !== watchId) return;
+      setChecking(true);
+      try {
+        const report = await agentManagementApi.preflight(selectedAgentId);
+        if (!active || inspectGeneration.current !== watchId) return;
+        setPreflight(report);
+        await refreshManagement().catch(() => undefined);
+      } catch {
+        return;
+      } finally {
+        if (active && inspectGeneration.current === watchId) {
+          setChecking(false);
+        }
+      }
+    })();
     void Promise.allSettled([
       agentManagementApi.readConfig(selectedAgentId),
       agentManagementApi.diagnostics(selectedAgentId),
@@ -216,7 +252,6 @@ export function AgentSettings() {
       if (!active) return;
       if (configResult.status === 'fulfilled') {
         setConfig(configResult.value);
-        void refreshManagement().catch(() => undefined);
       }
       if (diagnosticResult.status === 'fulfilled') {
         // 已读诊断不再显示;未读的新诊断照常出现。
@@ -371,15 +406,20 @@ export function AgentSettings() {
 
   const runPreflight = useCallback(async () => {
     if (!selectedAgentId) return;
+    const watchId = ++inspectGeneration.current;
     setChecking(true);
     try {
-      setPreflight(await agentManagementApi.preflight(selectedAgentId));
+      const report = await agentManagementApi.preflight(selectedAgentId);
+      if (inspectGeneration.current !== watchId) return;
+      setPreflight(report);
       await management.refresh();
+      if (inspectGeneration.current !== watchId) return;
       toast.success(t('settings:agents.preflightComplete'));
     } catch (error) {
+      if (inspectGeneration.current !== watchId) return;
       toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
     } finally {
-      setChecking(false);
+      if (inspectGeneration.current === watchId) setChecking(false);
     }
   }, [management, selectedAgentId, t]);
 
@@ -816,7 +856,7 @@ export function AgentSettings() {
         onDirtyChange={setDshProviderDirty}
         onChanged={refreshAuthentication}
       />
-    ) : selectedAgent && hasAuthenticationMode ? (
+    ) : selectedAgent && hasAuthenticationMode && canConfigureAuthentication ? (
       <AgentAuthModeControl
         key={selectedAgent.agent_id}
         actions={actions}
@@ -857,7 +897,10 @@ export function AgentSettings() {
           ) : undefined
         }
         modelProvider={
-          liveConfig?.settings_features.includes('reusable_model_providers') ? (
+          liveConfig?.settings_features.includes('reusable_model_providers') ||
+          selectedAgent.settings_features?.includes(
+            'reusable_model_providers'
+          ) ? (
             <AgentModelProviderManager
               agentId={selectedAgent.agent_id}
               disabled={savingConfig}
@@ -971,19 +1014,6 @@ export function AgentSettings() {
                 }}
               />
             ) : null}
-            <AgentEnvironmentEditor
-              key={`environment:${selectedAgent.agent_id}`}
-              agentId={selectedAgent.agent_id}
-              disabled={Boolean(
-                selectedAgent.retired ||
-                  selectedAgent.active_operation ||
-                  management.state.operations[selectedAgent.agent_id]
-              )}
-              onChanged={async () => {
-                await management.refresh();
-              }}
-              onDirtyChange={setEnvironmentDirty}
-            />
             {selectedAgent.source === 'user_definition' ? (
               <UserAgentDefinitionPanel
                 definition={userDefinition}
@@ -1043,6 +1073,19 @@ export function AgentSettings() {
                 onDirtyChange={setConfigurationDirty}
               />
             )}
+            <AgentEnvironmentEditor
+              key={`environment:${selectedAgent.agent_id}`}
+              agentId={selectedAgent.agent_id}
+              disabled={Boolean(
+                selectedAgent.retired ||
+                  selectedAgent.active_operation ||
+                  management.state.operations[selectedAgent.agent_id]
+              )}
+              onChanged={async () => {
+                await management.refresh();
+              }}
+              onDirtyChange={setEnvironmentDirty}
+            />
           </div>
           {selectedAgent.agent_id === 'deepseek_harness' ? (
             <CollapsibleSettingsSection

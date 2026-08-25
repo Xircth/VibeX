@@ -102,6 +102,12 @@ export const sessionsApi = {
     });
   },
 
+  markViewed: async (sessionId: string): Promise<Session> => {
+    return backendCall<Session>('mark_session_viewed', {
+      sessionId,
+    });
+  },
+
   setPinned: async (sessionId: string, pinned: boolean): Promise<Session> => {
     return backendCall<Session>('set_session_pinned', {
       sessionId,

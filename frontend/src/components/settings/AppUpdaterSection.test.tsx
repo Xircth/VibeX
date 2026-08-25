@@ -58,7 +58,14 @@ describe('AppUpdaterSection', () => {
       />
     );
 
-    expect(await screen.findByText(/当前版本 v0.1.2/)).toBeVisible();
+    const currentVersion = await screen.findByText(/当前版本 v0.1.2/);
+    expect(currentVersion).toBeVisible();
+    expect(currentVersion).toHaveClass('text-sm');
+    expect(currentVersion).not.toHaveClass('text-xs');
+    const autoCheck = screen.getByText('自动检查应用更新');
+    expect(autoCheck.tagName).toBe('LABEL');
+    expect(autoCheck).toHaveClass('text-sm');
+    expect(autoCheck).not.toHaveClass('text-xs');
     expect(screen.getByText(/上次检查/)).toBeVisible();
     expect(screen.getByText('更新日志')).toBeVisible();
     const notes = screen.getByRole('region', { name: '更新日志' });

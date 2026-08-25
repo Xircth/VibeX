@@ -41,6 +41,7 @@ import {
   peekAgentSettingsDraft,
   retainAgentSettingsDraft,
 } from './agentSettingsDraftRetention';
+import { AgentAccountIdentity } from './AgentAccountIdentity';
 import { CodexDeviceLogin } from './CodexDeviceLogin';
 
 type AuthDraft = {
@@ -440,32 +441,20 @@ function AccountSessionBar({
   onRunAction?: (actionId: string) => void;
 }) {
   const { t } = useTranslation('settings');
-  const sessionStatus = signedIn
-    ? accountLabel
-      ? t('agents.authSessionAccount', { account: accountLabel })
-      : t('agents.authSessionSignedIn')
-    : t('agents.authSessionSignedOut');
   const blockedReason = actions.find(
     (action) => !action.available && action.kind !== 'subscription'
   );
   if (actions.length === 0 && hideWhenEmpty) return null;
-  if (actions.length === 0 && !blockedReason) {
-    return (
-      <div className="agent-account-session">
-        <p className="agent-account-session-status">{sessionStatus}</p>
-      </div>
-    );
-  }
   return (
     <div className="agent-account-session">
-      <p className="agent-account-session-status">
-        <span>{sessionStatus}</span>
+      <div className="agent-account-session-status">
+        <AgentAccountIdentity signedIn={signedIn} accountLabel={accountLabel} />
         {blockedReason && !blockedReason.available ? (
           <small>
             {blockedReason.unavailable_reason ?? t('agents.actionUnavailable')}
           </small>
         ) : null}
-      </p>
+      </div>
       {actions.length ? (
         <div className="agent-account-session-actions">
           {actions.map((action) => {
@@ -532,7 +521,7 @@ function isAccountMode(mode: string): boolean {
   return (
     mode === 'subscription' ||
     mode.endsWith('_subscription') ||
-    mode === 'login_google'
+    mode === 'login_google' || mode === 'oauth-personal'
   );
 }
 
@@ -603,10 +592,16 @@ function authModeTabLabelKey(
       return 'settings:agents.authModeTabChatGpt';
     case 'model_provider':
       return 'settings:agents.authModeTabProvider';
+    case 'oauth-personal':
     case 'login_google':
       return 'settings:agents.authModeTabGoogle';
+    case 'gemini-api-key':
     case 'gemini_api_key':
       return 'settings:agents.authModeTabGeminiKey';
+    case 'oauth-business':
+      return 'settings:agents.authModeTabEnterprise';
+    case 'agent-platform':
+      return 'settings:agents.authModeTabAgentPlatform';
     case 'vertex_adc':
       return 'settings:agents.authModeTabVertexAdc';
     case 'vertex_service_account':
@@ -634,8 +629,9 @@ function agentDisplayName(agentId: AgentId) {
       return 'Codex';
     case 'claude_code':
       return 'Claude Code';
+    case 'antigravity':
     case 'gemini':
-      return 'Gemini';
+      return 'Google Antigravity';
     case 'deepseek_harness':
       return 'DeepSeek Harness';
     default:

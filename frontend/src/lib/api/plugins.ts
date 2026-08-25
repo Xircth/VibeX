@@ -109,6 +109,10 @@ export interface PluginControlItem {
   updateSupported?: boolean;
   rollbackSupported?: boolean;
   uninstallSupported?: boolean;
+  sourceOrigin?: string | null;
+  sourceRef?: string | null;
+  sourceSha?: string | null;
+  sourceLocked?: boolean;
 }
 
 export interface PluginPermission {
@@ -487,6 +491,10 @@ export function createPluginControlApi(transport: BackendTransport) {
       retainData === undefined
         ? transport.call('plugin_control_uninstall', { pluginId })
         : transport.call('plugin_uninstall', { pluginId, retainData }),
+    gcRuntimes: () =>
+      transport.call('plugin_control_gc_runtimes') as Promise<{
+        reclaimed: string[];
+      }>,
   };
 }
 

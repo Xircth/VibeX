@@ -232,6 +232,51 @@ describe('AgentSettings', () => {
     ).toBeVisible();
   });
 
+  it('hides authentication management until Google Antigravity is installed', async () => {
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'antigravity',
+        display_name: 'Google Antigravity',
+        description: "Google's AI coding agent",
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'uninstalled',
+        authentication: 'none',
+        runtime_version: null,
+        acp_version: null,
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode', 'reusable_model_providers'],
+      },
+    ]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'antigravity',
+      available: false,
+      settings_features: ['authentication_mode', 'reusable_model_providers'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+
+    render(<AgentSettings />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Google Antigravity' })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('region', { name: '鉴权管理' })
+    ).not.toBeInTheDocument();
+    expect(api.authMode).not.toHaveBeenCalled();
+  });
+
   it('renders the management projection as the only Agent settings source', async () => {
     render(<AgentSettings />);
     expect(await screen.findByRole('button', { name: 'Codex' })).toBeVisible();
@@ -286,16 +331,29 @@ describe('AgentSettings', () => {
     const configuration = await screen.findByRole('region', {
       name: '配置管理',
     });
+    const environment = await screen.findByRole('region', {
+      name: '环境变量',
+    });
     expect(auth).toBeVisible();
     expect(configuration).toBeVisible();
     expect(
       auth.compareDocumentPosition(configuration) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+    expect(
+      configuration.compareDocumentPosition(environment) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.getByLabelText('推理强度')).toBeVisible();
     expect(
       screen.queryByLabelText('OpenAI API Key', { selector: 'input' })
     ).not.toBeVisible();
+
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
+    );
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
+    const callsAfterLoad = api.preflight.mock.calls.length;
 
     api.setAuthMode.mockResolvedValue({
       agent_id: 'codex',
@@ -308,7 +366,7 @@ describe('AgentSettings', () => {
 
     await pickAuthModeTab(user, 'OpenAI API Key');
 
-    expect(api.preflight).not.toHaveBeenCalled();
+    expect(api.preflight.mock.calls).toHaveLength(callsAfterLoad);
     expect(screen.getByLabelText('推理强度')).toBeVisible();
     expect(
       screen.getByLabelText('OpenAI API Key', { selector: 'input' })
@@ -373,6 +431,11 @@ describe('AgentSettings', () => {
     ).toBeTruthy();
     expect(
       preflight.compareDocumentPosition(session) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    const environment = screen.getByRole('region', { name: '环境变量' });
+    expect(
+      session.compareDocumentPosition(environment) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
 
@@ -743,6 +806,103 @@ describe('AgentSettings', () => {
     );
   });
 
+  it('checks the selected Agent auth mode before a full preflight', async () => {
+    const loggedOut = {
+      agent_id: 'codex',
+      display_name: 'Codex',
+      description: 'Codex ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+      settings_features: ['authentication_mode'],
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'ready',
+      authentication: 'account',
+    };
+    let authenticated = false;
+    api.bar.mockImplementation(async () => [
+      authenticated ? loggedIn : loggedOut,
+    ]);
+    api.preflight.mockImplementation(
+      async (agentId: string, scope?: string) => {
+        if (scope === 'authentication') {
+          authenticated = true;
+          return {
+            agent_id: agentId,
+            checked_at: '2026-08-22T00:00:00Z',
+            items: [
+              {
+                id: 'auth.mode',
+                label: '鉴权模式',
+                status: 'pass',
+                detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
+                version: 'chatgpt_subscription',
+                path: '/tmp/.codex/auth.json',
+                source: null,
+                repairable: false,
+              },
+            ],
+          };
+        }
+        return {
+          agent_id: agentId,
+          checked_at: '2026-08-22T00:00:00Z',
+          items: [
+            {
+              id: 'runtime',
+              label: '本地 Runtime',
+              status: 'pass',
+              detail: '',
+              version: '1.0.0',
+              path: '/usr/local/bin/codex',
+              source: null,
+              repairable: false,
+            },
+            {
+              id: 'auth.mode',
+              label: '鉴权模式',
+              status: 'pass',
+              detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
+              version: 'chatgpt_subscription',
+              path: '/tmp/.codex/auth.json',
+              source: null,
+              repairable: false,
+            },
+          ],
+        };
+      }
+    );
+
+    render(<AgentSettings />);
+
+    expect(await screen.findByText('暂未登录')).toBeVisible();
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
+    );
+    expect(await screen.findByText('已通过账号登录')).toBeVisible();
+    expect(await screen.findByText('未获得有效用户信息')).toBeVisible();
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
+    expect(api.preflight.mock.calls[0]).toEqual(['codex', 'authentication']);
+    expect(
+      api.preflight.mock.calls.some(
+        (call) => call.length === 1 || call[1] === undefined
+      )
+    ).toBe(true);
+  });
+
   it('refreshes login status after a terminal account flow finishes', async () => {
     const user = userEvent.setup();
     const loggedOut = {
@@ -850,7 +1010,6 @@ describe('AgentSettings', () => {
       expect(screen.getByText('已通过账号登录')).toBeVisible()
     );
     expect(api.preflight).toHaveBeenCalledWith('cursor', 'authentication');
-    expect(api.preflight).not.toHaveBeenCalledWith('cursor');
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 });

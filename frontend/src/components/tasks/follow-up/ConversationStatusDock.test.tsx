@@ -6,6 +6,7 @@ import {
   within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { ConversationStatusDock } from './ConversationStatusDock';
 
 describe('ConversationStatusDock', () => {
@@ -345,5 +346,80 @@ describe('ConversationStatusDock', () => {
       screen.getByRole('button', { name: '关闭提示 interrupted-turn-2' })
     );
     expect(screen.queryByText('因重启中断')).not.toBeInTheDocument();
+  });
+
+  it('does not offer session rebind for notices that do not block the session', () => {
+    const onRebind = vi.fn();
+    render(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        notices={[
+          {
+            id: 'announcement:grok-4-6',
+            kind: 'session-notice',
+            onRebind,
+            notice: {
+              title: 'Grok 4.6 is here!',
+              message: 'See what is new.',
+              severity: 'info',
+              announcement_id: 'grok-4-6',
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('Grok 4.6 is here!')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '重新绑定会话' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers session rebind when the Agent session cannot continue', () => {
+    const onRebind = vi.fn();
+    render(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        notices={[
+          {
+            id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
+            kind: 'session-notice',
+            onRebind,
+            notice: {
+              title: '代理会话已过期',
+              message: '确认重新绑定后才能继续。',
+              severity: 'warning',
+            },
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '重新绑定会话' }));
+    expect(onRebind).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a product announcement only in the first conversation that receives it', () => {
+    const notice = {
+      id: 'announcement:grok-4-6',
+      kind: 'session-notice' as const,
+      notice: {
+        title: 'Grok 4.6 is here!',
+        message: 'See what is new.',
+        severity: 'info',
+        announcement_id: 'grok-4-6',
+      },
+    };
+
+    const first = render(
+      <ConversationStatusDock dismissalScope="session-1" notices={[notice]} />
+    );
+    expect(screen.getByText('Grok 4.6 is here!')).toBeInTheDocument();
+    first.unmount();
+
+    render(
+      <ConversationStatusDock dismissalScope="session-2" notices={[notice]} />
+    );
+    expect(screen.queryByText('Grok 4.6 is here!')).not.toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ import {
   type KanbanProjectSessionRecord,
   useKanbanProjectSessions,
 } from '@/hooks/useKanbanProjectSessions';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { sessionsApi } from '@/lib/api';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
@@ -19,7 +20,7 @@ import { paths } from '@/lib/paths';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 
 function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
-  const { t } = useTranslation(['panels', 'common']);
+  const { t } = useTranslation(['panels', 'common', 'tasks']);
   const navigate = useNavigateWithSearch();
   const { projectId } = useProject();
   const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
@@ -87,6 +88,51 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     [refreshWorkspaceSessions, t]
   );
 
+  const renameSession = useCallback(
+    async (session: KanbanProjectSessionRecord, name: string | null) => {
+      try {
+        await sessionsApi.rename(session.id, name);
+        await refreshWorkspaceSessions(session.workspace.id);
+      } catch (error) {
+        toast.error(
+          getSessionUiErrorMessage(
+            error,
+            t('workspaceSessionList.renameFailed')
+          )
+        );
+      }
+    },
+    [refreshWorkspaceSessions, t]
+  );
+
+  const deleteSession = useCallback(
+    async (session: KanbanProjectSessionRecord) => {
+      const result = await ConfirmDialog.show({
+        title: t('tasks:sessionHub.deleteSessionTitle'),
+        message: t('tasks:sessionHub.deleteSessionConfirm', {
+          name: session.fullName,
+        }),
+        confirmText: t('common:delete'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+
+      try {
+        await sessionsApi.delete(session.id);
+        await refreshWorkspaceSessions(session.workspace.id);
+      } catch (error) {
+        toast.error(
+          getSessionUiErrorMessage(
+            error,
+            t('workspaceSessionList.deleteFailed')
+          )
+        );
+      }
+    },
+    [refreshWorkspaceSessions, t]
+  );
+
   return (
     <TooltipProvider delayDuration={120}>
       <section
@@ -105,6 +151,12 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             }}
             onArchiveSession={(session) => {
               void archiveSession(session);
+            }}
+            onRenameSession={(session, name) => {
+              void renameSession(session, name);
+            }}
+            onDeleteSession={(session) => {
+              void deleteSession(session);
             }}
           />
         </div>

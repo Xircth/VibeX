@@ -82,6 +82,7 @@
   },
   "sessionHub": {
     "updateStatusFailed": "Failed to update session status. Please try again later.",
+    "pinFailed": "Could not pin the session.",
     "restoreArchivedFailed": "Failed to restore the archived session. Please try again later.",
     "deleteSessionTitle": "Delete session",
     "deleteSessionConfirm": "Delete session “{{name}}”? Sessions that are currently running will not be deleted.",

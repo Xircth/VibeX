@@ -170,9 +170,13 @@
     "statusDone": "已完成",
     "pin": "置顶",
     "unpin": "取消置顶",
+    "edit": "编辑",
+    "deleteSession": "删除会话",
     "archive": "归档",
     "pinFailed": "无法置顶会话",
-    "archiveFailed": "无法归档会话"
+    "archiveFailed": "无法归档会话",
+    "renameFailed": "无法重命名会话",
+    "deleteFailed": "无法删除会话"
   },
   "worktreeSelector": {
     "currentProjectBranch": "当前项目目录分支",
@@ -254,7 +258,9 @@
     "welcome": "欢迎",
     "notes": "笔记",
     "search": "搜索",
-    "sessionList": "会话列表"
+    "sessionList": "会话列表",
+    "loadFailed": "面板无法加载",
+    "retry": "重试"
   },
   "ideIcon": {
     "fileManager": "文件资源管理器"

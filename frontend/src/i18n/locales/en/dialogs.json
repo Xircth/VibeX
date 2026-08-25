@@ -220,9 +220,10 @@
     "saveAndTest": "Save and Test"
   },
   "onboarding": {
-    "journeyTitle": "Begin your Coding Agent journey",
-    "journeyDescription": "An integrated, all-in-one Agent development platform.",
-    "agentEcosystem": "Supported Coding Agents",
+    "journeyTitle": "Agents needed a new IDE so VibeX exists",
+    "journeyTitleA": "Agents needed a new IDE",
+    "journeyTitleB": "so VibeX exists",
+    "journeyDescription": "An all-in-one VibeCoding platform",
     "skip": "Skip setup",
     "agentsTitle": "Choose your active Agents",
     "enabledAgents": "Enabled Agents",
@@ -252,7 +253,76 @@
     "enableAgentAria": "Enable {{agent}}",
     "loginNotice": "Installation only prepares the Runtime and ACP adapter. Sign in to each Agent or configure its API separately afterward. Session model, permission, and reasoning controls are read when you create a session and are not configured here.",
     "editorTitle": "Choose an external editor",
-    "safetyNotice": "Coding Agents can execute code and commands on this computer. By continuing, you acknowledge that their actions require supervision and important work should be backed up.",
+    "disclaimerAcceptHint": "Continuing means you have read and agree to the",
+    "disclaimerLink": "Disclaimer",
+    "disclaimerTitle": "Disclaimer",
+    "disclaimerClose": "Close",
+    "disclaimerPreamble": "{{appName}} orchestrates multiple AI coding Agents on this computer and may install software, read and write repositories, run commands, and connect remote devices and chat channels. Continuing setup or using this software means you have read, understood, and agreed to this disclaimer. If you do not agree, stop using it and uninstall it.",
+    "disclaimerSections": {
+      "nature": {
+        "title": "Software nature and no warranty",
+        "body": "{{appName}} is a local-first experimental development tool provided “as is,” without express or implied warranties of security, availability, accuracy, uninterrupted operation, or fitness for a particular purpose. Features may change, break, or contain defects. Decide for yourself whether it fits your work, and back up important data before use."
+      },
+      "agents": {
+        "title": "Agents and local execution",
+        "body": "ACP Agents you enable, including built-in Agents, run on this computer with the same privileges as {{appName}}. They can read, modify, or delete files, run terminal commands, install software, use the network, read environment variables and credentials, and launch other programs. {{appName}} does not provide an OS-level sandbox for Agents and cannot guarantee that harmful, mistaken, or unauthorized actions will be blocked. Workspace-less conversations use a dedicated temporary directory; that is not a security boundary. Permission prompts, session permission modes, and “always allow” are your controls, not a sandbox. You must supervise Agent behavior. An Agent may already have caused irreversible side effects before a crash, cancel, or interrupt. Interrupted turns are not retried automatically, and file, network, or command changes that already happened are not rolled back."
+      },
+      "thirdPartyAgents": {
+        "title": "Third-party Agents, installs, and credentials",
+        "body": "Agent binaries, adapters, models, and accounts are provided by third parties. A user-declared or community ACP Agent outside the official Registry is not a {{appName}} verification of its origin or behavior. Some distributions only record a first-use fingerprint (TOFU); that is not integrity verification. Installs write into your user environment (PATH, npm, uv, and similar) and may change tools already on this computer. Credentials usually live in the Agent’s native config or your external environment. {{appName}} does not capture terminal login flows and is not responsible for account theft, subscription charges, API key leaks, custom endpoints, or bans. You must follow each Agent’s and model provider’s terms."
+      },
+      "plugins": {
+        "title": "Plugins and extensions",
+        "body": "{{appName}} plugins you install or enable — including linked development plugins, official product MCP, session enhancement, and multi-agent collaboration — use a full-trust model. A plugin’s Worker, UI, and declared Runtimes have the same local file, network, environment-variable, and process capabilities as the host. Separate processes or UI frames exist for lifecycle and crash isolation; they are not a security sandbox. Trust for Agent-native plugins (Skills, MCP, Hooks, and similar) stays with that Agent’s runtime. Do not install sources you do not trust."
+      },
+      "git": {
+        "title": "Git, workspaces, and destructive operations",
+        "body": "{{appName}} creates and manages Git worktrees and may commit, rebase, reset, revert, force-push, clone, and open pull requests. Those operations can rewrite local and remote history, discard uncommitted changes, or overwrite remote branches. Repository setup, cleanup, archive, and dev-server scripts run through the system shell. A malicious or untrusted repository may contain harmful scripts or Git content. Installing Git or GitHub CLI during setup changes this computer. You are responsible for every Git operation and its consequences."
+      },
+      "automation": {
+        "title": "Automations, workflows, and unattended runs",
+        "body": "Automations and workflows can start Agent turns while you are away. Each run uses an isolated worktree by default, but shared-root mode works directly in the repository you choose. Runs do not automatically merge, push, publish, or deploy, yet an Agent in the run may still do those things with the privileges you have granted. Pause, cancel, and interrupt do not roll back file or external side effects that already happened. Scheduled jobs can create charges and changes while you are away."
+      },
+      "delegation": {
+        "title": "Multi-agent delegation",
+        "body": "Multi-agent collaboration lets a parent Agent create child conversations and run tasks in parallel. Child Agents have the same local execution capability in their workspace and may change files, run commands, or call external services at the same time. You are responsible for delegation policy, depth, results, and child-Agent side effects."
+      },
+      "remote": {
+        "title": "Remote access, pairing, and tunnels",
+        "body": "After you enable remote access, device pairing, LAN publishing, or a host tunnel, a paired workstation device can almost fully take over conversations, files, Git, terminals, workflows, automations, and installed plugins. A companion device can view conversations and handle approvals. Pairing invitations include reachable addresses; public HTTP may travel in plaintext. FRP, Tailscale, Cloudflare, and similar tunnels are configured and operated by you; {{appName}} does not run those relays. Anyone who obtains an authorized device, invitation, or credential may act on your Host as you would. Keep credentials, revoke lost devices, and understand the risk of exposing the Host to a network."
+      },
+      "channels": {
+        "title": "Chat channels and inbound commands",
+        "body": "Chat channels (Telegram, Lark/Feishu, QQ, Weixin, webhooks, and similar) can send conversation notifications outward and let authorized senders create tasks, approve permissions, and cancel turns remotely. Channel secrets are stored in plaintext in local config by design. Inbound commands stay closed when the allow-list is empty; once authorized, a sender’s command is equivalent to the same action on the desktop. A leaked bot token, a wrong allow-list, or a spoofed sender can cause unauthorized actions."
+      },
+      "data": {
+        "title": "Data, model services, and privacy",
+        "body": "Conversations, events, drafts, artifact metadata, and configuration primarily stay on this computer. When you use third-party models or Agents, prompts, code, file excerpts, repository context, and conversation content may be sent to that provider or a custom endpoint. {{appName}} does not control how those services store or use the data. Crash reports leave this computer only if you choose to submit them. Offline caches on companion devices are read-only. You are responsible for applicable data-protection, confidentiality, and export-control requirements, and for each provider’s terms."
+      },
+      "runtime": {
+        "title": "Preview, scripts, and terminals",
+        "body": "Web Preview uses a separate Chromium runtime to load local or remote pages and may reach your development servers, cookies, and downloads. Interactive terminals open a real login shell. The external editor you choose is launched on this computer. Repository scripts and Agent-created terminal commands run in your user environment. None of these capabilities are an isolation sandbox."
+      },
+      "costs": {
+        "title": "Fees, compliance, and third-party terms",
+        "body": "Charges from Agent subscriptions, API calls, cloud models, repeated automations, and third-party plugins are billed to your accounts. {{appName}} is not responsible for unpaid balances, exhausted quotas, or surprise bills. You must use the software lawfully and follow the terms of connected services, open-source licenses, and your jurisdiction. You own the legal and intellectual-property responsibility for code this software generates or modifies, including commits and publications; review it before production use."
+      },
+      "liability": {
+        "title": "Limitation of liability",
+        "body": "To the maximum extent permitted by applicable law, {{appName}} and its developers and contributors are not liable for: data loss or corruption; destruction of code, repositories, or production systems; security incidents, credential leaks, or unauthorized access; third-party outages, changes, or breaches; unintended effects of automations, delegation, remote access, or chat channels; the quality, legality, intellectual property, or fitness of generated code; or lost profits, goodwill, or other indirect, incidental, special, or consequential damages. Back up important work and supervise every Agent and plugin. This disclaimer is a condition of use. If one clause cannot be enforced, the rest remain in effect."
+      }
+    },
+    "versionControlTitle": "Version control setup",
+    "versionControlDescription": "Git is not installed. Enter the name and email used for commits, then install Git and GitHub CLI.",
+    "gitUserNameLabel": "Name",
+    "gitUserNamePlaceholder": "Your name",
+    "gitUserEmailLabel": "Email",
+    "gitUserEmailPlaceholder": "name@example.com",
+    "gitIdentityRequired": "Enter a name and email",
+    "gitEmailInvalid": "Enter a valid email",
+    "installingVersionControl": "Installing Git and GitHub CLI…",
+    "retryVersionControl": "Retry install",
+    "versionControlInstallFailed": "Installation failed. Try again.",
     "back": "Back",
     "next": "Next",
     "startJourney": "Install and continue",

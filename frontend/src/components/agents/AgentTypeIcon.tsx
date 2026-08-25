@@ -355,18 +355,42 @@ const HermesMonoIcon = memo(function HermesMonoIcon({
   );
 });
 
+
+const AntigravityMonoIcon = memo(function AntigravityMonoIcon({
+  size = '1em',
+}: IconProps) {
+  return (
+    <svg
+      fill="none"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Google Antigravity</title>
+      <path
+        d="M14.1452 14.6818C14.9937 15.3182 16.2664 14.894 15.0997 13.7273C11.5998 10.3333 12.3421 1 7.99366 1C3.64518 1 4.3876 10.3333 0.887603 13.7273C-0.385123 15 0.993664 15.3182 1.84215 14.6818C5.13002 12.4545 4.9179 8.5303 7.99366 8.5303C11.0694 8.5303 10.8573 12.4545 14.1452 14.6818Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+});
+
 type AnyIcon = FunctionComponent<IconProps>;
 
 const COLOR_ICONS: Partial<Record<string, AnyIcon>> = {
   claude_code: ClaudeCodeColorIcon,
   codex: CodexColorIcon,
   gemini: GeminiCliColorIcon,
+  antigravity: AntigravityMonoIcon,
   openclaw: OpenClawColorIcon,
   kimi_code: KimiColorIcon,
   kimi: KimiColorIcon,
 };
 
 const MONO_ICONS: Partial<Record<string, AnyIcon>> = {
+  antigravity: AntigravityMonoIcon,
   opencode: OpenCodeMonoIcon,
   pi: PiMonoIcon,
   cline: ClineMonoIcon,

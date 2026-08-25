@@ -170,9 +170,13 @@
     "statusDone": "Done",
     "pin": "Pin",
     "unpin": "Unpin",
+    "edit": "Edit",
+    "deleteSession": "Delete session",
     "archive": "Archive",
     "pinFailed": "Could not pin the session",
-    "archiveFailed": "Could not archive the session"
+    "archiveFailed": "Could not archive the session",
+    "renameFailed": "Could not rename the session",
+    "deleteFailed": "Could not delete the session"
   },
   "worktreeSelector": {
     "currentProjectBranch": "Current project directory branch",
@@ -254,7 +258,9 @@
     "welcome": "Welcome",
     "notes": "Notes",
     "search": "Search",
-    "sessionList": "Sessions"
+    "sessionList": "Sessions",
+    "loadFailed": "Couldn't load this panel",
+    "retry": "Retry"
   },
   "ideIcon": {
     "fileManager": "File Manager"

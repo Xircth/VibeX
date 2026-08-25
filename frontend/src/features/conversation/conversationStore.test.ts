@@ -376,6 +376,22 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entryOf(state).sessionModes.current).toBe('plan');
   });
 
+  it('keeps the live available-commands catalog instead of guessing an empty set', () => {
+    let state = loaded();
+    expect(entryOf(state).availableCommands).toBeNull();
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([], 1n, {
+        available_commands: [
+          { name: 'compact', description: 'Compact context' },
+        ],
+      }),
+    });
+    expect(entryOf(state).availableCommands).toEqual([
+      { name: 'compact', description: 'Compact context' },
+    ]);
+  });
+
   it('exposes side rows (with row_id) via sideRowsForEntry', () => {
     let state = loaded();
     const permission: TimelineRow = timelineRow('perm:p1', 2n, {

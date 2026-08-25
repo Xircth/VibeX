@@ -143,6 +143,12 @@
     "failed": "失败",
     "canceled": "已取消"
   },
+  "childViewer": {
+    "title": "子会话",
+    "close": "关闭",
+    "loading": "正在加载子会话…",
+    "empty": "子会话还没有消息"
+  },
   "commandTool": {
     "commandLabel": "命令",
     "outputLabel": "输出"

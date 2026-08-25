@@ -8,10 +8,21 @@ import { pluginInstallSource, pluginSourceLabel } from './officialPlugins';
 export function PluginIdentityMeta({
   plugin,
 }: {
-  plugin: Pick<PluginControlItem, 'builtin' | 'sourceKind' | 'version'>;
+  plugin: Pick<
+    PluginControlItem,
+    | 'builtin'
+    | 'sourceKind'
+    | 'version'
+    | 'sourceLocked'
+    | 'sourceRef'
+    | 'packageDigest'
+  >;
 }) {
   const { t } = useTranslation('settings');
   const source = pluginInstallSource(plugin);
+  const digest = plugin.packageDigest
+    ? plugin.packageDigest.slice(0, 8)
+    : null;
 
   return (
     <div
@@ -33,6 +44,26 @@ export function PluginIdentityMeta({
       >
         v{plugin.version}
       </Badge>
+      {plugin.sourceLocked ? (
+        <Badge
+          variant="outline"
+          className="product-plugin-lock-badge"
+          title={plugin.sourceRef ?? t('plugins.sourceLocked')}
+        >
+          {plugin.sourceRef
+            ? t('plugins.lockedTo', { ref: plugin.sourceRef })
+            : t('plugins.sourceLocked')}
+        </Badge>
+      ) : null}
+      {digest ? (
+        <Badge
+          variant="outline"
+          className="product-plugin-digest-badge"
+          title={plugin.packageDigest ?? digest}
+        >
+          {digest}
+        </Badge>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,11 @@
-import React, { lazy, Suspense } from 'react';
+import React, {
+  Component,
+  lazy,
+  Suspense,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   type IDockviewPanelHeaderProps,
@@ -23,8 +30,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import FileIcon from '@/components/FileIcon';
+import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+
+type DockviewPanelModule = {
+  default: ComponentType<IDockviewPanelProps>;
+};
 
 function WorkspacePanelFallback() {
   return (
@@ -34,17 +46,93 @@ function WorkspacePanelFallback() {
   );
 }
 
-function lazyPanel(
-  loader: () => Promise<{ default: React.ComponentType<IDockviewPanelProps> }>
+function WorkspacePanelLoadError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation(['panels', 'common']);
+  return (
+    <div
+      className="flex h-full w-full flex-col items-center justify-center gap-3"
+      data-testid="dockview-panel-load-error"
+    >
+      <p className="text-sm text-muted-foreground">
+        {t('panelRegistry.loadFailed')}
+      </p>
+      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+        {t('panelRegistry.retry')}
+      </Button>
+    </div>
+  );
+}
+
+class DockviewPanelErrorBoundary extends Component<
+  { children: ReactNode; onRetry: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[DockviewPanel] Failed to load panel:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <WorkspacePanelLoadError onRetry={this.props.onRetry} />;
+    }
+    return this.props.children;
+  }
+}
+
+export function loadPanelModuleWithRetry(
+  loader: () => Promise<DockviewPanelModule>,
+  retryDelayMs = 200
+): Promise<DockviewPanelModule> {
+  return loader().catch(() => {
+    if (retryDelayMs <= 0) {
+      return loader();
+    }
+    return new Promise<DockviewPanelModule>((resolve, reject) => {
+      window.setTimeout(() => {
+        loader().then(resolve, reject);
+      }, retryDelayMs);
+    });
+  });
+}
+
+export function createLazyDockviewPanel(
+  loader: () => Promise<DockviewPanelModule>,
+  retryDelayMs = 200
 ): React.FC<IDockviewPanelProps> {
-  const Panel = lazy(loader);
   return function LazyDockviewPanel(props: IDockviewPanelProps) {
+    const [generation, setGeneration] = useState(0);
+    const [Panel, setPanel] = useState(() =>
+      lazy(() => loadPanelModuleWithRetry(loader, retryDelayMs))
+    );
+
     return (
-      <Suspense fallback={<WorkspacePanelFallback />}>
-        <Panel {...props} />
-      </Suspense>
+      <DockviewPanelErrorBoundary
+        key={generation}
+        onRetry={() => {
+          setPanel(() =>
+            lazy(() => loadPanelModuleWithRetry(loader, retryDelayMs))
+          );
+          setGeneration((current) => current + 1);
+        }}
+      >
+        <Suspense fallback={<WorkspacePanelFallback />}>
+          <Panel {...props} />
+        </Suspense>
+      </DockviewPanelErrorBoundary>
     );
   };
+}
+
+function lazyPanel(
+  loader: () => Promise<DockviewPanelModule>
+): React.FC<IDockviewPanelProps> {
+  return createLazyDockviewPanel(loader);
 }
 
 /** Registry mapping panel component IDs to their React components. */

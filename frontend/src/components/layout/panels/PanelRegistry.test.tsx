@@ -6,7 +6,12 @@ import type {
   IDockviewPanelProps,
 } from 'dockview-react';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
-import { panelComponents, WorkspaceDockviewTab } from './PanelRegistry';
+import {
+  createLazyDockviewPanel,
+  loadPanelModuleWithRetry,
+  panelComponents,
+  WorkspaceDockviewTab,
+} from './PanelRegistry';
 
 vi.mock('@/components/panels/DockviewKanbanPanel', () => ({
   default: () => <div data-testid="kanban-panel" />,
@@ -56,6 +61,53 @@ describe('panelComponents', () => {
     render(React.createElement(Panel, {} as IDockviewPanelProps));
 
     expect(await screen.findByTestId('kanban-panel')).toBeInTheDocument();
+  });
+});
+
+describe('loadPanelModuleWithRetry', () => {
+  it('retries a failed panel import before surfacing the error', async () => {
+    let attempts = 0;
+    const loaded = await loadPanelModuleWithRetry(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error('Importing a module script failed.');
+      }
+      return {
+        default: () => <div data-testid="retried-panel" />,
+      };
+    }, 0);
+
+    expect(attempts).toBe(2);
+    expect(typeof loaded.default).toBe('function');
+  });
+});
+
+describe('createLazyDockviewPanel', () => {
+  it('keeps the workspace usable and retries a failed panel import', async () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    let shouldFail = true;
+    const Panel = createLazyDockviewPanel(async () => {
+      if (shouldFail) {
+        throw new Error('Importing a module script failed.');
+      }
+      return {
+        default: () => <div data-testid="recovered-panel" />,
+      };
+    }, 0);
+
+    render(React.createElement(Panel, {} as IDockviewPanelProps));
+
+    expect(
+      await screen.findByTestId('dockview-panel-load-error')
+    ).toBeInTheDocument();
+
+    shouldFail = false;
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(await screen.findByTestId('recovered-panel')).toBeInTheDocument();
+    consoleError.mockRestore();
   });
 });
 

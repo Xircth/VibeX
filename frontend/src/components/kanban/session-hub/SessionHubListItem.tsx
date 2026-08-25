@@ -68,9 +68,6 @@ export function SessionHubListItem({
   const showRenameControls =
     !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
   const branchHoverText = session.workspaceName || session.branch;
-  const previewText = (session.firstPrompt ?? session.taskTitle ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -257,7 +254,12 @@ export function SessionHubListItem({
         </div>
 
         {!isEditing ? (
-          <div className="mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground">
+          <div
+            className={cn(
+              'mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground',
+              isHovered && showCardActions && 'pr-12'
+            )}
+          >
             <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
               {formatTimeAgo(session.updatedAt)}
             </span>
@@ -276,24 +278,12 @@ export function SessionHubListItem({
             ) : null}
           </div>
         ) : null}
-
-        {previewText ? (
-          <p
-            className={cn(
-              'mt-0.5 block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground',
-              isHovered && showCardActions && 'pr-12'
-            )}
-            title={previewText}
-          >
-            {previewText}
-          </p>
-        ) : null}
       </div>
 
       {showCardActions ? (
         <div
           className={cn(
-            'absolute bottom-1.5 right-1.5 z-[1] flex items-center gap-0.5 rounded-md bg-[var(--surface-content)] transition-opacity',
+            'absolute bottom-1.5 right-1.5 z-[1] flex items-center gap-1 transition-opacity',
             isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
           )}
         >

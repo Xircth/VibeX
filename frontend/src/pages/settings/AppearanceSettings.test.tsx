@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   setUiLanguage: vi.fn(),
   setLayoutArrangement: vi.fn(),
   setKanbanArrangement: vi.fn(),
+  setKanbanSessionListView: vi.fn(),
 }));
 
 vi.mock('@/components/ConfigProvider', () => ({
@@ -85,6 +86,12 @@ vi.mock('@/lib/layoutArrangement', () => {
   };
 });
 
+vi.mock('@/lib/kanbanSessionListView', () => ({
+  KANBAN_SESSION_LIST_VIEWS: ['status', 'workspace'],
+  getKanbanSessionListView: () => 'status',
+  setKanbanSessionListView: mocks.setKanbanSessionListView,
+}));
+
 vi.mock('./LayoutArrangementSchematic', () => ({
   WorkspaceLayoutSchematic: () => <div>workspace schematic</div>,
   KanbanLayoutSchematic: () => <div>kanban schematic</div>,
@@ -146,5 +153,17 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('option', { name: '纯标记' }));
 
     expect(mocks.setAppIconStyle).toHaveBeenCalledWith('lite');
+  });
+
+  it('applies the Kanban session list grouping immediately', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByText('Kanban 会话列表')).toBeInTheDocument();
+    const selects = screen.getAllByRole('combobox');
+    await user.click(selects[5]);
+    await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
+
+    expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
   });
 });

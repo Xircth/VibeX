@@ -258,7 +258,7 @@ describe('SessionComposerInput (Astryx)', () => {
     rectSpy.mockRestore();
   });
 
-  it('shows Codex system skills returned by the agent skill catalog in slash search', async () => {
+  it('shows agent-advertised commands in slash search', async () => {
     const user = userEvent.setup();
     const transport: BackendTransport = {
       environment: 'desktop',
@@ -267,23 +267,6 @@ describe('SessionComposerInput (Astryx)', () => {
         if (command === 'plugin_control_catalog') {
           return { plugins: [], runtimes: [] };
         }
-        if (command === 'list_agent_skills') {
-          return {
-            supported: true,
-            global_supported: true,
-            project_supported: true,
-            locations: [],
-            skills: [
-              {
-                id: 'imagegen',
-                scope: 'global',
-                path: '/Users/test/.codex/skills/.system/imagegen',
-                description: 'Generate or edit raster images',
-                read_only: true,
-              },
-            ],
-          };
-        }
         throw new Error(`Unexpected command: ${command}`);
       }),
     };
@@ -291,6 +274,12 @@ describe('SessionComposerInput (Astryx)', () => {
       context: {
         executorProfile: { executor: 'codex' },
         transport,
+        availableCommands: [
+          {
+            name: 'imagegen',
+            description: 'Generate or edit raster images',
+          },
+        ],
       },
     });
     const editor = getEditor();
@@ -303,7 +292,7 @@ describe('SessionComposerInput (Astryx)', () => {
     ).toBeVisible();
   });
 
-  it('loads project skills from the active workspace for slash search', async () => {
+  it('keeps slash search on the live catalog instead of the disk skill list', async () => {
     const user = userEvent.setup();
     const call = vi.fn(async (command: string) => {
       if (command === 'plugin_action_catalog') return { actions: [] };
@@ -335,6 +324,9 @@ describe('SessionComposerInput (Astryx)', () => {
         executorProfile: { executor: 'codex' },
         transport,
         workspacePath: '/workspace',
+        availableCommands: [
+          { name: 'compact', description: 'Compact context' },
+        ],
       },
     });
     const editor = getEditor();
@@ -343,12 +335,13 @@ describe('SessionComposerInput (Astryx)', () => {
     await user.type(editor, '/project');
 
     expect(
-      await screen.findByRole('option', { name: /project-review/i })
+      screen.queryByRole('option', { name: /project-review/i })
+    ).not.toBeInTheDocument();
+    await user.clear(editor);
+    await user.type(editor, '/compact');
+    expect(
+      await screen.findByRole('option', { name: /compact/i })
     ).toBeVisible();
-    expect(call).toHaveBeenCalledWith('list_agent_skills', {
-      agentType: 'codex',
-      workspacePath: '/workspace',
-    });
   });
 
   it('shows only the short skill command after selecting a slash token', async () => {
@@ -384,6 +377,9 @@ describe('SessionComposerInput (Astryx)', () => {
       context: {
         executorProfile: { executor: 'codex' },
         transport,
+        availableCommands: [
+          { name: 'drawio', description: 'Create Drawio diagrams' },
+        ],
       },
     });
     const editor = getEditor();
@@ -397,7 +393,7 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(token).not.toHaveTextContent('/Users/mac');
   });
 
-  it('shows the same project skill catalog in dollar search', async () => {
+  it('shows Codex disk skills in dollar search', async () => {
     const user = userEvent.setup();
     const transport: BackendTransport = {
       environment: 'desktop',
@@ -428,7 +424,7 @@ describe('SessionComposerInput (Astryx)', () => {
     };
     renderComposerInput({
       context: {
-        executorProfile: { executor: 'claude_code' },
+        executorProfile: { executor: 'codex' },
         transport,
         workspacePath: '/workspace',
       },

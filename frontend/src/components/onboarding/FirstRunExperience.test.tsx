@@ -34,6 +34,11 @@ const configApiMock = vi.hoisted(() => ({
   checkEditorAvailability: vi.fn(),
 }));
 
+const versionControlApiMock = vi.hoisted(() => ({
+  detectGit: vi.fn(),
+  installTools: vi.fn(),
+}));
+
 const toastMock = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
@@ -77,6 +82,7 @@ vi.mock('@/features/agent-management', async (importOriginal) => ({
 vi.mock('@/lib/api', () => ({
   configApi: configApiMock,
   settingsWindowApi: { open: vi.fn() },
+  versionControlApi: versionControlApiMock,
 }));
 
 vi.mock('@/lib/backendTransport', () => ({
@@ -157,6 +163,32 @@ describe('FirstRunExperience', () => {
     configApiMock.checkEditorAvailability.mockResolvedValue({
       available: true,
     });
+    versionControlApiMock.detectGit.mockReset();
+    versionControlApiMock.installTools.mockReset();
+    versionControlApiMock.detectGit.mockResolvedValue({
+      installed: true,
+      version: '2.47.0',
+      path: '/usr/bin/git',
+      message: null,
+    });
+    versionControlApiMock.installTools.mockResolvedValue({
+      git: {
+        installed: true,
+        version: '2.47.0',
+        path: '/usr/bin/git',
+        message: null,
+      },
+      github: {
+        gh_installed: true,
+        gh_path: '/usr/bin/gh',
+        authenticated: false,
+        username: null,
+        host: 'github.com',
+        message: null,
+      },
+      identity_configured: true,
+      error: null,
+    });
     const startupAgents = [
       agent({
         agent_id: 'claude_code',
@@ -211,7 +243,7 @@ describe('FirstRunExperience', () => {
     });
   });
 
-  it('renders the localized product promise and plain-text intro actions', async () => {
+  it('renders the product-site hero copy, equation, and primary next action', async () => {
     render(
       <FirstRunExperience
         open
@@ -224,12 +256,29 @@ describe('FirstRunExperience', () => {
 
     await waitFor(() => expect(managementMock.registry).toHaveBeenCalled());
 
-    expect(screen.getByText('集成且全能的Agent开发平台')).toBeInTheDocument();
-    expect(screen.getByText('Kimi Code')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Agent 需要新的 IDE 于是有了 VibeX' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('All in One 的综合 VibeCoding 强大平台')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-eq-line')).toHaveTextContent('VibeX');
+    expect(screen.getByTestId('onboarding-eq-line')).toHaveTextContent(
+      'Cursor'
+    );
+    expect(screen.getByTestId('onboarding-hero-scatter')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-hero-glow')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-product-stack')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('onboarding-product-stack').querySelectorAll('img')
+    ).toHaveLength(5);
 
     const nextButton = screen.getByRole('button', { name: '下一步' });
-    expect(nextButton).toHaveClass('onboarding-skip-button');
+    expect(nextButton).toHaveClass('onboarding-primary-button');
     expect(nextButton.querySelector('svg')).toBeNull();
+    expect(screen.getByRole('button', { name: '跳过设置' })).toHaveClass(
+      'onboarding-skip-button'
+    );
     expect(
       screen.queryByTestId('liquid-glass-surface')
     ).not.toBeInTheDocument();
@@ -436,7 +485,7 @@ describe('FirstRunExperience', () => {
     expect(onFinish).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the aurora background moving on the configuration step', async () => {
+  it('keeps the product-site hero background on the configuration step', async () => {
     const user = userEvent.setup();
     render(
       <FirstRunExperience
@@ -449,21 +498,106 @@ describe('FirstRunExperience', () => {
     );
 
     await user.click(screen.getByRole('button', { name: '下一步' }));
-    animationMock.gsap.to.mockClear();
-    animationMock.callback?.();
 
-    expect(animationMock.gsap.to).toHaveBeenCalledWith(
-      '.onboarding-aurora',
-      expect.objectContaining({ repeat: -1, yoyo: true })
+    expect(screen.getByTestId('onboarding-hero-glow')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '选择出战的 Agent' })
+    ).toBeInTheDocument();
+    expect(document.querySelector('.onboarding-aurora')).toBeNull();
+  });
+
+  it('keeps the disclaimer off the intro step', async () => {
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
     );
-    expect(animationMock.gsap.to).toHaveBeenCalledWith(
-      '.onboarding-aurora-layer-a',
-      expect.objectContaining({ repeat: -1, yoyo: true })
+
+    expect(
+      screen.queryByRole('button', { name: '免责声明' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '免责声明' })).toBeNull();
+  });
+
+  it('places an underlined disclaimer at the bottom of the configuration step', async () => {
+    const user = userEvent.setup();
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
     );
-    expect(animationMock.gsap.to).toHaveBeenCalledWith(
-      '.onboarding-aurora-layer-b',
-      expect.objectContaining({ repeat: -1, yoyo: true })
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    const footer = document.querySelector('.onboarding-config-footer');
+    expect(footer).not.toBeNull();
+    const link = within(footer as HTMLElement).getByRole('button', {
+      name: '免责声明',
+    });
+    expect(link).toHaveClass('onboarding-disclaimer-link');
+    expect(link).toHaveTextContent('免责声明');
+    expect(footer).toHaveTextContent('继续即表示你已阅读并同意');
+  });
+
+  it('opens the full product risk disclaimer from the configuration footer', async () => {
+    const user = userEvent.setup();
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
     );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '免责声明' }));
+
+    const dialog = screen.getByRole('dialog', { name: '免责声明' });
+    expect(dialog).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('heading', { name: '免责声明' })
+    ).toBeInTheDocument();
+
+    const requiredSections = [
+      '软件性质与无担保',
+      'Agent 与本机执行',
+      '第三方 Agent、安装与凭据',
+      '插件与扩展',
+      'Git、工作区与破坏性操作',
+      '自动化、工作流与无人值守运行',
+      '多智能体委派',
+      '远程访问、配对与隧道',
+      '聊天通道与外部指令',
+      '数据、模型服务与隐私',
+      '预览、脚本与终端',
+      '费用、合规与第三方条款',
+      '责任限制',
+    ];
+    for (const title of requiredSections) {
+      expect(
+        within(dialog).getByRole('heading', { name: title })
+      ).toBeInTheDocument();
+    }
+
+    expect(dialog).toHaveTextContent('操作系统级沙箱');
+    expect(dialog).toHaveTextContent('全信任');
+    expect(dialog).toHaveTextContent('强制推送');
+    expect(dialog).toHaveTextContent('工作站设备');
+    expect(dialog).toHaveTextContent('明文');
+    expect(dialog).toHaveTextContent('第三方模型');
+
+    await user.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByRole('dialog', { name: '免责声明' })).toBeNull();
   });
 
   it('checks local Agents only once when the language binding refreshes', async () => {
@@ -533,14 +667,14 @@ describe('FirstRunExperience', () => {
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
   });
 
-  it('keeps the Agent list usable while showing real local check progress', async () => {
+  it('keeps the Agent catalog loading while local detection is still running', async () => {
     const user = userEvent.setup();
     managementMock.discoveryProgress.mockResolvedValue({
       phase: 'checking',
       completed: 3,
       total: 12,
       found: 1,
-      checked_agent_ids: ['claude_code', 'codex', 'gemini'],
+      checked_agent_ids: ['claude_code', 'codex', 'antigravity'],
       timed_out: false,
     });
 
@@ -557,8 +691,13 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
     expect(
-      await screen.findByRole('checkbox', { name: '启用 Claude Code' })
+      await screen.findByRole('status', { name: '正在检查本地 Agent' })
     ).toBeInTheDocument();
+    expect(screen.getByTestId('agent-loading-preview')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: '启用 Claude Code' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('未安装')).not.toBeInTheDocument();
     const progress = await screen.findByRole('progressbar', {
       name: '本地 Agent 检查进度',
     });
@@ -569,7 +708,7 @@ describe('FirstRunExperience', () => {
     expect(screen.getByRole('combobox', { name: '外部编辑器' })).toBeEnabled();
   });
 
-  it('updates local check progress from backend events without hiding the list', async () => {
+  it('updates local check progress from backend events without showing an uninstalled list', async () => {
     const user = userEvent.setup();
     managementMock.discoveryProgress.mockResolvedValue({
       phase: 'checking',
@@ -611,8 +750,11 @@ describe('FirstRunExperience', () => {
 
     expect(screen.getByText('已检查 8 / 12')).toBeInTheDocument();
     expect(
-      screen.getByRole('checkbox', { name: '启用 Claude Code' })
+      screen.getByRole('status', { name: '正在检查本地 Agent' })
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: '启用 Claude Code' })
+    ).not.toBeInTheDocument();
   });
 
   it('merges discovered Agents without overwriting the user selection', async () => {
@@ -746,6 +888,9 @@ describe('FirstRunExperience', () => {
         />
       );
 
+      await act(async () => {
+        await Promise.resolve();
+      });
       fireEvent.click(screen.getByRole('button', { name: '下一步' }));
       expect(
         screen.getByRole('status', { name: '正在加载 Agent 列表' })
@@ -835,15 +980,14 @@ describe('FirstRunExperience', () => {
     });
     expect(editorPicker).toHaveClass('onboarding-editor-select');
     await user.click(editorPicker);
-    const editorList = screen.getByRole('listbox');
+    const editorList = await screen.findByRole('listbox');
     expect(editorList).toHaveClass(
       'onboarding-popover-layer',
       'onboarding-editor-options'
     );
-    expect(
-      document.querySelector<HTMLElement>('.onboarding-experience')
-    ).toContainElement(editorList);
+    expect(editorList).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Cursor/ })).toBeInTheDocument();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: /Cursor/ }));
     expect(screen.queryByText(/命令：/)).not.toBeInTheDocument();
     expect(
@@ -1195,5 +1339,169 @@ describe('FirstRunExperience', () => {
     expect(
       screen.getByRole('button', { name: '开始安装并继续' })
     ).toBeDisabled();
+  });
+
+  it('skips version control setup when Git is already installed', async () => {
+    const user = userEvent.setup();
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
+    );
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      screen.getByRole('heading', { name: '选择出战的 Agent' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '版本管理器配置' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('asks for a Git identity on the setup page when Git is missing', async () => {
+    const user = userEvent.setup();
+    const onPersist = vi.fn().mockResolvedValue(undefined);
+    versionControlApiMock.detectGit.mockResolvedValue({
+      installed: false,
+      version: null,
+      path: null,
+      message: 'Git not detected',
+    });
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={onPersist}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
+    );
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByRole('heading', { name: '选择出战的 Agent' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '版本管理器配置' })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写名称和邮箱');
+    expect(versionControlApiMock.installTools).not.toHaveBeenCalled();
+    expect(onPersist).not.toHaveBeenCalled();
+
+    await user.type(screen.getByPlaceholderText('例如：张三'), 'Ada');
+    await user.type(
+      screen.getByPlaceholderText('name@example.com'),
+      'ada@example.com'
+    );
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+
+    await waitFor(() =>
+      expect(versionControlApiMock.installTools).toHaveBeenCalledWith({
+        user_name: 'Ada',
+        user_email: 'ada@example.com',
+      })
+    );
+    expect(onPersist).toHaveBeenCalled();
+    expect(
+      await screen.findByRole('heading', { name: /欢迎来到/ })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the setup page open and retries after a failed Git install', async () => {
+    const user = userEvent.setup();
+    versionControlApiMock.detectGit.mockResolvedValue({
+      installed: false,
+      version: null,
+      path: null,
+      message: 'Git not detected',
+    });
+    versionControlApiMock.installTools
+      .mockResolvedValueOnce({
+        git: {
+          installed: false,
+          version: null,
+          path: null,
+          message: 'timeout',
+        },
+        github: {
+          gh_installed: false,
+          gh_path: null,
+          authenticated: false,
+          username: null,
+          host: 'github.com',
+          message: null,
+        },
+        identity_configured: false,
+        error: '官方源超时',
+      })
+      .mockResolvedValueOnce({
+        git: {
+          installed: true,
+          version: '2.47.0',
+          path: '/usr/bin/git',
+          message: null,
+        },
+        github: {
+          gh_installed: true,
+          gh_path: '/usr/bin/gh',
+          authenticated: false,
+          username: null,
+          host: 'github.com',
+          message: null,
+        },
+        identity_configured: true,
+        error: null,
+      });
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
+    );
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('heading', { name: '版本管理器配置' });
+    await user.type(screen.getByPlaceholderText('例如：张三'), 'Ada');
+    await user.type(
+      screen.getByPlaceholderText('name@example.com'),
+      'ada@example.com'
+    );
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('官方源超时');
+    expect(
+      screen.getByRole('heading', { name: '选择出战的 Agent' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '版本管理器配置' })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '重试安装' }));
+    await waitFor(() =>
+      expect(versionControlApiMock.installTools).toHaveBeenCalledTimes(2)
+    );
+    expect(
+      await screen.findByRole('heading', { name: /欢迎来到/ })
+    ).toBeInTheDocument();
   });
 });

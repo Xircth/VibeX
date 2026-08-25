@@ -47,9 +47,8 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const environment = await agentManagementApi.environment(
-        'deepseek_harness'
-      );
+      const environment =
+        await agentManagementApi.environment('deepseek_harness');
       const values = Object.fromEntries(
         environment.entries.map((entry) => [entry.name, entry.value ?? ''])
       );
@@ -117,9 +116,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
         <div className="agent-section-heading">
           <div className="flex items-center gap-2">
             <Shield aria-hidden="true" className="h-4 w-4" />
-            <h3 id="dsh-session-heading">
-              {t('settings:agents.configTitle')}
-            </h3>
+            <h3 id="dsh-session-heading">{t('settings:agents.configTitle')}</h3>
           </div>
         </div>
         {loading ? (
@@ -135,6 +132,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
                   <button
                     key={id}
                     aria-checked={selected}
+                    aria-label={t(`settings:agents.dshPreset.${id}.name`)}
                     className="dsh-preset-card"
                     data-selected={selected ? 'true' : 'false'}
                     role="radio"
@@ -144,7 +142,9 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
                     }
                   >
                     <div className="dsh-preset-card-head">
-                      <strong>{t(`settings:agents.dshPreset.${id}.name`)}</strong>
+                      <strong>
+                        {t(`settings:agents.dshPreset.${id}.name`)}
+                      </strong>
                       <span className="dsh-preset-badge">
                         {t('settings:agents.dshPresetBuiltin')}
                       </span>

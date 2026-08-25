@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import type { Session, Workspace } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -384,6 +384,32 @@ function KanbanSessionConversationContent({
   );
 }
 
+function useMarkSessionViewed(
+  sessionId: string | undefined,
+  isRunning: boolean
+) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let cancelled = false;
+    void sessionsApi
+      .markViewed(sessionId)
+      .then(() => {
+        if (cancelled) return;
+        void queryClient.invalidateQueries({
+          queryKey: ['workspaceSessions'],
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isRunning, queryClient, sessionId]);
+}
+
 function KanbanSessionConversationSurface({
   workspaceId,
   sessionId,
@@ -398,6 +424,10 @@ function KanbanSessionConversationSurface({
   conversationWidthMode,
 }: KanbanSessionConversationSurfaceProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const isRunning =
+    sessionState.sessions.find((session) => session.id === sessionId)
+      ?.isRunning ?? false;
+  useMarkSessionViewed(sessionId, isRunning);
   const { data: workspace, isLoading: isWorkspaceLoading } =
     useQuery<Workspace>({
       queryKey: ['taskAttempt', workspaceId],

@@ -1,12 +1,19 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { lazy } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
+import i18n from '@/i18n';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { BackendTransportProvider } from '@/lib/transport';
 import { SettingsLayout } from './SettingsLayout';
+
+const syncSettingsWindowTitle = vi.hoisted(() => vi.fn());
+
+vi.mock('./syncSettingsWindowTitle', () => ({
+  syncSettingsWindowTitle,
+}));
 
 describe('SettingsLayout capability gating', () => {
   it('keeps the settings shell pinned to the visible viewport', () => {
@@ -174,5 +181,56 @@ describe('SettingsLayout capability gating', () => {
 
     expect(screen.getByText('Product plugins')).toBeInTheDocument();
     expect(screen.queryByText('Agent content')).not.toBeInTheDocument();
+  });
+});
+
+describe('SettingsLayout window title', () => {
+  const desktopTransport: BackendTransport = {
+    environment: 'desktop',
+    call: vi.fn(),
+  };
+
+  it('uses the localized settings title for the native window', async () => {
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await waitFor(() => {
+      expect(syncSettingsWindowTitle).toHaveBeenCalledWith('设置');
+    });
+  });
+
+  it('updates the native window title when the UI language changes', async () => {
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await waitFor(() => {
+      expect(syncSettingsWindowTitle).toHaveBeenCalledWith('设置');
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    await waitFor(() => {
+      expect(syncSettingsWindowTitle).toHaveBeenCalledWith('Settings');
+    });
   });
 });

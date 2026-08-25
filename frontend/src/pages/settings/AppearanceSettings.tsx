@@ -3,6 +3,7 @@ import {
   AppWindow,
   Languages,
   LayoutGrid,
+  ListTree,
   Loader2,
   Maximize2,
   Sun,
@@ -47,9 +48,12 @@ import {
   useLayoutArrangement,
 } from '@/lib/layoutArrangement';
 import {
-  SettingsActionBar,
-  SettingsSection,
-} from './SettingsUi';
+  KANBAN_SESSION_LIST_VIEWS,
+  getKanbanSessionListView,
+  setKanbanSessionListView,
+  type KanbanSessionListView,
+} from '@/lib/kanbanSessionListView';
+import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import {
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
@@ -69,6 +73,8 @@ export function AppearanceSettings() {
   const [appIconStyle, setAppIconStyleState] = useState<AppIconStyle>(() =>
     getAppIconStyle()
   );
+  const [kanbanSessionListView, setKanbanSessionListViewState] =
+    useState<KanbanSessionListView>(() => getKanbanSessionListView());
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -324,6 +330,37 @@ export function AppearanceSettings() {
                 {SUPPORTED_LANGUAGES.map((lng) => (
                   <SelectItem key={lng} value={lng}>
                     {LANGUAGE_LABELS[lng]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={ListTree}
+          title={t('appearance.kanbanSessionList.title')}
+          description={t('appearance.kanbanSessionList.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.kanbanSessionList.label')}</Label>
+            </div>
+            <Select
+              value={kanbanSessionListView}
+              onValueChange={(value) => {
+                const next = value as KanbanSessionListView;
+                setKanbanSessionListViewState(next);
+                setKanbanSessionListView(next);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {KANBAN_SESSION_LIST_VIEWS.map((view) => (
+                  <SelectItem key={view} value={view}>
+                    {t(`appearance.kanbanSessionList.${view}`)}
                   </SelectItem>
                 ))}
               </SelectContent>

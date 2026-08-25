@@ -143,6 +143,12 @@
     "failed": "Failed",
     "canceled": "Canceled"
   },
+  "childViewer": {
+    "title": "Child session",
+    "close": "Close",
+    "loading": "Loading child session…",
+    "empty": "This child session has no messages yet"
+  },
   "commandTool": {
     "commandLabel": "Command",
     "outputLabel": "Output"

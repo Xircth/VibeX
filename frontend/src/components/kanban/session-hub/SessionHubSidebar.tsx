@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -57,6 +58,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { WorkspaceSessionList } from '@/components/workspace-session-list/WorkspaceSessionList';
+import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
 import {
   SessionCreationForm,
@@ -68,11 +71,14 @@ import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
+  SESSION_ARCHIVE_DROP_ID,
+  SESSION_LIST_NOTICE_DURATION_MS,
   ARCHIVED_SESSION_STATUS,
   SESSION_STATUS_LABELS,
   SESSION_STATUS_ORDER,
   SESSION_STATUS_SECTION_STYLES,
   type ActiveSessionStatus,
+  filterKanbanSessions,
   getSessionMarker,
   getSortLabel,
   mapSessionErrorMessage,
@@ -120,6 +126,7 @@ interface SessionHubSidebarProps {
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
   openingSessionId?: string | null;
+  activeWorkspaceId?: string | null;
   isArchiveView: boolean;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onArchiveViewChange: (value: boolean) => void;
@@ -155,10 +162,10 @@ interface SessionHubSidebarProps {
   ) => void;
   onRestoreArchivedSession: (session: KanbanProjectSessionRecord) => void;
   onExpandedChange: (status: string, expanded: boolean) => void;
+  onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
 }
 
 const STATUS_DROP_ID_PREFIX = 'session-status-drop:';
-const ARCHIVE_DROP_ID = 'session-archive-drop';
 
 function getStatusDropId(status: ActiveSessionStatus) {
   return `${STATUS_DROP_ID_PREFIX}${status}`;
@@ -197,15 +204,16 @@ function isNestedOverlayTarget(target: EventTarget | null) {
   );
 }
 
-// 会话列表底部的操作结果提示（删除成功/失败等）。统一为带图标的浅色内联通知，
-// 替代此前的裸彩色文字，保证错误态有足够的视觉权重与可读性。
 function SessionListNotice({
   variant,
   children,
+  onDismiss,
 }: {
   variant: 'success' | 'error';
   children: ReactNode;
+  onDismiss: () => void;
 }) {
+  const { t } = useTranslation(['common']);
   const Icon = variant === 'success' ? CheckCircle2 : AlertCircle;
   return (
     <div
@@ -218,7 +226,15 @@ function SessionListNotice({
       )}
     >
       <Icon className="mt-px h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 break-words">{children}</span>
+      <span className="min-w-0 flex-1 break-words">{children}</span>
+      <button
+        type="button"
+        className="shrink-0 rounded-md p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+        aria-label={t('close')}
+        onClick={onDismiss}
+      >
+        <X className="h-3 w-3" />
+      </button>
     </div>
   );
 }
@@ -301,7 +317,7 @@ function StatusDropZone({
 function ArchiveDropZone({ enabled }: { enabled: boolean }) {
   const { t } = useTranslation(['tasks', 'common']);
   const { setNodeRef, isOver } = useDroppable({
-    id: ARCHIVE_DROP_ID,
+    id: SESSION_ARCHIVE_DROP_ID,
     disabled: !enabled,
   });
 
@@ -502,6 +518,7 @@ export function SessionHubSidebar({
   monitorPlacements,
   currentExecutionPlacement,
   openingSessionId = null,
+  activeWorkspaceId = null,
   isArchiveView,
   onResizeMouseDown,
   onArchiveViewChange,
@@ -527,17 +544,34 @@ export function SessionHubSidebar({
   onSessionStatusChange,
   onRestoreArchivedSession,
   onExpandedChange,
+  onPinSession,
 }: SessionHubSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const listView = useKanbanSessionListView();
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
+  const isWorkspaceListView =
+    listView === 'workspace' && !isArchiveView && !isDeleteMode;
   const isFlatListMode =
-    !isArchiveView && (hasActiveFilters || sortField !== null);
-  const canDragAcrossSections =
-    !isArchiveView && !isFlatListMode && !isDeleteMode;
+    !isArchiveView &&
+    !isWorkspaceListView &&
+    (hasActiveFilters || sortField !== null);
+  const canDragToArchive = !isArchiveView && !isDeleteMode && !isFlatListMode;
+  const canDragAcrossSections = canDragToArchive && !isWorkspaceListView;
   const [activeDragSessionId, setActiveDragSessionId] = useState<string | null>(
     null
   );
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
+  const noticeMessage = deleteErrorMessage ?? deleteSuccessMessage;
+  const noticeVariant = deleteErrorMessage
+    ? ('error' as const)
+    : deleteSuccessMessage
+      ? ('success' as const)
+      : null;
+  const visibleNotice =
+    noticeMessage && noticeVariant && noticeMessage !== dismissedNotice
+      ? { variant: noticeVariant, message: noticeMessage }
+      : null;
   const sessionsById = useMemo(
     () =>
       sessions.reduce<Record<string, KanbanProjectSessionRecord>>(
@@ -549,20 +583,45 @@ export function SessionHubSidebar({
       ),
     [sessions]
   );
+  const workspaceListSessions = useMemo(
+    () =>
+      filterKanbanSessions({
+        sessions,
+        workspaceFilterIds,
+        executorFilterValues,
+      }),
+    [executorFilterValues, sessions, workspaceFilterIds]
+  );
+  const activeSessionId =
+    currentExecutionPlacement?.sessionId ?? openingSessionId ?? null;
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
     })
   );
 
+  useEffect(() => {
+    setDismissedNotice(null);
+  }, [deleteErrorMessage, deleteSuccessMessage]);
+
+  useEffect(() => {
+    if (!noticeMessage || noticeMessage === dismissedNotice) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setDismissedNotice(noticeMessage);
+    }, SESSION_LIST_NOTICE_DURATION_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dismissedNotice, noticeMessage]);
+
   const handleDragStart = (event: DragStartEvent) => {
-    if (!canDragAcrossSections) return;
+    if (!canDragToArchive) return;
     setActiveDragSessionId(String(event.active.id));
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragSessionId(null);
-    if (!canDragAcrossSections || !event.over) {
+    if (!event.over) {
       return;
     }
 
@@ -572,8 +631,14 @@ export function SessionHubSidebar({
       return;
     }
 
-    if (event.over.id === ARCHIVE_DROP_ID) {
-      onSessionStatusChange(session, ARCHIVED_SESSION_STATUS);
+    if (event.over.id === SESSION_ARCHIVE_DROP_ID) {
+      if (canDragToArchive) {
+        onSessionStatusChange(session, ARCHIVED_SESSION_STATUS);
+      }
+      return;
+    }
+
+    if (!canDragAcrossSections) {
       return;
     }
 
@@ -584,6 +649,9 @@ export function SessionHubSidebar({
 
     onSessionStatusChange(session, targetStatus);
   };
+
+  const showArchiveDrop = Boolean(activeDragSessionId) && canDragToArchive;
+  const insetExpanded = showArchiveDrop || Boolean(visibleNotice);
 
   const visibleCount = isArchiveView ? archivedSessions.length : displayedCount;
   const totalCount = isArchiveView ? archivedSessions.length : sessions.length;
@@ -597,7 +665,7 @@ export function SessionHubSidebar({
         )}
         style={{ width: fill ? '100%' : `${width}px` }}
       >
-        <div className="space-y-2.5 px-3 py-2.5">
+        <div className="space-y-2 px-2.5 pb-1 pt-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <Tooltip>
@@ -697,45 +765,47 @@ export function SessionHubSidebar({
                 </PopoverContent>
               </Popover>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={cn(
-                      SESSION_LIST_ACTION_BUTTON_CLASS,
-                      sortField && 'text-foreground'
-                    )}
-                    aria-label={t('hubSidebar.sort')}
-                  >
-                    <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuRadioGroup
-                    value={sortField ?? 'default'}
-                    onValueChange={(value) =>
-                      onSortFieldChange(
-                        value === 'default' ? null : (value as SortField)
-                      )
-                    }
-                  >
-                    <DropdownMenuRadioItem value="default">
-                      {t('hubSidebar.sortDefault')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="name">
-                      {t('hubSidebar.sortName')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="time">
-                      {t('hubSidebar.sortTime')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="status">
-                      {t('hubSidebar.sortStatus')}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {isWorkspaceListView ? null : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className={cn(
+                        SESSION_LIST_ACTION_BUTTON_CLASS,
+                        sortField && 'text-foreground'
+                      )}
+                      aria-label={t('hubSidebar.sort')}
+                    >
+                      <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuRadioGroup
+                      value={sortField ?? 'default'}
+                      onValueChange={(value) =>
+                        onSortFieldChange(
+                          value === 'default' ? null : (value as SortField)
+                        )
+                      }
+                    >
+                      <DropdownMenuRadioItem value="default">
+                        {t('hubSidebar.sortDefault')}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="name">
+                        {t('hubSidebar.sortName')}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="time">
+                        {t('hubSidebar.sortTime')}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="status">
+                        {t('hubSidebar.sortStatus')}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
 
               <Popover>
                 <Tooltip>
@@ -914,9 +984,9 @@ export function SessionHubSidebar({
             </div>
           </div>
 
-          {isFlatListMode ? (
+          {isFlatListMode || (isWorkspaceListView && hasActiveFilters) ? (
             <div className="session-hub-drop-zone flex flex-wrap items-center gap-2 rounded-xl px-2.5 py-2 text-[11px] text-muted-foreground">
-              {sortField ? (
+              {sortField && !isWorkspaceListView ? (
                 <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
                   {t('hubSidebar.sortChip', { label: getSortLabel(sortField) })}
                 </span>
@@ -948,166 +1018,199 @@ export function SessionHubSidebar({
           ) : null}
 
           {isDeleteMode ? (
-            <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-2">
-              <div className="flex items-center justify-between gap-2 text-[11px]">
-                <span className="text-muted-foreground">
-                  {selectedSessionIdSet.size > 0
-                    ? t('hubSidebar.selectedCount', {
-                        count: selectedSessionIdSet.size,
-                      })
-                    : t('hubSidebar.selectSessionsToDelete')}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="destructive"
-                    className="h-6 px-2 text-[11px]"
-                    disabled={
-                      selectedSessionIdSet.size === 0 || isDeletingSessions
-                    }
-                    onClick={() => void onDeleteSelectedSessions()}
-                  >
-                    {isDeletingSessions
-                      ? t('hubSidebar.deleting')
-                      : t('hubSidebar.deleteSelected')}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="ghost"
-                    className="h-6 px-2 text-[11px]"
-                    disabled={isDeletingSessions}
-                    onClick={onCancelDeleteMode}
-                  >
-                    {t('common:cancel')}
-                  </Button>
-                </div>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px]">
+              <span className="text-muted-foreground">
+                {selectedSessionIdSet.size > 0
+                  ? t('hubSidebar.selectedCount', {
+                      count: selectedSessionIdSet.size,
+                    })
+                  : t('hubSidebar.selectSessionsToDelete')}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="destructive"
+                  className="h-6 px-2 text-[11px]"
+                  disabled={
+                    selectedSessionIdSet.size === 0 || isDeletingSessions
+                  }
+                  onClick={() => void onDeleteSelectedSessions()}
+                >
+                  {isDeletingSessions
+                    ? t('hubSidebar.deleting')
+                    : t('hubSidebar.deleteSelected')}
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  className="h-6 px-2 text-[11px]"
+                  disabled={isDeletingSessions}
+                  onClick={onCancelDeleteMode}
+                >
+                  {t('common:cancel')}
+                </Button>
               </div>
-              {deleteErrorMessage ? (
-                <SessionListNotice variant="error">
-                  {deleteErrorMessage}
-                </SessionListNotice>
-              ) : null}
-              {deleteSuccessMessage ? (
-                <SessionListNotice variant="success">
-                  {deleteSuccessMessage}
-                </SessionListNotice>
-              ) : null}
             </div>
-          ) : deleteSuccessMessage ? (
-            <SessionListNotice variant="success">
-              {deleteSuccessMessage}
-            </SessionListNotice>
           ) : null}
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragCancel={() => setActiveDragSessionId(null)}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveDragSessionId(null)}
+        >
+          <div
+            className="session-hub-inset"
+            data-expanded={insetExpanded ? 'true' : 'false'}
           >
-            <div className="space-y-3 px-3 py-3 pr-4">
-              {activeDragSessionId ? (
-                <ArchiveDropZone enabled={canDragAcrossSections} />
-              ) : null}
-              {isLoading ? (
-                <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  {t('hubSidebar.loadingSessions')}
-                </div>
-              ) : isArchiveView ? (
-                archivedSessions.length > 0 ? (
-                  renderSessionList(
-                    archivedSessions,
-                    null,
-                    false,
-                    false,
-                    selectedSessionIdSet,
-                    monitorPlacements,
-                    currentExecutionPlacement,
-                    openingSessionId,
-                    onSessionClick,
-                    onToggleSessionSelection,
-                    onRenameSession,
-                    undefined,
-                    onRestoreArchivedSession
-                  )
-                ) : (
+            {showArchiveDrop ? (
+              <ArchiveDropZone enabled={canDragToArchive} />
+            ) : null}
+            {visibleNotice ? (
+              <SessionListNotice
+                variant={visibleNotice.variant}
+                onDismiss={() => setDismissedNotice(visibleNotice.message)}
+              >
+                {visibleNotice.message}
+              </SessionListNotice>
+            ) : null}
+          </div>
+
+          <ScrollArea className="min-h-0 min-w-0 flex-1">
+            {isWorkspaceListView ? (
+              <div className="session-hub-list-body">
+                {isLoading ? (
                   <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                    {t('hubSidebar.archiveEmpty')}
+                    {t('hubSidebar.loadingSessions')}
                   </div>
-                )
-              ) : sessions.length === 0 ? (
-                <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  {t('hubSidebar.noSessions')}
-                </div>
-              ) : isFlatListMode ? (
-                flatSessions.length > 0 ? (
-                  renderSessionList(
-                    flatSessions,
-                    null,
-                    false,
-                    isDeleteMode,
-                    selectedSessionIdSet,
-                    monitorPlacements,
-                    currentExecutionPlacement,
-                    openingSessionId,
-                    onSessionClick,
-                    onToggleSessionSelection,
-                    onRenameSession,
-                    onDeleteSession
-                  )
+                ) : sessions.length === 0 ? (
+                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                    {t('hubSidebar.noSessions')}
+                  </div>
+                ) : workspaceListSessions.length > 0 ? (
+                  <WorkspaceSessionList
+                    sessions={workspaceListSessions}
+                    isLoading={false}
+                    activeSessionId={activeSessionId}
+                    activeWorkspaceId={activeWorkspaceId}
+                    onSessionClick={onSessionClick}
+                    onPinSession={onPinSession}
+                    onArchiveSession={(session) =>
+                      onSessionStatusChange(session, ARCHIVED_SESSION_STATUS)
+                    }
+                    onRenameSession={onRenameSession}
+                    onDeleteSession={onDeleteSession}
+                    dndContextProvided
+                    monitorPlacements={monitorPlacements}
+                    currentExecutionPlacement={currentExecutionPlacement}
+                  />
                 ) : (
                   <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                     {t('hubSidebar.noFilterMatch')}
                   </div>
-                )
-              ) : (
-                SESSION_STATUS_ORDER.map((status) => {
-                  const sectionSessions = groupedSessions[status] ?? [];
-                  const expanded = expandedSections[status] ?? true;
+                )}
+              </div>
+            ) : (
+              <div className="session-hub-list-body space-y-3">
+                {isLoading ? (
+                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                    {t('hubSidebar.loadingSessions')}
+                  </div>
+                ) : isArchiveView ? (
+                  archivedSessions.length > 0 ? (
+                    renderSessionList(
+                      archivedSessions,
+                      null,
+                      false,
+                      false,
+                      selectedSessionIdSet,
+                      monitorPlacements,
+                      currentExecutionPlacement,
+                      openingSessionId,
+                      onSessionClick,
+                      onToggleSessionSelection,
+                      onRenameSession,
+                      undefined,
+                      onRestoreArchivedSession
+                    )
+                  ) : (
+                    <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                      {t('hubSidebar.archiveEmpty')}
+                    </div>
+                  )
+                ) : sessions.length === 0 ? (
+                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                    {t('hubSidebar.noSessions')}
+                  </div>
+                ) : isFlatListMode ? (
+                  flatSessions.length > 0 ? (
+                    renderSessionList(
+                      flatSessions,
+                      null,
+                      false,
+                      isDeleteMode,
+                      selectedSessionIdSet,
+                      monitorPlacements,
+                      currentExecutionPlacement,
+                      openingSessionId,
+                      onSessionClick,
+                      onToggleSessionSelection,
+                      onRenameSession,
+                      onDeleteSession
+                    )
+                  ) : (
+                    <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                      {t('hubSidebar.noFilterMatch')}
+                    </div>
+                  )
+                ) : (
+                  SESSION_STATUS_ORDER.map((status) => {
+                    const sectionSessions = groupedSessions[status] ?? [];
+                    const expanded = expandedSections[status] ?? true;
 
-                  return (
-                    <StatusDropZone
-                      key={status}
-                      status={status}
-                      enabled={canDragAcrossSections}
-                    >
-                      <div className="space-y-2">
-                        <SectionLabel
-                          status={status}
-                          title={SESSION_STATUS_LABELS[status]}
-                          count={sectionSessions.length}
-                          expanded={expanded}
-                          onToggle={() => onExpandedChange(status, !expanded)}
-                        />
-                        {expanded && sectionSessions.length > 0
-                          ? renderSessionList(
-                              sectionSessions,
-                              status,
-                              canDragAcrossSections,
-                              isDeleteMode,
-                              selectedSessionIdSet,
-                              monitorPlacements,
-                              currentExecutionPlacement,
-                              openingSessionId,
-                              onSessionClick,
-                              onToggleSessionSelection,
-                              onRenameSession,
-                              onDeleteSession
-                            )
-                          : null}
-                      </div>
-                    </StatusDropZone>
-                  );
-                })
-              )}
-            </div>
-          </DndContext>
-        </ScrollArea>
+                    return (
+                      <StatusDropZone
+                        key={status}
+                        status={status}
+                        enabled={canDragAcrossSections}
+                      >
+                        <div className="space-y-2">
+                          <SectionLabel
+                            status={status}
+                            title={SESSION_STATUS_LABELS[status]}
+                            count={sectionSessions.length}
+                            expanded={expanded}
+                            onToggle={() => onExpandedChange(status, !expanded)}
+                          />
+                          {expanded && sectionSessions.length > 0
+                            ? renderSessionList(
+                                sectionSessions,
+                                status,
+                                canDragAcrossSections,
+                                isDeleteMode,
+                                selectedSessionIdSet,
+                                monitorPlacements,
+                                currentExecutionPlacement,
+                                openingSessionId,
+                                onSessionClick,
+                                onToggleSessionSelection,
+                                onRenameSession,
+                                onDeleteSession
+                              )
+                            : null}
+                        </div>
+                      </StatusDropZone>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </ScrollArea>
+        </DndContext>
       </aside>
 
       <div

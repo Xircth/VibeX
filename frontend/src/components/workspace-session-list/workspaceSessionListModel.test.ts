@@ -276,6 +276,15 @@ describe('workspaceSessionStatusTone', () => {
     expect(workspaceSessionStatusTone({ status: 'done' })).toBe('done');
     expect(workspaceSessionStatusTone({ status: 'archived' })).toBe('done');
   });
+
+  it('treats an in-flight turn as in progress even if status has not caught up', () => {
+    expect(
+      workspaceSessionStatusTone({ status: 'todo', isRunning: true })
+    ).toBe('inprogress');
+    expect(
+      workspaceSessionStatusTone({ status: 'inreview', isRunning: true })
+    ).toBe('inprogress');
+  });
 });
 
 describe('applyWorkspaceSessionOrder', () => {

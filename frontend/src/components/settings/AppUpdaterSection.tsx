@@ -138,10 +138,7 @@ export function AppUpdaterSection({
       <div className="settings-subrows">
         <div className="settings-row">
           <div>
-            <Label
-              htmlFor="auto-update-enabled"
-              className="cursor-pointer text-xs"
-            >
+            <Label htmlFor="auto-update-enabled" className="cursor-pointer">
               {t('system.autoCheckUpdate')}
             </Label>
             <p className="settings-row__description">
@@ -158,7 +155,7 @@ export function AppUpdaterSection({
 
         <div className="settings-row">
           <div className="min-w-0">
-            <div className="text-xs font-medium">
+            <div className="text-sm font-medium">
               {currentVersion
                 ? t('appUpdater.currentVersion', { version: currentVersion })
                 : t('system.checking')}
@@ -178,12 +175,12 @@ export function AppUpdaterSection({
               </p>
             )}
             {state === 'up-to-date' ? (
-              <p className="settings-status-success mt-1 text-[11px]">
+              <p className="settings-status-success mt-1 text-xs">
                 {t('appUpdater.upToDate')}
               </p>
             ) : null}
             {state === 'available' && update ? (
-              <p className="settings-status-warning mt-1 text-[11px] font-medium">
+              <p className="settings-status-warning mt-1 text-xs font-medium">
                 {formattedReleaseDate
                   ? t('appUpdater.newVersionDated', {
                       version: update.version,
@@ -199,8 +196,7 @@ export function AppUpdaterSection({
             {update?.releaseUrl ? (
               <Button
                 variant="outline"
-                size="sm"
-                className="h-8 text-xs"
+                className="shrink-0"
                 onClick={() =>
                   window.open(
                     update.releaseUrl!,
@@ -214,18 +210,13 @@ export function AppUpdaterSection({
               </Button>
             ) : null}
             {state === 'ready' ? (
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => void relaunchApp()}
-              >
+              <Button className="shrink-0" onClick={() => void relaunchApp()}>
                 {t('appUpdater.restartNow')}
               </Button>
             ) : state === 'downloading' ||
               (state === 'available' && update?.canInstall) ? (
               <Button
-                size="sm"
-                className="h-8 text-xs"
+                className="shrink-0"
                 onClick={() => void downloadAndInstall()}
                 disabled={busy}
               >
@@ -237,8 +228,7 @@ export function AppUpdaterSection({
             ) : (
               <Button
                 variant="outline"
-                size="sm"
-                className="h-8 text-xs"
+                className="shrink-0"
                 onClick={() => void checkForUpdate(true)}
                 disabled={busy}
               >
@@ -255,7 +245,7 @@ export function AppUpdaterSection({
 
         {update ? (
           <div className="settings-row settings-row--stacked pb-3">
-            <div className="text-xs font-medium">
+            <div className="text-sm font-medium">
               {t('appUpdater.releaseNotes')}
             </div>
             <ReleaseNotes
@@ -291,7 +281,7 @@ export function AppUpdaterSection({
 
         {state === 'error' && message ? (
           <div className="settings-row pb-3">
-            <p className="text-xs text-destructive">
+            <p className="text-sm text-destructive">
               {t('appUpdater.updateFailed', { error: message })}
             </p>
           </div>

@@ -36,6 +36,8 @@ export const MIN_SESSION_LIST_WIDTH = 220;
 export const MAX_SESSION_LIST_WIDTH = 560;
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
 export const ARCHIVED_SESSION_STATUS: SessionStatus = 'archived';
+export const SESSION_ARCHIVE_DROP_ID = 'session-archive-drop';
+export const SESSION_LIST_NOTICE_DURATION_MS = 8000;
 export const SESSION_STATUS_ORDER: ActiveSessionStatus[] = [
   'todo',
   'inprogress',

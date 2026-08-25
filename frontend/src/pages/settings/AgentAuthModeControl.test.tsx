@@ -80,36 +80,31 @@ const claudeOptions = [
   ),
   authOption('model_provider', 'authModeProvider', 'authDescClaudeProvider'),
 ];
-const geminiOptions = [
+const antigravityOptions = [
   authOption(
-    'custom',
-    'authModeCustomEndpoint',
-    'authDescGeminiCustom',
-    'GEMINI_API_KEY',
-    'gemini_api_key'
+    'oauth-personal',
+    'authModeGoogleLogin',
+    'authDescAntigravityOauthPersonal'
   ),
-  authOption('login_google', 'authModeGoogleLogin', 'authDescGeminiGoogle'),
   authOption(
-    'gemini_api_key',
+    'oauth-business',
+    'authModeAntigravityEnterprise',
+    'authDescAntigravityOauthBusiness'
+  ),
+  authOption(
+    'gemini-api-key',
     'authModeGeminiKey',
-    'authDescGeminiKey',
+    'authDescAntigravityApiKey',
     'GEMINI_API_KEY',
-    'gemini_api_key'
-  ),
-  authOption('vertex_adc', 'authModeVertexAdc', 'authDescGeminiAdc'),
-  authOption(
-    'vertex_service_account',
-    'authModeVertexServiceAccount',
-    'authDescGeminiServiceAccount'
+    'antigravity_api_key'
   ),
   authOption(
-    'vertex_api_key',
-    'authModeVertexKey',
-    'authDescGeminiVertexKey',
+    'agent-platform',
+    'authModeAntigravityPlatform',
+    'authDescAntigravityPlatform',
     'GOOGLE_API_KEY',
-    'gemini_google_api_key'
+    'antigravity_google_api_key'
   ),
-  authOption('model_provider', 'authModeProvider', 'authDescGeminiProvider'),
 ];
 
 describe('AgentAuthModeControl', () => {
@@ -425,8 +420,15 @@ describe('AgentAuthModeControl', () => {
       />
     );
 
+    expect(await screen.findByTestId('agent-account-identity')).toHaveAttribute(
+      'data-state',
+      'identified'
+    );
+    expect(screen.getByText('linus@example.com')).toBeVisible();
     expect(
-      await screen.findByText('当前登录账户：linus@example.com')
+      screen.getByRole('status', {
+        name: '当前登录账户：linus@example.com',
+      })
     ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '登录 Claude Code' })
@@ -436,7 +438,7 @@ describe('AgentAuthModeControl', () => {
     ).toBeVisible();
   });
 
-  it('falls back to signed-in copy when the account name is unknown', async () => {
+  it('keeps the account signed in when user information is missing', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'claude_code',
       mode: 'official_subscription',
@@ -450,7 +452,11 @@ describe('AgentAuthModeControl', () => {
       <AgentAuthModeControl agentId="claude_code" authentication="account" />
     );
 
-    expect(await screen.findByText('当前已登录')).toBeVisible();
+    expect(await screen.findByTestId('agent-account-identity')).toHaveAttribute(
+      'data-state',
+      'unknown'
+    );
+    expect(screen.getByText('未获得有效用户信息')).toBeVisible();
   });
 
   it('shows login after logout even when the logout command is still available', async () => {
@@ -507,61 +513,56 @@ describe('AgentAuthModeControl', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('maps all Gemini credentials to the native configuration form', async () => {
+  it('maps Antigravity credentials to the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
-      agent_id: 'gemini',
-      mode: 'login_google',
+      agent_id: 'antigravity',
+      mode: 'oauth-personal',
       credential_env: 'GEMINI_API_KEY',
       credential_present: false,
       modes: [
-        'custom',
-        'login_google',
-        'gemini_api_key',
-        'vertex_adc',
-        'vertex_service_account',
-        'vertex_api_key',
-        'model_provider',
+        'oauth-personal',
+        'oauth-business',
+        'gemini-api-key',
+        'agent-platform',
       ],
-      options: geminiOptions,
+      options: antigravityOptions,
     });
     const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
-      agent_id: 'gemini',
-      mode: 'vertex_api_key',
-      credential_env: 'GOOGLE_API_KEY',
+      agent_id: 'antigravity',
+      mode: 'gemini-api-key',
+      credential_env: 'GEMINI_API_KEY',
       credential_present: true,
       modes: [
-        'custom',
-        'login_google',
-        'gemini_api_key',
-        'vertex_adc',
-        'vertex_service_account',
-        'vertex_api_key',
-        'model_provider',
+        'oauth-personal',
+        'oauth-business',
+        'gemini-api-key',
+        'agent-platform',
       ],
-      options: geminiOptions,
+      options: antigravityOptions,
     });
     const user = userEvent.setup();
 
     render(
       <AgentAuthModeControl
-        agentId="gemini"
-        configuration={<input aria-label="Google API Key" />}
+        agentId="antigravity"
+        configuration={<input aria-label="Native Gemini key" />}
         nativeCredentialPresent={(fieldId) =>
-          fieldId === 'gemini_google_api_key'
+          fieldId === 'antigravity_api_key'
         }
       />
     );
 
     expect(
-      await screen.findByRole('tablist', { name: 'Gemini 鉴权模式' })
+      await screen.findByRole('tablist', {
+        name: 'Google Antigravity 鉴权模式',
+      })
     ).toBeVisible();
-    expect(screen.getAllByRole('tab')).toHaveLength(7);
-    await pickAuthModeTab(user, 'Vertex AI API Key');
-    expect(screen.getByLabelText('Google API Key')).toBeVisible();
-    expect(screen.queryByLabelText('GOOGLE_API_KEY')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    await pickAuthModeTab(user, 'Gemini API Key');
+    expect(screen.getByLabelText('Native Gemini key')).toBeVisible();
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('gemini', 'vertex_api_key', null)
+      expect(save).toHaveBeenCalledWith('antigravity', 'gemini-api-key', null)
     );
   });
 });

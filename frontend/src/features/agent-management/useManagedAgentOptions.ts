@@ -9,6 +9,7 @@ export type ManagedAgentOption = {
   iconLight: string | null;
   iconDark: string | null;
   iconSvg: string | null;
+  runnable: boolean;
 };
 
 export function useManagedAgentOptions(
@@ -31,6 +32,7 @@ export function useManagedAgentOptions(
           iconLight: agent.iconLight ?? null,
           iconDark: agent.iconDark ?? null,
           iconSvg: agent.iconSvg ?? null,
+          runnable: agent.runnable,
         })),
     [agents, enabledOnly, requiredFeature]
   );

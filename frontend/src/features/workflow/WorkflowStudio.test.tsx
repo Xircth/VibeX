@@ -1,9 +1,27 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { vi } from 'vitest';
+import { beforeEach, vi } from 'vitest';
 import type { WorkflowDefinition } from 'shared/types';
 
 import { WorkflowStudio } from './WorkflowStudio';
+
+const userSystem = vi.hoisted(() => ({
+  defaultAgentId: 'grok' as string | null,
+}));
+
+vi.mock('@/components/ConfigProvider', () => ({
+  useOptionalUserSystem: () =>
+    userSystem.defaultAgentId
+      ? {
+          config: {
+            executor_profile: {
+              executor: userSystem.defaultAgentId,
+              variant: null,
+            },
+          },
+        }
+      : null,
+}));
 
 const definition: WorkflowDefinition = {
   formatVersion: 1,
@@ -64,6 +82,14 @@ const connectedDefinition: WorkflowDefinition = {
 };
 
 describe('WorkflowStudio', () => {
+  beforeEach(() => {
+    userSystem.defaultAgentId = 'grok';
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
   it('fills the available editor stage instead of fixing the graph to 560px', () => {
     const { container } = render(
       <WorkflowStudio
@@ -174,6 +200,59 @@ describe('WorkflowStudio', () => {
           expect.objectContaining({ kind: 'notify' }),
         ]),
       })
+    );
+  });
+
+  it('creates an Agent node with the user default Agent', async () => {
+    const user = userEvent.setup();
+    const onDefinitionChange = vi.fn();
+    render(
+      <WorkflowStudio
+        definition={definition}
+        onDefinitionChange={onDefinitionChange}
+        agentOptions={[
+          { value: 'codex', label: 'Codex', runnable: true },
+          { value: 'grok', label: 'Grok', runnable: true },
+          { value: 'claude_code', label: 'Claude Code', runnable: false },
+        ]}
+      />
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: /添加节点|add node/i })
+    );
+    await user.click(screen.getByRole('menuitem', { name: /Agent|代理/i }));
+
+    expect(onDefinitionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        steps: expect.arrayContaining([
+          expect.objectContaining({ kind: 'agent', agentId: 'grok' }),
+        ]),
+      })
+    );
+  });
+
+  it('shows enabled Agents and greys out Agents that are not ready', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkflowStudio
+        definition={definition}
+        onDefinitionChange={() => undefined}
+        agentOptions={[
+          { value: 'codex', label: 'Codex', runnable: true },
+          { value: 'claude_code', label: 'Claude Code', runnable: false },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
+    await user.click(screen.getAllByRole('combobox')[0]);
+
+    expect(
+      await screen.findByRole('option', { name: /Claude Code/i })
+    ).toHaveAttribute('data-disabled');
+    expect(screen.getByRole('option', { name: /Codex/i })).not.toHaveAttribute(
+      'data-disabled'
     );
   });
 

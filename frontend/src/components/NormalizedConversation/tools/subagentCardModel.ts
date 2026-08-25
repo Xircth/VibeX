@@ -106,6 +106,7 @@ const KNOWN_AGENT_KINDS = new Set([
   'claude_code',
   'codex',
   'opencode',
+  'antigravity',
   'gemini',
   'openclaw',
   'cline',

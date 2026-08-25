@@ -33,6 +33,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import {
@@ -40,6 +41,10 @@ import {
   sessionControlsQueryKey,
 } from '@/features/agents/sessionControlsQuery';
 import { WorkflowStudio } from '@/features/workflow/WorkflowStudio';
+import {
+  resolveWorkflowAgentId,
+  withDefaultWorkflowAgent,
+} from '@/features/workflow/workflowAgent';
 import { WorkflowTestWorkspaceDialog } from '@/features/workflow/WorkflowTestWorkspaceDialog';
 import { createWorkflowApi } from '@/features/workflow/workflowApi';
 import {
@@ -461,7 +466,9 @@ function WorkflowAutomationEditor({
     () => createWorkflowSourceApi(transport),
     [transport]
   );
+  const { config } = useUserSystem();
   const agentOptions = useManagedAgentOptions(undefined, true);
+  const defaultAgentApplied = useRef(initialAutomation != null);
   const loadAgentSessionControls = useCallback(
     (agentId: string) =>
       queryClient.fetchQuery({
@@ -486,6 +493,17 @@ function WorkflowAutomationEditor({
     return next;
   });
   const [savedDefinition, setSavedDefinition] = useState(definition);
+
+  useEffect(() => {
+    if (defaultAgentApplied.current || agentOptions.length === 0) return;
+    const agentId = resolveWorkflowAgentId(
+      agentOptions,
+      config?.executor_profile?.executor
+    );
+    defaultAgentApplied.current = true;
+    setDefinition((current) => withDefaultWorkflowAgent(current, agentId));
+    setSavedDefinition((current) => withDefaultWorkflowAgent(current, agentId));
+  }, [agentOptions, config?.executor_profile?.executor]);
   const [version, setVersion] = useState<WorkflowVersionView | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);

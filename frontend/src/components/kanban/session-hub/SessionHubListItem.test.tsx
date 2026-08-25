@@ -47,6 +47,19 @@ function renderItem(
 }
 
 describe('SessionHubListItem', () => {
+  it('shows the session name without the first-message preview', () => {
+    renderItem();
+
+    expect(
+      screen.getByText('A fairly long session name for the card')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Please review the authentication flow and tighten the errors'
+      )
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps hover actions out of the name row so the title can use the card width', () => {
     renderItem();
 
@@ -67,6 +80,9 @@ describe('SessionHubListItem', () => {
     expect(deleteButton.parentElement).toHaveClass(
       'pointer-events-none',
       'opacity-0'
+    );
+    expect(deleteButton.parentElement).not.toHaveClass(
+      'bg-[var(--surface-content)]'
     );
   });
 

@@ -121,6 +121,7 @@ vi.mock('@/lib/api', () => ({
   },
   sessionsApi: {
     getById: sessionsGetByIdMock,
+    markViewed: vi.fn().mockResolvedValue({}),
   },
 }));
 

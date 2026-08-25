@@ -191,6 +191,61 @@ describe('WorkspaceSessionList', () => {
     ).not.toBeNull();
   });
 
+  it('colors a running session as in progress on the agent badge', () => {
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: 'Compare codeg vs custom APP',
+            isRunning: true,
+            status: 'todo',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      document.querySelector('.workspace-session-status--inprogress')
+    ).not.toBeNull();
+    expect(
+      document.querySelector('.workspace-session-status--todo')
+    ).toBeNull();
+  });
+
+  it('marks execution and monitor placements on the session rail', () => {
+    const main = workspace({ id: 'ws-main', branch: 'main' });
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 'execution-session',
+            workspace: main,
+            firstPrompt: 'Execution session prompt',
+          }),
+          session({
+            id: 'monitor-session',
+            workspace: main,
+            firstPrompt: 'Monitor session prompt',
+            updatedAt: '2026-08-17T11:00:00Z',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="ws-main"
+        currentExecutionPlacement={{ sessionId: 'execution-session' }}
+        monitorPlacements={[{ sessionId: 'monitor-session' }]}
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector('.session-marker-execution')).not.toBeNull();
+    expect(document.querySelector('.session-marker-slot-1')).not.toBeNull();
+  });
+
   it('colors each session by its workbench status', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
     render(
@@ -282,9 +337,10 @@ describe('WorkspaceSessionList', () => {
     expect(titles[1]).toMatch(/Newer session prompt/);
   });
 
-  it('reveals pin and archive actions on hover', () => {
+  it('reveals pin, edit, and delete actions on hover instead of archive', () => {
     const onPinSession = vi.fn();
-    const onArchiveSession = vi.fn();
+    const onRenameSession = vi.fn();
+    const onDeleteSession = vi.fn();
     render(
       <WorkspaceSessionList
         sessions={[
@@ -297,20 +353,70 @@ describe('WorkspaceSessionList', () => {
         activeWorkspaceId="workspace-1"
         onSessionClick={vi.fn()}
         onPinSession={onPinSession}
-        onArchiveSession={onArchiveSession}
+        onRenameSession={onRenameSession}
+        onDeleteSession={onDeleteSession}
       />
     );
 
-    fireEvent.mouseEnter(document.querySelector('.workspace-session-row')!);
-    fireEvent.click(screen.getByRole('button', { name: '置顶' }));
-    fireEvent.click(screen.getByRole('button', { name: '归档' }));
+    const row = document.querySelector('.workspace-session-row')!;
+    fireEvent.mouseEnter(row);
 
+    expect(row).toHaveClass('is-hovered');
+    expect(row.querySelector('.workspace-session-title')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '归档' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '置顶' }));
     expect(onPinSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'session-1' }),
       true
     );
-    expect(onArchiveSession).toHaveBeenCalledWith(
+
+    fireEvent.click(screen.getByRole('button', { name: '删除会话' }));
+    expect(onDeleteSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'session-1' })
     );
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(
+      screen.getByDisplayValue('Compare codeg vs custom APP')
+    ).toBeInTheDocument();
+  });
+
+  it('keeps hover actions from covering the session title', () => {
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: 'Compare codeg vs custom APP',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+        onPinSession={vi.fn()}
+        onRenameSession={vi.fn()}
+        onDeleteSession={vi.fn()}
+      />
+    );
+
+    const row = document.querySelector('.workspace-session-row')!;
+    const title = row.querySelector('.workspace-session-title');
+    const actions = row.querySelector('.workspace-session-row-actions');
+
+    fireEvent.mouseEnter(row);
+
+    expect(title).not.toBeNull();
+    expect(actions).not.toBeNull();
+    expect(row.closest('[role="listitem"]')).toHaveClass(
+      'max-w-full',
+      'min-w-0'
+    );
+    expect(actions).not.toContainElement(title);
+    expect(
+      title!.compareDocumentPosition(actions!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(getComputedStyle(actions as Element).position).not.toBe('absolute');
   });
 });

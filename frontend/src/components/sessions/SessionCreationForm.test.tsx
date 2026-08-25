@@ -139,7 +139,7 @@ const GROK_CONTROLS = {
 };
 
 function renderForm(
-  executor: 'claude_code' | 'codex' | 'gemini' | 'grok',
+  executor: 'claude_code' | 'codex' | 'antigravity' | 'grok',
   onPreset: (preset: SessionControlsPreset | null) => void,
   mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace',
   compact = false,
@@ -320,13 +320,13 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     capabilityCatalog
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(CONTROLS);
-    renderForm('gemini', vi.fn(), 'new_workspace');
+    renderForm('antigravity', vi.fn(), 'new_workspace');
 
     expect(
       await screen.findByTestId('session-settings-summary')
     ).toBeInTheDocument();
     expect(refreshCapabilityCatalog).toHaveBeenCalledTimes(1);
-    expect(refreshCapabilityCatalog).toHaveBeenCalledWith('gemini');
+    expect(refreshCapabilityCatalog).toHaveBeenCalledWith('antigravity');
     expect(capabilityCatalog).toHaveBeenCalledTimes(2);
   });
 
@@ -334,13 +334,13 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     capabilityCatalogFresh
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
-    renderForm('gemini', vi.fn(), 'new_workspace');
+    renderForm('antigravity', vi.fn(), 'new_workspace');
 
     expect(
       await screen.findByTestId('session-settings-summary')
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(refreshCapabilityCatalog).toHaveBeenCalledWith('gemini')
+      expect(refreshCapabilityCatalog).toHaveBeenCalledWith('antigravity')
     );
     await waitFor(() => expect(capabilityCatalog).toHaveBeenCalledTimes(2));
   });
@@ -709,7 +709,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       },
     });
 
-    renderForm('gemini', vi.fn());
+    renderForm('antigravity', vi.fn());
     const user = userEvent.setup();
 
     const button = await screen.findByRole('button', {
@@ -718,7 +718,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(button).toBeVisible();
     await user.click(button);
     await waitFor(() =>
-      expect(listLocalHistory).toHaveBeenCalledWith('gemini')
+      expect(listLocalHistory).toHaveBeenCalledWith('antigravity')
     );
     expect(listRemoteSessions).not.toHaveBeenCalled();
   });
@@ -746,7 +746,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       next_cursor: null,
       meta: null,
     });
-    renderForm('gemini', vi.fn());
+    renderForm('antigravity', vi.fn());
     const user = userEvent.setup();
 
     await user.click(
@@ -769,7 +769,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
 
     await waitFor(() =>
       expect(importRemoteSession).toHaveBeenCalledWith(
-        'gemini',
+        'antigravity',
         'workspace-1',
         'acp-session-1',
         'Fixture session'
@@ -796,7 +796,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       next_cursor: null,
       meta: { source: 'local_history' },
     });
-    const view = renderForm('gemini', vi.fn());
+    const view = renderForm('antigravity', vi.fn());
     const invalidateQueries = vi.spyOn(view.client, 'invalidateQueries');
     const user = userEvent.setup();
 
@@ -820,7 +820,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
 
     await waitFor(() =>
       expect(importLocalHistory).toHaveBeenCalledWith(
-        'gemini',
+        'antigravity',
         'workspace-1',
         'local-session-1',
         'Imported local session'

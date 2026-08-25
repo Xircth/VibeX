@@ -7,6 +7,7 @@ import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
+import { cn } from '@/lib/utils';
 import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
@@ -20,6 +21,10 @@ import {
 import { SettingsActionBar } from './SettingsUi';
 
 const DRAFT_KEY = 'dsh-auth';
+const AUTH_TABS = [
+  { value: 'deepseek', labelKey: 'settings:agents.authModeTabDeepseek' },
+  { value: 'custom', labelKey: 'settings:agents.authModeTabCustom' },
+] as const;
 
 const OFFICIAL_ID = 'deepseek-official';
 const CUSTOM_ID = 'custom-gateway';
@@ -246,49 +251,96 @@ export function DshAuthPanel({ onChanged, onDirtyChange }: Props) {
       label: entry.name?.trim() || entry.id,
     }));
 
+  const selectMode = (mode: string) => {
+    setDraft((current) => (view ? hydrate(view, mode) : { ...current, mode }));
+  };
+
+  const moveTabFocus = (current: string, delta: number) => {
+    const index = AUTH_TABS.findIndex((tab) => tab.value === current);
+    const next =
+      AUTH_TABS[(index + delta + AUTH_TABS.length) % AUTH_TABS.length];
+    document
+      .getElementById(`deepseek_harness-auth-mode-${next.value}`)
+      ?.focus();
+  };
+
   return (
     <>
-      <section aria-labelledby="dsh-auth-heading" className="settings-surface">
+      <section
+        aria-labelledby="dsh-auth-heading"
+        className="settings-surface agent-auth-mode-surface"
+      >
         <div className="agent-section-heading">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <ShieldCheck aria-hidden="true" className="h-4 w-4" />
             <h3 id="dsh-auth-heading">{t('settings:agents.authTitle')}</h3>
           </div>
+          {view ? (
+            <div className="agent-auth-mode-heading-tools">
+              <div
+                className="agent-auth-mode-tabs"
+                role="tablist"
+                aria-label={t('settings:agents.authModeAria', {
+                  agent: 'DeepSeek Harness',
+                })}
+              >
+                {AUTH_TABS.map((tab) => {
+                  const selected = draft.mode === tab.value;
+                  const unsaved = selected && tab.value !== savedMode;
+                  const fullLabel = t(tab.labelKey);
+                  return (
+                    <button
+                      key={tab.value}
+                      id={`deepseek_harness-auth-mode-${tab.value}`}
+                      type="button"
+                      role="tab"
+                      aria-label={fullLabel}
+                      aria-selected={selected}
+                      aria-controls="deepseek_harness-auth-mode-panel"
+                      tabIndex={selected ? 0 : -1}
+                      className={cn(
+                        selected && 'is-active',
+                        unsaved && 'is-draft'
+                      )}
+                      disabled={saving}
+                      onClick={() => selectMode(tab.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          moveTabFocus(tab.value, 1);
+                        } else if (event.key === 'ArrowLeft') {
+                          event.preventDefault();
+                          moveTabFocus(tab.value, -1);
+                        } else if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          selectMode(tab.value);
+                        }
+                      }}
+                    >
+                      {fullLabel}
+                      {unsaved ? (
+                        <span
+                          className="agent-auth-mode-tab-draft"
+                          aria-label={t('settings:agents.authModeUnsaved')}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
         {loading && !view ? (
           <p className="agent-plugin-empty">
             {t('settings:agents.dshProviderLoading')}
           </p>
         ) : (
-          <div className="dsh-auth-fields">
-            <label className="agent-auth-mode-field">
-              <span>
-                {t('settings:agents.authModeLabel', {
-                  agent: 'DeepSeek Harness',
-                })}
-              </span>
-              <AstryxSelect
-                ariaLabel={t('settings:agents.authModeAria', {
-                  agent: 'DeepSeek Harness',
-                })}
-                options={[
-                  {
-                    value: 'deepseek',
-                    label: t('settings:agents.authModeDeepseekApi'),
-                  },
-                  {
-                    value: 'custom',
-                    label: t('settings:agents.authModeCustomEndpoint'),
-                  },
-                ]}
-                value={draft.mode}
-                onChange={(mode) =>
-                  setDraft((current) =>
-                    view ? hydrate(view, mode) : { ...current, mode }
-                  )
-                }
-              />
-            </label>
+          <div
+            id="deepseek_harness-auth-mode-panel"
+            className="agent-auth-mode-body dsh-auth-fields"
+            role="tabpanel"
+          >
             {officialMode ? (
               <label className="agent-auth-mode-field">
                 <span>{t('settings:agents.dshProviderBaseUrl')}</span>

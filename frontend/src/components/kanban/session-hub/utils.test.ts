@@ -10,6 +10,7 @@ import {
   getCreateProjectSessionRequest,
   getDisplayedSessionCount,
   getExecutorFilterOptions,
+  getSessionMarker,
   groupKanbanSessionsByStatus,
 } from './utils';
 
@@ -363,5 +364,21 @@ describe('session hub data helpers', () => {
         repoBranchConfigs: [{ repoId: 'repo-1', targetBranch: '' }],
       })
     ).toBe(false);
+  });
+
+  it('maps execution and monitor placements onto session list markers', () => {
+    expect(
+      getSessionMarker('exec', [{ sessionId: 'monitor-1' }], {
+        sessionId: 'exec',
+      })
+    ).toEqual({ bar: 'session-marker-execution' });
+    expect(
+      getSessionMarker(
+        'monitor-2',
+        [{ sessionId: 'monitor-1' }, { sessionId: 'monitor-2' }],
+        null
+      )
+    ).toEqual({ bar: 'session-marker-slot-2' });
+    expect(getSessionMarker('idle', [], null)).toBeNull();
   });
 });

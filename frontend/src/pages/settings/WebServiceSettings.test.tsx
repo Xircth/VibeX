@@ -27,9 +27,21 @@ const hostClientApiMock = vi.hoisted(() => ({
   delete: vi.fn(),
 }));
 
+const hostTunnelApiMock = vi.hoisted(() => ({
+  get: vi.fn(),
+  setEnabled: vi.fn(),
+  checkExisting: vi.fn(),
+  selectSaved: vi.fn(),
+  startCreate: vi.fn(),
+  confirmCreate: vi.fn(),
+  cancelCreate: vi.fn(),
+  removeSaved: vi.fn(),
+}));
+
 vi.mock('@/lib/api', () => ({
   webServiceApi: webServiceApiMock,
   hostClientApi: hostClientApiMock,
+  hostTunnelApi: hostTunnelApiMock,
 }));
 
 vi.mock('@/components/ui/toast', () => ({
@@ -122,6 +134,14 @@ describe('WebServiceSettings', () => {
     });
     webServiceApiMock.listDevices.mockResolvedValue([]);
     webServiceApiMock.revokeDevice.mockResolvedValue(undefined);
+    hostTunnelApiMock.get.mockResolvedValue({
+      enabled: false,
+      saved: [],
+      active_id: null,
+      pending: null,
+      relay_state: 'idle',
+      last_error: null,
+    });
     hostClientApiMock.status.mockResolvedValue({
       connected: false,
       profile: null,

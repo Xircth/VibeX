@@ -50,7 +50,7 @@ pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
 pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
-pub use runtime::ServerRuntime;
+pub use runtime::{ServerRuntime, set_extra_browser_origins};
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};
 pub use update::{HostUpgradeError, HostUpgradePlan, apply_host_upgrade, plan_host_upgrade};
 pub use weixin_ilink::{

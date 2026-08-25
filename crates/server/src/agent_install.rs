@@ -13,8 +13,8 @@ use agents::{
     InstallPlanner, InstallPlanningInput, LockedInstallSource, OfficialRegistryHttpFetcher,
     PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileTopology,
     RegistryCache, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, SystemClock,
-    UserEnvironmentLayout, current_platform, npm_package_name as npm_spec_name,
-    observed_satisfies_profile, version_at_least,
+    UserEnvironmentLayout, current_platform, npm_global_install_args,
+    npm_package_name as npm_spec_name, observed_satisfies_profile, version_at_least,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -498,7 +498,9 @@ async fn install_plan(
         let path = match component.distribution_kind {
             PlannedDistributionKind::Npx => install_npm(component, user_env).await?,
             PlannedDistributionKind::Uvx => install_uv(component, user_env).await?,
-            PlannedDistributionKind::Binary => install_binary(component, user_env).await?,
+            PlannedDistributionKind::Binary => {
+                install_binary(&plan.agent_id, component, user_env).await?
+            }
         };
         let version = probe_version(&path)
             .await
@@ -603,22 +605,15 @@ async fn install_npm(
         .await
         .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
     println!(
-        "$ npm install -g --prefix {} {}",
+        "$ npm install -g --force --prefix {} {}",
         user_env.npm_prefix.display(),
         component.resolved_source
     );
     let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
-    command
-        .arg("install")
-        .arg("-g")
-        .arg("--prefix")
-        .arg(&user_env.npm_prefix)
-        .arg("--no-audit")
-        .arg("--no-fund")
-        .arg("--save=false")
-        .arg("--include=optional")
-        .arg("--registry=https://registry.npmjs.org")
-        .arg(&component.resolved_source);
+    command.args(npm_global_install_args(
+        &user_env.npm_prefix,
+        &component.resolved_source,
+    ));
     run_command("npm install -g", command).await?;
     let package = npm_spec_name(&component.resolved_source);
     let bin = npm_bin_path(user_env, &component.command, &package);
@@ -688,6 +683,7 @@ async fn install_uv(
 }
 
 async fn install_binary(
+    agent_id: &AgentId,
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
 ) -> anyhow::Result<PathBuf> {
@@ -714,6 +710,22 @@ async fn install_binary(
     tokio::fs::create_dir_all(&user_env.user_bin).await?;
     let destination = user_bin_destination(&user_env.user_bin, &component.command, &staged);
     tokio::fs::copy(&staged, &destination).await?;
+    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id) {
+        let siblings = profile.binary_required_siblings(cfg!(windows));
+        if let Some(staged_dir) = staged.parent() {
+            for sibling in siblings {
+                let name = Path::new(sibling)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(sibling);
+                let source = staged_dir.join(name);
+                if !source.is_file() {
+                    anyhow::bail!("extracted archive is missing required sibling `{name}`");
+                }
+                tokio::fs::copy(&source, user_env.user_bin.join(name)).await?;
+            }
+        }
+    }
     let _ = tokio::fs::remove_dir_all(&staging).await;
     #[cfg(unix)]
     {

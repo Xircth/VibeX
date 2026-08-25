@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use services::services::settings_store::{read_section, write_section};
+use utils::proxy::{DetectedProxy, capture_inherited_proxy, detect_proxy};
 
 use crate::error::AppError;
 
@@ -22,10 +23,76 @@ const PROXY_URL_ENV_KEYS: [&str; 6] = [
     "all_proxy",
 ];
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemProxySettings {
-    pub enabled: bool,
+    #[serde(default)]
+    pub mode: ProxyMode,
+    #[serde(default)]
     pub proxy_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PersistedProxy {
+    mode: ProxyMode,
+    proxy_url: Option<String>,
+}
+
+impl Default for PersistedProxy {
+    fn default() -> Self {
+        Self {
+            mode: ProxyMode::Auto,
+            proxy_url: None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PersistedProxy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            #[serde(default)]
+            mode: Option<ProxyMode>,
+            #[serde(default)]
+            enabled: Option<bool>,
+            #[serde(default)]
+            proxy_url: Option<String>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        let mode = match wire.mode {
+            Some(mode) => mode,
+            None if wire.enabled == Some(true) => ProxyMode::Manual,
+            None => ProxyMode::Auto,
+        };
+        Ok(Self {
+            mode,
+            proxy_url: wire.proxy_url,
+        })
+    }
+}
+
+impl From<&SystemProxySettings> for PersistedProxy {
+    fn from(settings: &SystemProxySettings) -> Self {
+        Self {
+            mode: settings.mode,
+            proxy_url: settings.proxy_url.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -46,7 +113,7 @@ pub struct SystemRenderingSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SystemSettingsStore {
     #[serde(default)]
-    proxy: SystemProxySettings,
+    proxy: PersistedProxy,
     #[serde(default)]
     rendering: SystemRenderingSettings,
 }
@@ -93,9 +160,7 @@ async fn save_store(store: &SystemSettingsStore) -> Result<(), AppError> {
         .map_err(|error| AppError::Internal(error.to_string()))
 }
 
-fn normalize_proxy_settings(
-    settings: SystemProxySettings,
-) -> Result<SystemProxySettings, AppError> {
+fn normalize_proxy_settings(settings: SystemProxySettings) -> Result<PersistedProxy, AppError> {
     let proxy_url = settings
         .proxy_url
         .as_deref()
@@ -103,10 +168,10 @@ fn normalize_proxy_settings(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
 
-    if settings.enabled {
+    if settings.mode == ProxyMode::Manual {
         let Some(proxy_url) = proxy_url.as_deref() else {
             return Err(AppError::BadRequest(
-                "Proxy URL is required when proxy is enabled".to_string(),
+                "Proxy URL is required when proxy is set to manual".to_string(),
             ));
         };
 
@@ -114,10 +179,22 @@ fn normalize_proxy_settings(
             .map_err(|error| AppError::BadRequest(format!("Invalid proxy URL: {error}")))?;
     }
 
-    Ok(SystemProxySettings {
-        enabled: settings.enabled,
+    Ok(PersistedProxy {
+        mode: settings.mode,
         proxy_url,
     })
+}
+
+fn enrich_proxy_settings(persisted: PersistedProxy) -> SystemProxySettings {
+    let detected = detect_proxy();
+    SystemProxySettings {
+        mode: persisted.mode,
+        proxy_url: persisted.proxy_url,
+        detected_url: detected.as_ref().map(|item| item.url.clone()),
+        detected_source: detected
+            .as_ref()
+            .map(|item| item.source.as_str().to_string()),
+    }
 }
 
 /// Apply the proxy setting to this process's environment so reqwest clients and
@@ -126,13 +203,14 @@ fn normalize_proxy_settings(
 /// env to the agent child) both read process env, which would otherwise be unset
 /// — so e.g. codex-acp can't reach `auth.openai.com` and stalls the turn.
 ///
-/// `enabled` sets the URL on every proxy env key; disabling removes them so an
-/// explicit "off" really turns the proxy off. Mutating process env is `unsafe`
+/// Auto-detect writes the OS/env URL; manual writes the saved URL; a miss
+/// clears the keys so an explicit Auto with no proxy really turns it off.
+/// Mutating process env is `unsafe`
 /// on edition 2024 (it is not synchronized with concurrent env reads); we accept
 /// that because proxy changes are rare and applied at startup / on explicit user
 /// action, the same tradeoff every CLI that honors `HTTP_PROXY` makes.
-pub fn apply_system_proxy_settings(settings: &SystemProxySettings) {
-    match proxy_url_to_apply(settings) {
+fn apply_system_proxy_settings(settings: &PersistedProxy) {
+    match proxy_url_to_apply(settings, detect_proxy().as_ref()) {
         Some(url) => {
             for key in PROXY_URL_ENV_KEYS {
                 unsafe { std::env::set_var(key, &url) };
@@ -147,23 +225,35 @@ pub fn apply_system_proxy_settings(settings: &SystemProxySettings) {
 }
 
 /// The proxy URL to write to env (`Some`), or `None` to clear it. Pure so the
-/// enable/disable/blank-url decision is testable without mutating process env.
-fn proxy_url_to_apply(settings: &SystemProxySettings) -> Option<String> {
-    match (settings.enabled, settings.proxy_url.as_deref()) {
-        (true, Some(url)) if !url.trim().is_empty() => Some(url.trim().to_string()),
-        _ => None,
+/// auto/manual/blank-url decision is testable without mutating process env.
+fn proxy_url_to_apply(
+    settings: &PersistedProxy,
+    detected: Option<&DetectedProxy>,
+) -> Option<String> {
+    match settings.mode {
+        ProxyMode::Manual => settings
+            .proxy_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(ToOwned::to_owned),
+        ProxyMode::Auto => detected.and_then(|item| {
+            item.source
+                .applies_to_process()
+                .then(|| item.url.trim().to_string())
+                .filter(|url| !url.is_empty())
+        }),
     }
 }
 
 /// Load the persisted proxy setting and apply it to process env at startup —
-/// before any reqwest client is built or any agent is spawned. Only applies when
-/// the user enabled a proxy; a disabled/absent setting leaves any externally-set
-/// `HTTP_PROXY` (docker `-e`, shell export) untouched. Errors are logged and
-/// dropped so a bad setting can't block startup.
+/// before any reqwest client is built or any agent is spawned. Auto-detect is
+/// the default; a missing setting uses the OS proxy when one is present.
+/// Errors are logged and dropped so a bad setting can't block startup.
 pub async fn init_system_proxy() {
+    capture_inherited_proxy();
     match load_store().await {
-        Ok(store) if store.proxy.enabled => apply_system_proxy_settings(&store.proxy),
-        Ok(_) => {}
+        Ok(store) => apply_system_proxy_settings(&store.proxy),
         Err(error) => {
             tracing::warn!(%error, "Failed to load system proxy settings at startup");
         }
@@ -172,21 +262,21 @@ pub async fn init_system_proxy() {
 
 #[tauri::command]
 pub async fn get_system_proxy_settings() -> Result<SystemProxySettings, AppError> {
-    Ok(load_store().await?.proxy)
+    Ok(enrich_proxy_settings(load_store().await?.proxy))
 }
 
 #[tauri::command]
 pub async fn update_system_proxy_settings(
     settings: SystemProxySettings,
 ) -> Result<SystemProxySettings, AppError> {
-    let settings = normalize_proxy_settings(settings)?;
+    let persisted = normalize_proxy_settings(settings)?;
     let mut store = load_store().await?;
-    store.proxy = settings.clone();
+    store.proxy = persisted.clone();
     save_store(&store).await?;
     // Take effect immediately for new HTTP clients and agent launches; existing
     // long-lived agent connections pick it up on their next (re)spawn.
-    apply_system_proxy_settings(&settings);
-    Ok(settings)
+    apply_system_proxy_settings(&persisted);
+    Ok(enrich_proxy_settings(persisted))
 }
 
 #[tauri::command]
@@ -206,45 +296,91 @@ pub async fn update_system_rendering_settings(
 
 #[cfg(test)]
 mod tests {
+    use utils::proxy::ProxySource;
+
     use super::*;
 
     #[test]
-    fn enabled_proxy_with_url_is_applied() {
+    fn manual_proxy_with_url_is_applied() {
         assert_eq!(
-            proxy_url_to_apply(&SystemProxySettings {
-                enabled: true,
-                proxy_url: Some("  http://127.0.0.1:7890  ".to_string()),
-            }),
+            proxy_url_to_apply(
+                &PersistedProxy {
+                    mode: ProxyMode::Manual,
+                    proxy_url: Some("  http://127.0.0.1:7890  ".to_string()),
+                },
+                None
+            ),
             Some("http://127.0.0.1:7890".to_string())
         );
     }
 
     #[test]
-    fn disabled_proxy_clears_env_even_with_url() {
+    fn auto_proxy_uses_detected_system_url() {
         assert_eq!(
-            proxy_url_to_apply(&SystemProxySettings {
-                enabled: false,
-                proxy_url: Some("http://127.0.0.1:7890".to_string()),
-            }),
+            proxy_url_to_apply(
+                &PersistedProxy {
+                    mode: ProxyMode::Auto,
+                    proxy_url: Some("http://stale.example:7890".to_string()),
+                },
+                Some(&DetectedProxy {
+                    url: "http://127.0.0.1:7890".to_string(),
+                    source: ProxySource::System,
+                })
+            ),
+            Some("http://127.0.0.1:7890".to_string())
+        );
+    }
+
+    #[test]
+    fn auto_proxy_ignores_pac_only_detection() {
+        assert_eq!(
+            proxy_url_to_apply(
+                &PersistedProxy::default(),
+                Some(&DetectedProxy {
+                    url: "http://wpad.example/proxy.pac".to_string(),
+                    source: ProxySource::Pac,
+                })
+            ),
             None
         );
     }
 
     #[test]
-    fn enabled_proxy_with_blank_url_clears_env() {
+    fn auto_proxy_without_detection_clears_env() {
         assert_eq!(
-            proxy_url_to_apply(&SystemProxySettings {
-                enabled: true,
-                proxy_url: Some("   ".to_string()),
-            }),
+            proxy_url_to_apply(
+                &PersistedProxy {
+                    mode: ProxyMode::Auto,
+                    proxy_url: Some("http://127.0.0.1:7890".to_string()),
+                },
+                None
+            ),
             None
         );
+    }
+
+    #[test]
+    fn legacy_enabled_true_becomes_manual() {
+        let persisted: PersistedProxy =
+            serde_json::from_str(r#"{"enabled":true,"proxy_url":"http://127.0.0.1:7890"}"#)
+                .expect("legacy proxy settings should deserialize");
+        assert_eq!(persisted.mode, ProxyMode::Manual);
         assert_eq!(
-            proxy_url_to_apply(&SystemProxySettings {
-                enabled: true,
-                proxy_url: None,
-            }),
-            None
+            persisted.proxy_url.as_deref(),
+            Some("http://127.0.0.1:7890")
         );
+    }
+
+    #[test]
+    fn legacy_enabled_false_becomes_auto() {
+        let persisted: PersistedProxy =
+            serde_json::from_str(r#"{"enabled":false,"proxy_url":null}"#)
+                .expect("legacy disabled proxy should deserialize");
+        assert_eq!(persisted.mode, ProxyMode::Auto);
+    }
+
+    #[test]
+    fn missing_proxy_section_defaults_to_auto() {
+        assert_eq!(PersistedProxy::default().mode, ProxyMode::Auto);
     }
 }

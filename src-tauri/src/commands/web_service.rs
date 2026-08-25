@@ -21,6 +21,7 @@ struct WebServiceRuntime {
     port: u16,
     address: String,
     addresses: Vec<String>,
+    listen_addresses: Vec<utils::net::AdvertisedListenAddress>,
     allow_lan: bool,
     started_at: String,
     handle: JoinHandle<()>,
@@ -54,6 +55,8 @@ pub struct WebServerStatus {
     pub address: Option<String>,
     #[serde(default)]
     pub addresses: Vec<String>,
+    #[serde(default)]
+    pub listen_addresses: Vec<utils::net::AdvertisedListenAddress>,
     pub token_configured: bool,
     pub started_at: Option<String>,
     pub message: Option<String>,
@@ -148,16 +151,29 @@ async fn save_config(config: &WebServiceConfig) -> Result<WebServiceConfig, AppE
     Ok(config)
 }
 
+fn advertised_listen_addresses(
+    port: u16,
+    allow_lan: bool,
+) -> Vec<utils::net::AdvertisedListenAddress> {
+    utils::net::advertised_listen_addresses(port, allow_lan)
+}
+
 fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
-    utils::net::advertised_http_origins(port, allow_lan)
+    advertised_listen_addresses(port, allow_lan)
+        .into_iter()
+        .map(|address| address.origin)
+        .collect()
 }
 
 fn reachability_from_addresses(addresses: &[String]) -> Vec<remote_protocol::ReachabilityOrigin> {
-    addresses
-        .iter()
-        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
-        .map(remote_protocol::ReachabilityOrigin::lan)
-        .collect()
+    crate::commands::host_tunnel::merge_host_reachability(addresses, Vec::new())
+}
+
+async fn composed_reachability(addresses: &[String]) -> Vec<remote_protocol::ReachabilityOrigin> {
+    crate::commands::host_tunnel::merge_host_reachability(
+        addresses,
+        crate::commands::host_tunnel::published_origins().await,
+    )
 }
 
 async fn load_or_create_host_id() -> Result<String, AppError> {
@@ -214,19 +230,34 @@ fn issue_host_token() -> server::ServerToken {
 
 async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
     let host_id = load_or_create_host_id().await.ok();
-    let runtime = WEB_SERVICE_RUNTIME.lock().await;
-    if let Some(runtime) = runtime.as_ref() {
+    let snapshot = {
+        let runtime = WEB_SERVICE_RUNTIME.lock().await;
+        runtime.as_ref().map(|runtime| {
+            (
+                runtime.port,
+                runtime.address.clone(),
+                runtime.addresses.clone(),
+                runtime.listen_addresses.clone(),
+                runtime.started_at.clone(),
+                runtime.serves_web_ui,
+            )
+        })
+    };
+    if let Some((port, address, addresses, listen_addresses, started_at, serves_web_ui)) = snapshot
+    {
+        let reachability = composed_reachability(&addresses).await;
         return WebServerStatus {
             running: true,
-            port: runtime.port,
-            address: Some(runtime.address.clone()),
-            addresses: runtime.addresses.clone(),
+            port,
+            address: Some(address),
+            addresses,
+            listen_addresses,
             token_configured: config.token.is_some(),
-            started_at: Some(runtime.started_at.clone()),
+            started_at: Some(started_at),
             message: None,
             host_id,
-            reachability: reachability_from_addresses(&runtime.addresses),
-            serves_web_ui: runtime.serves_web_ui,
+            reachability,
+            serves_web_ui,
         };
     }
 
@@ -235,6 +266,7 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
         port: config.port,
         address: None,
         addresses: Vec::new(),
+        listen_addresses: Vec::new(),
         token_configured: config.token.is_some(),
         started_at: None,
         message: None,
@@ -342,7 +374,7 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
     let mut server_config = server::ServerConfig::default()
         .with_listen_addr(listen, config.allow_lan)
         .map_err(|error| AppError::BadRequest(error.to_string()))?
-        .with_host_identity(host_id, reachability_from_addresses(&advertised));
+        .with_host_identity(host_id, composed_reachability(&advertised).await);
     let static_root = resolve_static_root(Some(&app));
     let serves_web_ui = static_root.is_some();
     if let Some(static_root) = static_root {
@@ -403,7 +435,11 @@ async fn start_web_server_with_router(
     let local_addr = listener.local_addr().map_err(|error| {
         AppError::Internal(format!("Failed to read web service address: {error}"))
     })?;
-    let addresses = advertised_addresses(local_addr.port(), config.allow_lan);
+    let listen_addresses = advertised_listen_addresses(local_addr.port(), config.allow_lan);
+    let addresses = listen_addresses
+        .iter()
+        .map(|item| item.origin.clone())
+        .collect::<Vec<_>>();
     let address = addresses
         .first()
         .cloned()
@@ -420,12 +456,14 @@ async fn start_web_server_with_router(
         port: local_addr.port(),
         address,
         addresses,
+        listen_addresses,
         allow_lan: config.allow_lan,
         started_at,
         handle,
         serves_web_ui,
     });
     drop(runtime);
+    crate::commands::host_tunnel::sync_relay().await;
 
     Ok(status_from_runtime(config).await)
 }
@@ -521,13 +559,14 @@ pub async fn create_host_device_pairing(
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
     let host_id = load_or_create_host_id().await?;
-    let reachability = {
+    let addresses = {
         let runtime = WEB_SERVICE_RUNTIME.lock().await;
         runtime
             .as_ref()
-            .map(|current| reachability_from_addresses(&current.addresses))
+            .map(|current| current.addresses.clone())
             .unwrap_or_default()
     };
+    let reachability = composed_reachability(&addresses).await;
     let payload = remote_protocol::PairingInvitationPayload::from_challenge(
         host_id,
         preset,
@@ -574,10 +613,29 @@ pub async fn revoke_host_device(
     .map_err(|error| AppError::Internal(error.to_string()))
 }
 
+pub(crate) async fn listening_port() -> Option<u16> {
+    WEB_SERVICE_RUNTIME
+        .lock()
+        .await
+        .as_ref()
+        .map(|runtime| runtime.port)
+}
+
+pub(crate) async fn ensure_listening(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
+    if WEB_SERVICE_RUNTIME.lock().await.is_some() {
+        let config = load_config().await?;
+        crate::commands::host_tunnel::sync_relay().await;
+        return Ok(status_from_runtime(config).await);
+    }
+    start_web_server(app).await
+}
+
 pub async fn ensure_web_service_autostart(app: tauri::AppHandle) -> Result<(), AppError> {
     let config = load_config().await?;
-    if config.auto_start {
-        let _ = start_web_server(app).await?;
+    if config.auto_start || crate::commands::host_tunnel::should_keep_listening().await {
+        start_web_server(app).await?;
+    } else {
+        crate::commands::host_tunnel::sync_relay().await;
     }
     Ok(())
 }
@@ -589,8 +647,8 @@ mod tests {
     use axum::Router;
 
     use super::{
-        WebServiceConfig, advertised_addresses, reachability_from_addresses,
-        start_web_server_with_router, stop_web_server_with_config,
+        WebServiceConfig, advertised_addresses, advertised_listen_addresses,
+        reachability_from_addresses, start_web_server_with_router, stop_web_server_with_config,
     };
 
     #[test]
@@ -615,6 +673,10 @@ mod tests {
             advertised_addresses(17891, false),
             vec!["http://127.0.0.1:17891".to_string()]
         );
+        let listen = advertised_listen_addresses(17891, false);
+        assert_eq!(listen.len(), 1);
+        assert_eq!(listen[0].interface, "loopback");
+        assert_eq!(listen[0].family, "ipv4");
     }
 
     #[tokio::test(flavor = "multi_thread")]

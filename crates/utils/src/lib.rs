@@ -13,10 +13,12 @@ pub mod net;
 pub mod path;
 pub mod port_file;
 pub mod process;
+pub mod proxy;
 pub mod shell;
 pub mod stream_lines;
 pub mod text;
 pub mod tokio;
+pub mod tunnel;
 pub mod version;
 
 /// Cache for WSL2 detection result

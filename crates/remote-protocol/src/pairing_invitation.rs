@@ -18,6 +18,13 @@ impl ReachabilityOrigin {
             kind: "lan".to_string(),
         }
     }
+
+    pub fn published(origin: impl Into<String>) -> Self {
+        Self {
+            origin: origin.into(),
+            kind: "published".to_string(),
+        }
+    }
 }
 
 /// Payload inside a `vibex-pairing:` invitation. Long-lived credentials must

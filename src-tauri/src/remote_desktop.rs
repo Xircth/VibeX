@@ -188,11 +188,9 @@ async fn remote_error(response: reqwest::Response) -> AppError {
 pub(crate) fn validate_base_url(value: &str) -> Result<String, AppError> {
     let url = Url::parse(value.trim())
         .map_err(|error| AppError::BadRequest(format!("invalid Server URL: {error}")))?;
-    let trusted_http = url.host_str().is_some_and(utils::net::is_trusted_http_host);
-    if url.scheme() != "https" && !(url.scheme() == "http" && trusted_http) {
+    if !matches!(url.scheme(), "https" | "http") {
         return Err(AppError::BadRequest(
-            "remote Server URL must use HTTPS unless it is loopback or a private LAN origin"
-                .to_string(),
+            "remote Server URL must use HTTP or HTTPS".to_string(),
         ));
     }
     if !url.username().is_empty()
@@ -229,12 +227,13 @@ mod tests {
     use super::{RemoteCredential, RemoteDesktopRegistry, validate_base_url};
 
     #[test]
-    fn remote_server_urls_require_https_except_for_loopback_or_lan() {
+    fn remote_server_urls_accept_http_or_https_origins() {
         assert!(validate_base_url("https://server.example").is_ok());
         assert!(validate_base_url("http://127.0.0.1:17891").is_ok());
         assert!(validate_base_url("http://192.168.1.20:17891").is_ok());
         assert!(validate_base_url("http://studio.local:17891").is_ok());
-        assert!(validate_base_url("http://server.example").is_err());
+        assert!(validate_base_url("http://203.0.113.10:443").is_ok());
+        assert!(validate_base_url("ftp://server.example").is_err());
         assert!(validate_base_url("https://user@server.example").is_err());
         assert!(validate_base_url("https://server.example/path").is_err());
     }

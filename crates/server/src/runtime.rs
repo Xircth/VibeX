@@ -1,7 +1,8 @@
 use std::{
+    collections::BTreeSet,
     net::IpAddr,
     path::{Component, Path as FsPath},
-    sync::Arc,
+    sync::{Arc, OnceLock, RwLock},
 };
 
 use application::{ApplicationCore, CommandRegistry, ConversationRepository};
@@ -323,6 +324,22 @@ async fn static_asset<R>(
         .into_response()
 }
 
+static EXTRA_BROWSER_ORIGINS: OnceLock<RwLock<BTreeSet<String>>> = OnceLock::new();
+
+fn extra_browser_origins() -> &'static RwLock<BTreeSet<String>> {
+    EXTRA_BROWSER_ORIGINS.get_or_init(|| RwLock::new(BTreeSet::new()))
+}
+
+/// Origins browsers use when the Host is reached through a published tunnel
+/// whose port differs from the local listen port.
+pub fn set_extra_browser_origins(origins: impl IntoIterator<Item = impl Into<String>>) {
+    let Ok(mut guard) = extra_browser_origins().write() else {
+        return;
+    };
+    guard.clear();
+    guard.extend(origins.into_iter().map(Into::into));
+}
+
 async fn enforce_origin<R>(
     State(state): State<Arc<ServerState<R>>>,
     request: Request,
@@ -336,7 +353,11 @@ async fn enforce_origin<R>(
     else {
         return next.run(request).await;
     };
-    if !origin_allowed(&state.config, &origin) {
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok());
+    if !origin_matches_request_host(&origin, host) && !origin_allowed(&state.config, &origin) {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorEnvelope::new(
@@ -358,7 +379,59 @@ async fn enforce_origin<R>(
     response
 }
 
+fn origin_matches_request_host(origin: &str, host_header: Option<&str>) -> bool {
+    let Some(host_header) = host_header.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    let Ok(uri) = origin.parse::<axum::http::Uri>() else {
+        return false;
+    };
+    if !matches!(uri.scheme_str(), Some("http") | Some("https")) {
+        return false;
+    }
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    if authority.as_str().eq_ignore_ascii_case(host_header) {
+        return true;
+    }
+    let origin_port = authority.port_u16().unwrap_or(match uri.scheme_str() {
+        Some("https") => 443,
+        _ => 80,
+    });
+    let (header_host, header_port) = split_host_header(host_header, origin_port);
+    authority.host().eq_ignore_ascii_case(&header_host) && origin_port == header_port
+}
+
+fn split_host_header(host_header: &str, default_port: u16) -> (String, u16) {
+    if let Some(rest) = host_header.strip_prefix('[')
+        && let Some((host, remainder)) = rest.split_once(']')
+    {
+        if let Some(port) = remainder
+            .strip_prefix(':')
+            .and_then(|value| value.parse().ok())
+        {
+            return (host.to_string(), port);
+        }
+        return (host.to_string(), default_port);
+    }
+    if let Some((host, port)) = host_header.rsplit_once(':')
+        && let Ok(port) = port.parse::<u16>()
+        && host.chars().filter(|ch| *ch == ':').count() == 0
+    {
+        return (host.to_string(), port);
+    }
+    (host_header.to_string(), default_port)
+}
+
 fn origin_allowed(config: &ServerConfig, origin: &str) -> bool {
+    if extra_browser_origins()
+        .read()
+        .ok()
+        .is_some_and(|origins| origins.contains(origin))
+    {
+        return true;
+    }
     if config.allowed_origins.contains(origin) {
         return true;
     }
@@ -814,7 +887,9 @@ mod origin_allowed_tests {
 
     use remote_protocol::ReachabilityOrigin;
 
-    use super::{ServerConfig, origin_allowed};
+    use super::{
+        ServerConfig, origin_allowed, origin_matches_request_host, set_extra_browser_origins,
+    };
 
     fn config(listen: &str, allow_lan: bool) -> ServerConfig {
         ServerConfig::default()
@@ -824,6 +899,7 @@ mod origin_allowed_tests {
 
     #[test]
     fn loopback_listen_accepts_the_browser_origin() {
+        set_extra_browser_origins(Vec::<String>::new());
         let config = ServerConfig::default();
         assert!(origin_allowed(&config, "http://127.0.0.1:17891"));
         assert!(origin_allowed(&config, "http://localhost:17891"));
@@ -834,6 +910,7 @@ mod origin_allowed_tests {
 
     #[test]
     fn unspecified_listen_accepts_loopback_and_lan_on_the_same_port() {
+        set_extra_browser_origins(Vec::<String>::new());
         let config = config("0.0.0.0:17891", true);
         assert!(origin_allowed(&config, "http://127.0.0.1:17891"));
         assert!(origin_allowed(&config, "http://localhost:17891"));
@@ -861,6 +938,7 @@ mod origin_allowed_tests {
 
     #[test]
     fn published_reachability_is_accepted() {
+        set_extra_browser_origins(Vec::<String>::new());
         let mut config = ServerConfig::default();
         config.listen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 17891);
         config.reachability = vec![ReachabilityOrigin {
@@ -868,5 +946,27 @@ mod origin_allowed_tests {
             kind: "tailscale".to_string(),
         }];
         assert!(origin_allowed(&config, "https://host.example.ts.net"));
+    }
+
+    #[test]
+    fn public_tunnel_origin_matching_host_header_is_allowed() {
+        set_extra_browser_origins(Vec::<String>::new());
+        assert!(origin_matches_request_host(
+            "http://47.109.140.92:13630",
+            Some("47.109.140.92:13630")
+        ));
+        assert!(!origin_matches_request_host(
+            "http://attacker.invalid",
+            Some("47.109.140.92:13630")
+        ));
+    }
+
+    #[test]
+    fn extra_browser_origin_can_use_a_public_tunnel_port() {
+        set_extra_browser_origins(["http://47.109.140.92:13630"]);
+        let config = ServerConfig::default();
+        assert!(origin_allowed(&config, "http://47.109.140.92:13630"));
+        assert!(!origin_allowed(&config, "http://8.8.8.8:17891"));
+        set_extra_browser_origins(Vec::<String>::new());
     }
 }

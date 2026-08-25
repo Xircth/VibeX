@@ -368,9 +368,23 @@ impl ServerApplicationDomains {
             DomainCommand::SessionRename => self.rename_session(args).await,
             DomainCommand::SessionUpdateStatus => {
                 let args: SessionStatusArgs = parse(args)?;
-                Session::update_status(&self.pool, args.session_id, args.status)
-                    .await
-                    .map_err(internal_error)?;
+                conversations::workbench_status::apply_manual_status(
+                    &self.pool,
+                    args.session_id,
+                    args.status,
+                )
+                .await
+                .map_err(internal_error)?;
+                serialize(self.require_session(args.session_id).await?)
+            }
+            DomainCommand::SessionMarkViewed => {
+                let args: SessionIdArgs = parse(args)?;
+                conversations::workbench_status::mark_latest_turn_viewed(
+                    &self.pool,
+                    args.session_id,
+                )
+                .await
+                .map_err(internal_error)?;
                 serialize(self.require_session(args.session_id).await?)
             }
             DomainCommand::SessionSetPinned => {

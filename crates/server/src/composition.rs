@@ -186,6 +186,17 @@ impl HeadlessServer {
                 "enabled plugin Worker could not be restored"
             );
         }
+        if let Err(error) = plugin_control_plane.import_queued_developer_links().await {
+            tracing::warn!(%error, "queued linked Plugin inbox import failed");
+        }
+        if let Ok(node) = worker_runtime.resolve().await {
+            let _ = plugins::PluginControlPlane::spawn_developer_link_refresh(
+                plugin_control_plane.clone(),
+                node,
+                config.data_dir.join("plugins").join("dev-candidates"),
+                capability_broker.clone(),
+            );
+        }
         plugin_control_plane
             .sync_official_product_mcp_gate()
             .await

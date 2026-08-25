@@ -116,6 +116,8 @@ impl ServerApplicationDomains {
                 self.plugin_control_install_runtime(args).await
             }
             DomainCommand::PluginControlImport => self.plugin_control_import(args).await,
+            DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
+            DomainCommand::PluginControlGcRuntimes => self.plugin_control_gc_runtimes(args).await,
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
             DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
@@ -418,10 +420,23 @@ impl ServerApplicationDomains {
 
     async fn plugin_control_import(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct PluginImportArgs {
             path: String,
             #[serde(default)]
             conflict: Option<String>,
+            #[serde(default)]
+            conflict_decision: Option<String>,
+            #[serde(default)]
+            developer_link: bool,
+            #[serde(default)]
+            origin: Option<String>,
+            #[serde(default)]
+            git_ref: Option<String>,
+            #[serde(default)]
+            git_sha: Option<String>,
+            #[serde(default)]
+            locked: bool,
         }
         let args: PluginImportArgs = parse(args)?;
         let source = std::path::PathBuf::from(&args.path);
@@ -431,24 +446,118 @@ impl ServerApplicationDomains {
                 args.path
             )));
         }
-        let decision = match args.conflict.as_deref() {
+        if args.developer_link && source.is_file() {
+            return Err(ApplicationError::bad_request(
+                "linked development install requires a Plugin directory",
+            ));
+        }
+        let decision = match args
+            .conflict
+            .as_deref()
+            .or(args.conflict_decision.as_deref())
+        {
             Some("keep") => plugins::ConflictDecision::KeepInstalled,
             Some("replace") => plugins::ConflictDecision::Replace,
             _ => plugins::ConflictDecision::Reject,
         };
-        let storage = self.runtime_root.join("plugins/snapshots");
-        let package = plugins::PluginPackage::materialize(
-            &source,
-            &storage,
-            plugins::PluginSourceKind::Snapshot,
-        )
-        .map_err(plugin_error)?;
+        let source_kind = if args.developer_link {
+            plugins::PluginSourceKind::DeveloperLink
+        } else {
+            plugins::PluginSourceKind::Snapshot
+        };
+        let mut package = if args.developer_link {
+            plugins::PluginPackage::inspect(&source, source_kind).map_err(plugin_error)?
+        } else {
+            let storage = self.runtime_root.join("plugins/snapshots");
+            plugins::PluginPackage::materialize(&source, &storage, source_kind)
+                .map_err(plugin_error)?
+        };
+        package.source.origin = args.origin;
+        package.source.git_ref = args.git_ref;
+        package.source.git_sha = args.git_sha;
+        package.source.locked = args.locked;
+        let installed = self
+            .plugin_control_plane
+            .plugin(package.id.as_str())
+            .await
+            .map_err(plugin_error)?;
+        let replacing_enabled = decision == plugins::ConflictDecision::Replace
+            && installed
+                .as_ref()
+                .is_some_and(|plugin| plugin.activation == plugins::PluginActivation::Enabled);
+        if replacing_enabled {
+            let grants =
+                plugins::candidate_capability_grants(&package, &[], &[]).map_err(plugin_error)?;
+            let node = self
+                .worker_runtime
+                .resolve()
+                .await
+                .map_err(internal_error)?;
+            return self
+                .plugin_control_plane
+                .update_and_activate(&node, package, &grants, self.capability_broker.clone())
+                .await
+                .map(|plugin| plugin_control_item(&plugin))
+                .map_err(|error| ApplicationError::conflict(format!("{}: {error}", error.code())));
+        }
         let imported = self
             .plugin_control_plane
             .import(package, decision)
             .await
             .map_err(plugin_error)?;
         Ok(plugin_control_item(&imported.plugin))
+    }
+
+    async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PluginUninstallArgs {
+            plugin_id: String,
+            #[serde(default)]
+            retain_data: Option<bool>,
+        }
+        let args: PluginUninstallArgs = parse(args)?;
+        let retain_data = args.retain_data.unwrap_or(true);
+        let plugin = self
+            .plugin_control_plane
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(plugin_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        if plugin.source.kind == plugins::PluginSourceKind::Builtin {
+            return Err(ApplicationError::bad_request(
+                "built-in plugins can be disabled but not uninstalled",
+            ));
+        }
+        let snapshot = (plugin.source.kind == plugins::PluginSourceKind::Snapshot)
+            .then(|| plugin.source.path.clone());
+        self.plugin_control_plane
+            .uninstall(&args.plugin_id)
+            .await
+            .map_err(plugin_error)?;
+        if !retain_data && let Some(source) = snapshot {
+            remove_managed_plugin_snapshot(&self.runtime_root, &source)?;
+        }
+        let reclaimed = self
+            .plugin_control_plane
+            .reclaim_unreferenced_runtimes(&self.runtime_root)
+            .await
+            .unwrap_or_default();
+        Ok(json!({
+            "removed": true,
+            "pluginId": args.plugin_id,
+            "dataRetention": if retain_data { "retained" } else { "deleted" },
+            "reclaimedRuntimes": reclaimed,
+        }))
+    }
+
+    async fn plugin_control_gc_runtimes(&self, _args: Value) -> Result<Value, ApplicationError> {
+        let reclaimed = self
+            .plugin_control_plane
+            .reclaim_unreferenced_runtimes(&self.runtime_root)
+            .await
+            .map_err(plugin_error)?;
+        Ok(json!({ "reclaimed": reclaimed }))
     }
 
     async fn plugin_surface_open(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -690,9 +799,13 @@ impl ServerApplicationDomains {
 
     async fn agent_skills(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentSkillsArgs = parse(args)?;
-        let result = agents::skills::list_agent_skills(args.agent_type, args.workspace_path)
-            .await
-            .map_err(internal_error)?;
+        let environment = saved_skill_environment(&self.pool, &args.agent_type).await?;
+        let result = agents::skills::with_saved_agent_environment(
+            environment,
+            agents::skills::list_agent_skills(args.agent_type, args.workspace_path),
+        )
+        .await
+        .map_err(internal_error)?;
         serialize(result)
     }
 
@@ -1442,10 +1555,36 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
         "appContributions": app_contributions,
         "nativeManaged": false,
         "enableSupported": true,
-        "updateSupported": false,
+        "updateSupported": plugin.source.kind == plugins::PluginSourceKind::Snapshot
+            && plugin.source.origin.is_some(),
         "rollbackSupported": false,
-        "uninstallSupported": false,
+        "uninstallSupported": plugin.source.kind != plugins::PluginSourceKind::Builtin,
+        "sourceOrigin": plugin.source.origin,
+        "sourceRef": plugin.source.git_ref,
+        "sourceSha": plugin.source.git_sha,
+        "sourceLocked": plugin.source.locked,
     })
+}
+
+fn remove_managed_plugin_snapshot(
+    runtime_root: &std::path::Path,
+    source: &std::path::Path,
+) -> Result<(), ApplicationError> {
+    let root = runtime_root
+        .join("plugins/snapshots")
+        .canonicalize()
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let source = source
+        .canonicalize()
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    if source.parent() != Some(root.as_path()) {
+        return Err(ApplicationError::bad_request(
+            "plugin snapshot is outside the managed snapshot directory",
+        ));
+    }
+    std::fs::remove_dir_all(&source)
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    Ok(())
 }
 
 fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
@@ -1474,6 +1613,32 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
         started_at: run.started_at,
         finished_at: run.finished_at,
     }
+}
+
+async fn saved_skill_environment(
+    pool: &SqlitePool,
+    agent_type: &str,
+) -> Result<std::collections::HashMap<String, String>, ApplicationError> {
+    let documents = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(agent_type)
+    .fetch_all(pool)
+    .await
+    .map_err(internal_error)?;
+    let mut merged = std::collections::HashMap::new();
+    for document in documents.into_iter().flatten() {
+        let values: std::collections::HashMap<String, String> =
+            serde_json::from_str(&document).map_err(internal_error)?;
+        for (key, value) in values {
+            if (key.ends_with("_HOME") || key.ends_with("_DIR") || key.starts_with("XDG_"))
+                && !value.trim().is_empty()
+            {
+                merged.insert(key, value);
+            }
+        }
+    }
+    Ok(merged)
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {

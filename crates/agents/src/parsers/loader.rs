@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use super::{
     ConversationParser, ParseContext, ParseError, claude::ClaudeParser, cline::ClineParser,
-    codex::CodexParser, gemini::GeminiParser, openclaw::OpenClawParser,
+    codex::CodexParser, openclaw::OpenClawParser,
 };
 use crate::{conversation::ConversationDetail, history::default_history_sources};
 
@@ -28,7 +28,7 @@ pub fn parser_for(agent_type: AgentKind) -> Option<Box<dyn ConversationParser>> 
     match agent_type {
         AgentKind::ClaudeCode => Some(Box::new(ClaudeParser)),
         AgentKind::Codex => Some(Box::new(CodexParser)),
-        AgentKind::Gemini => Some(Box::new(GeminiParser)),
+        AgentKind::Antigravity => None,
         AgentKind::Cline => Some(Box::new(ClineParser)),
         AgentKind::Openclaw => Some(Box::new(OpenClawParser)),
         // OpenCode / Hermes store history in SQLite DBs (opencode.db / state.db),
@@ -167,7 +167,7 @@ mod tests {
     fn parser_dispatch_covers_implemented_agents() {
         assert!(parser_for(AgentKind::ClaudeCode).is_some());
         assert!(parser_for(AgentKind::Codex).is_some());
-        assert!(parser_for(AgentKind::Gemini).is_some());
+        assert!(parser_for(AgentKind::Antigravity).is_none());
         assert!(parser_for(AgentKind::Cline).is_some());
         assert!(parser_for(AgentKind::Openclaw).is_some());
         // OpenCode / Hermes use SQLite DBs, not the text parser interface.

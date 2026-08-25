@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use api_types::AgentId;
+use api_types::{AgentId, AgentKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInAuthModePolicy {
@@ -22,28 +22,19 @@ const CLAUDE_SCRUB_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
 ];
-const GEMINI_MODES: &[&str] = &[
-    "custom",
-    "login_google",
-    "gemini_api_key",
-    "vertex_adc",
-    "vertex_service_account",
-    "vertex_api_key",
+const ANTIGRAVITY_MODES: &[&str] = &[
+    "oauth-personal",
+    "oauth-business",
+    "gemini-api-key",
+    "agent-platform",
     "model_provider",
 ];
-const GEMINI_CREDENTIAL_MODES: &[&str] = &["custom", "gemini_api_key", "vertex_api_key"];
-const GEMINI_ALL_AUTH_ENV: &[&str] = &[
-    "GOOGLE_GEMINI_BASE_URL",
-    "GEMINI_BASE_URL",
-    "API_BASE_URL",
+const ANTIGRAVITY_CREDENTIAL_MODES: &[&str] = &["gemini-api-key", "agent-platform"];
+const ANTIGRAVITY_ALL_AUTH_ENV: &[&str] = &[
     "GEMINI_API_KEY",
-    "GOOGLE_GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GOOGLE_CLOUD_PROJECT",
-    "GOOGLE_CLOUD_PROJECT_ID",
     "GOOGLE_CLOUD_LOCATION",
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    "GOOGLE_GENAI_USE_VERTEXAI",
 ];
 const GROK_MODES: &[&str] = &["subscription", "api_key", "custom"];
 const GROK_CREDENTIAL_MODES: &[&str] = &["api_key"];
@@ -65,13 +56,13 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: CLAUDE_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
-        "gemini" => Some(BuiltInAuthModePolicy {
-            mode_env: "GEMINI_AUTH_MODE",
+        id if AgentKind::Antigravity.matches_id(id) => Some(BuiltInAuthModePolicy {
+            mode_env: "AGY_AUTH_METHOD",
             credential_env: "GEMINI_API_KEY",
-            modes: GEMINI_MODES,
-            credential_modes: GEMINI_CREDENTIAL_MODES,
-            subscription_scrub_env: GEMINI_ALL_AUTH_ENV,
-            default_mode: "login_google",
+            modes: ANTIGRAVITY_MODES,
+            credential_modes: ANTIGRAVITY_CREDENTIAL_MODES,
+            subscription_scrub_env: ANTIGRAVITY_ALL_AUTH_ENV,
+            default_mode: "oauth-personal",
         }),
         "grok" => Some(BuiltInAuthModePolicy {
             mode_env: "GROK_AUTH_MODE",
@@ -126,6 +117,7 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
     let Some(policy) = built_in_auth_mode_policy(agent_id) else {
         return;
     };
+    migrate_legacy_antigravity_auth_mode(agent_id, env);
     let mode = resolved_auth_mode(agent_id, policy, env);
     for key in auth_mode_scrubbed_env_keys(agent_id, mode) {
         env.remove(*key);
@@ -133,6 +125,25 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
     if agent_id.as_str() == "cursor" {
         env.remove("CURSOR_API_BASE_URL");
     }
+}
+
+fn migrate_legacy_antigravity_auth_mode(agent_id: &AgentId, env: &mut HashMap<String, String>) {
+    if !AgentKind::Antigravity.matches_id(agent_id.as_str()) {
+        return;
+    }
+    if env
+        .get("AGY_AUTH_METHOD")
+        .is_some_and(|value| ANTIGRAVITY_MODES.contains(&value.as_str()))
+    {
+        return;
+    }
+    let mapped = match env.get("GEMINI_AUTH_MODE").map(String::as_str) {
+        Some("gemini_api_key" | "custom") => "gemini-api-key",
+        Some("vertex_adc" | "vertex_service_account" | "vertex_api_key") => "agent-platform",
+        Some("login_google") => "oauth-personal",
+        _ => return,
+    };
+    env.insert("AGY_AUTH_METHOD".to_string(), mapped.to_string());
 }
 
 pub fn built_in_auth_mode_scrubbed_env_keys(
@@ -148,8 +159,8 @@ pub fn built_in_auth_mode_scrubbed_env_keys(
 
 pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
     match (agent_id.as_str(), mode) {
-        ("gemini", "vertex_api_key") => Some("GOOGLE_API_KEY"),
-        ("gemini", "custom" | "gemini_api_key") => Some("GEMINI_API_KEY"),
+        (id, "agent-platform") if AgentKind::Antigravity.matches_id(id) => Some("GOOGLE_API_KEY"),
+        (id, "gemini-api-key") if AgentKind::Antigravity.matches_id(id) => Some("GEMINI_API_KEY"),
         ("claude_code", "custom") => Some("ANTHROPIC_API_KEY"),
         ("grok", "api_key") => Some("XAI_API_KEY"),
         ("cursor", "custom") => Some("CURSOR_API_KEY"),
@@ -159,57 +170,17 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
 }
 
 fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'static str] {
-    const GEMINI_VERTEX_ENV: &[&str] = &[
-        "GOOGLE_API_KEY",
-        "GOOGLE_CLOUD_PROJECT",
-        "GOOGLE_CLOUD_PROJECT_ID",
-        "GOOGLE_CLOUD_LOCATION",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        "GOOGLE_GENAI_USE_VERTEXAI",
-    ];
-    const GEMINI_VERTEX_API_SCRUB: &[&str] = &[
-        "GOOGLE_GEMINI_BASE_URL",
-        "GEMINI_BASE_URL",
-        "API_BASE_URL",
-        "GEMINI_API_KEY",
-        "GOOGLE_GEMINI_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ];
-    const GEMINI_SERVICE_ACCOUNT_SCRUB: &[&str] = &[
-        "GOOGLE_GEMINI_BASE_URL",
-        "GEMINI_BASE_URL",
-        "API_BASE_URL",
-        "GEMINI_API_KEY",
-        "GOOGLE_GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-    ];
-    const GEMINI_ADC_SCRUB: &[&str] = &[
-        "GOOGLE_GEMINI_BASE_URL",
-        "GEMINI_BASE_URL",
-        "API_BASE_URL",
-        "GEMINI_API_KEY",
-        "GOOGLE_GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ];
     match (agent_id.as_str(), mode) {
         ("claude_code", "official_subscription" | "model_provider") => CLAUDE_SCRUB_ENV,
-        ("gemini", "login_google" | "model_provider") => GEMINI_ALL_AUTH_ENV,
-        ("gemini", "custom") => GEMINI_VERTEX_ENV,
-        ("gemini", "gemini_api_key") => &[
-            "GOOGLE_GEMINI_BASE_URL",
-            "GEMINI_BASE_URL",
-            "API_BASE_URL",
+        (id, "oauth-personal" | "oauth-business") if AgentKind::Antigravity.matches_id(id) => {
+            ANTIGRAVITY_ALL_AUTH_ENV
+        }
+        (id, "gemini-api-key" | "model_provider") if AgentKind::Antigravity.matches_id(id) => &[
             "GOOGLE_API_KEY",
             "GOOGLE_CLOUD_PROJECT",
-            "GOOGLE_CLOUD_PROJECT_ID",
             "GOOGLE_CLOUD_LOCATION",
-            "GOOGLE_APPLICATION_CREDENTIALS",
-            "GOOGLE_GENAI_USE_VERTEXAI",
         ],
-        ("gemini", "vertex_api_key") => GEMINI_VERTEX_API_SCRUB,
-        ("gemini", "vertex_service_account") => GEMINI_SERVICE_ACCOUNT_SCRUB,
-        ("gemini", "vertex_adc") => GEMINI_ADC_SCRUB,
+        (id, "agent-platform") if AgentKind::Antigravity.matches_id(id) => &["GEMINI_API_KEY"],
         ("grok" | "cursor", "subscription") => built_in_auth_mode_policy(agent_id)
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
@@ -283,6 +254,15 @@ pub fn apply_built_in_launch_policy(
     args: &mut Vec<String>,
 ) {
     apply_built_in_auth_mode_policy(agent_id, env);
+    if AgentKind::Antigravity.matches_id(agent_id.as_str()) {
+        crate::apply_antigravity_env_policy(env);
+        let home = env
+            .get("HOME")
+            .or_else(|| env.get("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .or_else(dirs::home_dir);
+        let _ = crate::sync_antigravity_settings(env, home.as_deref());
+    }
     match agent_id.as_str() {
         // codex-acp otherwise removes an ACP-injected companion when a global
         // or project Codex config already defines a server with the same name.
@@ -334,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_and_gemini_modes_remove_conflicting_launch_credentials() {
+    fn claude_and_antigravity_modes_remove_conflicting_launch_credentials() {
         let mut claude = HashMap::from([
             (
                 "CLAUDE_AUTH_MODE".to_string(),
@@ -350,19 +330,24 @@ mod tests {
         assert!(!claude.contains_key("ANTHROPIC_API_KEY"));
         assert!(!claude.contains_key("ANTHROPIC_BASE_URL"));
 
-        let mut gemini = HashMap::from([
-            ("GEMINI_AUTH_MODE".to_string(), "vertex_adc".to_string()),
+        let mut antigravity = HashMap::from([
+            ("AGY_AUTH_METHOD".to_string(), "oauth-personal".to_string()),
             ("GEMINI_API_KEY".to_string(), "secret".to_string()),
-            (
-                "GOOGLE_APPLICATION_CREDENTIALS".to_string(),
-                "/old/service-account.json".to_string(),
-            ),
             ("GOOGLE_CLOUD_PROJECT".to_string(), "project".to_string()),
         ]);
-        apply_built_in_auth_mode_policy(&AgentId::parse("gemini").unwrap(), &mut gemini);
-        assert!(!gemini.contains_key("GEMINI_API_KEY"));
-        assert!(!gemini.contains_key("GOOGLE_APPLICATION_CREDENTIALS"));
-        assert_eq!(gemini.get("GOOGLE_CLOUD_PROJECT").unwrap(), "project");
+        apply_built_in_auth_mode_policy(&AgentId::parse("antigravity").unwrap(), &mut antigravity);
+        assert!(!antigravity.contains_key("GEMINI_API_KEY"));
+        assert!(!antigravity.contains_key("GOOGLE_CLOUD_PROJECT"));
+
+        let mut legacy = HashMap::from([
+            ("GEMINI_AUTH_MODE".to_string(), "gemini_api_key".to_string()),
+            ("GEMINI_API_KEY".to_string(), "secret".to_string()),
+            ("GOOGLE_API_KEY".to_string(), "google".to_string()),
+        ]);
+        apply_built_in_auth_mode_policy(&AgentId::parse("gemini").unwrap(), &mut legacy);
+        assert_eq!(legacy.get("AGY_AUTH_METHOD").unwrap(), "gemini-api-key");
+        assert_eq!(legacy.get("GEMINI_API_KEY").unwrap(), "secret");
+        assert!(!legacy.contains_key("GOOGLE_API_KEY"));
     }
 
     #[test]

@@ -76,6 +76,27 @@ impl UserEnvironmentLayout {
     }
 }
 
+/// Arguments for writing an Agent CLI into the user npm prefix.
+///
+/// `--force` is required: leftover shims in `~/.local/bin` (or `%APPDATA%\npm`)
+/// make a plain `npm install -g` fail with `EEXIST` even when VibeX is
+/// installing the locked version into the same prefix.
+pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
+    vec![
+        "install".to_string(),
+        "-g".to_string(),
+        "--force".to_string(),
+        "--prefix".to_string(),
+        prefix.display().to_string(),
+        "--no-audit".to_string(),
+        "--no-fund".to_string(),
+        "--save=false".to_string(),
+        "--include=optional".to_string(),
+        "--registry=https://registry.npmjs.org".to_string(),
+        package.to_string(),
+    ]
+}
+
 fn default_npm_prefix(home: &Path, app_data: Option<&Path>) -> PathBuf {
     if cfg!(windows) {
         app_data
@@ -222,6 +243,19 @@ mod tests {
             component_id: id.to_string(),
             version: version.map(ToString::to_string),
         }
+    }
+
+    #[test]
+    fn npm_global_install_overwrites_an_existing_user_bin() {
+        let args = npm_global_install_args(
+            std::path::Path::new("/tmp/home/.local"),
+            "deepseek-acp@0.1.0",
+        );
+        assert_eq!(args[0], "install");
+        assert_eq!(args[1], "-g");
+        assert_eq!(args[2], "--force");
+        assert!(args.contains(&"--prefix".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("deepseek-acp@0.1.0"));
     }
 
     #[test]

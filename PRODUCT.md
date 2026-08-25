@@ -12,7 +12,7 @@ The primary user is already technical and task-focused. They are often comparing
 
 ## Product Purpose
 
-VibeX is a local-first orchestration workspace for AI coding agents. It brings Claude Code, OpenAI Codex, OpenCode, Gemini, Cursor Agent CLI, Amp, and related agent workflows into one desktop product with project isolation, visible execution, preview, review, and follow-up loops.
+VibeX is a local-first orchestration workspace for AI coding agents. It brings Claude Code, OpenAI Codex, OpenCode, Google Antigravity, Cursor Agent CLI, Amp, and related agent workflows into one desktop product with project isolation, visible execution, preview, review, and follow-up loops.
 
 Success means the user can keep multiple AI-assisted coding tasks moving without losing control of source state, session context, terminal output, or review evidence. The product should reduce switching between terminal, browser, editor, and agent CLI, while preserving the developer's final judgment.
 

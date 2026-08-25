@@ -30,7 +30,7 @@ Agents needed a new IDE, so VibeX exists.
 
 VibeX is an IADE (Integrated Agent Development Environment). It connects multiple coding agents to one pipeline for install, authentication, conversation, and delivery, and keeps files, Git, the terminal, and the browser on the workspace bound to the current conversation. A person states the task. Agents edit files, run commands, and request permissions through the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). The file tree, terminal, diffs, and built-in browser follow that workspace.
 
-Built-in agents include Claude Code, Codex, DeepSeek Harness, Gemini CLI, Cursor, OpenCode, Pi, Grok, OpenClaw, Hermes, Kimi Code, CodeBuddy, and Cline. Compatible agents from the official ACP Registry use the same pipeline.
+Built-in agents include Claude Code, Codex, DeepSeek Harness, Google Antigravity, Cursor, OpenCode, Pi, Grok, OpenClaw, Hermes, Kimi Code, CodeBuddy, and Cline. Compatible agents from the official ACP Registry use the same pipeline.
 
 > [!IMPORTANT]
 > **Local operation and data ownership:** VibeX is a local-first Host. Projects, conversations, configuration, and diagnostics stay on the Host you control. VibeX does not operate cloud storage and does not automatically upload that data to a VibeX-operated service. When a remote client connects to a user-controlled desktop or `vibex-server`, the data required for the selected remote workflows is sent to that Host.

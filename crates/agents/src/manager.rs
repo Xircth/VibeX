@@ -958,6 +958,7 @@ struct AgentConnectionRunner {
     // idle watchdog can fail a silently-hung agent without killing live turns.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+    pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -980,6 +981,7 @@ struct SessionControlState {
     /// True when the category=`mode` option was adapted from V1 Session Modes
     /// and must be written back with `session/set_mode`.
     mode_uses_set_mode: bool,
+    available_commands: Option<Vec<AgentAvailableCommand>>,
 }
 
 #[derive(Debug)]
@@ -1063,6 +1065,7 @@ impl AgentConnectionRunner {
             active_prompt: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(Mutex::new(Instant::now())),
             grok_subagent: Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            pending_session_id: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1122,12 +1125,7 @@ impl AgentConnectionRunner {
                         .insert(session_id, acp_session_id.clone());
                     let _ = result_tx.send(Ok((
                         acp_session_id,
-                        AgentSessionControlsSnapshot {
-                            modes: Vec::new(),
-                            current_mode: None,
-                            config_options: Vec::new(),
-                            capabilities: None,
-                        },
+                        AgentSessionControlsSnapshot::default(),
                     )));
                 }
                 AgentConnectionCommand::DiscardSession {
@@ -1147,12 +1145,7 @@ impl AgentConnectionRunner {
                         .write()
                         .await
                         .insert(session_id, external_session_id.clone());
-                    let controls = AgentSessionControlsSnapshot {
-                        modes: Vec::new(),
-                        current_mode: None,
-                        config_options: Vec::new(),
-                        capabilities: None,
-                    };
+                    let controls = AgentSessionControlsSnapshot::default();
                     let _ = result_tx.send(Ok((external_session_id, controls)));
                 }
                 AgentConnectionCommand::ForkSession {
@@ -1636,6 +1629,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
             Arc::clone(&self.grok_subagent),
+            Arc::clone(&self.pending_session_id),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -2085,7 +2079,9 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
+            *self.pending_session_id.lock().await = Some(session_id);
             let load_result = conn.send_request(request).block_task().await;
+            *self.pending_session_id.lock().await = None;
             match load_result {
                 Ok(response) => {
                     self.session_map
@@ -2129,7 +2125,10 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
-            match conn.send_request(request).block_task().await {
+            *self.pending_session_id.lock().await = Some(session_id);
+            let resume_result = conn.send_request(request).block_task().await;
+            *self.pending_session_id.lock().await = None;
+            match resume_result {
                 Ok(response) => {
                     self.session_map
                         .write()
@@ -2198,7 +2197,10 @@ impl AgentConnectionRunner {
         request.mcp_servers = self
             .session_mcp_servers_with_companion(working_dir, session_id, companion_capabilities)
             .await;
-        let response = conn.send_request(request).block_task().await?;
+        *self.pending_session_id.lock().await = Some(session_id);
+        let response = conn.send_request(request).block_task().await;
+        *self.pending_session_id.lock().await = None;
+        let response = response?;
         let acp_session_id = response.session_id.0.to_string();
         self.session_map
             .write()
@@ -2353,6 +2355,7 @@ impl AgentConnectionRunner {
                 current_mode: None,
                 config_options: Vec::new(),
                 capabilities: Some(self.capabilities.read().await.clone()),
+                available_commands: None,
             };
         };
         let (modes, current_mode) = session_modes_from_config_options(&controls.config_options);
@@ -2361,6 +2364,7 @@ impl AgentConnectionRunner {
             current_mode,
             config_options: agent_session_config_options_from_acp(controls.config_options.clone()),
             capabilities: Some(self.capabilities.read().await.clone()),
+            available_commands: controls.available_commands.clone(),
         }
     }
 
@@ -2389,6 +2393,13 @@ impl AgentConnectionRunner {
                 options: controls.config_options.clone(),
             },
         );
+        if let Some(commands) = controls.available_commands.clone() {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::AvailableCommands { commands },
+            );
+        }
     }
 
     fn emit_session_load_failed(
@@ -3316,6 +3327,7 @@ struct AcpClientBridge {
     // prompt watchdog only fires on a genuinely silent (hung) agent.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+    pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
 }
 
 impl AcpClientBridge {
@@ -3332,6 +3344,7 @@ impl AcpClientBridge {
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
         grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+        pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
     ) -> Self {
         Self {
             connection_id,
@@ -3345,6 +3358,7 @@ impl AcpClientBridge {
             stream_dedup,
             last_activity,
             grok_subagent,
+            pending_session_id,
         }
     }
 
@@ -3714,7 +3728,10 @@ impl AcpClientBridge {
         // the in-flight prompt alive for the idle watchdog in `run_prompt`.
         *self.last_activity.lock().await = Instant::now();
         let acp_session_id = args.session_id.0.to_string();
-        let session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
+        let session_id = resolve_agent_session_id(
+            self.agent_session_for_acp(acp_session_id.clone()).await,
+            *self.pending_session_id.lock().await,
+        );
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => self
                 .gate_stream_chunk(
@@ -3811,9 +3828,18 @@ impl AcpClientBridge {
                         .collect(),
                 },
             }),
-            SessionUpdate::AvailableCommandsUpdate(update) => Some(AgentEvent::AvailableCommands {
-                commands: agent_available_commands_from_acp(update.available_commands),
-            }),
+            SessionUpdate::AvailableCommandsUpdate(update) => {
+                let commands = agent_available_commands_from_acp(update.available_commands);
+                if let Some(session_id) = session_id {
+                    self.session_controls
+                        .write()
+                        .await
+                        .entry(session_id)
+                        .or_default()
+                        .available_commands = Some(commands.clone());
+                }
+                Some(AgentEvent::AvailableCommands { commands })
+            }
             SessionUpdate::UserMessageChunk(chunk) => Some(AgentEvent::RawAcpDiagnostic {
                 raw: serde_json::json!({
                     "kind": "user_message_acknowledged",
@@ -3943,6 +3969,13 @@ impl AcpClientBridge {
         }
         Ok(KillTerminalResponse::new())
     }
+}
+
+fn resolve_agent_session_id(
+    mapped: Option<AgentSessionId>,
+    pending: Option<AgentSessionId>,
+) -> Option<AgentSessionId> {
+    mapped.or(pending)
 }
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
@@ -5456,15 +5489,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(acp_session_id, "external-session");
-        assert_eq!(
-            controls,
-            AgentSessionControlsSnapshot {
-                modes: Vec::new(),
-                current_mode: None,
-                config_options: Vec::new(),
-                capabilities: None,
-            }
-        );
+        assert_eq!(controls, AgentSessionControlsSnapshot::default());
     }
 
     #[test]
@@ -5499,6 +5524,7 @@ mod tests {
                 config_options: Vec::new(),
                 vendor_config: None,
                 mode_uses_set_mode: false,
+                available_commands: None,
             },
         )]));
 
@@ -5872,6 +5898,7 @@ mod tests {
             ],
             vendor_config: None,
             mode_uses_set_mode: false,
+            available_commands: None,
         };
 
         let selection = find_config_override_selection(
@@ -5907,6 +5934,21 @@ mod tests {
         assert_eq!(selection.event_value, serde_json::json!(true));
         assert!(!selection.already_selected);
         assert_eq!(selection.wire_value.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn pending_session_id_is_used_before_session_map_binds() {
+        let conversation = AgentSessionId::new();
+        assert_eq!(
+            resolve_agent_session_id(None, Some(conversation)),
+            Some(conversation)
+        );
+        let mapped = AgentSessionId::new();
+        assert_eq!(
+            resolve_agent_session_id(Some(mapped), Some(conversation)),
+            Some(mapped)
+        );
+        assert_eq!(resolve_agent_session_id(None, None), None);
     }
 
     #[test]

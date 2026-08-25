@@ -221,7 +221,16 @@ impl InstallPlanner {
         target: RegistryAddTarget,
     ) -> Result<ResolvedInstallPlan, InstallPlanningError> {
         let mut plan = self.plan_profile(input.clone())?;
-        if target.agent_id != plan.agent_id {
+        let profile = self.profiles.profile(&input.agent_id).ok_or_else(|| {
+            InstallPlanningError::MissingProfile {
+                agent_id: input.agent_id.clone(),
+            }
+        })?;
+        let bound_by_registry_id = profile
+            .registry_binding
+            .as_ref()
+            .is_some_and(|binding| binding.registry_id == target.registry_id);
+        if target.agent_id != plan.agent_id && !bound_by_registry_id {
             return Err(InstallPlanningError::RegistryTargetAgentMismatch {
                 profile: plan.agent_id.clone(),
                 registry: target.agent_id.clone(),
@@ -435,12 +444,15 @@ pub fn registry_target_for_built_in_update(
     snapshot: &RegistrySnapshot,
     agent_id: &AgentId,
 ) -> Option<RegistryAddTarget> {
-    let binding = catalog.profile(agent_id)?.registry_binding.as_ref()?;
+    let profile = catalog.profile(agent_id)?;
+    let binding = profile.registry_binding.as_ref()?;
     let entry = snapshot
         .entries
         .iter()
         .find(|entry| entry.registry_id == binding.registry_id)?;
-    Some(entry.lock_add_target(snapshot.id))
+    let mut target = entry.lock_add_target(snapshot.id);
+    target.agent_id = profile.agent_id.clone();
+    Some(target)
 }
 
 fn package_component(

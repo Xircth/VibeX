@@ -573,12 +573,7 @@ impl AgentRuntime {
                 snapshot: snapshot.clone(),
                 queue: AgentPromptQueue::default(),
                 ownership: RuntimeSessionOwnership::Owned,
-                controls: AgentSessionControlsSnapshot {
-                    modes: Vec::new(),
-                    current_mode: None,
-                    config_options: Vec::new(),
-                    capabilities: None,
-                },
+                controls: AgentSessionControlsSnapshot::default(),
             },
         );
         self.emit_locked(
@@ -1448,6 +1443,13 @@ impl AgentRuntime {
                 }
                 state.prompt_blocks.remove(&finished.prompt_id);
                 state.prompt_options.remove(&finished.prompt_id);
+            }
+            AgentEvent::AvailableCommands { commands } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.available_commands = Some(commands.clone());
+                }
             }
             AgentEvent::Error { error } => {
                 if let (Some(session_id), Some(prompt_id)) =
@@ -2736,12 +2738,7 @@ mod tests {
                 .session_controls_snapshot(session_id)
                 .await
                 .expect("resumed session retains its controls"),
-            AgentSessionControlsSnapshot {
-                modes: Vec::new(),
-                current_mode: None,
-                config_options: Vec::new(),
-                capabilities: None,
-            }
+            AgentSessionControlsSnapshot::default()
         );
     }
 

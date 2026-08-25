@@ -104,6 +104,17 @@ pub fn reduce_management_snapshot(facts: ManagementFacts) -> AgentManagementSnap
     }
 }
 
+/// Local Runtime and ACP are verified. Authentication and configuration
+/// remain independent facts (ADR-0012).
+pub fn installation_is_complete(lifecycle: AgentLifecycleState) -> bool {
+    matches!(
+        lifecycle,
+        AgentLifecycleState::Ready
+            | AgentLifecycleState::NeedsAuth
+            | AgentLifecycleState::NeedsConfig
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalCandidateObservation {
     pub component_id: String,

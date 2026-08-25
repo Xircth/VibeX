@@ -31,6 +31,7 @@ url = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
 which = "8.0.0"
 dirs = { workspace = true }
+prost = "0.13"
 jsonc-parser = { version = "0.29", features = ["cst", "serde"] }
 toml = "0.8"
 tar = "0.4"

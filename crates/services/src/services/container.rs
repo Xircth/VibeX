@@ -195,7 +195,7 @@ fn acp_slash_command_catalog(agent_type: AgentKind) -> Vec<SlashCommandDescripti
             slash_command("review", "Review code with optional instructions"),
         ],
         AgentKind::Opencode => vec![slash_command("compact", "Compact the current session")],
-        AgentKind::Gemini
+        AgentKind::Antigravity
         | AgentKind::Openclaw
         | AgentKind::Cline
         | AgentKind::Hermes

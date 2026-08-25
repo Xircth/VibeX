@@ -133,17 +133,13 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
-        AgentKind::Gemini => {
-            parent_env_or_home_sources(agent_type, "GEMINI_CLI_HOME", ".gemini", ".gemini")
-                .into_iter()
-                .flat_map(|source| {
-                    ["tmp", "history"].map(move |directory| AgentHistorySource {
-                        path: source.path.join(directory),
-                        ..source.clone()
-                    })
-                })
-                .collect()
-        }
+        AgentKind::Antigravity => env_or_home_sources(agent_type, "GEMINI_HOME", ".gemini")
+            .into_iter()
+            .map(|source| AgentHistorySource {
+                path: source.path.join("antigravity-acp").join("conversations"),
+                ..source
+            })
+            .collect(),
         AgentKind::Openclaw => env_or_home_sources(agent_type, "OPENCLAW_HOME", ".openclaw")
             .into_iter()
             .map(|source| AgentHistorySource {
@@ -218,7 +214,8 @@ pub fn configured_history_sources(
         }
         AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
             .map(|path| path.join("opencode").join("opencode.db")),
-        AgentKind::Gemini => None,
+        AgentKind::Antigravity => configured_root(configured_env, "GEMINI_HOME")
+            .map(|path| path.join("antigravity-acp").join("conversations")),
         AgentKind::Openclaw => {
             configured_root(configured_env, "OPENCLAW_HOME").map(|path| path.join("agents"))
         }
@@ -251,17 +248,6 @@ pub fn configured_history_sources(
     }
     .into_iter()
     .collect::<Vec<_>>();
-    let configured = if agent_type == AgentKind::Gemini {
-        configured_root(configured_env, "GEMINI_CLI_HOME")
-            .into_iter()
-            .flat_map(|path| {
-                let root = path.join(".gemini");
-                [root.join("tmp"), root.join("history")]
-            })
-            .collect()
-    } else {
-        configured
-    };
 
     let mut seen = BTreeSet::new();
     configured
@@ -312,6 +298,9 @@ pub fn import_history_source(
     if source.agent_type == AgentKind::Cursor {
         return sqlite::import_cursor_stores(&source.path);
     }
+    if source.agent_type == AgentKind::Antigravity {
+        return sqlite::import_antigravity_conversations(&source.path);
+    }
 
     let files = history_files(source.agent_type, &source.path)?;
     let mut grouped: BTreeMap<(String, PathBuf), ImportedAgentSession> = BTreeMap::new();
@@ -345,28 +334,6 @@ fn env_or_home_sources(
         sources.push(AgentHistorySource {
             agent_type,
             path: expand_configured_history_path(PathBuf::from(value), dirs::home_dir().as_deref()),
-        });
-    }
-    if let Some(source) = home_source(agent_type, home_relative) {
-        sources.push(source);
-    }
-    sources
-}
-
-fn parent_env_or_home_sources(
-    agent_type: AgentKind,
-    env_var: &str,
-    env_relative: &str,
-    home_relative: &str,
-) -> Vec<AgentHistorySource> {
-    let mut sources = Vec::new();
-    if let Ok(value) = std::env::var(env_var)
-        && !value.trim().is_empty()
-    {
-        sources.push(AgentHistorySource {
-            agent_type,
-            path: expand_configured_history_path(PathBuf::from(value), dirs::home_dir().as_deref())
-                .join(env_relative),
         });
     }
     if let Some(source) = home_source(agent_type, home_relative) {
@@ -438,7 +405,7 @@ fn history_files(agent_type: AgentKind, path: &Path) -> Result<Vec<PathBuf>, Age
 }
 
 fn is_direct_text_history_file(agent_type: AgentKind, path: &Path) -> bool {
-    if agent_type == AgentKind::Gemini {
+    if agent_type == AgentKind::Antigravity {
         return path
             .file_name()
             .and_then(|name| name.to_str())
@@ -501,7 +468,7 @@ fn is_text_history_file(agent_type: AgentKind, path: &Path) -> bool {
     if agent_type == AgentKind::Grok {
         return name == Some("updates.jsonl");
     }
-    if agent_type == AgentKind::Gemini {
+    if agent_type == AgentKind::Antigravity {
         return name.is_some_and(|name| name.starts_with("session-"))
             && matches!(
                 path.extension().and_then(|extension| extension.to_str()),
@@ -536,8 +503,8 @@ fn parse_history_file(
         (AgentKind::ClaudeCode | AgentKind::Openclaw | AgentKind::Codebuddy, Some("jsonl")) => {
             parse_structured_jsonl(agent_type, path, &raw)
         }
-        (AgentKind::Gemini, Some("jsonl")) => parse_gemini_jsonl_chat(path, &raw),
-        (AgentKind::Gemini, Some("json")) => parse_gemini_chat(path, &raw),
+        (AgentKind::Antigravity, Some("jsonl")) => parse_gemini_jsonl_chat(path, &raw),
+        (AgentKind::Antigravity, Some("json")) => parse_gemini_chat(path, &raw),
         (AgentKind::Cline, Some("json")) => parse_cline_task(path, &raw),
         (_, Some("jsonl")) => parse_jsonl_history(agent_type, path, &raw),
         _ => parse_json_history(agent_type, path, &raw),
@@ -719,7 +686,7 @@ fn parse_gemini_chat(
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
     let value = parse_json_value(path, raw)?;
     let Some(messages) = value.get("messages").and_then(serde_json::Value::as_array) else {
-        return parse_json_history(AgentKind::Gemini, path, raw);
+        return parse_json_history(AgentKind::Antigravity, path, raw);
     };
     let imported = messages
         .iter()
@@ -732,14 +699,14 @@ fn parse_gemini_chat(
             Some(ImportedAgentMessage {
                 role,
                 content: content_from_value(message)?,
-                created_at: timestamp_from_value(AgentKind::Gemini, message),
-                metadata: message_metadata(AgentKind::Gemini, message),
+                created_at: timestamp_from_value(AgentKind::Antigravity, message),
+                metadata: message_metadata(AgentKind::Antigravity, message),
             })
         })
         .collect::<Vec<_>>();
     Ok((!imported.is_empty())
         .then(|| ImportedAgentSession {
-            source_agent: AgentKind::Gemini,
+            source_agent: AgentKind::Antigravity,
             external_session_id: string_at_any(&value, &["sessionId", "session_id", "id"])
                 .unwrap_or_else(|| history_file_session_id(path)),
             title: string_at_any(&value, &["title", "summary"]).or_else(|| {
@@ -1731,7 +1698,7 @@ mod tests {
             AgentKind::ClaudeCode,
             AgentKind::Codex,
             AgentKind::Opencode,
-            AgentKind::Gemini,
+            AgentKind::Antigravity,
             AgentKind::Openclaw,
             AgentKind::Cline,
             AgentKind::Hermes,
@@ -1797,20 +1764,16 @@ mod tests {
 
     #[test]
     fn configured_codeg_history_roots_keep_each_cli_directory_contract() {
-        let gemini = configured_history_sources(
-            AgentKind::Gemini,
+        let antigravity = configured_history_sources(
+            AgentKind::Antigravity,
             &HashMap::from([(
-                "GEMINI_CLI_HOME".to_string(),
-                "/profiles/google".to_string(),
+                "GEMINI_HOME".to_string(),
+                "/profiles/google/.gemini".to_string(),
             )]),
         );
         assert_eq!(
-            gemini[0].path,
-            PathBuf::from("/profiles/google/.gemini/tmp")
-        );
-        assert_eq!(
-            gemini[1].path,
-            PathBuf::from("/profiles/google/.gemini/history")
+            antigravity[0].path,
+            PathBuf::from("/profiles/google/.gemini/antigravity-acp/conversations")
         );
 
         let cline = configured_history_sources(
@@ -1992,59 +1955,6 @@ mod tests {
             Some("Fix the previous-session picker")
         );
         assert_eq!(sessions[0].messages.len(), 2);
-    }
-
-    #[test]
-    fn imports_gemini_chat_documents() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("session-1.json");
-        std::fs::write(
-            &path,
-            r#"{"sessionId":"gemini-1","cwd":"/workspace/gemini","messages":[{"type":"user","content":"Review this change","timestamp":"2026-08-01T00:00:00Z"},{"type":"gemini","content":"Review complete","timestamp":"2026-08-01T00:00:01Z"}]}"#,
-        )
-        .unwrap();
-
-        let sessions = import_history_source(&AgentHistorySource {
-            agent_type: AgentKind::Gemini,
-            path,
-        })
-        .unwrap();
-
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].external_session_id, "gemini-1");
-        assert_eq!(sessions[0].messages.len(), 2);
-        assert_eq!(
-            sessions[0].messages[1].role,
-            ImportedAgentMessageRole::Assistant
-        );
-    }
-
-    #[test]
-    fn imports_gemini_incremental_jsonl_chat_documents() {
-        let temp = tempfile::tempdir().unwrap();
-        let chats = temp.path().join("tmp/project/chats");
-        std::fs::create_dir_all(&chats).unwrap();
-        let path = chats.join("session-gemini.jsonl");
-        std::fs::write(
-            &path,
-            concat!(
-                r#"{"kind":"chat","sessionId":"gemini-jsonl","type":"user","id":"u1","content":"Review JSONL"}"#,
-                "\n",
-                r#"{"sessionId":"gemini-jsonl","type":"gemini","id":"a1","content":"Review complete"}"#,
-                "\n"
-            ),
-        )
-        .unwrap();
-
-        let sessions = import_history_source(&AgentHistorySource {
-            agent_type: AgentKind::Gemini,
-            path,
-        })
-        .unwrap();
-
-        assert_eq!(sessions[0].external_session_id, "gemini-jsonl");
-        assert_eq!(sessions[0].messages.len(), 2);
-        assert_eq!(sessions[0].messages[1].content, "Review complete");
     }
 
     #[test]

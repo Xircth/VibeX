@@ -704,3 +704,43 @@ fn built_in_update_with_registry_rejects_a_mismatched_target() {
         InstallPlanningError::RegistryTargetAgentMismatch { .. }
     ));
 }
+
+#[test]
+fn built_in_registry_binding_accepts_a_distinct_registry_agent_id() {
+    let planner = InstallPlanner::bundled();
+    let target = RegistryAddTarget {
+        snapshot_id: Uuid::new_v4(),
+        agent_id: AgentId::parse("antigravity-acp").unwrap(),
+        registry_id: "antigravity-acp".to_string(),
+        version: "20260818.01".to_string(),
+        distributions: RegistryDistributions {
+            binary: Some(BTreeMap::from([(
+                "darwin-aarch64".to_string(),
+                RegistryBinaryTarget {
+                    archive: "https://example.test/agy-acp-server.zip".to_string(),
+                    sha256: None,
+                    cmd: "./agy_acp_server.par".to_string(),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                },
+            )])),
+            npx: None,
+            uvx: None,
+        },
+    };
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("antigravity").unwrap(),
+            source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .expect("registry id antigravity-acp binds to the antigravity profile");
+    assert_eq!(plan.agent_id.as_str(), "antigravity");
+    assert_eq!(plan.version, "20260818.01");
+    assert!(matches!(
+        plan.source,
+        LockedInstallSource::BuiltInProfileWithRegistry { registry_id, .. }
+            if registry_id == "antigravity-acp"
+    ));
+}

@@ -74,7 +74,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
     match agent_type {
         AgentKind::ClaudeCode
         | AgentKind::Codex
-        | AgentKind::Gemini
+        | AgentKind::Antigravity
         | AgentKind::Openclaw
         | AgentKind::Opencode
         | AgentKind::Cline
@@ -108,7 +108,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
 const ALL_AGENTS: [AgentKind; 13] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
-    AgentKind::Gemini,
+    AgentKind::Antigravity,
     AgentKind::Openclaw,
     AgentKind::Opencode,
     AgentKind::Cline,
@@ -228,6 +228,27 @@ fn allows_markdown_file(agent: AgentKind) -> bool {
     matches!(agent, AgentKind::Codex | AgentKind::Pi)
 }
 
+fn git_project_root(start: &Path) -> PathBuf {
+    let mut current = start;
+    loop {
+        if current.join(".git").exists() {
+            return current.to_path_buf();
+        }
+        match current.parent() {
+            Some(parent) if parent != current => current = parent,
+            _ => return start.to_path_buf(),
+        }
+    }
+}
+
+fn project_skill_base(agent: AgentKind, workspace: &Path) -> PathBuf {
+    if matches!(agent, AgentKind::DeepseekHarness) {
+        git_project_root(workspace)
+    } else {
+        workspace.to_path_buf()
+    }
+}
+
 /// All skill directories for an agent, tagged by scope and read-only status.
 /// Mirrors codeg's `skill_storage_spec`.
 fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
@@ -264,14 +285,22 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
                 .map(|home| (home.join(".agents").join("skills"), false)),
         )
         .collect(),
-        AgentKind::Gemini => configured_dir("GEMINI_CLI_HOME", home.clone())
-            .into_iter()
-            .map(|dir| (dir.join(".gemini").join("skills"), false))
-            .chain(
-                home.iter()
-                    .map(|home| (home.join(".agents").join("skills"), false)),
-            )
-            .collect(),
+        AgentKind::Antigravity => configured_dir(
+            "GEMINI_HOME",
+            home.as_ref().map(|home| home.join(".gemini")),
+        )
+        .into_iter()
+        .flat_map(|dir| {
+            [
+                (dir.join("config").join("skills"), false),
+                (dir.join("antigravity-cli").join("skills"), true),
+            ]
+        })
+        .chain(
+            home.iter()
+                .map(|home| (home.join(".agents").join("skills"), false)),
+        )
+        .collect(),
         AgentKind::Openclaw => configured_dir(
             "OPENCLAW_HOME",
             home.as_ref().map(|home| home.join(".openclaw")),
@@ -361,11 +390,12 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
     }
 
     if let Some(workspace) = workspace {
+        let project_base = project_skill_base(agent, workspace);
         let relatives: &[&str] = match agent {
             AgentKind::ClaudeCode => &[".claude/skills"],
             AgentKind::Codex => &[".codex/skills", ".agents/skills"],
             AgentKind::Opencode => &[".agents/skills", ".opencode/skills"],
-            AgentKind::Gemini => &[".gemini/skills", ".agents/skills"],
+            AgentKind::Antigravity => &[".gemini/skills", ".agents/skills"],
             AgentKind::Openclaw => &["skills"],
             AgentKind::Cline => &[
                 ".agents/skills",
@@ -383,7 +413,7 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             AgentKind::QaMock => &[],
         };
         for relative in relatives {
-            let mut path = workspace.to_path_buf();
+            let mut path = project_base.clone();
             for segment in relative.split('/') {
                 path = path.join(segment);
             }
@@ -932,8 +962,9 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
             configured_dir("XDG_CONFIG_HOME", home.map(|home| home.join(".config")))
                 .map(|dir| dir.join("opencode").join("skills"))
         }
-        AgentKind::Gemini => {
-            configured_dir("GEMINI_CLI_HOME", home).map(|dir| dir.join(".gemini").join("skills"))
+        AgentKind::Antigravity => {
+            configured_dir("GEMINI_HOME", home.map(|home| home.join(".gemini")))
+                .map(|dir| dir.join("config").join("skills"))
         }
         AgentKind::Openclaw => {
             configured_dir("OPENCLAW_HOME", home.map(|home| home.join(".openclaw")))
@@ -1984,6 +2015,23 @@ mod tests {
                 "{agent:?} should have a writable global skills dir"
             );
         }
+    }
+
+    #[test]
+    fn deepseek_project_skills_walk_up_to_the_git_root() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(".git"), "gitdir: /tmp/fake").unwrap();
+        let nested = root.path().join("crates").join("agents");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let dirs = skill_dirs(AgentKind::DeepseekHarness, Some(&nested));
+        assert!(
+            dirs.iter().any(|dir| {
+                dir.scope == AgentSkillScope::Project
+                    && dir.path == root.path().join(".dsh").join("skills")
+            }),
+            "DeepSeek project skills must hang off the git root, not the nested cwd"
+        );
     }
 
     #[test]

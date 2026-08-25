@@ -1,8 +1,12 @@
+use agents::RegistryCacheFreshness;
 use api_types::{
     AgentId, AgentLifecycleState, AgentSettingsFeature, AgentSource, UserAgentDefinitionRequest,
     UserAgentDistributionKind, UserAgentIntegrityKind,
 };
-use db::models::agent_management::{AgentMembershipRepository, NewAgentMembership};
+use db::models::agent_management::{
+    AgentMembershipRepository, NewAgentMembership, RegistryEntryRecord, RegistrySnapshotRecord,
+    RegistrySnapshotRepository,
+};
 use services::services::agent_management::AgentManagementApplicationService;
 use sqlx::{
     SqlitePool,
@@ -115,6 +119,178 @@ async fn agent_management_list_reads_persisted_projection_without_disk_probe() {
 
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].lifecycle, AgentLifecycleState::Ready);
+}
+
+#[tokio::test]
+async fn registry_view_treats_verified_runtime_and_acp_as_installed_even_when_not_logged_in() {
+    let pool = migrated_pool().await;
+    let ready_id = AgentId::parse("fixture.ready").unwrap();
+    let needs_auth_id = AgentId::parse("fixture.needs-auth").unwrap();
+    let catalog_only_id = AgentId::parse("fixture.catalog-only").unwrap();
+    seed_installed_agent(&pool, &ready_id, "ready", "not_required", false).await;
+    seed_installed_agent(&pool, &needs_auth_id, "needs_auth", "not_logged_in", true).await;
+    seed_registry_snapshot(
+        &pool,
+        &[
+            (&ready_id, "Ready Fixture"),
+            (&needs_auth_id, "Needs Auth Fixture"),
+            (&catalog_only_id, "Catalog Only Fixture"),
+        ],
+    )
+    .await;
+
+    let view = AgentManagementApplicationService::new(pool)
+        .registry_view(RegistryCacheFreshness::Fresh, None)
+        .await
+        .unwrap();
+
+    let installed_ids = view
+        .installed
+        .iter()
+        .map(|row| row.agent_id.clone())
+        .collect::<Vec<_>>();
+    let uninstalled_ids = view
+        .uninstalled
+        .iter()
+        .map(|row| row.agent_id.clone())
+        .collect::<Vec<_>>();
+    assert!(installed_ids.contains(&ready_id));
+    assert!(installed_ids.contains(&needs_auth_id));
+    assert!(!uninstalled_ids.contains(&needs_auth_id));
+    assert!(uninstalled_ids.contains(&catalog_only_id));
+    assert!(
+        view.installed
+            .iter()
+            .find(|row| row.agent_id == needs_auth_id)
+            .is_some_and(|row| row.installed)
+    );
+}
+
+async fn seed_installed_agent(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    lifecycle: &str,
+    authentication: &str,
+    authentication_required: bool,
+) {
+    AgentMembershipRepository::new(pool.clone())
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: Some(
+                serde_json::json!({
+                    "name": agent_id.as_str(),
+                    "description": "Registry projection fixture"
+                })
+                .to_string(),
+            ),
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+
+    let lock_id = format!("lock-{}", agent_id.as_str());
+    sqlx::query(
+        r#"INSERT INTO agent_install_lock
+           (id, agent_id, registry_version, platform, distribution_kind,
+            resolved_json, created_at)
+           VALUES (?, ?, '1.0.0', 'fixture', 'npx', ?, 'now')"#,
+    )
+    .bind(&lock_id)
+    .bind(agent_id.as_str())
+    .bind(
+        serde_json::json!({
+            "runtime_version": "1.0.0",
+            "acp_version": "1.0.0"
+        })
+        .to_string(),
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_installation
+           (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
+            active_operation, active_operation_id, updated_at)
+           VALUES (?, 'external', ?, ?, NULL, NULL, NULL, 'now')"#,
+    )
+    .bind(agent_id.as_str())
+    .bind(lifecycle)
+    .bind(&lock_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_install_component
+           (id, lock_id, component_kind, absolute_path, version, sha256,
+            trust_state, ownership, shared_resource_key)
+           VALUES (?, ?, 'combined_runtime', ?, '1.0.0', ?, 'verified',
+                   'external', NULL)"#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&lock_id)
+    .bind(format!("/fixture/{}", agent_id.as_str()))
+    .bind("00".repeat(32))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_probe
+           (agent_id, lifecycle, authentication, detail_json, probed_at,
+            runtime_available, acp_handshake, authentication_required,
+            observation_generation)
+           VALUES (?, ?, ?, '{}', 'now', 1, 1, ?, 1)"#,
+    )
+    .bind(agent_id.as_str())
+    .bind(lifecycle)
+    .bind(authentication)
+    .bind(authentication_required)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_registry_snapshot(pool: &SqlitePool, entries: &[(&AgentId, &str)]) {
+    RegistrySnapshotRepository::new(pool.clone())
+        .replace(
+            &RegistrySnapshotRecord {
+                id: Uuid::new_v4(),
+                source_url: "https://registry.example.test/registry.json".to_string(),
+                fetched_at: "2026-08-24T08:00:00Z".to_string(),
+                schema_version: "1".to_string(),
+                document_json: "{}".to_string(),
+                document_sha256: "fixture".to_string(),
+                etag: None,
+            },
+            &entries
+                .iter()
+                .map(|(agent_id, name)| RegistryEntryRecord {
+                    agent_id: (*agent_id).clone(),
+                    registry_id: agent_id.as_str().to_string(),
+                    version: "1.0.0".to_string(),
+                    sort_name: (*name).to_string(),
+                    metadata_json: serde_json::json!({
+                        "name": name,
+                        "description": "Registry projection fixture",
+                        "repository": null,
+                        "website": null,
+                        "authors": ["Fixture"],
+                        "license": null,
+                        "icon_url": null
+                    })
+                    .to_string(),
+                    distributions_json: r#"{"npx":{"package":"fixture-agent@1.0.0","args":[]}}"#
+                        .to_string(),
+                    icon_svg: None,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

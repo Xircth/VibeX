@@ -584,3 +584,292 @@ fn parse_error(path: &Path, error: impl std::fmt::Display) -> AgentHistoryError 
         error: error.to_string(),
     }
 }
+
+pub(super) fn import_antigravity_conversations(
+    path: &Path,
+) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    if !path.exists() {
+        return Err(AgentHistoryError::MissingSource(path.to_path_buf()));
+    }
+    if path.is_file() {
+        return import_antigravity_db(path);
+    }
+    let mut sessions = Vec::new();
+    let entries = std::fs::read_dir(path).map_err(|error| AgentHistoryError::Read {
+        path: path.to_path_buf(),
+        error: error.to_string(),
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| AgentHistoryError::Read {
+            path: path.to_path_buf(),
+            error: error.to_string(),
+        })?;
+        let file = entry.path();
+        if file.extension().and_then(|ext| ext.to_str()) != Some("db") {
+            continue;
+        }
+        sessions.extend(import_antigravity_db(&file)?);
+    }
+    Ok(sessions)
+}
+
+fn import_antigravity_db(path: &Path) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    let connection = match open_read_only(path) {
+        Ok(connection) => connection,
+        Err(_) if path.metadata().map(|meta| meta.len() == 0).unwrap_or(false) => {
+            return Ok(Vec::new());
+        }
+        Err(error) => return Err(error),
+    };
+    let mut statement =
+        match connection.prepare("SELECT idx, step_payload FROM steps ORDER BY idx ASC") {
+            Ok(statement) => statement,
+            Err(error) if error.to_string().contains("no such table") => return Ok(Vec::new()),
+            Err(error) => return Err(parse_error(path, error)),
+        };
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+        })
+        .map_err(|error| parse_error(path, error))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| parse_error(path, error))?;
+    drop(statement);
+    let mut messages = Vec::new();
+    for (_idx, payload) in rows {
+        let Ok(step) = <AntigravityStep as prost::Message>::decode(payload.as_slice()) else {
+            continue;
+        };
+        if let Some(user) = step.user_input {
+            let text = [&user.query, &user.user_response]
+                .into_iter()
+                .find(|value| !value.trim().is_empty())
+                .cloned()
+                .or_else(|| {
+                    user.items
+                        .iter()
+                        .map(|item| item.text.as_str())
+                        .find(|text| !text.trim().is_empty())
+                        .map(str::to_string)
+                });
+            if let Some(content) = text {
+                messages.push(ImportedAgentMessage {
+                    role: ImportedAgentMessageRole::User,
+                    content,
+                    created_at: timestamp(&step.metadata),
+                    metadata: ImportedAgentMessageMetadata::default(),
+                });
+            }
+        }
+        if let Some(planner) = step.planner_response {
+            if !planner.response.trim().is_empty() {
+                messages.push(ImportedAgentMessage {
+                    role: ImportedAgentMessageRole::Assistant,
+                    content: planner.response,
+                    created_at: timestamp(&step.metadata),
+                    metadata: ImportedAgentMessageMetadata {
+                        model: step
+                            .metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.model_info.as_ref())
+                            .and_then(|info| {
+                                [&info.display_name, &info.model_name]
+                                    .into_iter()
+                                    .find(|name| !name.trim().is_empty())
+                                    .cloned()
+                            }),
+                        ..ImportedAgentMessageMetadata::default()
+                    },
+                });
+            }
+            for call in planner.tool_calls {
+                if call.name.trim().is_empty() {
+                    continue;
+                }
+                messages.push(ImportedAgentMessage {
+                    role: ImportedAgentMessageRole::Tool,
+                    content: call.name.clone(),
+                    created_at: timestamp(&step.metadata),
+                    metadata: ImportedAgentMessageMetadata {
+                        kind: Some("tool_use".to_string()),
+                        tool_call_id: (!call.id.is_empty()).then_some(call.id),
+                        tool_name: Some(call.name),
+                        raw_input: serde_json::from_str(&call.arguments_json).ok(),
+                        ..ImportedAgentMessageMetadata::default()
+                    },
+                });
+            }
+        }
+    }
+    if messages.is_empty() {
+        return Ok(Vec::new());
+    }
+    let session_id = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let title = messages
+        .iter()
+        .find(|message| message.role == ImportedAgentMessageRole::User)
+        .map(|message| truncate_title(&message.content));
+    let workspace_path = read_antigravity_cwd(path);
+    Ok(vec![ImportedAgentSession {
+        source_agent: AgentKind::Antigravity,
+        external_session_id: session_id,
+        title,
+        workspace_path,
+        messages,
+        raw_source_path: Some(path.to_path_buf()),
+    }])
+}
+
+fn timestamp(metadata: &Option<AntigravityStepMetadata>) -> Option<chrono::DateTime<Utc>> {
+    metadata
+        .as_ref()
+        .and_then(|metadata| metadata.created_at.as_ref())
+        .and_then(|ts| {
+            Utc.timestamp_opt(ts.seconds, ts.nanos.clamp(0, 999_999_999) as u32)
+                .single()
+        })
+}
+
+fn truncate_title(text: &str) -> String {
+    let trimmed = text.trim();
+    let mut chars = trimmed.chars();
+    let short: String = chars.by_ref().take(80).collect();
+    if chars.next().is_some() {
+        format!("{short}…")
+    } else {
+        short
+    }
+}
+
+fn read_antigravity_cwd(db_path: &Path) -> Option<PathBuf> {
+    let meta = db_path.with_extension("meta");
+    let raw = std::fs::read_to_string(meta).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    value
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .filter(|cwd| !cwd.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityTimestamp {
+    #[prost(int64, tag = "1")]
+    seconds: i64,
+    #[prost(int32, tag = "2")]
+    nanos: i32,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityModelInfo {
+    #[prost(string, tag = "8")]
+    model_name: String,
+    #[prost(string, tag = "20")]
+    display_name: String,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityStepMetadata {
+    #[prost(message, optional, tag = "1")]
+    created_at: Option<AntigravityTimestamp>,
+    #[prost(message, optional, tag = "24")]
+    model_info: Option<AntigravityModelInfo>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityTextItem {
+    #[prost(string, tag = "1")]
+    text: String,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityUserInput {
+    #[prost(string, tag = "1")]
+    query: String,
+    #[prost(string, tag = "2")]
+    user_response: String,
+    #[prost(message, repeated, tag = "3")]
+    items: Vec<AntigravityTextItem>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityToolCall {
+    #[prost(string, tag = "1")]
+    id: String,
+    #[prost(string, tag = "2")]
+    name: String,
+    #[prost(string, tag = "3")]
+    arguments_json: String,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityPlannerResponse {
+    #[prost(string, tag = "1")]
+    response: String,
+    #[prost(message, repeated, tag = "7")]
+    tool_calls: Vec<AntigravityToolCall>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AntigravityStep {
+    #[prost(message, optional, tag = "5")]
+    metadata: Option<AntigravityStepMetadata>,
+    #[prost(message, optional, tag = "19")]
+    user_input: Option<AntigravityUserInput>,
+    #[prost(message, optional, tag = "20")]
+    planner_response: Option<AntigravityPlannerResponse>,
+}
+
+#[cfg(test)]
+mod antigravity_tests {
+    use prost::Message;
+    use rusqlite::Connection;
+
+    use super::*;
+
+    #[test]
+    fn imports_user_and_assistant_steps_from_an_antigravity_db() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session-agy.db");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute("CREATE TABLE steps (idx INTEGER, step_payload BLOB)", [])
+            .unwrap();
+        let user = AntigravityStep {
+            user_input: Some(AntigravityUserInput {
+                query: "Review this change".to_string(),
+                ..AntigravityUserInput::default()
+            }),
+            ..AntigravityStep::default()
+        };
+        let assistant = AntigravityStep {
+            planner_response: Some(AntigravityPlannerResponse {
+                response: "Review complete".to_string(),
+                ..AntigravityPlannerResponse::default()
+            }),
+            ..AntigravityStep::default()
+        };
+        connection
+            .execute(
+                "INSERT INTO steps (idx, step_payload) VALUES (1, ?1), (2, ?2)",
+                rusqlite::params![user.encode_to_vec(), assistant.encode_to_vec()],
+            )
+            .unwrap();
+        std::fs::write(path.with_extension("meta"), r#"{"cwd":"/workspace/agy"}"#).unwrap();
+
+        let sessions = import_antigravity_conversations(&path).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].external_session_id, "session-agy");
+        assert_eq!(
+            sessions[0].workspace_path,
+            Some(PathBuf::from("/workspace/agy"))
+        );
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].content, "Review this change");
+        assert_eq!(sessions[0].messages[1].content, "Review complete");
+    }
+}

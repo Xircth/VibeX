@@ -75,7 +75,8 @@ fn internal(message: impl Into<String>) -> McpError {
 pub enum McpAppType {
     ClaudeCode,
     Codex,
-    Gemini,
+    #[serde(rename = "antigravity", alias = "gemini")]
+    Antigravity,
     #[serde(rename = "openclaw", alias = "open_claw")]
     OpenClaw,
     #[serde(rename = "opencode", alias = "open_code")]
@@ -92,7 +93,7 @@ pub enum McpAppType {
 const ALL_APPS: [McpAppType; 11] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
-    McpAppType::Gemini,
+    McpAppType::Antigravity,
     McpAppType::OpenClaw,
     McpAppType::OpenCode,
     McpAppType::Cline,
@@ -109,7 +110,7 @@ const ALL_APPS: [McpAppType; 11] = [
 const ASSIGNABLE_APPS: [McpAppType; 10] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
-    McpAppType::Gemini,
+    McpAppType::Antigravity,
     McpAppType::OpenCode,
     McpAppType::Cline,
     McpAppType::Hermes,
@@ -634,10 +635,10 @@ fn opencode_config_path() -> PathBuf {
         .join("opencode.json")
 }
 
-fn gemini_config_path() -> PathBuf {
-    configured_dir("GEMINI_CLI_HOME", home_dir_or_default())
-        .join(".gemini")
-        .join("settings.json")
+fn antigravity_config_path() -> PathBuf {
+    configured_dir("GEMINI_HOME", home_dir_or_default().join(".gemini"))
+        .join("config")
+        .join("mcp_config.json")
 }
 
 fn openclaw_config_path() -> PathBuf {
@@ -2365,27 +2366,27 @@ fn remove_opencode_server(id: &str) -> Result<bool, McpError> {
     Ok(removed)
 }
 
-fn read_gemini_servers() -> Result<BTreeMap<String, Value>, McpError> {
-    let root = read_json_file(&gemini_config_path())?;
+fn read_antigravity_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_json_file(&antigravity_config_path())?;
     let mut out = BTreeMap::new();
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
         return Ok(out);
     };
     for (id, spec) in servers {
-        if let Ok(normalized) = canonicalize_spec(spec, "Gemini config") {
+        if let Ok(normalized) = canonicalize_spec(spec, "Antigravity config") {
             out.insert(id.to_string(), normalized);
         }
     }
     Ok(out)
 }
 
-fn upsert_gemini_server(id: &str, spec: &Value) -> Result<(), McpError> {
-    let path = gemini_config_path();
+fn upsert_antigravity_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    let path = antigravity_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
         root = json!({});
     }
-    let canonical = canonicalize_spec(spec, "Gemini write")?;
+    let canonical = canonicalize_spec(spec, "Antigravity write")?;
     let obj = root
         .as_object_mut()
         .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
@@ -2400,8 +2401,8 @@ fn upsert_gemini_server(id: &str, spec: &Value) -> Result<(), McpError> {
     write_json_file(&path, &root)
 }
 
-fn remove_gemini_server(id: &str) -> Result<bool, McpError> {
-    let path = gemini_config_path();
+fn remove_antigravity_server(id: &str) -> Result<bool, McpError> {
+    let path = antigravity_config_path();
     if !path.exists() {
         return Ok(false);
     }
@@ -2956,7 +2957,7 @@ fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), 
         McpAppType::ClaudeCode => upsert_claude_server(id, spec),
         McpAppType::Codex => upsert_codex_server(id, spec),
         McpAppType::OpenCode => upsert_opencode_server(id, spec),
-        McpAppType::Gemini => upsert_gemini_server(id, spec),
+        McpAppType::Antigravity => upsert_antigravity_server(id, spec),
         McpAppType::OpenClaw => upsert_openclaw_server(id, spec),
         McpAppType::Cline => upsert_cline_server(id, spec),
         McpAppType::Hermes => upsert_hermes_server(id, spec),
@@ -2972,7 +2973,7 @@ fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, McpError> {
         McpAppType::ClaudeCode => remove_claude_server(id),
         McpAppType::Codex => remove_codex_server(id),
         McpAppType::OpenCode => remove_opencode_server(id),
-        McpAppType::Gemini => remove_gemini_server(id),
+        McpAppType::Antigravity => remove_antigravity_server(id),
         McpAppType::OpenClaw => remove_openclaw_server(id),
         McpAppType::Cline => remove_cline_server(id),
         McpAppType::Hermes => remove_hermes_server(id),
@@ -2988,7 +2989,7 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
         McpAppType::ClaudeCode => read_claude_servers(),
         McpAppType::Codex => read_codex_servers(),
         McpAppType::OpenCode => read_opencode_servers(),
-        McpAppType::Gemini => read_gemini_servers(),
+        McpAppType::Antigravity => read_antigravity_servers(),
         McpAppType::OpenClaw => read_openclaw_servers(),
         McpAppType::Cline => read_cline_servers(),
         McpAppType::Hermes => read_hermes_servers(),
@@ -4222,7 +4223,7 @@ mod tests {
         for expected in [
             "claude_code",
             "codex",
-            "gemini",
+            "antigravity",
             "openclaw",
             "opencode",
             "cline",

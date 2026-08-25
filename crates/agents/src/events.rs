@@ -157,7 +157,7 @@ pub struct AgentSessionMode {
 ///
 /// This is deliberately session-scoped: models, modes and dependent options
 /// may vary with the runtime, account and working directory.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentSessionControlsSnapshot {
     pub modes: Vec<AgentSessionMode>,
@@ -166,6 +166,10 @@ pub struct AgentSessionControlsSnapshot {
     pub config_options: Vec<AgentSessionConfigOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<crate::AcpCapabilitySnapshot>,
+    /// Session-scoped slash/skill catalog advertised by the agent. `None`
+    /// until the first `available_commands_update`; not an empty guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_commands: Option<Vec<AgentAvailableCommand>>,
 }
 
 /// A real ACP session created ahead of conversation persistence so creation

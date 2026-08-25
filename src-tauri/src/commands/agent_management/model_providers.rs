@@ -5,8 +5,8 @@ use std::{
 
 use agents::{NativeFileMutation, NativeFileSystem, TokioNativeFileSystem};
 use api_types::{
-    AgentId, AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
-    CodexModelCatalogConfigRequest,
+    AgentId, AgentKind, AgentModelProviderSaveRequest, AgentModelProviderView,
+    AgentModelProvidersView, CodexModelCatalogConfigRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -88,17 +88,33 @@ impl ProviderNativeHomes {
 }
 
 fn resolve_gemini_home(home: &Path, environment: &HashMap<String, String>) -> PathBuf {
-    environment
+    if let Some(value) = environment
+        .get("GEMINI_HOME")
+        .filter(|value| !value.trim().is_empty())
+    {
+        return super::expand_agent_home_path(home, value);
+    }
+    if let Some(value) = std::env::var_os("GEMINI_HOME").filter(|value| !value.is_empty()) {
+        return super::expand_agent_home_path(home, &value.to_string_lossy());
+    }
+    if let Some(value) = environment
         .get("GEMINI_CLI_HOME")
         .filter(|value| !value.trim().is_empty())
-        .map(|value| super::expand_agent_home_path(home, value))
-        .or_else(|| {
-            std::env::var_os("GEMINI_CLI_HOME")
-                .filter(|value| !value.is_empty())
-                .map(|value| super::expand_agent_home_path(home, &value.to_string_lossy()))
-        })
-        .unwrap_or_else(|| home.to_path_buf())
-        .join(".gemini")
+    {
+        return super::expand_agent_home_path(home, value).join(".gemini");
+    }
+    if let Some(value) = std::env::var_os("GEMINI_CLI_HOME").filter(|value| !value.is_empty()) {
+        return super::expand_agent_home_path(home, &value.to_string_lossy()).join(".gemini");
+    }
+    home.join(".gemini")
+}
+
+fn is_antigravity(agent_id: &AgentId) -> bool {
+    AgentKind::Antigravity.matches_id(agent_id.as_str())
+}
+
+fn antigravity_settings_path(gemini_home: &Path) -> PathBuf {
+    gemini_home.join("antigravity-acp").join("settings.json")
 }
 
 fn resolve_native_home(
@@ -532,9 +548,10 @@ async fn write_store(path: &Path, store: &ProviderStore) -> Result<(), String> {
 }
 
 fn validate_agent(agent_id: &AgentId) -> Result<(), String> {
-    match agent_id.as_str() {
-        "claude_code" | "codex" | "gemini" => Ok(()),
-        _ => Err("只有 Claude Code、Codex 与 Gemini 支持可复用 Model Provider".to_string()),
+    if matches!(agent_id.as_str(), "claude_code" | "codex") || is_antigravity(agent_id) {
+        Ok(())
+    } else {
+        Err("此 Agent 不支持可复用 Model Provider".to_string())
     }
 }
 
@@ -630,13 +647,16 @@ async fn capture_projection(
             )
             .await?;
         }
-        "gemini" => {
-            capture_json_env(
-                &homes.gemini.join("settings.json"),
-                GEMINI_ENV_KEYS,
-                &mut backup,
-            )
-            .await?;
+        id if is_antigravity(agent_id) => {
+            let settings = if id == "gemini" {
+                homes.gemini.join("settings.json")
+            } else {
+                antigravity_settings_path(&homes.gemini)
+            };
+            capture_json_env(&settings, GEMINI_ENV_KEYS, &mut backup).await?;
+            if id != "gemini" {
+                capture_antigravity_auth_type(&settings, &mut backup).await?;
+            }
         }
         _ => unreachable!("validated Agent"),
     }
@@ -648,7 +668,7 @@ fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionBackup {
     let json_keys: &[&str] = match agent_id.as_str() {
         "claude_code" => CLAUDE_ENV_KEYS,
         "codex" => CODEX_AUTH_KEYS,
-        "gemini" => GEMINI_ENV_KEYS,
+        _ if is_antigravity(agent_id) => GEMINI_ENV_KEYS,
         _ => &[],
     };
     for key in json_keys {
@@ -760,14 +780,18 @@ async fn restore_projection(
             .await
         }
         "codex" => restore_codex_projection(&homes.codex, backup).await,
-        "gemini" => {
-            restore_json_env(
-                &homes.gemini.join("settings.json"),
-                GEMINI_ENV_KEYS,
-                backup,
-                true,
-            )
-            .await
+        id if is_antigravity(agent_id) => {
+            let settings = if id == "gemini" {
+                homes.gemini.join("settings.json")
+            } else {
+                antigravity_settings_path(&homes.gemini)
+            };
+            restore_json_env(&settings, GEMINI_ENV_KEYS, backup, true).await?;
+            if id == "gemini" {
+                Ok(())
+            } else {
+                restore_antigravity_auth_type(&settings, backup).await
+            }
         }
         _ => validate_agent(agent_id),
     }
@@ -965,6 +989,7 @@ async fn apply_provider(
         "claude_code" => apply_claude(&homes.claude, provider).await,
         "codex" => apply_codex(&homes.codex, provider, codex_cache_path).await,
         "gemini" => apply_gemini(&homes.gemini, provider).await,
+        _ if is_antigravity(&provider.agent_id) => apply_antigravity(&homes.gemini, provider).await,
         _ => validate_agent(&provider.agent_id),
     }
 }
@@ -1166,6 +1191,86 @@ async fn apply_codex(
             sensitive: false,
         },
     ])
+    .await
+}
+
+const ANTIGRAVITY_AUTH_TYPE_BACKUP_KEY: &str = "auth.type";
+
+async fn capture_antigravity_auth_type(
+    path: &Path,
+    backup: &mut ProviderProjectionBackup,
+) -> Result<(), String> {
+    let document = read_json_object_or_empty(path)
+        .await
+        .map_err(|error| error.message)?;
+    backup.json_values.insert(
+        ANTIGRAVITY_AUTH_TYPE_BACKUP_KEY.to_string(),
+        document
+            .get("auth")
+            .and_then(Value::as_object)
+            .and_then(|auth| auth.get("type"))
+            .cloned(),
+    );
+    Ok(())
+}
+
+async fn restore_antigravity_auth_type(
+    path: &Path,
+    backup: &ProviderProjectionBackup,
+) -> Result<(), String> {
+    let mut document = read_json_object_or_empty(path)
+        .await
+        .map_err(|error| error.message)?;
+    let auth = object_entry(document.as_object_mut().expect("object"), "auth")?;
+    match backup
+        .json_values
+        .get(ANTIGRAVITY_AUTH_TYPE_BACKUP_KEY)
+        .cloned()
+        .flatten()
+    {
+        Some(value) => {
+            auth.insert("type".to_string(), value);
+        }
+        None => {
+            auth.remove("type");
+            if auth.is_empty() {
+                document.as_object_mut().expect("object").remove("auth");
+            }
+        }
+    }
+    write_json(path, &document, true).await
+}
+
+async fn apply_antigravity(gemini_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let path = antigravity_settings_path(gemini_home);
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut document = parse_json_object_bytes(&path, original.as_deref())?;
+    let root = document.as_object_mut().expect("object");
+    let auth = object_entry(root, "auth")?;
+    auth.insert(
+        "type".to_string(),
+        Value::String("gemini-api-key".to_string()),
+    );
+    let env = object_entry(root, "env")?;
+    for key in GEMINI_ENV_KEYS {
+        env.remove(*key);
+    }
+    insert_string(env, "GOOGLE_GEMINI_BASE_URL", &provider.api_url);
+    insert_string(env, "GEMINI_API_KEY", &provider.api_key);
+    insert_string(env, "GEMINI_MODEL", &model_default(&provider.model));
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(
+            serde_json::to_vec_pretty(&document)
+                .map_err(|error| format!("序列化原生配置失败：{error}"))?,
+        ),
+        sensitive: true,
+    }])
     .await
 }
 
@@ -1430,6 +1535,68 @@ mod tests {
         assert_eq!(restored["env"]["GOOGLE_API_KEY"], "vertex-old");
         assert_eq!(restored["env"]["GOOGLE_CLOUD_PROJECT"], "project-old");
         assert_eq!(restored["env"]["KEEP"], "yes");
+    }
+
+    #[tokio::test]
+    async fn antigravity_provider_binding_writes_acp_settings_auth_type() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let settings_path = home.join(".gemini/antigravity-acp/settings.json");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(settings_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            &settings_path,
+            br#"{"keep":true,"auth":{"type":"oauth-personal"},"env":{"GOOGLE_API_KEY":"old"}}"#,
+        )
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("antigravity").unwrap();
+        let created = save(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gemini.example/v1".to_string(),
+                api_key: Some("provider-secret".to_string()),
+                model: "gemini-3".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        bind(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            agent_id.clone(),
+            Some(created.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        let bound: Value =
+            serde_json::from_slice(&tokio::fs::read(&settings_path).await.unwrap()).unwrap();
+        assert_eq!(bound["keep"], true);
+        assert_eq!(bound["auth"]["type"], "gemini-api-key");
+        assert_eq!(bound["env"]["GEMINI_API_KEY"], "provider-secret");
+        assert_eq!(
+            bound["env"]["GOOGLE_GEMINI_BASE_URL"],
+            "https://gemini.example/v1"
+        );
+        assert_eq!(bound["env"]["GEMINI_MODEL"], "gemini-3");
+        assert!(bound["env"].get("GOOGLE_API_KEY").is_none());
+
+        bind(&store_path, &home, &HashMap::new(), agent_id, None)
+            .await
+            .unwrap();
+        let restored: Value =
+            serde_json::from_slice(&tokio::fs::read(&settings_path).await.unwrap()).unwrap();
+        assert_eq!(restored["auth"]["type"], "oauth-personal");
+        assert_eq!(restored["env"]["GOOGLE_API_KEY"], "old");
+        assert_eq!(restored["keep"], true);
     }
 
     #[tokio::test]

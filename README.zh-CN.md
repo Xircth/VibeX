@@ -30,7 +30,7 @@ Agent 需要新的 IDE，于是有了 VibeX。
 
 VibeX 是 IADE（Integrated Agent Development Environment）。它把多种 Coding Agent 接到同一条安装、认证、会话与落地管线上，并在同一套工作区里完成文件、Git、终端与浏览器上的工作。人提出任务；Agent 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 改文件、执行命令、申请权限。文件树、终端、Diff 和内置浏览器服务于当前会话绑定的工作区。
 
-内置 Agent 包括 Claude Code、Codex、DeepSeek Harness、Gemini CLI、Cursor、OpenCode、Pi、Grok、OpenClaw、Hermes、Kimi Code、CodeBuddy 与 Cline。ACP 官方注册表中的兼容 Agent 走同一套管线。
+内置 Agent 包括 Claude Code、Codex、DeepSeek Harness、Google Antigravity、Cursor、OpenCode、Pi、Grok、OpenClaw、Hermes、Kimi Code、CodeBuddy 与 Cline。ACP 官方注册表中的兼容 Agent 走同一套管线。
 
 > [!IMPORTANT]
 > **本地运行与数据归属：** VibeX 是本地优先的 Host。项目、会话、配置与诊断数据保存在用户控制的 Host 上。VibeX 不运营云端数据托管，也不会自动将上述数据上传到 VibeX 运营的服务。远程客户端连接用户控制的桌面或 `vibex-server` 时，所选远程流程需要的数据会传输到该 Host。

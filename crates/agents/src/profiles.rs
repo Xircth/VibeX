@@ -8,7 +8,7 @@
 //! release-pinned trust evidence, official local candidates and known native
 //! configuration fields.
 
-use api_types::{AgentId, AgentSettingsFeature};
+use api_types::{AgentId, AgentKind, AgentSettingsFeature};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileTopology {
@@ -36,6 +36,8 @@ pub struct ProfileBinaryArtifact {
 pub struct ProfileBinaryEntry {
     pub unix: &'static str,
     pub windows: &'static str,
+    pub unix_siblings: &'static [&'static str],
+    pub windows_siblings: &'static [&'static str],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,6 +258,24 @@ pub struct BuiltInProfile {
     pub account_evidence: Option<AccountEvidence>,
 }
 
+impl BuiltInProfile {
+    pub fn binary_required_siblings(&self, windows: bool) -> &'static [&'static str] {
+        self.install_sources
+            .iter()
+            .find_map(|source| match source {
+                ProfileInstallSource::Binary {
+                    entry: Some(entry), ..
+                } => Some(if windows {
+                    entry.windows_siblings
+                } else {
+                    entry.unix_siblings
+                }),
+                _ => None,
+            })
+            .unwrap_or(&[])
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryEntryIdentity {
     pub registry_id: String,
@@ -273,7 +293,7 @@ impl BuiltInProfileCatalog {
             profiles: vec![
                 claude_code_profile(),
                 codex_profile(),
-                gemini_profile(),
+                antigravity_profile(),
                 openclaw_profile(),
                 opencode_profile(),
                 cline_profile(),
@@ -293,9 +313,12 @@ impl BuiltInProfileCatalog {
     }
 
     pub fn profile(&self, agent_id: &AgentId) -> Option<&BuiltInProfile> {
-        self.profiles
-            .iter()
-            .find(|profile| &profile.agent_id == agent_id)
+        self.profiles.iter().find(|profile| {
+            &profile.agent_id == agent_id
+                || AgentKind::from_lenient(agent_id.as_str())
+                    .zip(AgentKind::from_lenient(profile.agent_id.as_str()))
+                    .is_some_and(|(requested, bundled)| requested == bundled)
+        })
     }
 
     /// Resolve only an explicit stable Registry id binding. Display names are
@@ -358,7 +381,19 @@ const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
         version_args: &["--version"],
     },
 ];
-const GEMINI_CANDIDATES: &[ProfileExternalCandidate] = &[external("gemini")];
+const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[external("agy_acp_server")];
+const ANTIGRAVITY_PLATFORMS: &[&str] = &[
+    "darwin-aarch64",
+    "linux-aarch64",
+    "linux-x86_64",
+    "windows-aarch64",
+    "windows-x86_64",
+];
+const ANTIGRAVITY_LAUNCH_ARGS: &[&str] = if cfg!(target_os = "linux") {
+    &["--uid="]
+} else {
+    &[]
+};
 const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] = &[external("openclaw")];
 const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external("cline")];
 const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[external("hermes-acp")];
@@ -479,14 +514,7 @@ const CODEX_ACTIONS: &[ProfileManagementAction] = &[
         "https://chatgpt.com/#pricing",
     ),
 ];
-const GEMINI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
-    "login",
-    "登录 Google",
-    "启动 Gemini CLI 并完成 Google OAuth",
-    ProfileManagementActionKind::Login,
-    "gemini",
-    &[],
-)];
+const ANTIGRAVITY_ACTIONS: &[ProfileManagementAction] = &[];
 const OPENCLAW_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "onboard",
     "初始化 OpenClaw",
@@ -1192,77 +1220,52 @@ const PI_CONFIG: &[NativeConfigBinding] = &[
     },
 ];
 
-const GEMINI_AUTH_OPTIONS: &[(&str, &str)] = &[
-    ("oauth-personal", "Google OAuth"),
+const ANTIGRAVITY_AUTH_OPTIONS: &[(&str, &str)] = &[
+    ("oauth-personal", "Google 账号"),
+    ("oauth-business", "Gemini Enterprise"),
     ("gemini-api-key", "Gemini API Key"),
-    ("vertex-ai", "Vertex AI"),
+    ("agent-platform", "Agent Platform"),
 ];
-const GEMINI_VERTEX_USE_OPTIONS: &[(&str, &str)] = &[("true", "开启"), ("false", "关闭")];
-const GEMINI_FIELDS: &[NativeConfigField] = &[
+const ANTIGRAVITY_FIELDS: &[NativeConfigField] = &[
     authentication(select_field(
-        "gemini_auth",
+        "antigravity_auth",
         "认证方式",
-        "Gemini CLI 使用的认证来源",
-        &["security", "auth", "selectedType"],
-        GEMINI_AUTH_OPTIONS,
-    )),
-    authentication(text_field(
-        "gemini_base_url",
-        "API URL",
-        "Google Gemini 兼容端点",
-        &["env", "GOOGLE_GEMINI_BASE_URL"],
+        "Antigravity 使用的认证来源",
+        &["auth", "type"],
+        ANTIGRAVITY_AUTH_OPTIONS,
     )),
     authentication(secret_field(
-        "gemini_api_key",
+        "antigravity_api_key",
         "Gemini API Key",
-        "写入 GEMINI_API_KEY",
+        "gemini-api-key 模式使用的密钥",
         &["env", "GEMINI_API_KEY"],
     )),
     authentication(secret_field(
-        "gemini_google_api_key",
-        "Vertex API Key",
-        "写入 GOOGLE_API_KEY",
+        "antigravity_google_api_key",
+        "Agent Platform API Key",
+        "agent-platform 模式使用的密钥",
         &["env", "GOOGLE_API_KEY"],
     )),
     authentication(text_field(
-        "gemini_cloud_project",
+        "antigravity_cloud_project",
         "Google Cloud Project",
-        "Vertex AI 项目标识",
+        "Gemini Enterprise / Agent Platform 项目",
         &["env", "GOOGLE_CLOUD_PROJECT"],
     )),
     authentication(text_field(
-        "gemini_cloud_location",
+        "antigravity_cloud_location",
         "Google Cloud Location",
-        "Vertex AI 区域，例如 global 或 us-central1",
+        "例如 global 或 us-central1",
         &["env", "GOOGLE_CLOUD_LOCATION"],
     )),
-    authentication(text_field(
-        "gemini_application_credentials",
-        "Service Account JSON",
-        "GOOGLE_APPLICATION_CREDENTIALS 文件路径",
-        &["env", "GOOGLE_APPLICATION_CREDENTIALS"],
-    )),
-    authentication(select_field(
-        "gemini_use_vertex_ai",
-        "使用 Vertex AI",
-        "通过 Application Default Credentials 或 Service Account 认证",
-        &["env", "GOOGLE_GENAI_USE_VERTEXAI"],
-        GEMINI_VERTEX_USE_OPTIONS,
-    )),
-    text_field(
-        "gemini_model",
-        "模型",
-        "Gemini 默认模型",
-        &["env", "GEMINI_MODEL"],
-    ),
 ];
-const GEMINI_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+const ANTIGRAVITY_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
     binding_id: "settings",
-    home_relative_path: ".gemini/settings.json",
-    directory_override_env: Some("GEMINI_CLI_HOME"),
-    override_relative_path: ".gemini/settings.json",
+    home_relative_path: ".gemini/antigravity-acp/settings.json",
+    directory_override_env: Some("GEMINI_HOME"),
+    override_relative_path: "antigravity-acp/settings.json",
     format: NativeConfigFormat::Json,
-    fields: GEMINI_FIELDS,
+    fields: ANTIGRAVITY_FIELDS,
 }];
 
 const OPENCLAW_FIELDS: &[NativeConfigField] = &[
@@ -2114,7 +2117,7 @@ const CODEX_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
-const GEMINI_SETTINGS: &[AgentSettingsFeature] = &[
+const ANTIGRAVITY_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ReusableModelProviders,
     AgentSettingsFeature::NativeMcp,
@@ -2247,46 +2250,71 @@ fn codex_profile() -> BuiltInProfile {
     }
 }
 
-fn gemini_profile() -> BuiltInProfile {
+fn antigravity_profile() -> BuiltInProfile {
     BuiltInProfile {
-        agent_id: AgentId::parse("gemini").expect("bundled AgentId"),
-        display_name: "Gemini CLI",
-        description: "Google Gemini CLI with native ACP support",
+        agent_id: AgentId::parse("antigravity").expect("bundled AgentId"),
+        display_name: "Google Antigravity",
+        description: "Google's AI coding agent (first-party ACP server)",
         icon: ProfileIcon {
-            light: "/agents/gemini-light.svg",
-            dark: "/agents/gemini-dark.svg",
+            light: "/agents/antigravity.svg",
+            dark: "/agents/antigravity.svg",
         },
         registry_binding: Some(ProfileRegistryBinding {
-            registry_id: "gemini",
+            registry_id: "antigravity-acp",
         }),
         topology: ProfileTopology::NativeAcp,
-        supported_platforms: DESKTOP_PLATFORMS,
-        install_sources: vec![native_npx(
-            "@google/gemini-cli",
-            "0.53.1",
-            "gemini",
-            &["--acp", "--skip-trust"],
-            ">=20",
-            "sha512-xBGdD/tl05gsTpD2oV1Bq0NCb4BBeTnjSbKxHtwOB7nt1QMaqWYJ9WsOEsQQhQ2P1v0UJth1F17SAXvdZ5mASw==",
-        )],
-        external_candidates: GEMINI_CANDIDATES,
-        dependencies: NODE_20_DEPENDENCIES,
-        management_actions: GEMINI_ACTIONS,
+        supported_platforms: ANTIGRAVITY_PLATFORMS,
+        install_sources: vec![ProfileInstallSource::Binary {
+            component: ProfileComponent::CombinedRuntime,
+            version: "1.0.0",
+            command: "agy_acp_server",
+            args: ANTIGRAVITY_LAUNCH_ARGS,
+            artifacts: vec![
+                tofu_binary_artifact(
+                    "darwin-aarch64",
+                    "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-agy_acp_server_20260818_01_RC01-darwin-arm64.zip",
+                ),
+                tofu_binary_artifact(
+                    "linux-aarch64",
+                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-agy_acp_server_20260818_01_RC01-linux-arm64.zip",
+                ),
+                tofu_binary_artifact(
+                    "linux-x86_64",
+                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-agy_acp_server_20260818_01_RC01-linux-x86_64.zip",
+                ),
+                tofu_binary_artifact(
+                    "windows-aarch64",
+                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-agy_acp_server_20260818_01_RC01-windows-arm64.zip",
+                ),
+                tofu_binary_artifact(
+                    "windows-x86_64",
+                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-agy_acp_server_20260818_01_RC01-windows-x86_64.zip",
+                ),
+            ],
+            entry: Some(ProfileBinaryEntry {
+                unix: "agy_acp_server.par",
+                windows: "agy_acp_server.exe",
+                unix_siblings: &["localharness_external"],
+                windows_siblings: &["localharness_external.exe"],
+            }),
+        }],
+        external_candidates: ANTIGRAVITY_CANDIDATES,
+        dependencies: ARCHIVE_DEPENDENCIES,
+        management_actions: ANTIGRAVITY_ACTIONS,
         runtime_executable_env: None,
-        native_config: GEMINI_CONFIG,
-        settings_features: GEMINI_SETTINGS,
+        native_config: ANTIGRAVITY_CONFIG,
+        settings_features: ANTIGRAVITY_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: Some(AccountEvidence {
-            home_relative_directory: ".gemini",
-            directory_override_env: Some("GEMINI_CLI_HOME"),
-            override_relative_directory: ".gemini",
-            relative_file: "oauth_creds.json",
+            home_relative_directory: ".gemini/antigravity-acp",
+            directory_override_env: Some("GEMINI_HOME"),
+            override_relative_directory: "antigravity-acp",
+            relative_file: "acp_token.json",
             kind: AccountEvidenceKind::NonEmptyObject,
         }),
     }
 }
-
 fn openclaw_profile() -> BuiltInProfile {
     BuiltInProfile {
         agent_id: AgentId::parse("openclaw").expect("bundled AgentId"),
@@ -2727,6 +2755,8 @@ fn cursor_profile() -> BuiltInProfile {
             entry: Some(ProfileBinaryEntry {
                 unix: "dist-package/cursor-agent",
                 windows: "dist-package/cursor-agent.cmd",
+                unix_siblings: &[],
+                windows_siblings: &[],
             }),
         }],
         external_candidates: CURSOR_CANDIDATES,
@@ -2784,5 +2814,16 @@ const fn binary_artifact(
         platform,
         archive_url,
         sha256: Some(sha256),
+    }
+}
+
+const fn tofu_binary_artifact(
+    platform: &'static str,
+    archive_url: &'static str,
+) -> ProfileBinaryArtifact {
+    ProfileBinaryArtifact {
+        platform,
+        archive_url,
+        sha256: None,
     }
 }

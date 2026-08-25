@@ -7,7 +7,8 @@ use agents::{
     BuiltInProfileCatalog, ComponentProbeState, LaunchComponentEvidence, LaunchGate,
     ManagementFacts, ManagementOperationState, RegistryCacheFreshness, RegistryDistributions,
     RequiredComponentProbe, UserAgentDefinition, UserAgentInstallTarget,
-    bundled_community_acp_presets, current_platform, reduce_management_snapshot,
+    bundled_community_acp_presets, current_platform, installation_is_complete,
+    reduce_management_snapshot,
 };
 use anyhow::Result;
 use api_types::{
@@ -381,7 +382,7 @@ impl AgentManagementApplicationService {
                             .iter()
                             .find(|membership| membership.agent_id == entry.agent_id)
                             .is_some_and(|membership| {
-                                membership.lifecycle == AgentLifecycleState::Ready
+                                installation_is_complete(membership.lifecycle)
                             }),
                         platform_supported: registry_supports_current_platform(
                             &entry.distributions,

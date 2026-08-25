@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use agents::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, ComponentProbeState,
     ExternalCandidateObservation, ManagementFacts, ManagementOperationState, ProbeService,
-    RequiredComponentProbe, SessionAuthenticationEvidence, reduce_management_snapshot,
-    resolve_session_authentication_evidence,
+    RequiredComponentProbe, SessionAuthenticationEvidence, installation_is_complete,
+    reduce_management_snapshot, resolve_session_authentication_evidence,
 };
 
 fn facts() -> ManagementFacts {
@@ -85,6 +85,16 @@ fn management_snapshot_has_status_precedence() {
         reduce_management_snapshot(uninstalled).lifecycle,
         AgentLifecycleState::Uninstalled
     );
+}
+
+#[test]
+fn installation_is_complete_when_runtime_and_acp_are_verified() {
+    assert!(installation_is_complete(AgentLifecycleState::Ready));
+    assert!(installation_is_complete(AgentLifecycleState::NeedsAuth));
+    assert!(installation_is_complete(AgentLifecycleState::NeedsConfig));
+    assert!(!installation_is_complete(AgentLifecycleState::Uninstalled));
+    assert!(!installation_is_complete(AgentLifecycleState::NeedsRepair));
+    assert!(!installation_is_complete(AgentLifecycleState::Installing));
 }
 
 #[test]

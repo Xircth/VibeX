@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration as StdDuration};
 use api_types::AgentId;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use futures::StreamExt;
 use regex::Regex;
 use reqwest::header::{ETAG, IF_NONE_MATCH};
 use serde::{Deserialize, Serialize};
@@ -20,14 +21,23 @@ const OFFICIAL_ICON_PREFIX: &str = "https://cdn.agentclientprotocol.com/registry
 const FRESH_FOR: Duration = Duration::hours(24);
 const MAX_REGISTRY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ICON_BYTES: usize = 128 * 1024;
+const ICON_FETCH_CONCURRENCY: usize = 8;
 // The official catalog is on Cloudflare. From some networks the TLS
 // handshake alone exceeds 5s (observed ~5.3s to the LAX POP), and
 // `reqwest`'s connect timeout includes that handshake. A 5s connect
 // budget therefore fails with "error sending request" while curl still
 // gets HTTP 200. Keep enough headroom for a slow first handshake plus
 // the subsequent catalog download.
-const REGISTRY_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(15);
-const REGISTRY_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+pub const REGISTRY_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(15);
+pub const REGISTRY_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+/// Icons are presentation-only. Bound their download so a slow CDN cannot
+/// fail an otherwise valid catalog refresh.
+pub const REGISTRY_ICON_FETCH_BUDGET: StdDuration = StdDuration::from_secs(8);
+pub const REGISTRY_REFRESH_TIMEOUT: StdDuration =
+    match REGISTRY_REQUEST_TIMEOUT.checked_add(REGISTRY_ICON_FETCH_BUDGET) {
+        Some(duration) => duration,
+        None => REGISTRY_REQUEST_TIMEOUT,
+    };
 const REGISTRY_USER_AGENT: &str = "vibex-acp-registry/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +184,7 @@ impl RegistryCache {
 pub struct RegistrySnapshotClient {
     fetcher: Arc<dyn RegistryFetcher>,
     clock: Arc<dyn Clock>,
+    icon_fetch_budget: StdDuration,
 }
 
 #[derive(Clone)]
@@ -247,7 +258,16 @@ impl RegistrySnapshotClient {
         "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 
     pub fn new(fetcher: Arc<dyn RegistryFetcher>, clock: Arc<dyn Clock>) -> Self {
-        Self { fetcher, clock }
+        Self {
+            fetcher,
+            clock,
+            icon_fetch_budget: REGISTRY_ICON_FETCH_BUDGET,
+        }
+    }
+
+    pub fn with_icon_fetch_budget(mut self, budget: StdDuration) -> Self {
+        self.icon_fetch_budget = budget;
+        self
     }
 
     /// Return cached data immediately while fresh. Empty/stale caches attempt a
@@ -291,7 +311,10 @@ impl RegistrySnapshotClient {
             );
         }
 
-        match self.parse_snapshot(response.body, response.etag, now).await {
+        match self
+            .parse_snapshot(response.body, response.etag, now, cache.snapshot())
+            .await
+        {
             Ok(snapshot) => {
                 cache.snapshot = Some(snapshot);
                 cache.view(now, None)
@@ -305,6 +328,7 @@ impl RegistrySnapshotClient {
         body: Vec<u8>,
         etag: Option<String>,
         fetched_at: DateTime<Utc>,
+        previous: Option<&RegistrySnapshot>,
     ) -> Result<RegistrySnapshot, String> {
         if body.len() > MAX_REGISTRY_BYTES {
             return Err("Registry response exceeds the size limit".to_string());
@@ -341,21 +365,6 @@ impl RegistrySnapshotClient {
                 .resolve_registry_entry(&identity)
                 .cloned()
                 .unwrap_or(AgentId::parse(&raw_agent.id).map_err(|error| error.to_string())?);
-            let icon_svg = match raw_agent.icon.as_deref() {
-                Some(url) if valid_official_icon_url(url, &raw_agent.id) => {
-                    match self.fetcher.fetch(url, None).await {
-                        Ok(response)
-                            if response.status == 200 && response.body.len() <= MAX_ICON_BYTES =>
-                        {
-                            String::from_utf8(response.body)
-                                .ok()
-                                .and_then(|svg| sanitize_registry_svg(&svg))
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
             entries.push(RegistryAgentEntry {
                 agent_id,
                 registry_id: raw_agent.id,
@@ -368,7 +377,7 @@ impl RegistrySnapshotClient {
                 license: raw_agent.license,
                 distributions: raw_agent.distribution.into(),
                 icon_url: raw_agent.icon,
-                icon_svg,
+                icon_svg: None,
             });
         }
         entries.sort_by(|left, right| {
@@ -377,6 +386,8 @@ impl RegistrySnapshotClient {
                 .cmp(&right.name.to_lowercase())
                 .then_with(|| left.agent_id.cmp(&right.agent_id))
         });
+        restore_cached_registry_icons(&mut entries, previous);
+        self.attach_registry_icons(&mut entries).await;
 
         let document_sha256 = format!("{:x}", Sha256::digest(document_json.as_bytes()));
         Ok(RegistrySnapshot {
@@ -389,6 +400,82 @@ impl RegistrySnapshotClient {
             etag,
             entries,
         })
+    }
+
+    async fn attach_registry_icons(&self, entries: &mut [RegistryAgentEntry]) {
+        let jobs: Vec<(usize, String)> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                entry.icon_svg.is_none()
+                    && entry
+                        .icon_url
+                        .as_deref()
+                        .is_some_and(|url| valid_official_icon_url(url, &entry.registry_id))
+            })
+            .filter_map(|(index, entry)| entry.icon_url.clone().map(|url| (index, url)))
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+
+        let fetcher = self.fetcher.clone();
+        let mut stream = futures::stream::iter(jobs)
+            .map(|(index, url)| {
+                let fetcher = fetcher.clone();
+                async move { (index, fetcher.fetch(&url, None).await) }
+            })
+            .buffer_unordered(ICON_FETCH_CONCURRENCY);
+        let deadline = tokio::time::Instant::now() + self.icon_fetch_budget;
+        loop {
+            let next = tokio::select! {
+                _ = tokio::time::sleep_until(deadline) => break,
+                item = stream.next() => item,
+            };
+            let Some((index, result)) = next else {
+                break;
+            };
+            let Ok(response) = result else {
+                continue;
+            };
+            if response.status != 200 || response.body.len() > MAX_ICON_BYTES {
+                continue;
+            }
+            let Ok(svg) = String::from_utf8(response.body) else {
+                continue;
+            };
+            entries[index].icon_svg = sanitize_registry_svg(&svg);
+        }
+    }
+}
+
+fn restore_cached_registry_icons(
+    entries: &mut [RegistryAgentEntry],
+    previous: Option<&RegistrySnapshot>,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    let cached = previous
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            Some((
+                (entry.registry_id.clone(), entry.icon_url.clone()?),
+                entry.icon_svg.clone()?,
+            ))
+        })
+        .collect::<BTreeMap<(String, String), String>>();
+    for entry in entries {
+        let Some(url) = entry.icon_url.as_ref() else {
+            continue;
+        };
+        if entry.icon_svg.is_some() {
+            continue;
+        }
+        if let Some(svg) = cached.get(&(entry.registry_id.clone(), url.clone())) {
+            entry.icon_svg = Some(svg.clone());
+        }
     }
 }
 
@@ -626,5 +713,10 @@ mod tests {
         assert!(REGISTRY_CONNECT_TIMEOUT >= StdDuration::from_secs(15));
         assert!(REGISTRY_REQUEST_TIMEOUT >= StdDuration::from_secs(30));
         assert!(REGISTRY_REQUEST_TIMEOUT > REGISTRY_CONNECT_TIMEOUT);
+        assert!(REGISTRY_ICON_FETCH_BUDGET >= StdDuration::from_secs(5));
+        assert_eq!(
+            REGISTRY_REFRESH_TIMEOUT,
+            REGISTRY_REQUEST_TIMEOUT + REGISTRY_ICON_FETCH_BUDGET
+        );
     }
 }

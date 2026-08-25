@@ -5,6 +5,7 @@
 //! `ExecutionProcess` systems.
 
 mod account_session;
+mod antigravity_auth;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
@@ -55,9 +56,13 @@ pub mod user_environment;
 
 pub use account_session::{
     AccountSessionConfirmation, account_label_from_codex_auth, account_label_from_document,
-    account_session_from_http, account_still_present, authentication_from_account_command,
-    confirm_account_session, extract_codex_access_token, jwt_identity,
-    prefer_recorded_account_over_residue, resolve_account_label,
+    account_session_from_codex_http, account_session_from_http, account_still_present,
+    authentication_from_account_command, confirm_account_session, extract_codex_access_token,
+    jwt_identity, prefer_recorded_account_over_residue, resolve_account_label,
+};
+pub use antigravity_auth::{
+    AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,
+    recorded_auth_method, resolve_gemini_home, resolve_gemini_home_from, sync_antigravity_settings,
 };
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
@@ -157,7 +162,7 @@ pub use management_boundary::{
 pub use management_state::{
     AgentManagementSnapshot, ComponentProbeState, ExternalCandidateObservation, ManagementFacts,
     ManagementOperationState, ProbeService, RequiredComponentProbe, VerifiedExternalRuntime,
-    reduce_management_snapshot,
+    installation_is_complete, reduce_management_snapshot,
 };
 pub use manager::{
     AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
@@ -195,10 +200,11 @@ pub use profiles::{
     ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
 };
 pub use registry_client::{
-    OfficialRegistryHttpFetcher, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,
-    RegistryCache, RegistryCacheFreshness, RegistryDistributions, RegistryPackageDistribution,
-    RegistrySnapshot, RegistrySnapshotClient, RegistryView, parse_registry_distributions_json,
-    sanitize_registry_svg,
+    OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,
+    REGISTRY_REFRESH_TIMEOUT, REGISTRY_REQUEST_TIMEOUT, RegistryAddTarget, RegistryAgentEntry,
+    RegistryBinaryTarget, RegistryCache, RegistryCacheFreshness, RegistryDistributions,
+    RegistryPackageDistribution, RegistrySnapshot, RegistrySnapshotClient, RegistryView,
+    parse_registry_distributions_json, sanitize_registry_svg,
 };
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
@@ -222,6 +228,6 @@ pub use terminal::{
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{
     ObservedUserComponent, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
-    decide_user_environment_adopt, observed_satisfies_profile, plan_required_components,
-    profile_required_versions, uv_distribution_name,
+    decide_user_environment_adopt, npm_global_install_args, observed_satisfies_profile,
+    plan_required_components, profile_required_versions, uv_distribution_name,
 };

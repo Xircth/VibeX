@@ -77,10 +77,7 @@ pub(super) async fn provider(
     base_url: &str,
     api_key: &str,
 ) -> Result<AgentModelCatalogView, String> {
-    if !matches!(
-        agent_id.as_str(),
-        "claude_code" | "codex" | "gemini" | "kimi_code"
-    ) {
+    if !matches!(agent_id.as_str(), "claude_code" | "codex" | "kimi_code") {
         return Err("该 Agent 不支持 Provider 模型探测".to_string());
     }
     let base_url = validate_model_endpoint(base_url)?;

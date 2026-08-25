@@ -69,6 +69,19 @@ pub fn account_session_from_http(status: u16, body: &str) -> AccountSessionConfi
     AccountSessionConfirmation::Inconclusive
 }
 
+/// Codex stores ChatGPT tokens in `auth.json`, but those tokens are not a
+/// reliable Bearer credential for `chatgpt.com/backend-api/me`. A 401 there
+/// must not hide a present local ChatGPT session.
+pub fn account_session_from_codex_http(status: u16, body: &str) -> AccountSessionConfirmation {
+    if account_session_body_is_rejected(body) {
+        return AccountSessionConfirmation::Rejected;
+    }
+    if (200..300).contains(&status) {
+        return AccountSessionConfirmation::Confirmed;
+    }
+    AccountSessionConfirmation::Inconclusive
+}
+
 pub async fn resolve_account_label(agent_id: &AgentId) -> Option<String> {
     match agent_id.as_str() {
         "codex" => {
@@ -214,7 +227,10 @@ async fn confirm_codex_account(document: Option<&Value>) -> AccountSessionConfir
     let Some(token) = document.and_then(extract_codex_access_token) else {
         return AccountSessionConfirmation::Rejected;
     };
-    confirm_bearer_get(CHATGPT_ME_URL, &token, None).await
+    match confirm_bearer_get_response(CHATGPT_ME_URL, &token, None).await {
+        Some((status, body)) => account_session_from_codex_http(status, &body),
+        None => AccountSessionConfirmation::Inconclusive,
+    }
 }
 
 async fn confirm_cursor_account() -> AccountSessionConfirmation {
@@ -224,17 +240,15 @@ async fn confirm_cursor_account() -> AccountSessionConfirmation {
     confirm_bearer_post(CURSOR_PERIOD_USAGE_URL, &token, Some("cursor-agent"), "{}").await
 }
 
-async fn confirm_bearer_get(
+async fn confirm_bearer_get_response(
     url: &str,
     token: &str,
     user_agent: Option<&str>,
-) -> AccountSessionConfirmation {
-    let Ok(client) = reqwest::Client::builder()
+) -> Option<(u16, String)> {
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(CONFIRM_TIMEOUT_SECS))
         .build()
-    else {
-        return AccountSessionConfirmation::Inconclusive;
-    };
+        .ok()?;
     let mut request = client
         .get(url)
         .header("Authorization", format!("Bearer {token}"))
@@ -242,14 +256,10 @@ async fn confirm_bearer_get(
     if let Some(user_agent) = user_agent {
         request = request.header("User-Agent", user_agent);
     }
-    match request.send().await {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_default();
-            account_session_from_http(status, &body)
-        }
-        Err(_) => AccountSessionConfirmation::Inconclusive,
-    }
+    let response = request.send().await.ok()?;
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap_or_default();
+    Some((status, body))
 }
 
 async fn confirm_bearer_post(
@@ -421,6 +431,30 @@ mod tests {
             .as_deref(),
             Some("linus@example.com")
         );
+    }
+
+    #[test]
+    fn codex_http_401_without_a_ban_keeps_local_chatgpt_tokens() {
+        assert_eq!(
+            account_session_from_codex_http(401, r#"{"detail":"Unauthorized"}"#),
+            AccountSessionConfirmation::Inconclusive
+        );
+        assert_eq!(
+            account_session_from_codex_http(403, "forbidden"),
+            AccountSessionConfirmation::Inconclusive
+        );
+        assert_eq!(
+            account_session_from_codex_http(200, r#"{"email":"ada@example.com"}"#),
+            AccountSessionConfirmation::Confirmed
+        );
+        assert_eq!(
+            account_session_from_codex_http(401, "Your account has been banned"),
+            AccountSessionConfirmation::Rejected
+        );
+        assert!(account_still_present(
+            true,
+            account_session_from_codex_http(401, "unauthorized")
+        ));
     }
 
     #[test]

@@ -8,10 +8,12 @@
 //!
 //! ## Serialized form (canonical): snake_case
 //!
-//! `claude_code`, `codex`, `opencode`, `gemini`, `openclaw`, `cline`, `hermes`,
+//! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
 //! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`,
 //! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
+//! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
+//! `antigravity`.
 //!
 //! ## Read leniency (zero data migration, ADR-0002)
 //!
@@ -40,7 +42,7 @@ pub enum AgentKind {
     ClaudeCode,
     Codex,
     Opencode,
-    Gemini,
+    Antigravity,
     Openclaw,
     Cline,
     Hermes,
@@ -58,7 +60,7 @@ impl AgentKind {
     pub const ALL: [AgentKind; 14] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
-        AgentKind::Gemini,
+        AgentKind::Antigravity,
         AgentKind::Openclaw,
         AgentKind::Opencode,
         AgentKind::Cline,
@@ -78,7 +80,7 @@ impl AgentKind {
             AgentKind::ClaudeCode => "claude_code",
             AgentKind::Codex => "codex",
             AgentKind::Opencode => "opencode",
-            AgentKind::Gemini => "gemini",
+            AgentKind::Antigravity => "antigravity",
             AgentKind::Openclaw => "openclaw",
             AgentKind::Cline => "cline",
             AgentKind::Hermes => "hermes",
@@ -105,7 +107,7 @@ impl AgentKind {
             "claudecode" => AgentKind::ClaudeCode,
             "codex" => AgentKind::Codex,
             "opencode" => AgentKind::Opencode,
-            "gemini" => AgentKind::Gemini,
+            "antigravity" | "gemini" | "googleantigravity" | "agyacp" => AgentKind::Antigravity,
             "openclaw" => AgentKind::Openclaw,
             "cline" => AgentKind::Cline,
             "hermes" => AgentKind::Hermes,
@@ -119,6 +121,11 @@ impl AgentKind {
             _ => return None,
         };
         Some(kind)
+    }
+
+    /// True when `agent_id` is this kind, including historical spellings.
+    pub fn matches_id(self, agent_id: &str) -> bool {
+        Self::from_lenient(agent_id) == Some(self)
     }
 }
 
@@ -171,7 +178,7 @@ mod tests {
         let expected = [
             (AgentKind::ClaudeCode, "claude_code"),
             (AgentKind::Codex, "codex"),
-            (AgentKind::Gemini, "gemini"),
+            (AgentKind::Antigravity, "antigravity"),
             (AgentKind::Openclaw, "openclaw"),
             (AgentKind::Opencode, "opencode"),
             (AgentKind::Cline, "cline"),
@@ -211,7 +218,12 @@ mod tests {
             ("OPENCLAW", AgentKind::Openclaw),
             ("open_claw", AgentKind::Openclaw), // old AgentKind snake_case
             ("openclaw", AgentKind::Openclaw),
-            ("GEMINI", AgentKind::Gemini),
+            ("GEMINI", AgentKind::Antigravity),
+            ("gemini", AgentKind::Antigravity),
+            ("antigravity", AgentKind::Antigravity),
+            ("ANTIGRAVITY", AgentKind::Antigravity),
+            ("GoogleAntigravity", AgentKind::Antigravity),
+            ("agy-acp", AgentKind::Antigravity),
             ("CLINE", AgentKind::Cline),
             ("HERMES", AgentKind::Hermes),
             ("CODEBUDDY", AgentKind::Codebuddy),

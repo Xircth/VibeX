@@ -487,7 +487,7 @@ mod tests {
     fn every_built_in_auth_mode_has_a_declared_ui_policy() {
         for agent in [
             "claude_code",
-            "gemini",
+            "antigravity",
             "grok",
             "cursor",
             "deepseek_harness",
@@ -2241,12 +2241,13 @@ use agents::{
     LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
     NativeFileMutation, NativeFileSystem, ObservedUserComponent, OfficialRegistryHttpFetcher,
     PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileInstallSource,
-    ProfileManagementActionKind, ProfileTopology, RegistryCache, RegistryCacheFreshness,
-    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock,
-    TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
-    decide_user_environment_adopt, ensure_user_cli_path, observed_satisfies_profile,
-    plan_required_components, publish_managed_runtime_cli, remove_managed_runtime_cli,
-    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes,
+    ProfileManagementActionKind, ProfileTopology, REGISTRY_REFRESH_TIMEOUT, RegistryCache,
+    RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
+    ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
+    UserEnvironmentLayout, decide_user_environment_adopt, ensure_user_cli_path,
+    npm_global_install_args, observed_satisfies_profile, plan_required_components,
+    publish_managed_runtime_cli, remove_managed_runtime_cli, switch_managed_runtime_cli,
+    uv_distribution_name, verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -2305,9 +2306,8 @@ const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CONCURRENT_EXTERNAL_AGENT_PROBES: usize = 4;
 const MAX_CONCURRENT_LOCAL_RUNTIME_PROBES: usize = 12;
 const LOCAL_RUNTIME_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-const LOCAL_RUNTIME_DISCOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+const LOCAL_RUNTIME_DISCOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const EXTERNAL_COMPONENT_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const REGISTRY_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltInProbeAction {
@@ -2934,17 +2934,18 @@ async fn discover_built_in_local_runtimes(
     pool: &sqlx::SqlitePool,
     runtime: &AgentManagementRuntimeState,
 ) {
+    let _ = utils::shell::refresh_process_path().await;
+    if let Some(home) = dirs::home_dir() {
+        for directory in UserEnvironmentLayout::for_current_user(home).path_entries() {
+            utils::shell::expose_user_bin_to_process_path(&directory);
+        }
+    }
     let profiles = BuiltInProfileCatalog::bundled();
     let candidates = profiles.profiles().to_vec();
     runtime
         .begin_local_runtime_discovery(u32::try_from(candidates.len()).unwrap_or(u32::MAX))
         .await;
     emit_local_runtime_discovery_progress(app, runtime).await;
-    for profile in &candidates {
-        runtime
-            .replace_local_runtime(profile.agent_id.clone(), None)
-            .await;
-    }
     let jobs = candidates
         .into_iter()
         .map(|profile| {
@@ -3109,9 +3110,6 @@ async fn refresh_agent_management_evidence(
 }
 
 async fn refresh_authentication_probes(app: &AppHandle, pool: &sqlx::SqlitePool) {
-    let Ok(home) = app.path().home_dir() else {
-        return;
-    };
     let agent_ids = match sqlx::query_scalar::<_, String>("SELECT agent_id FROM agent_membership")
         .fetch_all(pool)
         .await
@@ -3126,43 +3124,7 @@ async fn refresh_authentication_probes(app: &AppHandle, pool: &sqlx::SqlitePool)
         let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
             continue;
         };
-        let Ok(agent_env) = read_agent_environment(pool, &agent_id).await else {
-            continue;
-        };
-        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home.clone(),
-            agent_env.into_iter().collect(),
-        );
-        let native_authentication = match provider.read(&agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(_) => continue,
-        };
-        let authentication_required_by_default = BuiltInProfileCatalog::bundled()
-            .profile(&agent_id)
-            .is_some_and(|profile| profile.authentication_required_by_default);
-        let (observed, authentication_required) = resolve_authentication_observation(
-            native_authentication,
-            None,
-            authentication_required_by_default,
-        );
-        let authentication = recorded_account_over_residue(pool, &agent_id, observed).await;
-        if let Err(error) = sync_authentication_probe_with_requirement(
-            pool,
-            &agent_id,
-            authentication,
-            authentication_required
-                && !matches!(
-                    authentication,
-                    AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
-                ),
-        )
-        .await
-        {
+        if let Err(error) = refresh_one_agent_authentication(app, pool, &agent_id, true).await {
             tracing::debug!(
                 agent_id = %agent_id,
                 message = %error.message,
@@ -3170,6 +3132,74 @@ async fn refresh_authentication_probes(app: &AppHandle, pool: &sqlx::SqlitePool)
             );
         }
     }
+}
+
+async fn refresh_one_agent_authentication(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    prefer_recorded: bool,
+) -> Result<(AgentAuthenticationStatus, HashMap<String, String>), AgentManagementErrorView> {
+    let agent_env = read_agent_environment(pool, agent_id).await?;
+    let native_authentication = observe_native_authentication(app, agent_id, &agent_env).await;
+    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
+    let (observed, authentication_required) = resolve_authentication_observation(
+        native_authentication,
+        None,
+        authentication_required_by_default,
+    );
+    let authentication = if prefer_recorded {
+        recorded_account_over_residue(pool, agent_id, observed).await
+    } else {
+        observed
+    };
+    sync_authentication_probe_with_requirement(
+        pool,
+        agent_id,
+        authentication,
+        authentication_required
+            && !matches!(
+                authentication,
+                AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+            ),
+    )
+    .await?;
+    Ok((authentication, agent_env))
+}
+
+async fn observe_native_authentication(
+    app: &AppHandle,
+    agent_id: &AgentId,
+    agent_env: &HashMap<String, String>,
+) -> AgentAuthenticationStatus {
+    let native_authentication = if let Ok(home) = app.path().home_dir() {
+        let account_logged_in = resolve_native_account_login(&home, agent_id, agent_env).await;
+        let provider = NativeConfigProvider::with_environment(
+            Arc::new(TokioNativeFileSystem),
+            home.clone(),
+            agent_env.clone().into_iter().collect(),
+        );
+        match provider.read(agent_id, account_logged_in).await {
+            Ok(snapshot) => snapshot.authentication,
+            Err(agents::NativeConfigError::Unsupported(_)) => {
+                AgentAuthenticationStatus::NotRequired
+            }
+            Err(_) => AgentAuthenticationStatus::NotLoggedIn,
+        }
+    } else {
+        AgentAuthenticationStatus::NotLoggedIn
+    };
+    if agent_id.as_str() == "deepseek_harness"
+        && let Ok(home) = app.path().home_dir()
+    {
+        let paths = dsh_paths(&home, agent_env);
+        if dsh_configuration::any_credential_present(&paths) {
+            return AgentAuthenticationStatus::ApiKey;
+        }
+    }
+    native_authentication
 }
 
 async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
@@ -4585,55 +4615,8 @@ async fn preflight_authentication_scope(
     agent_id: AgentId,
 ) -> Result<AgentPreflightView, AgentManagementErrorView> {
     let pool = &state.deployment.db().pool;
-    refresh_authentication_probes(&app, pool).await;
-    let agent_env_json = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?
-    .flatten();
-    let agent_env = parse_agent_env(agent_env_json.as_deref()).map_err(internal_error)?;
-    let native_authentication = if let Ok(home) = app.path().home_dir() {
-        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home,
-            agent_env.clone().into_iter().collect(),
-        );
-        match provider.read(&agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(_) => AgentAuthenticationStatus::NotLoggedIn,
-        }
-    } else {
-        AgentAuthenticationStatus::NotLoggedIn
-    };
-    let native_authentication = if agent_id.as_str() == "deepseek_harness" {
-        if let Ok(home) = app.path().home_dir() {
-            let paths = dsh_paths(&home, &agent_env);
-            if dsh_configuration::any_credential_present(&paths) {
-                AgentAuthenticationStatus::ApiKey
-            } else {
-                native_authentication
-            }
-        } else {
-            native_authentication
-        }
-    } else {
-        native_authentication
-    };
-    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
-        .profile(&agent_id)
-        .is_some_and(|profile| profile.authentication_required_by_default);
-    let (authentication, _) = resolve_authentication_observation(
-        native_authentication,
-        None,
-        authentication_required_by_default,
-    );
+    let (authentication, agent_env) =
+        refresh_one_agent_authentication(&app, pool, &agent_id, false).await?;
     let (auth_mode_item, _, _) =
         evaluate_auth_mode_preflight(&app, pool, agent_id.clone(), &agent_env, authentication)
             .await?;
@@ -4775,7 +4758,7 @@ async fn evaluate_auth_mode_preflight(
             ),
         });
     }
-    if matches!(agent_id.as_str(), "claude_code" | "gemini") {
+    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
         return Ok(
             match evaluate_profile_auth_mode_preflight(app, pool, agent_id.clone(), authentication)
                 .await
@@ -6841,7 +6824,7 @@ async fn install_locked_plan(
                     let package = npm_package_name(&component.resolved_source)
                         .unwrap_or(&component.component_id);
                     log.emit(format!(
-                        "$ npm install -g --prefix {} {package}@{}",
+                        "$ npm install -g --force --prefix {} {package}@{}",
                         user_env.npm_prefix.display(),
                         component.version
                     ));
@@ -6861,17 +6844,10 @@ async fn install_locked_plan(
                 if let Some(runtime) = node_runtime {
                     prepend_command_path(&mut command, &runtime.bin_dir)?;
                 }
-                command
-                    .arg("install")
-                    .arg("-g")
-                    .arg("--prefix")
-                    .arg(&user_env.npm_prefix)
-                    .arg("--no-audit")
-                    .arg("--no-fund")
-                    .arg("--save=false")
-                    .arg("--include=optional")
-                    .arg("--registry=https://registry.npmjs.org")
-                    .arg(&component.resolved_source);
+                command.args(npm_global_install_args(
+                    &user_env.npm_prefix,
+                    &component.resolved_source,
+                ));
                 let output = if let Some(log) = log {
                     cancellable_command_output_streaming(command, cancellation, log).await?
                 } else {
@@ -6977,6 +6953,8 @@ async fn install_locked_plan(
                 let executable =
                     publish_user_bin_executable(&user_env.user_bin, &component.command, &staged)
                         .await?;
+                publish_required_binary_siblings(&plan.agent_id, &user_env.user_bin, &staged)
+                    .await?;
                 path_entries.push(user_env.user_bin.clone());
                 (
                     executable,
@@ -7126,6 +7104,44 @@ async fn publish_user_bin_executable(
     Ok(tokio::fs::canonicalize(&destination)
         .await
         .unwrap_or(destination))
+}
+
+async fn publish_required_binary_siblings(
+    agent_id: &AgentId,
+    user_bin: &Path,
+    staged_executable: &Path,
+) -> anyhow::Result<()> {
+    let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id).cloned() else {
+        return Ok(());
+    };
+    let windows = cfg!(windows);
+    let siblings = profile.binary_required_siblings(windows);
+    if siblings.is_empty() {
+        return Ok(());
+    }
+    let Some(staged_dir) = staged_executable.parent() else {
+        anyhow::bail!("binary archive entry has no parent directory");
+    };
+    for sibling in siblings {
+        let name = Path::new(sibling)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(sibling);
+        let source = staged_dir.join(name);
+        if !source.is_file() {
+            anyhow::bail!("extracted archive is missing required sibling `{name}`");
+        }
+        let destination = user_bin.join(name);
+        tokio::fs::copy(&source, &destination).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = tokio::fs::metadata(&destination).await?.permissions();
+            permissions.set_mode(0o755);
+            tokio::fs::set_permissions(&destination, permissions).await?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -9251,7 +9267,7 @@ pub async fn agent_auth_mode(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "gemini") {
+    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
         return with_account_label(
             read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await?,
         )
@@ -9296,7 +9312,7 @@ pub async fn agent_auth_mode_set(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "gemini") {
+    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
         return with_account_label(
             set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
         )
@@ -9590,20 +9606,14 @@ async fn read_profile_auth_mode_view(
         } else {
             "official_subscription".to_string()
         }
-    } else if native_field_text(&snapshot, "gemini_base_url").is_some() {
-        "custom".to_string()
-    } else if native_field_present(&snapshot, "gemini_api_key") {
-        "gemini_api_key".to_string()
-    } else if native_field_present(&snapshot, "gemini_google_api_key") {
-        "vertex_api_key".to_string()
-    } else if native_field_text(&snapshot, "gemini_application_credentials").is_some() {
-        "vertex_service_account".to_string()
-    } else if native_field_text(&snapshot, "gemini_cloud_project").is_some()
-        || native_field_text(&snapshot, "gemini_cloud_location").is_some()
+    } else if native_field_present(&snapshot, "antigravity_api_key") {
+        "gemini-api-key".to_string()
+    } else if native_field_present(&snapshot, "antigravity_google_api_key")
+        || native_field_text(&snapshot, "antigravity_cloud_project").is_some()
     {
-        "vertex_adc".to_string()
+        "agent-platform".to_string()
     } else {
-        "login_google".to_string()
+        "oauth-personal".to_string()
     };
     let credential_env = agents::auth_mode_credential_env(&agent_id, &mode)
         .unwrap_or(policy.credential_env)
@@ -9615,10 +9625,14 @@ async fn read_profile_auth_mode_view(
             .find(|provider| Some(&provider.id) == providers.bound_provider_id.as_ref())
             .is_some_and(|provider| provider.credential_present),
         ("claude_code", "custom") => native_field_present(&snapshot, "anthropic_api_key"),
-        ("gemini", "custom" | "gemini_api_key") => {
-            native_field_present(&snapshot, "gemini_api_key")
+        ("antigravity" | "gemini", "gemini-api-key") => {
+            native_field_present(&snapshot, "antigravity_api_key")
         }
-        ("gemini", "vertex_api_key") => native_field_present(&snapshot, "gemini_google_api_key"),
+        ("antigravity" | "gemini", "agent-platform") => {
+            native_field_present(&snapshot, "antigravity_google_api_key")
+                || (native_field_text(&snapshot, "antigravity_cloud_project").is_some()
+                    && native_field_text(&snapshot, "antigravity_cloud_location").is_some())
+        }
         _ => false,
     };
     Ok(AgentAuthModeView {
@@ -9683,7 +9697,7 @@ async fn evaluate_profile_auth_mode_preflight(
                 Some(native_path),
             )
         }
-        ("claude_code", "model_provider") | ("gemini", "model_provider") => {
+        ("claude_code", "model_provider") => {
             let projection_ready =
                 provider_json_projection_ready(&snapshot.path, agent_id.as_str()).await;
             let ready = view.credential_present && projection_ready;
@@ -9697,75 +9711,45 @@ async fn evaluate_profile_auth_mode_preflight(
                 Some(native_path),
             )
         }
-        ("gemini", "login_google") => (
-            account_ready,
-            if account_ready {
-                "Google OAuth 模式已检测到有效账号会话。"
-            } else {
-                "Google OAuth 模式尚未检测到有效账号会话，请运行 Gemini 登录。"
-            }
-            .to_string(),
+        ("antigravity" | "gemini", "oauth-personal") => (
+            true,
+            "首次会话会打开浏览器完成 Google 登录。".to_string(),
             Some(native_path),
         ),
-        ("gemini", "custom") => {
-            let base_ready = native_field_text(&snapshot, "gemini_base_url").is_some();
-            let ready = base_ready && view.credential_present;
+        ("antigravity" | "gemini", "oauth-business") => {
+            let ready = native_field_text(&snapshot, "antigravity_cloud_project").is_some()
+                && native_field_text(&snapshot, "antigravity_cloud_location").is_some();
             (
                 ready,
                 if ready {
-                    "Gemini 自定义端点与 GEMINI_API_KEY 已配置。".to_string()
+                    "Gemini Enterprise 项目与区域已配置。".to_string()
                 } else {
-                    "Gemini 自定义模式需要 GOOGLE_GEMINI_BASE_URL 与 GEMINI_API_KEY。".to_string()
+                    "Gemini Enterprise 需要 Google Cloud 项目与区域。".to_string()
                 },
                 Some(native_path),
             )
         }
-        ("gemini", "gemini_api_key" | "vertex_api_key") => (
+        ("antigravity" | "gemini", "gemini-api-key" | "agent-platform") => (
             view.credential_present,
             if view.credential_present {
                 format!("{} 已配置（凭据内容不会显示）。", view.credential_env)
             } else {
-                format!("{} 模式缺少 {}。", view.mode, view.credential_env)
+                format!("{} 模式缺少必要凭据。", view.mode)
             },
             Some(native_path),
         ),
-        ("gemini", "vertex_service_account") => {
-            let configured = native_field_text(&snapshot, "gemini_application_credentials");
-            let resolved = configured.map(|path| expand_agent_home_path(&home, path));
-            let ready = match &resolved {
-                Some(path) => tokio::fs::metadata(path)
-                    .await
-                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0),
-                None => false,
-            };
+        ("antigravity" | "gemini", "model_provider") => {
+            let projection_ready =
+                provider_json_projection_ready(&snapshot.path, agent_id.as_str()).await;
+            let ready = view.credential_present && projection_ready;
             (
                 ready,
                 if ready {
-                    "Vertex Service Account JSON 文件可读取。".to_string()
+                    "Model Provider 绑定、凭据与原生配置投影已对齐。".to_string()
                 } else {
-                    "Vertex Service Account 模式需要可读取的 GOOGLE_APPLICATION_CREDENTIALS 文件。"
-                        .to_string()
+                    "Model Provider 绑定与原生配置投影不一致，请重新绑定。".to_string()
                 },
-                resolved.map(|path| path.display().to_string()),
-            )
-        }
-        ("gemini", "vertex_adc") => {
-            let adc_path = home
-                .join(".config")
-                .join("gcloud")
-                .join("application_default_credentials.json");
-            let adc_file_ready = tokio::fs::metadata(&adc_path)
-                .await
-                .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0);
-            let ready = adc_file_ready || account_ready;
-            (
-                ready,
-                if ready {
-                    "Vertex ADC 凭据已检测到。".to_string()
-                } else {
-                    "Vertex ADC 模式需要 gcloud Application Default Credentials。".to_string()
-                },
-                Some(adc_path.display().to_string()),
+                Some(native_path),
             )
         }
         _ => (
@@ -9792,7 +9776,10 @@ async fn provider_json_projection_ready(path: &Path, agent_id: &str) -> bool {
     };
     match agent_id {
         "claude_code" => present("ANTHROPIC_BASE_URL") && present("ANTHROPIC_AUTH_TOKEN"),
-        "gemini" => present("GOOGLE_GEMINI_BASE_URL") && present("GEMINI_API_KEY"),
+        "antigravity" | "gemini" => {
+            present("GEMINI_API_KEY")
+                && (present("GOOGLE_GEMINI_BASE_URL") || present("GEMINI_BASE_URL"))
+        }
         _ => false,
     }
 }
@@ -9973,6 +9960,18 @@ async fn set_profile_auth_mode(
         }
         return Err(error);
     }
+    if matches!(agent_id.as_str(), "antigravity" | "gemini") {
+        let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+        let home = app.path().home_dir().ok();
+        let report = agents::sync_antigravity_settings(&environment, home.as_deref());
+        if report.status == agents::AntigravitySyncStatus::Skipped {
+            tracing::warn!(
+                path = %report.path.display(),
+                reason = report.reason.as_deref().unwrap_or("unknown"),
+                "Antigravity settings.json was left unchanged"
+            );
+        }
+    }
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Agent 鉴权模式已更改")
@@ -10016,97 +10015,58 @@ fn native_auth_mode_patch(
             }
             _ => {}
         }
-    } else {
-        let vertex = matches!(
-            mode,
-            "vertex_adc" | "vertex_service_account" | "vertex_api_key"
-        );
-        set(
-            "gemini_auth",
-            Some(
-                if vertex {
-                    "vertex-ai"
-                } else if mode == "login_google" {
-                    "oauth-personal"
-                } else {
-                    "gemini-api-key"
-                }
-                .to_string(),
-            ),
-        );
-        set("gemini_use_vertex_ai", vertex.then(|| "true".to_string()));
+    } else if matches!(agent_id.as_str(), "antigravity" | "gemini") {
+        set("antigravity_auth", Some(mode.to_string()));
         match mode {
-            "login_google" => {
-                for field in GEMINI_NATIVE_AUTH_FIELDS {
-                    set(field, None);
-                }
+            "oauth-personal" => {
+                set("antigravity_api_key", None);
+                set("antigravity_google_api_key", None);
             }
-            "custom" => {
-                for field in GEMINI_VERTEX_NATIVE_FIELDS {
-                    set(field, None);
-                }
+            "oauth-business" => {
+                set("antigravity_api_key", None);
+                set("antigravity_google_api_key", None);
+                require_native_auth_value(
+                    agent_id,
+                    mode,
+                    "GOOGLE_CLOUD_PROJECT",
+                    native_field_text(snapshot, "antigravity_cloud_project").is_some(),
+                )?;
+                require_native_auth_value(
+                    agent_id,
+                    mode,
+                    "GOOGLE_CLOUD_LOCATION",
+                    native_field_text(snapshot, "antigravity_cloud_location").is_some(),
+                )?;
+            }
+            "gemini-api-key" => {
+                set("antigravity_google_api_key", None);
                 if let Some(api_key) = submitted_key {
-                    set("gemini_api_key", Some(api_key.to_string()));
+                    set("antigravity_api_key", Some(api_key.to_string()));
                 }
                 require_native_auth_value(
                     agent_id,
                     mode,
                     "GEMINI_API_KEY",
-                    submitted_key.is_some() || native_field_present(snapshot, "gemini_api_key"),
-                )?;
-                require_native_auth_value(
-                    agent_id,
-                    mode,
-                    "GOOGLE_GEMINI_BASE_URL",
-                    native_field_text(snapshot, "gemini_base_url").is_some(),
-                )?;
-            }
-            "gemini_api_key" => {
-                set("gemini_base_url", None);
-                for field in GEMINI_VERTEX_NATIVE_FIELDS {
-                    set(field, None);
-                }
-                if let Some(api_key) = submitted_key {
-                    set("gemini_api_key", Some(api_key.to_string()));
-                }
-                require_native_auth_value(
-                    agent_id,
-                    mode,
-                    "GEMINI_API_KEY",
-                    submitted_key.is_some() || native_field_present(snapshot, "gemini_api_key"),
-                )?;
-            }
-            "vertex_api_key" => {
-                set("gemini_base_url", None);
-                set("gemini_api_key", None);
-                set("gemini_application_credentials", None);
-                if let Some(api_key) = submitted_key {
-                    set("gemini_google_api_key", Some(api_key.to_string()));
-                }
-                require_native_auth_value(
-                    agent_id,
-                    mode,
-                    "GOOGLE_API_KEY",
                     submitted_key.is_some()
-                        || native_field_present(snapshot, "gemini_google_api_key"),
+                        || native_field_present(snapshot, "antigravity_api_key"),
                 )?;
             }
-            "vertex_service_account" => {
-                set("gemini_base_url", None);
-                set("gemini_api_key", None);
-                set("gemini_google_api_key", None);
+            "agent-platform" => {
+                set("antigravity_api_key", None);
+                if let Some(api_key) = submitted_key {
+                    set("antigravity_google_api_key", Some(api_key.to_string()));
+                }
+                let key_ready = submitted_key.is_some()
+                    || native_field_present(snapshot, "antigravity_google_api_key");
+                let project_ready = native_field_text(snapshot, "antigravity_cloud_project")
+                    .is_some()
+                    && native_field_text(snapshot, "antigravity_cloud_location").is_some();
                 require_native_auth_value(
                     agent_id,
                     mode,
-                    "GOOGLE_APPLICATION_CREDENTIALS",
-                    native_field_text(snapshot, "gemini_application_credentials").is_some(),
+                    "GOOGLE_API_KEY or GOOGLE_CLOUD_PROJECT",
+                    key_ready || project_ready,
                 )?;
-            }
-            "vertex_adc" => {
-                set("gemini_base_url", None);
-                set("gemini_api_key", None);
-                set("gemini_google_api_key", None);
-                set("gemini_application_credentials", None);
             }
             _ => {}
         }
@@ -10122,21 +10082,6 @@ fn native_auth_mode_patch(
         values,
     })
 }
-
-const GEMINI_NATIVE_AUTH_FIELDS: &[&str] = &[
-    "gemini_base_url",
-    "gemini_api_key",
-    "gemini_google_api_key",
-    "gemini_cloud_project",
-    "gemini_cloud_location",
-    "gemini_application_credentials",
-];
-const GEMINI_VERTEX_NATIVE_FIELDS: &[&str] = &[
-    "gemini_google_api_key",
-    "gemini_cloud_project",
-    "gemini_cloud_location",
-    "gemini_application_credentials",
-];
 
 fn require_native_auth_value(
     agent_id: &AgentId,
@@ -10383,8 +10328,8 @@ fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'stati
     match (agent_id.as_str(), mode) {
         ("claude_code", "custom") => Some("anthropic_api_key"),
         ("codex", "api_key") => Some("openai_api_key"),
-        ("gemini", "custom" | "gemini_api_key") => Some("gemini_api_key"),
-        ("gemini", "vertex_api_key") => Some("gemini_google_api_key"),
+        ("antigravity" | "gemini", "gemini-api-key") => Some("antigravity_api_key"),
+        ("antigravity" | "gemini", "agent-platform") => Some("antigravity_google_api_key"),
         ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
         _ => None,
     }
@@ -10403,21 +10348,23 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("claude_code", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescClaudeProvider")
         }
-        ("gemini", "login_google") => ("agents.authModeGoogleLogin", "agents.authDescGeminiGoogle"),
-        ("gemini", "custom") => (
-            "agents.authModeCustomEndpoint",
-            "agents.authDescGeminiCustom",
+        ("antigravity" | "gemini", "oauth-personal") => (
+            "agents.authModeGoogleLogin",
+            "agents.authDescAntigravityOauthPersonal",
         ),
-        ("gemini", "gemini_api_key") => ("agents.authModeGeminiKey", "agents.authDescGeminiKey"),
-        ("gemini", "vertex_adc") => ("agents.authModeVertexAdc", "agents.authDescGeminiAdc"),
-        ("gemini", "vertex_service_account") => (
-            "agents.authModeVertexServiceAccount",
-            "agents.authDescGeminiServiceAccount",
+        ("antigravity" | "gemini", "oauth-business") => (
+            "agents.authModeAntigravityEnterprise",
+            "agents.authDescAntigravityOauthBusiness",
         ),
-        ("gemini", "vertex_api_key") => {
-            ("agents.authModeVertexKey", "agents.authDescGeminiVertexKey")
-        }
-        ("gemini", "model_provider") => {
+        ("antigravity" | "gemini", "gemini-api-key") => (
+            "agents.authModeGeminiKey",
+            "agents.authDescAntigravityApiKey",
+        ),
+        ("antigravity" | "gemini", "agent-platform") => (
+            "agents.authModeAntigravityPlatform",
+            "agents.authDescAntigravityPlatform",
+        ),
+        ("antigravity" | "gemini", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGeminiProvider")
         }
         ("codex", "chatgpt_subscription") => {

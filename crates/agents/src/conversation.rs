@@ -1178,6 +1178,9 @@ pub struct ConversationRowOpBatch {
     /// Latest agent-advertised config options carried in this batch, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_config_options: Option<Vec<AgentSessionConfigOption>>,
+    /// Latest agent-advertised slash/skill catalog carried in this batch, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_commands: Option<Vec<AgentAvailableCommand>>,
 }
 
 /// Agent-advertised session modes (current + available), delivered with a row-op batch.

@@ -40,7 +40,7 @@ async fn seed_legacy_settings(pool: &SqlitePool) {
         "claude_code",
         "codex",
         "opencode",
-        "gemini",
+        "antigravity",
         "openclaw",
         "cline",
         "hermes",
@@ -575,7 +575,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
     let pool = migrated_pool().await;
     seed_legacy_settings(&pool).await;
     sqlx::query(
-        "UPDATE agent_setting SET enabled = 0, config_json = '{\"apiKey\":\"configured\"}' WHERE agent_type = 'gemini'",
+        "UPDATE agent_setting SET enabled = 0, config_json = '{\"apiKey\":\"configured\"}' WHERE agent_type = 'antigravity'",
     )
     .execute(&pool)
     .await
@@ -612,7 +612,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         [
             ("claude_code", true),
             ("codex", false),
-            ("gemini", false),
+            ("antigravity", false),
             ("openclaw", true),
             ("opencode", true),
             ("cline", true),
@@ -628,7 +628,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
     assert!(
         memberships
             .iter()
-            .find(|row| row.agent_id.as_str() == "gemini")
+            .find(|row| row.agent_id.as_str() == "antigravity")
             .is_some_and(|row| row.source == AgentSource::BuiltInProfile && row.built_in)
     );
     assert!(
@@ -640,7 +640,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
     for agent_id in [
         "claude_code",
         "codex",
-        "gemini",
+        "antigravity",
         "openclaw",
         "opencode",
         "cline",
@@ -665,14 +665,14 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
 
     // The completion marker makes the migration one-shot even if old rows
     // change later.
-    sqlx::query("UPDATE agent_setting SET config_json = '{}' WHERE agent_type = 'gemini'")
+    sqlx::query("UPDATE agent_setting SET config_json = '{}' WHERE agent_type = 'antigravity'")
         .execute(&pool)
         .await
         .unwrap();
     LegacyAgentMigration::run(&pool).await.unwrap();
     assert!(
         AgentMembershipRepository::new(pool.clone())
-            .find(&AgentId::parse("gemini").unwrap())
+            .find(&AgentId::parse("antigravity").unwrap())
             .await
             .unwrap()
             .is_some()

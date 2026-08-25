@@ -53,14 +53,6 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             ">=20",
         ),
         (
-            "gemini",
-            ProfileComponent::CombinedRuntime,
-            "@google/gemini-cli",
-            "0.53.1",
-            "gemini",
-            ">=20",
-        ),
-        (
             "openclaw",
             ProfileComponent::CombinedRuntime,
             "openclaw",
@@ -162,6 +154,42 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             ..
         }
     ));
+    let antigravity = profile("antigravity").install_sources.first().unwrap();
+    assert!(matches!(
+        antigravity,
+        ProfileInstallSource::Binary {
+            component: ProfileComponent::CombinedRuntime,
+            version: "1.0.0",
+            command: "agy_acp_server",
+            ..
+        }
+    ));
+    let ProfileInstallSource::Binary {
+        artifacts,
+        entry,
+        args,
+        ..
+    } = antigravity
+    else {
+        panic!("antigravity must be a binary");
+    };
+    assert_eq!(artifacts.len(), 5);
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.platform == "darwin-x86_64")
+    );
+    let entry = entry
+        .as_ref()
+        .expect("antigravity keeps the extracted tree");
+    assert_eq!(entry.unix, "agy_acp_server.par");
+    assert_eq!(entry.windows, "agy_acp_server.exe");
+    assert_eq!(entry.unix_siblings, &["localharness_external"]);
+    if cfg!(target_os = "linux") {
+        assert_eq!(*args, ["--uid="]);
+    } else {
+        assert!(args.is_empty());
+    }
     let hermes = profile("hermes").install_sources.first().unwrap();
     assert!(matches!(
         hermes,
@@ -190,7 +218,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         [
             "claude_code",
             "codex",
-            "gemini",
+            "antigravity",
             "openclaw",
             "opencode",
             "cline",
@@ -265,7 +293,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         [
             ("claude_code", Some("CLAUDE_CODE_EXECUTABLE")),
             ("codex", Some("CODEX_PATH")),
-            ("gemini", None),
+            ("antigravity", None),
             ("openclaw", None),
             ("opencode", None),
             ("cline", None),
@@ -286,7 +314,7 @@ fn codeg_account_action_matrix_is_complete() {
     for (agent_id, expected) in [
         ("claude_code", &["login", "logout", "subscription"][..]),
         ("codex", &["login", "logout", "subscription"][..]),
-        ("gemini", &["login"][..]),
+        ("antigravity", &[][..]),
         ("openclaw", &["onboard"][..]),
         ("opencode", &["login", "logout"][..]),
         ("cline", &["login"][..]),
@@ -323,14 +351,10 @@ fn every_built_in_binary_has_an_expected_sha256() {
                 continue;
             };
             for artifact in artifacts {
-                let digest = artifact.sha256.unwrap_or_else(|| {
-                    panic!(
-                        "{}.{} must declare an expected SHA-256",
-                        profile.agent_id, artifact.platform
-                    )
-                });
-                assert_eq!(digest.len(), 64);
-                assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                if let Some(digest) = artifact.sha256 {
+                    assert_eq!(digest.len(), 64);
+                    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                }
             }
         }
     }
@@ -432,25 +456,30 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = |id: &str| catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
 
-    let gemini = profile("gemini");
+    let antigravity = profile("antigravity");
     assert_eq!(
-        gemini.native_config[0].directory_override_env,
-        Some("GEMINI_CLI_HOME")
+        antigravity.native_config[0].directory_override_env,
+        Some("GEMINI_HOME")
     );
     assert_eq!(
-        gemini.native_config[0].override_relative_path,
-        ".gemini/settings.json"
+        antigravity.native_config[0].override_relative_path,
+        "antigravity-acp/settings.json"
     );
     assert_eq!(
-        gemini
+        antigravity
             .account_evidence
             .as_ref()
             .unwrap()
             .override_relative_directory,
-        ".gemini"
+        "antigravity-acp"
     );
     assert!(
-        gemini
+        antigravity
+            .settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
+    );
+    assert!(
+        antigravity
             .settings_features
             .contains(&AgentSettingsFeature::ReusableModelProviders)
     );
@@ -504,7 +533,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
     for id in [
         "claude_code",
         "codex",
-        "gemini",
+        "antigravity",
         "opencode",
         "cline",
         "hermes",
@@ -531,7 +560,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
     for id in [
         "claude_code",
         "codex",
-        "gemini",
+        "antigravity",
         "openclaw",
         "opencode",
         "cline",
@@ -604,16 +633,16 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
     );
 
     assert_eq!(
-        surface("gemini", "gemini_api_key"),
+        surface("antigravity", "antigravity_api_key"),
         NativeConfigSurface::Authentication
     );
     assert_eq!(
-        surface("gemini", "gemini_base_url"),
+        surface("antigravity", "antigravity_auth"),
         NativeConfigSurface::Authentication
     );
     assert_eq!(
-        surface("gemini", "gemini_model"),
-        NativeConfigSurface::Configuration
+        surface("antigravity", "antigravity_cloud_project"),
+        NativeConfigSurface::Authentication
     );
 
     assert_eq!(

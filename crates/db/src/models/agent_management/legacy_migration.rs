@@ -10,7 +10,7 @@ const MIGRATION_KEY: &str = "legacy-agent-settings-v1";
 const BUILT_INS: [&str; 13] = [
     "claude_code",
     "codex",
-    "gemini",
+    "antigravity",
     "openclaw",
     "opencode",
     "cline",

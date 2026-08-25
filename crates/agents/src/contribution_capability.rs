@@ -17,7 +17,7 @@ pub fn builtin_contribution_capabilities() -> Vec<AgentContributionCapability> {
     [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
-        AgentKind::Gemini,
+        AgentKind::Antigravity,
         AgentKind::Openclaw,
         AgentKind::Opencode,
         AgentKind::Cline,

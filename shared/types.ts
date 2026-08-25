@@ -1407,7 +1407,12 @@ session_modes?: ConversationSessionModes | null,
  * Latest agent-advertised config options (model / permission / …), same
  * hydration contract as `session_modes`.
  */
-session_config_options: Array<AgentSessionConfigOption>, };
+session_config_options: Array<AgentSessionConfigOption>,
+/**
+ * Latest agent-advertised slash/skill catalog. `None` until the agent
+ * publishes `available_commands_update`.
+ */
+available_commands?: Array<AgentAvailableCommand> | null, };
 
 export type PlanEntry = { content: string,
 /**
@@ -1587,7 +1592,11 @@ session_modes?: ConversationSessionModes | null,
 /**
  * Latest agent-advertised config options carried in this batch, if any.
  */
-session_config_options?: Array<AgentSessionConfigOption> | null, };
+session_config_options?: Array<AgentSessionConfigOption> | null,
+/**
+ * Latest agent-advertised slash/skill catalog carried in this batch, if any.
+ */
+available_commands?: Array<AgentAvailableCommand> | null, };
 
 export type ConversationRowPage = { conversation_id: string, after_sequence: bigint, last_sequence: bigint, rows: Array<TimelineRow>, };
 
@@ -1659,7 +1668,12 @@ export type AgentElicitationResponse = { "action": "accept", content: JsonValue,
 
 export type LinkOpenBehavior = "ExternalBrowser" | "BuiltinPreview";
 
-export type AgentSessionControlsSnapshot = { modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, capabilities?: AcpCapabilitySnapshot | null, };
+export type AgentSessionControlsSnapshot = { modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, capabilities?: AcpCapabilitySnapshot | null,
+/**
+ * Session-scoped slash/skill catalog advertised by the agent. `None`
+ * until the first `available_commands_update`; not an empty guess.
+ */
+available_commands?: Array<AgentAvailableCommand> | null, };
 
 export type AgentSessionConfigDependency = { parent_key: string, choices_by_parent_value: { [key in string]?: Array<AgentSessionConfigChoice> }, };
 
@@ -1695,7 +1709,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
@@ -1831,7 +1845,7 @@ export type OpenCodePluginSummaryView = { config_path: string, cache_dir: string
 
 export type OpenCodePluginView = { name: string, declared_spec: string, installed_version: string | null, status: OpenCodePluginStatus, };
 
-export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string | null, };
+export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string, };
 
 export type AgentModelCatalogItemView = { id: string, label: string, context_window: number | null, reasoning_levels: Array<string>, };
 

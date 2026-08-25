@@ -4,9 +4,10 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentConnectionId, AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentId,
-    AgentPermissionResponse, AgentSessionConfigOption, AgentSessionConfigOverride,
-    AgentSessionControlsSnapshot, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
+    AgentAvailableCommand, AgentConnectionId, AgentElicitationId, AgentElicitationResponse,
+    AgentEvent, AgentId, AgentPermissionResponse, AgentSessionConfigOption,
+    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
+    ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -78,6 +79,10 @@ pub struct DbConversationDetail {
     /// hydration contract as `session_modes`.
     #[serde(default)]
     pub session_config_options: Vec<AgentSessionConfigOption>,
+    /// Latest agent-advertised slash/skill catalog. `None` until the agent
+    /// publishes `available_commands_update`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_commands: Option<Vec<AgentAvailableCommand>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -256,6 +261,7 @@ pub async fn conversation_detail_core(
     });
     let session_modes = latest_session_modes(pool, id).await?;
     let session_config_options = latest_session_config_options(pool, id).await?;
+    let available_commands = latest_available_commands(pool, id).await?;
     Ok(Some(DbConversationDetail {
         summary,
         turns,
@@ -267,6 +273,7 @@ pub async fn conversation_detail_core(
         in_flight_user_turn_id,
         session_modes,
         session_config_options,
+        available_commands,
     }))
 }
 
@@ -308,6 +315,24 @@ async fn latest_session_config_options(
             }
         })
         .unwrap_or_default())
+}
+
+async fn latest_available_commands(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Vec<AgentAvailableCommand>>, AppError> {
+    let record = ConversationEventRecord::latest_of_kind(
+        pool,
+        conversation_id,
+        "available_commands_updated",
+    )
+    .await?;
+    Ok(record.and_then(|record| {
+        match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+            Ok(ConversationEvent::AvailableCommandsUpdated { commands }) => Some(commands),
+            _ => None,
+        }
+    }))
 }
 
 #[tauri::command]

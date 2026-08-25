@@ -269,6 +269,8 @@ struct ConversationSlashCommandsArgs {
     agent_id: String,
     #[serde(default)]
     workspace_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    conversation_id: Option<uuid::Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -715,7 +717,12 @@ where
                     parse_args::<ConversationSlashCommandsArgs>(command, operation_id, args)?;
                 let result = self
                     .core
-                    .conversation_slash_commands(principal, args.agent_id, args.workspace_id)
+                    .conversation_slash_commands(
+                        principal,
+                        args.agent_id,
+                        args.workspace_id,
+                        args.conversation_id,
+                    )
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();

@@ -72,6 +72,20 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
             .required_scope(),
         "plugin.write"
     );
+    assert_eq!(
+        "plugin_control_uninstall"
+            .parse::<DomainCommand>()
+            .expect("plugin uninstall command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
+        "plugin_control_gc_runtimes"
+            .parse::<DomainCommand>()
+            .expect("plugin runtime gc command")
+            .required_scope(),
+        "plugin.write"
+    );
 }
 
 #[test]

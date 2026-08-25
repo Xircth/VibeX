@@ -874,7 +874,7 @@ pub async fn update_session_status(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
 
-    Session::update_status(pool, session.id, status.clone()).await?;
+    conversations::workbench_status::apply_manual_status(pool, session.id, status.clone()).await?;
 
     if status != SessionStatus::Archived
         && let Some(task_id) = session.task_id
@@ -885,6 +885,32 @@ pub async fn update_session_status(
     Session::find_by_id(pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))
+}
+
+#[tauri::command]
+pub async fn mark_session_viewed(
+    state: tauri::State<'_, AppState>,
+    session_id: Uuid,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let session = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    conversations::workbench_status::mark_latest_turn_viewed(pool, session.id).await?;
+
+    let updated = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    if updated.status != SessionStatus::Archived
+        && let Some(task_id) = updated.task_id
+        && updated.status != session.status
+    {
+        Task::update_status(pool, task_id, to_task_status(updated.status.clone())).await?;
+    }
+
+    Ok(updated)
 }
 
 #[tauri::command]

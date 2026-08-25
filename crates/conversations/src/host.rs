@@ -485,6 +485,13 @@ pub fn resolve_workspace_additional_directories(
         })
         .filter(|root| root != &cwd)
         .collect::<Vec<_>>();
+    if workspace.use_worktree {
+        for repo in repos {
+            if repo.path != cwd && !roots.iter().any(|root| root == &repo.path) {
+                roots.push(repo.path.clone());
+            }
+        }
+    }
     roots.sort();
     roots.dedup();
     roots
@@ -693,7 +700,7 @@ mod working_dir_tests {
 
     use super::{
         DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
-        resolve_workspace_agent_working_dir,
+        resolve_workspace_additional_directories, resolve_workspace_agent_working_dir,
     };
     use crate::ConversationHost;
 
@@ -775,6 +782,25 @@ mod working_dir_tests {
                 std::slice::from_ref(&repo)
             ),
             "/Users/mac/Projects/VibeX"
+        );
+    }
+
+    #[test]
+    fn worktree_additional_directories_include_the_primary_checkout() {
+        let workspace = sample_workspace(true, Some("VibeX"));
+        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
+        let container = "/Users/mac/.vibex-workspaces/workflow-debug";
+        let cwd = format!("{container}/VibeX");
+
+        let directories = resolve_workspace_additional_directories(
+            &workspace,
+            container,
+            std::slice::from_ref(&repo),
+            &cwd,
+        );
+        assert_eq!(
+            directories,
+            vec![std::path::PathBuf::from("/Users/mac/Projects/VibeX")]
         );
     }
 }

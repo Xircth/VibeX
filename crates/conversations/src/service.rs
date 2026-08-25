@@ -988,12 +988,6 @@ impl ConversationSessionService {
                     &display_text,
                 )
                 .await?;
-                ConversationRecord::update_status_on_connection(
-                    &mut conn,
-                    input.conversation_id,
-                    SessionStatus::InProgress,
-                )
-                .await?;
                 let turn = ConversationTurnRecord::create_pending_on_connection(
                     &mut conn,
                     turn_id,
@@ -1072,12 +1066,6 @@ impl ConversationSessionService {
         } else {
             ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &display_text)
                 .await?;
-            ConversationRecord::update_status(
-                pool,
-                input.conversation_id,
-                SessionStatus::InProgress,
-            )
-            .await?;
             let turn = ConversationTurnRecord::create_pending(
                 pool,
                 turn_id,
@@ -1089,6 +1077,7 @@ impl ConversationSessionService {
                 },
             )
             .await?;
+            crate::workbench_status::reconcile(pool, input.conversation_id).await?;
             if origin != crate::commit_reminder::USER_ORIGIN {
                 ConversationTurnRecord::set_origin(pool, turn.id, origin).await?;
             }

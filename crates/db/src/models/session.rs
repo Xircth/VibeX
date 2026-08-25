@@ -400,6 +400,15 @@ impl Session {
         id: Uuid,
         status: SessionStatus,
     ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::update_status_on_connection(&mut conn, id, status).await
+    }
+
+    pub async fn update_status_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        status: SessionStatus,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE sessions
                SET status = ?, updated_at = datetime('now', 'subsec')
@@ -407,7 +416,7 @@ impl Session {
         )
         .bind(status)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }

@@ -148,6 +148,14 @@ impl ConversationTurnRecord {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::latest_for_conversation_on_connection(&mut conn, conversation_id).await
+    }
+
+    pub async fn latest_for_conversation_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {TURN_COLUMNS}
                FROM conversation_turns
@@ -156,7 +164,7 @@ impl ConversationTurnRecord {
                LIMIT 1"#
         ))
         .bind(conversation_id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
     }
 

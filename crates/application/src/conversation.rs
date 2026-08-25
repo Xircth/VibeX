@@ -158,7 +158,29 @@ mod catalog_agent_usable_tests {
 mod slash_commands_from_skills_tests {
     use agents::skills::{AgentSkillItem, AgentSkillScope};
 
-    use super::{ConversationSlashCommand, slash_commands_from_skills};
+    use super::{
+        ConversationSlashCommand, slash_commands_from_available, slash_commands_from_skills,
+    };
+
+    #[test]
+    fn maps_live_available_commands_to_slash_values() {
+        let commands = slash_commands_from_available(&[agents::AgentAvailableCommand {
+            name: "/compact".into(),
+            description: Some("Compact context".into()),
+            input_schema: None,
+        }]);
+        assert_eq!(
+            commands,
+            vec![ConversationSlashCommand {
+                name: "compact".into(),
+                description: Some("Compact context".into()),
+                kind: "command".into(),
+                source_kind: "runtime".into(),
+                source_id: "compact".into(),
+                value: "/compact".into(),
+            }]
+        );
+    }
 
     #[test]
     fn maps_skill_id_and_path_to_desktop_slash_value() {
@@ -298,6 +320,34 @@ pub struct ConversationSlashCommand {
     pub value: String,
 }
 
+fn slash_commands_from_available(
+    commands: &[agents::AgentAvailableCommand],
+) -> Vec<ConversationSlashCommand> {
+    commands
+        .iter()
+        .filter_map(|command| {
+            let name = command.name.trim().trim_start_matches('/').to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(ConversationSlashCommand {
+                name: name.clone(),
+                description: command
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
+                kind: "command".into(),
+                source_kind: "runtime".into(),
+                source_id: name.clone(),
+                value: format!("/{name}"),
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
 fn slash_commands_from_skills(
     skills: &[agents::skills::AgentSkillItem],
 ) -> Vec<ConversationSlashCommand> {
@@ -652,6 +702,7 @@ pub trait ConversationRepository: Send + Sync {
         &self,
         _agent_id: String,
         _workspace_id: Option<Uuid>,
+        _conversation_id: Option<Uuid>,
     ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
         Ok(Vec::new())
     }
@@ -1047,20 +1098,31 @@ impl ConversationRepository for SqliteConversationRepository {
 
     async fn slash_commands(
         &self,
-        agent_id: String,
-        workspace_id: Option<Uuid>,
+        _agent_id: String,
+        _workspace_id: Option<Uuid>,
+        conversation_id: Option<Uuid>,
     ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
-        let workspace_path = match workspace_id {
-            Some(id) => self
-                .workspace_root(id)
-                .await?
-                .filter(|path| !path.is_empty()),
-            None => None,
+        let Some(conversation_id) = conversation_id else {
+            return Ok(Vec::new());
         };
-        let listed = agents::skills::list_agent_skills(agent_id, workspace_path)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        Ok(slash_commands_from_skills(&listed.skills))
+        let record = db::models::conversation_event::ConversationEventRecord::latest_of_kind(
+            &self.pool,
+            conversation_id,
+            "available_commands_updated",
+        )
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let Some(record) = record else {
+            return Ok(Vec::new());
+        };
+        match serde_json::from_str::<agents::conversation::ConversationEvent>(
+            &record.normalized_json,
+        ) {
+            Ok(agents::conversation::ConversationEvent::AvailableCommandsUpdated { commands }) => {
+                Ok(slash_commands_from_available(&commands))
+            }
+            _ => Ok(Vec::new()),
+        }
     }
 
     async fn archive(&self, conversation_id: Uuid) -> Result<(), ApplicationError> {
@@ -1965,6 +2027,7 @@ where
         principal: &Principal,
         agent_id: String,
         workspace_id: Option<Uuid>,
+        conversation_id: Option<Uuid>,
     ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
         if !principal.allows(READ_CONVERSATIONS_SCOPE) {
             return Err(ApplicationError::forbidden(
@@ -1972,7 +2035,7 @@ where
             ));
         }
         self.conversations
-            .slash_commands(agent_id, workspace_id)
+            .slash_commands(agent_id, workspace_id, conversation_id)
             .await
     }
 

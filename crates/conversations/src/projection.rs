@@ -108,6 +108,18 @@ impl ConversationStateApplier {
             ParsedEvent::Known(event) => event,
             ParsedEvent::Unknown { .. } => return Ok(()),
         };
+        let should_reconcile_workbench = matches!(
+            &event,
+            ConversationEvent::UserTurnQueued
+                | ConversationEvent::UserTurnStarted
+                | ConversationEvent::TurnBlocked { .. }
+                | ConversationEvent::TurnCompleted { .. }
+                | ConversationEvent::TurnFailed { .. }
+                | ConversationEvent::TurnCancelled { .. }
+                | ConversationEvent::TurnInterrupted { .. }
+                | ConversationEvent::ConversationInput { .. }
+                | ConversationEvent::UserTurnCreated { .. }
+        );
 
         match event {
             ConversationEvent::ConversationInput { event } => match event {
@@ -551,6 +563,10 @@ impl ConversationStateApplier {
                 }
             }
             _ => {}
+        }
+
+        if should_reconcile_workbench {
+            crate::workbench_status::reconcile_on_connection(conn, record.conversation_id).await?;
         }
 
         Ok(())
@@ -3221,6 +3237,72 @@ mod tests {
                 .any(|row| row.row_id == format!("{turn_id}:assistant")),
             "the assistant row (bumped by turn completion) is included"
         );
+    }
+
+    #[tokio::test]
+    async fn completed_unviewed_turn_moves_session_to_in_review() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(session.status, db::models::session::SessionStatus::InReview);
+    }
+
+    #[tokio::test]
+    async fn viewing_a_completed_turn_moves_session_to_done() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+        crate::workbench_status::mark_latest_turn_viewed(&pool, conversation_id)
+            .await
+            .expect("mark viewed");
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(session.status, db::models::session::SessionStatus::Done);
+    }
+
+    #[tokio::test]
+    async fn cancelled_turn_moves_session_to_done() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCancelled { reason: None },
+            None,
+        )
+        .await;
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(session.status, db::models::session::SessionStatus::Done);
     }
 
     #[tokio::test]

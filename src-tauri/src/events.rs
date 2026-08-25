@@ -85,6 +85,7 @@ pub async fn emit_conversation_row_ops_after(
     // dropped once its turn is terminal.
     let mut session_modes = None;
     let mut session_config_options = None;
+    let mut available_commands = None;
     let mut settled = false;
     for record in &new_records {
         if matches!(
@@ -100,6 +101,9 @@ pub async fn emit_conversation_row_ops_after(
                 }
                 ConversationEvent::SessionConfigOptionsUpdated { options } => {
                     session_config_options = Some(options);
+                }
+                ConversationEvent::AvailableCommandsUpdated { commands } => {
+                    available_commands = Some(commands);
                 }
                 _ => {}
             }
@@ -161,6 +165,7 @@ pub async fn emit_conversation_row_ops_after(
     if !(ops.is_empty()
         && session_modes.is_none()
         && session_config_options.is_none()
+        && available_commands.is_none()
         && !queue_changed)
     {
         let batch = ConversationRowOpBatch {
@@ -169,6 +174,7 @@ pub async fn emit_conversation_row_ops_after(
             ops,
             session_modes,
             session_config_options,
+            available_commands,
         };
         if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
             tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");

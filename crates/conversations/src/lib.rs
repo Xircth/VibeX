@@ -15,6 +15,7 @@ pub mod runtime_events;
 pub mod scoped_control;
 pub mod search;
 pub mod service;
+pub mod workbench_status;
 
 pub use export::{render_html, render_markdown};
 pub use host::{

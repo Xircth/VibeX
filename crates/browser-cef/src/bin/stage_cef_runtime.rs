@@ -49,15 +49,7 @@ fn resolve_target_path(
     let Some(target) = target else {
         return default_path;
     };
-    let target_path = target_root.join(target).join(profile);
-    if target_path
-        .join(format!("vibex{}", env::consts::EXE_SUFFIX))
-        .is_file()
-    {
-        target_path
-    } else {
-        default_path
-    }
+    target_root.join(target).join(profile)
 }
 
 #[cfg(feature = "cef-host")]
@@ -169,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_when_tauri_target_directory_has_no_app_binary() {
+    fn uses_target_triple_directory_before_the_app_binary_exists() {
         let temp = tempfile::tempdir().unwrap();
 
         assert_eq!(
@@ -178,7 +170,7 @@ mod tests {
                 "release",
                 Some(std::path::Path::new("aarch64-apple-darwin")),
             ),
-            temp.path().join("release"),
+            temp.path().join("aarch64-apple-darwin/release"),
         );
     }
 }

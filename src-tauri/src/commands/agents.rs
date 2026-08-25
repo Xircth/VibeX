@@ -1804,13 +1804,7 @@ mod tests {
             agent_type: "catalog-agent".to_string(),
             fingerprint: "fingerprint".to_string(),
             generation: 1,
-            controls_json: serde_json::to_string(&AgentSessionControlsSnapshot {
-                modes: Vec::new(),
-                current_mode: None,
-                config_options: Vec::new(),
-                capabilities: None,
-            })
-            .unwrap(),
+            controls_json: serde_json::to_string(&AgentSessionControlsSnapshot::default()).unwrap(),
             retrieved_at: (now - Duration::minutes(11)).to_rfc3339(),
             refresh_error_code: None,
         };
@@ -1872,6 +1866,7 @@ mod tests {
                 },
             ],
             capabilities: None,
+            available_commands: None,
         };
 
         assert_eq!(
@@ -1882,12 +1877,7 @@ mod tests {
 
     #[test]
     fn model_extractor_returns_no_static_fallback_when_catalog_is_empty() {
-        let snapshot = AgentSessionControlsSnapshot {
-            modes: Vec::new(),
-            current_mode: None,
-            config_options: Vec::new(),
-            capabilities: None,
-        };
+        let snapshot = AgentSessionControlsSnapshot::default();
 
         assert!(models_from_capability_catalog(&snapshot).is_empty());
     }
@@ -1911,6 +1901,7 @@ mod tests {
                 dependency: None,
             }],
             capabilities: None,
+            available_commands: None,
         };
 
         assert_eq!(

@@ -4,6 +4,9 @@ use git2::Repository;
 
 use crate::{GitCli, GitService, GitServiceError};
 
+const BOOTSTRAP_COMMIT_NAME: &str = "VibeX";
+const BOOTSTRAP_COMMIT_EMAIL: &str = "noreply@vibex.com";
+
 impl GitService {
     /// Open the repository.
     pub fn open_repo(&self, repo_path: &Path) -> Result<Repository, GitServiceError> {
@@ -17,15 +20,79 @@ impl GitService {
     }
 
     /// Read the user's native Git identity. A missing identity is an actionable error.
+    ///
+    /// libgit2's config search can miss Git for Windows' global config in GUI
+    /// processes (no `HOME`, different system gitconfig path). Fall back to the
+    /// same `git config` the user already has working in Settings.
     pub(crate) fn configured_signature<'a>(
         &self,
         repo: &'a Repository,
     ) -> Result<git2::Signature<'a>, GitServiceError> {
-        repo.signature()
-            .map_err(|_| GitServiceError::CommitIdentityNotConfigured)
+        if let Ok(signature) = repo.signature() {
+            return Ok(signature);
+        }
+
+        let identity_path = repo.workdir().unwrap_or_else(|| repo.path());
+        if let Some((name, email)) = Self::cli_user_identity(identity_path) {
+            return git2::Signature::now(&name, &email).map_err(GitServiceError::from);
+        }
+
+        Err(GitServiceError::CommitIdentityNotConfigured)
+    }
+
+    fn cli_user_identity(repo_path: &Path) -> Option<(String, String)> {
+        let git = GitCli::new();
+        let name = git.git(repo_path, ["config", "--get", "user.name"]).ok()?;
+        let email = git.git(repo_path, ["config", "--get", "user.email"]).ok()?;
+        let name = name.trim();
+        let email = email.trim();
+        if name.is_empty() || email.is_empty() {
+            None
+        } else {
+            Some((name.to_string(), email.to_string()))
+        }
+    }
+
+    /// Signature for the empty bootstrap commit only. Does not write gitconfig.
+    fn signature_for_initial_commit<'a>(
+        &self,
+        repo: &'a Repository,
+    ) -> Result<git2::Signature<'a>, GitServiceError> {
+        match self.configured_signature(repo) {
+            Ok(signature) => Ok(signature),
+            Err(GitServiceError::CommitIdentityNotConfigured) => {
+                git2::Signature::now(BOOTSTRAP_COMMIT_NAME, BOOTSTRAP_COMMIT_EMAIL)
+                    .map_err(GitServiceError::from)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn init_git_directory(repo_path: &Path) -> Result<Repository, GitServiceError> {
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head("main").mkdir(true);
+        match Repository::init_opts(repo_path, &opts) {
+            Ok(repo) => Ok(repo),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    path = %repo_path.display(),
+                    "libgit2 init failed; falling back to git CLI"
+                );
+                let git = GitCli::new();
+                if git.git(repo_path, ["init", "-b", "main"]).is_err() {
+                    git.git(repo_path, ["init"])?;
+                    git.git(repo_path, ["symbolic-ref", "HEAD", "refs/heads/main"])?;
+                }
+                Repository::open(repo_path).map_err(GitServiceError::from)
+            }
+        }
     }
 
     /// Initialize a new git repository with a main branch and initial commit.
+    ///
+    /// Safe to call again on a repo whose previous attempt created `.git` but
+    /// never produced a commit (the Windows-visible "silent init" failure).
     pub fn initialize_repo_with_main_branch(
         &self,
         repo_path: &Path,
@@ -34,16 +101,11 @@ impl GitService {
             std::fs::create_dir_all(repo_path)?;
         }
 
-        let repo = Repository::init_opts(
-            repo_path,
-            git2::RepositoryInitOptions::new()
-                .initial_head("main")
-                .mkdir(true),
-        )?;
+        if !repo_path.join(".git").exists() {
+            Self::init_git_directory(repo_path)?;
+        }
 
-        self.create_initial_commit(&repo)?;
-
-        Ok(())
+        self.ensure_main_branch_exists(repo_path)
     }
 
     /// Ensure an existing repository has a main branch for empty repositories.
@@ -66,7 +128,7 @@ impl GitService {
     }
 
     pub fn create_initial_commit(&self, repo: &Repository) -> Result<(), GitServiceError> {
-        let signature = self.configured_signature(repo)?;
+        let signature = self.signature_for_initial_commit(repo)?;
 
         let tree_id = {
             let tree_builder = repo.treebuilder(None)?;
@@ -158,6 +220,57 @@ mod tests {
 
         assert_eq!(repo.head().unwrap().name(), Some("refs/heads/main"));
         assert_eq!(first_commit, second_commit);
+    }
+
+    #[test]
+    fn initialize_repo_completes_unborn_head_without_replacing_existing_commits() {
+        let td = TempDir::new().unwrap();
+        let unborn_path = td.path().join("unborn");
+        Repository::init(&unborn_path).unwrap();
+        let service = GitService::new();
+
+        service
+            .initialize_repo_with_main_branch(&unborn_path)
+            .unwrap();
+
+        let unborn = Repository::open(&unborn_path).unwrap();
+        assert_eq!(unborn.head().unwrap().name(), Some("refs/heads/main"));
+        let first_commit = unborn.head().unwrap().target().unwrap();
+
+        service
+            .initialize_repo_with_main_branch(&unborn_path)
+            .unwrap();
+        let second_commit = Repository::open(&unborn_path)
+            .unwrap()
+            .head()
+            .unwrap()
+            .target()
+            .unwrap();
+        assert_eq!(first_commit, second_commit);
+    }
+
+    #[test]
+    fn initialize_repo_bootstrap_does_not_write_fallback_identity() {
+        let td = TempDir::new().unwrap();
+        let repo_path = td.path().join("repo");
+        let service = GitService::new();
+        service
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+
+        let repo = Repository::open(&repo_path).unwrap();
+        let local_cfg = repo.config().unwrap().open_level(ConfigLevel::Local);
+        if let Ok(local_cfg) = local_cfg {
+            let wrote_fallback = local_cfg.get_string("user.name").ok().as_deref()
+                == Some(super::BOOTSTRAP_COMMIT_NAME)
+                && local_cfg.get_string("user.email").ok().as_deref()
+                    == Some(super::BOOTSTRAP_COMMIT_EMAIL);
+            assert!(
+                !wrote_fallback,
+                "bootstrap commit must not write a fallback identity into repo gitconfig"
+            );
+        }
+        assert_eq!(repo.head().unwrap().name(), Some("refs/heads/main"));
     }
 
     #[test]

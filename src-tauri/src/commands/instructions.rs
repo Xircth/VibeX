@@ -14,7 +14,7 @@ const METADATA_FILE_NAME: &str = "instructions-metadata.json";
 const ALL_AGENT_TYPES: &[&str] = &[
     "claude_code",
     "codex",
-    "gemini",
+    "antigravity",
     "open_claw",
     "open_code",
     "cline",

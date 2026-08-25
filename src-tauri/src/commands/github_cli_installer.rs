@@ -112,14 +112,14 @@ pub(crate) async fn install() -> Result<PathBuf, String> {
     let asset_name = target.asset_name(&version);
     let release_root = format!("{RELEASE_DOWNLOAD_ROOT}/v{version}");
     let checksum_name = format!("gh_{version}_checksums.txt");
-    let checksums = download(
+    let (checksums, _) = super::release_download::download_with_fallback(
         &client,
         &format!("{release_root}/{checksum_name}"),
         MAX_CHECKSUM_BYTES,
     )
     .await?;
     let expected_checksum = checksum_for_asset(&checksums, &asset_name)?;
-    let archive = download(
+    let (archive, _) = super::release_download::download_with_fallback(
         &client,
         &format!("{release_root}/{asset_name}"),
         MAX_ARCHIVE_BYTES,
@@ -159,13 +159,8 @@ async fn validate_executable(executable_path: &Path) -> Result<(), String> {
 }
 
 async fn latest_version(client: &Client) -> Result<String, String> {
-    let response = client
-        .get(LATEST_RELEASE_URL)
-        .send()
-        .await
-        .map_err(|error| format!("Failed to resolve the latest GitHub CLI release: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Failed to resolve the latest GitHub CLI release: {error}"))?;
+    let (response, _) =
+        super::release_download::get_with_fallback(client, LATEST_RELEASE_URL).await?;
     let tag = response
         .url()
         .path_segments()
@@ -180,34 +175,6 @@ async fn latest_version(client: &Client) -> Result<String, String> {
     semver::Version::parse(tag)
         .map_err(|error| format!("GitHub returned an invalid release version `{tag}`: {error}"))?;
     Ok(tag.to_string())
-}
-
-async fn download(client: &Client, url: &str, limit: usize) -> Result<Vec<u8>, String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| format!("Failed to download {url}: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Failed to download {url}: {error}"))?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > limit as u64)
-    {
-        return Err(format!(
-            "GitHub download exceeds the {limit}-byte safety limit."
-        ));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| format!("Failed to read {url}: {error}"))?;
-    if bytes.len() > limit {
-        return Err(format!(
-            "GitHub download exceeds the {limit}-byte safety limit."
-        ));
-    }
-    Ok(bytes.to_vec())
 }
 
 fn checksum_for_asset(checksums: &[u8], asset_name: &str) -> Result<String, String> {

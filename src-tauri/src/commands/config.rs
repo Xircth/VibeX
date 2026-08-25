@@ -484,6 +484,7 @@ async fn saved_mcp_agent_environment(
                 "CLAUDE_CONFIG_DIR"
                     | "CODEX_HOME"
                     | "GEMINI_CLI_HOME"
+                    | "GEMINI_HOME"
                     | "OPENCLAW_HOME"
                     | "XDG_CONFIG_HOME"
                     | "XDG_DATA_HOME"

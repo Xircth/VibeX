@@ -37,6 +37,14 @@ pub struct GitHubCliStatus {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionControlInstallResult {
+    pub git: GitVersionStatus,
+    pub github: GitHubCliStatus,
+    pub identity_configured: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct GitHubUserResponse {
     login: String,
@@ -280,6 +288,84 @@ pub async fn install_github_cli(host: Option<String>) -> Result<GitHubCliStatus,
     }
 
     get_github_cli_status(host).await
+}
+
+#[tauri::command]
+pub async fn install_version_control_tools(
+    user_name: String,
+    user_email: String,
+) -> Result<VersionControlInstallResult, AppError> {
+    let user_name = user_name.trim();
+    let user_email = user_email.trim();
+    if user_name.is_empty() || user_email.is_empty() || !user_email.contains('@') {
+        return Err(AppError::BadRequest(
+            "A Git user name and email are required.".to_string(),
+        ));
+    }
+
+    let mut identity_configured = false;
+    let mut error = None;
+
+    if let Err(install_error) = ensure_git_installed().await {
+        error = Some(install_error);
+    }
+
+    let git = detect_git_version().await?;
+    if git.installed
+        && let Some(git_path) = git.path.as_deref().filter(|path| !path.is_empty())
+    {
+        match super::git_cli_installer::configure_identity(
+            Path::new(git_path),
+            user_name,
+            user_email,
+        )
+        .await
+        {
+            Ok(()) => identity_configured = true,
+            Err(identity_error) => {
+                error.get_or_insert(identity_error);
+            }
+        }
+    }
+
+    if error.is_none()
+        && resolve_gh_path().await.is_none()
+        && let Err(install_error) = super::github_cli_installer::install().await
+    {
+        error = Some(install_error);
+    }
+
+    let github = get_github_cli_status(None).await?;
+    if error.is_none() && !github.gh_installed {
+        error = Some(
+            github
+                .message
+                .clone()
+                .unwrap_or_else(|| "GitHub CLI is not installed.".to_string()),
+        );
+    }
+
+    Ok(VersionControlInstallResult {
+        git,
+        github,
+        identity_configured,
+        error,
+    })
+}
+
+async fn ensure_git_installed() -> Result<(), String> {
+    let settings = load_settings().await.map_err(|error| error.to_string())?;
+    if run_git_version(resolve_git_path(&settings)).await.installed {
+        return Ok(());
+    }
+
+    let executable = super::git_cli_installer::install().await?;
+    let mut settings = load_settings().await.map_err(|error| error.to_string())?;
+    settings.git_custom_path = Some(executable.display().to_string());
+    save_settings(&settings)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

@@ -64,7 +64,7 @@ impl RepoService {
     }
 
     fn resolve_git_repo_path_with_libgit2(&self, path: &Path) -> Result<Option<PathBuf>> {
-        let repository = match git2::Repository::open(path) {
+        let repository = match GitService::new().open_repo(path) {
             Ok(repository) => repository,
             Err(_) => return Ok(None),
         };
@@ -73,18 +73,20 @@ impl RepoService {
         };
 
         let normalized_workdir = utils::path::normalize_macos_private_alias(workdir);
-        let normalized_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let canonical_workdir = normalized_workdir
-            .canonicalize()
-            .unwrap_or_else(|_| normalized_workdir.clone());
+        let canonical_workdir = normalize_windows_extended_path_prefix(
+            normalized_workdir
+                .canonicalize()
+                .unwrap_or_else(|_| normalized_workdir.clone()),
+        );
+        let canonical_path = normalize_windows_extended_path_prefix(
+            path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+        );
 
-        if canonical_workdir != normalized_path {
+        if canonical_workdir != canonical_path {
             return Ok(None);
         }
 
-        Ok(Some(normalize_windows_extended_path_prefix(
-            canonical_workdir,
-        )))
+        Ok(Some(canonical_workdir))
     }
 
     fn resolve_git_repo_path_with_cli(&self, path: &Path) -> Result<Option<PathBuf>> {
@@ -98,18 +100,20 @@ impl RepoService {
         }
 
         let normalized_top_level = utils::path::normalize_macos_private_alias(Path::new(top_level));
-        let normalized_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let canonical_top_level = normalized_top_level
-            .canonicalize()
-            .unwrap_or_else(|_| normalized_top_level.clone());
+        let canonical_top_level = normalize_windows_extended_path_prefix(
+            normalized_top_level
+                .canonicalize()
+                .unwrap_or_else(|_| normalized_top_level.clone()),
+        );
+        let canonical_path = normalize_windows_extended_path_prefix(
+            path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+        );
 
-        if canonical_top_level != normalized_path {
+        if canonical_top_level != canonical_path {
             return Ok(None);
         }
 
-        Ok(Some(normalize_windows_extended_path_prefix(
-            canonical_top_level,
-        )))
+        Ok(Some(canonical_top_level))
     }
 
     pub fn validate_git_repo_path(&self, path: &Path) -> Result<()> {
@@ -199,22 +203,20 @@ impl RepoService {
                 return Err(RepoError::DirectoryAlreadyExists(repo_path));
             }
 
-            match self.resolve_git_repo_path(&repo_path) {
-                Ok(existing_repo_path) => {
-                    let repo =
-                        RepoModel::find_or_create(pool, &existing_repo_path, folder_name).await?;
-                    return Ok(repo);
+            if let Err(error) = self.resolve_git_repo_path(&repo_path) {
+                match error {
+                    RepoError::NotGitRepository(_) if directory_is_empty(&repo_path)? => {}
+                    RepoError::NotGitRepository(_) => {
+                        return Err(RepoError::DirectoryAlreadyExists(repo_path));
+                    }
+                    error => return Err(error),
                 }
-                Err(RepoError::NotGitRepository(_)) if directory_is_empty(&repo_path)? => {}
-                Err(RepoError::NotGitRepository(_)) => {
-                    return Err(RepoError::DirectoryAlreadyExists(repo_path));
-                }
-                Err(error) => return Err(error),
             }
         }
 
         git.initialize_repo_with_main_branch(&repo_path)?;
 
+        let repo_path = self.resolve_git_repo_path(&repo_path)?;
         let repo = RepoModel::find_or_create(pool, &repo_path, folder_name).await?;
         Ok(repo)
     }
@@ -234,9 +236,7 @@ impl RepoService {
             return Err(RepoError::PathNotDirectory(normalized_path));
         }
 
-        if !normalized_path.join(".git").exists() {
-            git.initialize_repo_with_main_branch(&normalized_path)?;
-        }
+        git.initialize_repo_with_main_branch(&normalized_path)?;
 
         let default_name = normalized_path
             .file_name()
@@ -379,6 +379,63 @@ mod tests {
         assert_eq!(
             repo.path,
             normalize_windows_extended_path_prefix(repo_path.canonicalize().unwrap())
+        );
+    }
+
+    fn init_unborn_repo(path: &Path) {
+        git2::Repository::init(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn init_repo_completes_unborn_git_directory() {
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("unborn");
+        init_unborn_repo(&repo_path);
+        let service = RepoService::new();
+        let pool = repo_test_pool().await;
+        let git = GitService::new();
+
+        service
+            .init_repo(&pool, &git, temp.path().to_str().unwrap(), "unborn")
+            .await
+            .unwrap();
+
+        let branches = git.get_all_branches(&repo_path).unwrap();
+        assert!(
+            branches.iter().any(|branch| branch.name == "main"),
+            "expected a main branch after recovering an unborn git directory, got {branches:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn init_repo_at_path_completes_unborn_git_directory() {
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("opened-folder");
+        std::fs::create_dir_all(&repo_path).unwrap();
+        std::fs::write(repo_path.join("notes.txt"), "existing files stay").unwrap();
+        init_unborn_repo(&repo_path);
+        let service = RepoService::new();
+        let pool = repo_test_pool().await;
+        let git = GitService::new();
+
+        service
+            .init_repo_at_path(
+                &pool,
+                &git,
+                repo_path.to_str().unwrap(),
+                Some("opened-folder"),
+            )
+            .await
+            .unwrap();
+
+        let branches = git.get_all_branches(&repo_path).unwrap();
+        assert!(
+            branches.iter().any(|branch| branch.name == "main"),
+            "expected a main branch after opening a folder with an unborn git directory, got {branches:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo_path.join("notes.txt")).unwrap(),
+            "existing files stay"
         );
     }
 

@@ -759,6 +759,7 @@
     "noConfig": "此插件没有可配置项。",
     "agentDefaultsEmpty": "没有可配置的已启用智能体。",
     "agentDefaultsUnavailable": "无法读取该智能体的会话选项。",
+    "agentDefaultsConfigure": "配置 {{name}}",
     "agentDefaultsMode": "模式",
     "agentDefaultsInherit": "使用智能体默认值",
     "unsavedConfig": "插件配置有未保存的更改",

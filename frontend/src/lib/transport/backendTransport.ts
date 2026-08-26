@@ -58,6 +58,14 @@ export interface ApplicationCommandMap {
     args: { workspaceId: string };
     result: DbConversationSummary[];
   };
+  conversation_list_recent: {
+    args: {
+      sinceDays?: number | null;
+      limit?: number | null;
+      projectId?: string | null;
+    };
+    result: DbConversationSummary[];
+  };
   conversation_create: {
     args: {
       workspaceId: string;

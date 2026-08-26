@@ -1,4 +1,38 @@
-import { isAgentMentionCodeContext } from './AgentMention';
+import {
+  isAgentMentionCodeContext,
+  serializeAgentMention,
+  type AgentMention,
+} from './AgentMention';
+
+const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
+const COMMIT_URI_PREFIX = 'vibex://commit/';
+
+function parseConversationReferenceUri(uri: string): string | null {
+  if (!uri.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) return null;
+  const id = uri.slice(CONVERSATION_URI_PREFIX.length).trim();
+  return id || null;
+}
+
+function parseCommitReferenceUri(
+  uri: string
+): { repoId: string; sha: string } | null {
+  if (!uri.toLowerCase().startsWith(COMMIT_URI_PREFIX)) return null;
+  const body = uri.slice(COMMIT_URI_PREFIX.length);
+  const separator = body.lastIndexOf('@');
+  if (separator <= 0 || separator === body.length - 1) return null;
+  try {
+    const repoId = decodeURIComponent(body.slice(0, separator));
+    const sha = body.slice(separator + 1);
+    if (!repoId || !sha) return null;
+    return { repoId, sha };
+  } catch {
+    return null;
+  }
+}
+
+function shortCommitSha(sha: string): string {
+  return sha.slice(0, 7);
+}
 
 export type SessionComposerCommandType = '@' | '/' | '$' | '#' | '&' | '!';
 
@@ -9,7 +43,9 @@ export type SessionComposerStructuredTokenKind =
   | 'tag'
   | 'plugin_action'
   | 'element'
-  | 'agent_mention';
+  | 'agent_mention'
+  | 'conversation'
+  | 'commit';
 
 export type SessionComposerStructuredToken = {
   kind: SessionComposerStructuredTokenKind;
@@ -37,6 +73,7 @@ type TokenSegment = Extract<
 
 type StructuredTokenOptions = {
   includeLegacyTokens?: boolean;
+  bareAgentMentions?: AgentMention[];
 };
 
 type PreviewElementTokenPayload = {
@@ -55,6 +92,113 @@ const COMMAND_TYPES = new Set<SessionComposerCommandType>([
   '#',
   '!',
 ]);
+
+function isTokenBoundary(source: string, index: number): boolean {
+  return index === 0 || /[\s([{]/.test(source.charAt(index - 1));
+}
+
+function parseMarkdownLinkAt(
+  source: string,
+  start: number
+): { label: string; uri: string; end: number } | null {
+  if (source.charAt(start) !== '[') return null;
+  const labelPart = readEscapedPart(source, start + 1, ']');
+  if (!labelPart || source.charAt(labelPart.end + 1) !== '(') return null;
+  const uriPart = readEscapedPart(source, labelPart.end + 2, ')');
+  if (!uriPart) return null;
+  return {
+    label: labelPart.value,
+    uri: uriPart.value,
+    end: uriPart.end + 1,
+  };
+}
+
+function parseConversationReferenceAt(
+  source: string,
+  start: number
+): { token: SessionComposerStructuredToken; end: number } | null {
+  const link = parseMarkdownLinkAt(source, start);
+  if (!link) return null;
+  const conversationId = parseConversationReferenceUri(link.uri);
+  if (!conversationId) return null;
+  const raw = source.slice(start, link.end);
+  return {
+    token: {
+      kind: 'conversation',
+      type: '@',
+      key: conversationId,
+      label: link.label || conversationId,
+      value: conversationId,
+      raw,
+      title: conversationId,
+    },
+    end: link.end,
+  };
+}
+
+function parseCommitReferenceAt(
+  source: string,
+  start: number
+): { token: SessionComposerStructuredToken; end: number } | null {
+  const link = parseMarkdownLinkAt(source, start);
+  if (!link) return null;
+  const parsed = parseCommitReferenceUri(link.uri);
+  if (!parsed) return null;
+  const raw = source.slice(start, link.end);
+  return {
+    token: {
+      kind: 'commit',
+      type: '@',
+      key: parsed.sha,
+      label: link.label || shortCommitSha(parsed.sha),
+      value: parsed.sha,
+      raw,
+      title: parsed.sha,
+    },
+    end: link.end,
+  };
+}
+
+function parseBareAgentMentionAt(
+  source: string,
+  start: number,
+  candidates: AgentMention[]
+): { token: SessionComposerStructuredToken; end: number } | null {
+  if (source.charAt(start) !== '&' || !isTokenBoundary(source, start)) {
+    return null;
+  }
+  if (candidates.length === 0) return null;
+
+  let end = start + 1;
+  while (end < source.length && !/[\s&]/.test(source.charAt(end))) {
+    end += 1;
+  }
+  if (end <= start + 1) return null;
+
+  const typed = source.slice(start + 1, end);
+  const normalized = typed.toLocaleLowerCase();
+  const matches = candidates.filter(
+    (candidate) =>
+      candidate.display_name.toLocaleLowerCase() === normalized ||
+      candidate.agent_kind.toLocaleLowerCase() === normalized
+  );
+  if (matches.length !== 1) return null;
+
+  const mention = matches[0];
+  const raw = serializeAgentMention(mention);
+  return {
+    token: {
+      kind: 'agent_mention',
+      type: '&',
+      key: mention.agent_kind,
+      label: `&${mention.display_name}`,
+      value: mention.agent_kind,
+      raw,
+      title: mention.agent_kind,
+    },
+    end,
+  };
+}
 
 function parseAgentMentionAt(
   source: string,
@@ -446,6 +590,61 @@ export function getSessionComposerStructuredTokenSegments(
       continue;
     }
 
+    const conversation = isAgentMentionCodeContext(value, scan)
+      ? null
+      : parseConversationReferenceAt(value, scan);
+    if (conversation) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: conversation.token,
+        start: scan,
+        end: conversation.end,
+      });
+      cursor = conversation.end;
+      scan = conversation.end;
+      continue;
+    }
+
+    const commit = isAgentMentionCodeContext(value, scan)
+      ? null
+      : parseCommitReferenceAt(value, scan);
+    if (commit) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: commit.token,
+        start: scan,
+        end: commit.end,
+      });
+      cursor = commit.end;
+      scan = commit.end;
+      continue;
+    }
+
+    const bareMention =
+      options.bareAgentMentions && !isAgentMentionCodeContext(value, scan)
+        ? parseBareAgentMentionAt(value, scan, options.bareAgentMentions)
+        : null;
+    if (bareMention) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: bareMention.token,
+        start: scan,
+        end: bareMention.end,
+      });
+      cursor = bareMention.end;
+      scan = bareMention.end;
+      continue;
+    }
+
     const explicit = parseExplicitCommandAt(value, scan);
     if (explicit) {
       if (scan > cursor) {
@@ -632,7 +831,9 @@ export function serializeSessionComposerBackendMessage(value: string): string {
     .map((segment) =>
       segment.kind === 'text'
         ? segment.text
-        : segment.token.kind === 'agent_mention'
+        : segment.token.kind === 'agent_mention' ||
+            segment.token.kind === 'conversation' ||
+            segment.token.kind === 'commit'
           ? segment.token.raw
           : segment.token.value
     )

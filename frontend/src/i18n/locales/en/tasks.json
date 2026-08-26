@@ -12,6 +12,17 @@
       "source": "Source",
       "selector": "Selector",
       "html": "Element HTML"
+    },
+    "atReference": {
+      "listbox": "References",
+      "loading": "Searching…",
+      "empty": "No matches",
+      "tabs": {
+        "file": "Files",
+        "conversation": "Sessions",
+        "commit": "Commits",
+        "instruction": "Instructions"
+      }
     }
   },
   "agentMention": {

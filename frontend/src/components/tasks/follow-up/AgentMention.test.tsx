@@ -4,7 +4,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BackendTransport } from '@/lib/backendTransport';
-import { AgentMentionProvider } from './AgentMention';
+import {
+  AgentMentionProvider,
+  agentMentionCapabilityFromDetail,
+} from './AgentMention';
 import { SessionComposerInput } from './SessionComposerInput';
 
 beforeAll(() => {
@@ -83,6 +86,24 @@ function getEditor(): HTMLDivElement {
   const surface = screen.getByTestId('session-composer-editor');
   return surface.querySelector('[contenteditable="true"]') as HTMLDivElement;
 }
+
+describe('agentMentionCapabilityFromDetail', () => {
+  it('supports a new conversation with the plugin on and no binding', () => {
+    expect(
+      agentMentionCapabilityFromDetail(true, 'conv-1', {
+        active_binding: null,
+      })
+    ).toBe('supported');
+  });
+
+  it('rejects an existing binding that was never delivered', () => {
+    expect(
+      agentMentionCapabilityFromDetail(true, 'conv-1', {
+        active_binding: { delegation_mcp_delivered: false },
+      })
+    ).toBe('unsupported');
+  });
+});
 
 describe('AgentMention', () => {
   it('selects an agent at a token boundary and inserts its stable URI', async () => {
@@ -225,6 +246,41 @@ describe('AgentMention', () => {
     await user.click(editor);
     await user.type(editor, '&Co');
     expect(screen.queryByRole('option', { name: /Codex/ })).toBeNull();
+  });
+
+  it('offers mentions on a new conversation that has no agent binding yet', async () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command) => {
+        if (command === 'agent_management_bar') {
+          return [
+            {
+              agent_id: 'codex',
+              display_name: 'Codex',
+              enabled: true,
+              lifecycle: 'ready',
+              active_operation: null,
+            },
+          ];
+        }
+        if (command === 'conversation_detail') {
+          return { active_binding: null };
+        }
+        if (command === 'plugin_control_catalog') {
+          return {
+            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
+            runtimes: [],
+          };
+        }
+        return null;
+      }),
+    };
+    const user = userEvent.setup();
+    render(<ComposerHarness transport={transport} />);
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '&Co');
+    expect(await screen.findByRole('option', { name: /Codex/ })).toBeVisible();
   });
 
   it('does not offer mentions until this conversation has been delivered', async () => {

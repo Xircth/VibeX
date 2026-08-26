@@ -144,6 +144,16 @@ export function createConversationApi(transport: BackendTransport) {
   return {
     list: (workspaceId: string): Promise<DbConversationSummary[]> =>
       callApplicationCommand(transport, 'conversation_list', { workspaceId }),
+    listRecent: (args?: {
+      sinceDays?: number | null;
+      limit?: number | null;
+      projectId?: string | null;
+    }): Promise<DbConversationSummary[]> =>
+      callApplicationCommand(transport, 'conversation_list_recent', {
+        sinceDays: args?.sinceDays,
+        limit: args?.limit,
+        projectId: args?.projectId,
+      }),
     create: (
       request: ConversationCreateRequest
     ): Promise<DbConversationSummary> =>

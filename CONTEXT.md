@@ -77,7 +77,11 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。
 - **Conversation relation（会话关系）** — 两个独立 Conversation 之间用于导航、可见性和汇总的亲子关系；它不共享历史，也不参与任一 Conversation 的事件读取。
 - **Delegated conversation（委派会话）** — 父 Conversation 为一项明确任务创建的 child Conversation；其 Conversation 与 Turn 事实独立持久化，父级只持有关系、策略和结果摘要。
-- **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当多智能体协同插件已启用、且当前 Conversation 已在启用后完成投递时出现。见 ADR-0031 与 ADR-0057。
+- **Composer reference（Composer 引用）** — 用户在 Composer 中用 `@` 插入的结构化引用。`@` 打开带 Tab 的引用面板，当前 Tab 为文件、会话、提交与指令；`/`、`$`、`&` 仍是独立触发符。`#` 不再单独触发，原指令进入 `@` 的指令 Tab。见 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
+- **Conversation reference（会话引用）** — `@` 面板中点名另一段 Conversation 的引用，序列化为 `[title](vibex://conversation/<uuid>)`。Agent 通过会话增强的 `get_session_info` 只读查看被点名的会话。
+- **Commit reference（提交引用）** — `@` 面板中点名当前仓库一次 git commit 的引用，序列化为 `[shortSha](vibex://commit/<repoId>@<sha>)`。
+- **Instruction reference（指令引用）** — `@` 面板指令 Tab 中插入的标签/内置指令，沿用原 `#` token 的展开语义。
+- **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当多智能体协同插件已启用，且当前 Conversation 要么尚无 Agent binding、要么该 binding 已在启用后完成投递时出现。见 ADR-0031、ADR-0057 与 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
 
 会话输入、纠偏、关系与委派策略见
 [ADR-0044](docs/adr/0044-conversation-control-plane-and-durable-inputs.md)。

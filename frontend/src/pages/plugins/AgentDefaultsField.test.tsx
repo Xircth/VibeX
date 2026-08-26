@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -112,6 +112,9 @@ describe('AgentDefaultsField', () => {
     );
 
     expect(screen.getByText('Grok')).toBeVisible();
+    expect(loadCatalog).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '配置 Grok' }));
     await waitFor(() => {
       expect(loadCatalog).toHaveBeenCalledWith('grok');
     });
@@ -141,6 +144,7 @@ describe('AgentDefaultsField', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: '配置 Grok' }));
     expect(
       await screen.findByText('无法读取该智能体的会话选项。')
     ).toBeVisible();

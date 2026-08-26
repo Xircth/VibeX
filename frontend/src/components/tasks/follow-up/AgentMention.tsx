@@ -52,8 +52,7 @@ function readCandidates(value: unknown): AgentMentionCandidate[] {
       typeof candidate.agent_id !== 'string' ||
       typeof candidate.display_name !== 'string' ||
       candidate.enabled !== true ||
-      candidate.lifecycle !== 'ready' ||
-      candidate.active_operation != null
+      candidate.lifecycle !== 'ready'
     ) {
       return [];
     }
@@ -65,6 +64,21 @@ function readCandidates(value: unknown): AgentMentionCandidate[] {
       },
     ];
   });
+}
+
+export function agentMentionCapabilityFromDetail(
+  pluginOn: boolean,
+  conversationId: string | null | undefined,
+  detail: unknown
+): AgentMentionContextValue['capability'] {
+  if (!pluginOn || !conversationId) return 'unsupported';
+  if (!isRecord(detail)) return 'unsupported';
+  const binding = detail.active_binding;
+  if (binding == null) return 'supported';
+  if (isRecord(binding) && binding.delegation_mcp_delivered === true) {
+    return 'supported';
+  }
+  return 'unsupported';
 }
 
 export function AgentMentionProvider({
@@ -106,22 +120,9 @@ export function AgentMentionProvider({
       .then(([detail, catalog]) => {
         if (!active) return;
         const pluginOn = pluginEnabled(catalog, 'vibex.multi-agent');
-        if (!pluginOn) {
-          setCapability('unsupported');
-          return;
-        }
-        if (!conversationId) {
-          setCapability('unsupported');
-          return;
-        }
-        if (!isRecord(detail)) {
-          setCapability('unsupported');
-          return;
-        }
-        const binding = detail.active_binding;
-        const delivered =
-          isRecord(binding) && binding.delegation_mcp_delivered === true;
-        setCapability(delivered ? 'supported' : 'unsupported');
+        setCapability(
+          agentMentionCapabilityFromDetail(pluginOn, conversationId, detail)
+        );
       })
       .catch(() => {
         if (active) setCapability('unsupported');

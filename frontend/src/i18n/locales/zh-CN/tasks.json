@@ -12,6 +12,17 @@
       "source": "源码",
       "selector": "选择器",
       "html": "元素 HTML"
+    },
+    "atReference": {
+      "listbox": "引用",
+      "loading": "正在搜索…",
+      "empty": "没有匹配项",
+      "tabs": {
+        "file": "文件",
+        "conversation": "会话",
+        "commit": "提交",
+        "instruction": "指令"
+      }
     }
   },
   "agentMention": {

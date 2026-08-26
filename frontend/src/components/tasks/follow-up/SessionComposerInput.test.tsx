@@ -458,15 +458,17 @@ describe('SessionComposerInput (Astryx)', () => {
     ).toHaveClass('composer-trigger-description');
   });
 
-  it('renders a selected tag token with exactly one hash prefix', async () => {
+  it('renders a selected instruction token from the @ reference panel', async () => {
     const user = userEvent.setup();
     vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
     renderComposerInput();
     const editor = getEditor();
 
     await user.click(editor);
-    await user.type(editor, '#');
+    await user.type(editor, '@');
 
+    const instructionTab = await screen.findByRole('tab', { name: /指令/ });
+    await user.click(instructionTab);
     const option = (await screen.findAllByRole('option'))[0];
     await user.click(option);
 
@@ -474,7 +476,6 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(token).not.toBeNull();
     expect(token?.textContent?.startsWith('#')).toBe(true);
     expect(token?.textContent?.match(/#/g)).toHaveLength(1);
-    expect(token?.querySelector('svg')).toBeNull();
   });
 
   it('restores serialized structured tokens as token chips', async () => {

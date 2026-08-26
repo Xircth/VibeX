@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionControlsSnapshot } from 'shared/types';
 
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
+import { cn } from '@/lib/utils';
 import { officialConfigFieldCopy } from './officialPlugins';
 
 type JsonSchema = Record<string, unknown>;
@@ -95,6 +97,7 @@ export function AgentDefaultsField({
   const copyText = officialConfigFieldCopy(pluginId, name, schema, t);
   const agents = useManagedAgentOptions(undefined, true);
   const draft = asRecord(value);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <fieldset className="product-plugin-agent-defaults">
@@ -107,27 +110,36 @@ export function AgentDefaultsField({
           {t('plugins.agentDefaultsEmpty')}
         </p>
       ) : (
-        agents.map((agent) => (
-          <AgentDefaultRow
-            key={agent.value}
-            agentId={agent.value}
-            label={agent.label}
-            value={draft[agent.value] ?? {}}
-            disabled={disabled}
-            onChange={(next) => {
-              const merged = { ...draft };
-              if (
-                !next.modeId &&
-                Object.keys(next.configValues ?? {}).length === 0
-              ) {
-                delete merged[agent.value];
-              } else {
-                merged[agent.value] = next;
-              }
-              onChange(compactDefaults(merged));
-            }}
-          />
-        ))
+        <ul className="product-plugin-agent-list">
+          {agents.map((agent) => (
+            <li key={agent.value}>
+              <AgentDefaultRow
+                agentId={agent.value}
+                label={agent.label}
+                value={draft[agent.value] ?? {}}
+                disabled={disabled}
+                expanded={expandedId === agent.value}
+                onToggle={() =>
+                  setExpandedId((current) =>
+                    current === agent.value ? null : agent.value
+                  )
+                }
+                onChange={(next) => {
+                  const merged = { ...draft };
+                  if (
+                    !next.modeId &&
+                    Object.keys(next.configValues ?? {}).length === 0
+                  ) {
+                    delete merged[agent.value];
+                  } else {
+                    merged[agent.value] = next;
+                  }
+                  onChange(compactDefaults(merged));
+                }}
+              />
+            </li>
+          ))}
+        </ul>
       )}
     </fieldset>
   );
@@ -138,12 +150,16 @@ function AgentDefaultRow({
   label,
   value,
   disabled,
+  expanded,
+  onToggle,
   onChange,
 }: {
   agentId: string;
   label: string;
   value: AgentDefaultRecord;
   disabled: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   onChange: (value: AgentDefaultRecord) => void;
 }) {
   const { t } = useTranslation('settings');
@@ -153,6 +169,7 @@ function AgentDefaultRow({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!expanded) return;
     let active = true;
     setFailed(false);
     void loadAgentSessionControlsCatalog(agentId)
@@ -168,36 +185,56 @@ function AgentDefaultRow({
     return () => {
       active = false;
     };
-  }, [agentId]);
+  }, [agentId, expanded]);
 
   return (
     <div className="product-plugin-agent-row">
-      <p className="product-plugin-agent-row__name">{label}</p>
-      {failed ? (
-        <p className="product-plugin-muted">
-          {t('plugins.agentDefaultsUnavailable')}
-        </p>
-      ) : catalog ? (
-        <SessionControlsFields
-          modes={catalog.modes}
-          currentModeId={catalog.current_mode ?? null}
-          configOptions={catalog.config_options}
-          selectedModeId={value.modeId ?? catalog.current_mode ?? null}
-          pendingConfigValues={value.configValues ?? {}}
-          onSelectMode={(modeId) =>
-            onChange({
-              ...value,
-              modeId,
-            })
-          }
-          onSelectConfigValue={(key, next) =>
-            onChange({
-              ...value,
-              configValues: { ...(value.configValues ?? {}), [key]: next },
-            })
-          }
-          disabled={disabled}
+      <button
+        type="button"
+        className="product-plugin-agent-row__toggle"
+        aria-expanded={expanded}
+        aria-label={t('plugins.agentDefaultsConfigure', { name: label })}
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+            expanded && 'rotate-90'
+          )}
+          aria-hidden="true"
         />
+        <span className="product-plugin-agent-row__name">{label}</span>
+      </button>
+      {expanded ? (
+        <div className="product-plugin-agent-row__body">
+          {failed ? (
+            <p className="product-plugin-muted">
+              {t('plugins.agentDefaultsUnavailable')}
+            </p>
+          ) : catalog ? (
+            <SessionControlsFields
+              modes={catalog.modes}
+              currentModeId={catalog.current_mode ?? null}
+              configOptions={catalog.config_options}
+              selectedModeId={value.modeId ?? catalog.current_mode ?? null}
+              pendingConfigValues={value.configValues ?? {}}
+              onSelectMode={(modeId) =>
+                onChange({
+                  ...value,
+                  modeId,
+                })
+              }
+              onSelectConfigValue={(key, next) =>
+                onChange({
+                  ...value,
+                  configValues: { ...(value.configValues ?? {}), [key]: next },
+                })
+              }
+              disabled={disabled}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

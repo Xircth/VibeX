@@ -13,7 +13,13 @@ import {
 } from '@astryxdesign/core/Markdown';
 import { loadKatex } from '@/lib/katexRuntime';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { GitCommitHorizontal, MessageSquare } from 'lucide-react';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
+import {
+  parseCommitReferenceUri,
+  parseConversationReferenceUri,
+  shortCommitSha,
+} from '@/components/tasks/follow-up/composerAtReferences';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -219,6 +225,34 @@ function createMarkdownComponents({
             tagName={tagReferencePayload.tagName}
             content={tagReferencePayload.content}
           />
+        );
+      }
+
+      const conversationId = href ? parseConversationReferenceUri(href) : null;
+      if (conversationId) {
+        const label = flattenNodeText(children) || conversationId;
+        return (
+          <span className="mx-0.5 inline-flex max-w-[220px] items-center gap-1 rounded-md bg-[hsl(var(--info)/0.12)] px-1.5 py-0.5 align-baseline text-sm text-[hsl(var(--info))]">
+            <MessageSquare className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate font-medium">{label}</span>
+          </span>
+        );
+      }
+
+      const commit = href ? parseCommitReferenceUri(href) : null;
+      if (commit) {
+        const label = flattenNodeText(children) || shortCommitSha(commit.sha);
+        return (
+          <span
+            className="mx-0.5 inline-flex max-w-[220px] items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 align-baseline text-sm text-foreground"
+            title={commit.sha}
+          >
+            <GitCommitHorizontal
+              className="h-3 w-3 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="truncate font-medium">{label}</span>
+          </span>
         );
       }
 

@@ -276,4 +276,43 @@ describe('session composer structured commands', () => {
       })
     ).toBeNull();
   });
+
+  it('parses conversation and commit markdown links as tokens', () => {
+    const conversation =
+      '[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)';
+    const commit = '[abcdef1](vibex://commit/repo-1@abcdef1234567890)';
+    expect(getSessionComposerStructuredTokens(conversation)).toEqual([
+      expect.objectContaining({
+        kind: 'conversation',
+        label: 'Fix auth',
+        value: '550e8400-e29b-41d4-a716-446655440000',
+      }),
+    ]);
+    expect(getSessionComposerStructuredTokens(commit)).toEqual([
+      expect.objectContaining({
+        kind: 'commit',
+        label: 'abcdef1',
+        value: 'abcdef1234567890',
+      }),
+    ]);
+    expect(
+      serializeSessionComposerBackendMessage(
+        `See ${conversation} and ${commit}`
+      )
+    ).toBe(`See ${conversation} and ${commit}`);
+  });
+
+  it('turns a unique bare agent mention into a structured token', () => {
+    const tokens = getSessionComposerStructuredTokens('Ask &Codex next', {
+      bareAgentMentions: [{ agent_kind: 'codex', display_name: 'Codex' }],
+    });
+    expect(tokens).toEqual([
+      expect.objectContaining({
+        kind: 'agent_mention',
+        label: '&Codex',
+        value: 'codex',
+        raw: '[&Codex](vibex://agent/codex)',
+      }),
+    ]);
+  });
 });

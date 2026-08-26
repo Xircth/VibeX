@@ -10940,17 +10940,57 @@
   padding: 0 16px 14px;
 }
 
+.settings-page .product-plugin-agent-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 8px 12px;
+  list-style: none;
+}
+
 .settings-page .product-plugin-agent-row {
   display: grid;
-  gap: 10px;
-  padding: 10px 16px 14px;
-  border-top: 1px solid var(--border-content);
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-page .product-plugin-agent-row__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: start;
+}
+
+.settings-page .product-plugin-agent-row__toggle:hover:not(:disabled) {
+  background: var(--surface-control);
+}
+
+.settings-page .product-plugin-agent-row__toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 .settings-page .product-plugin-agent-row__name {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 600;
+}
+
+.settings-page .product-plugin-agent-row__body {
+  padding: 0 8px 8px 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-page .product-plugin-agent-row__toggle svg {
+    transition: none;
+  }
 }
 
 .settings-page .product-plugin-dev-connection {

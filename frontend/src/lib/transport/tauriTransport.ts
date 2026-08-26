@@ -26,6 +26,7 @@ type WireSubscriptionBootstrap = Omit<
 
 const APPLICATION_COMMANDS = new Set([
   'conversation_list',
+  'conversation_list_recent',
   'conversation_create',
   'conversation_child_create',
   'conversation_output',
@@ -190,7 +191,9 @@ export class TauriTransport implements BackendTransport {
               new Promise<void>((resolve) => {
                 wake = resolve;
               }),
-              new Promise<void>((resolve) => globalThis.setTimeout(resolve, 100)),
+              new Promise<void>((resolve) =>
+                globalThis.setTimeout(resolve, 100)
+              ),
             ]);
           } else {
             await new Promise<void>((resolve) => {

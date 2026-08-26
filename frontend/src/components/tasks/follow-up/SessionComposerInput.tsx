@@ -17,9 +17,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   AtSign,
   Command,
+  GitCommitHorizontal,
   Hash,
   Image,
   Loader2,
+  MessageSquare,
   MousePointer2,
   Puzzle,
   Sparkles,
@@ -45,7 +47,6 @@ import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   fileTreeApi,
-  repoApi,
   type AgentLocalSkill,
   type AgentSkillsListResult,
 } from '@/lib/api';
@@ -63,7 +64,6 @@ import {
   pluginInvocationsToSlashCommands,
 } from '@/lib/conversation-rendering/commandSources';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
-import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
@@ -82,8 +82,6 @@ import {
   agentMentionsToTypeaheadOptions,
   dollarCommandsToTypeaheadOptions,
   pluginActionsToTypeaheadOptions,
-  referenceResultsToTypeaheadOptions,
-  rootEntriesToFileReferenceOptions,
   slashCommandsToTypeaheadOptions,
   type ComposerTypeaheadOption,
 } from './sessionComposerTypeaheadOptions';
@@ -95,6 +93,8 @@ import {
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
 import { composerBareEnterInsertsNewline } from './sessionComposerSubmitHotkey';
+import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
+import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
 
 export type SessionComposerImage = {
   id: string;
@@ -329,7 +329,11 @@ function toSearchableItem(option: ComposerTypeaheadOption): SearchableItem {
           ? 'plugin_action'
           : option.key.startsWith('tag-')
             ? 'tag'
-            : 'file';
+            : option.key.startsWith('conversation-')
+              ? 'conversation'
+              : option.key.startsWith('commit-')
+                ? 'commit'
+                : 'file';
   return {
     id: option.key,
     label: option.label,
@@ -363,6 +367,8 @@ const TOKEN_VARIANTS: Record<SessionComposerStructuredTokenKind, BadgeVariant> =
     plugin_action: 'pink',
     element: 'purple',
     agent_mention: 'purple',
+    conversation: 'cyan',
+    commit: 'neutral',
   };
 
 function ComposerTokenIcon({
@@ -385,6 +391,10 @@ function ComposerTokenIcon({
       return <Puzzle className={className} />;
     case 'agent_mention':
       return <AgentIcon agent={token.value} className={className} />;
+    case 'conversation':
+      return <MessageSquare className={className} />;
+    case 'commit':
+      return <GitCommitHorizontal className={className} />;
     case 'element':
       return <AtSign className={className} />;
   }
@@ -662,14 +672,17 @@ function decorateStructuredTokenElement(
 
 function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
-  value: string
+  value: string,
+  bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>
 ): void {
   const editor = composerRoot.querySelector<HTMLDivElement>(
     '[contenteditable="true"], [contenteditable="false"][role="combobox"]'
   );
   if (!editor) return;
 
-  const segments = getSessionComposerStructuredTokenSegments(value);
+  const segments = getSessionComposerStructuredTokenSegments(value, {
+    bareAgentMentions,
+  });
   const tokenSegments = segments.filter((segment) => segment.kind === 'token');
   if (tokenSegments.length === 0) return;
 
@@ -744,6 +757,8 @@ export function SessionComposerInput({
   const sendShortcut =
     useOptionalUserSystem()?.config?.send_message_shortcut ?? 'Enter';
   const {
+    sessionId,
+    workspaceId,
     workspacePath,
     repoId,
     repoIds,
@@ -763,12 +778,6 @@ export function SessionComposerInput({
   } | null>(null);
   const agentMentions = useAgentMentions();
   const executor = executorProfile?.executor ?? null;
-  const effectiveRepoIds = useMemo(() => {
-    const ids = repoIds?.filter(Boolean) ?? [];
-    if (ids.length > 0) return ids;
-    return repoId ? [repoId] : [];
-  }, [repoId, repoIds]);
-  const primaryRepoId = effectiveRepoIds[0] ?? null;
 
   const showElementTokenDetails = useCallback((target: EventTarget | null) => {
     const anchor = getElementTokenFromEventTarget(target);
@@ -823,11 +832,32 @@ export function SessionComposerInput({
     [hideElementTokenDetails]
   );
 
+  const atReference = useComposerAtReferencePanel({
+    composerRootRef,
+    composerHandleRef,
+    context: {
+      sessionId,
+      workspaceId,
+      repoId,
+      repoIds,
+      projectId,
+      transport,
+    },
+    disabled,
+    onChange,
+  });
+
   useEffect(() => {
     if (composerRootRef.current) {
-      restoreStructuredTokens(composerRootRef.current, value);
+      restoreStructuredTokens(
+        composerRootRef.current,
+        value,
+        agentMentions.capability === 'supported'
+          ? agentMentions.candidates
+          : undefined
+      );
     }
-  }, [value]);
+  }, [agentMentions.candidates, agentMentions.capability, value]);
 
   useEffect(() => {
     const anchor = activeElementToken?.anchor;
@@ -1035,54 +1065,6 @@ export function SessionComposerInput({
     }),
     [hostedPluginSkillIds, pluginCatalog]
   );
-  const fileReferenceSource = useMemo<SearchSource>(
-    () => ({
-      search: async (query) => {
-        const trimmed = query.trim();
-        if (trimmed === '') {
-          if (!primaryRepoId) return [];
-          const repo = await repoApi.getById(primaryRepoId);
-          if (!repo) return [];
-          const entries = await fileTreeApi.listDirectoryChildren(
-            repo.path,
-            ''
-          );
-          return rootEntriesToFileReferenceOptions(entries).map(
-            toSearchableItem
-          );
-        }
-        const results = await searchTagsAndFiles(trimmed, {
-          repoIds: effectiveRepoIds,
-          projectId,
-          includeTags: false,
-          includeFiles: true,
-        });
-        return referenceResultsToTypeaheadOptions('@', results).map(
-          toSearchableItem
-        );
-      },
-      bootstrap: () => [],
-    }),
-    [effectiveRepoIds, primaryRepoId, projectId]
-  );
-  const tagReferenceSource = useMemo<SearchSource>(
-    () => ({
-      search: async (query) => {
-        const results = await searchTagsAndFiles(query.trim(), {
-          repoIds: effectiveRepoIds,
-          projectId,
-          includeTags: true,
-          includeFiles: false,
-        });
-        return referenceResultsToTypeaheadOptions('#', results).map(
-          toSearchableItem
-        );
-      },
-      bootstrap: () => [],
-    }),
-    [effectiveRepoIds, projectId]
-  );
-
   const makeToken = useCallback((item: SearchableItem): ChatComposerToken => {
     const data = item.auxiliaryData as ComposerSearchItemData | undefined;
     const insertText = data?.insertText ?? '';
@@ -1147,35 +1129,17 @@ export function SessionComposerInput({
         loadingText: t('pluginActions.loading'),
         emptySearchResultsText: t('pluginActions.noMatches'),
       },
-      {
-        character: '@',
-        searchSource: fileReferenceSource,
-        onSelect: makeToken,
-        renderItem,
-        loadingText: 'Searching files...',
-        emptySearchResultsText: 'No matching files found.',
-      },
-      {
-        character: '#',
-        searchSource: tagReferenceSource,
-        onSelect: makeToken,
-        renderItem,
-        loadingText: 'Searching tags...',
-        emptySearchResultsText: 'No matching tags found.',
-      },
     ],
     [
       agentMentionSource,
       agentMentions.capability,
       dollarSource,
-      fileReferenceSource,
       makeToken,
       pluginOnSelect,
       pluginSource,
       renderItem,
       slashSource,
       t,
-      tagReferenceSource,
     ]
   );
 
@@ -1289,7 +1253,10 @@ export function SessionComposerInput({
         <ChatComposerInput
           ref={composerRootRef}
           value={value}
-          onChange={onChange}
+          onChange={(next) => {
+            onChange(next);
+            queueMicrotask(() => atReference.detect());
+          }}
           isDisabled={disabled}
           className={cn(
             'session-composer-editor min-h-[32px] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
@@ -1303,6 +1270,9 @@ export function SessionComposerInput({
           triggers={triggers}
           handleRef={composerHandleRef}
           onKeyDown={(event) => {
+            if (atReference.handleKeyDown(event)) {
+              return;
+            }
             if (
               event.nativeEvent.isComposing ||
               event.nativeEvent.keyCode === 229
@@ -1338,6 +1308,20 @@ export function SessionComposerInput({
           />
         ) : null}
       </div>
+      {atReference.panel ? (
+        <ComposerAtReferencePanel
+          groups={atReference.panel.groups}
+          activeTab={atReference.panel.activeTab}
+          selectedIndex={atReference.panel.selectedIndex}
+          loading={atReference.panel.loading}
+          left={atReference.panel.left}
+          top={atReference.panel.top}
+          width={atReference.panel.width}
+          onSelectTab={atReference.selectTab}
+          onSelectItem={atReference.selectItem}
+          onHighlight={atReference.highlight}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,61 +1,88 @@
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { ChevronDown } from 'lucide-react';
+
+export function AgentSectionHeading({
+  headingId,
+  title,
+  expanded,
+  onToggle,
+  summary,
+  children,
+}: {
+  headingId: string;
+  title: string;
+  expanded?: boolean;
+  onToggle?: () => void;
+  summary?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="agent-section-heading">
+      {onToggle ? (
+        <button
+          type="button"
+          className="agent-section-heading-toggle"
+          aria-expanded={expanded}
+          aria-controls={headingId ? `${headingId}-body` : undefined}
+          aria-label={title}
+          onClick={onToggle}
+        >
+          <ChevronDown
+            aria-hidden="true"
+            className="agent-config-file-chevron"
+          />
+          <h3 id={headingId}>{title}</h3>
+          {!expanded && summary ? (
+            <span className="agent-section-summary" aria-hidden="true">
+              {summary}
+            </span>
+          ) : null}
+        </button>
+      ) : (
+        <h3 id={headingId}>{title}</h3>
+      )}
+      {children}
+    </div>
+  );
+}
 
 export function SettingsSection({
   id,
   title,
-  icon: Icon,
   expanded = true,
   onToggle,
   action,
+  summary,
   children,
 }: {
   id: string;
   title: string;
-  icon: LucideIcon;
+  icon?: unknown;
   expanded?: boolean;
   onToggle?: () => void;
   action?: ReactNode;
+  summary?: ReactNode;
   children: ReactNode;
 }) {
-  const bodyId = `agent-settings-${id}`;
+  const headingId = `agent-settings-${id}`;
+  const bodyId = `${headingId}-body`;
 
   return (
-    <section className="settings-surface overflow-hidden rounded-xl">
-      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
-        {onToggle ? (
-          <button
-            type="button"
-            className="flex min-w-0 items-center gap-2 text-left"
-            onClick={onToggle}
-            aria-expanded={expanded}
-            aria-controls={bodyId}
-          >
-            <ChevronRight
-              className={cn(
-                'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-                expanded && 'rotate-90'
-              )}
-            />
-            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-[13px] font-semibold text-foreground">
-              {title}
-            </span>
-          </button>
-        ) : (
-          <div className="flex min-w-0 items-center gap-2">
-            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-[13px] font-semibold text-foreground">
-              {title}
-            </span>
-          </div>
-        )}
+    <section
+      className="settings-surface overflow-hidden"
+      aria-labelledby={headingId}
+    >
+      <AgentSectionHeading
+        headingId={headingId}
+        title={title}
+        expanded={expanded}
+        onToggle={onToggle}
+        summary={summary}
+      >
         {action}
-      </div>
+      </AgentSectionHeading>
       {expanded ? (
-        <div id={bodyId} className="px-3.5 pb-3.5 pt-1">
+        <div id={bodyId} className="agent-section-body">
           {children}
         </div>
       ) : null}

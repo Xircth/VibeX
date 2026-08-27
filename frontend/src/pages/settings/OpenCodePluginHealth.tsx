@@ -7,11 +7,11 @@ import {
   HardDrive,
   Loader2,
   PackagePlus,
-  Puzzle,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
 import {
+  type FormEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -31,9 +31,10 @@ import {
 
 type Props = {
   onChanged?: () => void | Promise<void>;
+  onCount?: (count: number) => void;
 };
 
-export function OpenCodePluginHealth({ onChanged }: Props) {
+export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [summary, setSummary] = useState<OpenCodePluginSummaryView | null>(
     null
@@ -41,6 +42,7 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [spec, setSpec] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +62,9 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
   }, [t]);
 
   useEffect(() => void load(), [load]);
+  useEffect(() => {
+    onCount?.(summary?.plugins.length ?? 0);
+  }, [onCount, summary]);
 
   const missing = useMemo(
     () =>
@@ -68,6 +73,25 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
         .map((plugin) => plugin.name) ?? [],
     [summary]
   );
+
+  const add = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const next = spec.trim();
+    if (!next) return;
+    setRunning(next);
+    try {
+      setSummary(await agentManagementApi.addOpenCodePlugin(next));
+      setSpec('');
+      toast.success(t('settings:agents.openCodePluginAdded', { name: next }));
+      await onChanged?.();
+    } catch (error) {
+      toast.error(
+        errorMessage(error, t('settings:agents.openCodePluginAddFailed'))
+      );
+    } finally {
+      setRunning(null);
+    }
+  };
 
   const install = async (names: string[] | null) => {
     setRunning(names?.[0] ?? 'all');
@@ -114,48 +138,70 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
   return (
     <section
       aria-labelledby="opencode-plugin-heading"
-      className="settings-surface agent-plugin-surface"
+      className="agent-plugin-surface"
     >
-      <div className="agent-section-heading">
-        <div className="flex items-center gap-2">
-          <Puzzle aria-hidden="true" className="h-4 w-4" />
-          <h3 id="opencode-plugin-heading">
-            {t('settings:agents.openCodePluginTitle')}
-          </h3>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {missing.length > 1 ? (
-            <Button
-              className="h-8"
-              disabled={running !== null}
-              size="sm"
-              variant="outline"
-              onClick={() => void install(null)}
-            >
-              <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
-              {t('settings:agents.openCodePluginInstallAll')}
-            </Button>
-          ) : null}
+      <h3 id="opencode-plugin-heading" className="sr-only">
+        {t('settings:agents.openCodePluginTitle')}
+      </h3>
+      <form
+        className="flex flex-wrap items-end gap-2 px-4 pb-3"
+        onSubmit={(event) => void add(event)}
+      >
+        <label className="min-w-56 flex-1 space-y-1 text-xs">
+          <span>{t('settings:agents.openCodePluginSpec')}</span>
+          <input
+            autoComplete="off"
+            className="raised-control h-9 w-full px-3"
+            disabled={running !== null}
+            name="opencode_plugin_spec"
+            placeholder={t('settings:agents.openCodePluginSpecPlaceholder')}
+            value={spec}
+            onChange={(event) => setSpec(event.target.value)}
+          />
+        </label>
+        <Button
+          className="h-9"
+          disabled={running !== null || !spec.trim()}
+          size="sm"
+          type="submit"
+        >
+          {running && running === spec.trim() ? (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+          {t('settings:agents.openCodePluginAdd')}
+        </Button>
+        {missing.length > 1 ? (
           <Button
-            aria-label={t('settings:agents.openCodePluginRefreshAria')}
-            className="h-8"
-            disabled={loading || running !== null}
+            className="h-9"
+            disabled={running !== null}
             size="sm"
-            variant="ghost"
-            onClick={() => void load()}
+            type="button"
+            variant="outline"
+            onClick={() => void install(null)}
           >
-            {loading ? (
-              <Loader2
-                aria-hidden="true"
-                className="h-3.5 w-3.5 animate-spin"
-              />
-            ) : (
-              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-            {t('settings:agents.refresh')}
+            <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
+            {t('settings:agents.openCodePluginInstallAll')}
           </Button>
-        </div>
-      </div>
+        ) : null}
+        <Button
+          aria-label={t('settings:agents.openCodePluginRefreshAria')}
+          className="h-9"
+          disabled={loading || running !== null}
+          size="sm"
+          type="button"
+          variant="ghost"
+          onClick={() => void load()}
+        >
+          {loading ? (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+          {t('settings:agents.refresh')}
+        </Button>
+      </form>
 
       <div aria-live="polite">
         {loading && !summary ? (

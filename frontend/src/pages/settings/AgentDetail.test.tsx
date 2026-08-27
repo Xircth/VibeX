@@ -43,6 +43,9 @@ const preflight: AgentPreflightView = {
       path: '/opt/vibex/bin/codex',
       source: null,
       repairable: false,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
     {
       id: 'acp',
@@ -53,6 +56,9 @@ const preflight: AgentPreflightView = {
       path: '/opt/vibex/bin/codex-acp',
       source: null,
       repairable: true,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
     {
       id: 'dependency.node',
@@ -63,6 +69,9 @@ const preflight: AgentPreflightView = {
       path: '/usr/local/bin/node',
       source: 'system',
       repairable: false,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
   ],
 };
@@ -127,14 +136,15 @@ describe('AgentDetail', () => {
       const runtimeResult = screen.getByRole('listitem', {
         name: '本地 Runtime 检查结果',
       });
-      const runtimeToggle = screen.getByRole('button', {
-        name: '展开 本地 Runtime 的检查详情',
-      });
+      const runtimeToggle = runtimeResult.querySelector(
+        '.agent-preflight-trigger'
+      );
       const layout = runtimeResult.querySelector('.agent-preflight-layout');
       expect(layout).not.toBeNull();
+      expect(runtimeToggle).not.toBeNull();
       expect(getComputedStyle(layout!).minHeight).toBe('52px');
       expect(getComputedStyle(layout!).alignItems).toBe('center');
-      expect(getComputedStyle(runtimeToggle).alignSelf).toBe('center');
+      expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('center');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
         '160px minmax(320px, 1fr) auto'
       );
@@ -162,9 +172,11 @@ describe('AgentDetail', () => {
         '64px minmax(0, 1fr)'
       );
 
-      await userEvent.click(runtimeToggle);
+      await userEvent.click(
+        screen.getByRole('button', { name: '展开 本地 Runtime 的检查详情' })
+      );
       expect(getComputedStyle(layout!).alignItems).toBe('start');
-      expect(getComputedStyle(runtimeToggle).alignSelf).toBe('start');
+      expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('start');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
         '160px minmax(320px, 1fr) auto'
       );

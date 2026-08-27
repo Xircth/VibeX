@@ -21,9 +21,10 @@ import {
 
 type Props = {
   onChanged?: () => void | Promise<void>;
+  onCount?: (count: number) => void;
 };
 
-export function GrokPluginManager({ onChanged }: Props) {
+export function GrokPluginManager({ onChanged, onCount }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [summary, setSummary] = useState<GrokPluginSummaryView | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -59,6 +60,9 @@ export function GrokPluginManager({ onChanged }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    onCount?.(summary?.plugins.length ?? 0);
+  }, [onCount, summary]);
 
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

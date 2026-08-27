@@ -33,6 +33,20 @@ describe('PluginsSettings layout', () => {
     expect(grid.get('height')).toBe('100%');
   });
 
+  it('keeps the embedded Agent plugin catalog close to the search field', () => {
+    const shell = declarationsFor(
+      '.settings-page .plugin-hub-shell.is-embedded'
+    );
+    const frame = declarationsFor(
+      '.settings-page .plugin-hub-shell.is-embedded .plugin-hub-frame'
+    );
+
+    expect(shell.get('min-height')).toBe('0');
+    expect(shell.get('gap')).toBe('8px');
+    expect(frame.get('height')).toBe('min(240px, 32dvh)');
+    expect(frame.get('min-height')).toBe('160px');
+  });
+
   it('paints one divider while keeping a wider drag target', () => {
     const grid = declarationsFor('.settings-page .plugin-hub-grid');
     const resizer = declarationsFor('.settings-page .plugin-hub-resizer');

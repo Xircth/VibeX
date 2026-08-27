@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
 
+import { toast } from '@/components/ui/toast';
+
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { AgentSettings } from './AgentSettings';
 
@@ -19,6 +21,8 @@ const api = vi.hoisted(() => ({
   preflight: vi.fn(),
   repair: vi.fn(),
   update: vi.fn(),
+  checkUpdate: vi.fn(),
+  applyUpdate: vi.fn(),
   rollback: vi.fn(),
   cancelOperation: vi.fn(),
   uninstall: vi.fn(),
@@ -63,6 +67,11 @@ vi.mock('@/lib/tauriApi', async (importOriginal) => {
 });
 
 describe('AgentSettings', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
   beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());
     confirmShow.mockReset();
@@ -176,6 +185,7 @@ describe('AgentSettings', () => {
       options: [
         {
           value: 'api_key',
+          kind: 'official_api',
           label_key: 'agents.authModeOpenAiKey',
           description_key: 'agents.authDescCodexKey',
           credential_env: 'OPENAI_API_KEY',
@@ -184,6 +194,7 @@ describe('AgentSettings', () => {
         },
         {
           value: 'chatgpt_subscription',
+          kind: 'subscription',
           label_key: 'agents.authModeChatGpt',
           description_key: 'agents.authDescCodexSubscription',
           credential_env: null,
@@ -192,6 +203,7 @@ describe('AgentSettings', () => {
         },
         {
           value: 'model_provider',
+          kind: 'provider',
           label_key: 'agents.authModeProvider',
           description_key: 'agents.authDescCodexProvider',
           credential_env: null,
@@ -232,7 +244,7 @@ describe('AgentSettings', () => {
     ).toBeVisible();
   });
 
-  it('hides authentication management until Google Antigravity is installed', async () => {
+  it('shows greyed authentication, configuration, and environment when an Agent is uninstalled', async () => {
     api.bar.mockResolvedValue([
       {
         agent_id: 'antigravity',
@@ -257,7 +269,7 @@ describe('AgentSettings', () => {
     ]);
     api.readConfig.mockResolvedValue({
       agent_id: 'antigravity',
-      available: false,
+      available: true,
       settings_features: ['authentication_mode', 'reusable_model_providers'],
       path: null,
       paths: [],
@@ -265,16 +277,29 @@ describe('AgentSettings', () => {
       files: [],
       applies_to_next_session: true,
     });
+    api.authMode.mockResolvedValue({
+      agent_id: 'antigravity',
+      mode: 'subscription',
+      modes: ['subscription'],
+      options: [],
+      credential_env: null,
+      credential_present: false,
+    });
 
+    const warn = vi.spyOn(toast, 'warning');
+    const user = userEvent.setup();
     render(<AgentSettings />);
 
     expect(
       await screen.findByRole('button', { name: 'Google Antigravity' })
     ).toBeVisible();
-    expect(
-      screen.queryByRole('region', { name: '鉴权管理' })
-    ).not.toBeInTheDocument();
-    expect(api.authMode).not.toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: '鉴权管理' })).toBeVisible();
+    expect(screen.getByRole('region', { name: '配置管理' })).toBeVisible();
+    expect(screen.getByRole('region', { name: '环境变量' })).toBeVisible();
+    expect(document.querySelector('.agent-settings-locked')).not.toBeNull();
+    await user.click(screen.getByRole('region', { name: '鉴权管理' }));
+    expect(warn).toHaveBeenCalledWith('请先安装Agent');
+    warn.mockRestore();
   });
 
   it('renders the management projection as the only Agent settings source', async () => {
@@ -352,7 +377,6 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
     );
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
     const callsAfterLoad = api.preflight.mock.calls.length;
 
     api.setAuthMode.mockResolvedValue({
@@ -364,7 +388,7 @@ describe('AgentSettings', () => {
       options: (await api.authMode()).options,
     });
 
-    await pickAuthModeTab(user, 'OpenAI API Key');
+    await pickAuthModeTab(user, '官方 API');
 
     expect(api.preflight.mock.calls).toHaveLength(callsAfterLoad);
     expect(screen.getByLabelText('推理强度')).toBeVisible();
@@ -653,6 +677,9 @@ describe('AgentSettings', () => {
           path: null,
           source: null,
           repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
         },
         {
           id: 'runtime',
@@ -663,6 +690,9 @@ describe('AgentSettings', () => {
           path: null,
           source: null,
           repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
         },
         {
           id: 'acp',
@@ -673,6 +703,9 @@ describe('AgentSettings', () => {
           path: null,
           source: null,
           repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
         },
       ],
     });
@@ -836,6 +869,13 @@ describe('AgentSettings', () => {
     api.bar.mockImplementation(async () => [
       authenticated ? loggedIn : loggedOut,
     ]);
+    const item = {
+      source: null,
+      repairable: false,
+      update_available: false,
+      available_version: null,
+      update_group: null,
+    };
     api.preflight.mockImplementation(
       async (agentId: string, scope?: string) => {
         if (scope === 'authentication') {
@@ -845,14 +885,13 @@ describe('AgentSettings', () => {
             checked_at: '2026-08-22T00:00:00Z',
             items: [
               {
+                ...item,
                 id: 'auth.mode',
                 label: '鉴权模式',
                 status: 'pass',
                 detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
                 version: 'chatgpt_subscription',
                 path: '/tmp/.codex/auth.json',
-                source: null,
-                repairable: false,
               },
             ],
           };
@@ -862,24 +901,22 @@ describe('AgentSettings', () => {
           checked_at: '2026-08-22T00:00:00Z',
           items: [
             {
+              ...item,
               id: 'runtime',
               label: '本地 Runtime',
               status: 'pass',
               detail: '',
               version: '1.0.0',
               path: '/usr/local/bin/codex',
-              source: null,
-              repairable: false,
             },
             {
+              ...item,
               id: 'auth.mode',
               label: '鉴权模式',
               status: 'pass',
               detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
               version: 'chatgpt_subscription',
               path: '/tmp/.codex/auth.json',
-              source: null,
-              repairable: false,
             },
           ],
         };
@@ -894,13 +931,12 @@ describe('AgentSettings', () => {
     );
     expect(await screen.findByText('已通过账号登录')).toBeVisible();
     expect(await screen.findByText('未获得有效用户信息')).toBeVisible();
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
     expect(api.preflight.mock.calls[0]).toEqual(['codex', 'authentication']);
     expect(
       api.preflight.mock.calls.some(
         (call) => call.length === 1 || call[1] === undefined
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('refreshes login status after a terminal account flow finishes', async () => {
@@ -949,6 +985,7 @@ describe('AgentSettings', () => {
       options: [
         {
           value: 'subscription',
+          kind: 'subscription',
           label_key: 'agents.authModeSubscription',
           description_key: 'agents.authDescCursorSubscription',
           credential_env: null,
@@ -957,6 +994,7 @@ describe('AgentSettings', () => {
         },
         {
           value: 'custom',
+          kind: 'official_api',
           label_key: 'agents.authModeCursorKey',
           description_key: 'agents.authDescCursorKey',
           credential_env: 'CURSOR_API_KEY',

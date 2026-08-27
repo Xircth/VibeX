@@ -6,7 +6,10 @@ import type { AgentNativeConfigView } from 'shared/types';
 import { desktopApi } from '@/lib/api';
 
 import { pickAstryxOption } from './agentSettingsTestUtils';
-import { AgentConfigurationAndDiagnostics } from './AgentConfigurationAndDiagnostics';
+import {
+  AgentConfigurationAndDiagnostics,
+  configForAuthMode,
+} from './AgentConfigurationAndDiagnostics';
 
 const config: AgentNativeConfigView = {
   agent_id: 'codex',
@@ -60,20 +63,6 @@ const config: AgentNativeConfigView = {
       surface: 'authentication',
     },
     {
-      id: 'codex_model',
-      label: '模型',
-      description: 'Codex 默认模型',
-      kind: 'text',
-      options: [],
-      secret: false,
-      path: '/Users/example/.codex/config.toml',
-      present: true,
-      value: 'gpt-5.4',
-      masked_value: null,
-      revision: 'revision-model',
-      surface: 'configuration',
-    },
-    {
       id: 'codex_reasoning_effort',
       label: '推理强度',
       description: 'Codex 模型的 reasoning effort',
@@ -110,15 +99,30 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.getByRole('region', { name: '配置管理' })).toBeVisible();
     expect(heading).toHaveTextContent('config.toml');
     expect(heading).not.toHaveTextContent('/Users/example/.codex/config.toml');
-    expect(screen.getByText('config.toml')).toHaveAttribute(
-      'title',
-      '/Users/example/.codex/config.toml'
-    );
+    expect(
+      heading?.querySelector('[title="/Users/example/.codex/config.toml"]')
+    ).toHaveTextContent('config.toml');
     expect(heading).not.toHaveTextContent('auth.json');
     expect(screen.getByLabelText('推理强度')).toBeVisible();
-    expect(screen.getByLabelText('模型')).toBeVisible();
+    expect(screen.queryByLabelText('模型')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument();
     expect(screen.queryByText('auth.json')).not.toBeInTheDocument();
+  });
+
+  it('collapses configuration to a field count', async () => {
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        fieldSurface="configuration"
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('推理强度')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: /配置管理/ }));
+    expect(screen.queryByLabelText('推理强度')).not.toBeInTheDocument();
+    expect(screen.getByText('1 项')).toBeVisible();
   });
 
   it('shows only authentication fields when embedded in auth management', () => {
@@ -148,8 +152,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
       />
     );
 
-    expect(screen.getByDisplayValue('gpt-5.4')).toBeInTheDocument();
-    expect(screen.getByText('config.toml')).toBeInTheDocument();
+    expect(screen.getByLabelText('推理强度')).toBeVisible();
     expect(screen.queryByText('诊断记录')).not.toBeInTheDocument();
     expect(
       screen.queryByText('Codex 模型的 reasoning effort')
@@ -160,14 +163,16 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(
       screen.queryByText('写入 Codex 的本地认证文件')
     ).not.toBeInTheDocument();
-    expect(screen.getByText('高级原生文件编辑器')).toBeInTheDocument();
+    expect(screen.getAllByText(/config.toml/).length).toBeGreaterThan(0);
     expect(
       screen.queryByRole('button', { name: '保存' })
     ).not.toBeInTheDocument();
-    expect(screen.getAllByText(/unknown = "preserved"/)).toHaveLength(2);
     const sensitivePreview = screen.getByLabelText('auth.json 配置预览');
     expect(sensitivePreview).toHaveClass('is-sensitive');
-    expect(sensitivePreview).toHaveAttribute('tabindex', '0');
+    expect(sensitivePreview.querySelector('pre')).toHaveAttribute(
+      'tabindex',
+      '0'
+    );
     expect(sensitivePreview).toHaveTextContent('OPENAI_API_KEY');
     expect(sensitivePreview).toHaveTextContent('sk-real-local-key');
     expect(sensitivePreview).toHaveTextContent('oauth-real-token');
@@ -175,19 +180,15 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.queryByText('可复用 Model Provider')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
 
-    await userEvent.clear(screen.getByLabelText('模型'));
-    await userEvent.type(screen.getByLabelText('模型'), 'gpt-5.6');
     await pickAstryxOption(userEvent, screen.getByLabelText('推理强度'), '高');
     await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     expect(onSave).toHaveBeenCalledWith({
       agent_id: 'codex',
       base_field_revisions: {
-        codex_model: 'revision-model',
         codex_reasoning_effort: 'revision-effort',
       },
       fields: {
-        codex_model: 'gpt-5.6',
         codex_reasoning_effort: 'high',
       },
     });
@@ -204,8 +205,17 @@ describe('AgentConfigurationAndDiagnostics', () => {
       />
     );
 
-    await userEvent.click(screen.getByText('高级原生文件编辑器'));
+    const fileCard = screen.getByLabelText('配置文件 config.toml');
+    expect(fileCard.tagName).toBe('DETAILS');
+    expect(fileCard).toHaveClass('agent-config-block', 'agent-config-file');
+    expect(fileCard).not.toHaveAttribute('open');
+    const summary = fileCard.querySelector('summary')!;
+    expect(summary).toHaveTextContent('配置文件');
+    expect(summary).toHaveTextContent('TOML');
+    expect(summary).not.toHaveTextContent('config.toml');
+    await userEvent.click(summary);
     const editor = screen.getByLabelText('编辑 config.toml');
+    expect(editor).toBeVisible();
     await userEvent.clear(editor);
     await userEvent.type(editor, 'model = "gpt-5.6"');
     await userEvent.click(screen.getByRole('button', { name: '保存文件' }));
@@ -263,17 +273,9 @@ describe('AgentConfigurationAndDiagnostics', () => {
       base_field_revisions: { openai_api_key: 'revision-key' },
       fields: { openai_api_key: 'sk-local-only' },
     });
-
-    await userEvent.click(
-      screen.getByRole('button', { name: '移除 OpenAI API Key' })
-    );
-    expect(onSave).toHaveBeenCalledTimes(1);
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onSave).toHaveBeenLastCalledWith({
-      agent_id: 'codex',
-      base_field_revisions: { openai_api_key: 'revision-key' },
-      fields: { openai_api_key: null },
-    });
+    expect(
+      screen.queryByRole('button', { name: '移除 OpenAI API Key' })
+    ).not.toBeInTheDocument();
   });
 
   it('offers reload, adopt-external, and explicit overwrite after a conflict', async () => {
@@ -528,5 +530,45 @@ describe('AgentConfigurationAndDiagnostics', () => {
       base_field_revisions: { codex_skills: 'skills-revision' },
       fields: { codex_skills: 'true' },
     });
+  });
+
+  it('keeps Claude official API to the key and three default models', () => {
+    const filtered = configForAuthMode('claude_code', 'official_api', {
+      ...config,
+      agent_id: 'claude_code',
+      fields: [
+        {
+          ...config.fields[0],
+          id: 'anthropic_base_url',
+          label: 'API URL',
+          secret: false,
+          surface: 'authentication',
+        },
+        {
+          ...config.fields[0],
+          id: 'anthropic_api_key',
+          label: 'API Key',
+          surface: 'authentication',
+        },
+        {
+          ...config.fields[0],
+          id: 'haiku_model',
+          label: 'Haiku 默认模型',
+          secret: false,
+          surface: 'authentication',
+        },
+        {
+          ...config.fields[0],
+          id: 'model',
+          label: '主模型',
+          secret: false,
+          surface: 'configuration',
+        },
+      ],
+    });
+    expect(filtered.fields.map((field) => field.id)).toEqual([
+      'anthropic_api_key',
+      'haiku_model',
+    ]);
   });
 });

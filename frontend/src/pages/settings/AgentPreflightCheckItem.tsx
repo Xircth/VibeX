@@ -6,12 +6,15 @@ import type {
   AgentPreflightSource,
 } from 'shared/types';
 
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type AgentPreflightCheckItemProps = {
   item: AgentPreflightItemView;
   label: string;
   detail: string;
+  busy?: boolean;
+  onUpdate?: () => void;
 };
 
 type CheckStatus = AgentPreflightItemView['status'];
@@ -20,6 +23,8 @@ export function AgentPreflightCheckItem({
   item,
   label,
   detail,
+  busy = false,
+  onUpdate,
 }: AgentPreflightCheckItemProps) {
   const { t } = useTranslation('settings');
   const [expanded, setExpanded] = useState(false);
@@ -43,22 +48,41 @@ export function AgentPreflightCheckItem({
           source={item.source}
           version={item.version}
         />
-        <button
-          aria-controls={panelId}
-          aria-expanded={expanded}
-          aria-label={t(
-            expanded
-              ? 'agents.preflightCollapseDetails'
-              : 'agents.preflightExpandDetails',
-            { label }
-          )}
-          className="agent-preflight-trigger"
-          onClick={() => setExpanded((current) => !current)}
-          type="button"
-        >
-          <PreflightCheckStatus status={item.status} />
-          <ChevronDown aria-hidden="true" className="agent-preflight-chevron" />
-        </button>
+        <div className="agent-preflight-trigger">
+          <PreflightCheckStatus
+            status={item.status}
+            updateAvailable={item.update_available}
+          />
+          {item.update_available && onUpdate ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={busy}
+              onClick={onUpdate}
+            >
+              {t('agents.updateNow')}
+            </Button>
+          ) : null}
+          <button
+            aria-controls={panelId}
+            aria-expanded={expanded}
+            aria-label={t(
+              expanded
+                ? 'agents.preflightCollapseDetails'
+                : 'agents.preflightExpandDetails',
+              { label }
+            )}
+            className="agent-preflight-chevron-button"
+            onClick={() => setExpanded((current) => !current)}
+            type="button"
+          >
+            <ChevronDown
+              aria-hidden="true"
+              className="agent-preflight-chevron"
+            />
+          </button>
+        </div>
       </div>
     </li>
   );
@@ -85,15 +109,28 @@ function PreflightCheckIdentity({
   );
 }
 
-function PreflightCheckStatus({ status }: { status: CheckStatus }) {
+function PreflightCheckStatus({
+  status,
+  updateAvailable,
+}: {
+  status: CheckStatus;
+  updateAvailable?: boolean;
+}) {
   const { t } = useTranslation('settings');
   return (
-    <span className={cn('agent-preflight-status', `is-${status}`)}>
-      {status === 'pass'
-        ? t('agents.available')
-        : status === 'warning'
-          ? t('agents.optionalWarning')
-          : t('agents.needsAction')}
+    <span className="agent-preflight-status-stack">
+      <span className={cn('agent-preflight-status', `is-${status}`)}>
+        {status === 'pass'
+          ? t('agents.available')
+          : status === 'warning'
+            ? t('agents.optionalWarning')
+            : t('agents.needsAction')}
+      </span>
+      {updateAvailable ? (
+        <span className="agent-preflight-status is-update">
+          {t('agents.updateAvailableBadge')}
+        </span>
+      ) : null}
     </span>
   );
 }

@@ -6,10 +6,11 @@ import {
   LogIn,
   LogOut,
   Settings2,
-  ShieldCheck,
 } from 'lucide-react';
 import {
   type ReactNode,
+  cloneElement,
+  isValidElement,
   useCallback,
   useEffect,
   useRef,
@@ -17,6 +18,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentAuthModeKind,
   AgentAuthModeOptionView,
   AgentAuthModeView,
   AgentAuthenticationStatus,
@@ -62,11 +64,13 @@ type Props = {
   configuration?: ReactNode | ((mode: string) => ReactNode);
   headingExtra?: ReactNode;
   modelProvider?: ReactNode;
+  accountExtra?: ReactNode;
   nativeCredentialPresent?: (fieldId: string) => boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   onAuthenticated?: () => void;
   onRunAction?: (actionId: string) => void;
+  locked?: boolean;
 };
 
 export function AgentAuthModeControl({
@@ -78,11 +82,13 @@ export function AgentAuthModeControl({
   configuration,
   headingExtra,
   modelProvider,
+  accountExtra,
   nativeCredentialPresent,
   onChanged,
   onDirtyChange,
   onAuthenticated,
   onRunAction,
+  locked = false,
 }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [view, setView] = useState<AgentAuthModeView | null>(null);
@@ -115,6 +121,12 @@ export function AgentAuthModeControl({
   useEffect(() => void load(), [authentication, load]);
 
   const selectedOption = view?.options.find((option) => option.value === mode);
+  const selectedKind = selectedOption?.kind ?? kindOfMode(mode);
+  const kindOptions =
+    view?.options.filter((option) => option.kind === selectedKind) ?? [];
+  const kindTabs = AUTH_KIND_ORDER.filter((kind) =>
+    view?.options.some((option) => option.kind === kind)
+  );
   const requiresCredential = selectedOption?.credential_required ?? false;
   const credentialEnv = selectedOption?.credential_env ?? 'API_KEY';
   const nativeConfigFieldId = selectedOption?.native_config_field_id ?? null;
@@ -124,8 +136,8 @@ export function AgentAuthModeControl({
     apiKey,
     nativeCredentialPresent
   );
-  const dirty = Boolean(view && (mode !== view.mode || apiKey.length > 0));
-  const panel = authenticationPanel(mode);
+  const dirty = Boolean(view && apiKey.length > 0);
+  const panel = authenticationPanel(selectedKind, Boolean(modelProvider));
   const displayName = agentDisplayName(agentId);
   const signedIn = accountSessionActive(authentication);
   const showCodexDeviceLogin = agentId === 'codex' && !signedIn;
@@ -137,12 +149,16 @@ export function AgentAuthModeControl({
   useEffect(() => {
     if (!view) return;
     const key = authDraftKey(agentId);
-    if (dirty) retainAgentSettingsDraft(key, { mode, apiKey });
-    else clearAgentSettingsDraft(key);
-  }, [agentId, apiKey, dirty, mode, view]);
+    if (mode !== view.mode || apiKey.length > 0) {
+      retainAgentSettingsDraft(key, { mode, apiKey });
+    } else {
+      clearAgentSettingsDraft(key);
+    }
+  }, [agentId, apiKey, mode, view]);
 
   const persistMode = useCallback(
     async (nextMode: string, nextApiKey = '') => {
+      if (locked) return false;
       setSaving(true);
       setMode(nextMode);
       try {
@@ -164,13 +180,16 @@ export function AgentAuthModeControl({
         setSaving(false);
       }
     },
-    [agentId, t, view?.mode]
+    [agentId, locked, t, view?.mode]
   );
 
   useEffect(() => {
     if (!view || saving || loading) return;
     if (mode === view.mode) {
       autoPersisted.current = null;
+      return;
+    }
+    if (view.mode === 'model_provider') {
       return;
     }
     if (
@@ -195,8 +214,16 @@ export function AgentAuthModeControl({
     view,
   ]);
 
+  const selectKind = async (nextKind: AgentAuthModeKind) => {
+    if (!view || saving || locked) return;
+    const options = view.options.filter((option) => option.kind === nextKind);
+    const next = options.find((option) => option.value === mode) ?? options[0];
+    if (!next) return;
+    await selectMode(next.value);
+  };
+
   const selectMode = async (nextMode: string) => {
-    if (!view || nextMode === mode || saving) return;
+    if (!view || nextMode === mode || saving || locked) return;
     const nextOption = view.options.find((option) => option.value === nextMode);
     const nextAvailable = credentialIsAvailable(
       view,
@@ -204,7 +231,12 @@ export function AgentAuthModeControl({
       apiKey,
       nativeCredentialPresent
     );
-    if (view.credential_present && isAccountMode(nextMode)) {
+    if (nextMode === view.mode) {
+      setMode(nextMode);
+      setApiKey('');
+      return;
+    }
+    if (view.credential_present && nextOption?.kind === 'subscription') {
       const result = await ConfirmDialog.show({
         title: t('settings:agents.authSwitchAwayFromKeyTitle'),
         message: t('settings:agents.authSwitchAwayFromKeyMessage', {
@@ -216,7 +248,7 @@ export function AgentAuthModeControl({
       });
       if (result !== 'confirmed') return;
     }
-    if (persistsImmediately(nextOption, nextAvailable)) {
+    if (persistsImmediately(nextOption, nextAvailable, view.mode)) {
       await persistMode(nextMode);
       return;
     }
@@ -233,12 +265,11 @@ export function AgentAuthModeControl({
     await onChanged?.();
   };
 
-  const moveTabFocus = (current: string, delta: number) => {
+  const moveTabFocus = (current: AgentAuthModeKind, delta: number) => {
     if (!view) return;
-    const index = view.options.findIndex((option) => option.value === current);
-    const next =
-      view.options[(index + delta + view.options.length) % view.options.length];
-    document.getElementById(authModeTabId(agentId, next.value))?.focus();
+    const index = kindTabs.findIndex((kind) => kind === current);
+    const next = kindTabs[(index + delta + kindTabs.length) % kindTabs.length];
+    document.getElementById(authKindTabId(agentId, next))?.focus();
   };
 
   return (
@@ -247,12 +278,9 @@ export function AgentAuthModeControl({
       className="settings-surface agent-auth-mode-surface"
     >
       <div className="agent-section-heading">
-        <div className="flex min-w-0 items-center gap-2">
-          <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-          <h3 id={`${agentId}-auth-mode-heading`}>
-            {t('settings:agents.authTitle')}
-          </h3>
-        </div>
+        <h3 id={`${agentId}-auth-mode-heading`}>
+          {t('settings:agents.authTitle')}
+        </h3>
         <div className="agent-auth-mode-heading-tools">
           {panel === 'configuration' ? headingExtra : null}
           {view ? (
@@ -263,14 +291,17 @@ export function AgentAuthModeControl({
                 agent: displayName,
               })}
             >
-              {view.options.map((option) => {
-                const selected = option.value === mode;
-                const draft = selected && option.value !== view.mode;
-                const fullLabel = t(option.label_key);
+              {kindTabs.map((kind) => {
+                const selected = kind === selectedKind;
+                const viewKind = view.options.find(
+                  (option) => option.value === view.mode
+                )?.kind;
+                const draft = selected && viewKind !== kind;
+                const fullLabel = t(authKindTabLabelKey(kind));
                 return (
                   <button
-                    key={option.value}
-                    id={authModeTabId(agentId, option.value)}
+                    key={kind}
+                    id={authKindTabId(agentId, kind)}
                     type="button"
                     role="tab"
                     aria-label={fullLabel}
@@ -278,22 +309,22 @@ export function AgentAuthModeControl({
                     aria-controls={`${agentId}-auth-mode-panel`}
                     tabIndex={selected ? 0 : -1}
                     className={cn(selected && 'is-active', draft && 'is-draft')}
-                    disabled={saving}
-                    onClick={() => void selectMode(option.value)}
+                    disabled={saving || locked}
+                    onClick={() => void selectKind(kind)}
                     onKeyDown={(event) => {
                       if (event.key === 'ArrowRight') {
                         event.preventDefault();
-                        moveTabFocus(option.value, 1);
+                        moveTabFocus(kind, 1);
                       } else if (event.key === 'ArrowLeft') {
                         event.preventDefault();
-                        moveTabFocus(option.value, -1);
+                        moveTabFocus(kind, -1);
                       } else if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        void selectMode(option.value);
+                        void selectKind(kind);
                       }
                     }}
                   >
-                    {t(authModeTabLabelKey(agentId, option))}
+                    {fullLabel}
                     {draft ? (
                       <span
                         className="agent-auth-mode-tab-draft"
@@ -308,116 +339,184 @@ export function AgentAuthModeControl({
         </div>
       </div>
 
-      {loading && !view ? (
-        <p className="agent-auth-mode-loading" aria-live="polite">
-          {t('settings:agents.authLoading')}
-        </p>
-      ) : loadError && !view ? (
-        <div className="agent-inline-error" role="alert">
-          <span>{loadError}</span>
-          <Button
-            className="h-8 shrink-0"
-            size="sm"
-            variant="outline"
-            onClick={() => void load()}
+      <div className="agent-auth-mode-frame">
+        {loading && !view ? (
+          <p className="agent-auth-mode-loading" aria-live="polite">
+            {t('settings:agents.authLoading')}
+          </p>
+        ) : loadError && !view ? (
+          <div className="agent-inline-error" role="alert">
+            <span>{loadError}</span>
+            <Button
+              className="h-8 shrink-0"
+              size="sm"
+              variant="outline"
+              onClick={() => void load()}
+            >
+              {t('settings:agents.retryRead')}
+            </Button>
+          </div>
+        ) : view ? (
+          <div
+            id={`${agentId}-auth-mode-panel`}
+            className="agent-auth-mode-body"
+            role="tabpanel"
           >
-            {t('settings:agents.retryRead')}
-          </Button>
-        </div>
-      ) : view ? (
-        <div
-          id={`${agentId}-auth-mode-panel`}
-          className="agent-auth-mode-body"
-          role="tabpanel"
-        >
-          {requiresCredential &&
-          !nativeConfigFieldId &&
-          panel === 'configuration' ? (
-            <label className="agent-auth-mode-field agent-auth-mode-credential">
-              <span>{credentialEnv}</span>
-              <div className="agent-auth-mode-secret-row">
-                <div className="agent-auth-mode-secret">
-                  <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
-                  <Input
-                    aria-label={credentialEnv}
-                    autoComplete="new-password"
-                    className="agent-auth-mode-secret-input"
-                    name={`${agentId}_api_key`}
-                    placeholder={
-                      view.mode === mode && view.credential_present
-                        ? t('settings:agents.credentialSavedPlaceholder')
-                        : t('settings:agents.credentialPlaceholder')
-                    }
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
+            {kindOptions.length > 1 && panel !== 'account' ? (
+              <div className="agent-auth-mode-submodes">
+                {kindOptions.map((option) => (
+                  <SubmodeButton
+                    key={option.value}
+                    option={option}
+                    active={option.value === mode}
+                    disabled={saving}
+                    onSelect={() => void selectMode(option.value)}
                   />
-                </div>
-                <Button
-                  className="h-8 shrink-0"
-                  disabled={saving || !credentialAvailable}
-                  size="sm"
-                  onClick={() => void saveCredential()}
-                >
-                  {saving ? (
-                    <Loader2
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5 animate-spin"
-                    />
-                  ) : null}
-                  {saving
-                    ? t('settings:agents.saving')
-                    : t('settings:agents.authSave')}
-                </Button>
+                ))}
               </div>
-            </label>
-          ) : null}
-
-          <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
-            {showCodexDeviceLogin && panel === 'account' ? (
-              <CodexDeviceLogin onAuthenticated={onAuthenticated} />
             ) : null}
-            {panel === 'account' ? (
-              <AccountSessionBar
-                signedIn={signedIn}
-                accountLabel={view?.account_label}
-                actions={sessionActions(
-                  actions?.actions ?? [],
-                  signedIn
-                ).filter(
-                  (action) => !(showCodexDeviceLogin && action.kind === 'login')
-                )}
-                hideWhenEmpty={showCodexDeviceLogin}
-                busy={busy}
-                saved={view.mode === mode}
-                running={actionRunning}
-                onRunAction={onRunAction}
-              />
+
+            {panel === 'configuration' && selectedOption?.official_api_url ? (
+              <label className="agent-auth-mode-field">
+                <span>API URL</span>
+                <Input
+                  aria-label="API URL"
+                  readOnly
+                  value={selectedOption.official_api_url}
+                />
+              </label>
+            ) : null}
+
+            {requiresCredential &&
+            !nativeConfigFieldId &&
+            panel === 'configuration' ? (
+              <label className="agent-auth-mode-field agent-auth-mode-credential">
+                <span>{credentialEnv}</span>
+                <div className="agent-auth-mode-secret-row">
+                  <div className="agent-auth-mode-secret">
+                    <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
+                    <Input
+                      aria-label={credentialEnv}
+                      autoComplete="new-password"
+                      className="agent-auth-mode-secret-input"
+                      name={`${agentId}_api_key`}
+                      placeholder={
+                        view.mode === mode && view.credential_present
+                          ? t('settings:agents.credentialSavedPlaceholder')
+                          : t('settings:agents.credentialPlaceholder')
+                      }
+                      type="password"
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                    />
+                  </div>
+                  <Button
+                    className="h-8 shrink-0"
+                    disabled={saving || !credentialAvailable}
+                    size="sm"
+                    onClick={() => void saveCredential()}
+                  >
+                    {saving ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 animate-spin"
+                      />
+                    ) : null}
+                    {saving
+                      ? t('settings:agents.saving')
+                      : t('settings:agents.authSave')}
+                  </Button>
+                </div>
+              </label>
+            ) : null}
+
+            <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
+              {showCodexDeviceLogin && panel === 'account' ? (
+                <CodexDeviceLogin onAuthenticated={onAuthenticated} />
+              ) : null}
+              {accountExtra && panel === 'account' ? accountExtra : null}
+              {panel === 'account' ? (
+                <AccountSessionBar
+                  signedIn={signedIn}
+                  accountLabel={view?.account_label}
+                  actions={sessionActions(
+                    actions?.actions ?? [],
+                    signedIn
+                  ).filter(
+                    (action) =>
+                      !(showCodexDeviceLogin && action.kind === 'login')
+                  )}
+                  extraActions={
+                    kindOptions.length > 1 ? (
+                      <div className="agent-auth-mode-submodes">
+                        {kindOptions.map((option) => (
+                          <SubmodeButton
+                            key={option.value}
+                            option={option}
+                            active={option.value === mode}
+                            disabled={saving}
+                            onSelect={() => void selectMode(option.value)}
+                          />
+                        ))}
+                      </div>
+                    ) : null
+                  }
+                  hideWhenEmpty={showCodexDeviceLogin}
+                  busy={busy}
+                  saved={view.mode === mode}
+                  running={actionRunning}
+                  onRunAction={onRunAction}
+                />
+              ) : null}
+            </div>
+
+            {configuration ? (
+              <div
+                className="agent-auth-mode-panel agent-auth-mode-panel-config"
+                hidden={panel !== 'configuration'}
+              >
+                {typeof configuration === 'function'
+                  ? configuration(mode)
+                  : configuration}
+              </div>
+            ) : null}
+
+            {modelProvider ? (
+              <div
+                className="agent-auth-mode-panel"
+                hidden={panel !== 'provider'}
+              >
+                {withProviderChanged(modelProvider, () => void load())}
+              </div>
             ) : null}
           </div>
-
-          {configuration ? (
-            <div
-              className="agent-auth-mode-panel agent-auth-mode-panel-config"
-              hidden={panel !== 'configuration'}
-            >
-              {typeof configuration === 'function'
-                ? configuration(mode)
-                : configuration}
-            </div>
-          ) : null}
-
-          {modelProvider ? (
-            <div
-              className="agent-auth-mode-panel"
-              hidden={panel !== 'provider'}
-            >
-              {modelProvider}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </section>
+  );
+}
+
+function SubmodeButton({
+  option,
+  active,
+  disabled,
+  onSelect,
+}: {
+  option: AgentAuthModeOptionView;
+  active: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useTranslation('settings');
+  return (
+    <button
+      type="button"
+      className={cn('agent-auth-mode-submode', active && 'is-active')}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      {t(option.label_key)}
+    </button>
   );
 }
 
@@ -425,6 +524,7 @@ function AccountSessionBar({
   signedIn,
   accountLabel,
   actions,
+  extraActions = null,
   hideWhenEmpty = false,
   busy,
   saved,
@@ -434,6 +534,7 @@ function AccountSessionBar({
   signedIn: boolean;
   accountLabel?: string | null;
   actions: AgentManagementActionView[];
+  extraActions?: ReactNode;
   hideWhenEmpty?: boolean;
   busy: boolean;
   saved: boolean;
@@ -444,9 +545,14 @@ function AccountSessionBar({
   const blockedReason = actions.find(
     (action) => !action.available && action.kind !== 'subscription'
   );
-  if (actions.length === 0 && hideWhenEmpty) return null;
+  if (actions.length === 0 && !extraActions && hideWhenEmpty) return null;
   return (
-    <div className="agent-account-session">
+    <div
+      className={cn(
+        'agent-account-session',
+        extraActions && 'has-inline-logins'
+      )}
+    >
       <div className="agent-account-session-status">
         <AgentAccountIdentity signedIn={signedIn} accountLabel={accountLabel} />
         {blockedReason && !blockedReason.available ? (
@@ -455,8 +561,9 @@ function AccountSessionBar({
           </small>
         ) : null}
       </div>
-      {actions.length ? (
+      {actions.length || extraActions ? (
         <div className="agent-account-session-actions">
+          {extraActions}
           {actions.map((action) => {
             const Icon = managementActionIcon(action.kind);
             const localizedLabel = t(action.label_key, {
@@ -509,28 +616,70 @@ function AccountSessionBar({
   );
 }
 
+const AUTH_KIND_ORDER: AgentAuthModeKind[] = [
+  'subscription',
+  'official_api',
+  'provider',
+];
+
 type AuthenticationPanel = 'account' | 'configuration' | 'provider';
 
-function authenticationPanel(mode: string): AuthenticationPanel {
-  if (mode === 'model_provider') return 'provider';
-  if (isAccountMode(mode)) return 'account';
+function withProviderChanged(
+  node: ReactNode,
+  onChanged: () => void
+): ReactNode {
+  if (
+    !isValidElement<{ onChanged?: () => void | Promise<void> }>(node) ||
+    typeof node.type === 'string'
+  ) {
+    return node;
+  }
+  const previous = node.props.onChanged;
+  return cloneElement(node, {
+    onChanged: () => {
+      void previous?.();
+      onChanged();
+    },
+  });
+}
+
+function authenticationPanel(
+  kind: AgentAuthModeKind,
+  hasModelProvider: boolean
+): AuthenticationPanel {
+  if (kind === 'provider')
+    return hasModelProvider ? 'provider' : 'configuration';
+  if (kind === 'subscription') return 'account';
   return 'configuration';
 }
 
-function isAccountMode(mode: string): boolean {
-  return (
+function kindOfMode(mode: string): AgentAuthModeKind {
+  if (mode === 'model_provider' || mode === 'custom') return 'provider';
+  if (
     mode === 'subscription' ||
     mode.endsWith('_subscription') ||
-    mode === 'login_google' || mode === 'oauth-personal'
-  );
+    mode === 'login_google' ||
+    mode === 'oauth-personal' ||
+    mode === 'oauth-business'
+  ) {
+    return 'subscription';
+  }
+  return 'official_api';
 }
 
 function persistsImmediately(
   option: AgentAuthModeOptionView | undefined,
-  credentialAvailable: boolean
+  credentialAvailable: boolean,
+  savedMode: string
 ): boolean {
   if (!option) return false;
-  if (isAccountMode(option.value) || option.value === 'model_provider') {
+  if (savedMode === 'model_provider') {
+    return false;
+  }
+  if (option.kind === 'provider' || option.kind === 'official_api') {
+    return false;
+  }
+  if (option.kind === 'subscription') {
     return true;
   }
   if (!option.credential_required) return true;
@@ -576,48 +725,18 @@ function sessionActions(
   });
 }
 
-function authModeTabId(agentId: AgentId, mode: string) {
-  return `${agentId}-auth-mode-${mode}`;
+function authKindTabId(agentId: AgentId, kind: AgentAuthModeKind) {
+  return `${agentId}-auth-kind-${kind}`;
 }
 
-function authModeTabLabelKey(
-  agentId: AgentId,
-  option: AgentAuthModeOptionView
-): string {
-  switch (option.value) {
+function authKindTabLabelKey(kind: AgentAuthModeKind): string {
+  switch (kind) {
     case 'subscription':
-    case 'official_subscription':
-      return 'settings:agents.authModeTabSubscription';
-    case 'chatgpt_subscription':
-      return 'settings:agents.authModeTabChatGpt';
-    case 'model_provider':
+      return 'settings:agents.authModeTabOfficialSubscription';
+    case 'official_api':
+      return 'settings:agents.authModeTabOfficialApi';
+    case 'provider':
       return 'settings:agents.authModeTabProvider';
-    case 'oauth-personal':
-    case 'login_google':
-      return 'settings:agents.authModeTabGoogle';
-    case 'gemini-api-key':
-    case 'gemini_api_key':
-      return 'settings:agents.authModeTabGeminiKey';
-    case 'oauth-business':
-      return 'settings:agents.authModeTabEnterprise';
-    case 'agent-platform':
-      return 'settings:agents.authModeTabAgentPlatform';
-    case 'vertex_adc':
-      return 'settings:agents.authModeTabVertexAdc';
-    case 'vertex_service_account':
-      return 'settings:agents.authModeTabVertexSa';
-    case 'vertex_api_key':
-      return 'settings:agents.authModeTabVertexKey';
-    case 'api_key':
-      return 'settings:agents.authModeTabApiKey';
-    case 'custom':
-      return agentId === 'cursor'
-        ? 'settings:agents.authModeTabApiKey'
-        : 'settings:agents.authModeTabCustom';
-    case 'deepseek':
-      return 'settings:agents.authModeTabDeepseek';
-    default:
-      return option.label_key;
   }
 }
 
@@ -634,8 +753,24 @@ function agentDisplayName(agentId: AgentId) {
       return 'Google Antigravity';
     case 'deepseek_harness':
       return 'DeepSeek Harness';
-    default:
+    case 'opencode':
+      return 'OpenCode';
+    case 'hermes':
+      return 'Hermes';
+    case 'kimi_code':
+      return 'Kimi Code';
+    case 'cline':
+      return 'Cline';
+    case 'codebuddy':
+      return 'CodeBuddy';
+    case 'pi':
+      return 'Pi';
+    case 'openclaw':
+      return 'OpenClaw';
+    case 'cursor':
       return 'Cursor';
+    default:
+      return agentId;
   }
 }
 

@@ -166,10 +166,7 @@ impl NativeConfigProvider {
                 path: path.clone(),
                 format: binding.format,
                 content,
-                sensitive: binding
-                    .fields
-                    .iter()
-                    .any(|field| field.kind == NativeConfigFieldKind::Secret),
+                sensitive: binding_is_secret_vault(binding),
                 exists: file_exists,
                 revision: file_revision(bytes.as_deref()),
             });
@@ -305,10 +302,7 @@ impl NativeConfigProvider {
                 path: path.clone(),
                 expected: original.clone(),
                 replacement: Some(bytes),
-                sensitive: binding
-                    .fields
-                    .iter()
-                    .any(|field| field.kind == NativeConfigFieldKind::Secret),
+                sensitive: binding_is_secret_vault(binding),
             });
         }
         self.filesystem
@@ -337,11 +331,7 @@ impl NativeConfigProvider {
         else {
             return Err(NativeConfigSaveError::UnknownFile(patch.path));
         };
-        if binding
-            .fields
-            .iter()
-            .any(|field| field.kind == NativeConfigFieldKind::Secret)
-        {
+        if binding_is_secret_vault(binding) {
             return Err(NativeConfigSaveError::SensitiveFile(patch.path));
         }
 
@@ -424,6 +414,17 @@ fn expand_home_path(home: &std::path::Path, path: PathBuf) -> PathBuf {
         return home.join(path);
     }
     path
+}
+
+fn binding_is_secret_vault(binding: &NativeConfigBinding) -> bool {
+    binding
+        .fields
+        .iter()
+        .any(|field| field.kind == NativeConfigFieldKind::Secret)
+        && !binding
+            .fields
+            .iter()
+            .any(|field| field.surface == NativeConfigSurface::Configuration)
 }
 
 const fn empty_document_preview(format: NativeConfigFormat) -> &'static str {
@@ -529,6 +530,11 @@ fn field_snapshot(
     let present = value
         .as_deref()
         .is_some_and(|value| !value.trim().is_empty());
+    let value = if present {
+        value
+    } else {
+        field.default_value.map(str::to_string)
+    };
     let secret = field.kind == NativeConfigFieldKind::Secret;
     NativeConfigFieldSnapshot {
         field_id: field.field_id.to_string(),
@@ -624,6 +630,7 @@ fn finalize_special_native_shape(
 ) -> Result<(), NativeConfigError> {
     validate_object_field(document, patch, "opencode_providers", &["provider"])?;
     validate_object_field(document, patch, "pi_custom_providers", &["providers"])?;
+    validate_object_field(document, patch, "antigravity_permissions", &["permissions"])?;
     finalize_claude_shape(document, patch)?;
     finalize_codex_shape(document, patch)?;
     finalize_grok_shape(document, patch)?;
@@ -652,44 +659,6 @@ fn finalize_codex_shape(
     document: &mut Value,
     patch: &NativeConfigPatch,
 ) -> Result<(), NativeConfigError> {
-    if patch.values.contains_key("codex_writable_roots")
-        && let Some(value) = value_at_path(document, &["sandbox_workspace_write", "writable_roots"])
-    {
-        let roots = value.as_array().ok_or_else(|| {
-            NativeConfigError::Invalid(
-                "codex_writable_roots must be a JSON string array".to_string(),
-            )
-        })?;
-        let mut normalized = Vec::new();
-        for root in roots {
-            let root = root.as_str().ok_or_else(|| {
-                NativeConfigError::Invalid(
-                    "codex_writable_roots must be a JSON string array".to_string(),
-                )
-            })?;
-            let root = root.trim();
-            if root.is_empty() {
-                continue;
-            }
-            if !is_portable_absolute_path(root) {
-                return Err(NativeConfigError::Invalid(format!(
-                    "codex writable_roots entries must be absolute paths: {root}"
-                )));
-            }
-            if !normalized.iter().any(|existing| existing == root) {
-                normalized.push(root.to_string());
-            }
-        }
-        if normalized.is_empty() {
-            remove_value_at_path(document, &["sandbox_workspace_write", "writable_roots"]);
-        } else {
-            set_value_at_path(
-                document,
-                &["sandbox_workspace_write", "writable_roots"],
-                Value::Array(normalized.into_iter().map(Value::String).collect()),
-            )?;
-        }
-    }
     if patch.values.contains_key("codex_openai_base_url") {
         // 字段写循环跳过该字段，因此这里读到的是原始文档。按 Codex 实际读取
         // 的位置归位：活跃 `[model_providers.<id>]` 表存在时写回表 `base_url`；
@@ -720,20 +689,6 @@ fn finalize_codex_shape(
         }
     }
     Ok(())
-}
-
-fn is_portable_absolute_path(value: &str) -> bool {
-    value.starts_with('/')
-        || value.starts_with("\\\\")
-        || (value.as_bytes().get(1) == Some(&b':')
-            && value
-                .as_bytes()
-                .get(2)
-                .is_some_and(|separator| matches!(separator, b'/' | b'\\'))
-            && value
-                .as_bytes()
-                .first()
-                .is_some_and(u8::is_ascii_alphabetic))
 }
 
 /// Claude Code 凭据字段写回：字段写循环跳过该字段，因此这里读到的是原始

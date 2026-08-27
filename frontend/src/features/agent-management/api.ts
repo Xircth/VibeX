@@ -11,6 +11,10 @@ import type {
   AgentManagementActionReceipt,
   AgentManagementActionsView,
   AgentModelCatalogView,
+  AgentModelProviderImportPreviewView,
+  AgentModelProviderImportRequest,
+  AgentModelProviderImportSource,
+  AgentModelProviderProbeView,
   AgentModelProviderSaveRequest,
   AgentModelProvidersView,
   AgentNativeConfigPatchRequest,
@@ -185,6 +189,30 @@ export const agentManagementApi = {
   ): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_provider_delete', { agentId, providerId }),
 
+  probeModelProvider: (
+    agentId: AgentId,
+    providerId: string | null,
+    apiUrl?: string | null,
+    apiKey?: string | null
+  ): Promise<AgentModelProviderProbeView> =>
+    backendCall('agent_model_provider_probe', {
+      agentId,
+      providerId,
+      apiUrl: apiUrl ?? null,
+      apiKey: apiKey ?? null,
+    }),
+
+  previewModelProviderImport: (
+    agentId: AgentId,
+    source: AgentModelProviderImportSource
+  ): Promise<AgentModelProviderImportPreviewView> =>
+    backendCall('agent_model_provider_import_preview', { agentId, source }),
+
+  importModelProviders: (
+    request: AgentModelProviderImportRequest
+  ): Promise<AgentModelProvidersView> =>
+    backendCall('agent_model_provider_import', { request }),
+
   piConfiguration: (): Promise<PiConfigurationView> =>
     backendCall('pi_configuration'),
 
@@ -217,6 +245,9 @@ export const agentManagementApi = {
   ): Promise<OpenCodePluginSummaryView> =>
     backendCall('opencode_plugin_install', { names }),
 
+  addOpenCodePlugin: (spec: string): Promise<OpenCodePluginSummaryView> =>
+    backendCall('opencode_plugin_add', { spec }),
+
   uninstallOpenCodePlugin: (name: string): Promise<OpenCodePluginSummaryView> =>
     backendCall('opencode_plugin_uninstall', { name }),
 
@@ -232,6 +263,11 @@ export const agentManagementApi = {
     request: OpenCodeProviderConnectRequest
   ): Promise<OpenCodeProviderConnectionsView> =>
     backendCall('opencode_provider_connect', { request }),
+
+  importOpenCodeProviders: (
+    request: AgentModelProviderImportRequest
+  ): Promise<OpenCodeProviderConnectionsView> =>
+    backendCall('opencode_provider_import', { request }),
 
   disconnectOpenCodeProvider: (
     providerId: string

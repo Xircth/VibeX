@@ -154,6 +154,9 @@ pub struct NativeConfigField {
     /// write this sibling value as well (for example `{ type: "api" }`).
     pub object_discriminator: Option<(&'static str, &'static str)>,
     pub surface: NativeConfigSurface,
+    /// Effective value when the key is absent. Official Agent defaults must
+    /// be shown; missing is not the same as false.
+    pub default_value: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -721,54 +724,24 @@ const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         "写入 Claude Code 的 ANTHROPIC_API_KEY",
         &["env", "ANTHROPIC_API_KEY"],
     )),
-    text_field(
-        "model",
-        "主模型",
-        "新会话默认使用的模型或模型别名",
-        &["env", "ANTHROPIC_MODEL"],
-    ),
-    text_field(
-        "reasoning_model",
-        "推理模型",
-        "Claude Code 处理扩展思考时使用的模型",
-        &["env", "ANTHROPIC_REASONING_MODEL"],
-    ),
-    text_field(
+    authentication(text_field(
         "haiku_model",
         "Haiku 默认模型",
         "haiku 别名解析到的模型",
         &["env", "ANTHROPIC_DEFAULT_HAIKU_MODEL"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "sonnet_model",
         "Sonnet 默认模型",
         "sonnet 别名解析到的模型",
         &["env", "ANTHROPIC_DEFAULT_SONNET_MODEL"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "opus_model",
         "Opus 默认模型",
         "opus 别名解析到的模型",
         &["env", "ANTHROPIC_DEFAULT_OPUS_MODEL"],
-    ),
-    text_field(
-        "custom_model_option",
-        "自定义模型 ID",
-        "在模型选择器中增加一个自定义模型",
-        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION"],
-    ),
-    text_field(
-        "custom_model_option_name",
-        "自定义模型名称",
-        "自定义模型在选择器中的显示名称",
-        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"],
-    ),
-    text_field(
-        "custom_model_option_description",
-        "自定义模型说明",
-        "自定义模型在选择器中的说明",
-        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"],
-    ),
+    )),
     select_field(
         "effort_level",
         "推理强度",
@@ -783,11 +756,12 @@ const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         &["permissions", "defaultMode"],
         CLAUDE_PERMISSION_OPTIONS,
     ),
-    boolean_field(
+    boolean_field_default(
         "include_co_authored_by",
         "提交署名",
         "在提交和 Pull Request 中加入 Claude 署名",
         &["includeCoAuthoredBy"],
+        "true",
     ),
     select_field(
         "claude_send_attribution_header",
@@ -860,7 +834,6 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
         "Codex 使用的 API 或兼容网关地址",
         &["openai_base_url"],
     )),
-    text_field("codex_model", "模型", "Codex 默认模型", &["model"]),
     authentication(text_field(
         "codex_model_provider",
         "模型提供商",
@@ -888,24 +861,32 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
         &["model_verbosity"],
         CODEX_VERBOSITY_OPTIONS,
     ),
-    text_field(
-        "codex_service_tier",
-        "服务等级",
-        "例如 fast、flex 或 auto",
-        &["service_tier"],
+    with_default(
+        select_field(
+            "codex_service_tier",
+            "服务等级",
+            "OpenAI service_tier：auto、fast 或 flex",
+            &["service_tier"],
+            &[("auto", "auto"), ("fast", "fast"), ("flex", "flex")],
+        ),
+        "auto",
     ),
-    text_field(
+    select_field(
         "codex_personality",
         "交流风格",
         "Codex 会话使用的 personality",
         &["personality"],
+        &[("friendly", "友好"), ("pragmatic", "务实"), ("none", "无")],
     ),
-    select_field(
-        "codex_approval_policy",
-        "命令确认",
-        "执行命令前的确认策略",
-        &["approval_policy"],
-        CODEX_APPROVAL_OPTIONS,
+    with_default(
+        select_field(
+            "codex_approval_policy",
+            "命令确认",
+            "执行命令前的确认策略",
+            &["approval_policy"],
+            CODEX_APPROVAL_OPTIONS,
+        ),
+        "on-request",
     ),
     boolean_field(
         "codex_approval_sandbox",
@@ -944,30 +925,21 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
         &["sandbox_mode"],
         CODEX_SANDBOX_OPTIONS,
     ),
-    select_field(
-        "codex_web_search",
-        "网页搜索",
-        "Codex 网页搜索的数据来源",
-        &["web_search"],
-        CODEX_WEB_SEARCH_OPTIONS,
+    with_default(
+        select_field(
+            "codex_web_search",
+            "网页搜索",
+            "Codex 网页搜索的数据来源",
+            &["web_search"],
+            CODEX_WEB_SEARCH_OPTIONS,
+        ),
+        "cached",
     ),
     boolean_field(
         "codex_responses_websockets",
-        "WebSocket 传输",
-        "使用 Responses API WebSocket 传输",
+        "关闭 WebSocket 连接",
+        "关闭 Responses API 的 WebSocket 传输",
         &["features", "responses_websockets_v2"],
-    ),
-    boolean_field(
-        "codex_skills",
-        "Skills",
-        "启用 Codex 原生 Skills 支持",
-        &["features", "skills"],
-    ),
-    json_field(
-        "codex_writable_roots",
-        "额外可写目录",
-        "workspace-write 沙箱额外允许写入的绝对路径数组",
-        &["sandbox_workspace_write", "writable_roots"],
     ),
     boolean_field(
         "codex_network_access",
@@ -1008,56 +980,31 @@ const CODEX_CONFIG: &[NativeConfigBinding] = &[
 ];
 
 const OPENCODE_AUTH_FIELDS: &[NativeConfigField] = &[
-    tagged_secret_field(
+    authentication(tagged_secret_field(
         "opencode_anthropic_api_key",
         "Anthropic API Key",
         "OpenCode 的 Anthropic provider 凭据",
         &["anthropic", "key"],
         ("type", "api"),
-    ),
-    tagged_secret_field(
+    )),
+    authentication(tagged_secret_field(
         "opencode_openai_api_key",
         "OpenAI API Key",
         "OpenCode 的 OpenAI provider 凭据",
         &["openai", "key"],
         ("type", "api"),
-    ),
-    tagged_secret_field(
-        "opencode_zen_api_key",
-        "OpenCode Zen API Key",
-        "OpenCode Zen provider 凭据",
-        &["opencode", "key"],
-        ("type", "api"),
-    ),
-    tagged_secret_field(
+    )),
+    authentication(tagged_secret_field(
         "opencode_google_api_key",
         "Google API Key",
         "OpenCode 的 Google provider 凭据",
         &["google", "key"],
         ("type", "api"),
-    ),
+    )),
 ];
 const OPENCODE_SHARE_OPTIONS: &[(&str, &str)] =
     &[("manual", "手动"), ("auto", "自动"), ("disabled", "关闭")];
 const OPENCODE_SETTINGS_FIELDS: &[NativeConfigField] = &[
-    json_field(
-        "opencode_providers",
-        "Provider 连接",
-        "完整的 provider 连接、npm 适配器、端点与模型定义（JSON）",
-        &["provider"],
-    ),
-    text_field(
-        "opencode_model",
-        "主模型",
-        "provider/model 格式的默认模型",
-        &["model"],
-    ),
-    text_field(
-        "opencode_small_model",
-        "轻量模型",
-        "标题等轻量任务使用的模型",
-        &["small_model"],
-    ),
     select_field(
         "opencode_share",
         "会话分享",
@@ -1065,11 +1012,12 @@ const OPENCODE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         &["share"],
         OPENCODE_SHARE_OPTIONS,
     ),
-    boolean_field(
+    boolean_field_default(
         "opencode_autoupdate",
         "自动更新",
         "启动时自动更新 OpenCode",
         &["autoupdate"],
+        "true",
     ),
     text_field(
         "opencode_username",
@@ -1226,6 +1174,14 @@ const ANTIGRAVITY_AUTH_OPTIONS: &[(&str, &str)] = &[
     ("gemini-api-key", "Gemini API Key"),
     ("agent-platform", "Agent Platform"),
 ];
+const ANTIGRAVITY_TOOL_PERMISSION_OPTIONS: &[(&str, &str)] = &[
+    ("request-review", "请求确认"),
+    ("proceed-in-sandbox", "沙箱内自动执行"),
+    ("strict", "严格确认"),
+    ("always-proceed", "始终执行"),
+];
+const ANTIGRAVITY_AGENT_MODE_OPTIONS: &[(&str, &str)] =
+    &[("plan", "计划"), ("accept-edits", "自动接受编辑")];
 const ANTIGRAVITY_FIELDS: &[NativeConfigField] = &[
     authentication(select_field(
         "antigravity_auth",
@@ -1259,14 +1215,62 @@ const ANTIGRAVITY_FIELDS: &[NativeConfigField] = &[
         &["env", "GOOGLE_CLOUD_LOCATION"],
     )),
 ];
-const ANTIGRAVITY_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
-    binding_id: "settings",
-    home_relative_path: ".gemini/antigravity-acp/settings.json",
-    directory_override_env: Some("GEMINI_HOME"),
-    override_relative_path: "antigravity-acp/settings.json",
-    format: NativeConfigFormat::Json,
-    fields: ANTIGRAVITY_FIELDS,
-}];
+const ANTIGRAVITY_CLI_FIELDS: &[NativeConfigField] = &[
+    with_default(
+        select_field(
+            "antigravity_tool_permission",
+            "工具权限",
+            "终端、写入与网页工具的确认策略",
+            &["toolPermission"],
+            ANTIGRAVITY_TOOL_PERMISSION_OPTIONS,
+        ),
+        "request-review",
+    ),
+    select_field(
+        "antigravity_agent_mode",
+        "执行模式",
+        "启动后的默认执行模式",
+        &["agentMode"],
+        ANTIGRAVITY_AGENT_MODE_OPTIONS,
+    ),
+    boolean_field_default(
+        "antigravity_terminal_sandbox",
+        "终端沙箱",
+        "将 Agent 发起的终端命令限制在操作系统容器内",
+        &["enableTerminalSandbox"],
+        "false",
+    ),
+    boolean_field(
+        "antigravity_telemetry",
+        "遥测",
+        "向 Google 发送匿名用量与崩溃报告",
+        &["enableTelemetry"],
+    ),
+    json_field(
+        "antigravity_permissions",
+        "权限规则",
+        "allow / deny / ask 细粒度权限列表",
+        &["permissions"],
+    ),
+];
+const ANTIGRAVITY_CONFIG: &[NativeConfigBinding] = &[
+    NativeConfigBinding {
+        binding_id: "settings",
+        home_relative_path: ".gemini/antigravity-acp/settings.json",
+        directory_override_env: Some("GEMINI_HOME"),
+        override_relative_path: "antigravity-acp/settings.json",
+        format: NativeConfigFormat::Json,
+        fields: ANTIGRAVITY_FIELDS,
+    },
+    NativeConfigBinding {
+        binding_id: "cli",
+        home_relative_path: ".gemini/antigravity-cli/settings.json",
+        directory_override_env: Some("GEMINI_HOME"),
+        override_relative_path: "antigravity-cli/settings.json",
+        format: NativeConfigFormat::Json,
+        fields: ANTIGRAVITY_CLI_FIELDS,
+    },
+];
 
 const OPENCLAW_FIELDS: &[NativeConfigField] = &[
     text_field(
@@ -1286,12 +1290,6 @@ const OPENCLAW_FIELDS: &[NativeConfigField] = &[
         "Session Key",
         "复用的 OpenClaw 会话键",
         &["acp", "sessionKey"],
-    ),
-    text_field(
-        "openclaw_model",
-        "默认模型",
-        "OpenClaw 默认模型",
-        &["agents", "defaults", "model", "primary"],
     ),
 ];
 const OPENCLAW_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
@@ -1316,46 +1314,51 @@ const CLINE_PROVIDER_OPTIONS: &[(&str, &str)] = &[
     ("lmstudio", "LM Studio"),
 ];
 const CLINE_STATE_FIELDS: &[NativeConfigField] = &[
-    select_field(
+    authentication(select_field(
         "cline_provider",
         "Provider",
         "Cline API Provider",
         &["apiProvider"],
         CLINE_PROVIDER_OPTIONS,
-    ),
-    text_field("cline_model", "模型", "Cline 模型 ID", &["apiModelId"]),
-    text_field(
+    )),
+    authentication(text_field(
+        "cline_model",
+        "模型",
+        "Cline 模型 ID",
+        &["apiModelId"],
+    )),
+    authentication(text_field(
         "cline_base_url",
         "API URL",
         "OpenAI 兼容端点",
         &["openAiBaseUrl"],
-    ),
+    )),
 ];
 const CLINE_SECRET_FIELDS: &[NativeConfigField] = &[
-    secret_field(
+    authentication(secret_field(
         "cline_anthropic_key",
         "Anthropic API Key",
         "Cline Anthropic 凭据",
         &["apiKey"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "cline_openai_key",
         "OpenAI API Key",
         "Cline OpenAI 凭据",
         &["openAiApiKey"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "cline_openrouter_key",
         "OpenRouter API Key",
         "Cline OpenRouter 凭据",
         &["openRouterApiKey"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "cline_gemini_key",
         "Gemini API Key",
         "Cline Gemini 凭据",
         &["geminiApiKey"],
-    ),
+    )),
 ];
 const CLINE_CONFIG: &[NativeConfigBinding] = &[
     NativeConfigBinding {
@@ -1416,31 +1419,31 @@ const HERMES_PROVIDER_OPTIONS: &[(&str, &str)] = &[
     ("bedrock", "AWS Bedrock"),
 ];
 const HERMES_YAML_FIELDS: &[NativeConfigField] = &[
-    select_field(
+    authentication(select_field(
         "hermes_provider",
         "Provider",
         "Hermes 模型 Provider",
         &["model", "provider"],
         HERMES_PROVIDER_OPTIONS,
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "hermes_model",
         "模型",
         "Hermes 默认模型",
         &["model", "default"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "hermes_base_url",
         "API URL",
         "Provider 自定义端点",
         &["model", "base_url"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "hermes_inline_key",
         "自定义 API Key",
         "custom Provider 的内联凭据",
         &["model", "api_key"],
-    ),
+    )),
 ];
 const HERMES_ENV_FIELDS: &[NativeConfigField] = &[
     secret_field(
@@ -1693,38 +1696,38 @@ const KIMI_INTERFACE_OPTIONS: &[(&str, &str)] = &[
     ("vertexai", "Vertex AI"),
 ];
 const KIMI_FIELDS: &[NativeConfigField] = &[
-    select_field(
+    authentication(select_field(
         "kimi_interface",
         "接口类型",
         "Provider 使用的 API 协议",
         &["providers", "vibex", "type"],
         KIMI_INTERFACE_OPTIONS,
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "kimi_base_url",
         "API URL",
         "Provider 基础地址",
         &["providers", "vibex", "base_url"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "kimi_api_key",
         "内联 API Key",
         "直接写入 Provider 的 API Key",
         &["providers", "vibex", "api_key"],
-    ),
-    json_field(
+    )),
+    authentication(json_field(
         "kimi_provider_env",
         "Provider 环境变量",
         "env 鉴权或 Vertex ADC 使用的环境变量对象",
         &["providers", "vibex", "env"],
-    ),
-    tagged_text_field(
+    )),
+    authentication(tagged_text_field(
         "kimi_model",
         "模型 ID",
         "Kimi Code 默认模型",
         &["models", "vibex", "model"],
         ("provider", "vibex"),
-    ),
+    )),
     number_field(
         "kimi_context",
         "上下文长度",
@@ -1782,12 +1785,6 @@ const GROK_FIELDS: &[NativeConfigField] = &[
         &["models", "default_reasoning_effort"],
         EFFORT_OPTIONS,
     ),
-    text_field(
-        "grok_model",
-        "默认模型",
-        "Grok 默认模型 ID",
-        &["models", "default"],
-    ),
     authentication(text_field(
         "grok_custom_model_id",
         "自定义模型 ID",
@@ -1823,11 +1820,14 @@ const GROK_FIELDS: &[NativeConfigField] = &[
         "自定义模型的 context_window",
         &["model", "vibex", "context_window"],
     )),
-    number_field(
-        "grok_auto_compact_threshold",
-        "自动压缩阈值",
-        "session.auto_compact_threshold_percent（0–100）",
-        &["session", "auto_compact_threshold_percent"],
+    with_default(
+        number_field(
+            "grok_auto_compact_threshold",
+            "自动压缩阈值（%）",
+            "session.auto_compact_threshold_percent（0–100）",
+            &["session", "auto_compact_threshold_percent"],
+        ),
+        "85",
     ),
 ];
 const GROK_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
@@ -1921,6 +1921,7 @@ const fn text_field(
         options: EMPTY_OPTIONS,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -1940,6 +1941,7 @@ const fn tagged_text_field(
         options: EMPTY_OPTIONS,
         object_discriminator: Some(object_discriminator),
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -1958,6 +1960,7 @@ const fn secret_field(
         options: EMPTY_OPTIONS,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -1977,6 +1980,7 @@ const fn tagged_secret_field(
         options: EMPTY_OPTIONS,
         object_discriminator: Some(object_discriminator),
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -1996,6 +2000,7 @@ const fn select_field(
         options,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -2014,7 +2019,20 @@ const fn boolean_field(
         options: EMPTY_OPTIONS,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
+}
+
+const fn boolean_field_default(
+    field_id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    path: &'static [&'static str],
+    default_value: &'static str,
+) -> NativeConfigField {
+    let mut field = boolean_field(field_id, label, description, path);
+    field.default_value = Some(default_value);
+    field
 }
 
 const fn number_field(
@@ -2032,6 +2050,7 @@ const fn number_field(
         options: EMPTY_OPTIONS,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
@@ -2050,11 +2069,20 @@ const fn json_field(
         options: EMPTY_OPTIONS,
         object_discriminator: None,
         surface: NativeConfigSurface::Configuration,
+        default_value: None,
     }
 }
 
 const fn authentication(mut field: NativeConfigField) -> NativeConfigField {
     field.surface = NativeConfigSurface::Authentication;
+    field
+}
+
+const fn with_default(
+    mut field: NativeConfigField,
+    default_value: &'static str,
+) -> NativeConfigField {
+    field.default_value = Some(default_value);
     field
 }
 
@@ -2096,9 +2124,9 @@ fn native_npx(
     }
 }
 
-const NATIVE_SKILLS_SETTINGS: &[AgentSettingsFeature] = &[AgentSettingsFeature::NativeSkills];
 const AUTH_MODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
     AgentSettingsFeature::GrokPlugins,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
@@ -2111,9 +2139,7 @@ const CLAUDE_SETTINGS: &[AgentSettingsFeature] = &[
 ];
 const CODEX_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
-    AgentSettingsFeature::ModelCatalog,
     AgentSettingsFeature::ReusableModelProviders,
-    AgentSettingsFeature::CodexModelCatalog,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
@@ -2124,17 +2150,21 @@ const ANTIGRAVITY_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::NativeSkills,
 ];
 const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::OpenCodeProviders,
     AgentSettingsFeature::OpenCodePlugins,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
     AgentSettingsFeature::ModelCatalog,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
 const PI_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::PiConfiguration,
     AgentSettingsFeature::NativeSkills,
 ];
@@ -2342,7 +2372,11 @@ fn openclaw_profile() -> BuiltInProfile {
         management_actions: OPENCLAW_ACTIONS,
         runtime_executable_env: None,
         native_config: OPENCLAW_CONFIG,
-        settings_features: NATIVE_SKILLS_SETTINGS,
+        settings_features: &[
+            AgentSettingsFeature::AuthenticationMode,
+            AgentSettingsFeature::ReusableModelProviders,
+            AgentSettingsFeature::NativeSkills,
+        ],
         authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: false,
         account_evidence: None,
@@ -2365,39 +2399,39 @@ fn opencode_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.18.11",
+            version: "1.18.23",
             command: "opencode",
             args: &["acp"],
             artifacts: vec![
                 artifact(
                     "darwin-aarch64",
                     "opencode-darwin-arm64.zip",
-                    "6f998b7dabb9425bb348fd0d88afeb92a14422771231cec9b0f4374b947397e6",
+                    "373cf36673836f2ce8847295a0bb2cd2447d03c769b44d84185916bd471b4274",
                 ),
                 artifact(
                     "darwin-x86_64",
                     "opencode-darwin-x64.zip",
-                    "b9e6081f4db1f2066910f121258c23c8243438d22b1b80987d1569c5e40ef00e",
+                    "6b617da75b5773836fcdc7247d7ea2bd39aec942a58b89a041bafb3d4d2a8c23",
                 ),
                 artifact(
                     "linux-aarch64",
                     "opencode-linux-arm64.tar.gz",
-                    "b16bd7593ea960a25d9c6849b3023bcd9b9244a6f51675341fd2052043b0670f",
+                    "86d3afaf4e8784f9adab189be2a315c12b27ec40a04b70defbe70595c3cc7c65",
                 ),
                 artifact(
                     "linux-x86_64",
                     "opencode-linux-x64.tar.gz",
-                    "a0fa4b7b8bdacbd013e79a5f69d4220d36b545cd3ea296ba765f3016fa501b5b",
+                    "ab7015cd8113e011a461f30a0c2b77d8299a144ff688cb62e93e8802835d7288",
                 ),
                 artifact(
                     "windows-aarch64",
                     "opencode-windows-arm64.zip",
-                    "1f2c650b517d725635e56da080c73c641c250696a3d7e6cdbada96af8f31a6d3",
+                    "3ff8c553ae270e89499808fbce7635535762f75cfaae4b0bb818b10d7eb18d9b",
                 ),
                 artifact(
                     "windows-x86_64",
                     "opencode-windows-x64.zip",
-                    "1becf92ceb23edd7d951e7e3d8efcbe9c9808f5cc728f1b75277d5f951ada5c2",
+                    "a2fe9e8c2d074d26975024d494927b966680b3efdc3e0377eadb9afb05f7e191",
                 ),
             ],
             entry: None,
@@ -2448,6 +2482,8 @@ fn cline_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: CLINE_CONFIG,
         settings_features: &[
+            AgentSettingsFeature::AuthenticationMode,
+            AgentSettingsFeature::ReusableModelProviders,
             AgentSettingsFeature::NativeMcp,
             AgentSettingsFeature::NativeSkills,
         ],
@@ -2492,6 +2528,8 @@ fn hermes_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: HERMES_CONFIG,
         settings_features: &[
+            AgentSettingsFeature::AuthenticationMode,
+            AgentSettingsFeature::ReusableModelProviders,
             AgentSettingsFeature::NativeMcp,
             AgentSettingsFeature::NativeSkills,
         ],
@@ -2529,6 +2567,7 @@ fn codebuddy_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: CODEBUDDY_CONFIG,
         settings_features: &[
+            AgentSettingsFeature::AuthenticationMode,
             AgentSettingsFeature::NativeMcp,
             AgentSettingsFeature::NativeSkills,
         ],
@@ -2587,22 +2626,22 @@ fn artifact(
         platform,
         archive_url: match filename {
             "opencode-darwin-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-darwin-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-darwin-arm64.zip"
             }
             "opencode-darwin-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-darwin-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-darwin-x64.zip"
             }
             "opencode-linux-arm64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-arm64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-linux-arm64.tar.gz"
             }
             "opencode-linux-x64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-x64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-linux-x64.tar.gz"
             }
             "opencode-windows-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-windows-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-windows-arm64.zip"
             }
             "opencode-windows-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-windows-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-windows-x64.zip"
             }
             _ => unreachable!("bundled OpenCode artifact"),
         },

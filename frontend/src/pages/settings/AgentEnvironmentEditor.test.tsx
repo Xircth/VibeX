@@ -51,6 +51,8 @@ describe('AgentEnvironmentEditor', () => {
 
     render(<AgentEnvironmentEditor agentId="codex" />);
 
+    expect(await screen.findByText('2 个')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '环境变量' }));
     const model = await screen.findByLabelText('环境变量 MODEL 的值');
     await user.clear(model);
     await user.type(model, 'gpt-5.2');

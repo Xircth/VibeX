@@ -4744,33 +4744,39 @@ fn classify_vendor_session_option(
     id: &str,
     label: &str,
 ) -> VendorSessionOptionKind {
-    let token = normalize_config_token(&format!("{} {id} {label}", category.unwrap_or_default()));
-    if token.contains("model") {
+    // Inspect each field on its own. Concatenating `mode` + `low` produces
+    // `modelow`, which contains `model` and would steal Grok's Low Effort
+    // choice into the Model selector.
+    let category = normalize_config_token(category.unwrap_or_default());
+    let id = normalize_config_token(id);
+    let label = normalize_config_token(label);
+    if vendor_token_contains_any(&[&category, &id, &label], "model") {
         return VendorSessionOptionKind::Model;
     }
-    if token.contains("permission")
-        || token.contains("approval")
+    if vendor_token_contains_any(&[&category, &id, &label], "permission")
+        || vendor_token_contains_any(&[&category, &id, &label], "approval")
         || matches!(
-            normalize_config_token(id).as_str(),
+            id.as_str(),
             "default" | "acceptedits" | "auto" | "dontask" | "bypasspermissions" | "plan"
         )
     {
         return VendorSessionOptionKind::Permission;
     }
     if matches!(
-        category,
-        Some("mode" | "effort" | "thought" | "thought_level" | "reasoning")
-    ) || token.contains("effort")
-        || token.contains("thought")
-        || token.contains("reason")
-        || matches!(
-            normalize_config_token(id).as_str(),
-            "xhigh" | "high" | "medium" | "low" | "minimal"
-        )
+        category.as_str(),
+        "mode" | "effort" | "thought" | "thoughtlevel" | "reasoning"
+    ) || vendor_token_contains_any(&[&category, &id, &label], "effort")
+        || vendor_token_contains_any(&[&category, &id, &label], "thought")
+        || vendor_token_contains_any(&[&category, &id, &label], "reason")
+        || matches!(id.as_str(), "xhigh" | "high" | "medium" | "low" | "minimal")
     {
         return VendorSessionOptionKind::Effort;
     }
     VendorSessionOptionKind::Unknown
+}
+
+fn vendor_token_contains_any(tokens: &[&str], needle: &str) -> bool {
+    tokens.iter().any(|token| token.contains(needle))
 }
 
 fn vendor_select_choice(
@@ -5608,7 +5614,7 @@ mod tests {
 
     #[test]
     fn grok_vendor_meta_session_config_becomes_standard_controls() {
-        // Grok 1.0.4 advertises session config via `_meta["x.ai/sessionConfig"]`
+        // Grok 1.0.5 advertises session config via `_meta["x.ai/sessionConfig"]`
         // instead of the standard `modes`/`configOptions` fields (verified
         // against `grok agent stdio` 2026-08). Without this adapter the
         // create-session summary stays empty.
@@ -5619,7 +5625,8 @@ mod tests {
                     { "id": "grok-4.5", "category": "model", "label": "Grok 4.5", "selected": false },
                     { "id": "xhigh", "category": "mode", "label": "Extra High Effort", "description": "Highest effort", "selected": false },
                     { "id": "high", "category": "mode", "label": "High Effort", "description": "Higher implementation quality", "selected": true },
-                    { "id": "medium", "category": "mode", "label": "Medium Effort", "selected": false }
+                    { "id": "medium", "category": "mode", "label": "Medium Effort", "selected": false },
+                    { "id": "low", "category": "mode", "label": "Low Effort", "description": "Quick, fast implementations", "selected": false }
                 ]
             }
         });
@@ -5640,13 +5647,19 @@ mod tests {
             panic!("model option must be a select");
         };
         assert_eq!(select.current_value.0.as_ref(), "grok-4.6");
-        let SessionConfigSelectOptions::Ungrouped(options) = &select.options else {
+        let SessionConfigSelectOptions::Ungrouped(model_choices) = &select.options else {
             panic!("model options must be ungrouped");
         };
-        assert_eq!(options.len(), 2);
-        assert_eq!(options[0].value.0.as_ref(), "grok-4.6");
-        assert_eq!(options[0].name, "Grok 4.6");
-        assert_eq!(options[1].value.0.as_ref(), "grok-4.5");
+        assert_eq!(model_choices.len(), 2);
+        assert_eq!(model_choices[0].value.0.as_ref(), "grok-4.6");
+        assert_eq!(model_choices[0].name, "Grok 4.6");
+        assert_eq!(model_choices[1].value.0.as_ref(), "grok-4.5");
+        assert!(
+            model_choices
+                .iter()
+                .all(|choice| choice.value.0.as_ref() != "low"),
+            "Low Effort must not leak into the Model selector"
+        );
 
         let effort = &vendor.config_options[1];
         assert_eq!(effort.id.0.as_ref(), "effort");
@@ -5658,12 +5671,41 @@ mod tests {
             panic!("effort option must be a select");
         };
         assert_eq!(select.current_value.0.as_ref(), "high");
-        let SessionConfigSelectOptions::Ungrouped(options) = &select.options else {
+        let SessionConfigSelectOptions::Ungrouped(effort_choices) = &select.options else {
             panic!("effort options must be ungrouped");
         };
-        assert_eq!(options.len(), 3);
-        assert_eq!(options[0].value.0.as_ref(), "xhigh");
-        assert_eq!(options[0].description.as_deref(), Some("Highest effort"));
+        assert_eq!(effort_choices.len(), 4);
+        assert_eq!(effort_choices[0].value.0.as_ref(), "xhigh");
+        assert_eq!(
+            effort_choices[0].description.as_deref(),
+            Some("Highest effort")
+        );
+        assert_eq!(effort_choices[3].value.0.as_ref(), "low");
+        assert_eq!(effort_choices[3].name, "Low Effort");
+    }
+
+    #[test]
+    fn vendor_option_fields_are_classified_independently() {
+        assert_eq!(
+            classify_vendor_session_option(Some("model"), "grok-4.6", "Grok 4.6"),
+            VendorSessionOptionKind::Model
+        );
+        assert_eq!(
+            classify_vendor_session_option(Some("mode"), "high", "High Effort"),
+            VendorSessionOptionKind::Effort
+        );
+        assert_eq!(
+            classify_vendor_session_option(Some("mode"), "low", "Low Effort"),
+            VendorSessionOptionKind::Effort
+        );
+        assert_eq!(
+            classify_vendor_session_option(Some("mode"), "ls", "List"),
+            VendorSessionOptionKind::Effort
+        );
+        assert_eq!(
+            classify_vendor_session_option(Some("permission"), "default", "Ask"),
+            VendorSessionOptionKind::Permission
+        );
     }
 
     #[test]

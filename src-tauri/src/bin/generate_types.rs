@@ -44,8 +44,8 @@ use agents::{
     },
 };
 use api_types::{
-    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
-    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
+    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
+    AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
     AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
     AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
     AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
@@ -53,7 +53,9 @@ use api_types::{
     AgentManagementActionKind, AgentManagementActionReceipt, AgentManagementActionView,
     AgentManagementActionsView, AgentManagementErrorCode, AgentManagementErrorView,
     AgentManagementIdentity, AgentManagementView, AgentModelCatalogItemView,
-    AgentModelCatalogSource, AgentModelCatalogView, AgentModelProviderSaveRequest,
+    AgentModelCatalogSource, AgentModelCatalogView, AgentModelProviderImportCandidateView,
+    AgentModelProviderImportPreviewView, AgentModelProviderImportRequest,
+    AgentModelProviderImportSource, AgentModelProviderProbeView, AgentModelProviderSaveRequest,
     AgentModelProviderView, AgentModelProvidersView, AgentNativeConfigFieldKind,
     AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
     AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
@@ -423,6 +425,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<CodexModelCatalogConfigView>(&mut decls);
     insert_declaration::<AgentModelProviderView>(&mut decls);
     insert_declaration::<AgentModelProvidersView>(&mut decls);
+    insert_declaration::<AgentModelProviderProbeView>(&mut decls);
+    insert_declaration::<AgentModelProviderImportSource>(&mut decls);
+    insert_declaration::<AgentModelProviderImportCandidateView>(&mut decls);
+    insert_declaration::<AgentModelProviderImportPreviewView>(&mut decls);
+    insert_declaration::<AgentModelProviderImportRequest>(&mut decls);
     insert_declaration::<AgentModelProviderSaveRequest>(&mut decls);
     insert_declaration::<PiCustomProviderView>(&mut decls);
     insert_declaration::<PiRuntimeConfigurationView>(&mut decls);
@@ -442,6 +449,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<DshPluginSummaryView>(&mut decls);
     insert_declaration::<GrokPluginView>(&mut decls);
     insert_declaration::<GrokPluginSummaryView>(&mut decls);
+    insert_declaration::<AgentAuthModeKind>(&mut decls);
     insert_declaration::<AgentAuthModeOptionView>(&mut decls);
     insert_declaration::<AgentAuthModeView>(&mut decls);
     insert_declaration::<AgentEnvironmentEntryView>(&mut decls);

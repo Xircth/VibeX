@@ -1,17 +1,23 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
 use agents::{NativeFileMutation, NativeFileSystem, TokioNativeFileSystem};
 use api_types::{
-    AgentId, AgentKind, AgentModelProviderSaveRequest, AgentModelProviderView,
-    AgentModelProvidersView, CodexModelCatalogConfigRequest,
+    AgentId, AgentKind, AgentModelProviderImportPreviewView, AgentModelProviderImportSource,
+    AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
+    CodexModelCatalogConfigRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{read_json_object_or_empty, write_bytes_document};
+use super::{
+    model_provider_import::{
+        ImportDraft, annotate_duplicate, drafts_to_preview, preview_cc_switch,
+    },
+    read_json_object_or_empty, write_bytes_document,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredProvider {
@@ -75,6 +81,11 @@ struct ProviderNativeHomes {
     claude: PathBuf,
     codex: PathBuf,
     gemini: PathBuf,
+    grok: PathBuf,
+    kimi: PathBuf,
+    hermes: PathBuf,
+    openclaw: PathBuf,
+    cline: PathBuf,
 }
 
 impl ProviderNativeHomes {
@@ -83,6 +94,11 @@ impl ProviderNativeHomes {
             claude: resolve_native_home(home, environment, "CLAUDE_CONFIG_DIR", ".claude"),
             codex: resolve_native_home(home, environment, "CODEX_HOME", ".codex"),
             gemini: resolve_gemini_home(home, environment),
+            grok: resolve_native_home(home, environment, "GROK_HOME", ".grok"),
+            kimi: resolve_native_home(home, environment, "KIMI_CODE_HOME", ".kimi-code"),
+            hermes: resolve_native_home(home, environment, "HERMES_HOME", ".hermes"),
+            openclaw: resolve_native_home(home, environment, "OPENCLAW_HOME", ".openclaw"),
+            cline: resolve_native_home(home, environment, "CLINE_DIR", ".cline/data"),
         }
     }
 }
@@ -254,7 +270,7 @@ pub(super) async fn save(
     } else {
         write_store(store_path, &store).await?;
     }
-    Ok(project(&store, request.agent_id))
+    projected_view(&store, &homes, request.agent_id).await
 }
 
 pub(super) async fn bind(
@@ -300,7 +316,7 @@ pub(super) async fn bind(
             .insert(agent_id.as_str().to_string(), provider_id.to_string());
     } else {
         if current_binding.is_none() {
-            return Ok(project(&store, agent_id));
+            return projected_view(&store, &homes, agent_id).await;
         }
         let backup = store
             .projection_backups
@@ -315,7 +331,7 @@ pub(super) async fn bind(
         restore_projection(&homes, &agent_id, &rollback).await?;
         return Err(error);
     }
-    Ok(project(&store, agent_id))
+    projected_view(&store, &homes, agent_id).await
 }
 
 pub(super) async fn delete(
@@ -365,7 +381,7 @@ pub(super) async fn delete(
         }
         return Err(error);
     }
-    Ok(project(&store, agent_id))
+    projected_view(&store, &homes, agent_id).await
 }
 
 fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelProvidersView {
@@ -393,61 +409,69 @@ fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelProvidersView 
     }
 }
 
-/// 在 VibeX 预设视图之上合并原生 Codex Provider。仅在 Codex 且 VibeX 尚未
-/// 绑定时生效：此时 `config.toml` 中激活的自定义 Provider（`model_provider`
-/// 指向的表，或顶层 base_url）就是 Codex 实际使用的端点，应显示为已绑定。
+/// 在 VibeX 预设视图之上合并原生 Codex Provider。启用某个 VibeX 预设后
+/// 仍保留 `config.toml` 里的其它原生表，只把绑定态交给当前生效的那一项。
 fn project_with_native(
     store: &ProviderStore,
     agent_id: AgentId,
     native: Option<&NativeCodexState>,
 ) -> AgentModelProvidersView {
     let mut view = project(store, agent_id.clone());
-    if agent_id.as_str() != "codex" || view.bound_provider_id.is_some() {
+    if agent_id.as_str() != "codex" {
         return view;
     }
     let Some(native) = native else {
         return view;
     };
-    let active_provider = native.active_provider.as_deref();
-    let base_url_active = native
-        .base_url
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty());
-    if active_provider.is_none() && !base_url_active {
-        return view;
-    }
-    if let Some(active) = active_provider {
-        let existing = native
-            .providers
-            .iter()
-            .find(|provider| provider.id == active);
-        let (id, name, api_url) = match existing {
-            Some(provider) => (
-                provider.id.clone(),
-                provider.name.clone(),
-                provider.api_url.clone(),
-            ),
-            None => (
-                active.to_string(),
-                active.to_string(),
-                native.base_url.clone().unwrap_or_default(),
-            ),
-        };
+    let managed_bound = view.bound_provider_id.is_some();
+    let existing_ids = view
+        .providers
+        .iter()
+        .map(|provider| provider.id.clone())
+        .collect::<HashSet<_>>();
+    for provider in &native.providers {
+        if provider.id == "vibex" || existing_ids.contains(&provider.id) {
+            continue;
+        }
+        let bound =
+            !managed_bound && native.active_provider.as_deref() == Some(provider.id.as_str());
         view.providers.push(AgentModelProviderView {
-            id: id.clone(),
-            name,
+            id: provider.id.clone(),
+            name: provider.name.clone(),
             agent_id: agent_id.clone(),
-            api_url,
+            api_url: provider.api_url.clone(),
+            model: native.model.clone().unwrap_or_default(),
+            credential_present: native.credential_present,
+            bound,
+            managed: false,
+        });
+        if bound {
+            view.bound_provider_id = Some(provider.id.clone());
+        }
+    }
+    if !managed_bound
+        && view.bound_provider_id.is_none()
+        && let Some(active) = native.active_provider.as_deref()
+        && !existing_ids.contains(active)
+    {
+        view.providers.push(AgentModelProviderView {
+            id: active.to_string(),
+            name: active.to_string(),
+            agent_id: agent_id.clone(),
+            api_url: native.base_url.clone().unwrap_or_default(),
             model: native.model.clone().unwrap_or_default(),
             credential_present: native.credential_present,
             bound: true,
             managed: false,
         });
-        view.bound_provider_id = Some(id);
-    } else if let Some(base_url) = native
-        .base_url
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        view.bound_provider_id = Some(active.to_string());
+    }
+    if !managed_bound
+        && view.bound_provider_id.is_none()
+        && let Some(base_url) = native
+            .base_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
     {
         view.providers.push(AgentModelProviderView {
             id: NATIVE_ENDPOINT_PROVIDER_ID.to_string(),
@@ -461,7 +485,22 @@ fn project_with_native(
         });
         view.bound_provider_id = Some(NATIVE_ENDPOINT_PROVIDER_ID.to_string());
     }
+    view.providers
+        .sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
     view
+}
+
+async fn projected_view(
+    store: &ProviderStore,
+    homes: &ProviderNativeHomes,
+    agent_id: AgentId,
+) -> Result<AgentModelProvidersView, String> {
+    let native = if agent_id.as_str() == "codex" {
+        Some(read_native_codex_state(&homes.codex).await?)
+    } else {
+        None
+    };
+    Ok(project_with_native(store, agent_id, native.as_ref()))
 }
 
 /// 只读解析 Codex 原生配置的 Provider 状态，不修改任何文件。
@@ -548,7 +587,11 @@ async fn write_store(path: &Path, store: &ProviderStore) -> Result<(), String> {
 }
 
 fn validate_agent(agent_id: &AgentId) -> Result<(), String> {
-    if matches!(agent_id.as_str(), "claude_code" | "codex") || is_antigravity(agent_id) {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "codex" | "grok" | "kimi_code" | "hermes" | "openclaw" | "cline"
+    ) || is_antigravity(agent_id)
+    {
         Ok(())
     } else {
         Err("此 Agent 不支持可复用 Model Provider".to_string())
@@ -572,6 +615,448 @@ fn validate_request(request: &AgentModelProviderSaveRequest) -> Result<(), Strin
         return Err("Model Provider API URL 必须是无内嵌凭据的 http(s) 地址".to_string());
     }
     Ok(())
+}
+
+pub(super) async fn preview_import(
+    store_path: &Path,
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: AgentId,
+    source: AgentModelProviderImportSource,
+) -> Result<AgentModelProviderImportPreviewView, String> {
+    if source != AgentModelProviderImportSource::CcSwitch
+        || super::model_provider_import::cc_switch_app_type(&agent_id).is_none()
+    {
+        validate_agent(&agent_id)?;
+    }
+    let existing = if validate_agent(&agent_id).is_ok() {
+        list(store_path, agent_id.clone()).await?
+    } else {
+        AgentModelProvidersView {
+            agent_id: agent_id.clone(),
+            providers: Vec::new(),
+            bound_provider_id: None,
+        }
+    };
+    let names: Vec<String> = existing
+        .providers
+        .iter()
+        .filter(|provider| provider.managed)
+        .map(|provider| provider.name.clone())
+        .collect();
+    match source {
+        AgentModelProviderImportSource::Native => {
+            let drafts = native_import_drafts(home, environment, &agent_id, &names).await?;
+            let empty = drafts.is_empty();
+            Ok(drafts_to_preview(
+                agent_id,
+                source,
+                None,
+                drafts,
+                empty.then(|| "当前原生配置没有可导入的端点".to_string()),
+            ))
+        }
+        AgentModelProviderImportSource::CcSwitch => {
+            let (path, drafts, error) = preview_cc_switch(home, &agent_id, &names).await;
+            Ok(drafts_to_preview(
+                agent_id,
+                source,
+                Some(path.display().to_string()),
+                drafts,
+                error,
+            ))
+        }
+    }
+}
+
+pub(super) async fn apply_import(
+    store_path: &Path,
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: AgentId,
+    source: AgentModelProviderImportSource,
+    source_ids: &[String],
+) -> Result<AgentModelProvidersView, String> {
+    let selected: HashSet<&str> = source_ids.iter().map(String::as_str).collect();
+    let existing_names = existing_managed_names(store_path, agent_id.clone()).await?;
+    let drafts = match source {
+        AgentModelProviderImportSource::Native => {
+            native_import_drafts(home, environment, &agent_id, &existing_names).await?
+        }
+        AgentModelProviderImportSource::CcSwitch => {
+            preview_cc_switch(home, &agent_id, &existing_names).await.1
+        }
+    };
+    let mut imported = 0;
+    for draft in drafts {
+        if !selected.contains(draft.source_id.as_str()) {
+            continue;
+        }
+        if draft.skip_reason.is_some() {
+            continue;
+        }
+        save(
+            store_path,
+            home,
+            environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: draft.name,
+                agent_id: agent_id.clone(),
+                api_url: draft.api_url,
+                api_key: Some(draft.api_key),
+                model: draft.model,
+            },
+        )
+        .await?;
+        imported += 1;
+    }
+    if imported == 0 {
+        return Err("没有可导入的供应商".to_string());
+    }
+    list_with_native(
+        store_path,
+        agent_id,
+        Some(&ProviderNativeHomes::resolve(home, environment).codex),
+    )
+    .await
+}
+
+async fn existing_managed_names(
+    store_path: &Path,
+    agent_id: AgentId,
+) -> Result<Vec<String>, String> {
+    Ok(list(store_path, agent_id)
+        .await?
+        .providers
+        .into_iter()
+        .filter(|provider| provider.managed)
+        .map(|provider| provider.name)
+        .collect())
+}
+
+async fn native_import_drafts(
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: &AgentId,
+    existing_names: &[String],
+) -> Result<Vec<ImportDraft>, String> {
+    let homes = ProviderNativeHomes::resolve(home, environment);
+    let mut drafts = Vec::new();
+    match agent_id.as_str() {
+        "claude_code" => {
+            if let Some(draft) = native_claude_draft(&homes.claude).await? {
+                drafts.push(draft);
+            }
+        }
+        "codex" => {
+            drafts.extend(native_codex_drafts(&homes.codex).await?);
+        }
+        "grok" => drafts.extend(native_grok_drafts(&homes.grok).await?),
+        "kimi_code" => {
+            if let Some(draft) = native_kimi_draft(&homes.kimi).await? {
+                drafts.push(draft);
+            }
+        }
+        _ if is_antigravity(agent_id) => {
+            if let Some(draft) = native_gemini_draft(&homes.gemini, agent_id).await? {
+                drafts.push(draft);
+            }
+        }
+        _ => {}
+    }
+    Ok(drafts
+        .into_iter()
+        .map(|mut draft| {
+            if draft.skip_reason.is_none() && (draft.api_url.is_empty() || draft.api_key.is_empty())
+            {
+                draft.skip_reason = Some("缺少端点或凭据".to_string());
+            }
+            annotate_duplicate(draft, existing_names)
+        })
+        .collect())
+}
+
+async fn native_claude_draft(claude_home: &Path) -> Result<Option<ImportDraft>, String> {
+    let document = read_json_object_or_empty(&claude_home.join("settings.json"))
+        .await
+        .map_err(|error| error.message)?;
+    let env = document
+        .get("env")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
+    let api_url = json_text(&env, &["ANTHROPIC_BASE_URL"]);
+    let api_key = json_text(&env, &["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"]);
+    if api_url.is_empty() && api_key.is_empty() {
+        return Ok(None);
+    }
+    let mut mapping = serde_json::Map::new();
+    for (source, key) in [
+        ("main", "ANTHROPIC_MODEL"),
+        ("reasoning", "ANTHROPIC_REASONING_MODEL"),
+        ("haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+        ("sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
+        ("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+        ("customOption", "ANTHROPIC_CUSTOM_MODEL_OPTION"),
+        ("customOptionName", "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"),
+        (
+            "customOptionDescription",
+            "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+        ),
+    ] {
+        let value = json_text(&env, &[key]);
+        if !value.is_empty() {
+            mapping.insert(source.to_string(), Value::String(value));
+        }
+    }
+    Ok(Some(ImportDraft {
+        source_id: "__native_live__".to_string(),
+        name: "当前原生配置".to_string(),
+        api_url,
+        api_key,
+        model: if mapping.is_empty() {
+            String::new()
+        } else {
+            serde_json::to_string(&mapping).unwrap_or_default()
+        },
+        skip_reason: None,
+    }))
+}
+
+async fn native_gemini_draft(
+    gemini_home: &Path,
+    agent_id: &AgentId,
+) -> Result<Option<ImportDraft>, String> {
+    let path = if agent_id.as_str() == "gemini" {
+        gemini_home.join("settings.json")
+    } else {
+        antigravity_settings_path(gemini_home)
+    };
+    let document = read_json_object_or_empty(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let env = document
+        .get("env")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
+    let api_url = json_text(
+        &env,
+        &["GOOGLE_GEMINI_BASE_URL", "GEMINI_BASE_URL", "API_BASE_URL"],
+    );
+    let api_key = json_text(
+        &env,
+        &["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    );
+    if api_url.is_empty() && api_key.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(ImportDraft {
+        source_id: "__native_live__".to_string(),
+        name: "当前原生配置".to_string(),
+        api_url,
+        api_key,
+        model: json_text(&env, &["GEMINI_MODEL"]),
+        skip_reason: None,
+    }))
+}
+
+async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String> {
+    let table = read_toml_table(&grok_home.join("config.toml")).await?;
+    let Some(models) = table.get("model").and_then(toml::Value::as_table) else {
+        return Ok(Vec::new());
+    };
+    let mut drafts = Vec::new();
+    for (id, value) in models {
+        let Some(entry) = value.as_table() else {
+            continue;
+        };
+        let api_url = entry
+            .get("base_url")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let api_key = entry
+            .get("api_key")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if api_url.is_empty() && api_key.is_empty() {
+            continue;
+        }
+        let model_id = entry
+            .get("model")
+            .and_then(toml::Value::as_str)
+            .unwrap_or(id)
+            .to_string();
+        let backend = entry
+            .get("api_backend")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("responses");
+        let context = entry
+            .get("context_window")
+            .and_then(toml::Value::as_integer);
+        drafts.push(ImportDraft {
+            source_id: format!("native:{id}"),
+            name: entry
+                .get("name")
+                .and_then(toml::Value::as_str)
+                .unwrap_or(id)
+                .to_string(),
+            api_url,
+            api_key,
+            model: serde_json::json!({
+                "id": model_id,
+                "api_backend": backend,
+                "context_window": context
+            })
+            .to_string(),
+            skip_reason: None,
+        });
+    }
+    Ok(drafts)
+}
+
+async fn native_kimi_draft(kimi_home: &Path) -> Result<Option<ImportDraft>, String> {
+    let table = read_toml_table(&kimi_home.join("config.toml")).await?;
+    let provider = table
+        .get("providers")
+        .and_then(toml::Value::as_table)
+        .and_then(|providers| providers.get("vibex"))
+        .and_then(toml::Value::as_table);
+    let Some(provider) = provider else {
+        return Ok(None);
+    };
+    let api_url = provider
+        .get("base_url")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let api_key = provider
+        .get("api_key")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if api_url.is_empty() && api_key.is_empty() {
+        return Ok(None);
+    }
+    let model = table
+        .get("models")
+        .and_then(toml::Value::as_table)
+        .and_then(|models| models.get("vibex"))
+        .and_then(toml::Value::as_table)
+        .and_then(|model| model.get("model"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Ok(Some(ImportDraft {
+        source_id: "__native_live__".to_string(),
+        name: "当前原生配置".to_string(),
+        api_url,
+        api_key,
+        model,
+        skip_reason: None,
+    }))
+}
+
+async fn native_codex_drafts(codex_home: &Path) -> Result<Vec<ImportDraft>, String> {
+    let state = read_native_codex_state(codex_home).await?;
+    let key = if state.credential_present {
+        read_json_object_or_empty(&codex_home.join("auth.json"))
+            .await
+            .map_err(|error| error.message)?
+            .get("OPENAI_API_KEY")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    } else {
+        String::new()
+    };
+    let mut drafts = Vec::new();
+    for provider in state.providers {
+        drafts.push(ImportDraft {
+            source_id: provider.id.clone(),
+            name: provider.name,
+            api_url: provider.api_url,
+            api_key: key.clone(),
+            model: if provider.model.is_empty() {
+                String::new()
+            } else {
+                serde_json::json!({ "default_model": provider.model }).to_string()
+            },
+            skip_reason: None,
+        });
+    }
+    if drafts.is_empty() {
+        if let (Some(url), Some(model)) = (state.base_url, state.model) {
+            drafts.push(ImportDraft {
+                source_id: NATIVE_ENDPOINT_PROVIDER_ID.to_string(),
+                name: "当前原生配置".to_string(),
+                api_url: url,
+                api_key: key,
+                model: serde_json::json!({ "default_model": model }).to_string(),
+                skip_reason: None,
+            });
+        }
+    }
+    Ok(drafts)
+}
+
+fn json_text(value: &Value, keys: &[&str]) -> String {
+    keys.iter()
+        .find_map(|key| {
+            value
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+pub(super) async fn resolve_probe_target(
+    store_path: &Path,
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: &AgentId,
+    provider_id: Option<&str>,
+    api_url: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<(String, String), String> {
+    if let Some(url) = api_url.map(str::trim).filter(|value| !value.is_empty()) {
+        let key = resolve_probe_api_key(store_path, agent_id, provider_id, api_key).await?;
+        return Ok((url.to_string(), key));
+    }
+    let provider_id = provider_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "测试连接需要 Provider".to_string())?;
+    let homes = ProviderNativeHomes::resolve(home, environment);
+    let view = list_with_native(store_path, agent_id.clone(), Some(&homes.codex)).await?;
+    let provider = view
+        .providers
+        .iter()
+        .find(|item| item.id == provider_id)
+        .ok_or_else(|| "找不到要测试的 Provider".to_string())?;
+    if provider.api_url.is_empty() {
+        return Err("Provider 没有可测试的 API URL".to_string());
+    }
+    if provider.managed {
+        let key = resolve_probe_api_key(store_path, agent_id, Some(provider_id), api_key).await?;
+        return Ok((provider.api_url.clone(), key));
+    }
+    let drafts = native_import_drafts(home, environment, agent_id, &[]).await?;
+    let key = drafts
+        .into_iter()
+        .find(|draft| draft.source_id == provider_id)
+        .map(|draft| draft.api_key)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "找不到可用于测试的 Provider 凭据".to_string())?;
+    Ok((provider.api_url.clone(), key))
 }
 
 const CLAUDE_ENV_KEYS: &[&str] = &[
@@ -658,6 +1143,48 @@ async fn capture_projection(
                 capture_antigravity_auth_type(&settings, &mut backup).await?;
             }
         }
+        "grok" => {
+            capture_text_file(&homes.grok.join("config.toml"), "config.toml", &mut backup).await?;
+        }
+        "kimi_code" => {
+            capture_text_file(&homes.kimi.join("config.toml"), "config.toml", &mut backup).await?;
+            capture_text_file(
+                &homes.kimi.join("credentials/kimi-code.json"),
+                "credentials/kimi-code.json",
+                &mut backup,
+            )
+            .await?;
+        }
+        "hermes" => {
+            capture_text_file(
+                &homes.hermes.join("config.yaml"),
+                "config.yaml",
+                &mut backup,
+            )
+            .await?;
+        }
+        "openclaw" => {
+            capture_text_file(
+                &homes.openclaw.join("openclaw.json"),
+                "openclaw.json",
+                &mut backup,
+            )
+            .await?;
+        }
+        "cline" => {
+            capture_text_file(
+                &homes.cline.join("globalState.json"),
+                "globalState.json",
+                &mut backup,
+            )
+            .await?;
+            capture_text_file(
+                &homes.cline.join("secrets.json"),
+                "secrets.json",
+                &mut backup,
+            )
+            .await?;
+        }
         _ => unreachable!("validated Agent"),
     }
     Ok(backup)
@@ -687,6 +1214,16 @@ fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionBackup {
         backup
             .file_values
             .insert(CODEX_SOURCE_FILE.to_string(), None);
+    }
+    for key in match agent_id.as_str() {
+        "grok" => ["config.toml"].as_slice(),
+        "kimi_code" => ["config.toml", "credentials/kimi-code.json"].as_slice(),
+        "hermes" => ["config.yaml"].as_slice(),
+        "openclaw" => ["openclaw.json"].as_slice(),
+        "cline" => ["globalState.json", "secrets.json"].as_slice(),
+        _ => [].as_slice(),
+    } {
+        backup.file_values.insert((*key).to_string(), None);
     }
     backup
 }
@@ -793,8 +1330,78 @@ async fn restore_projection(
                 restore_antigravity_auth_type(&settings, backup).await
             }
         }
+        "grok" => {
+            restore_text_file(&homes.grok.join("config.toml"), "config.toml", backup, true).await
+        }
+        "kimi_code" => {
+            restore_text_file(&homes.kimi.join("config.toml"), "config.toml", backup, true).await?;
+            restore_text_file(
+                &homes.kimi.join("credentials/kimi-code.json"),
+                "credentials/kimi-code.json",
+                backup,
+                true,
+            )
+            .await
+        }
+        "hermes" => {
+            restore_text_file(
+                &homes.hermes.join("config.yaml"),
+                "config.yaml",
+                backup,
+                true,
+            )
+            .await
+        }
+        "openclaw" => {
+            restore_text_file(
+                &homes.openclaw.join("openclaw.json"),
+                "openclaw.json",
+                backup,
+                true,
+            )
+            .await
+        }
+        "cline" => {
+            restore_text_file(
+                &homes.cline.join("globalState.json"),
+                "globalState.json",
+                backup,
+                false,
+            )
+            .await?;
+            restore_text_file(
+                &homes.cline.join("secrets.json"),
+                "secrets.json",
+                backup,
+                true,
+            )
+            .await
+        }
         _ => validate_agent(agent_id),
     }
+}
+
+async fn restore_text_file(
+    path: &Path,
+    key: &str,
+    backup: &ProviderProjectionBackup,
+    sensitive: bool,
+) -> Result<(), String> {
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(path).await.map_err(|error| error.message)?;
+    let replacement = backup
+        .file_values
+        .get(key)
+        .cloned()
+        .flatten()
+        .map(String::into_bytes);
+    apply_projection_mutations(&[NativeFileMutation {
+        path: path.to_path_buf(),
+        expected: original,
+        replacement,
+        sensitive,
+    }])
+    .await
 }
 
 async fn restore_codex_projection(
@@ -989,6 +1596,11 @@ async fn apply_provider(
         "claude_code" => apply_claude(&homes.claude, provider).await,
         "codex" => apply_codex(&homes.codex, provider, codex_cache_path).await,
         "gemini" => apply_gemini(&homes.gemini, provider).await,
+        "grok" => apply_grok(&homes.grok, provider).await,
+        "kimi_code" => apply_kimi(&homes.kimi, provider).await,
+        "hermes" => apply_hermes(&homes.hermes, provider).await,
+        "openclaw" => apply_openclaw(&homes.openclaw, provider).await,
+        "cline" => apply_cline(&homes.cline, provider).await,
         _ if is_antigravity(&provider.agent_id) => apply_antigravity(&homes.gemini, provider).await,
         _ => validate_agent(&provider.agent_id),
     }
@@ -1271,6 +1883,341 @@ async fn apply_antigravity(gemini_home: &Path, provider: &StoredProvider) -> Res
         ),
         sensitive: true,
     }])
+    .await
+}
+
+struct GrokModelSpec {
+    id: String,
+    api_backend: String,
+    context_window: Option<i64>,
+}
+
+fn grok_spec(raw: &str) -> GrokModelSpec {
+    if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(raw) {
+        return GrokModelSpec {
+            id: object
+                .get("id")
+                .or_else(|| object.get("model"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            api_backend: object
+                .get("api_backend")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("responses")
+                .to_string(),
+            context_window: object.get("context_window").and_then(Value::as_i64),
+        };
+    }
+    GrokModelSpec {
+        id: raw.trim().to_string(),
+        api_backend: "responses".to_string(),
+        context_window: None,
+    }
+}
+
+fn toml_table_entry<'a>(
+    table: &'a mut toml::Table,
+    key: &str,
+) -> Result<&'a mut toml::Table, String> {
+    let entry = table
+        .entry(key.to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if !entry.is_table() {
+        *entry = toml::Value::Table(toml::Table::new());
+    }
+    entry
+        .as_table_mut()
+        .ok_or_else(|| format!("{key} 必须是表"))
+}
+
+async fn write_toml_mutation(
+    path: &Path,
+    original: Option<Vec<u8>>,
+    table: &toml::Table,
+    sensitive: bool,
+) -> Result<(), String> {
+    apply_projection_mutations(&[NativeFileMutation {
+        path: path.to_path_buf(),
+        expected: original,
+        replacement: Some(
+            toml::to_string_pretty(table)
+                .map(String::into_bytes)
+                .map_err(|error| format!("序列化 {} 失败：{error}", path.display()))?,
+        ),
+        sensitive,
+    }])
+    .await
+}
+
+async fn apply_grok(grok_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let path = grok_home.join("config.toml");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    let spec = grok_spec(&provider.model);
+    let models = toml_table_entry(&mut table, "models")?;
+    models.insert(
+        "default".to_string(),
+        toml::Value::String("vibex".to_string()),
+    );
+    let model_root = toml_table_entry(&mut table, "model")?;
+    let vibex = toml_table_entry(model_root, "vibex")?;
+    vibex.insert(
+        "model".to_string(),
+        toml::Value::String(if spec.id.is_empty() {
+            provider.name.clone()
+        } else {
+            spec.id
+        }),
+    );
+    vibex.insert(
+        "base_url".to_string(),
+        toml::Value::String(provider.api_url.clone()),
+    );
+    vibex.insert(
+        "name".to_string(),
+        toml::Value::String(provider.name.clone()),
+    );
+    vibex.insert(
+        "api_key".to_string(),
+        toml::Value::String(provider.api_key.clone()),
+    );
+    vibex.insert(
+        "api_backend".to_string(),
+        toml::Value::String(spec.api_backend),
+    );
+    if let Some(context) = spec.context_window {
+        vibex.insert("context_window".to_string(), toml::Value::Integer(context));
+    }
+    write_toml_mutation(&path, original, &table, true).await
+}
+
+async fn apply_kimi(kimi_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let path = kimi_home.join("config.toml");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    table.insert(
+        "default_model".to_string(),
+        toml::Value::String("vibex".to_string()),
+    );
+    let providers = toml_table_entry(&mut table, "providers")?;
+    let vibex_provider = toml_table_entry(providers, "vibex")?;
+    vibex_provider.insert(
+        "type".to_string(),
+        toml::Value::String("openai".to_string()),
+    );
+    vibex_provider.insert(
+        "base_url".to_string(),
+        toml::Value::String(provider.api_url.clone()),
+    );
+    vibex_provider.insert(
+        "api_key".to_string(),
+        toml::Value::String(provider.api_key.clone()),
+    );
+    let models = toml_table_entry(&mut table, "models")?;
+    let vibex_model = toml_table_entry(models, "vibex")?;
+    vibex_model.insert(
+        "provider".to_string(),
+        toml::Value::String("vibex".to_string()),
+    );
+    vibex_model.insert(
+        "model".to_string(),
+        toml::Value::String(model_default(&provider.model)),
+    );
+    vibex_model
+        .entry("max_context_size".to_string())
+        .or_insert(toml::Value::Integer(262_144));
+    write_toml_mutation(&path, original, &table, true).await?;
+    seed_kimi_gate_credential(&kimi_home.join("credentials/kimi-code.json")).await
+}
+
+async fn seed_kimi_gate_credential(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| format!("创建 Kimi credentials 失败：{error}"))?;
+    }
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(path).await.map_err(|error| error.message)?;
+    if let Some(bytes) = original.as_deref().filter(|bytes| !bytes.is_empty())
+        && let Ok(existing) = serde_json::from_slice::<Value>(bytes)
+        && existing.get("_vibex_synthetic") != Some(&Value::Bool(true))
+        && existing
+            .get("access_token")
+            .and_then(Value::as_str)
+            .is_some_and(|token| !token.trim().is_empty())
+    {
+        return Ok(());
+    }
+    apply_projection_mutations(&[NativeFileMutation {
+        path: path.to_path_buf(),
+        expected: original,
+        replacement: Some(
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "access_token": "vibex-local-gate",
+                "_vibex_synthetic": true
+            }))
+            .map_err(|error| format!("序列化 Kimi credential 失败：{error}"))?,
+        ),
+        sensitive: true,
+    }])
+    .await
+}
+
+async fn apply_hermes(hermes_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let path = hermes_home.join("config.yaml");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut document: serde_yaml::Value = match original.as_deref() {
+        Some(bytes) if !bytes.is_empty() => serde_yaml::from_slice(bytes)
+            .map_err(|error| format!("{} 无效：{error}", path.display()))?,
+        _ => serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+    };
+    let root = document
+        .as_mapping_mut()
+        .ok_or_else(|| "Hermes config.yaml 顶层必须是对象".to_string())?;
+    let model_key = serde_yaml::Value::String("model".to_string());
+    if !root
+        .get(&model_key)
+        .is_some_and(serde_yaml::Value::is_mapping)
+    {
+        root.insert(
+            model_key.clone(),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+    }
+    let model = root
+        .get_mut(&model_key)
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .ok_or_else(|| "Hermes model 必须是对象".to_string())?;
+    model.insert(
+        serde_yaml::Value::String("provider".to_string()),
+        serde_yaml::Value::String("custom".to_string()),
+    );
+    model.insert(
+        serde_yaml::Value::String("default".to_string()),
+        serde_yaml::Value::String(model_default(&provider.model)),
+    );
+    model.insert(
+        serde_yaml::Value::String("base_url".to_string()),
+        serde_yaml::Value::String(provider.api_url.clone()),
+    );
+    model.insert(
+        serde_yaml::Value::String("api_key".to_string()),
+        serde_yaml::Value::String(provider.api_key.clone()),
+    );
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(
+            serde_yaml::to_string(&document)
+                .map_err(|error| format!("序列化 Hermes 配置失败：{error}"))?
+                .into_bytes(),
+        ),
+        sensitive: true,
+    }])
+    .await
+}
+
+async fn apply_openclaw(openclaw_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let path = openclaw_home.join("openclaw.json");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut document = parse_json_object_bytes(&path, original.as_deref())?;
+    let root = document.as_object_mut().expect("object");
+    let agents = object_entry(root, "agents")?;
+    let defaults = object_entry(agents, "defaults")?;
+    let model = object_entry(defaults, "model")?;
+    model.insert(
+        "primary".to_string(),
+        Value::String(format!("vibex/{}", model_default(&provider.model))),
+    );
+    let models = object_entry(root, "models")?;
+    models.insert("mode".to_string(), Value::String("merge".to_string()));
+    let providers = object_entry(models, "providers")?;
+    providers.insert(
+        "vibex".to_string(),
+        serde_json::json!({
+            "baseUrl": provider.api_url,
+            "apiKey": provider.api_key,
+            "api": "openai-completions",
+            "models": [{
+                "id": model_default(&provider.model),
+                "name": provider.name
+            }]
+        }),
+    );
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(
+            serde_json::to_vec_pretty(&document)
+                .map_err(|error| format!("序列化 OpenClaw 配置失败：{error}"))?,
+        ),
+        sensitive: true,
+    }])
+    .await
+}
+
+async fn apply_cline(cline_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+    let state_path = cline_home.join("globalState.json");
+    let secrets_path = cline_home.join("secrets.json");
+    let filesystem = TokioNativeFileSystem;
+    let state_original = filesystem
+        .read(&state_path)
+        .await
+        .map_err(|error| error.message)?;
+    let secrets_original = filesystem
+        .read(&secrets_path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut state = parse_json_object_bytes(&state_path, state_original.as_deref())?;
+    let mut secrets = parse_json_object_bytes(&secrets_path, secrets_original.as_deref())?;
+    let state_root = state.as_object_mut().expect("object");
+    insert_string(state_root, "apiProvider", "openai");
+    insert_string(state_root, "openAiBaseUrl", &provider.api_url);
+    insert_string(state_root, "apiModelId", &model_default(&provider.model));
+    insert_string(
+        secrets.as_object_mut().expect("object"),
+        "openAiApiKey",
+        &provider.api_key,
+    );
+    apply_projection_mutations(&[
+        NativeFileMutation {
+            path: state_path,
+            expected: state_original,
+            replacement: Some(
+                serde_json::to_vec_pretty(&state)
+                    .map_err(|error| format!("序列化 Cline 配置失败：{error}"))?,
+            ),
+            sensitive: false,
+        },
+        NativeFileMutation {
+            path: secrets_path,
+            expected: secrets_original,
+            replacement: Some(
+                serde_json::to_vec_pretty(&secrets)
+                    .map_err(|error| format!("序列化 Cline 凭据失败：{error}"))?,
+            ),
+            sensitive: true,
+        },
+    ])
     .await
 }
 
@@ -2050,24 +2997,40 @@ mod tests {
         )
         .await
         .unwrap();
+        let managed_id = created
+            .providers
+            .iter()
+            .find(|provider| provider.managed)
+            .expect("saved VibeX provider")
+            .id
+            .clone();
         bind(
             &store_path,
             &temp.path().join("home"),
             &environment,
             agent_id.clone(),
-            Some(created.providers[0].id.clone()),
+            Some(managed_id.clone()),
         )
         .await
         .unwrap();
         let view = list_with_native(&store_path, agent_id, Some(&codex_home))
             .await
             .unwrap();
-        // VibeX 绑定存在时原生 provider 不再出现在视图中，且绑定指向 VibeX 预设。
-        assert_eq!(
-            view.bound_provider_id,
-            Some(created.providers[0].id.clone())
-        );
-        assert!(view.providers.iter().all(|provider| provider.managed));
+        assert_eq!(view.bound_provider_id, Some(managed_id.clone()));
+        let managed = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == managed_id)
+            .unwrap();
+        assert!(managed.bound);
+        assert!(managed.managed);
+        let native = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == "deepseek")
+            .expect("native Codex providers remain visible after a VibeX bind");
+        assert!(!native.bound);
+        assert!(!native.managed);
     }
 
     #[tokio::test]
@@ -2126,7 +3089,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let provider_id = created.providers[0].id.clone();
+        let provider_id = created
+            .providers
+            .iter()
+            .find(|provider| provider.managed)
+            .expect("saved VibeX provider")
+            .id
+            .clone();
         bind(
             &store_path,
             &home,
@@ -2154,8 +3123,8 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(view.providers.is_empty());
-        assert!(view.bound_provider_id.is_none());
+        assert!(view.providers.iter().all(|provider| !provider.managed));
+        assert_eq!(view.bound_provider_id.as_deref(), Some("original"));
 
         let restored_config = read_toml_table(&codex_home.join("config.toml"))
             .await
@@ -2184,5 +3153,48 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.contains("找不到要删除的 Model Provider"));
+    }
+
+    #[tokio::test]
+    async fn native_import_previews_claude_env_without_binding() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(home.join(".claude"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            home.join(".claude/settings.json"),
+            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com","ANTHROPIC_AUTH_TOKEN":"sk-native","ANTHROPIC_MODEL":"deepseek-chat"}}"#,
+        )
+        .await
+        .unwrap();
+        let preview = preview_import(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            AgentId::parse("claude_code").unwrap(),
+            api_types::AgentModelProviderImportSource::Native,
+        )
+        .await
+        .unwrap();
+        assert_eq!(preview.candidates.len(), 1);
+        assert_eq!(preview.candidates[0].api_url, "https://api.deepseek.com");
+        assert!(preview.candidates[0].credential_present);
+        assert!(preview.candidates[0].skip_reason.is_none());
+        let imported = apply_import(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            AgentId::parse("claude_code").unwrap(),
+            api_types::AgentModelProviderImportSource::Native,
+            &["__native_live__".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(imported.providers.len(), 1);
+        assert!(imported.providers[0].managed);
+        assert!(!imported.providers[0].bound);
+        assert_eq!(imported.bound_provider_id, None);
     }
 }

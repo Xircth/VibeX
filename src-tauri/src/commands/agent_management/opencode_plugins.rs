@@ -32,14 +32,17 @@ fn check_plugins_at(
     let mut plugins = Vec::new();
     for declared in document
         .get("plugin")
+        .or_else(|| document.get("plugins"))
         .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
     {
-        let (name, declared_spec) = parse_plugin_spec(declared).ok_or_else(|| {
-            format!("OpenCode 插件声明 `{declared}` 无效；仅支持 npm 包名及精确版本或 latest")
-        })?;
+        let Some((name, declared_spec)) =
+            parse_plugin_spec(declared).or_else(|| display_spec(declared))
+        else {
+            continue;
+        };
         if !seen.insert(name.clone()) {
             continue;
         }
@@ -61,6 +64,30 @@ fn check_plugins_at(
             },
             installed_version,
         });
+    }
+    if let Some(dir) = config_path.parent().map(|parent| parent.join("plugins"))
+        && dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ext = path.extension().and_then(|value| value.to_str());
+            if !matches!(ext, Some("js" | "ts" | "mjs" | "cjs")) {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if !seen.insert(name.to_string()) {
+                continue;
+            }
+            plugins.push(OpenCodePluginView {
+                name: name.to_string(),
+                declared_spec: path.display().to_string(),
+                status: OpenCodePluginStatus::Installed,
+                installed_version: None,
+            });
+        }
     }
     Ok(summary(config_path, cache_dir, plugins))
 }
@@ -202,6 +229,133 @@ pub(super) async fn uninstall(
     check_plugins(&config_path, &cache_dir)
 }
 
+pub(super) async fn add_plugin(
+    config_path: PathBuf,
+    cache_dir: PathBuf,
+    spec: String,
+) -> Result<OpenCodePluginSummaryView, String> {
+    let _guard = PLUGIN_OPERATION
+        .try_lock()
+        .map_err(|_| "另一个 OpenCode 插件操作正在进行".to_string())?;
+    let spec = normalize_add_spec(&spec)?;
+    let mut document = if config_path.exists() {
+        serde_json::from_slice(
+            &tokio::fs::read(&config_path)
+                .await
+                .map_err(|error| format!("读取 OpenCode 配置失败：{error}"))?,
+        )
+        .map_err(|error| format!("解析 OpenCode 配置失败：{error}"))?
+    } else {
+        serde_json::json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": []
+        })
+    };
+    let plugins = plugin_array_mut(&mut document);
+    let already = plugins
+        .iter()
+        .any(|value| value.as_str().is_some_and(|declared| declared == spec));
+    if !already {
+        plugins.push(serde_json::Value::String(spec.clone()));
+    }
+    if let Some(parent) = config_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| format!("创建 OpenCode 配置目录失败：{error}"))?;
+    }
+    super::write_json_document(&config_path, &document, false)
+        .await
+        .map_err(|error| error.message)?;
+    if should_bun_add(&spec) {
+        tokio::fs::create_dir_all(&cache_dir)
+            .await
+            .map_err(|error| format!("创建 OpenCode 缓存目录失败：{error}"))?;
+        let bun = resolve_bun(&cache_dir)?;
+        let mut command = utils::process::new_hidden_tokio_command(&bun, ["add", spec.as_str()]);
+        command.current_dir(&cache_dir).kill_on_drop(true);
+        let output = tokio::time::timeout(PLUGIN_OPERATION_TIMEOUT, command.output())
+            .await
+            .map_err(|_| "bun add 超时并已终止".to_string())?
+            .map_err(|error| format!("启动 bun 失败：{error}"))?;
+        if !output.status.success() {
+            return Err(utils::process::command_output_detail(&output)
+                .unwrap_or_else(|| format!("bun add 退出码为 {}", output.status)));
+        }
+    }
+    check_plugins(&config_path, &cache_dir)
+}
+
+fn plugin_array_mut(document: &mut serde_json::Value) -> &mut Vec<serde_json::Value> {
+    if !document.is_object() {
+        *document = serde_json::json!({});
+    }
+    let key = if document.get("plugins").is_some() {
+        "plugins"
+    } else {
+        "plugin"
+    };
+    if document
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .is_none()
+    {
+        document[key] = serde_json::json!([]);
+    }
+    document
+        .get_mut(key)
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("plugin array")
+}
+
+fn normalize_add_spec(spec: &str) -> Result<String, String> {
+    let spec = spec.trim();
+    if parse_plugin_spec(spec).is_some() {
+        return Ok(spec.to_string());
+    }
+    let git = spec.starts_with("github:")
+        || spec.starts_with("git+")
+        || spec.starts_with("https://github.com/");
+    let local = spec.starts_with("./")
+        || spec.starts_with("../")
+        || spec.starts_with('/')
+        || spec.starts_with("file:");
+    if (git || local)
+        && spec.len() <= 512
+        && !spec.chars().any(char::is_whitespace)
+        && !spec.chars().any(char::is_control)
+        && !spec.contains("--")
+    {
+        return Ok(spec.to_string());
+    }
+    Err("仅支持 npm 包、GitHub 仓库或本地路径".to_string())
+}
+
+fn display_spec(spec: &str) -> Option<(String, String)> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+    let name = spec
+        .rsplit('/')
+        .next()
+        .unwrap_or(spec)
+        .trim_end_matches(".ts")
+        .trim_end_matches(".js")
+        .trim_end_matches(".mjs")
+        .trim_end_matches(".cjs");
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), spec.to_string()))
+}
+
+fn should_bun_add(spec: &str) -> bool {
+    parse_plugin_spec(spec).is_some()
+        || spec.starts_with("github:")
+        || spec.starts_with("git+")
+        || spec.starts_with("https://github.com/")
+}
+
 fn resolve_bun(cache_dir: &std::path::Path) -> Result<PathBuf, String> {
     let bundled = cache_dir
         .join("bin")
@@ -333,7 +487,17 @@ fn valid_plugin_version(version: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_plugins_at, parse_plugin_spec, spec_has_floating_version};
+    use super::{
+        check_plugins_at, normalize_add_spec, parse_plugin_spec, spec_has_floating_version,
+    };
+
+    #[test]
+    fn accepts_github_and_local_add_specs() {
+        assert!(normalize_add_spec("opencode-wakatime@1.0.0").is_ok());
+        assert!(normalize_add_spec("github:acme/opencode-plugin").is_ok());
+        assert!(normalize_add_spec("./plugins/local.ts").is_ok());
+        assert!(normalize_add_spec("--cwd=/tmp").is_err());
+    }
 
     #[test]
     fn parses_scoped_and_unscoped_plugin_specs() {

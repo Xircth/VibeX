@@ -133,6 +133,7 @@ const GROK_CONTROLS = {
         { value: 'xhigh', label: 'Extra High Effort', description: null },
         { value: 'high', label: 'High Effort', description: null },
         { value: 'medium', label: 'Medium Effort', description: null },
+        { value: 'low', label: 'Low Effort', description: null },
       ],
     },
   ],

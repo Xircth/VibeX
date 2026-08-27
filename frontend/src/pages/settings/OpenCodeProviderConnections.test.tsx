@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { agentManagementApi } from '@/features/agent-management';
 
 import { pickAstryxOption } from './agentSettingsTestUtils';
-import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
+import {
+  OpenCodeProviderConnections,
+  openCodeProviderSurface,
+} from './OpenCodeProviderConnections';
 
 describe('OpenCodeProviderConnections', () => {
   afterEach(() => {
@@ -229,5 +232,80 @@ describe('OpenCodeProviderConnections', () => {
       'anthropic/claude-sonnet-4'
     );
     expect(screen.getByText('离线内置目录')).toBeInTheDocument();
+  });
+
+  it('classifies Go and Zen as subscription and everything else as provider', () => {
+    expect(openCodeProviderSurface('opencode-go')).toBe('go');
+    expect(openCodeProviderSurface('opencode')).toBe('go');
+    expect(openCodeProviderSurface('anthropic')).toBe('provider');
+    expect(openCodeProviderSurface('openrouter')).toBe('provider');
+  });
+
+  it('keeps Go and Zen off the provider catalog', async () => {
+    vi.spyOn(agentManagementApi, 'openCodeProviders').mockResolvedValue({
+      providers: [
+        {
+          provider_id: 'opencode',
+          name: 'OpenCode Zen',
+          npm: '@ai-sdk/openai-compatible',
+          api: null,
+          base_url: 'https://opencode.ai/zen',
+          models: [],
+          credential_present: true,
+          enabled: true,
+        },
+        {
+          provider_id: 'openrouter',
+          name: 'OpenRouter',
+          npm: '@ai-sdk/openai-compatible',
+          api: null,
+          base_url: 'https://openrouter.ai/api/v1',
+          models: [],
+          credential_present: true,
+          enabled: true,
+        },
+      ],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviderCatalog').mockResolvedValue({
+      source: 'bundled',
+      providers: [
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          npm: '@ai-sdk/openai',
+          env: ['OPENAI_API_KEY'],
+          doc: null,
+          auth_kind: 'api',
+          models: [],
+        },
+        {
+          id: 'openrouter',
+          name: 'OpenRouter',
+          npm: '@ai-sdk/openai-compatible',
+          env: ['OPENROUTER_API_KEY'],
+          doc: null,
+          auth_kind: 'api',
+          models: [],
+        },
+      ],
+    });
+
+    render(<OpenCodeProviderConnections surface="provider" />);
+
+    expect(await screen.findByText('外部导入')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: '从 CC Switch 导入' })
+    ).toBeVisible();
+    expect(screen.getByText('OpenCode 内置供应商')).toBeVisible();
+    expect(screen.queryByText('models.dev 目录')).not.toBeInTheDocument();
+    expect(screen.queryByText('离线内置目录')).not.toBeInTheDocument();
+    expect(screen.queryByText('OpenCode Zen')).not.toBeInTheDocument();
+    expect(await screen.findAllByText('OpenRouter')).not.toHaveLength(0);
+    expect(
+      await screen.findByRole('button', { name: /选择 OpenAI/ })
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /选择 OpenRouter/ })
+    ).toBeInTheDocument();
   });
 });

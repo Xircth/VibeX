@@ -19,8 +19,6 @@ mod tests {
     };
     use sha2::Digest;
 
-    #[cfg(target_os = "macos")]
-    use super::clear_macos_quarantine;
     use super::{
         AgentManagementRuntimeState, ArtifactTrust, BuiltInProbeAction, LockedInstallSource,
         MANAGED_UV_VERSION, NativeFileRollback, OperationCancellationRegistry,
@@ -50,6 +48,8 @@ mod tests {
         validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
         verify_managed_node_runtime, write_bytes_document,
     };
+    #[cfg(target_os = "macos")]
+    use super::{clear_macos_quarantine, prepare_macos_binary_for_launch};
 
     #[tokio::test]
     async fn startup_management_warmup_is_shared_by_concurrent_readers() {
@@ -1003,6 +1003,9 @@ wire_api = "responses"
             path: Some("/opt/vibex/bin/agent-acp".to_string()),
             source: None,
             repairable: true,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         };
         let value = serde_json::to_value(item).unwrap();
 
@@ -1933,6 +1936,13 @@ base_url = "https://example.test/v1"
         std::fs::write(&runtime, b"runtime").unwrap();
         xattr::set(temp.path(), "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
         xattr::set(&runtime, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+        let readonly = temp.path().join("python/readonly.bin");
+        std::fs::write(&readonly, b"payload").unwrap();
+        xattr::set(&readonly, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+        let mut permissions = std::fs::metadata(&readonly).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o555);
+        std::fs::set_permissions(&readonly, permissions).unwrap();
 
         clear_macos_quarantine(temp.path()).unwrap();
 
@@ -1946,6 +1956,31 @@ base_url = "https://example.test/v1"
                 .unwrap()
                 .is_none()
         );
+        assert!(
+            xattr::get(&readonly, "com.apple.quarantine")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn published_binary_copy_is_dequarantined_for_launch() {
+        let temp = tempfile::tempdir().unwrap();
+        let staged = temp.path().join("staged");
+        std::fs::write(&staged, b"not-mach-o").unwrap();
+        xattr::set(&staged, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+        let dest = temp.path().join("bin/opencode");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::copy(&staged, &dest).unwrap();
+        assert!(
+            xattr::get(&dest, "com.apple.quarantine").unwrap().is_some(),
+            "macOS copy preserves download quarantine"
+        );
+
+        prepare_macos_binary_for_launch(&dest).unwrap();
+
+        assert!(xattr::get(&dest, "com.apple.quarantine").unwrap().is_none());
     }
 
     #[test]
@@ -1954,10 +1989,8 @@ base_url = "https://example.test/v1"
         let app_data = home.join("Library/Application Support/com.vibex.app");
         let root = managed_artifacts_directory(home, &app_data);
 
-        #[cfg(target_os = "macos")]
         assert_eq!(root, home.join(".local/share/vibex"));
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(root, app_data);
+        assert_ne!(root, app_data);
     }
 
     #[test]
@@ -2213,6 +2246,8 @@ mod external_reconcile;
 mod grok_plugins;
 #[path = "agent_management/model_catalogs.rs"]
 mod model_catalogs;
+#[path = "agent_management/model_provider_import.rs"]
+mod model_provider_import;
 #[path = "agent_management/model_providers.rs"]
 mod model_providers;
 #[path = "agent_management/opencode_catalog.rs"]
@@ -2258,17 +2293,19 @@ use api_types::{
     AgentEnvironmentView, AgentId, AgentLifecycleState, AgentLocalRuntimeView,
     AgentManagementActionKind, AgentManagementActionReceipt, AgentManagementActionView,
     AgentManagementActionsView, AgentManagementErrorCode, AgentManagementErrorView,
-    AgentManagementView, AgentModelCatalogView, AgentModelProviderSaveRequest,
-    AgentModelProvidersView, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
-    AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat,
-    AgentNativeConfigOptionView, AgentNativeConfigPatchRequest, AgentNativeConfigSurface,
-    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
-    AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource, AgentPreflightView,
-    AgentRegistryView, AgentSource, AgentUpdateCheckView, CodexDeviceCodePollView,
-    CodexDeviceCodeView, CodexModelCatalogConfigRequest, CodexModelCatalogConfigView,
-    DshPluginSummaryView, DshProviderDiscoverRequest, DshProviderModelView, DshProviderSaveRequest,
-    DshProvidersView, GrokPluginSummaryView, OpenCodePluginStatus, OpenCodePluginSummaryView,
-    OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
+    AgentManagementView, AgentModelCatalogView, AgentModelProviderImportPreviewView,
+    AgentModelProviderImportRequest, AgentModelProviderImportSource, AgentModelProviderProbeView,
+    AgentModelProviderSaveRequest, AgentModelProvidersView, AgentNativeConfigFieldKind,
+    AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
+    AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
+    AgentNativeConfigSurface, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
+    AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource,
+    AgentPreflightView, AgentRegistryView, AgentSource, AgentUpdateCheckView,
+    CodexDeviceCodePollView, CodexDeviceCodeView, CodexModelCatalogConfigRequest,
+    CodexModelCatalogConfigView, DshPluginSummaryView, DshProviderDiscoverRequest,
+    DshProviderModelView, DshProviderSaveRequest, DshProvidersView, GrokPluginSummaryView,
+    OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodeProviderCatalogView,
+    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
     OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
     PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiRuntimeSaveRequest,
     UserAgentDefinitionRequest, UserAgentDefinitionView,
@@ -2685,17 +2722,10 @@ fn managed_install_root(
     Ok(root)
 }
 
-#[cfg(target_os = "macos")]
-fn managed_artifacts_directory(home_dir: &Path, _app_data_dir: &Path) -> PathBuf {
-    utils::path::managed_artifacts_directory(home_dir, _app_data_dir)
+fn managed_artifacts_directory(home_dir: &Path, app_data_dir: &Path) -> PathBuf {
+    utils::path::managed_artifacts_directory(home_dir, app_data_dir)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn managed_artifacts_directory(_home_dir: &Path, app_data_dir: &Path) -> PathBuf {
-    utils::path::managed_artifacts_directory(_home_dir, app_data_dir)
-}
-
-#[cfg(target_os = "macos")]
 fn app_managed_artifacts_directory(app: &AppHandle) -> anyhow::Result<PathBuf> {
     let home_dir = app
         .path()
@@ -2706,13 +2736,6 @@ fn app_managed_artifacts_directory(app: &AppHandle) -> anyhow::Result<PathBuf> {
         .app_data_dir()
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     Ok(managed_artifacts_directory(&home_dir, &app_data_dir))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn app_managed_artifacts_directory(app: &AppHandle) -> anyhow::Result<PathBuf> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| anyhow::anyhow!(error.to_string()))
 }
 
 fn configured_shell_family() -> ShellFamily {
@@ -4481,6 +4504,9 @@ pub async fn agent_management_preflight(
             path: None,
             source: None,
             repairable: false,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         },
         AgentPreflightItemView {
             id: "runtime".to_string(),
@@ -4515,6 +4541,9 @@ pub async fn agent_management_preflight(
                 .or_else(|| runtime_facts.path.clone()),
             source: None,
             repairable: true,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         },
         AgentPreflightItemView {
             id: "acp".to_string(),
@@ -4533,6 +4562,9 @@ pub async fn agent_management_preflight(
             path: acp.map(|(_, path, _, _)| path.display().to_string()),
             source: None,
             repairable: true,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         },
     ];
     items.extend(dependency_items);
@@ -4564,6 +4596,9 @@ pub async fn agent_management_preflight(
                     path: Some(summary.cache_dir.clone()),
                     source: None,
                     repairable: !missing.is_empty(),
+                    update_available: false,
+                    available_version: None,
+                    update_group: None,
                 });
                 let floating = summary
                     .plugins
@@ -4587,6 +4622,9 @@ pub async fn agent_management_preflight(
                         path: Some(summary.config_path),
                         source: None,
                         repairable: true,
+                        update_available: false,
+                        available_version: None,
+                        update_group: None,
                     });
                 }
             }
@@ -4599,14 +4637,61 @@ pub async fn agent_management_preflight(
                 path: None,
                 source: None,
                 repairable: false,
+                update_available: false,
+                available_version: None,
+                update_group: None,
             }),
         }
     }
+    annotate_preflight_updates(pool, &agent_id, &mut items).await?;
     Ok(AgentPreflightView {
         agent_id,
         checked_at: Utc::now().to_rfc3339(),
         items,
     })
+}
+
+async fn annotate_preflight_updates(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    items: &mut [AgentPreflightItemView],
+) -> Result<(), AgentManagementErrorView> {
+    let current_version = sqlx::query_scalar::<_, String>(
+        r#"SELECT lock.registry_version
+           FROM agent_installation installation
+           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?;
+    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()))
+        .load()
+        .await
+        .map_err(internal_error)?;
+    let available_version = snapshot.as_ref().and_then(|snapshot| {
+        snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.agent_id == *agent_id)
+            .map(|entry| entry.version.clone())
+    });
+    let update_available = current_version
+        .as_ref()
+        .zip(available_version.as_ref())
+        .is_some_and(|(current, available)| current != available);
+    if !update_available {
+        return Ok(());
+    }
+    for item in items.iter_mut() {
+        if item.id == "runtime" || item.id == "acp" {
+            item.update_available = true;
+            item.available_version = available_version.clone();
+            item.update_group = Some("runtime_acp".into());
+        }
+    }
+    Ok(())
 }
 
 async fn preflight_authentication_scope(
@@ -4693,6 +4778,9 @@ async fn evaluate_auth_mode_preflight(
                         path: Some(codex_home.join("auth.json").display().to_string()),
                         source: None,
                         repairable: !ready,
+                        update_available: false,
+                        available_version: None,
+                        update_group: None,
                     }),
                     ready,
                     ready,
@@ -4708,6 +4796,9 @@ async fn evaluate_auth_mode_preflight(
                     path: None,
                     source: None,
                     repairable: true,
+                    update_available: false,
+                    available_version: None,
+                    update_group: None,
                 }),
                 false,
                 false,
@@ -4737,6 +4828,9 @@ async fn evaluate_auth_mode_preflight(
                         ),
                         source: None,
                         repairable: !ready,
+                        update_available: false,
+                        available_version: None,
+                        update_group: None,
                     }),
                     ready,
                     ready,
@@ -4752,6 +4846,9 @@ async fn evaluate_auth_mode_preflight(
                     path: None,
                     source: None,
                     repairable: true,
+                    update_available: false,
+                    available_version: None,
+                    update_group: None,
                 }),
                 false,
                 false,
@@ -4773,6 +4870,9 @@ async fn evaluate_auth_mode_preflight(
                         path,
                         source: None,
                         repairable: !ready,
+                        update_available: false,
+                        available_version: None,
+                        update_group: None,
                     }),
                     ready,
                     ready,
@@ -4787,6 +4887,9 @@ async fn evaluate_auth_mode_preflight(
                         path: None,
                         source: None,
                         repairable: true,
+                        update_available: false,
+                        available_version: None,
+                        update_group: None,
                     }),
                     false,
                     false,
@@ -4853,6 +4956,9 @@ async fn evaluate_auth_mode_preflight(
             path: None,
             source: None,
             repairable: !ready,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         }),
         ready,
         ready,
@@ -4966,6 +5072,9 @@ async fn probe_profile_dependencies(
                 path: path.map(|path| path.display().to_string()),
                 source: runtime_source.map(|_| AgentPreflightSource::System),
                 repairable: dependency.repairable,
+                update_available: false,
+                available_version: None,
+                update_group: None,
             });
             continue;
         }
@@ -5062,6 +5171,9 @@ async fn probe_profile_dependencies(
             path: path.map(|path| path.display().to_string()),
             source: runtime_source.map(|_| AgentPreflightSource::System),
             repairable: dependency.repairable,
+            update_available: false,
+            available_version: None,
+            update_group: None,
         });
     }
     (items, required_ok)
@@ -6949,6 +7061,21 @@ async fn install_locked_plan(
                 if let Some(log) = log {
                     log.emit(format!("Extracted {}", component.component_id));
                 }
+                #[cfg(target_os = "macos")]
+                {
+                    let extracted = component_root.clone();
+                    tokio::task::spawn_blocking(move || clear_macos_quarantine(&extracted))
+                        .await
+                        .map_err(|error| {
+                            anyhow::anyhow!("managed runtime quarantine task failed: {error}")
+                        })?
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "failed to clear quarantine from extracted runtime {}: {error}",
+                                component_root.display()
+                            )
+                        })?;
+                }
                 let staged = safe_archive_executable(&component_root, &component.command)?;
                 let executable =
                     publish_user_bin_executable(&user_env.user_bin, &component.command, &staged)
@@ -6971,17 +7098,19 @@ async fn install_locked_plan(
         #[cfg(target_os = "macos")]
         {
             let quarantine_root = component_root.clone();
-            tokio::task::spawn_blocking(move || clear_macos_quarantine(&quarantine_root))
-                .await
-                .map_err(|error| {
-                    anyhow::anyhow!("managed runtime quarantine task failed: {error}")
-                })?
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "failed to clear quarantine from managed runtime {}: {error}",
-                        component_root.display()
-                    )
-                })?;
+            let launch_path = absolute_path.clone();
+            tokio::task::spawn_blocking(move || {
+                clear_macos_quarantine(&quarantine_root)?;
+                prepare_macos_binary_for_launch(&launch_path)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("managed runtime quarantine task failed: {error}"))?
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "failed to prepare managed runtime {} for launch: {error}",
+                    absolute_path.display()
+                )
+            })?;
         }
         if !absolute_path.is_absolute() || tokio::fs::metadata(&absolute_path).await.is_err() {
             anyhow::bail!(
@@ -7101,6 +7230,8 @@ async fn publish_user_bin_executable(
         permissions.set_mode(0o755);
         tokio::fs::set_permissions(&destination, permissions).await?;
     }
+    #[cfg(target_os = "macos")]
+    prepare_macos_binary_for_launch(&destination)?;
     Ok(tokio::fs::canonicalize(&destination)
         .await
         .unwrap_or(destination))
@@ -7140,18 +7271,62 @@ async fn publish_required_binary_siblings(
             permissions.set_mode(0o755);
             tokio::fs::set_permissions(&destination, permissions).await?;
         }
+        #[cfg(target_os = "macos")]
+        prepare_macos_binary_for_launch(&destination)?;
     }
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn clear_macos_quarantine(root: &Path) -> std::io::Result<()> {
-    fn visit(path: &Path) -> std::io::Result<()> {
-        let quarantine = std::ffi::OsStr::new("com.apple.quarantine");
-        if xattr::list_deref(path)?.any(|attribute| attribute == quarantine) {
-            xattr::remove_deref(path, quarantine)?;
-        }
+const MACOS_GATEKEEPER_XATTRS: &[&str] = &["com.apple.quarantine", "com.apple.provenance"];
 
+#[cfg(target_os = "macos")]
+fn clear_macos_quarantine(root: &Path) -> std::io::Result<()> {
+    fn ensure_owner_writable(path: &Path) -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() {
+            return Ok(());
+        }
+        let mut permissions = metadata.permissions();
+        let mode = permissions.mode();
+        if mode & 0o200 == 0 {
+            permissions.set_mode(mode | 0o200);
+            std::fs::set_permissions(path, permissions)?;
+        }
+        Ok(())
+    }
+
+    fn missing_xattr(error: &std::io::Error) -> bool {
+        error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(93)
+    }
+
+    fn strip_gatekeeper_xattrs(path: &Path) -> std::io::Result<()> {
+        for name in MACOS_GATEKEEPER_XATTRS {
+            let attribute = std::ffi::OsStr::new(*name);
+            match xattr::remove_deref(path, attribute) {
+                Ok(()) => {}
+                Err(error) if missing_xattr(&error) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    ensure_owner_writable(path)?;
+                    match xattr::remove_deref(path, attribute) {
+                        Ok(()) => {}
+                        Err(error)
+                            if missing_xattr(&error)
+                                || error.kind() == std::io::ErrorKind::PermissionDenied => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err(_) if *name == "com.apple.provenance" => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    fn visit(path: &Path) -> std::io::Result<()> {
+        let _ = ensure_owner_writable(path);
+        strip_gatekeeper_xattrs(path)?;
         let metadata = std::fs::symlink_metadata(path)?;
         if metadata.is_dir() {
             for entry in std::fs::read_dir(path)? {
@@ -7162,6 +7337,72 @@ fn clear_macos_quarantine(root: &Path) -> std::io::Result<()> {
     }
 
     visit(root)
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_macos_binary_for_launch(path: &Path) -> std::io::Result<()> {
+    clear_macos_quarantine(path)?;
+    if !is_mach_o_file(path)? {
+        return Ok(());
+    }
+    if macos_code_signature_valid(path) {
+        return Ok(());
+    }
+    adhoc_sign_macos_binary(path)
+}
+
+#[cfg(target_os = "macos")]
+fn is_mach_o_file(path: &Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    let mut header = [0_u8; 4];
+    let read = std::fs::File::open(path)?.read(&mut header)?;
+    if read < 4 {
+        return Ok(false);
+    }
+    Ok(matches!(
+        header,
+        [0xfe, 0xed, 0xfa, 0xce]
+            | [0xce, 0xfa, 0xed, 0xfe]
+            | [0xfe, 0xed, 0xfa, 0xcf]
+            | [0xcf, 0xfa, 0xed, 0xfe]
+            | [0xca, 0xfe, 0xba, 0xbe]
+            | [0xbe, 0xba, 0xfe, 0xca]
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_code_signature_valid(path: &Path) -> bool {
+    std::process::Command::new("/usr/bin/codesign")
+        .args(["--verify", "--strict"])
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn adhoc_sign_macos_binary(path: &Path) -> std::io::Result<()> {
+    let _ = std::process::Command::new("/usr/bin/codesign")
+        .arg("--remove-signature")
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let output = std::process::Command::new("/usr/bin/codesign")
+        .args(["--force", "--sign", "-", "--timestamp=none"])
+        .arg(path)
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "ad-hoc codesign failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -8916,6 +9157,106 @@ pub async fn agent_model_provider_delete(
 }
 
 #[tauri::command]
+pub async fn agent_model_provider_probe(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+    provider_id: Option<String>,
+    api_url: Option<String>,
+    api_key: Option<String>,
+) -> Result<AgentModelProviderProbeView, AgentManagementErrorView> {
+    let store_path = app
+        .path()
+        .app_data_dir()
+        .map_err(internal_error)?
+        .join("agent-model-providers.json");
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let (api_url, api_key) = model_providers::resolve_probe_target(
+        &store_path,
+        &home,
+        &environment,
+        &agent_id,
+        provider_id.as_deref(),
+        api_url.as_deref(),
+        api_key.as_deref(),
+    )
+    .await
+    .map_err(|message| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            message,
+            Some(agent_id.clone()),
+        )
+    })?;
+    let started = std::time::Instant::now();
+    let result = model_catalogs::provider(agent_id.clone(), &api_url, &api_key).await;
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    Ok(match result {
+        Ok(catalog) => AgentModelProviderProbeView {
+            ok: catalog.error.is_none() && !catalog.models.is_empty(),
+            latency_ms,
+            error: catalog.error.or_else(|| {
+                catalog
+                    .models
+                    .is_empty()
+                    .then(|| "未返回任何模型".to_string())
+            }),
+        },
+        Err(message) => AgentModelProviderProbeView {
+            ok: false,
+            latency_ms,
+            error: Some(message),
+        },
+    })
+}
+
+#[tauri::command]
+pub async fn agent_model_provider_import_preview(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+    source: AgentModelProviderImportSource,
+) -> Result<AgentModelProviderImportPreviewView, AgentManagementErrorView> {
+    let store_path = app
+        .path()
+        .app_data_dir()
+        .map_err(internal_error)?
+        .join("agent-model-providers.json");
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    model_providers::preview_import(&store_path, &home, &environment, agent_id, source)
+        .await
+        .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn agent_model_provider_import(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: AgentModelProviderImportRequest,
+) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
+    let store_path = app
+        .path()
+        .app_data_dir()
+        .map_err(internal_error)?
+        .join("agent-model-providers.json");
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let agent_id = request.agent_id.clone();
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    model_providers::apply_import(
+        &store_path,
+        &home,
+        &environment,
+        agent_id,
+        request.source,
+        &request.source_ids,
+    )
+    .await
+    .map_err(internal_error)
+}
+
+#[tauri::command]
 pub async fn pi_configuration(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -9599,10 +9940,8 @@ async fn read_profile_auth_mode_view(
     } else if let Some(mode) = configured_mode {
         mode
     } else if agent_id.as_str() == "claude_code" {
-        if native_field_present(&snapshot, "anthropic_api_key")
-            || native_field_text(&snapshot, "anthropic_base_url").is_some()
-        {
-            "custom".to_string()
+        if native_field_present(&snapshot, "anthropic_api_key") {
+            "official_api".to_string()
         } else {
             "official_subscription".to_string()
         }
@@ -9624,7 +9963,9 @@ async fn read_profile_auth_mode_view(
             .iter()
             .find(|provider| Some(&provider.id) == providers.bound_provider_id.as_ref())
             .is_some_and(|provider| provider.credential_present),
-        ("claude_code", "custom") => native_field_present(&snapshot, "anthropic_api_key"),
+        ("claude_code", "official_api" | "custom") => {
+            native_field_present(&snapshot, "anthropic_api_key")
+        }
         ("antigravity" | "gemini", "gemini-api-key") => {
             native_field_present(&snapshot, "antigravity_api_key")
         }
@@ -9682,6 +10023,15 @@ async fn evaluate_profile_auth_mode_preflight(
                 "Claude 官方订阅模式尚未检测到有效账号会话，请先运行官方登录。"
             }
             .to_string(),
+            Some(native_path),
+        ),
+        ("claude_code", "official_api") => (
+            view.credential_present,
+            if view.credential_present {
+                "Claude 官方 API Key 已配置。".to_string()
+            } else {
+                "Claude 官方 API 需要 ANTHROPIC_API_KEY。".to_string()
+            },
             Some(native_path),
         ),
         ("claude_code", "custom") => {
@@ -9996,7 +10346,8 @@ fn native_auth_mode_patch(
                 set("anthropic_base_url", None);
                 set("anthropic_api_key", None);
             }
-            "custom" => {
+            "official_api" | "custom" => {
+                set("anthropic_base_url", None);
                 if let Some(api_key) = submitted_key {
                     set("anthropic_api_key", Some(api_key.to_string()));
                 }
@@ -10006,11 +10357,23 @@ fn native_auth_mode_patch(
                     "ANTHROPIC_API_KEY",
                     submitted_key.is_some() || native_field_present(snapshot, "anthropic_api_key"),
                 )?;
+            }
+            _ => {}
+        }
+    } else if agent_id.as_str() == "grok" {
+        match mode {
+            "subscription" => {
+                set("grok_api_key", None);
+            }
+            "api_key" => {
+                if let Some(api_key) = submitted_key {
+                    set("grok_api_key", Some(api_key.to_string()));
+                }
                 require_native_auth_value(
                     agent_id,
                     mode,
-                    "ANTHROPIC_BASE_URL",
-                    native_field_text(snapshot, "anthropic_base_url").is_some(),
+                    "XAI_API_KEY",
+                    submitted_key.is_some() || native_field_present(snapshot, "grok_api_key"),
                 )?;
             }
             _ => {}
@@ -10303,6 +10666,7 @@ fn project_codex_auth_mode(
 fn project_auth_mode_options(agent_id: &AgentId, modes: &[&str]) -> Vec<AgentAuthModeOptionView> {
     modes
         .iter()
+        .filter(|mode| !(*mode == &"custom" && matches!(agent_id.as_str(), "claude_code" | "grok")))
         .map(|mode| {
             let (label_key, description_key) = auth_mode_translation_keys(agent_id, mode);
             let credential_env = agents::auth_mode_credential_env(agent_id, mode)
@@ -10313,12 +10677,14 @@ fn project_auth_mode_options(agent_id: &AgentId, modes: &[&str]) -> Vec<AgentAut
                 });
             AgentAuthModeOptionView {
                 value: (*mode).to_string(),
+                kind: agents::auth_mode_kind(agent_id, mode),
                 label_key: label_key.to_string(),
                 description_key: description_key.to_string(),
                 credential_required: credential_env.is_some(),
                 credential_env,
                 native_config_field_id: native_auth_config_field_id(agent_id, mode)
                     .map(str::to_string),
+                official_api_url: agents::official_api_url(agent_id, mode).map(str::to_string),
             }
         })
         .collect()
@@ -10326,8 +10692,9 @@ fn project_auth_mode_options(agent_id: &AgentId, modes: &[&str]) -> Vec<AgentAut
 
 fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
     match (agent_id.as_str(), mode) {
-        ("claude_code", "custom") => Some("anthropic_api_key"),
+        ("claude_code", "official_api" | "custom") => Some("anthropic_api_key"),
         ("codex", "api_key") => Some("openai_api_key"),
+        ("grok", "api_key") => Some("grok_api_key"),
         ("antigravity" | "gemini", "gemini-api-key") => Some("antigravity_api_key"),
         ("antigravity" | "gemini", "agent-platform") => Some("antigravity_google_api_key"),
         ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
@@ -10341,9 +10708,9 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescClaudeSubscription",
         ),
-        ("claude_code", "custom") => (
-            "agents.authModeCustomEndpoint",
-            "agents.authDescClaudeCustom",
+        ("claude_code", "official_api" | "custom") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescClaudeOfficialApi",
         ),
         ("claude_code", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescClaudeProvider")
@@ -10370,26 +10737,84 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("codex", "chatgpt_subscription") => {
             ("agents.authModeChatGpt", "agents.authDescCodexSubscription")
         }
-        ("codex", "api_key") => ("agents.authModeOpenAiKey", "agents.authDescCodexKey"),
+        ("codex", "api_key") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescCodexOfficialApi",
+        ),
         ("codex", "model_provider") => ("agents.authModeProvider", "agents.authDescCodexProvider"),
         ("grok", "subscription") => (
             "agents.authModeSubscription",
             "agents.authDescGrokSubscription",
         ),
-        ("grok", "api_key") => ("agents.authModeXaiKey", "agents.authDescGrokKey"),
-        ("grok", "custom") => ("agents.authModeCustomEndpoint", "agents.authDescGrokCustom"),
+        ("grok", "api_key") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescGrokOfficialApi",
+        ),
+        ("grok", "custom" | "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescGrokProvider")
+        }
         ("cursor", "subscription") => (
             "agents.authModeSubscription",
             "agents.authDescCursorSubscription",
         ),
-        ("cursor", "custom") => ("agents.authModeCursorKey", "agents.authDescCursorKey"),
-        ("deepseek_harness", "deepseek") => {
-            ("agents.authModeDeepseekApi", "agents.authDescDeepseekApi")
-        }
-        ("deepseek_harness", "custom") => (
-            "agents.authModeCustomEndpoint",
-            "agents.authDescDeepseekCustom",
+        ("cursor", "custom") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescCursorOfficialApi",
         ),
+        ("deepseek_harness", "deepseek") => {
+            ("agents.authModeOfficialApi", "agents.authDescDeepseekApi")
+        }
+        ("deepseek_harness", "custom") => {
+            ("agents.authModeProvider", "agents.authDescDeepseekCustom")
+        }
+        ("opencode", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescOpencodeGo",
+        ),
+        ("opencode", "official_api") => {
+            ("agents.authModeOfficialApi", "agents.authDescOpencodeZen")
+        }
+        ("opencode", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescOpencodeProvider")
+        }
+        ("hermes", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescHermesSubscription",
+        ),
+        ("hermes", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescHermesOfficialApi",
+        ),
+        ("hermes", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescHermesProvider")
+        }
+        ("kimi_code", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescKimiSubscription",
+        ),
+        ("kimi_code", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescKimiOfficialApi",
+        ),
+        ("kimi_code", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescKimiProvider")
+        }
+        ("cline", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescClineSubscription",
+        ),
+        ("cline", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescClineOfficialApi",
+        ),
+        ("cline", "model_provider") => ("agents.authModeProvider", "agents.authDescClineProvider"),
+        ("codebuddy", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescCodebuddySubscription",
+        ),
+        ("pi" | "openclaw", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescGenericProvider")
+        }
         _ => ("agents.authModeUnknown", "agents.authDescUnknown"),
     }
 }
@@ -10413,6 +10838,24 @@ pub async fn opencode_plugin_install(
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
     let paths = opencode_provider_paths(&environment)?;
     let result = opencode_plugins::install_missing(paths.config_path, paths.cache_dir, names)
+        .await
+        .map_err(internal_error)?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "OpenCode 插件已更改")
+        .await;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn opencode_plugin_add(
+    state: tauri::State<'_, AppState>,
+    spec: String,
+) -> Result<OpenCodePluginSummaryView, AgentManagementErrorView> {
+    let agent_id = AgentId::parse("opencode").expect("built-in id");
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let paths = opencode_provider_paths(&environment)?;
+    let result = opencode_plugins::add_plugin(paths.config_path, paths.cache_dir, spec)
         .await
         .map_err(internal_error)?;
     state
@@ -10469,6 +10912,98 @@ pub async fn opencode_provider_connect(
         .mark_agent_sessions_config_stale(&agent_id, "OpenCode Provider 已更改")
         .await;
     Ok(project_opencode_provider_connections(&auth, &config))
+}
+
+#[tauri::command]
+pub async fn opencode_provider_import(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: AgentModelProviderImportRequest,
+) -> Result<OpenCodeProviderConnectionsView, AgentManagementErrorView> {
+    let agent_id = AgentId::parse("opencode").expect("built-in id");
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let selected: std::collections::HashSet<&str> =
+        request.source_ids.iter().map(String::as_str).collect();
+    let drafts = match request.source {
+        AgentModelProviderImportSource::CcSwitch => {
+            model_provider_import::preview_cc_switch(&home, &agent_id, &[])
+                .await
+                .1
+        }
+        AgentModelProviderImportSource::Native => Vec::new(),
+    };
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let paths = opencode_provider_paths(&environment)?;
+    let (mut auth, auth_original) = read_json_object_state(&paths.auth_path).await?;
+    let (mut config, config_original) = read_json_object_state(&paths.config_path).await?;
+    for draft in drafts {
+        if !selected.contains(draft.source_id.as_str()) || draft.skip_reason.is_some() {
+            continue;
+        }
+        let model = serde_json::from_str::<serde_json::Value>(&draft.model).ok();
+        let provider_id = model
+            .as_ref()
+            .and_then(|value| value.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| slug_provider_id(&draft.name));
+        let npm = model
+            .as_ref()
+            .and_then(|value| value.get("npm"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        apply_opencode_provider_connection(
+            &mut auth,
+            &mut config,
+            &OpenCodeProviderConnectRequest {
+                provider_id,
+                name: draft.name,
+                npm,
+                api: None,
+                base_url: Some(draft.api_url).filter(|value| !value.is_empty()),
+                api_key: Some(draft.api_key).filter(|value| !value.is_empty()),
+                models: Vec::new(),
+                enabled: true,
+            },
+        )
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    }
+    apply_native_file_mutations(&[
+        json_document_mutation(&paths.auth_path, auth_original, &auth, true)?,
+        json_document_mutation(&paths.config_path, config_original, &config, false)?,
+    ])
+    .await?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "OpenCode Provider 已更改")
+        .await;
+    Ok(project_opencode_provider_connections(&auth, &config))
+}
+
+fn slug_provider_id(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "imported".to_string()
+    } else {
+        slug
+    }
 }
 
 #[tauri::command]

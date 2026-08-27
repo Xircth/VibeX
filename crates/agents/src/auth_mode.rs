@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use api_types::{AgentId, AgentKind};
+use api_types::{AgentAuthModeKind, AgentId, AgentKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInAuthModePolicy {
@@ -12,8 +12,13 @@ pub struct BuiltInAuthModePolicy {
     pub default_mode: &'static str,
 }
 
-const CLAUDE_MODES: &[&str] = &["official_subscription", "custom", "model_provider"];
-const CLAUDE_CREDENTIAL_MODES: &[&str] = &["custom"];
+const CLAUDE_MODES: &[&str] = &[
+    "official_subscription",
+    "official_api",
+    "custom",
+    "model_provider",
+];
+const CLAUDE_CREDENTIAL_MODES: &[&str] = &["official_api", "custom"];
 const CLAUDE_SCRUB_ENV: &[&str] = &[
     "ANTHROPIC_BASE_URL",
     "OPENAI_BASE_URL",
@@ -36,7 +41,7 @@ const ANTIGRAVITY_ALL_AUTH_ENV: &[&str] = &[
     "GOOGLE_CLOUD_PROJECT",
     "GOOGLE_CLOUD_LOCATION",
 ];
-const GROK_MODES: &[&str] = &["subscription", "api_key", "custom"];
+const GROK_MODES: &[&str] = &["subscription", "api_key", "custom", "model_provider"];
 const GROK_CREDENTIAL_MODES: &[&str] = &["api_key"];
 const GROK_SCRUB_ENV: &[&str] = &["XAI_API_KEY"];
 const CURSOR_MODES: &[&str] = &["subscription", "custom"];
@@ -88,6 +93,118 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: DSH_OFFICIAL_SCRUB_ENV,
             default_mode: "deepseek",
         }),
+        "opencode" => Some(BuiltInAuthModePolicy {
+            mode_env: "OPENCODE_AUTH_MODE",
+            credential_env: "OPENCODE_API_KEY",
+            modes: OPENCODE_MODES,
+            credential_modes: OPENCODE_CREDENTIAL_MODES,
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "hermes" => Some(BuiltInAuthModePolicy {
+            mode_env: "HERMES_AUTH_MODE",
+            credential_env: "NOUS_API_KEY",
+            modes: HERMES_MODES,
+            credential_modes: HERMES_CREDENTIAL_MODES,
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "kimi_code" => Some(BuiltInAuthModePolicy {
+            mode_env: "KIMI_AUTH_MODE",
+            credential_env: "KIMI_API_KEY",
+            modes: KIMI_MODES,
+            credential_modes: KIMI_CREDENTIAL_MODES,
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "cline" => Some(BuiltInAuthModePolicy {
+            mode_env: "CLINE_AUTH_MODE",
+            credential_env: "CLINE_API_KEY",
+            modes: CLINE_MODES,
+            credential_modes: CLINE_CREDENTIAL_MODES,
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "codebuddy" => Some(BuiltInAuthModePolicy {
+            mode_env: "CODEBUDDY_AUTH_MODE",
+            credential_env: "CODEBUDDY_API_KEY",
+            modes: CODEBUDDY_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "pi" => Some(BuiltInAuthModePolicy {
+            mode_env: "PI_AUTH_MODE",
+            credential_env: "PI_API_KEY",
+            modes: PI_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "model_provider",
+        }),
+        "openclaw" => Some(BuiltInAuthModePolicy {
+            mode_env: "OPENCLAW_AUTH_MODE",
+            credential_env: "OPENCLAW_API_KEY",
+            modes: OPENCLAW_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "model_provider",
+        }),
+        _ => None,
+    }
+}
+
+const OPENCODE_MODES: &[&str] = &["official_subscription", "model_provider"];
+const OPENCODE_CREDENTIAL_MODES: &[&str] = &[];
+const HERMES_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const HERMES_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const KIMI_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const KIMI_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const CLINE_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const CLINE_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const CODEBUDDY_MODES: &[&str] = &["official_subscription"];
+const PI_MODES: &[&str] = &["model_provider"];
+const OPENCLAW_MODES: &[&str] = &["model_provider"];
+
+pub fn auth_mode_kind(agent_id: &AgentId, mode: &str) -> AgentAuthModeKind {
+    match (agent_id.as_str(), mode) {
+        (_, "model_provider") => AgentAuthModeKind::Provider,
+        ("grok" | "deepseek_harness" | "kimi_code", "custom") => AgentAuthModeKind::Provider,
+        ("claude_code", "official_api" | "custom") => AgentAuthModeKind::OfficialApi,
+        ("codex", "api_key") => AgentAuthModeKind::OfficialApi,
+        ("cursor", "custom") => AgentAuthModeKind::OfficialApi,
+        ("deepseek_harness", "deepseek") => AgentAuthModeKind::OfficialApi,
+        ("grok", "api_key") => AgentAuthModeKind::OfficialApi,
+        (id, "gemini-api-key" | "agent-platform") if AgentKind::Antigravity.matches_id(id) => {
+            AgentAuthModeKind::OfficialApi
+        }
+        (id, "oauth-personal" | "oauth-business" | "login_google")
+            if AgentKind::Antigravity.matches_id(id) =>
+        {
+            AgentAuthModeKind::Subscription
+        }
+        (_, mode)
+            if mode == "subscription"
+                || mode == "official_subscription"
+                || mode.ends_with("_subscription") =>
+        {
+            AgentAuthModeKind::Subscription
+        }
+        _ => AgentAuthModeKind::OfficialApi,
+    }
+}
+
+pub fn official_api_url(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
+    match (agent_id.as_str(), mode) {
+        ("claude_code", "official_api" | "custom") => Some("https://api.anthropic.com"),
+        ("codex", "api_key") => Some("https://api.openai.com/v1"),
+        ("grok", "api_key") => Some("https://api.x.ai/v1"),
+        ("deepseek_harness", "deepseek") => Some("https://api.deepseek.com"),
+        (id, "gemini-api-key") if AgentKind::Antigravity.matches_id(id) => {
+            Some("https://generativelanguage.googleapis.com")
+        }
+        ("kimi_code", "official_api") => Some("https://api.moonshot.ai/v1"),
+        ("cline", "official_api") => Some("https://api.cline.bot"),
+        ("hermes", "official_api") => Some("https://inference-api.nousresearch.com/v1"),
         _ => None,
     }
 }
@@ -161,10 +278,14 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
     match (agent_id.as_str(), mode) {
         (id, "agent-platform") if AgentKind::Antigravity.matches_id(id) => Some("GOOGLE_API_KEY"),
         (id, "gemini-api-key") if AgentKind::Antigravity.matches_id(id) => Some("GEMINI_API_KEY"),
-        ("claude_code", "custom") => Some("ANTHROPIC_API_KEY"),
+        ("claude_code", "official_api" | "custom") => Some("ANTHROPIC_API_KEY"),
         ("grok", "api_key") => Some("XAI_API_KEY"),
         ("cursor", "custom") => Some("CURSOR_API_KEY"),
         ("deepseek_harness", "deepseek" | "custom") => Some("DEEPSEEK_API_KEY"),
+        ("opencode", "official_api") => Some("OPENCODE_API_KEY"),
+        ("hermes", "official_api") => Some("NOUS_API_KEY"),
+        ("kimi_code", "official_api") => Some("KIMI_API_KEY"),
+        ("cline", "official_api") => Some("CLINE_API_KEY"),
         _ => None,
     }
 }
@@ -181,7 +302,8 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
             "GOOGLE_CLOUD_LOCATION",
         ],
         (id, "agent-platform") if AgentKind::Antigravity.matches_id(id) => &["GEMINI_API_KEY"],
-        ("grok" | "cursor", "subscription") => built_in_auth_mode_policy(agent_id)
+        ("grok", "subscription" | "custom" | "model_provider") => GROK_SCRUB_ENV,
+        ("cursor", "subscription") => built_in_auth_mode_policy(agent_id)
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
         ("deepseek_harness", "deepseek") => DSH_OFFICIAL_SCRUB_ENV,
@@ -288,11 +410,11 @@ pub fn apply_built_in_launch_policy(
 mod tests {
     use std::collections::HashMap;
 
-    use api_types::AgentId;
+    use api_types::{AgentAuthModeKind, AgentId};
 
     use super::{
         apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
-        apply_built_in_launch_policy,
+        apply_built_in_launch_policy, auth_mode_kind, official_api_url,
     };
 
     #[test]
@@ -348,6 +470,50 @@ mod tests {
         assert_eq!(legacy.get("AGY_AUTH_METHOD").unwrap(), "gemini-api-key");
         assert_eq!(legacy.get("GEMINI_API_KEY").unwrap(), "secret");
         assert!(!legacy.contains_key("GOOGLE_API_KEY"));
+    }
+
+    #[test]
+    fn product_kinds_separate_subscription_official_api_and_provider() {
+        let claude = AgentId::parse("claude_code").unwrap();
+        let grok = AgentId::parse("grok").unwrap();
+        let cursor = AgentId::parse("cursor").unwrap();
+        let opencode = AgentId::parse("opencode").unwrap();
+        let dsh = AgentId::parse("deepseek_harness").unwrap();
+
+        assert_eq!(
+            auth_mode_kind(&claude, "official_subscription"),
+            AgentAuthModeKind::Subscription
+        );
+        assert_eq!(
+            auth_mode_kind(&claude, "official_api"),
+            AgentAuthModeKind::OfficialApi
+        );
+        assert_eq!(
+            auth_mode_kind(&claude, "custom"),
+            AgentAuthModeKind::OfficialApi
+        );
+        assert_eq!(
+            auth_mode_kind(&claude, "model_provider"),
+            AgentAuthModeKind::Provider
+        );
+        assert_eq!(auth_mode_kind(&grok, "custom"), AgentAuthModeKind::Provider);
+        assert_eq!(
+            auth_mode_kind(&cursor, "custom"),
+            AgentAuthModeKind::OfficialApi
+        );
+        assert_eq!(
+            auth_mode_kind(&opencode, "official_subscription"),
+            AgentAuthModeKind::Subscription
+        );
+        assert_eq!(
+            auth_mode_kind(&dsh, "deepseek"),
+            AgentAuthModeKind::OfficialApi
+        );
+        assert_eq!(
+            official_api_url(&claude, "official_api"),
+            Some("https://api.anthropic.com")
+        );
+        assert_eq!(official_api_url(&cursor, "custom"), None);
     }
 
     #[test]

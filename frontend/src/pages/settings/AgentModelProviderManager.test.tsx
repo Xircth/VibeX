@@ -1,11 +1,10 @@
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
-import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentModelProviderManager } from './AgentModelProviderManager';
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
@@ -20,13 +19,31 @@ vi.mock('@/features/agent-management', () => ({
     saveModelProvider: vi.fn(),
     bindModelProvider: vi.fn(),
     deleteModelProvider: vi.fn(),
+    probeModelProvider: vi.fn(),
+    previewModelProviderImport: vi.fn(),
+    importModelProviders: vi.fn(),
     codexModelCatalog: vi.fn(),
     codexModelCatalogConfig: vi.fn(),
     modelProviderCatalog: vi.fn(),
   },
 }));
 
+const gateway = {
+  id: 'provider-1',
+  name: 'Gateway',
+  agent_id: 'claude_code' as const,
+  api_url: 'https://gateway.example/v1',
+  model: 'gateway/sonnet',
+  credential_present: true,
+  bound: false,
+  managed: true,
+};
+
 describe('AgentModelProviderManager', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ConfirmDialog.show).mockResolvedValue('canceled');
@@ -37,57 +54,46 @@ describe('AgentModelProviderManager', () => {
     });
     vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
       agent_id: 'claude_code',
-      providers: [
-        {
-          id: 'provider-1',
-          name: 'Gateway',
-          agent_id: 'claude_code',
-          api_url: 'https://gateway.example/v1',
-          model: 'gateway/sonnet',
-          credential_present: true,
-          bound: false,
-          managed: true,
-        },
-      ],
+      providers: [{ ...gateway }],
       bound_provider_id: null,
     });
     vi.mocked(agentManagementApi.bindModelProvider).mockResolvedValue({
       agent_id: 'claude_code',
-      providers: [
-        {
-          id: 'provider-1',
-          name: 'Gateway',
-          agent_id: 'claude_code',
-          api_url: 'https://gateway.example/v1',
-          model: 'gateway/sonnet',
-          credential_present: true,
-          bound: true,
-          managed: true,
-        },
-      ],
+      providers: [{ ...gateway, bound: true }],
       bound_provider_id: 'provider-1',
     });
   });
 
-  it('creates a reusable provider and binds it through the typed API', async () => {
+  it('creates a provider from the empty list and enables it from the card', async () => {
+    const user = userEvent.setup();
     render(
-      <AgentModelProviderManager agentId="claude_code" disabled={false} />
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+      />
     );
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
-    expect(await screen.findByLabelText('Provider 名称')).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText('Provider 名称'), 'Gateway');
-    await userEvent.type(
+
+    const heading = await screen.findByRole('heading', { name: '模型供应商' });
+    expect(
+      heading.compareDocumentPosition(
+        screen.getAllByRole('button', { name: '新建供应商' })[0]
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '从外部导入' })).toBeVisible();
+
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
+    await user.type(screen.getByLabelText('Provider 名称'), 'Gateway');
+    await user.type(
       screen.getByLabelText('Provider API URL'),
       'https://gateway.example/v1'
     );
-    await userEvent.type(screen.getByLabelText('Provider API Key'), 'secret');
-    await userEvent.type(
-      screen.getByLabelText('Provider 主模型'),
-      'gateway/sonnet'
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: '创建 Provider' })
-    );
+    await user.type(screen.getByLabelText('Provider API Key'), 'secret');
+    await user.type(screen.getByLabelText('Provider 主模型'), 'gateway/sonnet');
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
+
     expect(agentManagementApi.saveModelProvider).toHaveBeenCalledWith({
       id: null,
       name: 'Gateway',
@@ -96,163 +102,57 @@ describe('AgentModelProviderManager', () => {
       api_key: 'secret',
       model: '{"main":"gateway/sonnet"}',
     });
-    await pickAstryxOption(
-      userEvent,
-      screen.getByLabelText('当前绑定的 Model Provider'),
-      'Gateway'
-    );
+
+    await user.click(await screen.findByRole('button', { name: '启用' }));
     expect(agentManagementApi.bindModelProvider).toHaveBeenCalledWith(
       'claude_code',
       'provider-1'
     );
   });
 
-  it('detects models from the unsaved provider fields and preserves existing Claude mappings', async () => {
-    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
-      agent_id: 'claude_code',
-      source: 'live',
-      models: [
-        {
-          id: 'claude-sonnet-4',
-          label: 'Claude Sonnet 4',
-          context_window: null,
-          reasoning_levels: [],
+  it('copies a provider card without the API key', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'navigator',
+      new Proxy(navigator, {
+        get(target, prop, receiver) {
+          if (prop === 'clipboard') return { writeText };
+          return Reflect.get(target, prop, receiver);
         },
-      ],
-      default_model: null,
-      error: null,
-    });
-
-    render(
-      <AgentModelProviderManager agentId="claude_code" disabled={false} />
-    );
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
-    await userEvent.type(
-      screen.getByLabelText('Provider API URL'),
-      'https://draft.example/v1'
-    );
-    await userEvent.type(
-      screen.getByLabelText('Provider API Key'),
-      'draft-secret'
-    );
-    await userEvent.type(
-      screen.getByLabelText('Provider 推理模型'),
-      'existing-reasoning'
-    );
-    await userEvent.click(screen.getByRole('button', { name: '检测模型' }));
-
-    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
-      'claude_code',
-      null,
-      'https://draft.example/v1',
-      'draft-secret'
-    );
-    expect(await screen.findByText('检测到 1 个模型')).toBeInTheDocument();
-    await pickAstryxOption(
-      userEvent,
-      screen.getByLabelText('选择检测到的模型'),
-      'Claude Sonnet 4 · claude-sonnet-4'
-    );
-
-    expect(screen.getByLabelText('Provider 主模型')).toHaveValue(
-      'claude-sonnet-4'
-    );
-    expect(screen.getByLabelText('Provider 推理模型')).toHaveValue(
-      'existing-reasoning'
-    );
-  });
-
-  it('shows loading, empty, and failure feedback for model detection', async () => {
-    let rejectDetection: (cause: unknown) => void = () => undefined;
-    vi.mocked(agentManagementApi.modelProviderCatalog).mockReturnValueOnce(
-      new Promise((_, reject) => {
-        rejectDetection = reject;
       })
     );
-
-    render(<AgentModelProviderManager agentId="gemini" disabled={false} />);
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
-    await userEvent.type(
-      screen.getByLabelText('Provider API URL'),
-      'https://draft.example/v1'
-    );
-    await userEvent.type(
-      screen.getByLabelText('Provider API Key'),
-      'draft-secret'
-    );
-    await userEvent.click(screen.getByRole('button', { name: '检测模型' }));
-    expect(screen.getByText('正在检测模型…')).toBeInTheDocument();
-
-    await act(async () => rejectDetection(new Error('HTTP 401')));
-    expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 401');
-
-    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValueOnce({
-      agent_id: 'gemini',
-      source: 'live',
-      models: [],
-      default_model: null,
-      error: null,
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'claude_code',
+      providers: [{ ...gateway }],
+      bound_provider_id: null,
     });
-    await userEvent.click(screen.getByRole('button', { name: '检测模型' }));
-    expect(await screen.findByText('未检测到模型')).toBeInTheDocument();
-  });
-
-  it('clears loaded provider state when the selected Agent changes', async () => {
-    vi.mocked(agentManagementApi.modelProviders)
-      .mockResolvedValueOnce({
-        agent_id: 'claude_code',
-        providers: [
-          {
-            id: 'claude-provider',
-            name: 'Claude Gateway',
-            agent_id: 'claude_code',
-            api_url: 'https://claude.example/v1',
-            model: 'claude-model',
-            credential_present: true,
-            bound: false,
-            managed: true,
-          },
-        ],
-        bound_provider_id: null,
-      })
-      .mockResolvedValueOnce({
-        agent_id: 'gemini',
-        providers: [
-          {
-            id: 'gemini-provider',
-            name: 'Gemini Gateway',
-            agent_id: 'gemini',
-            api_url: 'https://gemini.example/v1',
-            model: 'gemini-model',
-            credential_present: true,
-            bound: false,
-            managed: true,
-          },
-        ],
-        bound_provider_id: null,
-      });
-    const { rerender } = render(
-      <AgentModelProviderManager agentId="claude_code" disabled={false} />
-    );
     const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+      />
+    );
 
-    await user.click(screen.getByText('可复用 Model Provider'));
-    expect(
-      (await screen.findAllByText('Claude Gateway')).length
-    ).toBeGreaterThan(0);
-
-    rerender(<AgentModelProviderManager agentId="gemini" disabled={false} />);
-    expect(screen.queryByText('Claude Gateway')).not.toBeInTheDocument();
-    await user.click(screen.getByText('可复用 Model Provider'));
-    expect(
-      (await screen.findAllByText('Gemini Gateway')).length
-    ).toBeGreaterThan(0);
-    expect(agentManagementApi.modelProviders).toHaveBeenLastCalledWith(
-      'gemini'
+    await user.click(
+      await screen.findByRole('button', { name: '复制 Gateway 配置' })
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      JSON.stringify(
+        {
+          agent_id: 'claude_code',
+          name: 'Gateway',
+          api_url: 'https://gateway.example/v1',
+          model: 'gateway/sonnet',
+        },
+        null,
+        2
+      )
     );
   });
 
-  it('shows a native Codex provider as bound without edit or delete controls', async () => {
+  it('does not let a native Codex provider be enabled, edited, or deleted', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'codex',
       providers: [
@@ -272,47 +172,30 @@ describe('AgentModelProviderManager', () => {
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
       source: 'cache',
-      models: [
-        {
-          id: 'official-a',
-          label: 'Official A',
-          context_window: null,
-          reasoning_levels: [],
-        },
-      ],
-      default_model: 'official-a',
+      models: [],
+      default_model: null,
       error: null,
     });
     vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
       customs: [],
       excluded_officials: [],
       default_model: 'deepseek-v4-flash',
-      catalog_path: '/home/user/.codex/vibex-model-catalog.json',
-      source_path: '/home/user/.codex/vibex-model-catalog.source.json',
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
       active: false,
     });
 
-    render(<AgentModelProviderManager agentId="codex" disabled={false} />);
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
 
-    // 绑定下拉展示原生 provider 当前绑定（只读，不可选择切换）。
+    expect(await screen.findByText('DeepSeek Gateway')).toBeInTheDocument();
     expect(
-      await screen.findByText('DeepSeek Gateway（原生配置）')
-    ).toBeInTheDocument();
-    // 右侧摘要只显示默认模型与端点（分隔线为独立元素），不再显示 Provider
-    // 名称或徽章。
-    expect(
-      screen.getByText('deepseek-v4-flash', {
-        selector: '.agent-model-provider-summary-model',
-      })
+      screen.getByText('https://api.deepseek.example/v1')
     ).toBeInTheDocument();
     expect(
-      screen.getByText('https://api.deepseek.example/v1', {
-        selector: '.agent-model-provider-summary-endpoint',
-      })
-    ).toBeInTheDocument();
-    expect(screen.queryByText('DeepSeek Gateway')).not.toBeInTheDocument();
-    // 原生 provider 不可被 VibeX 编辑或删除。
+      screen.queryByRole('button', { name: '启用' })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '编辑 DeepSeek Gateway' })
     ).not.toBeInTheDocument();
@@ -321,19 +204,14 @@ describe('AgentModelProviderManager', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('deletes a managed Codex provider from the binding list after a switch-default confirmation', async () => {
+  it('keeps delete disabled while a managed provider is enabled', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'codex',
       providers: [
         {
-          id: 'provider-1',
-          name: 'Gateway',
+          ...gateway,
           agent_id: 'codex',
-          api_url: 'https://gateway.example/v1',
-          model: 'gpt-5.2',
-          credential_present: true,
           bound: true,
-          managed: true,
         },
       ],
       bound_provider_id: 'provider-1',
@@ -341,110 +219,79 @@ describe('AgentModelProviderManager', () => {
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
       source: 'cache',
-      models: [
-        {
-          id: 'official-a',
-          label: 'Official A',
-          context_window: null,
-          reasoning_levels: [],
-        },
-      ],
-      default_model: 'official-a',
+      models: [],
+      default_model: null,
       error: null,
     });
     vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
       customs: [],
       excluded_officials: [],
       default_model: null,
-      catalog_path: '/home/user/.codex/vibex-model-catalog.json',
-      source_path: '/home/user/.codex/vibex-model-catalog.source.json',
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
       active: false,
     });
-    vi.mocked(agentManagementApi.deleteModelProvider).mockResolvedValue({
-      agent_id: 'codex',
-      providers: [],
-      bound_provider_id: null,
-    });
-    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
 
-    render(<AgentModelProviderManager agentId="codex" disabled={false} />);
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
-    await userEvent.click(
-      await screen.findByLabelText('当前绑定的 Model Provider')
-    );
-    await userEvent.click(
-      await screen.findByRole('button', { name: '删除 Gateway' })
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
     );
 
-    expect(ConfirmDialog.show).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message:
-          '删除后无法找回，并将默认切换到其他供应商或切换至官方订阅登录，确定继续吗',
-        variant: 'destructive',
-      })
-    );
-    expect(agentManagementApi.deleteModelProvider).toHaveBeenCalledWith(
-      'codex',
-      'provider-1'
-    );
+    expect(
+      await screen.findByRole('button', { name: '已启用' })
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: '删除 Gateway' })).toBeDisabled();
   });
 
-  it('loads a managed Codex provider into the form through the binding list edit action', async () => {
-    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
-      agent_id: 'codex',
-      providers: [
+  it('imports selectable CC Switch candidates after preview', async () => {
+    vi.mocked(agentManagementApi.previewModelProviderImport).mockResolvedValue({
+      agent_id: 'claude_code',
+      source: 'cc_switch',
+      source_path: '/home/user/.cc-switch/cc-switch.db',
+      error: null,
+      candidates: [
         {
-          id: 'provider-1',
-          name: 'Gateway',
-          agent_id: 'codex',
-          api_url: 'https://gateway.example/v1',
-          model: 'gpt-5.2',
+          source_id: 'deepseek',
+          name: 'DeepSeek',
+          api_url: 'https://api.deepseek.com',
+          model: '{"main":"deepseek-chat"}',
           credential_present: true,
-          bound: false,
-          managed: true,
+          skip_reason: null,
+        },
+        {
+          source_id: 'oauth',
+          name: 'Codex OAuth',
+          api_url: '',
+          model: '',
+          credential_present: false,
+          skip_reason: '无法投影的认证方式',
         },
       ],
+    });
+    vi.mocked(agentManagementApi.importModelProviders).mockResolvedValue({
+      agent_id: 'claude_code',
+      providers: [{ ...gateway, name: 'DeepSeek' }],
       bound_provider_id: null,
     });
-    vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
-      agent_id: 'codex',
-      source: 'cache',
-      models: [
-        {
-          id: 'official-a',
-          label: 'Official A',
-          context_window: null,
-          reasoning_levels: [],
-        },
-      ],
-      default_model: 'official-a',
-      error: null,
-    });
-    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
-      customs: [],
-      excluded_officials: [],
-      default_model: null,
-      catalog_path: '/home/user/.codex/vibex-model-catalog.json',
-      source_path: '/home/user/.codex/vibex-model-catalog.source.json',
-      active: false,
-    });
-
-    render(<AgentModelProviderManager agentId="codex" disabled={false} />);
-    await userEvent.click(screen.getByText('可复用 Model Provider'));
-    await userEvent.click(
-      await screen.findByLabelText('当前绑定的 Model Provider')
-    );
-    await userEvent.click(
-      await screen.findByRole('button', { name: '编辑 Gateway' })
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+      />
     );
 
-    expect(screen.getByLabelText('Provider 名称')).toHaveValue('Gateway');
-    expect(screen.getByLabelText('Provider API URL')).toHaveValue(
-      'https://gateway.example/v1'
+    await user.click(await screen.findByRole('button', { name: '从外部导入' }));
+    await user.click(
+      screen.getByRole('menuitem', { name: '从 CC Switch 导入' })
     );
-    expect(
-      screen.getByRole('button', { name: '保存修改' })
-    ).toBeInTheDocument();
-    expect(agentManagementApi.deleteModelProvider).not.toHaveBeenCalled();
+    expect(await screen.findByText('DeepSeek')).toBeInTheDocument();
+    expect(screen.getByText('无法投影的认证方式')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '导入所选' }));
+    expect(agentManagementApi.importModelProviders).toHaveBeenCalledWith({
+      agent_id: 'claude_code',
+      source: 'cc_switch',
+      source_ids: ['deepseek'],
+    });
   });
 });

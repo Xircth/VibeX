@@ -329,6 +329,12 @@ pub struct AgentPreflightItemView {
     pub path: Option<String>,
     pub source: Option<AgentPreflightSource>,
     pub repairable: bool,
+    #[serde(default)]
+    pub update_available: bool,
+    #[serde(default)]
+    pub available_version: Option<String>,
+    #[serde(default)]
+    pub update_group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -592,6 +598,51 @@ pub struct AgentModelProvidersView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct AgentModelProviderProbeView {
+    pub ok: bool,
+    pub latency_ms: u32,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentModelProviderImportSource {
+    Native,
+    CcSwitch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProviderImportCandidateView {
+    pub source_id: String,
+    pub name: String,
+    pub api_url: String,
+    pub model: String,
+    pub credential_present: bool,
+    pub skip_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProviderImportPreviewView {
+    pub agent_id: AgentId,
+    pub source: AgentModelProviderImportSource,
+    pub source_path: Option<String>,
+    pub candidates: Vec<AgentModelProviderImportCandidateView>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProviderImportRequest {
+    pub agent_id: AgentId,
+    pub source: AgentModelProviderImportSource,
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PiCustomProviderView {
     pub id: String,
     pub base_url: String,
@@ -803,15 +854,28 @@ pub struct OpenCodePluginSummaryView {
     pub has_project_config_hint: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentAuthModeKind {
+    Subscription,
+    OfficialApi,
+    Provider,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentAuthModeOptionView {
     pub value: String,
+    pub kind: AgentAuthModeKind,
     pub label_key: String,
     pub description_key: String,
     pub credential_env: Option<String>,
     pub native_config_field_id: Option<String>,
     pub credential_required: bool,
+    #[serde(default)]
+    #[ts(optional)]
+    pub official_api_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

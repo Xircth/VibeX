@@ -246,8 +246,10 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
 - **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。VibeX 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
 - **Inline device authentication（页内设备认证）** — 只为已适配且固定端点的官方设备授权流程提供页内状态机；短期设备码可以穿过 IPC，访问令牌只能由 Rust 后端交换并直接写入 Agent 官方凭据文件，不能进入前端、数据库或诊断日志。当前仅适配 Codex。
-- **Agent authentication mode（Agent 鉴权模式）** — Grok/Cursor 等 Runtime 在订阅登录与显式密钥之间的用户选择；模式保存于 Agent 设置，预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。
-- **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。Provider 连接同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。
+- **Agent authentication mode（Agent 鉴权模式）** — 设置里当前生效的鉴权来源，只能是官方订阅、官方 API 或供应商之一；具体组合由 Built-in Agent Profile 声明，没有的模式不出现。模式保存于 Agent 设置，预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。见 [ADR-0064](docs/adr/0064-unified-agent-authentication-modes.md)。
+- **Official subscription（官方订阅）** — 该 Agent 官方账号与套餐登录；购买与升降级仍在官方页面完成。能可靠读取的额度进入 Kanban 计量统计，不能把本地 Token 估算当成官方配额。
+- **Official API（官方 API）** — 该 Agent 第一方固定端点上的 API Key、官方模型列表与档案声明的模型映射；不能改官方 URL。
+- **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。它是 OpenCode 官方 API 面的实现载体，同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。第三方中转与自定义端点仍属供应商鉴权。
 - **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；VibeX 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
 - **DeepSeek Harness 鉴权模式** — 仅 `deepseek`（官方 API Key + `https://api.deepseek.com`）与 `custom`（名称、备注、Base URL、API Key）两种；凭据写入 `$DSH_HOME/.credentials.yaml`，自定义端点投影到 `DEEPSEEK_BASE_URL`，密钥不回显。
 - **DeepSeek Harness 会话默认配置** — 默认 Agent preset（standard / code / minimal / cordis）、沙箱权限与推理档位；写入 Agent 环境，作用于后续新建会话。
@@ -255,7 +257,12 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Grok plugin（Grok 插件）** — 官方 `grok plugin` 管理的安装物，发现自 `grok plugin list` 或 `~/.grok/installed-plugins`；添加走 `grok plugin install <source> --trust`，移除走 `grok plugin uninstall`。Skill 目录不是 Grok 插件。
 - **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
 - **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
-- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code 与 Codex 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据；IPC 只暴露凭据是否存在，不回显密钥。绑定或更新已绑定预设时，后端把字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
+- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
+_Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
+- **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中只读：可复制、可测连，不能启用、编辑或删除；收成预设必须走外部供应商导入。
+- **Provider connection probe（供应商连接探测）** — 用已存凭据对该端点做一次模型目录请求，返回成功或失败与耗时；密钥不出前端。
+- **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
+_Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。

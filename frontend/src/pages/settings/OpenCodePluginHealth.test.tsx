@@ -73,4 +73,39 @@ describe('OpenCodePluginHealth', () => {
       screen.getByRole('button', { name: '复制缓存目录' })
     ).toBeInTheDocument();
   });
+
+  it('adds a plugin spec to opencode.json', async () => {
+    vi.spyOn(agentManagementApi, 'openCodePlugins').mockResolvedValue({
+      config_path: '/home/me/.config/opencode/opencode.json',
+      cache_dir: '/home/me/.cache/opencode',
+      has_project_config_hint: false,
+      plugins: [],
+    });
+    const add = vi
+      .spyOn(agentManagementApi, 'addOpenCodePlugin')
+      .mockResolvedValue({
+        config_path: '/home/me/.config/opencode/opencode.json',
+        cache_dir: '/home/me/.cache/opencode',
+        has_project_config_hint: false,
+        plugins: [
+          {
+            name: 'opencode-wakatime',
+            declared_spec: 'opencode-wakatime@1.0.0',
+            installed_version: '1.0.0',
+            status: 'installed' as const,
+          },
+        ],
+      });
+    const user = userEvent.setup();
+    render(<OpenCodePluginHealth />);
+    await user.type(
+      await screen.findByPlaceholderText(/npm 包/),
+      'opencode-wakatime@1.0.0'
+    );
+    await user.click(screen.getByRole('button', { name: '添加插件' }));
+    await waitFor(() =>
+      expect(add).toHaveBeenCalledWith('opencode-wakatime@1.0.0')
+    );
+    expect(await screen.findByText('opencode-wakatime')).toBeInTheDocument();
+  });
 });

@@ -167,6 +167,38 @@ async fn raw_native_config_edit_validates_path_format_revision_and_sensitivity()
         NativeConfigSaveError::SensitiveFile(path) if path == auth_path
     ));
 
+    let claude = AgentId::parse("claude_code").unwrap();
+    let claude_settings = PathBuf::from("/home/user/.claude/settings.json");
+    let claude_snapshot = provider.read(&claude, false).await.unwrap();
+    let claude_file = claude_snapshot
+        .files
+        .iter()
+        .find(|file| file.path == claude_settings)
+        .unwrap();
+    assert!(
+        !claude_file.sensitive,
+        "mixed Claude settings.json must stay editable"
+    );
+    provider
+        .save_file(
+            &claude,
+            NativeConfigFilePatch {
+                path: claude_settings.clone(),
+                base_revision: claude_file.revision.clone(),
+                content: "{\n  \"includeCoAuthoredBy\": false\n}\n".to_string(),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(
+        filesystem
+            .files
+            .lock()
+            .unwrap()
+            .contains_key(&claude_settings)
+    );
+
     let unknown = provider
         .save_file(
             &agent_id,
@@ -292,7 +324,10 @@ async fn native_config_multi_file_failure_rolls_back_every_original() {
                     .map(|field| (field.field_id.clone(), field.revision.clone()))
                     .collect(),
                 values: BTreeMap::from([
-                    ("codex_model".to_string(), Some("new".to_string())),
+                    (
+                        "codex_approval_policy".to_string(),
+                        Some("never".to_string()),
+                    ),
                     ("openai_api_key".to_string(), Some("new-key".to_string())),
                 ]),
             },
@@ -471,11 +506,11 @@ async fn bundled_profiles_manage_runtime_settings_across_all_declared_files() {
 
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
-        br#"model = "gpt-existing"
+        br#"approval_policy = "never"
 unknown_setting = "preserve-me"
 
-[features]
-responses_websockets_v2 = false
+[sandbox_workspace_write]
+network_access = false
 "#
         .to_vec(),
     );
@@ -491,20 +526,36 @@ responses_websockets_v2 = false
             .content
             .contains("unknown_setting = \"preserve-me\"")
     );
-    let model = initial
+    let policy = initial
         .fields
         .iter()
-        .find(|field| field.field_id == "codex_model")
+        .find(|field| field.field_id == "codex_approval_policy")
         .unwrap();
-    assert_eq!(model.value.as_deref(), Some("gpt-existing"));
-    assert!(!model.secret);
+    assert_eq!(policy.value.as_deref(), Some("never"));
+    assert!(!policy.secret);
     assert_eq!(
         initial
             .fields
             .iter()
-            .find(|field| field.field_id == "codex_responses_websockets")
+            .find(|field| field.field_id == "codex_network_access")
             .and_then(|field| field.value.as_deref()),
         Some("false")
+    );
+    assert_eq!(
+        initial
+            .fields
+            .iter()
+            .find(|field| field.field_id == "codex_web_search")
+            .and_then(|field| field.value.as_deref()),
+        Some("cached")
+    );
+    assert!(
+        !initial
+            .fields
+            .iter()
+            .find(|field| field.field_id == "codex_web_search")
+            .unwrap()
+            .present
     );
 
     let revisions = initial
@@ -518,11 +569,11 @@ responses_websockets_v2 = false
             NativeConfigPatch {
                 base_field_revisions: revisions,
                 values: BTreeMap::from([
-                    ("codex_model".to_string(), Some("gpt-new".to_string())),
                     (
-                        "codex_responses_websockets".to_string(),
-                        Some("true".to_string()),
+                        "codex_approval_policy".to_string(),
+                        Some("on-request".to_string()),
                     ),
+                    ("codex_network_access".to_string(), Some("true".to_string())),
                     ("openai_api_key".to_string(), Some("sk-local".to_string())),
                 ]),
             },
@@ -536,10 +587,10 @@ responses_websockets_v2 = false
     )
     .unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
-    assert_eq!(config["model"].as_str(), Some("gpt-new"));
+    assert_eq!(config["approval_policy"].as_str(), Some("on-request"));
     assert_eq!(config["unknown_setting"].as_str(), Some("preserve-me"));
     assert_eq!(
-        config["features"]["responses_websockets_v2"].as_bool(),
+        config["sandbox_workspace_write"]["network_access"].as_bool(),
         Some(true)
     );
     let auth: serde_json::Value = serde_json::from_slice(
@@ -740,11 +791,11 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
                     .map(|field| (field.field_id.clone(), field.revision.clone()))
                     .collect(),
                 values: BTreeMap::from([
-                    ("model".to_string(), Some("gateway/sonnet".to_string())),
                     (
-                        "reasoning_model".to_string(),
-                        Some("gateway/opus".to_string()),
+                        "sonnet_model".to_string(),
+                        Some("gateway/sonnet".to_string()),
                     ),
+                    ("opus_model".to_string(), Some("gateway/opus".to_string())),
                     (
                         "claude_disable_nonessential_traffic".to_string(),
                         Some("1".to_string()),
@@ -759,9 +810,12 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
         &filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.claude/settings.json")],
     )
     .unwrap();
-    assert_eq!(claude_settings["env"]["ANTHROPIC_MODEL"], "gateway/sonnet");
     assert_eq!(
-        claude_settings["env"]["ANTHROPIC_REASONING_MODEL"],
+        claude_settings["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+        "gateway/sonnet"
+    );
+    assert_eq!(
+        claude_settings["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"],
         "gateway/opus"
     );
     assert_eq!(
@@ -845,6 +899,50 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
         pi_models["providers"]["local"]["baseUrl"],
         "http://localhost:11434"
     );
+
+    let antigravity = AgentId::parse("antigravity").unwrap();
+    let antigravity_initial = provider.read(&antigravity, false).await.unwrap();
+    provider
+        .save(
+            &antigravity,
+            NativeConfigPatch {
+                base_field_revisions: antigravity_initial
+                    .fields
+                    .iter()
+                    .map(|field| (field.field_id.clone(), field.revision.clone()))
+                    .collect(),
+                values: BTreeMap::from([
+                    (
+                        "antigravity_tool_permission".to_string(),
+                        Some("always-proceed".to_string()),
+                    ),
+                    (
+                        "antigravity_agent_mode".to_string(),
+                        Some("accept-edits".to_string()),
+                    ),
+                    (
+                        "antigravity_terminal_sandbox".to_string(),
+                        Some("true".to_string()),
+                    ),
+                    (
+                        "antigravity_permissions".to_string(),
+                        Some(r#"{"allow":["command(git)"]}"#.to_string()),
+                    ),
+                ]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let antigravity_cli: serde_json::Value = serde_json::from_slice(
+        &filesystem.files.lock().unwrap()
+            [&PathBuf::from("/home/user/.gemini/antigravity-cli/settings.json")],
+    )
+    .unwrap();
+    assert_eq!(antigravity_cli["toolPermission"], "always-proceed");
+    assert_eq!(antigravity_cli["agentMode"], "accept-edits");
+    assert_eq!(antigravity_cli["enableTerminalSandbox"], true);
+    assert_eq!(antigravity_cli["permissions"]["allow"][0], "command(git)");
 }
 
 #[tokio::test]
@@ -991,9 +1089,13 @@ async fn structured_json_fields_enforce_their_native_container_shapes() {
     let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
 
     for (agent, field, value) in [
-        ("opencode", "opencode_providers", r#"["not-an-object"]"#),
         ("pi", "pi_custom_providers", r#"["not-an-object"]"#),
         ("cursor", "cursor_allow_rules", r#"{"not":"an-array"}"#),
+        (
+            "antigravity",
+            "antigravity_permissions",
+            r#"["not-an-object"]"#,
+        ),
     ] {
         let agent_id = AgentId::parse(agent).unwrap();
         let initial = provider.read(&agent_id, false).await.unwrap();
@@ -1017,63 +1119,6 @@ async fn structured_json_fields_enforce_their_native_container_shapes() {
         );
     }
     assert!(filesystem.files.lock().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn codex_writable_roots_are_absolute_trimmed_and_deduplicated() {
-    let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
-    let codex = AgentId::parse("codex").unwrap();
-    let initial = provider.read(&codex, false).await.unwrap();
-    let revisions = initial
-        .fields
-        .iter()
-        .map(|field| (field.field_id.clone(), field.revision.clone()))
-        .collect::<BTreeMap<_, _>>();
-
-    let relative = provider
-        .save(
-            &codex,
-            NativeConfigPatch {
-                base_field_revisions: revisions.clone(),
-                values: BTreeMap::from([(
-                    "codex_writable_roots".to_string(),
-                    Some(r#"["relative/path"]"#.to_string()),
-                )]),
-            },
-            false,
-        )
-        .await;
-    assert!(matches!(relative, Err(NativeConfigSaveError::Read(_))));
-
-    provider
-        .save(
-            &codex,
-            NativeConfigPatch {
-                base_field_revisions: revisions,
-                values: BTreeMap::from([(
-                    "codex_writable_roots".to_string(),
-                    Some(
-                        r#"[" /srv/work ", "/srv/work", "C:\\code", "\\\\server\\share"]"#
-                            .to_string(),
-                    ),
-                )]),
-            },
-            false,
-        )
-        .await
-        .unwrap();
-
-    let path = PathBuf::from("/home/user/.codex/config.toml");
-    let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
-    let config: toml::Value = toml::from_str(&config).unwrap();
-    let roots = config["sandbox_workspace_write"]["writable_roots"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value.as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(roots, ["/srv/work", "C:\\code", "\\\\server\\share"]);
 }
 
 #[tokio::test]

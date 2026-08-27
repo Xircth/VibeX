@@ -77,7 +77,10 @@ pub(super) async fn provider(
     base_url: &str,
     api_key: &str,
 ) -> Result<AgentModelCatalogView, String> {
-    if !matches!(agent_id.as_str(), "claude_code" | "codex" | "kimi_code") {
+    if !matches!(
+        agent_id.as_str(),
+        "claude_code" | "codex" | "kimi_code" | "antigravity" | "gemini"
+    ) {
         return Err("该 Agent 不支持 Provider 模型探测".to_string());
     }
     let base_url = validate_model_endpoint(base_url)?;
@@ -97,7 +100,7 @@ pub(super) async fn provider(
         "claude_code" => request
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
-        "gemini" => request.header("x-goog-api-key", api_key),
+        "gemini" | "antigravity" => request.header("x-goog-api-key", api_key),
         _ => request,
     };
     let response = request

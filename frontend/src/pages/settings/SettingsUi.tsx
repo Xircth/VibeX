@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import LiquidGlass from 'liquid-glass-react';
 
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
 
@@ -247,6 +248,29 @@ export function SettingsActionBar({
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+export function AgentLockedSurface({
+  locked,
+  children,
+}: {
+  locked: boolean;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation('settings');
+  if (!locked) return children;
+  return (
+    <div
+      className="agent-settings-locked"
+      onClickCapture={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toast.warning(t('agents.installAgentFirst'));
+      }}
+    >
+      {children}
     </div>
   );
 }

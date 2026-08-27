@@ -272,6 +272,12 @@ mod tests {
             assert_eq!(layout.npm_bin, PathBuf::from("/tmp/home/.local/bin"));
         }
         assert_eq!(layout.user_bin, PathBuf::from("/tmp/home/.local/bin"));
+        assert!(
+            !layout
+                .user_bin
+                .starts_with("/tmp/home/Library/Application Support")
+        );
+        assert!(!layout.user_bin.starts_with("/tmp/home/AppData"));
         if cfg!(windows) {
             assert_eq!(layout.npm_global_root(), layout.npm_prefix);
         } else {

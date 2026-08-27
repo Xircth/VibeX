@@ -5,16 +5,17 @@ import {
   Loader2,
   Pencil,
   Plus,
-  PlugZap,
   RefreshCw,
   Search,
   Trash2,
   Unplug,
+  Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentModelProviderImportPreviewView,
   OpenCodeCatalogProviderView,
   OpenCodeProviderCatalogSource,
   OpenCodeProviderCatalogView,
@@ -46,16 +47,35 @@ const PROVIDER_PACKAGES = [
   ['@ai-sdk/deepseek', 'DeepSeek'],
 ] as const;
 
+type OpenCodeProviderSurface = 'all' | 'go' | 'official' | 'provider';
+
 type Props = {
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  surface?: OpenCodeProviderSurface;
 };
+
+export function openCodeProviderSurface(
+  providerId: string
+): Exclude<OpenCodeProviderSurface, 'all'> {
+  if (providerId === 'opencode-go' || providerId === 'opencode') return 'go';
+  return 'provider';
+}
+
+function matchesOpenCodeSurface(
+  providerId: string,
+  surface: OpenCodeProviderSurface
+) {
+  if (surface === 'all') return true;
+  return openCodeProviderSurface(providerId) === surface;
+}
 
 type ProviderModelDraft = OpenCodeProviderModelRequest;
 
 export function OpenCodeProviderConnections({
   onChanged,
   onDirtyChange,
+  surface = 'all',
 }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [view, setView] = useState<OpenCodeProviderConnectionsView | null>(
@@ -86,6 +106,11 @@ export function OpenCodeProviderConnections({
     (provider) => provider.provider_id === providerId.trim().toLowerCase()
   );
   const credentialRequired = !existingProvider?.credential_present;
+  const lockOfficialEndpoint = surface === 'official' || surface === 'go';
+  const embedded = surface !== 'all';
+  const [importPreview, setImportPreview] =
+    useState<AgentModelProviderImportPreviewView | null>(null);
+  const [importSelected, setImportSelected] = useState<string[]>([]);
 
   useEffect(() => {
     onDirtyChange?.(formDirty);
@@ -137,19 +162,21 @@ export function OpenCodeProviderConnections({
   }, [loadCatalog, loadConnections]);
 
   const catalogResults = useMemo(() => {
+    const visible =
+      catalog?.providers.filter((provider) =>
+        matchesOpenCodeSurface(provider.id, surface)
+      ) ?? [];
     const query = catalogQuery.trim().toLowerCase();
-    if (!query) return catalog?.providers.slice(0, 8) ?? [];
-    return (
-      catalog?.providers
-        .filter((provider) =>
-          [provider.id, provider.name, provider.npm ?? '', ...provider.env]
-            .join(' ')
-            .toLowerCase()
-            .includes(query)
-        )
-        .slice(0, 20) ?? []
-    );
-  }, [catalog, catalogQuery]);
+    if (!query) return visible.slice(0, 8);
+    return visible
+      .filter((provider) =>
+        [provider.id, provider.name, provider.npm ?? '', ...provider.env]
+          .join(' ')
+          .toLowerCase()
+          .includes(query)
+      )
+      .slice(0, 20);
+  }, [catalog, catalogQuery, surface]);
 
   const packageOptions = useMemo(() => {
     const options = new Map<string, string>(PROVIDER_PACKAGES);
@@ -340,15 +367,22 @@ export function OpenCodeProviderConnections({
   return (
     <section
       aria-labelledby="opencode-provider-heading"
-      className="settings-surface agent-provider-surface"
+      className={
+        embedded
+          ? 'agent-provider-surface'
+          : 'settings-surface agent-provider-surface'
+      }
     >
       <div className="agent-section-heading">
-        <div className="flex items-center gap-2">
-          <PlugZap aria-hidden="true" className="h-4 w-4" />
+        {embedded ? (
+          <h3 id="opencode-provider-heading" className="sr-only">
+            {t('settings:agents.openCodeProviderTitle')}
+          </h3>
+        ) : (
           <h3 id="opencode-provider-heading">
             {t('settings:agents.openCodeProviderTitle')}
           </h3>
-        </div>
+        )}
         <Button
           aria-label={t('settings:agents.openCodeProviderRefreshAria')}
           className="h-8"
@@ -365,6 +399,135 @@ export function OpenCodeProviderConnections({
           {t('settings:agents.refresh')}
         </Button>
       </div>
+
+      {surface === 'provider' ? (
+        <div className="agent-provider-import">
+          <div className="agent-provider-catalog-heading">
+            <div>
+              <strong>{t('settings:agents.externalImport')}</strong>
+            </div>
+            <Button
+              className="h-8"
+              disabled={saving}
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const preview =
+                      await agentManagementApi.previewModelProviderImport(
+                        'opencode',
+                        'cc_switch'
+                      );
+                    setImportPreview(preview);
+                    setImportSelected(
+                      preview.candidates
+                        .filter((candidate) => !candidate.skip_reason)
+                        .map((candidate) => candidate.source_id)
+                    );
+                  } catch (error) {
+                    toast.error(
+                      errorMessage(
+                        error,
+                        t('settings:agents.providerActionFailed')
+                      )
+                    );
+                  }
+                })();
+              }}
+            >
+              <Upload aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+              {t('settings:agents.providerImportCcSwitch')}
+            </Button>
+          </div>
+          {importPreview ? (
+            <div className="agent-model-provider-import-preview">
+              {importPreview.error ? (
+                <p role="alert">{importPreview.error}</p>
+              ) : null}
+              {importPreview.candidates.length === 0 ? (
+                <p>{t('settings:agents.providerImportEmpty')}</p>
+              ) : (
+                <ul>
+                  {importPreview.candidates.map((candidate) => (
+                    <li key={candidate.source_id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={importSelected.includes(candidate.source_id)}
+                          disabled={Boolean(candidate.skip_reason)}
+                          onChange={(event) => {
+                            setImportSelected((current) =>
+                              event.target.checked
+                                ? [...current, candidate.source_id]
+                                : current.filter(
+                                    (id) => id !== candidate.source_id
+                                  )
+                            );
+                          }}
+                        />
+                        <span>
+                          <strong>{candidate.name}</strong>
+                          <small>{candidate.api_url}</small>
+                          {candidate.skip_reason ? (
+                            <em>{candidate.skip_reason}</em>
+                          ) : null}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="agent-model-provider-import-actions">
+                <Button
+                  className="h-8"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setImportPreview(null);
+                    setImportSelected([]);
+                  }}
+                >
+                  {t('settings:agents.providerImportCancel')}
+                </Button>
+                <Button
+                  className="h-8"
+                  disabled={saving || importSelected.length === 0}
+                  size="sm"
+                  onClick={() => {
+                    void (async () => {
+                      setSaving(true);
+                      try {
+                        setView(
+                          await agentManagementApi.importOpenCodeProviders({
+                            agent_id: 'opencode',
+                            source: 'cc_switch',
+                            source_ids: importSelected,
+                          })
+                        );
+                        setImportPreview(null);
+                        toast.success(t('settings:agents.providerImported'));
+                        await onChanged?.();
+                      } catch (error) {
+                        toast.error(
+                          errorMessage(
+                            error,
+                            t('settings:agents.providerActionFailed')
+                          )
+                        );
+                      } finally {
+                        setSaving(false);
+                      }
+                    })();
+                  }}
+                >
+                  {t('settings:agents.providerImportApply')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div aria-live="polite">
         {loading && !view ? (
@@ -383,105 +546,114 @@ export function OpenCodeProviderConnections({
               {t('settings:agents.retryRead')}
             </Button>
           </div>
-        ) : view?.providers.length ? (
+        ) : view?.providers.filter((provider) =>
+            matchesOpenCodeSurface(provider.provider_id, surface)
+          ).length ? (
           <ul className="agent-provider-list">
-            {view.providers.map((provider) => (
-              <li key={provider.provider_id}>
-                <span className="agent-provider-icon">
-                  <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
-                </span>
-                <div className="agent-provider-copy">
-                  <div className="agent-provider-identity">
-                    <strong>{provider.name}</strong>
-                    <code>{provider.provider_id}</code>
-                    <span data-enabled={provider.enabled}>
-                      {provider.enabled
-                        ? t('settings:agents.enabled')
-                        : t('settings:agents.disabled')}
-                    </span>
+            {view.providers
+              .filter((provider) =>
+                matchesOpenCodeSurface(provider.provider_id, surface)
+              )
+              .map((provider) => (
+                <li key={provider.provider_id}>
+                  <span className="agent-provider-icon">
+                    <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="agent-provider-copy">
+                    <div className="agent-provider-identity">
+                      <strong>{provider.name}</strong>
+                      <code>{provider.provider_id}</code>
+                      <span data-enabled={provider.enabled}>
+                        {provider.enabled
+                          ? t('settings:agents.enabled')
+                          : t('settings:agents.disabled')}
+                      </span>
+                    </div>
+                    <p title={provider.base_url ?? undefined}>
+                      {provider.credential_present
+                        ? t('settings:agents.credentialPresent')
+                        : t('settings:agents.credentialMissing')}
+                      {provider.api ? ` · ${provider.api}` : ''}
+                      {provider.base_url ? ` · ${provider.base_url}` : ''}
+                      {provider.models.length
+                        ? ` · ${t('settings:agents.modelCount', { count: provider.models.length })}`
+                        : ''}
+                    </p>
                   </div>
-                  <p title={provider.base_url ?? undefined}>
-                    {provider.credential_present
-                      ? t('settings:agents.credentialPresent')
-                      : t('settings:agents.credentialMissing')}
-                    {provider.api ? ` · ${provider.api}` : ''}
-                    {provider.base_url ? ` · ${provider.base_url}` : ''}
-                    {provider.models.length
-                      ? ` · ${t('settings:agents.modelCount', { count: provider.models.length })}`
-                      : ''}
-                  </p>
-                </div>
-                <div className="agent-provider-actions">
-                  <Button
-                    aria-label={t('settings:agents.openCodeProviderEditAria', {
-                      name: provider.name,
-                    })}
-                    className="h-8 shrink-0"
-                    disabled={
-                      disconnecting === provider.provider_id ||
-                      toggling === provider.provider_id
-                    }
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => editProvider(provider)}
-                  >
-                    <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-                    {t('settings:agents.openCodeProviderEdit')}
-                  </Button>
-                  <label className="agent-provider-enabled">
-                    <span className="sr-only">
-                      {t(
-                        provider.enabled
-                          ? 'settings:agents.disableNamed'
-                          : 'settings:agents.enableNamed',
-                        { name: provider.name }
-                      )}
-                    </span>
-                    <Switch
+                  <div className="agent-provider-actions">
+                    <Button
                       aria-label={t(
-                        provider.enabled
-                          ? 'settings:agents.disableNamed'
-                          : 'settings:agents.enableNamed',
+                        'settings:agents.openCodeProviderEditAria',
+                        {
+                          name: provider.name,
+                        }
+                      )}
+                      className="h-8 shrink-0"
+                      disabled={
+                        disconnecting === provider.provider_id ||
+                        toggling === provider.provider_id
+                      }
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => editProvider(provider)}
+                    >
+                      <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+                      {t('settings:agents.openCodeProviderEdit')}
+                    </Button>
+                    <label className="agent-provider-enabled">
+                      <span className="sr-only">
+                        {t(
+                          provider.enabled
+                            ? 'settings:agents.disableNamed'
+                            : 'settings:agents.enableNamed',
+                          { name: provider.name }
+                        )}
+                      </span>
+                      <Switch
+                        aria-label={t(
+                          provider.enabled
+                            ? 'settings:agents.disableNamed'
+                            : 'settings:agents.enableNamed',
+                          { name: provider.name }
+                        )}
+                        checked={provider.enabled}
+                        className="agent-provider-switch"
+                        disabled={
+                          toggling === provider.provider_id ||
+                          disconnecting === provider.provider_id
+                        }
+                        onCheckedChange={(enabled) =>
+                          void toggleProvider(provider, enabled)
+                        }
+                      />
+                    </label>
+                    <Button
+                      aria-label={t(
+                        'settings:agents.openCodeProviderDisconnectAria',
                         { name: provider.name }
                       )}
-                      checked={provider.enabled}
-                      className="agent-provider-switch"
+                      className="h-8 shrink-0"
                       disabled={
-                        toggling === provider.provider_id ||
-                        disconnecting === provider.provider_id
+                        disconnecting === provider.provider_id ||
+                        toggling === provider.provider_id
                       }
-                      onCheckedChange={(enabled) =>
-                        void toggleProvider(provider, enabled)
-                      }
-                    />
-                  </label>
-                  <Button
-                    aria-label={t(
-                      'settings:agents.openCodeProviderDisconnectAria',
-                      { name: provider.name }
-                    )}
-                    className="h-8 shrink-0"
-                    disabled={
-                      disconnecting === provider.provider_id ||
-                      toggling === provider.provider_id
-                    }
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void disconnect(provider)}
-                  >
-                    {disconnecting === provider.provider_id ? (
-                      <Loader2
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5 animate-spin"
-                      />
-                    ) : (
-                      <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
-                    )}
-                    {t('settings:agents.disconnect')}
-                  </Button>
-                </div>
-              </li>
-            ))}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void disconnect(provider)}
+                    >
+                      {disconnecting === provider.provider_id ? (
+                        <Loader2
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 animate-spin"
+                        />
+                      ) : (
+                        <Unplug aria-hidden="true" className="h-3.5 w-3.5" />
+                      )}
+                      {t('settings:agents.disconnect')}
+                    </Button>
+                  </div>
+                </li>
+              ))}
           </ul>
         ) : (
           <p className="px-4 pb-4 text-xs text-muted-foreground">
@@ -490,283 +662,315 @@ export function OpenCodeProviderConnections({
         )}
       </div>
 
-      <div className="agent-provider-catalog">
-        <div className="agent-provider-catalog-heading">
-          <div>
-            <strong>{t('settings:agents.modelsDevCatalog')}</strong>
-            <span>{catalogSourceLabel(t, catalog?.source)}</span>
-          </div>
-          <Button
-            aria-label={t('settings:agents.modelsDevRefreshAria')}
-            className="h-8"
-            disabled={catalogLoading}
-            size="sm"
-            variant="ghost"
-            onClick={() => void loadCatalog(true)}
-          >
-            {catalogLoading ? (
-              <Loader2
-                aria-hidden="true"
-                className="h-3.5 w-3.5 animate-spin"
-              />
-            ) : (
-              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-            {t('settings:agents.updateCatalog')}
-          </Button>
-        </div>
-        <label className="agent-provider-search">
-          <Search aria-hidden="true" className="h-3.5 w-3.5" />
-          <span className="sr-only">{t('settings:agents.searchProvider')}</span>
-          <input
-            aria-label={t('settings:agents.searchProvider')}
-            autoComplete="off"
-            name="provider_catalog_search"
-            placeholder={t('settings:agents.searchProviderPlaceholder')}
-            type="search"
-            value={catalogQuery}
-            onChange={(event) => setCatalogQuery(event.target.value)}
-          />
-        </label>
-        <div aria-live="polite">
-          {catalogLoading && !catalog ? (
-            <p className="agent-provider-catalog-empty">
-              {t('settings:agents.catalogLoading')}
-            </p>
-          ) : catalogError && !catalog ? (
-            <p className="agent-provider-catalog-empty" role="alert">
-              {catalogError}
-            </p>
-          ) : catalogResults.length ? (
-            <ul className="agent-provider-catalog-list">
-              {catalogResults.map((provider) => (
-                <li key={provider.id}>
-                  <button
-                    aria-label={t('settings:agents.selectProviderAria', {
-                      name: provider.name,
-                    })}
-                    type="button"
-                    onClick={() => adoptCatalogProvider(provider)}
-                  >
-                    <span className="agent-provider-catalog-identity">
-                      <Database aria-hidden="true" className="h-3.5 w-3.5" />
-                      <span>
-                        <strong>{provider.name}</strong>
-                        <code>{provider.id}</code>
-                      </span>
-                    </span>
-                    <span className="agent-provider-catalog-meta">
-                      <em data-auth={provider.auth_kind}>
-                        {provider.auth_kind === 'oauth' ? 'OAuth' : 'API Key'}
-                      </em>
-                      <span>
-                        {t('settings:agents.modelCount', {
-                          count: provider.models.length,
-                        })}
-                      </span>
-                    </span>
-                  </button>
-                  {provider.doc ? (
-                    <Button
-                      aria-label={t('settings:agents.openProviderDocsAria', {
-                        name: provider.name,
-                      })}
-                      className="h-8 w-8 shrink-0 p-0"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void openExternalUrl(provider.doc!)}
-                    >
-                      <ExternalLink
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5"
-                      />
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="agent-provider-catalog-empty">
-              {t('settings:agents.noMatchingProviders')}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <form
-        className="agent-provider-form"
-        onSubmit={(event) => void connect(event)}
-      >
-        <div className="agent-provider-form-heading">
-          <strong>{t('settings:agents.connectProvider')}</strong>
-        </div>
-        <div className="agent-provider-form-grid">
-          <ProviderField label="Provider ID" required>
-            <input
-              aria-label="Provider ID"
-              autoComplete="off"
-              name="provider_id"
-              pattern="[a-z0-9][a-z0-9._-]*"
-              placeholder={t('settings:agents.providerIdPlaceholder')}
-              required
-              value={providerId}
-              onChange={(event) => setProviderId(event.target.value)}
-            />
-          </ProviderField>
-          <ProviderField label={t('settings:agents.displayName')}>
-            <input
-              aria-label={t('settings:agents.displayName')}
-              autoComplete="off"
-              name="provider_name"
-              placeholder={t('settings:agents.providerNamePlaceholder')}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </ProviderField>
-          <ProviderField label={t('settings:agents.aiSdkPackage')}>
-            <AstryxSelect
-              ariaLabel={t('settings:agents.aiSdkPackage')}
-              hasClear
-              placeholder={t('settings:agents.openCodeBuiltInProvider')}
-              value={npm}
-              options={packageOptions.map(([value, label]) => ({
-                value,
-                label: `${label} · ${value}`,
-              }))}
-              onChange={setNpm}
-            />
-          </ProviderField>
-          <ProviderField label={t('settings:agents.apiAdapter')}>
-            <input
-              aria-label={t('settings:agents.apiAdapter')}
-              autoComplete="off"
-              name="provider_api"
-              placeholder={t('settings:agents.apiAdapterPlaceholder')}
-              value={api}
-              onChange={(event) => setApi(event.target.value)}
-            />
-          </ProviderField>
-          <ProviderField label="API URL">
-            <input
-              aria-label="API URL"
-              autoComplete="url"
-              name="provider_url"
-              placeholder="https://api.example.com/v1"
-              type="url"
-              value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-            />
-          </ProviderField>
-          <ProviderField label="API Key" required={credentialRequired}>
-            <input
-              aria-label="API Key"
-              autoComplete="new-password"
-              name="provider_api_key"
-              placeholder={t(
-                existingProvider?.credential_present
-                  ? 'settings:agents.openCodeCredentialEditPlaceholder'
-                  : 'settings:agents.credentialPlaceholder'
-              )}
-              required={credentialRequired}
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </ProviderField>
-          <div className="agent-provider-models">
-            <div className="agent-provider-models-heading">
-              <strong>{t('settings:agents.openCodeModelManagement')}</strong>
+      {surface === 'go' ? null : (
+        <>
+          <div className="agent-provider-catalog">
+            <div className="agent-provider-catalog-heading">
+              <div>
+                <strong>
+                  {surface === 'provider'
+                    ? t('settings:agents.openCodeBuiltInProviders')
+                    : t('settings:agents.modelsDevCatalog')}
+                </strong>
+                {surface === 'provider' ? null : (
+                  <span>{catalogSourceLabel(t, catalog?.source)}</span>
+                )}
+              </div>
               <Button
+                aria-label={t('settings:agents.modelsDevRefreshAria')}
                 className="h-8"
+                disabled={catalogLoading}
                 size="sm"
-                type="button"
-                variant="outline"
-                onClick={addModel}
+                variant="ghost"
+                onClick={() => void loadCatalog(true)}
               >
-                <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-                {t('settings:agents.openCodeAddModel')}
+                {catalogLoading ? (
+                  <Loader2
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 animate-spin"
+                  />
+                ) : (
+                  <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                )}
+                {t('settings:agents.updateCatalog')}
               </Button>
             </div>
-            {models.length ? (
-              <div className="agent-provider-model-list">
-                {models.map((model, index) => (
-                  <div
-                    className="agent-provider-model-row"
-                    key={`${model.previous_id ?? 'new'}:${index}`}
-                  >
-                    <ProviderField label={t('settings:agents.modelId')}>
-                      <input
-                        aria-label={t('settings:agents.openCodeModelIdAria', {
-                          index: index + 1,
-                        })}
-                        autoComplete="off"
-                        name={`provider_model_${index}_id`}
-                        placeholder="model-id"
-                        spellCheck={false}
-                        value={model.id}
-                        onChange={(event) =>
-                          patchModel(index, 'id', event.target.value)
-                        }
-                      />
-                    </ProviderField>
-                    <ProviderField label={t('settings:agents.modelName')}>
-                      <input
-                        aria-label={t('settings:agents.openCodeModelNameAria', {
-                          index: index + 1,
-                        })}
-                        autoComplete="off"
-                        name={`provider_model_${index}_name`}
-                        placeholder={t(
-                          'settings:agents.openCodeModelNamePlaceholder'
-                        )}
-                        value={model.name}
-                        onChange={(event) =>
-                          patchModel(index, 'name', event.target.value)
-                        }
-                      />
-                    </ProviderField>
-                    <Button
-                      aria-label={t('settings:agents.openCodeDeleteModelAria', {
-                        id: model.id || index + 1,
-                      })}
-                      className="h-8 w-8 self-end p-0"
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                      onClick={() =>
-                        setModels((current) =>
-                          current.filter(
-                            (_, modelIndex) => modelIndex !== index
-                          )
-                        )
-                      }
-                    >
-                      <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>{t('settings:agents.openCodeModelEmpty')}</p>
-            )}
-          </div>
-        </div>
-        <div className="agent-provider-form-footer" aria-live="polite">
-          <Button disabled={saving} size="sm" type="submit">
-            {saving ? (
-              <Loader2
-                aria-hidden="true"
-                className="h-3.5 w-3.5 animate-spin"
+            <label className="agent-provider-search">
+              <Search aria-hidden="true" className="h-3.5 w-3.5" />
+              <span className="sr-only">
+                {t('settings:agents.searchProvider')}
+              </span>
+              <input
+                aria-label={t('settings:agents.searchProvider')}
+                autoComplete="off"
+                name="provider_catalog_search"
+                placeholder={t('settings:agents.searchProviderPlaceholder')}
+                type="search"
+                value={catalogQuery}
+                onChange={(event) => setCatalogQuery(event.target.value)}
               />
-            ) : null}
-            {saving
-              ? t('settings:agents.connecting')
-              : existingProvider
-                ? t('settings:agents.openCodeUpdateProvider')
-                : t('settings:agents.saveAndConnect')}
-          </Button>
-        </div>
-      </form>
+            </label>
+            <div aria-live="polite">
+              {catalogLoading && !catalog ? (
+                <p className="agent-provider-catalog-empty">
+                  {t('settings:agents.catalogLoading')}
+                </p>
+              ) : catalogError && !catalog ? (
+                <p className="agent-provider-catalog-empty" role="alert">
+                  {catalogError}
+                </p>
+              ) : catalogResults.length ? (
+                <ul className="agent-provider-catalog-list">
+                  {catalogResults.map((provider) => (
+                    <li key={provider.id}>
+                      <button
+                        aria-label={t('settings:agents.selectProviderAria', {
+                          name: provider.name,
+                        })}
+                        type="button"
+                        onClick={() => adoptCatalogProvider(provider)}
+                      >
+                        <span className="agent-provider-catalog-identity">
+                          <Database
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5"
+                          />
+                          <span>
+                            <strong>{provider.name}</strong>
+                            <code>{provider.id}</code>
+                          </span>
+                        </span>
+                        <span className="agent-provider-catalog-meta">
+                          <em data-auth={provider.auth_kind}>
+                            {provider.auth_kind === 'oauth'
+                              ? 'OAuth'
+                              : 'API Key'}
+                          </em>
+                          <span>
+                            {t('settings:agents.modelCount', {
+                              count: provider.models.length,
+                            })}
+                          </span>
+                        </span>
+                      </button>
+                      {provider.doc ? (
+                        <Button
+                          aria-label={t(
+                            'settings:agents.openProviderDocsAria',
+                            {
+                              name: provider.name,
+                            }
+                          )}
+                          className="h-8 w-8 shrink-0 p-0"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void openExternalUrl(provider.doc!)}
+                        >
+                          <ExternalLink
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5"
+                          />
+                        </Button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="agent-provider-catalog-empty">
+                  {t('settings:agents.noMatchingProviders')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <form
+            className="agent-provider-form"
+            onSubmit={(event) => void connect(event)}
+          >
+            <div className="agent-provider-form-heading">
+              <strong>{t('settings:agents.connectProvider')}</strong>
+            </div>
+            <div className="agent-provider-form-grid">
+              <ProviderField label="Provider ID" required>
+                <input
+                  aria-label="Provider ID"
+                  autoComplete="off"
+                  name="provider_id"
+                  pattern="[a-z0-9][a-z0-9._-]*"
+                  placeholder={t('settings:agents.providerIdPlaceholder')}
+                  required
+                  value={providerId}
+                  onChange={(event) => setProviderId(event.target.value)}
+                />
+              </ProviderField>
+              <ProviderField label={t('settings:agents.displayName')}>
+                <input
+                  aria-label={t('settings:agents.displayName')}
+                  autoComplete="off"
+                  name="provider_name"
+                  placeholder={t('settings:agents.providerNamePlaceholder')}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </ProviderField>
+              <ProviderField label={t('settings:agents.aiSdkPackage')}>
+                <AstryxSelect
+                  ariaLabel={t('settings:agents.aiSdkPackage')}
+                  hasClear
+                  placeholder={t('settings:agents.openCodeBuiltInProvider')}
+                  value={npm}
+                  options={packageOptions.map(([value, label]) => ({
+                    value,
+                    label: `${label} · ${value}`,
+                  }))}
+                  onChange={setNpm}
+                />
+              </ProviderField>
+              <ProviderField label={t('settings:agents.apiAdapter')}>
+                <input
+                  aria-label={t('settings:agents.apiAdapter')}
+                  autoComplete="off"
+                  name="provider_api"
+                  placeholder={t('settings:agents.apiAdapterPlaceholder')}
+                  value={api}
+                  onChange={(event) => setApi(event.target.value)}
+                />
+              </ProviderField>
+              <ProviderField label="API URL">
+                <input
+                  aria-label="API URL"
+                  autoComplete="url"
+                  name="provider_url"
+                  placeholder="https://api.example.com/v1"
+                  readOnly={lockOfficialEndpoint}
+                  type="url"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                />
+              </ProviderField>
+              <ProviderField label="API Key" required={credentialRequired}>
+                <input
+                  aria-label="API Key"
+                  autoComplete="new-password"
+                  name="provider_api_key"
+                  placeholder={t(
+                    existingProvider?.credential_present
+                      ? 'settings:agents.openCodeCredentialEditPlaceholder'
+                      : 'settings:agents.credentialPlaceholder'
+                  )}
+                  required={credentialRequired}
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                />
+              </ProviderField>
+              <div className="agent-provider-models">
+                <div className="agent-provider-models-heading">
+                  <strong>
+                    {t('settings:agents.openCodeModelManagement')}
+                  </strong>
+                  <Button
+                    className="h-8"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={addModel}
+                  >
+                    <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+                    {t('settings:agents.openCodeAddModel')}
+                  </Button>
+                </div>
+                {models.length ? (
+                  <div className="agent-provider-model-list">
+                    {models.map((model, index) => (
+                      <div
+                        className="agent-provider-model-row"
+                        key={`${model.previous_id ?? 'new'}:${index}`}
+                      >
+                        <ProviderField label={t('settings:agents.modelId')}>
+                          <input
+                            aria-label={t(
+                              'settings:agents.openCodeModelIdAria',
+                              {
+                                index: index + 1,
+                              }
+                            )}
+                            autoComplete="off"
+                            name={`provider_model_${index}_id`}
+                            placeholder="model-id"
+                            spellCheck={false}
+                            value={model.id}
+                            onChange={(event) =>
+                              patchModel(index, 'id', event.target.value)
+                            }
+                          />
+                        </ProviderField>
+                        <ProviderField label={t('settings:agents.modelName')}>
+                          <input
+                            aria-label={t(
+                              'settings:agents.openCodeModelNameAria',
+                              {
+                                index: index + 1,
+                              }
+                            )}
+                            autoComplete="off"
+                            name={`provider_model_${index}_name`}
+                            placeholder={t(
+                              'settings:agents.openCodeModelNamePlaceholder'
+                            )}
+                            value={model.name}
+                            onChange={(event) =>
+                              patchModel(index, 'name', event.target.value)
+                            }
+                          />
+                        </ProviderField>
+                        <Button
+                          aria-label={t(
+                            'settings:agents.openCodeDeleteModelAria',
+                            {
+                              id: model.id || index + 1,
+                            }
+                          )}
+                          className="h-8 w-8 self-end p-0"
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                          onClick={() =>
+                            setModels((current) =>
+                              current.filter(
+                                (_, modelIndex) => modelIndex !== index
+                              )
+                            )
+                          }
+                        >
+                          <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>{t('settings:agents.openCodeModelEmpty')}</p>
+                )}
+              </div>
+            </div>
+            <div className="agent-provider-form-footer" aria-live="polite">
+              <Button disabled={saving} size="sm" type="submit">
+                {saving ? (
+                  <Loader2
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 animate-spin"
+                  />
+                ) : null}
+                {saving
+                  ? t('settings:agents.connecting')
+                  : existingProvider
+                    ? t('settings:agents.openCodeUpdateProvider')
+                    : t('settings:agents.saveAndConnect')}
+              </Button>
+            </div>
+          </form>
+        </>
+      )}
     </section>
   );
 }

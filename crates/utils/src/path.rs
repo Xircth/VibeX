@@ -7,20 +7,16 @@ pub const VIBE_IMAGES_DIR: &str = ".vibe-images";
 /// .git is not in .gitignore but should never be watched.
 pub const ALWAYS_SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 
-/// Returns the root for Host-managed executable artifacts.
+/// Returns the root for Host-managed bootstrap toolchains (Node, uv).
 ///
-/// On macOS 26, Mach-O processes below `~/Library/Application Support` can be
-/// held in dyld when an ancestor is interpreted as an application bundle (for
-/// example VibeX's `com.vibex.app` data directory). Databases and configuration
-/// stay in Tauri app data; executable runtimes use this user-owned launch root.
-#[cfg(target_os = "macos")]
+/// This is a user-owned directory, not Tauri app data. Agent Runtime and ACP
+/// are installed into the user environment (`~/.local/bin`, npm prefix, uv
+/// tools). Clearing VibeX application data must not remove those CLIs or the
+/// Node/uv used to write them. On macOS, keeping executables out of
+/// `~/Library/Application Support` also avoids dyld treating an ancestor as an
+/// application bundle.
 pub fn managed_artifacts_directory(home_dir: &Path, _app_data_dir: &Path) -> PathBuf {
     home_dir.join(".local").join("share").join("vibex")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn managed_artifacts_directory(_home_dir: &Path, app_data_dir: &Path) -> PathBuf {
-    app_data_dir.to_path_buf()
 }
 
 /// Convert absolute paths to relative paths based on worktree path
@@ -294,10 +290,8 @@ mod tests {
         let app_data = home.join("Library/Application Support/com.vibex.app");
         let root = managed_artifacts_directory(home, &app_data);
 
-        #[cfg(target_os = "macos")]
         assert_eq!(root, home.join(".local/share/vibex"));
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(root, app_data);
+        assert_ne!(root, app_data);
     }
 
     #[test]

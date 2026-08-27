@@ -1,7 +1,8 @@
-import { FileKey2, FolderOpen } from 'lucide-react';
+import { ChevronDown, FolderOpen, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentModelCatalogView,
   AgentNativeConfigFieldView,
   AgentNativeConfigFileView,
   AgentNativeConfigFileWriteRequest,
@@ -13,11 +14,17 @@ import type {
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import {
+  agentManagementApi,
+  agentManagementErrorMessage as errorMessage,
+} from '@/features/agent-management';
 import { desktopApi } from '@/lib/api';
 
-import { AgentModelCatalogControl } from './AgentModelCatalogControl';
-import { CodexModelCatalogEditor } from './CodexModelCatalogEditor';
-import { CodexQuickSettings, CODEX_QUICK_FIELDS } from './CodexQuickSettings';
+import {
+  AgentConfigFieldsCard,
+  layoutConfigFields,
+} from './CodexQuickSettings';
+import { AgentSectionHeading } from './SettingsSection';
 import { PiConfigurationPanel } from './PiConfigurationPanel';
 import { PiProviderBuilder } from './PiProviderBuilder';
 import { SettingsActionBar } from './SettingsUi';
@@ -34,6 +41,7 @@ type Props = {
   onOverwriteConflict?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   embedded?: boolean;
+  locked?: boolean;
   fieldSurface?: AgentNativeConfigSurface;
 };
 
@@ -95,19 +103,19 @@ export function AgentConfigurationAndDiagnostics({
   onOverwriteConflict,
   onDirtyChange,
   embedded = false,
+  locked = false,
   fieldSurface,
 }: Props) {
   const { t } = useTranslation('settings');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
-  const [removed, setRemoved] = useState<Record<string, boolean>>({});
   const [rawDirty, setRawDirty] = useState<Record<string, boolean>>({});
   const [childDirty, setChildDirty] = useState<Record<string, boolean>>({});
+  const [configExpanded, setConfigExpanded] = useState(true);
 
   useEffect(() => {
     setDrafts(draftsFromConfig(config));
     setDirty({});
-    setRemoved({});
     setRawDirty({});
     setChildDirty({});
   }, [config]);
@@ -135,6 +143,7 @@ export function AgentConfigurationAndDiagnostics({
   );
   const showRuntimeSurfaces = fieldSurface !== 'authentication';
   const showFileEditor = fieldSurface !== 'authentication';
+  const fieldsDisabled = saving || locked;
   const changedFields =
     config?.fields.filter(
       (field) =>
@@ -142,8 +151,7 @@ export function AgentConfigurationAndDiagnostics({
         (!fieldSurface || fieldSurfaceOf(field) === fieldSurface)
     ) ?? [];
   const canSave = changedFields.some(
-    (field) =>
-      removed[field.id] || !field.secret || (drafts[field.id] ?? '').length > 0
+    (field) => !field.secret || (drafts[field.id] ?? '').length > 0
   );
   useEffect(() => {
     onDirtyChange?.(
@@ -164,10 +172,6 @@ export function AgentConfigurationAndDiagnostics({
         : { ...current, [surface]: isDirty }
     );
   }, []);
-  const updateCodexCatalogDirty = useCallback(
-    (isDirty: boolean) => updateChildDirty('codex-model-catalog', isDirty),
-    [updateChildDirty]
-  );
   const updatePiConfigurationDirty = useCallback(
     (isDirty: boolean) => updateChildDirty('pi-configuration', isDirty),
     [updateChildDirty]
@@ -184,22 +188,17 @@ export function AgentConfigurationAndDiagnostics({
       return next;
     });
     setDirty((current) => ({ ...current, [fieldId]: true }));
-    setRemoved((current) => ({ ...current, [fieldId]: false }));
   };
 
   const discard = () => {
     setDrafts(draftsFromConfig(config));
     setDirty({});
-    setRemoved({});
   };
 
   const save = () => {
     if (!config) return;
     const fields = changedFields.filter(
-      (field) =>
-        removed[field.id] ||
-        !field.secret ||
-        (drafts[field.id] ?? '').length > 0
+      (field) => !field.secret || (drafts[field.id] ?? '').length > 0
     );
     if (fields.length === 0) return;
     onSave({
@@ -209,27 +208,11 @@ export function AgentConfigurationAndDiagnostics({
       ),
       fields: Object.fromEntries(
         fields.map((field) => {
-          if (removed[field.id]) return [field.id, null];
           const value = drafts[field.id] ?? '';
           return [field.id, value.length > 0 ? value : null];
         })
       ),
     });
-  };
-
-  const removeField = (field: AgentNativeConfigFieldView) => {
-    if (removed[field.id]) {
-      setDrafts((current) => ({
-        ...current,
-        [field.id]: field.secret ? '' : (field.value ?? ''),
-      }));
-      setDirty((current) => ({ ...current, [field.id]: false }));
-      setRemoved((current) => ({ ...current, [field.id]: false }));
-      return;
-    }
-    setDrafts((current) => ({ ...current, [field.id]: '' }));
-    setDirty((current) => ({ ...current, [field.id]: true }));
-    setRemoved((current) => ({ ...current, [field.id]: true }));
   };
 
   const headingPaths = groups.map(([path]) => path);
@@ -255,128 +238,140 @@ export function AgentConfigurationAndDiagnostics({
         }
       >
         {embedded ? null : (
-          <div className="agent-section-heading">
-            <div className="flex min-w-0 items-center gap-2">
-              <FileKey2 aria-hidden="true" className="h-4 w-4" />
-              <h3 id="agent-config-heading">{t('agents.configTitle')}</h3>
-            </div>
-            <AgentConfigPathMeta paths={headingPaths} saving={saving} />
-          </div>
-        )}
-
-        {conflictMessage ? (
-          <div
-            className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
-            role="alert"
+          <AgentSectionHeading
+            headingId="agent-config-heading"
+            title={t('agents.configTitle')}
+            expanded={configExpanded}
+            onToggle={() => setConfigExpanded((current) => !current)}
+            summary={t('agents.configFieldCount', {
+              count: visibleFields.length,
+            })}
           >
-            <span>{conflictMessage}</span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7"
-                onClick={onReloadConflict}
-              >
-                {t('agents.reload')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7"
-                onClick={onAdoptExternal}
-              >
-                {t('agents.adoptExternal')}
-              </Button>
-              <Button
-                size="sm"
-                className="h-7"
-                disabled={saving}
-                onClick={onOverwriteConflict}
-              >
-                {t('agents.overwriteExternal')}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {!config ? (
-          <p className="px-4 pb-4 text-xs text-muted-foreground">
-            {t('agents.configLoading')}
-          </p>
-        ) : !config.available ? (
-          <p className="px-4 pb-4 text-xs text-muted-foreground">
-            {t('agents.configUnsupported')}
-          </p>
-        ) : (
-          <>
-            {showRuntimeSurfaces &&
-            config.settings_features.includes('model_catalog') ? (
-              <AgentModelCatalogControl
-                agentId={config.agent_id}
-                drafts={drafts}
-                disabled={saving}
-                onSelect={updateDraft}
-              />
-            ) : null}
-            {showRuntimeSurfaces &&
-            config.settings_features.includes('codex_model_catalog') ? (
-              <CodexModelCatalogEditor
-                disabled={saving}
-                onDirtyChange={updateCodexCatalogDirty}
-              />
-            ) : null}
-            {showRuntimeSurfaces ? (
-              <CodexQuickSettings
-                fields={surfaceFields}
-                drafts={drafts}
-                disabled={saving}
-                onChange={updateDraft}
-              />
-            ) : null}
-            {showRuntimeSurfaces &&
-            config.settings_features.includes('pi_configuration') ? (
-              <PiConfigurationPanel
-                disabled={saving}
-                onDirtyChange={updatePiConfigurationDirty}
-              />
-            ) : null}
-            <div className="agent-config-groups">
-              {groups.map(([path, fields, file]) => (
-                <fieldset
-                  className="agent-config-group"
-                  key={path}
-                  aria-label={fileName(path)}
-                >
-                  {fields.length > 0 ? (
-                    <div className="agent-config-grid">
-                      {fields.map((field) => (
-                        <ConfigField
-                          key={field.id}
-                          field={field}
-                          value={drafts[field.id] ?? ''}
-                          removed={removed[field.id] === true}
-                          saving={saving}
-                          onChange={(value) => updateDraft(field.id, value)}
-                          onRemove={() => removeField(field)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {showFileEditor ? (
-                    <ConfigFileEditor
-                      agentId={config.agent_id}
-                      file={file}
-                      saving={saving}
-                      onSave={onSaveFile}
-                      onDirtyChange={updateRawDirty}
-                    />
-                  ) : null}
-                </fieldset>
-              ))}
-            </div>
-          </>
+            <AgentConfigPathMeta paths={headingPaths} saving={saving} />
+          </AgentSectionHeading>
         )}
-        {embedded ? actionBar : null}
+
+        {embedded || configExpanded ? (
+          <>
+            {conflictMessage ? (
+              <div
+                className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
+                role="alert"
+              >
+                <span>{conflictMessage}</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={onReloadConflict}
+                  >
+                    {t('agents.reload')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={onAdoptExternal}
+                  >
+                    {t('agents.adoptExternal')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-7"
+                    disabled={saving}
+                    onClick={onOverwriteConflict}
+                  >
+                    {t('agents.overwriteExternal')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {!config ? (
+              <p className="px-4 pb-4 text-xs text-muted-foreground">
+                {t('agents.configLoading')}
+              </p>
+            ) : !config.available ? (
+              <p className="px-4 pb-4 text-xs text-muted-foreground">
+                {t('agents.configUnsupported')}
+              </p>
+            ) : (
+              <>
+                {showRuntimeSurfaces &&
+                config.settings_features.includes('pi_configuration') ? (
+                  <PiConfigurationPanel
+                    disabled={fieldsDisabled}
+                    onDirtyChange={updatePiConfigurationDirty}
+                  />
+                ) : null}
+                {fieldSurface === 'authentication' ? (
+                  <div className="agent-config-groups">
+                    {groups.map(([path, fields]) => (
+                      <fieldset
+                        className="agent-config-group"
+                        key={path}
+                        aria-label={fileName(path)}
+                      >
+                        {fields.length > 0 ? (
+                          <div className="agent-config-grid">
+                            {layoutConfigFields(fields).map(({ field }) => (
+                              <ConfigField
+                                key={field.id}
+                                drafts={drafts}
+                                field={field}
+                                value={drafts[field.id] ?? ''}
+                                saving={fieldsDisabled}
+                                onChange={(value) =>
+                                  updateDraft(field.id, value)
+                                }
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                      </fieldset>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {visibleFields.length > 0 ? (
+                      <details className="agent-config-block" open>
+                        <summary>
+                          <span className="agent-config-block-heading">
+                            <strong>{t('agents.configFields')}</strong>
+                          </span>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="agent-config-file-chevron"
+                          />
+                        </summary>
+                        <AgentConfigFieldsCard
+                          fields={visibleFields}
+                          drafts={drafts}
+                          disabled={fieldsDisabled}
+                          onChange={updateDraft}
+                        />
+                      </details>
+                    ) : null}
+                    {showFileEditor
+                      ? groups.map(([path, , file]) => (
+                          <ConfigFileEditor
+                            key={path}
+                            agentId={config.agent_id}
+                            file={file}
+                            saving={fieldsDisabled}
+                            onSave={onSaveFile}
+                            onDirtyChange={updateRawDirty}
+                          />
+                        ))
+                      : null}
+                  </>
+                )}
+              </>
+            )}
+            {embedded ? actionBar : null}
+          </>
+        ) : null}
       </section>
       {embedded ? null : actionBar}
     </>
@@ -386,24 +381,29 @@ export function AgentConfigurationAndDiagnostics({
 function ConfigField({
   field,
   value,
-  removed,
+  drafts,
   saving,
   onChange,
-  onRemove,
 }: {
   field: AgentNativeConfigFieldView;
   value: string;
-  removed: boolean;
+  drafts?: Record<string, string>;
   saving: boolean;
   onChange: (value: string) => void;
-  onRemove: () => void;
 }) {
   const { t, i18n } = useTranslation('settings');
   const inputId = `agent-config-${field.id}`;
   const labelId = `${inputId}-label`;
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizeIdentifier(field.id) : field.label;
-  const wide = field.kind === 'json' || field.id === 'pi_custom_providers';
+  const wide =
+    field.kind === 'json' ||
+    field.id === 'pi_custom_providers' ||
+    field.id === 'grok_custom_model_id';
+  const placeholder =
+    field.secret && field.present
+      ? t('agents.replaceSecretPlaceholder')
+      : field.value || t('agents.notSet');
   return (
     <div className={`agent-config-field${wide ? ' is-wide' : ''}`}>
       <div className="agent-config-field-label">
@@ -441,7 +441,7 @@ function ConfigField({
             ariaLabel={label}
             disabled={saving}
             hasClear
-            placeholder={t('agents.notSet')}
+            placeholder={placeholder}
             value={value}
             options={field.options.map((option) => ({
               value: option.value,
@@ -457,14 +457,42 @@ function ConfigField({
             <input
               id={inputId}
               aria-label={label}
-              checked={value === 'true'}
+              checked={
+                field.id === 'codex_responses_websockets'
+                  ? value === 'false'
+                  : value === 'true'
+              }
               disabled={saving}
               name={`agent_config_${field.id}`}
               type="checkbox"
-              onChange={(event) => onChange(String(event.target.checked))}
+              onChange={(event) =>
+                onChange(
+                  String(
+                    field.id === 'codex_responses_websockets'
+                      ? !event.target.checked
+                      : event.target.checked
+                  )
+                )
+              }
             />
-            <span>{value === 'true' ? t('agents.on') : t('agents.off')}</span>
+            <span>
+              {(
+                field.id === 'codex_responses_websockets'
+                  ? value === 'false'
+                  : value === 'true'
+              )
+                ? t('agents.on')
+                : t('agents.off')}
+            </span>
           </label>
+        ) : field.id === 'grok_custom_model_id' ? (
+          <GrokOfficialModelField
+            disabled={saving}
+            drafts={drafts ?? {}}
+            label={label}
+            value={value}
+            onChange={onChange}
+          />
         ) : (
           <input
             id={inputId}
@@ -481,39 +509,19 @@ function ConfigField({
             }
             name={`agent_config_${field.id}`}
             value={
-              field.secret && field.present && !removed && value === ''
+              field.secret && field.present && value === ''
                 ? (field.masked_value ?? '••••••••')
                 : value
             }
-            placeholder={
-              field.secret && field.present
-                ? t('agents.replaceSecretPlaceholder')
-                : t('agents.notSet')
-            }
+            placeholder={placeholder}
             onFocus={
-              field.secret && field.present && !removed
+              field.secret && field.present
                 ? (event) => event.currentTarget.select()
                 : undefined
             }
             onChange={(event) => onChange(event.target.value)}
           />
         )}
-        {field.present ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="agent-config-field-remove h-7"
-            aria-label={
-              removed
-                ? t('agents.undoRemoveAria', { label })
-                : t('agents.removeFieldAria', { label })
-            }
-            disabled={saving}
-            onClick={onRemove}
-          >
-            {removed ? t('agents.undo') : t('agents.remove')}
-          </Button>
-        ) : null}
       </div>
     </div>
   );
@@ -539,87 +547,87 @@ function ConfigFileEditor({
   useEffect(() => {
     if (file) onDirtyChange?.(file.path, dirty);
   }, [dirty, file, onDirtyChange]);
+  const name = file ? fileName(file.path) : t('agents.configFile');
   const sensitive = file?.sensitive === true && file.exists;
-  const content = !file?.exists ? t('agents.fileNotCreated') : file.content;
-  if (!file) {
-    return (
-      <div className="agent-config-preview">
-        <div className="agent-config-preview-heading">
-          <span>{t('agents.configFile')}</span>
-          <code>FILE</code>
-        </div>
-        <pre>{content}</pre>
-      </div>
-    );
-  }
-
-  if (file.sensitive) {
-    return (
-      <div
-        aria-label={t('agents.sensitivePreviewAria', {
-          file: fileName(file.path),
-        })}
-        className={`agent-config-preview${sensitive ? ' is-sensitive' : ''}`}
-        tabIndex={sensitive ? 0 : undefined}
-      >
-        <div className="agent-config-preview-heading">
-          <span>{t('agents.configFile')}</span>
-          <code>{file.format.toUpperCase()}</code>
-        </div>
-        <pre>{content}</pre>
-      </div>
-    );
-  }
+  const content = file?.content ?? '';
+  const editorLabel = file
+    ? t('agents.editConfigFileAria', { file: name })
+    : t('agents.configFile');
 
   return (
-    <div className="agent-config-preview">
-      <div className="agent-config-preview-heading">
-        <span>{t('agents.configFile')}</span>
-        <code>{file?.format.toUpperCase() ?? 'FILE'}</code>
-      </div>
-      <pre>{content}</pre>
-      <details className="agent-config-raw-editor">
-        <summary>{t('agents.advancedFileEditor')}</summary>
-        <label className="sr-only" htmlFor={`agent-file-${file.path}`}>
-          {t('agents.editConfigFileAria', { file: fileName(file.path) })}
-        </label>
-        <textarea
-          id={`agent-file-${file.path}`}
-          aria-label={t('agents.editConfigFileAria', {
-            file: fileName(file.path),
-          })}
-          disabled={saving}
-          rows={14}
-          spellCheck={false}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <div className="agent-config-raw-actions">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={saving || !dirty}
-            onClick={() => setDraft(file.content)}
-          >
-            {t('agents.resetFile')}
-          </Button>
-          <Button
-            size="sm"
-            disabled={saving || !dirty || !onSave}
-            onClick={() =>
-              onSave?.({
-                agent_id: agentId,
-                path: file.path,
-                base_revision: file.revision,
-                content: draft,
-              })
-            }
-          >
-            {t('agents.saveFile')}
-          </Button>
-        </div>
-      </details>
-    </div>
+    <details
+      aria-label={
+        sensitive
+          ? t('agents.sensitivePreviewAria', { file: name })
+          : t('agents.configFileAria', { file: name })
+      }
+      className={`agent-config-block agent-config-file${sensitive ? ' is-sensitive' : ''}`}
+    >
+      <summary>
+        <span className="agent-config-block-heading">
+          <strong>{t('agents.configFile')}</strong>
+        </span>
+        <span className="agent-config-file-end">
+          <span className="agent-config-file-format">
+            {file?.format.toUpperCase() ?? 'FILE'}
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className="agent-config-file-chevron"
+          />
+        </span>
+      </summary>
+      {file && !file.sensitive ? (
+        <>
+          <div className="agent-config-file-body">
+            <label className="sr-only" htmlFor={`agent-file-${file.path}`}>
+              {editorLabel}
+            </label>
+            <textarea
+              id={`agent-file-${file.path}`}
+              aria-label={editorLabel}
+              disabled={saving}
+              placeholder={file.exists ? undefined : t('agents.fileNotCreated')}
+              rows={16}
+              spellCheck={false}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+          </div>
+          <div className="agent-config-raw-actions">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={saving || !dirty}
+              onClick={() => setDraft(file.content)}
+            >
+              {t('agents.resetFile')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving || !dirty || !onSave}
+              onClick={() =>
+                onSave?.({
+                  agent_id: agentId,
+                  path: file.path,
+                  base_revision: file.revision,
+                  content: draft,
+                })
+              }
+            >
+              {t('agents.saveFile')}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <pre
+          className="agent-config-file-body"
+          tabIndex={sensitive ? 0 : undefined}
+        >
+          {file?.exists ? content : t('agents.fileNotCreated')}
+        </pre>
+      )}
+    </details>
   );
 }
 
@@ -739,14 +747,13 @@ function filterVisibleFields(
   drafts: Record<string, string>
 ): AgentNativeConfigFieldView[] {
   const fields = config?.fields ?? [];
-  if (fields.some((field) => CODEX_QUICK_FIELDS.has(field.id))) {
+  if (fields.some((field) => field.id === 'codex_approval_policy')) {
     const granular = drafts.codex_approval_policy === 'granular';
     return fields.filter(
       (field) =>
-        !CODEX_QUICK_FIELDS.has(field.id) &&
-        (!CODEX_GRANULAR_APPROVAL_FIELDS.includes(field.id) ||
-          granular ||
-          field.present)
+        !CODEX_GRANULAR_APPROVAL_FIELDS.includes(field.id) ||
+        granular ||
+        field.present
     );
   }
   if (config?.settings_features.includes('pi_configuration')) {
@@ -762,6 +769,149 @@ function filterVisibleFields(
       !HERMES_DYNAMIC_FIELDS.has(field.id) ||
       selectedFields.has(field.id) ||
       field.present
+  );
+}
+
+const CLAUDE_OFFICIAL_API_FIELDS = new Set([
+  'anthropic_api_key',
+  'haiku_model',
+  'sonnet_model',
+  'opus_model',
+]);
+
+export function configForAuthMode(
+  agentId: string,
+  mode: string,
+  config: AgentNativeConfigView
+): AgentNativeConfigView {
+  const allowed = authenticationFieldIdsForMode(agentId, mode);
+  if (!allowed) return config;
+  return {
+    ...config,
+    fields: config.fields.filter((field) => allowed.has(field.id)),
+  };
+}
+
+function authenticationFieldIdsForMode(
+  agentId: string,
+  mode: string
+): Set<string> | null {
+  if (
+    agentId === 'claude_code' &&
+    (mode === 'official_api' || mode === 'custom')
+  ) {
+    return CLAUDE_OFFICIAL_API_FIELDS;
+  }
+  if (agentId === 'codex' && mode === 'api_key') {
+    return new Set(['openai_api_key']);
+  }
+  if (agentId === 'grok' && mode === 'api_key') {
+    return new Set([
+      'grok_api_key',
+      'grok_custom_model_id',
+      'grok_api_backend',
+      'grok_context_window',
+    ]);
+  }
+  if (
+    (agentId === 'grok' && (mode === 'custom' || mode === 'model_provider')) ||
+    (agentId === 'kimi_code' &&
+      (mode === 'official_api' || mode === 'model_provider'))
+  ) {
+    return new Set();
+  }
+  if (agentId === 'antigravity' || agentId === 'gemini') {
+    if (mode === 'gemini-api-key') return new Set(['antigravity_api_key']);
+    if (mode === 'agent-platform') {
+      return new Set([
+        'antigravity_google_api_key',
+        'antigravity_cloud_project',
+        'antigravity_cloud_location',
+      ]);
+    }
+  }
+  return null;
+}
+
+function GrokOfficialModelField({
+  label,
+  value,
+  drafts,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  drafts: Record<string, string>;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const [catalog, setCatalog] = useState<AgentModelCatalogView | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const detect = async () => {
+    const apiKey = drafts.grok_api_key?.trim();
+    if (!apiKey) {
+      toast.warning(t('agents.providerRequiredFields'));
+      return;
+    }
+    setDetecting(true);
+    try {
+      const next = await agentManagementApi.modelProviderCatalog(
+        'grok',
+        null,
+        drafts.grok_base_url?.trim() || 'https://api.x.ai/v1',
+        apiKey
+      );
+      setCatalog(next);
+      if (!value && next.default_model) onChange(next.default_model);
+    } catch (cause) {
+      toast.error(errorMessage(cause, t('agents.modelCatalogLoadFailed')));
+    } finally {
+      setDetecting(false);
+    }
+  };
+  const options = (catalog?.models ?? []).map((model) => ({
+    value: model.id,
+    label: model.label || model.id,
+  }));
+  return (
+    <div className="agent-grok-official-model">
+      {options.length ? (
+        <AstryxSelect
+          ariaLabel={label}
+          disabled={disabled}
+          hasClear
+          options={options}
+          placeholder={t('agents.notSet')}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <input
+          aria-label={label}
+          autoComplete="off"
+          disabled={disabled}
+          name="agent_config_grok_custom_model_id"
+          placeholder={t('agents.notSet')}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      <Button
+        className="h-8"
+        disabled={disabled || detecting}
+        size="sm"
+        type="button"
+        variant="outline"
+        onClick={() => void detect()}
+      >
+        {detecting ? (
+          <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+        ) : null}
+        {t('agents.loadModels')}
+      </Button>
+    </div>
   );
 }
 

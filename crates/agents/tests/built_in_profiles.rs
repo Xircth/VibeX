@@ -139,7 +139,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         opencode,
         ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.18.11",
+            version: "1.18.23",
             command: "opencode",
             ..
         }
@@ -368,8 +368,9 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
         (
             "claude_code",
             &[
-                "reasoning_model",
-                "custom_model_option",
+                "haiku_model",
+                "sonnet_model",
+                "opus_model",
                 "claude_send_attribution_header",
                 "claude_disable_nonessential_traffic",
             ][..],
@@ -377,11 +378,21 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
         (
             "codex",
             &[
-                "codex_skills",
-                "codex_writable_roots",
+                "codex_approval_policy",
+                "codex_responses_websockets",
                 "codex_network_access",
                 "codex_exclude_tmpdir",
                 "codex_exclude_slash_tmp",
+            ][..],
+        ),
+        (
+            "antigravity",
+            &[
+                "antigravity_tool_permission",
+                "antigravity_agent_mode",
+                "antigravity_terminal_sandbox",
+                "antigravity_telemetry",
+                "antigravity_permissions",
             ][..],
         ),
         (
@@ -434,8 +445,8 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
     }
 
     assert_eq!(
-        native_field(&catalog, "claude_code", "model").path,
-        ["env", "ANTHROPIC_MODEL"]
+        native_field(&catalog, "claude_code", "haiku_model").path,
+        ["env", "ANTHROPIC_DEFAULT_HAIKU_MODEL"]
     );
     assert_eq!(
         native_field(&catalog, "grok", "grok_permission").path,
@@ -464,6 +475,10 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
     assert_eq!(
         antigravity.native_config[0].override_relative_path,
         "antigravity-acp/settings.json"
+    );
+    assert_eq!(
+        antigravity.native_config[1].override_relative_path,
+        "antigravity-cli/settings.json"
     );
     assert_eq!(
         antigravity
@@ -595,8 +610,14 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
         surface("claude_code", "anthropic_api_key"),
         NativeConfigSurface::Authentication
     );
+    for field_id in ["haiku_model", "sonnet_model", "opus_model"] {
+        assert_eq!(
+            surface("claude_code", field_id),
+            NativeConfigSurface::Authentication,
+            "{field_id} belongs on the official API authentication surface"
+        );
+    }
     for field_id in [
-        "model",
         "effort_level",
         "permission_mode",
         "include_co_authored_by",
@@ -631,6 +652,10 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
         surface("codex", "codex_approval_policy"),
         NativeConfigSurface::Configuration
     );
+    assert_eq!(
+        surface("codex", "codex_responses_websockets"),
+        NativeConfigSurface::Configuration
+    );
 
     assert_eq!(
         surface("antigravity", "antigravity_api_key"),
@@ -644,6 +669,19 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
         surface("antigravity", "antigravity_cloud_project"),
         NativeConfigSurface::Authentication
     );
+    for field_id in [
+        "antigravity_tool_permission",
+        "antigravity_agent_mode",
+        "antigravity_terminal_sandbox",
+        "antigravity_telemetry",
+        "antigravity_permissions",
+    ] {
+        assert_eq!(
+            surface("antigravity", field_id),
+            NativeConfigSurface::Configuration,
+            "{field_id} must stay in configuration management"
+        );
+    }
 
     assert_eq!(
         surface("grok", "grok_base_url"),
@@ -655,6 +693,14 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
     );
     assert_eq!(
         surface("grok", "grok_effort"),
+        NativeConfigSurface::Configuration
+    );
+    assert_eq!(
+        surface("opencode", "opencode_anthropic_api_key"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("opencode", "opencode_share"),
         NativeConfigSurface::Configuration
     );
     assert_eq!(

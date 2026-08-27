@@ -1,4 +1,4 @@
-import { Puzzle, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -31,6 +31,7 @@ import {
   AgentConfigPathMeta,
   AgentConfigurationAndDiagnostics,
   configFilePathsForSurface,
+  configForAuthMode,
 } from './AgentConfigurationAndDiagnostics';
 import { AgentDetail } from './AgentDetail';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
@@ -39,6 +40,7 @@ import { AgentEnvironmentDiagnosticsDialog } from './AgentEnvironmentDiagnostics
 import { AgentModelProviderManager } from './AgentModelProviderManager';
 import { AgentRegistryViewPanel } from './AgentRegistryView';
 import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
+import { OpenCodeSubscriptionPanel } from './OpenCodeSubscriptionPanel';
 import { OpenCodePluginHealth } from './OpenCodePluginHealth';
 import { DshAuthPanel } from './DshAuthPanel';
 import { DshPluginManager } from './DshPluginManager';
@@ -46,7 +48,14 @@ import { GrokPluginManager } from './GrokPluginManager';
 import { DshSessionDefaults } from './DshSessionDefaults';
 import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
 import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection';
+import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
+import { AgentUpdateConfirmDialog } from './AgentUpdateConfirmDialog';
+import {
+  AGENT_PREFLIGHT_IDLE_DELAY_MS,
+  readPreflightSnapshot,
+  writePreflightSnapshot,
+} from './agentPreflightSnapshot';
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -88,6 +97,7 @@ export function AgentSettings() {
   const [savingUserDefinition, setSavingUserDefinition] = useState(false);
   const [dirtySources, setDirtySources] = useState<Record<string, boolean>>({});
   const [nativePluginsExpanded, setNativePluginsExpanded] = useState(false);
+  const [pluginCount, setPluginCount] = useState(0);
   const configDirty = Object.values(dirtySources).some(Boolean);
   const setDirtySource = useCallback((source: string, dirty: boolean) => {
     setDirtySources((current) =>
@@ -129,6 +139,10 @@ export function AgentSettings() {
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
+  useEffect(() => {
+    setPluginCount(0);
+    setNativePluginsExpanded(false);
+  }, [selectedAgentId]);
   const liveConfig = config?.agent_id === selectedAgentId ? config : null;
   const hasAuthenticationMode = Boolean(
     selectedAgent?.settings_features?.includes('authentication_mode') ||
@@ -137,10 +151,9 @@ export function AgentSettings() {
   const selectedAgentSource = selectedAgent?.source ?? null;
   const selectedAgentLifecycle = selectedAgent?.lifecycle ?? null;
   const selectedAgentOperation = selectedAgent?.active_operation ?? null;
-  const canConfigureAuthentication =
-    selectedAgentLifecycle != null &&
-    selectedAgentLifecycle !== 'uninstalled' &&
-    selectedAgentLifecycle !== 'platform_unsupported';
+  const agentLocked =
+    selectedAgentLifecycle === 'uninstalled' ||
+    selectedAgentLifecycle === 'platform_unsupported';
   const nativePluginEcosystem: PluginEcosystem | null =
     selectedAgentId === 'codex'
       ? 'codex'
@@ -209,7 +222,7 @@ export function AgentSettings() {
     if (!selectedAgentId || registryOpen) return;
     let active = true;
     const watchId = ++inspectGeneration.current;
-    setPreflight(null);
+    setPreflight(readPreflightSnapshot(selectedAgentId));
     setActions(null);
     setConfig(null);
     setConfigConflict(null);
@@ -227,23 +240,28 @@ export function AgentSettings() {
         );
         await refreshManagement().catch(() => undefined);
       } catch {
-        // Full preflight still includes auth.mode.
-      }
-      if (!active || inspectGeneration.current !== watchId) return;
-      setChecking(true);
-      try {
-        const report = await agentManagementApi.preflight(selectedAgentId);
-        if (!active || inspectGeneration.current !== watchId) return;
-        setPreflight(report);
-        await refreshManagement().catch(() => undefined);
-      } catch {
-        return;
-      } finally {
-        if (active && inspectGeneration.current === watchId) {
-          setChecking(false);
-        }
+        // Snapshot remains visible; a later full check refreshes auth.mode.
       }
     })();
+    const timer = window.setTimeout(() => {
+      if (!active || inspectGeneration.current !== watchId) return;
+      setChecking(true);
+      void (async () => {
+        try {
+          const report = await agentManagementApi.preflight(selectedAgentId);
+          if (!active || inspectGeneration.current !== watchId) return;
+          writePreflightSnapshot(report);
+          setPreflight(report);
+          await refreshManagement().catch(() => undefined);
+        } catch {
+          return;
+        } finally {
+          if (active && inspectGeneration.current === watchId) {
+            setChecking(false);
+          }
+        }
+      })();
+    }, AGENT_PREFLIGHT_IDLE_DELAY_MS);
     void Promise.allSettled([
       agentManagementApi.readConfig(selectedAgentId),
       agentManagementApi.diagnostics(selectedAgentId),
@@ -254,7 +272,6 @@ export function AgentSettings() {
         setConfig(configResult.value);
       }
       if (diagnosticResult.status === 'fulfilled') {
-        // 已读诊断不再显示;未读的新诊断照常出现。
         setDiagnostics(
           diagnosticResult.value.filter((diagnostic) => !diagnostic.read)
         );
@@ -265,6 +282,7 @@ export function AgentSettings() {
     });
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, [refreshManagement, registryOpen, selectedAgentId]);
 
@@ -411,6 +429,7 @@ export function AgentSettings() {
     try {
       const report = await agentManagementApi.preflight(selectedAgentId);
       if (inspectGeneration.current !== watchId) return;
+      writePreflightSnapshot(report);
       setPreflight(report);
       await management.refresh();
       if (inspectGeneration.current !== watchId) return;
@@ -620,6 +639,23 @@ export function AgentSettings() {
       toast.error(errorMessage(error, t('settings:agents.updateStartFailed')));
     }
   }, [selectedAgentId, t]);
+
+  const applyPreflightItemUpdate = useCallback(
+    async (itemId: string) => {
+      const item = preflight?.items.find((entry) => entry.id === itemId);
+      if (!item?.update_available || !selectedAgentId) return;
+      const grouped = item.update_group
+        ? (preflight?.items.filter(
+            (entry) =>
+              entry.update_group === item.update_group && entry.update_available
+          ) ?? [item])
+        : [item];
+      const confirmed = await AgentUpdateConfirmDialog.show({ items: grouped });
+      if (confirmed !== 'confirmed') return;
+      await applyUpdate();
+    },
+    [applyUpdate, preflight, selectedAgentId]
+  );
 
   const uninstall = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -852,75 +888,106 @@ export function AgentSettings() {
 
   const authenticationPanel =
     selectedAgent?.agent_id === 'deepseek_harness' ? (
-      <DshAuthPanel
-        onDirtyChange={setDshProviderDirty}
-        onChanged={refreshAuthentication}
-      />
-    ) : selectedAgent && hasAuthenticationMode && canConfigureAuthentication ? (
-      <AgentAuthModeControl
-        key={selectedAgent.agent_id}
-        actions={actions}
-        actionRunning={actionRunning}
-        authentication={selectedAgent.authentication}
-        agentId={selectedAgent.agent_id}
-        busy={Boolean(
-          selectedAgent.retired ||
-            selectedAgent.active_operation ||
-            management.state.operations[selectedAgent.agent_id]
-        )}
-        headingExtra={
-          liveConfig ? (
-            <AgentConfigPathMeta
-              paths={configFilePathsForSurface(liveConfig, 'authentication')}
-              saving={savingConfig}
-            />
-          ) : null
-        }
-        configuration={
-          liveConfig?.fields.some(
-            (field) => (field.surface ?? 'configuration') === 'authentication'
-          ) ? (
-            <AgentConfigurationAndDiagnostics
-              config={liveConfig}
-              fieldSurface="authentication"
-              saving={savingConfig}
-              conflictMessage={configConflict?.message}
-              embedded
-              onSave={(request) =>
-                void saveConfig(request, { refreshAuth: true })
-              }
-              onReloadConflict={() => void reloadConflict()}
-              onAdoptExternal={() => setConfigConflict(null)}
-              onOverwriteConflict={() => void overwriteConflict()}
-              onDirtyChange={setAuthConfigurationDirty}
-            />
-          ) : undefined
-        }
-        modelProvider={
-          liveConfig?.settings_features.includes('reusable_model_providers') ||
-          selectedAgent.settings_features?.includes(
-            'reusable_model_providers'
-          ) ? (
-            <AgentModelProviderManager
-              agentId={selectedAgent.agent_id}
-              disabled={savingConfig}
-              embedded
-              onDirtyChange={setModelProviderDirty}
-            />
-          ) : undefined
-        }
-        onChanged={refreshAuthentication}
-        onDirtyChange={setAuthModeDirty}
-        onAuthenticated={refreshAuthentication}
-        onRunAction={(actionId) => void runManagementAction(actionId)}
-        nativeCredentialPresent={(fieldId) =>
-          Boolean(
+      <AgentLockedSurface locked={agentLocked}>
+        <DshAuthPanel
+          locked={agentLocked}
+          onDirtyChange={setDshProviderDirty}
+          onChanged={refreshAuthentication}
+        />
+      </AgentLockedSurface>
+    ) : selectedAgent && hasAuthenticationMode ? (
+      <AgentLockedSurface locked={agentLocked}>
+        <AgentAuthModeControl
+          key={selectedAgent.agent_id}
+          actions={actions}
+          actionRunning={actionRunning}
+          authentication={selectedAgent.authentication}
+          agentId={selectedAgent.agent_id}
+          busy={Boolean(
+            agentLocked ||
+              selectedAgent.retired ||
+              selectedAgent.active_operation ||
+              management.state.operations[selectedAgent.agent_id]
+          )}
+          headingExtra={
+            liveConfig ? (
+              <AgentConfigPathMeta
+                paths={configFilePathsForSurface(liveConfig, 'authentication')}
+                saving={savingConfig}
+              />
+            ) : null
+          }
+          configuration={
             liveConfig?.fields.some(
-              (field) => field.id === fieldId && field.present
+              (field) => (field.surface ?? 'configuration') === 'authentication'
             )
-          )
-        }
-      />
+              ? (mode) => (
+                  <AgentConfigurationAndDiagnostics
+                    config={configForAuthMode(
+                      selectedAgent.agent_id,
+                      mode,
+                      liveConfig
+                    )}
+                    fieldSurface="authentication"
+                    locked={agentLocked}
+                    saving={savingConfig}
+                    conflictMessage={configConflict?.message}
+                    embedded
+                    onSave={(request) =>
+                      void saveConfig(request, { refreshAuth: true })
+                    }
+                    onReloadConflict={() => void reloadConflict()}
+                    onAdoptExternal={() => setConfigConflict(null)}
+                    onOverwriteConflict={() => void overwriteConflict()}
+                    onDirtyChange={setAuthConfigurationDirty}
+                  />
+                )
+              : undefined
+          }
+          modelProvider={
+            selectedAgent.agent_id === 'opencode' ? (
+              <OpenCodeProviderConnections
+                surface="provider"
+                onDirtyChange={setOpenCodeProviderDirty}
+                onChanged={refreshAuthentication}
+              />
+            ) : liveConfig?.settings_features.includes(
+                'reusable_model_providers'
+              ) ||
+              selectedAgent.settings_features?.includes(
+                'reusable_model_providers'
+              ) ? (
+              <AgentModelProviderManager
+                agentId={selectedAgent.agent_id}
+                disabled={savingConfig || agentLocked}
+                embedded
+                onDirtyChange={setModelProviderDirty}
+                onChanged={refreshAuthentication}
+              />
+            ) : undefined
+          }
+          onChanged={refreshAuthentication}
+          onDirtyChange={setAuthModeDirty}
+          onAuthenticated={refreshAuthentication}
+          onRunAction={(actionId) => void runManagementAction(actionId)}
+          accountExtra={
+            selectedAgent.agent_id === 'opencode' ? (
+              <OpenCodeSubscriptionPanel
+                onDirtyChange={setOpenCodeProviderDirty}
+                onChanged={refreshAuthentication}
+              />
+            ) : undefined
+          }
+          nativeCredentialPresent={(fieldId) =>
+            Boolean(
+              liveConfig?.fields.some(
+                (field) => field.id === fieldId && field.present
+              )
+            )
+          }
+          locked={agentLocked}
+        />
+      </AgentLockedSurface>
     ) : null;
 
   return (
@@ -993,6 +1060,9 @@ export function AgentSettings() {
               onRepair={() => void queueRepair()}
               onCheckUpdate={() => void checkUpdate()}
               onApplyUpdate={() => void applyUpdate()}
+              onUpdatePreflightItem={(itemId) =>
+                void applyPreflightItemUpdate(itemId)
+              }
               onRollback={() => void rollback()}
               onCancelOperation={() => void cancelOperation()}
               onUninstall={() => void uninstall()}
@@ -1027,93 +1097,100 @@ export function AgentSettings() {
                 onDirtyChange={setUserDefinitionDirty}
               />
             ) : null}
-            {config?.settings_features.includes('open_code_providers') ||
-            config?.settings_features.includes('open_code_plugins') ? (
-              <>
-                {config.settings_features.includes('open_code_providers') ? (
-                  <OpenCodeProviderConnections
-                    onDirtyChange={setOpenCodeProviderDirty}
-                    onChanged={async () => {
-                      setConfig(
-                        await agentManagementApi.readConfig(
-                          selectedAgent.agent_id
-                        )
-                      );
-                      await management.refresh();
-                    }}
-                  />
-                ) : null}
-                {config.settings_features.includes('open_code_plugins') ? (
-                  <OpenCodePluginHealth onChanged={runPreflight} />
-                ) : null}
-              </>
-            ) : null}
+
             {selectedAgent.agent_id === 'deepseek_harness' ? (
-              <DshSessionDefaults
-                onDirtyChange={setConfigurationDirty}
+              <AgentLockedSurface locked={agentLocked}>
+                <DshSessionDefaults
+                  onDirtyChange={setConfigurationDirty}
+                  onChanged={async () => {
+                    await management.refresh();
+                  }}
+                />
+              </AgentLockedSurface>
+            ) : (
+              <AgentLockedSurface locked={agentLocked}>
+                <AgentConfigurationAndDiagnostics
+                  config={config}
+                  locked={agentLocked}
+                  fieldSurface={
+                    config?.settings_features.includes('authentication_mode')
+                      ? 'configuration'
+                      : undefined
+                  }
+                  saving={savingConfig}
+                  conflictMessage={configConflict?.message}
+                  onSave={(request) => void saveConfig(request)}
+                  onSaveFile={(request) => void saveConfigFile(request)}
+                  onReloadConflict={() => void reloadConflict()}
+                  onAdoptExternal={() => setConfigConflict(null)}
+                  onOverwriteConflict={() => void overwriteConflict()}
+                  onDirtyChange={setConfigurationDirty}
+                />
+              </AgentLockedSurface>
+            )}
+            <AgentLockedSurface locked={agentLocked}>
+              <AgentEnvironmentEditor
+                key={`environment:${selectedAgent.agent_id}`}
+                agentId={selectedAgent.agent_id}
+                disabled={Boolean(
+                  agentLocked ||
+                    selectedAgent.retired ||
+                    selectedAgent.active_operation ||
+                    management.state.operations[selectedAgent.agent_id]
+                )}
                 onChanged={async () => {
                   await management.refresh();
                 }}
+                onDirtyChange={setEnvironmentDirty}
               />
-            ) : (
-              <AgentConfigurationAndDiagnostics
-                config={config}
-                fieldSurface={
-                  config?.settings_features.includes('authentication_mode')
-                    ? 'configuration'
-                    : undefined
-                }
-                saving={savingConfig}
-                conflictMessage={configConflict?.message}
-                onSave={(request) => void saveConfig(request)}
-                onSaveFile={(request) => void saveConfigFile(request)}
-                onReloadConflict={() => void reloadConflict()}
-                onAdoptExternal={() => setConfigConflict(null)}
-                onOverwriteConflict={() => void overwriteConflict()}
-                onDirtyChange={setConfigurationDirty}
-              />
-            )}
-            <AgentEnvironmentEditor
-              key={`environment:${selectedAgent.agent_id}`}
-              agentId={selectedAgent.agent_id}
-              disabled={Boolean(
-                selectedAgent.retired ||
-                  selectedAgent.active_operation ||
-                  management.state.operations[selectedAgent.agent_id]
-              )}
-              onChanged={async () => {
-                await management.refresh();
-              }}
-              onDirtyChange={setEnvironmentDirty}
-            />
+            </AgentLockedSurface>
           </div>
           {selectedAgent.agent_id === 'deepseek_harness' ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
               title={t('settings:agents.pluginsTab')}
-              icon={Puzzle}
               expanded={nativePluginsExpanded}
               onToggle={() => setNativePluginsExpanded((current) => !current)}
+              summary={t('settings:agents.pluginCount', { count: pluginCount })}
             >
-              <DshPluginManager onChanged={runPreflight} />
+              <DshPluginManager
+                onChanged={runPreflight}
+                onCount={setPluginCount}
+              />
+            </CollapsibleSettingsSection>
+          ) : selectedAgent.agent_id === 'opencode' ? (
+            <CollapsibleSettingsSection
+              id={`${selectedAgent.agent_id}-native-plugins`}
+              title={t('settings:agents.pluginsTab')}
+              expanded={nativePluginsExpanded}
+              onToggle={() => setNativePluginsExpanded((current) => !current)}
+              summary={t('settings:agents.pluginCount', { count: pluginCount })}
+            >
+              <OpenCodePluginHealth
+                onChanged={runPreflight}
+                onCount={setPluginCount}
+              />
             </CollapsibleSettingsSection>
           ) : selectedAgent.agent_id === 'grok' ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
               title={t('settings:agents.pluginsTab')}
-              icon={Puzzle}
               expanded={nativePluginsExpanded}
               onToggle={() => setNativePluginsExpanded((current) => !current)}
+              summary={t('settings:agents.pluginCount', { count: pluginCount })}
             >
-              <GrokPluginManager onChanged={runPreflight} />
+              <GrokPluginManager
+                onChanged={runPreflight}
+                onCount={setPluginCount}
+              />
             </CollapsibleSettingsSection>
           ) : nativePluginEcosystem ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
               title={t('settings:agents.pluginsTab')}
-              icon={Puzzle}
               expanded={nativePluginsExpanded}
               onToggle={() => setNativePluginsExpanded((current) => !current)}
+              summary={t('settings:agents.pluginCount', { count: pluginCount })}
             >
               <PluginsSettings ecosystem={nativePluginEcosystem} embedded />
             </CollapsibleSettingsSection>

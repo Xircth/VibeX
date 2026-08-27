@@ -19,6 +19,7 @@ vi.mock('@/features/agent-management', async () => {
       ...actual.agentManagementApi,
       dshProviders: vi.fn(),
       saveDshProvider: vi.fn(),
+      deleteDshProvider: vi.fn(),
       setAuthMode: vi.fn(),
       authMode: vi.fn(),
       discoverDshModels: vi.fn(),
@@ -68,6 +69,7 @@ describe('DshAuthPanel', () => {
       credential_present: true,
     });
     vi.mocked(agentManagementApi.saveDshProvider).mockResolvedValue(view);
+    vi.mocked(agentManagementApi.deleteDshProvider).mockResolvedValue(view);
   });
 
   it('saves the official DeepSeek API key and model', async () => {
@@ -83,9 +85,9 @@ describe('DshAuthPanel', () => {
     render(<DshAuthPanel />);
 
     expect(
-      await screen.findByRole('tab', { name: 'DeepSeek' })
+      await screen.findByRole('tab', { name: '官方 API' })
     ).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: '自定义' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: '供应商' })).toHaveAttribute(
       'aria-selected',
       'false'
     );
@@ -120,10 +122,15 @@ describe('DshAuthPanel', () => {
     });
     render(<DshAuthPanel />);
 
-    expect(await screen.findByRole('tab', { name: '自定义' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: '供应商' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
+    expect(
+      screen.getByRole('heading', { name: '模型供应商' })
+    ).toBeVisible();
+    expect(screen.getByText('还没有供应商。')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '新建供应商' }));
     expect(await screen.findByLabelText('显示名称')).toBeInTheDocument();
     expect(screen.getByLabelText('备注')).toBeInTheDocument();
     expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
@@ -137,7 +144,8 @@ describe('DshAuthPanel', () => {
       await screen.findByDisplayValue('https://api.deepseek.com')
     ).toBeInTheDocument();
 
-    await pickAuthModeTab(user, '自定义');
+    await pickAuthModeTab(user, '供应商');
+    await user.click(screen.getByRole('button', { name: '新建供应商' }));
     await user.type(
       screen.getByLabelText('Base URL'),
       'https://example.com/v1'

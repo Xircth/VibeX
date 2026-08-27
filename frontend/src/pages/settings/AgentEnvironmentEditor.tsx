@@ -1,4 +1,4 @@
-import { KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -14,6 +14,7 @@ import {
   agentManagementErrorMessage,
 } from '@/features/agent-management';
 
+import { AgentSectionHeading } from './SettingsSection';
 import { SettingsActionBar } from './SettingsUi';
 
 type Props = {
@@ -44,6 +45,7 @@ export function AgentEnvironmentEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const adopt = useCallback((next: AgentEnvironmentView) => {
     setView(next);
@@ -152,19 +154,20 @@ export function AgentEnvironmentEditor({
       aria-labelledby={`${agentId}-environment-heading`}
       className="settings-surface"
     >
-      <div className="agent-section-heading">
-        <div className="flex items-center gap-2">
-          <KeyRound aria-hidden="true" className="h-4 w-4" />
-          <h3 id={`${agentId}-environment-heading`}>
-            {t('agents.environmentTitle')}
-          </h3>
-        </div>
+      <AgentSectionHeading
+        headingId={`${agentId}-environment-heading`}
+        title={t('agents.environmentTitle')}
+        expanded={expanded}
+        onToggle={() => setExpanded((current) => !current)}
+        summary={t('agents.environmentCount', { count: rows.length })}
+      >
         <Button
           className="h-8"
           disabled={disabled || loading || saving}
           size="sm"
           variant="outline"
-          onClick={() =>
+          onClick={() => {
+            setExpanded(true);
             setRows((current) => [
               ...current,
               {
@@ -174,95 +177,100 @@ export function AgentEnvironmentEditor({
                 value: '',
                 secret: false,
               },
-            ])
-          }
+            ]);
+          }}
         >
           <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
           {t('agents.environmentAdd')}
         </Button>
-      </div>
+      </AgentSectionHeading>
 
-      <div className="space-y-2 px-4 pb-4">
-        {loading && !view ? (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-            {t('agents.environmentLoading')}
-          </p>
-        ) : rows.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {t('agents.environmentEmpty')}
-          </p>
-        ) : (
-          rows.map((row, index) => (
-            <div
-              className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(12rem,1fr)_auto]"
-              key={row.key}
-            >
-              <label
-                className="sr-only"
-                htmlFor={`environment-name-${row.key}`}
-              >
-                {t('agents.runtimeEnvironmentNameAria', { index: index + 1 })}
-              </label>
-              <input
-                aria-label={t('agents.runtimeEnvironmentNameAria', {
-                  index: index + 1,
-                })}
-                autoComplete="off"
-                className="raised-control min-w-0 px-2.5 text-xs"
-                disabled={disabled || saving}
-                id={`environment-name-${row.key}`}
-                name={`agent_environment_name_${row.key}`}
-                placeholder="NAME"
-                value={row.name}
-                onChange={(event) =>
-                  updateRow(row.key, 'name', event.target.value)
-                }
+      {expanded ? (
+        <div className="space-y-2 px-4 pb-4">
+          {loading && !view ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2
+                aria-hidden="true"
+                className="h-3.5 w-3.5 animate-spin"
               />
-              <input
-                aria-label={t('agents.runtimeEnvironmentValueAria', {
-                  name: row.name || index + 1,
-                })}
-                autoComplete={row.secret ? 'new-password' : 'off'}
-                className="raised-control min-w-0 px-2.5 text-xs"
-                disabled={disabled || saving}
-                name={`agent_environment_value_${row.key}`}
-                placeholder={
-                  row.secret && row.originalName
-                    ? t('agents.environmentSecretSaved')
-                    : t('agents.environmentValuePlaceholder')
-                }
-                type={row.secret ? 'password' : 'text'}
-                value={row.value}
-                onChange={(event) =>
-                  updateRow(row.key, 'value', event.target.value)
-                }
-              />
-              <Button
-                aria-label={t('agents.environmentRemoveAria', {
-                  name: row.name || index + 1,
-                })}
-                className="h-8 w-8 p-0"
-                disabled={disabled || saving}
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  setRows((current) =>
-                    current.filter((candidate) => candidate.key !== row.key)
-                  )
-                }
+              {t('agents.environmentLoading')}
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t('agents.environmentEmpty')}
+            </p>
+          ) : (
+            rows.map((row, index) => (
+              <div
+                className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(12rem,1fr)_auto]"
+                key={row.key}
               >
-                <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))
-        )}
-        {error ? (
-          <p className="agent-inline-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
+                <label
+                  className="sr-only"
+                  htmlFor={`environment-name-${row.key}`}
+                >
+                  {t('agents.runtimeEnvironmentNameAria', { index: index + 1 })}
+                </label>
+                <input
+                  aria-label={t('agents.runtimeEnvironmentNameAria', {
+                    index: index + 1,
+                  })}
+                  autoComplete="off"
+                  className="raised-control min-w-0 px-2.5 text-xs"
+                  disabled={disabled || saving}
+                  id={`environment-name-${row.key}`}
+                  name={`agent_environment_name_${row.key}`}
+                  placeholder="NAME"
+                  value={row.name}
+                  onChange={(event) =>
+                    updateRow(row.key, 'name', event.target.value)
+                  }
+                />
+                <input
+                  aria-label={t('agents.runtimeEnvironmentValueAria', {
+                    name: row.name || index + 1,
+                  })}
+                  autoComplete={row.secret ? 'new-password' : 'off'}
+                  className="raised-control min-w-0 px-2.5 text-xs"
+                  disabled={disabled || saving}
+                  name={`agent_environment_value_${row.key}`}
+                  placeholder={
+                    row.secret && row.originalName
+                      ? t('agents.environmentSecretSaved')
+                      : t('agents.environmentValuePlaceholder')
+                  }
+                  type={row.secret ? 'password' : 'text'}
+                  value={row.value}
+                  onChange={(event) =>
+                    updateRow(row.key, 'value', event.target.value)
+                  }
+                />
+                <Button
+                  aria-label={t('agents.environmentRemoveAria', {
+                    name: row.name || index + 1,
+                  })}
+                  className="h-8 w-8 p-0"
+                  disabled={disabled || saving}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setRows((current) =>
+                      current.filter((candidate) => candidate.key !== row.key)
+                    )
+                  }
+                >
+                  <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))
+          )}
+          {error ? (
+            <p className="agent-inline-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {view ? (
         <SettingsActionBar

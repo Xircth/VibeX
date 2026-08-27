@@ -1733,7 +1733,7 @@ export type AgentOperationReceipt = { operation_id: string, agent_id: AgentId, k
 
 export type AgentOperationStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "interrupted";
 
-export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, version: string | null, path: string | null, source: AgentPreflightSource | null, repairable: boolean, };
+export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, version: string | null, path: string | null, source: AgentPreflightSource | null, repairable: boolean, update_available: boolean, available_version: string | null, update_group: string | null, };
 
 export type AgentPreflightView = { agent_id: AgentId, checked_at: string, items: Array<AgentPreflightItemView>, };
 
@@ -1871,6 +1871,16 @@ managed: boolean, };
 
 export type AgentModelProvidersView = { agent_id: AgentId, providers: Array<AgentModelProviderView>, bound_provider_id: string | null, };
 
+export type AgentModelProviderProbeView = { ok: boolean, latency_ms: number, error: string | null, };
+
+export type AgentModelProviderImportSource = "native" | "cc_switch";
+
+export type AgentModelProviderImportCandidateView = { source_id: string, name: string, api_url: string, model: string, credential_present: boolean, skip_reason: string | null, };
+
+export type AgentModelProviderImportPreviewView = { agent_id: AgentId, source: AgentModelProviderImportSource, source_path: string | null, candidates: Array<AgentModelProviderImportCandidateView>, error: string | null, };
+
+export type AgentModelProviderImportRequest = { agent_id: AgentId, source: AgentModelProviderImportSource, source_ids: Array<string>, };
+
 export type ImportedAgentMessageMetadata = { kind?: string | null, tool_call_id?: string | null, tool_name?: string | null, tool_status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, model?: string | null, input_tokens?: number | null, output_tokens?: number | null, cost?: number | null, parent_session_id?: string | null, };
 
 export type PiCommandValidationView = { found: boolean, resolved_path: string | null, version: string | null, };
@@ -1913,7 +1923,9 @@ export type GrokPluginView = { name: string, version: string | null, status: str
 
 export type GrokPluginSummaryView = { home: string, plugins: Array<GrokPluginView>, };
 
-export type AgentAuthModeOptionView = { value: string, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, };
+export type AgentAuthModeKind = "subscription" | "official_api" | "provider";
+
+export type AgentAuthModeOptionView = { value: string, kind: AgentAuthModeKind, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, official_api_url?: string | null, };
 
 export type AgentEnvironmentEntryView = { name: string, value: string | null, secret: boolean, present: boolean, masked_value: string | null, };
 

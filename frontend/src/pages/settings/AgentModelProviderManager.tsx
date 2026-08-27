@@ -1,17 +1,24 @@
 import {
-  ChevronDown,
-  Link2,
+  ArrowLeft,
+  Check,
+  Copy,
   Loader2,
   Pencil,
   Plus,
   ScanSearch,
+  Timer,
   Trash2,
+  Upload,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
   AgentModelCatalogView,
+  AgentModelProviderImportCandidateView,
+  AgentModelProviderImportPreviewView,
+  AgentModelProviderImportSource,
+  AgentModelProviderProbeView,
   AgentModelProviderView,
   AgentModelProvidersView,
   CodexModelCatalogConfigRequest,
@@ -41,19 +48,22 @@ const CLAUDE_MODEL_FIELDS = [
   ['customOptionDescription', 'providerModelCustomDescription'],
 ] as const;
 
+type Surface = 'list' | 'form';
+
 export function AgentModelProviderManager({
   agentId,
   disabled,
   onDirtyChange,
+  onChanged,
   embedded = false,
 }: {
   agentId: AgentId;
   disabled: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  onChanged?: () => void | Promise<void>;
   embedded?: boolean;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const isCodex = agentId === 'codex';
   const [view, setView] = useState<AgentModelProvidersView | null>(null);
   const [codexCatalog, setCodexCatalog] =
     useState<AgentModelCatalogView | null>(null);
@@ -63,6 +73,7 @@ export function AgentModelProviderManager({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [surface, setSurface] = useState<Surface>('list');
   const [id, setId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [apiUrl, setApiUrl] = useState('');
@@ -73,7 +84,13 @@ export function AgentModelProviderManager({
   const [detectingModels, setDetectingModels] = useState(false);
   const [detectionError, setDetectionError] = useState<string | null>(null);
   const [claudeMappingTarget, setClaudeMappingTarget] = useState('main');
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importPreview, setImportPreview] =
+    useState<AgentModelProviderImportPreviewView | null>(null);
+  const [importSelected, setImportSelected] = useState<string[]>([]);
+  const [probes, setProbes] = useState<
+    Record<string, AgentModelProviderProbeView | 'loading'>
+  >({});
   const formDirty = Boolean(id || name || apiUrl || apiKey || model);
 
   useEffect(() => {
@@ -82,7 +99,6 @@ export function AgentModelProviderManager({
   }, [formDirty, onDirtyChange]);
 
   useEffect(() => {
-    if (detailsRef.current) detailsRef.current.open = false;
     setView(null);
     setCodexCatalog(null);
     setCodexConfig(null);
@@ -90,15 +106,12 @@ export function AgentModelProviderManager({
     setLoading(false);
     setSaving(false);
     setError(null);
-    setId(null);
-    setName('');
-    setApiUrl('');
-    setApiKey('');
-    setModel('');
-    setDetectedCatalog(null);
-    setDetectingModels(false);
-    setDetectionError(null);
-    setClaudeMappingTarget('main');
+    setSurface('list');
+    setImportOpen(false);
+    setImportPreview(null);
+    setImportSelected([]);
+    setProbes({});
+    resetForm();
   }, [agentId]);
 
   const load = useCallback(async () => {
@@ -140,7 +153,12 @@ export function AgentModelProviderManager({
     setDetectionError(null);
   };
 
-  const edit = (provider: AgentModelProviderView) => {
+  const openCreate = () => {
+    resetForm();
+    setSurface('form');
+  };
+
+  const openEdit = (provider: AgentModelProviderView) => {
     setId(provider.id);
     setName(provider.name);
     setApiUrl(provider.api_url);
@@ -148,6 +166,22 @@ export function AgentModelProviderManager({
     setModel(provider.model);
     setDetectedCatalog(null);
     setDetectionError(null);
+    setSurface('form');
+  };
+
+  const closeForm = async () => {
+    if (formDirty) {
+      const result = await ConfirmDialog.show({
+        title: t('settings:agents.providerDiscardTitle'),
+        message: t('settings:agents.providerDiscardMessage'),
+        confirmText: t('settings:agents.providerDiscardConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+    }
+    resetForm();
+    setSurface('list');
   };
 
   const detectModels = async () => {
@@ -240,6 +274,8 @@ export function AgentModelProviderManager({
           : t('settings:agents.providerCreated')
       );
       resetForm();
+      setSurface('list');
+      await onChanged?.();
     } catch (cause) {
       const message = errorMessage(
         cause,
@@ -252,16 +288,13 @@ export function AgentModelProviderManager({
     }
   };
 
-  const bind = async (providerId: string | null) => {
+  const bind = async (providerId: string) => {
     setSaving(true);
     setError(null);
     try {
       setView(await agentManagementApi.bindModelProvider(agentId, providerId));
-      toast.success(
-        providerId
-          ? t('settings:agents.providerBound')
-          : t('settings:agents.providerUnbound')
-      );
+      toast.success(t('settings:agents.providerBound'));
+      await onChanged?.();
     } catch (cause) {
       const message = errorMessage(
         cause,
@@ -274,17 +307,12 @@ export function AgentModelProviderManager({
     }
   };
 
-  const remove = async (
-    provider: AgentModelProviderView,
-    switchDefault = false
-  ) => {
+  const remove = async (provider: AgentModelProviderView) => {
     const result = await ConfirmDialog.show({
       title: t('settings:agents.providerDeleteTitle', {
         name: provider.name,
       }),
-      message: switchDefault
-        ? t('settings:agents.providerDeleteSwitchMessage')
-        : t('settings:agents.providerDeleteMessage'),
+      message: t('settings:agents.providerDeleteMessage'),
       confirmText: t('settings:agents.providerDeleteConfirm'),
       cancelText: t('common:cancel'),
       variant: 'destructive',
@@ -297,6 +325,7 @@ export function AgentModelProviderManager({
       );
       if (id === provider.id) resetForm();
       toast.success(t('settings:agents.providerDeleted'));
+      await onChanged?.();
     } catch (cause) {
       const message = errorMessage(
         cause,
@@ -309,258 +338,360 @@ export function AgentModelProviderManager({
     }
   };
 
-  const content = (
-    <>
+  const copyConfig = async (provider: AgentModelProviderView) => {
+    const payload = JSON.stringify(
+      {
+        agent_id: provider.agent_id,
+        name: provider.name,
+        api_url: provider.api_url,
+        model: parseCopiedModel(provider.model),
+      },
+      null,
+      2
+    );
+    try {
+      await navigator.clipboard.writeText(payload);
+      toast.success(t('settings:agents.providerCopied'));
+    } catch {
+      toast.error(t('settings:agents.providerCopyFailed'));
+    }
+  };
+
+  const testConnection = async (provider: AgentModelProviderView) => {
+    setProbes((current) => ({ ...current, [provider.id]: 'loading' }));
+    try {
+      const result = await agentManagementApi.probeModelProvider(
+        agentId,
+        provider.id
+      );
+      setProbes((current) => ({ ...current, [provider.id]: result }));
+      if (result.ok) {
+        toast.success(
+          t('settings:agents.providerTestOk', { ms: result.latency_ms })
+        );
+      } else {
+        toast.error(
+          result.error ??
+            t('settings:agents.providerTestFailed', { ms: result.latency_ms })
+        );
+      }
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        t('settings:agents.providerActionFailed')
+      );
+      setProbes((current) => ({
+        ...current,
+        [provider.id]: { ok: false, latency_ms: 0, error: message },
+      }));
+      toast.error(message);
+    }
+  };
+
+  const loadImport = async (source: AgentModelProviderImportSource) => {
+    setImportOpen(false);
+    setSaving(true);
+    setError(null);
+    try {
+      const preview = await agentManagementApi.previewModelProviderImport(
+        agentId,
+        source
+      );
+      setImportPreview(preview);
+      setImportSelected(
+        preview.candidates
+          .filter((candidate) => !candidate.skip_reason)
+          .map((candidate) => candidate.source_id)
+      );
+      if (preview.error) setError(preview.error);
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        t('settings:agents.providerActionFailed')
+      );
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyImport = async () => {
+    if (!importPreview) return;
+    setSaving(true);
+    setError(null);
+    try {
+      setView(
+        await agentManagementApi.importModelProviders({
+          agent_id: agentId,
+          source: importPreview.source,
+          source_ids: importSelected,
+        })
+      );
+      setImportPreview(null);
+      setImportSelected([]);
+      toast.success(t('settings:agents.providerImported'));
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        t('settings:agents.providerActionFailed')
+      );
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const providers = view?.providers ?? [];
+  const busy = disabled || saving;
+
+  const form = (
+    <div className="agent-model-provider-form">
+      <div className="agent-model-provider-form-heading">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8"
+          onClick={() => void closeForm()}
+        >
+          <ArrowLeft aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+          {t('settings:agents.providerFormBack')}
+        </Button>
+        <strong>
+          {id
+            ? t('settings:agents.providerEdit')
+            : t('settings:agents.providerNew')}
+        </strong>
+      </div>
+      <div className="agent-model-provider-form-grid">
+        <label>
+          <span>{t('settings:agents.name')}</span>
+          <input
+            aria-label={t('settings:agents.providerNameAria')}
+            autoComplete="off"
+            disabled={busy}
+            name={`${agentId}_model_provider_name`}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <label>
+          <span>API URL</span>
+          <input
+            aria-label="Provider API URL"
+            autoComplete="off"
+            disabled={busy}
+            name={`${agentId}_model_provider_url`}
+            spellCheck={false}
+            type="url"
+            value={apiUrl}
+            onChange={(event) => {
+              setApiUrl(event.target.value);
+              setDetectedCatalog(null);
+              setDetectionError(null);
+            }}
+          />
+        </label>
+        <label>
+          <span>API Key</span>
+          <input
+            aria-label="Provider API Key"
+            autoComplete="new-password"
+            disabled={busy}
+            name={`${agentId}_model_provider_api_key`}
+            placeholder={
+              id
+                ? t('settings:agents.providerKeyKeepPlaceholder')
+                : t('settings:agents.providerKeyPlaceholder')
+            }
+            type="password"
+            value={apiKey}
+            onChange={(event) => {
+              setApiKey(event.target.value);
+              setDetectedCatalog(null);
+              setDetectionError(null);
+            }}
+          />
+        </label>
+        <ProviderModelDetection
+          agentId={agentId}
+          catalog={detectedCatalog}
+          claudeMappingTarget={claudeMappingTarget}
+          disabled={busy || !apiUrl.trim() || (!id && !apiKey.trim())}
+          error={detectionError}
+          loading={detectingModels}
+          onDetect={() => void detectModels()}
+          onMappingTargetChange={setClaudeMappingTarget}
+          onSelectModel={addDetectedModel}
+        />
+        {agentId === 'claude_code' ? (
+          <ClaudeProviderModelEditor
+            disabled={busy}
+            value={model}
+            onChange={setModel}
+          />
+        ) : agentId === 'grok' ? (
+          <GrokProviderModelEditor
+            disabled={busy}
+            value={model}
+            onChange={setModel}
+          />
+        ) : agentId === 'codex' ? (
+          <div className="agent-model-provider-codex">
+            <span>{t('settings:agents.modelCatalog')}</span>
+            {codexCatalog?.models.length ? (
+              <div className="codex-model-editor-body">
+                <CodexModelConfigFields
+                  catalog={codexCatalog}
+                  disabled={busy}
+                  draft={mergeCodexConfigDraft(
+                    parseCodexModel(model),
+                    codexConfig
+                  )}
+                  onChange={(next) => setModel(serializeCodexModel(next))}
+                />
+              </div>
+            ) : (
+              <p role={codexCatalog?.error ? 'alert' : undefined}>
+                {codexCatalog?.error ??
+                  t('settings:agents.codexCatalogWaiting')}
+              </p>
+            )}
+          </div>
+        ) : (
+          <label className="agent-model-provider-model">
+            <span>{t('settings:agents.model')}</span>
+            <input
+              aria-label={t('settings:agents.providerModelAria')}
+              autoComplete="off"
+              disabled={busy}
+              name={`${agentId}_model_provider_model`}
+              spellCheck={false}
+              placeholder={t('settings:agents.providerModelPlaceholder')}
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+            />
+          </label>
+        )}
+      </div>
+      <Button
+        size="sm"
+        className="h-8 self-end"
+        disabled={busy}
+        onClick={() => void save()}
+      >
+        {id
+          ? t('settings:agents.saveChanges')
+          : t('settings:agents.providerCreate')}
+      </Button>
+    </div>
+  );
+
+  const toolbar = (
+    <div className="agent-model-provider-toolbar">
+      <Button size="sm" className="h-8" disabled={busy} onClick={openCreate}>
+        <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+        {t('settings:agents.providerCreateButton')}
+      </Button>
+      <div className="agent-model-provider-import">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          disabled={busy}
+          aria-expanded={importOpen}
+          onClick={() => setImportOpen((open) => !open)}
+        >
+          <Upload aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+          {t('settings:agents.providerImport')}
+        </Button>
+        {importOpen ? (
+          <div className="agent-model-provider-import-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => void loadImport('native')}
+            >
+              {t('settings:agents.providerImportNative')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => void loadImport('cc_switch')}
+            >
+              {t('settings:agents.providerImportCcSwitch')}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const list = (
+    <div className="agent-model-provider-body">
+      {importPreview ? (
+        <ImportPreview
+          preview={importPreview}
+          selected={importSelected}
+          saving={busy}
+          onToggle={(sourceId, checked) => {
+            setImportSelected((current) =>
+              checked
+                ? [...current, sourceId]
+                : current.filter((id) => id !== sourceId)
+            );
+          }}
+          onCancel={() => {
+            setImportPreview(null);
+            setImportSelected([]);
+          }}
+          onApply={() => void applyImport()}
+        />
+      ) : null}
+
       {loading ? (
         <p className="agent-model-provider-state" aria-live="polite">
           <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
           {t('settings:agents.providerLoading')}
         </p>
-      ) : view ? (
-        <div
-          className={cn(
-            'agent-model-provider-body',
-            isCodex && 'is-codex-layout'
-          )}
-        >
-          <ModelProviderBinding
-            agentId={agentId}
-            disabled={disabled}
-            saving={saving}
-            view={view}
-            onBind={(value) => void bind(value || null)}
-            onDelete={(provider) => void remove(provider, true)}
-            onEdit={edit}
-            nativeBadge={t('settings:agents.providerNativeBadge')}
-            notBoundLabel={t('settings:agents.providerNotBound')}
-            ariaLabel={t('settings:agents.providerCurrentBindingAria')}
-            label={t('settings:agents.providerCurrentBinding')}
-          />
-          {view.providers.length ? (
-            <ul
-              className={cn(
-                'agent-model-provider-list',
-                isCodex && 'is-codex-summary'
-              )}
-            >
-              {view.providers.map((provider) => (
-                <li
-                  key={`${provider.managed ? 'managed' : 'native'}-${provider.id}`}
-                  data-bound={provider.bound}
-                >
-                  {isCodex ? (
-                    <div className="agent-model-provider-summary">
-                      {provider.model ? (
-                        <span className="agent-model-provider-summary-model">
-                          {provider.model}
-                        </span>
-                      ) : null}
-                      {provider.model && provider.api_url ? (
-                        <span
-                          aria-hidden="true"
-                          className="agent-model-provider-summary-divider"
-                        />
-                      ) : null}
-                      {provider.api_url ? (
-                        <span className="agent-model-provider-summary-endpoint">
-                          {provider.api_url}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div>
-                      <strong>{provider.name}</strong>
-                      <p>
-                        {provider.model}
-                        {provider.api_url ? ` · ${provider.api_url}` : ''}
-                        {provider.bound
-                          ? ` · ${t('settings:agents.providerBoundBadge')}`
-                          : ''}
-                        {!provider.managed
-                          ? ` · ${t('settings:agents.providerNativeBadge')}`
-                          : ''}
-                      </p>
-                    </div>
-                  )}
-                  {!isCodex && provider.managed ? (
-                    <div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0"
-                        aria-label={t('settings:agents.providerEditAria', {
-                          name: provider.name,
-                        })}
-                        disabled={disabled || saving}
-                        onClick={() => edit(provider)}
-                      >
-                        <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0"
-                        aria-label={t('settings:agents.providerDeleteAria', {
-                          name: provider.name,
-                        })}
-                        disabled={disabled || saving || provider.bound}
-                        onClick={() => void remove(provider)}
-                      >
-                        <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          <div className="agent-model-provider-form">
-            <div className="agent-model-provider-form-heading">
-              <strong>
-                {id
-                  ? t('settings:agents.providerEdit')
-                  : t('settings:agents.providerNew')}
-              </strong>
-              {id ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7"
-                  onClick={resetForm}
-                >
-                  {t('settings:agents.providerCancelEdit')}
-                </Button>
-              ) : null}
-            </div>
-            <div className="agent-model-provider-form-grid">
-              <label>
-                <span>{t('settings:agents.name')}</span>
-                <input
-                  aria-label={t('settings:agents.providerNameAria')}
-                  autoComplete="off"
-                  disabled={disabled || saving}
-                  name={`${agentId}_model_provider_name`}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>API URL</span>
-                <input
-                  aria-label="Provider API URL"
-                  autoComplete="off"
-                  disabled={disabled || saving}
-                  name={`${agentId}_model_provider_url`}
-                  spellCheck={false}
-                  type="url"
-                  value={apiUrl}
-                  onChange={(event) => {
-                    setApiUrl(event.target.value);
-                    setDetectedCatalog(null);
-                    setDetectionError(null);
-                  }}
-                />
-              </label>
-              <label>
-                <span>API Key</span>
-                <input
-                  aria-label="Provider API Key"
-                  autoComplete="new-password"
-                  disabled={disabled || saving}
-                  name={`${agentId}_model_provider_api_key`}
-                  placeholder={
-                    id
-                      ? t('settings:agents.providerKeyKeepPlaceholder')
-                      : t('settings:agents.providerKeyPlaceholder')
-                  }
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => {
-                    setApiKey(event.target.value);
-                    setDetectedCatalog(null);
-                    setDetectionError(null);
-                  }}
-                />
-              </label>
-              <ProviderModelDetection
-                agentId={agentId}
-                catalog={detectedCatalog}
-                claudeMappingTarget={claudeMappingTarget}
-                disabled={
-                  disabled ||
-                  saving ||
-                  !apiUrl.trim() ||
-                  (!id && !apiKey.trim())
-                }
-                error={detectionError}
-                loading={detectingModels}
-                onDetect={() => void detectModels()}
-                onMappingTargetChange={setClaudeMappingTarget}
-                onSelectModel={addDetectedModel}
-              />
-              {agentId === 'claude_code' ? (
-                <ClaudeProviderModelEditor
-                  disabled={disabled || saving}
-                  value={model}
-                  onChange={setModel}
-                />
-              ) : agentId === 'codex' ? (
-                <div className="agent-model-provider-codex">
-                  <span>{t('settings:agents.modelCatalog')}</span>
-                  {codexCatalog?.models.length ? (
-                    <div className="codex-model-editor-body">
-                      <CodexModelConfigFields
-                        catalog={codexCatalog}
-                        disabled={disabled || saving}
-                        draft={mergeCodexConfigDraft(
-                          parseCodexModel(model),
-                          codexConfig
-                        )}
-                        onChange={(next) => setModel(serializeCodexModel(next))}
-                      />
-                    </div>
-                  ) : (
-                    <p role={codexCatalog?.error ? 'alert' : undefined}>
-                      {codexCatalog?.error ??
-                        t('settings:agents.codexCatalogWaiting')}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <label className="agent-model-provider-model">
-                  <span>{t('settings:agents.model')}</span>
-                  <input
-                    aria-label={t('settings:agents.providerModelAria')}
-                    autoComplete="off"
-                    disabled={disabled || saving}
-                    name={`${agentId}_model_provider_model`}
-                    spellCheck={false}
-                    placeholder={t('settings:agents.providerModelPlaceholder')}
-                    value={model}
-                    onChange={(event) => setModel(event.target.value)}
-                  />
-                </label>
-              )}
-            </div>
-            <Button
-              size="sm"
-              className="h-8 self-end"
-              disabled={disabled || saving}
-              onClick={() => void save()}
-            >
-              {id ? (
-                <Link2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              ) : (
-                <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {id
-                ? t('settings:agents.saveChanges')
-                : t('settings:agents.providerCreate')}
-            </Button>
-          </div>
+      ) : providers.length === 0 ? (
+        <div className="agent-model-provider-empty">
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={openCreate}
+          >
+            <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+            {t('settings:agents.providerCreateButton')}
+          </Button>
         </div>
-      ) : null}
+      ) : (
+        <ul className="agent-model-provider-list">
+          {providers.map((provider) => (
+            <ProviderCard
+              key={`${provider.managed ? 'managed' : 'native'}-${provider.id}`}
+              provider={provider}
+              busy={busy}
+              probe={probes[provider.id]}
+              onEnable={() => void bind(provider.id)}
+              onEdit={() => openEdit(provider)}
+              onTest={() => void testConnection(provider)}
+              onCopy={() => void copyConfig(provider)}
+              onDelete={() => void remove(provider)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  const content = (
+    <>
+      {surface === 'form' ? form : list}
       {error ? (
         <p className="agent-model-provider-error" role="alert">
           {error}
@@ -575,31 +706,235 @@ export function AgentModelProviderManager({
         aria-labelledby={`${agentId}-model-provider-heading`}
         className="agent-model-provider-manager is-embedded"
       >
-        <h4 id={`${agentId}-model-provider-heading`}>
-          {t('settings:agents.providerTitle')}
-        </h4>
+        <div className="agent-model-provider-heading">
+          <h4 id={`${agentId}-model-provider-heading`}>
+            {t('settings:agents.providerTitle')}
+          </h4>
+          {surface === 'list' ? toolbar : null}
+        </div>
         {content}
       </section>
     );
   }
 
   return (
-    <details
-      ref={detailsRef}
-      className="agent-model-provider-manager"
-      onToggle={(event) => {
-        if (event.currentTarget.open) void load();
-      }}
-    >
-      <summary>
-        <span>
-          <strong>{t('settings:agents.providerTitle')}</strong>
-        </span>
-        <ChevronDown aria-hidden="true" className="h-4 w-4" />
-      </summary>
-      {content}
-    </details>
+    <section className="agent-model-provider-manager is-embedded">
+      {loaded ? (
+        content
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => void load()}>
+          {t('settings:agents.providerTitle')}
+        </Button>
+      )}
+    </section>
   );
+}
+
+function ProviderCard({
+  provider,
+  busy,
+  probe,
+  onEnable,
+  onEdit,
+  onTest,
+  onCopy,
+  onDelete,
+}: {
+  provider: AgentModelProviderView;
+  busy: boolean;
+  probe: AgentModelProviderProbeView | 'loading' | undefined;
+  onEnable: () => void;
+  onEdit: () => void;
+  onTest: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation('settings');
+  const managed = provider.managed;
+  const latency =
+    probe && probe !== 'loading' ? `${probe.latency_ms} ms` : null;
+  return (
+    <li data-bound={provider.bound} data-managed={managed}>
+      <div>
+        <strong>{provider.name}</strong>
+        <p>{provider.api_url || t('agents.providerNativeBadge')}</p>
+      </div>
+      <div className="agent-model-provider-card-actions">
+        {latency ? (
+          <span
+            className={cn(
+              'agent-model-provider-latency',
+              probe !== 'loading' && probe?.ok && 'is-ok'
+            )}
+          >
+            {latency}
+          </span>
+        ) : null}
+        {managed ? (
+          <Button
+            size="sm"
+            variant={provider.bound ? 'outline' : 'default'}
+            className={cn(
+              'agent-model-provider-enable h-7',
+              provider.bound && 'is-enabled'
+            )}
+            disabled={busy || provider.bound}
+            onClick={onEnable}
+          >
+            {provider.bound ? (
+              <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+            ) : null}
+            {provider.bound
+              ? t('agents.providerEnabled')
+              : t('agents.providerEnable')}
+          </Button>
+        ) : null}
+        {managed ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            aria-label={t('agents.providerEditAria', { name: provider.name })}
+            disabled={busy}
+            onClick={onEdit}
+          >
+            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          aria-label={t('agents.providerTestAria', { name: provider.name })}
+          disabled={busy || probe === 'loading'}
+          onClick={onTest}
+        >
+          {probe === 'loading' ? (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Timer aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          aria-label={t('agents.providerCopyAria', { name: provider.name })}
+          disabled={busy}
+          onClick={onCopy}
+        >
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+        {managed ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            aria-label={t('agents.providerDeleteAria', { name: provider.name })}
+            disabled={busy || provider.bound}
+            onClick={onDelete}
+          >
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function ImportPreview({
+  preview,
+  selected,
+  saving,
+  onToggle,
+  onCancel,
+  onApply,
+}: {
+  preview: AgentModelProviderImportPreviewView;
+  selected: string[];
+  saving: boolean;
+  onToggle: (sourceId: string, checked: boolean) => void;
+  onCancel: () => void;
+  onApply: () => void;
+}) {
+  const { t } = useTranslation('settings');
+  const selectable = preview.candidates.filter(
+    (candidate) => !candidate.skip_reason
+  );
+  return (
+    <div className="agent-model-provider-import-preview">
+      {preview.candidates.length === 0 ? (
+        <p>{preview.error ?? t('agents.providerImportEmpty')}</p>
+      ) : (
+        <ul>
+          {preview.candidates.map((candidate) => (
+            <ImportCandidateRow
+              key={candidate.source_id}
+              candidate={candidate}
+              checked={selected.includes(candidate.source_id)}
+              disabled={saving}
+              onToggle={onToggle}
+            />
+          ))}
+        </ul>
+      )}
+      <div className="agent-model-provider-import-actions">
+        <Button size="sm" variant="outline" className="h-8" onClick={onCancel}>
+          {t('agents.providerImportCancel')}
+        </Button>
+        <Button
+          size="sm"
+          className="h-8"
+          disabled={saving || selectable.length === 0 || selected.length === 0}
+          onClick={onApply}
+        >
+          {t('agents.providerImportApply')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ImportCandidateRow({
+  candidate,
+  checked,
+  disabled,
+  onToggle,
+}: {
+  candidate: AgentModelProviderImportCandidateView;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: (sourceId: string, checked: boolean) => void;
+}) {
+  const blocked = Boolean(candidate.skip_reason);
+  return (
+    <li>
+      <label>
+        <input
+          type="checkbox"
+          checked={checked && !blocked}
+          disabled={disabled || blocked}
+          onChange={(event) =>
+            onToggle(candidate.source_id, event.target.checked)
+          }
+        />
+        <span>
+          <strong>{candidate.name}</strong>
+          <small>{candidate.api_url}</small>
+          {candidate.skip_reason ? <em>{candidate.skip_reason}</em> : null}
+        </span>
+      </label>
+    </li>
+  );
+}
+
+function parseCopiedModel(model: string): unknown {
+  if (!model.trim()) return null;
+  try {
+    return JSON.parse(model) as unknown;
+  } catch {
+    return model;
+  }
 }
 
 const CLAUDE_DETECTED_MODEL_TARGETS = CLAUDE_MODEL_FIELDS.filter(
@@ -695,6 +1030,107 @@ function ProviderModelDetection({
   );
 }
 
+function GrokProviderModelEditor({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const parsed = parseGrokModel(value);
+  const patch = (next: typeof parsed) => {
+    onChange(
+      JSON.stringify({
+        id: next.id,
+        api_backend: next.api_backend,
+        context_window: next.context_window
+          ? Number(next.context_window)
+          : null,
+      })
+    );
+  };
+  return (
+    <fieldset className="agent-model-provider-claude">
+      <legend>{t('agents.model')}</legend>
+      <label>
+        <span>{t('agents.model')}</span>
+        <input
+          aria-label={t('agents.providerModelAria')}
+          autoComplete="off"
+          disabled={disabled}
+          name="grok_provider_model"
+          spellCheck={false}
+          value={parsed.id}
+          onChange={(event) => patch({ ...parsed, id: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>{t('agents.grokApiBackend')}</span>
+        <select
+          aria-label={t('agents.grokApiBackend')}
+          disabled={disabled}
+          name="grok_provider_backend"
+          value={parsed.api_backend}
+          onChange={(event) =>
+            patch({ ...parsed, api_backend: event.target.value })
+          }
+        >
+          <option value="responses">OpenAI Responses</option>
+          <option value="chat_completions">OpenAI Chat Completions</option>
+          <option value="messages">Anthropic Messages</option>
+        </select>
+      </label>
+      <label>
+        <span>{t('agents.grokContextWindow')}</span>
+        <input
+          aria-label={t('agents.grokContextWindow')}
+          autoComplete="off"
+          disabled={disabled}
+          inputMode="numeric"
+          name="grok_provider_context"
+          value={parsed.context_window}
+          onChange={(event) =>
+            patch({ ...parsed, context_window: event.target.value })
+          }
+        />
+      </label>
+    </fieldset>
+  );
+}
+
+function parseGrokModel(value: string): {
+  id: string;
+  api_backend: string;
+  context_window: string;
+} {
+  try {
+    const parsed = JSON.parse(value) as {
+      id?: string;
+      model?: string;
+      api_backend?: string;
+      context_window?: number | string | null;
+    };
+    if (parsed && typeof parsed === 'object') {
+      return {
+        id: String(parsed.id ?? parsed.model ?? ''),
+        api_backend: parsed.api_backend || 'responses',
+        context_window:
+          parsed.context_window == null ? '' : String(parsed.context_window),
+      };
+    }
+  } catch {
+    // Plain model id from an older preset.
+  }
+  return {
+    id: value,
+    api_backend: 'responses',
+    context_window: '',
+  };
+}
+
 function ClaudeProviderModelEditor({
   value,
   disabled,
@@ -784,11 +1220,6 @@ function serializeCodexModel(value: CodexModelCatalogConfigRequest) {
   return JSON.stringify(value);
 }
 
-/**
- * 未在 Provider 表单中编辑模型时，用 Codex 原生配置的实际状态（customs /
- * excluded_officials / default_model）填充编辑器，使手写的原生配置也能如实
- * 呈现，而不是只显示官方模型模板。
- */
 function mergeCodexConfigDraft(
   draft: CodexModelCatalogConfigRequest,
   config: CodexModelCatalogConfigView | null
@@ -806,104 +1237,4 @@ function mergeCodexConfigDraft(
     excluded_officials: config.excluded_officials,
     default_model: config.default_model,
   };
-}
-
-function ModelProviderBinding({
-  agentId,
-  ariaLabel,
-  disabled,
-  label,
-  nativeBadge,
-  notBoundLabel,
-  onBind,
-  onDelete,
-  onEdit,
-  saving,
-  view,
-}: {
-  agentId: AgentId;
-  ariaLabel: string;
-  disabled: boolean;
-  label: string;
-  nativeBadge: string;
-  notBoundLabel: string;
-  onBind: (value: string | null) => void;
-  onDelete: (provider: AgentModelProviderView) => void;
-  onEdit: (provider: AgentModelProviderView) => void;
-  saving: boolean;
-  view: AgentModelProvidersView;
-}) {
-  const { t } = useTranslation(['settings', 'common']);
-  const codex = agentId === 'codex';
-  const managed = view.providers.filter((provider) => provider.managed);
-  const boundNative = view.providers.find(
-    (provider) => provider.bound && !provider.managed
-  );
-  const options = [
-    ...(boundNative
-      ? [
-          {
-            value: boundNative.id,
-            label: `${boundNative.name}（${nativeBadge}）`,
-            disabled: true,
-          },
-        ]
-      : []),
-    ...managed.map((provider) => ({
-      value: provider.id,
-      label: provider.name,
-    })),
-  ];
-  return (
-    <label className="agent-model-provider-binding">
-      {!codex ? <span>{label}</span> : null}
-      <AstryxSelect
-        ariaLabel={ariaLabel}
-        disabled={disabled || saving}
-        hasClear={!codex}
-        placeholder={notBoundLabel}
-        value={view.bound_provider_id ?? ''}
-        options={options}
-        onChange={onBind}
-        renderOptionAction={
-          codex
-            ? (option) => {
-                const provider = view.providers.find(
-                  (candidate) => candidate.id === option.value
-                );
-                if (!provider?.managed) return null;
-                return (
-                  <div className="agent-model-provider-option-actions">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0"
-                      aria-label={t('settings:agents.providerEditAria', {
-                        name: provider.name,
-                      })}
-                      disabled={disabled || saving}
-                      onClick={() => onEdit(provider)}
-                    >
-                      <Pencil aria-hidden="true" className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0"
-                      aria-label={t('settings:agents.providerDeleteAria', {
-                        name: provider.name,
-                      })}
-                      disabled={disabled || saving}
-                      onClick={() => void onDelete(provider)}
-                    >
-                      <Trash2 aria-hidden="true" className="h-3 w-3" />
-                    </Button>
-                  </div>
-                );
-              }
-            : undefined
-        }
-      />
-    </label>
-  );
 }

@@ -1,4 +1,3 @@
-import { Shield } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +8,7 @@ import {
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 
+import { AgentSectionHeading } from './SettingsSection';
 import { SettingsActionBar } from './SettingsUi';
 
 const PRESETS = ['standard', 'code', 'minimal', 'cordis'] as const;
@@ -43,6 +43,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
   const [revision, setRevision] = useState('');
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [saved, setSaved] = useState<Draft>(DEFAULT_DRAFT);
+  const [expanded, setExpanded] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,84 +114,87 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
         aria-labelledby="dsh-session-heading"
         className="settings-surface"
       >
-        <div className="agent-section-heading">
-          <div className="flex items-center gap-2">
-            <Shield aria-hidden="true" className="h-4 w-4" />
-            <h3 id="dsh-session-heading">{t('settings:agents.configTitle')}</h3>
-          </div>
-        </div>
-        {loading ? (
-          <p className="agent-plugin-empty">
-            {t('settings:agents.dshSessionLoading')}
-          </p>
-        ) : (
-          <div className="dsh-session-body">
-            <div className="dsh-preset-grid" role="radiogroup">
-              {PRESETS.map((id) => {
-                const selected = draft.preset === id;
-                return (
-                  <button
-                    key={id}
-                    aria-checked={selected}
-                    aria-label={t(`settings:agents.dshPreset.${id}.name`)}
-                    className="dsh-preset-card"
-                    data-selected={selected ? 'true' : 'false'}
-                    role="radio"
-                    type="button"
-                    onClick={() =>
-                      setDraft((current) => ({ ...current, preset: id }))
-                    }
-                  >
-                    <div className="dsh-preset-card-head">
-                      <strong>
-                        {t(`settings:agents.dshPreset.${id}.name`)}
-                      </strong>
-                      <span className="dsh-preset-badge">
-                        {t('settings:agents.dshPresetBuiltin')}
-                      </span>
-                      {selected ? (
-                        <span className="dsh-preset-badge is-current">
-                          {t('settings:agents.dshPresetCurrent')}
+        <AgentSectionHeading
+          headingId="dsh-session-heading"
+          title={t('settings:agents.configTitle')}
+          expanded={expanded}
+          onToggle={() => setExpanded((current) => !current)}
+          summary={t('agents.configFieldCount', { count: 3 })}
+        />
+        {expanded ? (
+          loading ? (
+            <p className="agent-plugin-empty">
+              {t('settings:agents.dshSessionLoading')}
+            </p>
+          ) : (
+            <div className="dsh-session-body">
+              <div className="dsh-preset-grid" role="radiogroup">
+                {PRESETS.map((id) => {
+                  const selected = draft.preset === id;
+                  return (
+                    <button
+                      key={id}
+                      aria-checked={selected}
+                      aria-label={t(`settings:agents.dshPreset.${id}.name`)}
+                      className="dsh-preset-card"
+                      data-selected={selected ? 'true' : 'false'}
+                      role="radio"
+                      type="button"
+                      onClick={() =>
+                        setDraft((current) => ({ ...current, preset: id }))
+                      }
+                    >
+                      <div className="dsh-preset-card-head">
+                        <strong>
+                          {t(`settings:agents.dshPreset.${id}.name`)}
+                        </strong>
+                        <span className="dsh-preset-badge">
+                          {t('settings:agents.dshPresetBuiltin')}
                         </span>
-                      ) : null}
-                    </div>
-                    <p>{t(`settings:agents.dshPreset.${id}.summary`)}</p>
-                  </button>
-                );
-              })}
+                        {selected ? (
+                          <span className="dsh-preset-badge is-current">
+                            {t('settings:agents.dshPresetCurrent')}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p>{t(`settings:agents.dshPreset.${id}.summary`)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="dsh-session-fields">
+                <label className="agent-auth-mode-field">
+                  <span>{t('settings:agents.dshSessionSandbox')}</span>
+                  <AstryxSelect
+                    ariaLabel={t('settings:agents.dshSessionSandbox')}
+                    options={SANDBOXES.map((value) => ({
+                      value,
+                      label: t(`settings:agents.dshSandbox.${value}`),
+                    }))}
+                    value={draft.sandbox}
+                    onChange={(sandbox) =>
+                      setDraft((current) => ({ ...current, sandbox }))
+                    }
+                  />
+                </label>
+                <label className="agent-auth-mode-field">
+                  <span>{t('settings:agents.dshSessionReasoning')}</span>
+                  <AstryxSelect
+                    ariaLabel={t('settings:agents.dshSessionReasoning')}
+                    options={REASONING.map((value) => ({
+                      value,
+                      label: t(`settings:agents.dshReasoning.${value}`),
+                    }))}
+                    value={draft.reasoning}
+                    onChange={(reasoning) =>
+                      setDraft((current) => ({ ...current, reasoning }))
+                    }
+                  />
+                </label>
+              </div>
             </div>
-            <div className="dsh-session-fields">
-              <label className="agent-auth-mode-field">
-                <span>{t('settings:agents.dshSessionSandbox')}</span>
-                <AstryxSelect
-                  ariaLabel={t('settings:agents.dshSessionSandbox')}
-                  options={SANDBOXES.map((value) => ({
-                    value,
-                    label: t(`settings:agents.dshSandbox.${value}`),
-                  }))}
-                  value={draft.sandbox}
-                  onChange={(sandbox) =>
-                    setDraft((current) => ({ ...current, sandbox }))
-                  }
-                />
-              </label>
-              <label className="agent-auth-mode-field">
-                <span>{t('settings:agents.dshSessionReasoning')}</span>
-                <AstryxSelect
-                  ariaLabel={t('settings:agents.dshSessionReasoning')}
-                  options={REASONING.map((value) => ({
-                    value,
-                    label: t(`settings:agents.dshReasoning.${value}`),
-                  }))}
-                  value={draft.reasoning}
-                  onChange={(reasoning) =>
-                    setDraft((current) => ({ ...current, reasoning }))
-                  }
-                />
-              </label>
-            </div>
-          </div>
-        )}
+          )
+        ) : null}
       </section>
       <SettingsActionBar
         dirty={dirty}

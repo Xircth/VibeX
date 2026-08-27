@@ -238,6 +238,9 @@ describe('FirstRunExperience', () => {
           path: null,
           source: null,
           repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
         },
       ],
     });

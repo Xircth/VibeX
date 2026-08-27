@@ -3,7 +3,6 @@ import {
   FileDown,
   Loader2,
   RefreshCw,
-  ShieldCheck,
   Stethoscope,
   Trash2,
   Wrench,
@@ -28,6 +27,7 @@ import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
+import { AgentSectionHeading } from './SettingsSection';
 
 const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';
 
@@ -54,6 +54,7 @@ type AgentDetailProps = {
   onExportDiagnostics: () => void;
   onMarkAllDiagnosticsRead?: () => void;
   onEnvironmentDiagnostics?: () => void;
+  onUpdatePreflightItem?: (itemId: string) => void;
 };
 
 const operationStages: Record<
@@ -104,6 +105,7 @@ export function AgentDetail({
   onExportDiagnostics,
   onMarkAllDiagnosticsRead,
   onEnvironmentDiagnostics,
+  onUpdatePreflightItem,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
@@ -116,6 +118,7 @@ export function AgentDetail({
   const unreadDiagnostics = diagnostics.filter(
     (diagnostic) => !diagnostic.read
   ).length;
+  const [preflightExpanded, setPreflightExpanded] = useState(true);
   const busy = operation != null || agent.active_operation != null;
   const items = preflight?.items ?? fallbackPreflight(t, agent);
   const hasRepairableFailure = items.some(
@@ -252,21 +255,18 @@ export function AgentDetail({
         aria-labelledby="agent-preflight-heading"
         className="settings-surface agent-preflight-surface"
       >
-        <div className="agent-section-heading">
-          <div className="flex items-center gap-2">
-            <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-            <div>
-              <h3 id="agent-preflight-heading">{t('agents.preflightTitle')}</h3>
-              <p className="agent-section-caption" aria-live="polite">
-                {preflightSummary(
-                  t,
-                  i18n.language,
-                  items,
-                  preflight?.checked_at
-                )}
-              </p>
-            </div>
-          </div>
+        <AgentSectionHeading
+          headingId="agent-preflight-heading"
+          title={t('agents.preflightTitle')}
+          expanded={preflightExpanded}
+          onToggle={() => setPreflightExpanded((current) => !current)}
+          summary={preflightSummary(
+            t,
+            i18n.language,
+            items,
+            preflight?.checked_at
+          )}
+        >
           <div className="flex flex-wrap items-center justify-end gap-2">
             {onEnvironmentDiagnostics ? (
               <Button
@@ -333,147 +333,167 @@ export function AgentDetail({
               {t('agents.checkNow')}
             </Button>
           </div>
-        </div>
+        </AgentSectionHeading>
 
-        {supportsCustomVersion ? (
-          <details className="agent-custom-version">
-            <summary>{t('agents.customVersionInstall')}</summary>
-            <div className="agent-custom-version-body">
-              <label>
-                <span>{t('agents.customVersionLabel')}</span>
-                <input
-                  aria-label={t('agents.customVersionLabel')}
-                  aria-invalid={Boolean(customVersion && !customVersionValid)}
-                  autoComplete="off"
-                  disabled={busy || agent.retired}
-                  placeholder={
-                    agent.runtime_version ??
-                    t('agents.customVersionPlaceholder')
-                  }
-                  spellCheck={false}
-                  value={customVersion}
-                  onChange={(event) => setCustomVersion(event.target.value)}
-                />
-              </label>
-              <Button
-                className="h-8 shrink-0"
-                disabled={busy || agent.retired || !customVersionValid}
-                size="sm"
-                variant="outline"
-                onClick={() => onInstallVersion?.(customVersion.trim())}
-              >
-                <Download aria-hidden="true" className="h-3.5 w-3.5" />
-                {t('agents.installSpecifiedVersion')}
-              </Button>
-            </div>
-            {customVersion && !customVersionValid ? (
-              <p role="alert">{t('agents.customVersionInvalid')}</p>
+        {preflightExpanded ? (
+          <>
+            {supportsCustomVersion ? (
+              <details className="agent-custom-version">
+                <summary>{t('agents.customVersionInstall')}</summary>
+                <div className="agent-custom-version-body">
+                  <label>
+                    <span>{t('agents.customVersionLabel')}</span>
+                    <input
+                      aria-label={t('agents.customVersionLabel')}
+                      aria-invalid={Boolean(
+                        customVersion && !customVersionValid
+                      )}
+                      autoComplete="off"
+                      disabled={busy || agent.retired}
+                      placeholder={
+                        agent.runtime_version ??
+                        t('agents.customVersionPlaceholder')
+                      }
+                      spellCheck={false}
+                      value={customVersion}
+                      onChange={(event) => setCustomVersion(event.target.value)}
+                    />
+                  </label>
+                  <Button
+                    className="h-8 shrink-0"
+                    disabled={busy || agent.retired || !customVersionValid}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onInstallVersion?.(customVersion.trim())}
+                  >
+                    <Download aria-hidden="true" className="h-3.5 w-3.5" />
+                    {t('agents.installSpecifiedVersion')}
+                  </Button>
+                </div>
+                {customVersion && !customVersionValid ? (
+                  <p role="alert">{t('agents.customVersionInvalid')}</p>
+                ) : null}
+                <small>{t('agents.customVersionTrustHint')}</small>
+              </details>
             ) : null}
-            <small>{t('agents.customVersionTrustHint')}</small>
-          </details>
-        ) : null}
 
-        {operation ? (
-          <div
-            aria-live="polite"
-            aria-atomic="false"
-            className="agent-operation-progress"
-          >
-            <div className="agent-operation-progress-heading">
-              <div className="agent-operation-progress-copy">
-                <Loader2
-                  aria-hidden="true"
-                  className="agent-operation-progress-spinner"
+            {operation ? (
+              <div
+                aria-live="polite"
+                aria-atomic="false"
+                className="agent-operation-progress"
+              >
+                <div className="agent-operation-progress-heading">
+                  <div className="agent-operation-progress-copy">
+                    <Loader2
+                      aria-hidden="true"
+                      className="agent-operation-progress-spinner"
+                    />
+                    <div className="min-w-0">
+                      <strong>
+                        {progress >= 100
+                          ? t('agents.operationComplete')
+                          : t('agents.stageInProgress', {
+                              stage: stages?.[currentStageIndex],
+                            })}
+                      </strong>
+                      <span>{localizedOperationMessage}</span>
+                    </div>
+                  </div>
+                  <span className="agent-operation-progress-value">
+                    {progress}%
+                  </span>
+                </div>
+                <Progress
+                  aria-label={
+                    localizedOperationMessage ??
+                    t('agents.processingInstallation')
+                  }
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress}
+                  aria-valuetext={`${stages?.[currentStageIndex]} · ${progress}%`}
+                  className="agent-operation-track"
+                  value={progress}
                 />
-                <div className="min-w-0">
-                  <strong>
-                    {progress >= 100
-                      ? t('agents.operationComplete')
-                      : t('agents.stageInProgress', {
-                          stage: stages?.[currentStageIndex],
-                        })}
-                  </strong>
-                  <span>{localizedOperationMessage}</span>
+                {operation.logs && operation.logs.length > 1 ? (
+                  <div
+                    aria-label={t('agents.installLog')}
+                    className="agent-operation-log"
+                    role="log"
+                  >
+                    {operation.logs.map((line, index) => (
+                      <div key={`${index}:${line}`}>
+                        {localizedOperationLogLine(
+                          t,
+                          i18n.resolvedLanguage,
+                          line
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="agent-operation-progress-footer">
+                  <ol
+                    aria-label={t('agents.operationStages')}
+                    className="agent-operation-stages"
+                  >
+                    {stages?.map((stage, index) => {
+                      const state =
+                        index < currentStageIndex
+                          ? 'complete'
+                          : index === currentStageIndex
+                            ? 'current'
+                            : 'upcoming';
+                      return (
+                        <li data-state={state} key={stage}>
+                          <span aria-hidden="true" />
+                          {stage}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0"
+                    onClick={onCancelOperation}
+                  >
+                    {t('agents.cancelOperation')}
+                  </Button>
                 </div>
               </div>
-              <span className="agent-operation-progress-value">
-                {progress}%
-              </span>
-            </div>
-            <Progress
-              aria-label={
-                localizedOperationMessage ?? t('agents.processingInstallation')
-              }
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={progress}
-              aria-valuetext={`${stages?.[currentStageIndex]} · ${progress}%`}
-              className="agent-operation-track"
-              value={progress}
-            />
-            {operation.logs && operation.logs.length > 1 ? (
-              <div
-                aria-label={t('agents.installLog')}
-                className="agent-operation-log"
-                role="log"
-              >
-                {operation.logs.map((line, index) => (
-                  <div key={`${index}:${line}`}>
-                    {localizedOperationLogLine(t, i18n.resolvedLanguage, line)}
-                  </div>
-                ))}
+            ) : null}
+
+            <ul className="agent-preflight-grid">
+              {items.map((item) => (
+                <PreflightCard
+                  key={item.id}
+                  item={item}
+                  busy={busy}
+                  onUpdate={
+                    onUpdatePreflightItem
+                      ? () => onUpdatePreflightItem(item.id)
+                      : undefined
+                  }
+                />
+              ))}
+            </ul>
+
+            {agent.rollback_available ? (
+              <div className="agent-install-actions">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={onRollback}
+                >
+                  {t('agents.rollbackPrevious')}
+                </Button>
               </div>
             ) : null}
-            <div className="agent-operation-progress-footer">
-              <ol
-                aria-label={t('agents.operationStages')}
-                className="agent-operation-stages"
-              >
-                {stages?.map((stage, index) => {
-                  const state =
-                    index < currentStageIndex
-                      ? 'complete'
-                      : index === currentStageIndex
-                        ? 'current'
-                        : 'upcoming';
-                  return (
-                    <li data-state={state} key={stage}>
-                      <span aria-hidden="true" />
-                      {stage}
-                    </li>
-                  );
-                })}
-              </ol>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 shrink-0"
-                onClick={onCancelOperation}
-              >
-                {t('agents.cancelOperation')}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        <ul className="agent-preflight-grid">
-          {items.map((item) => (
-            <PreflightCard key={item.id} item={item} />
-          ))}
-        </ul>
-
-        {agent.rollback_available ? (
-          <div className="agent-install-actions">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={busy}
-              onClick={onRollback}
-            >
-              {t('agents.rollbackPrevious')}
-            </Button>
-          </div>
+          </>
         ) : null}
       </section>
 
@@ -568,7 +588,15 @@ export function isValidCustomVersion(value: string): boolean {
   );
 }
 
-function PreflightCard({ item }: { item: AgentPreflightItemView }) {
+function PreflightCard({
+  item,
+  busy,
+  onUpdate,
+}: {
+  item: AgentPreflightItemView;
+  busy: boolean;
+  onUpdate?: () => void;
+}) {
   const { t, i18n } = useTranslation('settings');
   const passed = item.status === 'pass';
   const warning = item.status === 'warning';
@@ -584,7 +612,15 @@ function PreflightCard({ item }: { item: AgentPreflightItemView }) {
             ? t('agents.preflightDetailRepairable', { label })
             : t('agents.preflightDetailFail', { label })
       : item.detail;
-  return <AgentPreflightCheckItem detail={detail} item={item} label={label} />;
+  return (
+    <AgentPreflightCheckItem
+      busy={busy}
+      detail={detail}
+      item={item}
+      label={label}
+      onUpdate={onUpdate}
+    />
+  );
 }
 
 function humanizePreflightId(value: string): string {
@@ -736,6 +772,9 @@ function fallbackPreflight(
       path: null,
       source: null,
       repairable: false,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
     {
       id: 'runtime',
@@ -746,6 +785,9 @@ function fallbackPreflight(
       path: agent.local_runtime?.path ?? null,
       source: null,
       repairable: true,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
     {
       id: 'acp',
@@ -756,6 +798,9 @@ function fallbackPreflight(
       path: null,
       source: null,
       repairable: true,
+      update_available: false,
+      available_version: null,
+      update_group: null,
     },
   ];
 }

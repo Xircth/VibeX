@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { AgentAuthModeKind } from 'shared/types';
+
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
@@ -44,55 +46,88 @@ const claudeActions = {
 const grokOptions = [
   authOption(
     'subscription',
+    'subscription',
     'authModeSubscription',
     'authDescGrokSubscription'
   ),
-  authOption('api_key', 'authModeXaiKey', 'authDescGrokKey', 'XAI_API_KEY'),
-  authOption('custom', 'authModeCustomEndpoint', 'authDescGrokCustom'),
+  authOption(
+    'api_key',
+    'official_api',
+    'authModeXaiKey',
+    'authDescGrokKey',
+    'XAI_API_KEY',
+    'grok_api_key',
+    'https://api.x.ai/v1'
+  ),
+  authOption(
+    'custom',
+    'provider',
+    'authModeCustomEndpoint',
+    'authDescGrokCustom'
+  ),
 ];
 const codexOptions = [
   authOption(
     'chatgpt_subscription',
+    'subscription',
     'authModeChatGpt',
     'authDescCodexSubscription'
   ),
   authOption(
     'api_key',
+    'official_api',
     'authModeOpenAiKey',
     'authDescCodexKey',
     'OPENAI_API_KEY',
-    'openai_api_key'
+    'openai_api_key',
+    'https://api.openai.com/v1'
   ),
-  authOption('model_provider', 'authModeProvider', 'authDescCodexProvider'),
+  authOption(
+    'model_provider',
+    'provider',
+    'authModeProvider',
+    'authDescCodexProvider'
+  ),
 ];
 const claudeOptions = [
   authOption(
     'official_subscription',
+    'subscription',
     'authModeOfficialSubscription',
     'authDescClaudeSubscription'
   ),
   authOption(
-    'custom',
-    'authModeCustomEndpoint',
-    'authDescClaudeCustom',
+    'official_api',
+    'official_api',
+    'authModeOfficialApi',
+    'authDescClaudeOfficialApi',
     'ANTHROPIC_API_KEY',
-    'anthropic_api_key'
+    'anthropic_api_key',
+    'https://api.anthropic.com'
   ),
-  authOption('model_provider', 'authModeProvider', 'authDescClaudeProvider'),
+  authOption(
+    'model_provider',
+    'provider',
+    'authModeProvider',
+    'authDescClaudeProvider'
+  ),
 ];
 const antigravityOptions = [
   authOption(
     'oauth-personal',
+    'subscription',
     'authModeGoogleLogin',
     'authDescAntigravityOauthPersonal'
   ),
   authOption(
     'oauth-business',
+    'subscription',
     'authModeAntigravityEnterprise',
     'authDescAntigravityOauthBusiness'
   ),
   authOption(
     'gemini-api-key',
+    'official_api',
     'authModeGeminiKey',
     'authDescAntigravityApiKey',
     'GEMINI_API_KEY',
@@ -100,6 +135,7 @@ const antigravityOptions = [
   ),
   authOption(
     'agent-platform',
+    'official_api',
     'authModeAntigravityPlatform',
     'authDescAntigravityPlatform',
     'GOOGLE_API_KEY',
@@ -135,7 +171,7 @@ describe('AgentAuthModeControl', () => {
 
     render(<AgentAuthModeControl agentId="grok" />);
 
-    await pickAuthModeTab(user, '官方订阅账号');
+    await pickAuthModeTab(user, '官方订阅');
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
@@ -160,57 +196,68 @@ describe('AgentAuthModeControl', () => {
     });
     const user = userEvent.setup();
 
-    const { unmount } = render(<AgentAuthModeControl agentId="grok" />);
+    const grokForm = (
+      <div>
+        <label>
+          xAI API Key
+          <input aria-label="xAI API Key" />
+        </label>
+        <label>
+          自定义模型 ID
+          <input aria-label="自定义模型 ID" />
+        </label>
+        <button type="button">读取模型</button>
+      </div>
+    );
+    const { unmount } = render(
+      <AgentAuthModeControl agentId="grok" configuration={grokForm} />
+    );
 
-    await pickAuthModeTab(user, 'xAI API Key');
-    expect(screen.getByRole('tab', { name: 'xAI API Key' })).toHaveAttribute(
+    await pickAuthModeTab(user, '官方 API');
+    expect(screen.getByRole('tab', { name: '官方 API' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(screen.getByLabelText('XAI_API_KEY')).toBeVisible();
+    expect(screen.getByLabelText('xAI API Key')).toBeVisible();
+    expect(screen.getByLabelText('API URL')).toHaveValue('https://api.x.ai/v1');
+    expect(screen.getByLabelText('自定义模型 ID')).toBeVisible();
+    expect(screen.getByRole('button', { name: '读取模型' })).toBeVisible();
+    expect(screen.queryByLabelText('XAI_API_KEY')).not.toBeInTheDocument();
 
     unmount();
-    render(<AgentAuthModeControl agentId="grok" />);
+    render(<AgentAuthModeControl agentId="grok" configuration={grokForm} />);
 
     expect(
-      await screen.findByRole('tab', { name: 'xAI API Key' })
+      await screen.findByRole('tab', { name: '官方 API' })
     ).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('XAI_API_KEY')).toBeVisible();
+    expect(screen.getByLabelText('xAI API Key')).toBeVisible();
   });
 
-  it('notifies the parent only after an API key is saved', async () => {
+  it('does not treat browsing auth tabs as unsaved configuration', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
-      agent_id: 'grok',
-      mode: 'subscription',
-      credential_env: 'XAI_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'api_key', 'custom'],
-      options: grokOptions,
-    });
-    const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
-      agent_id: 'grok',
-      mode: 'api_key',
-      credential_env: 'XAI_API_KEY',
+      agent_id: 'claude_code',
+      mode: 'official_api',
+      credential_env: 'ANTHROPIC_API_KEY',
       credential_present: true,
-      modes: ['subscription', 'api_key', 'custom'],
-      options: grokOptions,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: claudeOptions,
     });
-    const onChanged = vi.fn();
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+    const onDirtyChange = vi.fn();
     const user = userEvent.setup();
 
-    render(<AgentAuthModeControl agentId="grok" onChanged={onChanged} />);
-
-    await pickAuthModeTab(user, 'xAI API Key');
-    expect(onChanged).not.toHaveBeenCalled();
-    expect(save).not.toHaveBeenCalled();
-
-    await user.type(screen.getByLabelText('XAI_API_KEY'), 'xai-key');
-    await user.click(screen.getByRole('button', { name: '保存' }));
-
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('grok', 'api_key', 'xai-key')
+    render(
+      <AgentAuthModeControl
+        agentId="claude_code"
+        onDirtyChange={onDirtyChange}
+      />
     );
-    expect(onChanged).toHaveBeenCalledOnce();
+
+    await pickAuthModeTab(user, '供应商');
+    await pickAuthModeTab(user, '官方 API');
+
+    expect(save).not.toHaveBeenCalled();
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
   });
 
   it('keeps the Codex API key inside the native configuration form', async () => {
@@ -245,12 +292,10 @@ describe('AgentAuthModeControl', () => {
       within(tabs)
         .getAllByRole('tab')
         .map((tab) => tab.getAttribute('aria-label'))
-    ).toEqual(['ChatGPT 官方订阅', 'OpenAI API Key', '已绑定 Model Provider']);
-    expect(screen.getByRole('tab', { name: 'ChatGPT 官方订阅' })).toBeVisible();
-    expect(
-      screen.getByRole('tab', { name: '已绑定 Model Provider' })
-    ).toBeVisible();
-    await pickAuthModeTab(user, 'OpenAI API Key');
+    ).toEqual(['官方订阅', '官方 API', '供应商']);
+    expect(screen.getByRole('tab', { name: '官方订阅' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: '供应商' })).toBeVisible();
+    await pickAuthModeTab(user, '官方 API');
     expect(
       screen.getByLabelText('OpenAI API Key', { selector: 'input' })
     ).toBeVisible();
@@ -268,15 +313,15 @@ describe('AgentAuthModeControl', () => {
       mode: 'official_subscription',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
     const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
       agent_id: 'claude_code',
-      mode: 'custom',
+      mode: 'official_api',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: true,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
     const user = userEvent.setup();
@@ -295,14 +340,17 @@ describe('AgentAuthModeControl', () => {
     );
 
     expect(await screen.findByRole('tab', { name: '官方订阅' })).toBeVisible();
-    await pickAuthModeTab(user, '自定义模型端点');
+    await pickAuthModeTab(user, '官方 API');
     expect(screen.getByLabelText('API Key')).toBeVisible();
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
+    expect(screen.getByLabelText('API URL')).toHaveValue(
+      'https://api.anthropic.com'
+    );
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('claude_code', 'custom', null)
+      expect(save).toHaveBeenCalledWith('claude_code', 'official_api', null)
     );
   });
 
@@ -312,7 +360,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'official_subscription',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
     const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
@@ -320,7 +368,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'model_provider',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
     const user = userEvent.setup();
@@ -363,7 +411,7 @@ describe('AgentAuthModeControl', () => {
       screen.queryByText('调用此 Agent 官方提供的账号管理流程')
     ).not.toBeInTheDocument();
 
-    await pickAuthModeTab(user, '自定义模型端点');
+    await pickAuthModeTab(user, '官方 API');
     expect(
       screen.queryByRole('button', { name: '登录 Claude Code' })
     ).not.toBeInTheDocument();
@@ -381,16 +429,42 @@ describe('AgentAuthModeControl', () => {
     expect(screen.getByTestId('native-configuration')).toBeVisible();
     expect(screen.getByTestId('model-provider')).not.toBeVisible();
 
-    await pickAuthModeTab(user, '已绑定 Model Provider');
+    await pickAuthModeTab(user, '供应商');
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('auth-file-meta')).not.toBeInTheDocument();
     expect(screen.getByTestId('native-configuration')).not.toBeVisible();
     expect(screen.getByTestId('model-provider')).toBeVisible();
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('claude_code', 'model_provider', null)
+    expect(save).not.toHaveBeenCalledWith(
+      'claude_code',
+      'model_provider',
+      null
     );
+  });
+
+  it('opens the Codex Provider panel without requiring a bound preset', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'chatgpt_subscription',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: false,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: codexOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="codex"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    await pickAuthModeTab(user, '供应商');
+    expect(screen.getByTestId('model-provider')).toBeVisible();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('hides login and shows logout when the official account is signed in', async () => {
@@ -400,7 +474,7 @@ describe('AgentAuthModeControl', () => {
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
       account_label: 'linus@example.com',
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
 
@@ -444,7 +518,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'official_subscription',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
 
@@ -465,7 +539,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'official_subscription',
       credential_env: 'ANTHROPIC_API_KEY',
       credential_present: false,
-      modes: ['official_subscription', 'custom', 'model_provider'],
+      modes: ['official_subscription', 'official_api', 'model_provider'],
       options: claudeOptions,
     });
 
@@ -513,6 +587,44 @@ describe('AgentAuthModeControl', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('puts Antigravity subscription logins on the account status row', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'antigravity',
+      mode: 'oauth-personal',
+      credential_env: 'GEMINI_API_KEY',
+      credential_present: false,
+      modes: [
+        'oauth-personal',
+        'oauth-business',
+        'gemini-api-key',
+        'agent-platform',
+      ],
+      options: antigravityOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="antigravity"
+        authentication="not_logged_in"
+      />
+    );
+
+    const status = await screen.findByTestId('agent-account-identity');
+    const row = status.closest('.agent-account-session');
+    expect(row).not.toBeNull();
+    expect(status).toHaveTextContent('未登录官方账号');
+    expect(
+      within(row as HTMLElement).getByRole('button', {
+        name: 'Google 登录（OAuth）',
+      })
+    ).toBeVisible();
+    expect(
+      within(row as HTMLElement).getByRole('button', {
+        name: 'Gemini Enterprise',
+      })
+    ).toBeVisible();
+  });
+
   it('maps Antigravity credentials to the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'antigravity',
@@ -546,9 +658,7 @@ describe('AgentAuthModeControl', () => {
       <AgentAuthModeControl
         agentId="antigravity"
         configuration={<input aria-label="Native Gemini key" />}
-        nativeCredentialPresent={(fieldId) =>
-          fieldId === 'antigravity_api_key'
-        }
+        nativeCredentialPresent={(fieldId) => fieldId === 'antigravity_api_key'}
       />
     );
 
@@ -557,8 +667,8 @@ describe('AgentAuthModeControl', () => {
         name: 'Google Antigravity 鉴权模式',
       })
     ).toBeVisible();
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
-    await pickAuthModeTab(user, 'Gemini API Key');
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    await pickAuthModeTab(user, '官方 API');
     expect(screen.getByLabelText('Native Gemini key')).toBeVisible();
 
     await waitFor(() =>
@@ -569,17 +679,21 @@ describe('AgentAuthModeControl', () => {
 
 function authOption(
   value: string,
+  kind: AgentAuthModeKind,
   label: string,
   description: string,
   credentialEnv?: string,
-  nativeConfigFieldId?: string
+  nativeConfigFieldId?: string,
+  officialApiUrl?: string
 ) {
   return {
     value,
+    kind,
     label_key: `agents.${label}`,
     description_key: `agents.${description}`,
     credential_env: credentialEnv ?? null,
     credential_required: credentialEnv !== undefined,
     native_config_field_id: nativeConfigFieldId ?? null,
+    official_api_url: officialApiUrl ?? null,
   };
 }

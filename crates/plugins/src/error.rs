@@ -23,6 +23,13 @@ impl PluginError {
         }
     }
 
+    pub(crate) fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn unsupported_major(schema: &str) -> Self {
         Self {
             code: "plugin_manifest_major_unsupported",

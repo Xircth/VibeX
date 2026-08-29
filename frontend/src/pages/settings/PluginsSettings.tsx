@@ -70,7 +70,6 @@ import {
   type PluginControlCatalog,
   type PluginControlContributions,
   type PluginControlItem,
-  type PluginDevConnection,
   type PluginImportPackageKind,
   type PluginImportPreview,
   type PluginPermission,
@@ -78,8 +77,6 @@ import {
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
 import { useBackendTransport } from '@/lib/transport';
-import { PluginDevelopmentDialog } from '@/pages/plugins/PluginCatalogControls';
-import { PLUGIN_DEVELOPMENT_PLUGIN_ID } from '@/pages/plugins/officialPlugins';
 import { SettingsSection } from './SettingsUi';
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -1027,9 +1024,6 @@ export function PluginsSettings({
   const [catalog, setCatalog] = useState<PluginControlCatalog | null>(null);
   const [contributionCatalog, setContributionCatalog] =
     useState<PluginContributionCatalog | null>(null);
-  const [devConnection, setDevConnection] =
-    useState<PluginDevConnection | null>(null);
-  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PluginEcosystem>(
     ecosystem ?? 'codex'
@@ -1124,18 +1118,14 @@ export function PluginsSettings({
     setIsLoading(true);
     setError(null);
     try {
-      const [next, nextContributions, nextDevConnection] = await Promise.all([
+      const [next, nextContributions] = await Promise.all([
         api.catalog(),
         ecosystem === 'vibex'
           ? api.contributionCatalog().catch(() => null)
           : Promise.resolve(null),
-        ecosystem === 'vibex' && transport.environment === 'desktop'
-          ? api.devConnection().catch(() => null)
-          : Promise.resolve(null),
       ]);
       setCatalog(next);
       setContributionCatalog(nextContributions);
-      setDevConnection(nextDevConnection);
       setSelectedId((current) =>
         current && next.plugins.some((plugin) => plugin.id === current)
           ? current
@@ -1146,7 +1136,7 @@ export function PluginsSettings({
     } finally {
       setIsLoading(false);
     }
-  }, [api, ecosystem, transport.environment]);
+  }, [api, ecosystem]);
 
   useEffect(() => {
     void reload();
@@ -1636,16 +1626,6 @@ export function PluginsSettings({
               >
                 <PackagePlus className="mr-1.5 h-3.5 w-3.5" />
                 {t('plugins.import')}
-              </Button>
-            ) : null}
-            {ecosystem === 'vibex' && devConnection ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setDevToolsOpen(true)}
-              >
-                <TerminalSquare className="mr-1.5 h-3.5 w-3.5" />
-                {t('plugins.developerTools')}
               </Button>
             ) : null}
           </div>
@@ -2160,17 +2140,6 @@ export function PluginsSettings({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <PluginDevelopmentDialog
-        open={devToolsOpen}
-        connection={devConnection}
-        onOpenChange={setDevToolsOpen}
-        onOpenPlugin={() =>
-          navigate(
-            `/plugins/${encodeURIComponent(PLUGIN_DEVELOPMENT_PLUGIN_ID)}`
-          )
-        }
-      />
 
       <AstryxDialog
         isOpen={Boolean(permissionReview)}

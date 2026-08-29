@@ -190,33 +190,5 @@
         }
       }
     }
-  },
-  {
-    "name": "plugin_dev_link_request",
-    "description": "Ask VibeX to link a workspace-relative plugin package for Full Trust development. Returns pending until the user confirms in VibeX. Never request a loopback token.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["source_path"],
-      "properties": {
-        "source_path": {
-          "type": "string",
-          "description": "Workspace-relative path to the plugin package root."
-        }
-      }
-    }
-  },
-  {
-    "name": "plugin_dev_link_status",
-    "description": "Read the status of a plugin development link request. Granted results include grantId and endpoint and never include a token.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["request_id"],
-      "properties": {
-        "request_id": {
-          "type": "string",
-          "description": "The request id returned by plugin_dev_link_request."
-        }
-      }
-    }
   }
 ]

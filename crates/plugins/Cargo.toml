@@ -19,6 +19,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 notify = "8.2.0"
+reqwest = { workspace = true }
 tool-runtime = { path = "../tool-runtime" }
 url = { workspace = true }
 utils = { path = "../utils" }

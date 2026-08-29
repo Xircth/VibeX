@@ -634,7 +634,50 @@
     "skillLabel": "技能 · {{id}}",
     "providerLabel": "Provider · {{id}}",
     "emptyV2": "暂无可用的 Plugin v2 manifest。",
-    "productSubtitle": "通过可安装的插件为 VibeX 增加新能力。",
+    "productSubtitle": "通过插件扩展平台能力，新建会话后生效",
+    "catalogModeAria": "插件目录类型",
+    "installedTab": "已安装",
+    "marketplaceTab": "插件市场",
+    "allCategory": "全部",
+    "officialCategory": "官方",
+    "communityCategory": "社区",
+    "marketplaceCategoriesAria": "插件分类",
+    "listingCategory": {
+      "official": "官方",
+      "productivity": "效率",
+      "agent": "Agent",
+      "workflow": "工作流",
+      "mcp": "MCP",
+      "other": "其他",
+      "community": "社区"
+    },
+    "readmeTab": "README",
+    "contentsTab": "插件内容",
+    "packageTab": "包结构",
+    "contentsCatalog": "插件内容",
+    "contentsEmpty": "没有可展示的插件内容",
+    "contentKind": {
+      "package": "包结构",
+      "skill": "Skill",
+      "mcp": "MCP",
+      "hook": "Hook",
+      "workflow": "Workflow",
+      "runtime": "Runtime",
+      "viewer": "Viewer",
+      "other": "其他"
+    },
+    "marketplaceLoading": "正在加载插件市场",
+    "marketplaceFailed": "插件市场加载失败",
+    "install": "安装",
+    "installPreviewTitle": "安装插件",
+    "fullTrustConfirm": "安装后该插件以你的本机用户权限运行，不是沙箱。",
+    "installPreviewSourceLabel": "来源",
+    "installPreviewPermissionLabel": "权限",
+    "installPreviewSourceOfficial": "官方市场",
+    "installPreviewSourceGithub": "GitHub",
+    "installPreviewSourceLocal": "本机文件",
+    "updateAvailable": "可更新",
+    "productInstalled": "已添加 {{name}}",
     "marketplace": "目录",
     "marketplaceTitle": "插件目录",
     "marketplaceEmpty": "当前目录没有可安装的包。",
@@ -652,9 +695,8 @@
     "noSummary": "此插件尚未提供简介。",
     "localPublisher": "本地",
     "enableNamed": "启用 {{name}}",
-    "productEmpty": "没有匹配的插件",
+    "productEmpty": "没有已安装的插件",
     "productEmptySearchHint": "请尝试其他名称、发布者或插件 ID。",
-    "productEmptyHint": "添加插件后，它会显示在这里。",
     "productCatalogFailed": "插件列表加载失败",
     "productEnabled": "已启用 {{name}}",
     "productDisabled": "已停用 {{name}}",
@@ -673,7 +715,7 @@
     "versionTitle": "版本",
     "official": {
       "office": {
-        "name": "VibeX Office",
+        "name": "办公套件",
         "summary": "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。",
         "readme": "# VibeX Office\n\n把 Word、Excel、PowerPoint 的创建、修改、分析和预览留在 VibeX 工作区里完成。\n\n启用后：\n\n- 打开 `.docx`、`.xlsx`、`.pptx` 走只读预览。\n- Agent 获得三条 Skill，分别处理文档、表格和演示文稿。\n- Composer 出现六条 Workflow，对应创建、修改、分析和生成。\n\n## 启用\n\n随 Host 分发，默认关闭，不能卸载。在「插件」里打开。首次启用会把 Skill 和 Workflow 投给兼容的已安装 Agent。\n\n预览使用 Host 锁死的 `officecli` Runtime，不要用 PATH 上的另一份替换。\n\n## 预览\n\n打开支持的文件会启动只读预览，不是在窗里直接改文件。空闲超时后预览进程退出，再次打开会重新拉起。\n\n支持 `.docx`、`.xlsx`、`.pptx`。旧版 `.doc` / `.xls` / `.ppt` 不在范围内。\n\n## 让 Agent 做事\n\n直接描述结果。Agent 应使用本插件的 Skill 和锁死的 `officecli`，并返回工作区相对路径。没点名的结构、样式、工作表和幻灯片应尽量保留。改完要校验。\n\n## 配置\n\n唯一可改的项是预览空闲超时（1–60 分钟，默认 10）。保存后写入这个插件的 `config.json`，不影响已经打开的预览。\n\n## 排障\n\n文件打不开时，先确认扩展名和插件已启用。预览立刻退出时，关掉再打开插件，让 Host 重新探测 `officecli`。",
         "config": {
@@ -684,7 +726,7 @@
         }
       },
       "workflowCreator": {
-        "name": "工作流创建器",
+        "name": "DAG 工作流编辑器",
         "summary": "在对话和可编辑文件页里创建、检查、调试并安全修订 VibeX DAG 工作流。",
         "readme": "# 工作流创建器\n\n把 VibeX DAG 工作流写成真实文件，再校验、调试和发布。不要把内存里的图当成事实源。\n\n启用后，Skill、工作流 MCP 和 Workflow Studio 一起工作。源文件才是创作事实。保存使用产物修订号，拒绝过期覆盖。发布会产生不可变版本。Automation 仍钉在它已经引用的那个版本上。\n\n## 启用\n\n随 Host 分发，默认关闭，不能卸载。需要 VibeX 桌面在运行，Host 才会拉起回环网关并注入短期令牌。令牌不会写进这个包。\n\n## 编辑、调试、发布\n\n打开 `*.vibex-workflow.json` 即进入 Workflow Studio。测试前先保存并校验。`workflow_debug_source` 用隐藏的持久快照测未发布源，不会产生目录版本。只有要发布时才 publish。\n\n## 配置\n\n「默认 Agent 步骤完成方式」只影响源里没写完成策略的新步骤，不会改写已有步骤或已经开始的运行。\n\n## 排障\n\nMCP 说 VibeX 不可用时，保持桌面打开并重新启用插件。保存冲突表示源在标签页外被改过，重新加载后再保存。Automation 没跟上修改，是因为它钉在旧的已发布版本上。",
         "config": {
@@ -743,18 +785,13 @@
       "pluginDevelopment": {
         "name": "插件开发",
         "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。",
-        "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI，以及可选的开发 MCP。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发 MCP 默认关闭，避免普通会话拿到链接本机目录的工具。\n\n## 工具链\n\n用 `vibex plugin toolchain` 向当前 Host 要工具链，或使用 Host 旁边的 `vibex-plugin`。然后按这份本地契约校验、测试、构建和打包。\n\n## 链接本机目录\n\n打开开发 MCP，新开或重新绑定会话，让 Agent 调用 `plugin_dev_link_request`。在 VibeX 里确认 Full Trust。不要把 loopback token 贴进对话。\n\n## 排障\n\n没有 link 工具，说明开发 MCP 关着——打开后再开新会话。链接一直 pending，就到 VibeX 里确认 Full Trust。",
-        "config": {
-          "devMcp": {
-            "title": "开发 MCP",
-            "description": "允许之后的会话在你确认 Full Trust 后链接本机插件。"
-          }
-        }
+        "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发与测试只走 CLI。\n\n## 工具链\n\n用 `vibex-plugin toolchain` 定位本机契约，然后 `init`、`validate`、`test`、`build`、`pack`。用 `vibex plugin add --dev .` 链到正在跑的 Host。\n\n## 链接本机目录\n\n打开 Desktop 或 `vibex serve`，在插件根目录执行 `vibex plugin add --dev .`。不要向对话索要 token。\n\n## 排障\n\nHost 未运行会提示先启动。当前会话没有新工具时，新开或 rebind 会话。",
+        "config": {}
       }
     },
     "contentTab": "内容",
     "configTab": "配置",
-    "contentTree": "插件内容",
+    "contentTree": "包结构",
     "contentPreview": "内容预览",
     "noConfig": "此插件没有可配置项。",
     "agentDefaultsEmpty": "没有可配置的已启用智能体。",

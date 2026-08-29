@@ -1,64 +1,67 @@
-import { FileText, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-export type PluginDetailTab = 'content' | 'config';
+export type PluginInspectTab = 'readme' | 'contents' | 'tree' | 'config';
 
-const TABS: Array<{
-  value: PluginDetailTab;
-  icon: typeof FileText;
-  label: 'plugins.contentTab' | 'plugins.configTab';
-}> = [
-  { value: 'config', icon: SlidersHorizontal, label: 'plugins.configTab' },
-  { value: 'content', icon: FileText, label: 'plugins.contentTab' },
-];
+const TAB_LABEL: Record<
+  PluginInspectTab,
+  | 'plugins.readmeTab'
+  | 'plugins.contentsTab'
+  | 'plugins.packageTab'
+  | 'plugins.configTab'
+> = {
+  readme: 'plugins.readmeTab',
+  contents: 'plugins.contentsTab',
+  tree: 'plugins.packageTab',
+  config: 'plugins.configTab',
+};
 
-export function PluginDetailTabs({
+export function PluginInspectTabs({
   value,
+  tabs,
   onChange,
 }: {
-  value: PluginDetailTab;
-  onChange: (value: PluginDetailTab) => void;
+  value: PluginInspectTab;
+  tabs: PluginInspectTab[];
+  onChange: (value: PluginInspectTab) => void;
 }) {
   const { t } = useTranslation('settings');
 
   return (
     <div
-      className="product-plugin-detail-tabs"
+      className="product-plugin-underline-tabs"
       role="tablist"
       aria-label={t('plugins.productDetailTabs')}
       onKeyDown={(event) => {
-        const index = TABS.findIndex((tab) => tab.value === value);
+        const index = tabs.findIndex((tab) => tab === value);
         let next = index;
-        if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
         else if (event.key === 'ArrowLeft') {
-          next = (index - 1 + TABS.length) % TABS.length;
+          next = (index - 1 + tabs.length) % tabs.length;
         } else if (event.key === 'Home') next = 0;
-        else if (event.key === 'End') next = TABS.length - 1;
+        else if (event.key === 'End') next = tabs.length - 1;
         else return;
         event.preventDefault();
-        const tab = TABS[next];
-        onChange(tab.value);
+        const tab = tabs[next];
+        onChange(tab);
         event.currentTarget
-          .querySelector<HTMLButtonElement>(`[data-plugin-tab="${tab.value}"]`)
+          .querySelector<HTMLButtonElement>(`[data-plugin-tab="${tab}"]`)
           ?.focus();
       }}
     >
-      {TABS.map((tab) => {
-        const Icon = tab.icon;
-        const active = tab.value === value;
+      {tabs.map((tab) => {
+        const active = tab === value;
         return (
           <button
-            key={tab.value}
+            key={tab}
             type="button"
             role="tab"
-            data-plugin-tab={tab.value}
+            data-plugin-tab={tab}
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             className={active ? 'is-active' : undefined}
-            onClick={() => onChange(tab.value)}
+            onClick={() => onChange(tab)}
           >
-            <Icon aria-hidden="true" />
-            {t(tab.label)}
+            {t(TAB_LABEL[tab])}
           </button>
         );
       })}

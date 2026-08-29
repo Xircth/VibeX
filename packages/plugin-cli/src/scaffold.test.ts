@@ -75,6 +75,7 @@ describe("scaffoldPlugin templates", () => {
         PluginTemplate,
         | "full"
         | "file-tab"
+        | "editor-tab"
         | "ts-worker"
         | "node-worker"
         | "python-worker"
@@ -85,6 +86,7 @@ describe("scaffoldPlugin templates", () => {
     > = {
       full: "node",
       "file-tab": "node",
+      "editor-tab": "node",
       "ts-worker": "node",
       "node-worker": "node",
       "python-worker": "python",
@@ -103,7 +105,7 @@ describe("scaffoldPlugin templates", () => {
   });
 
   it("keeps App surfaces on protocol 1.0", async () => {
-    for (const template of ["full", "file-tab"] as const) {
+    for (const template of ["full", "file-tab", "editor-tab"] as const) {
       const root = await scaffold(template);
       expect((await manifest(root)).entrypoints?.app).toEqual({
         root: "dist/app",
@@ -137,6 +139,16 @@ describe("scaffoldPlugin templates", () => {
       "app.surface",
     ]);
 
+    const editorTab = await manifest(await scaffold("editor-tab"));
+    expect(editorTab.integrations.map((item) => item.kind)).toEqual([
+      "file.opener",
+      "app.surface",
+    ]);
+    expect(editorTab.integrations[1]).toMatchObject({
+      slot: "artifact.editor",
+      handler: "surface.createSession",
+    });
+
     const host = await manifest(await scaffold("host-service"));
     expect(host.integrations).toEqual([
       expect.objectContaining({ kind: "host.service" }),
@@ -151,6 +163,18 @@ describe("scaffoldPlugin templates", () => {
     await expect(readFile(join(python, "runtime", "worker.py"), "utf8")).resolves.toContain(
       "from vibex_plugin import define_plugin_worker",
     );
+
+    const node = await scaffold("node-worker");
+    expect(await readFile(join(node, "runtime", "main.mjs"), "utf8")).toContain(
+      "runStdioPluginWorker",
+    );
+    expect(await readFile(join(node, "runtime", "worker.mjs"), "utf8")).toContain(
+      "definePluginWorker",
+    );
+    expect((await manifest(node)).engines).toEqual({
+      vibex: ">=0.1.3 <1.0.0",
+      pluginSdk: "^1.0.0",
+    });
 
     const rust = await scaffold("rust-worker");
     await expect(
@@ -178,5 +202,6 @@ async function manifest(root: string) {
       app?: { root: string; document: string; protocol: string };
     };
     integrations: Array<{ kind: string }>;
+    engines?: { vibex: string; pluginSdk: string };
   };
 }

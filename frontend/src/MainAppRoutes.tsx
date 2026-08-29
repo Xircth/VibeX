@@ -49,6 +49,10 @@ const FullAttemptLogsPage = lazyNamed(
 );
 const PluginsPage = lazyNamed(loadPluginsPage, 'PluginsPage');
 const PluginDetailPage = lazyNamed(loadPluginDetailPage, 'PluginDetailPage');
+const MarketplacePluginDetailPage = lazyNamed(
+  loadPluginDetailPage,
+  'MarketplacePluginDetailPage'
+);
 const WorkflowInspector = lazyNamed(
   () => import('@/pages/workflows/WorkflowInspector'),
   'WorkflowInspector'
@@ -197,6 +201,10 @@ export function MainAppRoutes() {
           <Route path="system" element={<SystemSettings />} />
         </Route>
         <Route path="/plugins" element={<PluginsPage />} />
+        <Route
+          path="/plugins/marketplace/:owner/:pluginName"
+          element={<MarketplacePluginDetailPage />}
+        />
         <Route path="/plugins/:pluginId" element={<PluginDetailPage />} />
       </Route>
 

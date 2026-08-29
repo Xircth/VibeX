@@ -7,6 +7,10 @@ decision-makers:
 
 # 官方产品 MCP 随 Host 分发、由官方插件激活
 
+> 官方**插件包**不再 builtin 预装，见
+> [ADR-0066](0066-plugin-marketplace-authoring-and-session-honesty.md)。
+> 官方 MCP **二进制**仍随 Host 分发；未安装或未启用对应插件时不得注入会话。
+
 > 2026-08-17：多智能体协同与会话增强拆成两个插件、两套 MCP，见
 > [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
 > 本决定中「官方 MCP 由官方插件激活、默认禁用、只影响新 session」仍然有效。

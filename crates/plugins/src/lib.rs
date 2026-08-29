@@ -3,6 +3,7 @@
 mod activation;
 mod app_surface;
 mod artifact_preview;
+mod catalog;
 mod contribution;
 mod control_plane;
 mod error;
@@ -31,6 +32,14 @@ pub use app_surface::{
     AppSurfaceInvocation, AppSurfaceOpenRequest, PluginAppSurfaceHost,
 };
 pub use artifact_preview::PluginArtifactPreviewService;
+pub use catalog::{
+    COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage, CatalogPluginDetail, CatalogVersion,
+    DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin, PluginUpdateStatus, check_installed_updates,
+    detail_from_package, fetch_artifact, fetch_catalog, fetch_listing, fetch_versions,
+    github_latest_tag, is_newer_version, listing_from_package, listing_identity,
+    marketplace_archive_suffix, marketplace_listing_url, marketplace_origin, origin_kind,
+    origin_owner_name, source_allows_remote_update,
+};
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
 };
@@ -59,10 +68,9 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_mcp::{
-    DELEGATION_MCP_NAME, OfficialMcpBinding, OfficialMcpRuntime, PLUGIN_DEV_MCP_NAME,
-    SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
-    SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, binding_has_delegation_mcp,
-    session_features_from_config,
+    DELEGATION_MCP_NAME, OfficialMcpBinding, OfficialMcpRuntime, SESSION_FEAT_ALL,
+    SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
+    SESSION_MCP_NAME, binding_has_delegation_mcp, session_features_from_config,
 };
 pub use package::{
     AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,

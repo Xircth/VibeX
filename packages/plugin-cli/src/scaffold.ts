@@ -7,6 +7,7 @@ export const PLUGIN_TEMPLATES = [
   "skill",
   "mcp",
   "file-tab",
+  "editor-tab",
   "full",
   "ts-worker",
   "node-worker",
@@ -45,7 +46,7 @@ export async function scaffoldPlugin(
     version: "0.1.0",
     name: id,
     readme: "README.md",
-    engines: { vibex: ">=0.1.3", pluginSdk: "^1.0.0" },
+    engines: { vibex: ">=0.1.3 <1.0.0", pluginSdk: "^1.0.0" },
     content: {
       root: "contents",
       index: ".vibex-plugin/content.index.json",
@@ -175,6 +176,20 @@ function templateSpec(template: PluginTemplate): TemplateSpec {
         integrations: fileTabIntegrations(),
         contentItems: [],
         nodeHandlers: ["hello", "preview-text", "surface.createSession"],
+        nodeWorker: true,
+        usesJsSdk: true,
+        hasApp: true,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
+    case "editor-tab":
+      return {
+        entrypoints: { worker: worker.node, app: appEntrypoint() },
+        integrations: editorTabIntegrations(),
+        contentItems: [],
+        nodeHandlers: ["hello", "surface.createSession"],
         nodeWorker: true,
         usesJsSdk: true,
         hasApp: true,
@@ -377,6 +392,28 @@ function fileTabIntegrations() {
   ];
 }
 
+function editorTabIntegrations() {
+  return [
+    {
+      id: "notes",
+      kind: "file.opener",
+      label: "Notes",
+      extensions: ["txt", "md"],
+      editorSurface: "notes-editor",
+    },
+    {
+      id: "notes-editor",
+      kind: "app.surface",
+      label: "Notes",
+      slot: "artifact.editor",
+      appEntrypoint: "app",
+      handler: "surface.createSession",
+      allowedMethods: ["hello"],
+      minHeight: 320,
+    },
+  ];
+}
+
 async function writeSkill(root: string) {
   await mkdir(join(root, "contents", "skills", "hello"), { recursive: true });
   await writeFile(
@@ -428,16 +465,23 @@ async function writeNodeWorker(
   spec: TemplateSpec,
 ) {
   await mkdir(join(root, "runtime"), { recursive: true });
-  const source = nodeWorkerSource(spec);
+  const definition = nodeWorkerSource(spec);
+  const entry = `import { runStdioPluginWorker } from '@vibex/plugin-sdk/stdio';
+import definition from './worker.mjs';
+
+await runStdioPluginWorker(definition);
+`;
   if (template === "ts-worker") {
-    await writeFile(join(root, "runtime", "main.ts"), source);
+    await writeFile(join(root, "runtime", "worker.ts"), definition);
     await writeFile(
-      join(root, "runtime", "main.mjs"),
-      'export { default } from "./main.ts";\n',
+      join(root, "runtime", "worker.mjs"),
+      'export { default } from "./worker.ts";\n',
     );
+    await writeFile(join(root, "runtime", "main.mjs"), entry);
     return;
   }
-  await writeFile(join(root, "runtime", "main.mjs"), source);
+  await writeFile(join(root, "runtime", "worker.mjs"), definition);
+  await writeFile(join(root, "runtime", "main.mjs"), entry);
 }
 
 function nodeWorkerSource(spec: TemplateSpec) {
@@ -546,21 +590,27 @@ async function writePluginTest(root: string, handlers: string[] | null) {
   await mkdir(join(root, "test"), { recursive: true });
   if (!handlers) {
     await writeFile(
+      join(root, "test", "fixture.mjs"),
+      `export const MANIFEST = ${JSON.stringify(
+        JSON.parse(
+          await (await import("node:fs/promises")).readFile(
+            join(root, ".vibex-plugin", "plugin.json"),
+            "utf8",
+          ),
+        ),
+        null,
+        2,
+      )};
+`,
+    );
+    await writeFile(
       join(root, "test", "plugin.test.mjs"),
       `import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { MANIFEST } from './fixture.mjs';
 
-test('plugin.json is a v4 manifest', async () => {
-  const manifest = JSON.parse(
-    await readFile(
-      join(dirname(fileURLToPath(import.meta.url)), '..', '.vibex-plugin', 'plugin.json'),
-      'utf8',
-    ),
-  );
-  assert.equal(manifest.manifestVersion, 4);
+test('plugin.json is a v4 manifest', () => {
+  assert.equal(MANIFEST.manifestVersion, 4);
 });
 `,
     );
@@ -570,7 +620,7 @@ test('plugin.json is a v4 manifest', async () => {
     join(root, "test", "plugin.test.mjs"),
     `import test from 'node:test';
 import assert from 'node:assert/strict';
-import definition from '../dist/worker.mjs';
+import definition from '../runtime/worker.mjs';
 import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
 
 test('registers every required Worker handler', async () => {

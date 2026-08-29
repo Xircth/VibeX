@@ -1,6 +1,6 @@
 # VibeX 插件开发文档
 
-对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。公共插件市场还没有，这里不写上架。`npx` 发到 npm 也还没做，开发时用仓库里的 CLI，或 Host 家族包里带的 `sdk/`。
+对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。不要向用户索要 token。
 
 查工具链路径可以在仓库根执行 `vibex-plugin toolchain`（本地 `packages/plugin-cli`）。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。
 
@@ -26,7 +26,8 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 - `skill` 只投影 Skill
 - `mcp` 只声明托管 MCP
 - `hooks` 只声明 Hook
-- `file-tab` Worker 加可编辑文件页
+- `file-tab` Worker 加 `.txt` 只读预览
+- `editor-tab` 可编辑 UTF-8 文件 Tab
 - `full` Worker、App、Workflow
 - `ts-worker` / `node-worker` 只要 Node Worker
 - `python-worker` CPython Worker
@@ -138,23 +139,22 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 
-`depends.kind=plugin` 表示依赖另一个产品包。启用时对方必须已安装、发布者对得上、已启用、并且自己有活代。版本范围按 semver。Host 不会因为你声明了依赖就自动去装对方。
+`depends.kind=plugin` 不被 Host inspect 和 CLI validate 接受。只声明 runtime 依赖。
+
+`app.surface.slot` 稳定面只有 `plugin.detail.panel` 与 `artifact.editor`。`conversation.timeline.card` 会同时让 validate 和 inspect 失败。
 
 ## CLI
 
-在插件根目录跑。连 Host 只用 `--host` 或环境变量 `VIBEX_PLUGIN_DEV_HOST`。授权只认 `VIBEX_PLUGIN_DEV_GRANT`。不要传 `--token`，也不要设 `VIBEX_PLUGIN_DEV_TOKEN`，CLI 会直接拒绝。
-
-地址必须是回环。`localhost`、`127.0.0.1`、`::1`。HTTPS、带路径、带用户信息的 URL 会被拒。
-
-界面「开发工具」会给出本机连接。grant 文件权限是 `0600`，不要把 token 拷进对话或剪贴板给模型。
+开发、校验、链接、诊断只走命令行。链接使用正在跑的 Host 的本机 token，调用 `plugin_control_import`。不要向用户索要 token。
 
 ```bash
 vibex-plugin validate
 vibex-plugin validate --json
 vibex-plugin build
 vibex-plugin test
+vibex-plugin test --host
 vibex-plugin install --link .
-vibex-plugin dev
+vibex plugin add --dev .
 vibex-plugin doctor
 vibex-plugin pack
 vibex-plugin pack --output dist/notes.vxp

@@ -111,7 +111,7 @@ export interface PreviewIntegrationManifest extends IntegrationBase {
 export interface AppSurfaceIntegrationManifest extends IntegrationBase {
     kind: "app.surface";
     label?: string;
-    slot: "plugin.detail.panel" | "artifact.editor" | "conversation.timeline.card";
+    slot: "plugin.detail.panel" | "artifact.editor";
     appEntrypoint: "app";
     route?: `/${string}`;
     handler: string;

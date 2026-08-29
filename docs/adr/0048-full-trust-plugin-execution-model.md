@@ -7,6 +7,9 @@ decision-makers:
 
 # VibeX Plugin 采用全信任执行模型
 
+> 安装信任的可见化已由 [ADR-0066](0066-plugin-marketplace-authoring-and-session-honesty.md)
+> 修订：市场、`.vxp` 与 CLI 安装必须弹出预览与 Full Trust 确认。这不是逐 capability 审批。
+
 ## Context
 
 ADR-0046 以开放任意第三方 Marketplace 为目标，设计了 Sandboxed Worker、Capability

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use plugins::{PluginActivation, PluginControlPlane, PluginSourceKind, SqlitePluginRegistry};
+use plugins::{
+    ConflictDecision, PluginActivation, PluginControlPlane, PluginPackage, PluginSourceKind,
+    SqlitePluginRegistry,
+};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 async fn registry_pool() -> sqlx::SqlitePool {
@@ -35,7 +38,7 @@ async fn registry_pool() -> sqlx::SqlitePool {
 }
 
 #[tokio::test]
-async fn installing_the_host_registers_official_plugins_in_the_catalog() {
+async fn installing_the_host_does_not_auto_register_official_plugins() {
     let data = tempfile::tempdir().unwrap();
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
 
@@ -45,44 +48,36 @@ async fn installing_the_host_registers_official_plugins_in_the_catalog() {
         .unwrap();
 
     let catalog = plane.catalog().await.unwrap();
-    let mut ids = catalog
-        .iter()
-        .map(|plugin| plugin.id().to_owned())
-        .collect::<Vec<_>>();
-    ids.sort();
-    assert_eq!(
-        ids,
-        [
-            "vibex.multi-agent",
-            "vibex.office",
-            "vibex.plugin-development",
-            "vibex.session-enhance",
-            "vibex.workflow-creator",
-        ]
+    assert!(catalog.is_empty());
+    assert!(
+        !utils::assets::materialize_builtin_plugins(data.path())
+            .unwrap()
+            .is_empty()
     );
-    for plugin in catalog {
-        assert_eq!(plugin.activation, PluginActivation::Disabled);
-        assert_eq!(plugin.source.kind, PluginSourceKind::Builtin);
-    }
 }
 
 #[tokio::test]
-async fn already_materialized_official_plugins_are_registered_when_the_catalog_is_empty() {
+async fn builtin_memberships_become_uninstallable_marketplace_origins() {
     let data = tempfile::tempdir().unwrap();
     let roots = utils::assets::materialize_builtin_plugins(data.path()).unwrap();
-    assert_eq!(roots.len(), 5);
-
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
-    plane.reconcile_bundled_plugins(&roots, None).await.unwrap();
-
-    let mut ids = plane
-        .catalog()
+    let package = PluginPackage::inspect(&roots[0], PluginSourceKind::Builtin).unwrap();
+    plane
+        .import(package.clone(), ConflictDecision::Reject)
         .await
-        .unwrap()
-        .iter()
-        .map(|plugin| plugin.id().to_owned())
-        .collect::<Vec<_>>();
-    ids.sort();
-    assert_eq!(ids.len(), 5);
-    assert!(ids.contains(&"vibex.session-enhance".to_owned()));
+        .unwrap();
+    plane.migrate_builtin_memberships(&roots).await.unwrap();
+    let installed = plane.plugin(package.id.as_str()).await.unwrap().unwrap();
+    assert_eq!(installed.source.kind, PluginSourceKind::Marketplace);
+    assert_eq!(installed.activation, PluginActivation::Disabled);
+    assert!(
+        installed
+            .source
+            .origin
+            .as_deref()
+            .unwrap()
+            .contains("marketplace")
+    );
+    plane.uninstall(installed.id()).await.unwrap();
+    assert!(plane.plugin(package.id.as_str()).await.unwrap().is_none());
 }

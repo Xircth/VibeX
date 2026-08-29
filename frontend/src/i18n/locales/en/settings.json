@@ -634,7 +634,50 @@
     "skillLabel": "Skill · {{id}}",
     "providerLabel": "Provider · {{id}}",
     "emptyV2": "No Plugin v2 manifest is available.",
-    "productSubtitle": "Add capabilities to VibeX with installable plugins.",
+    "productSubtitle": "Extend the platform with plugins. They apply after a new session.",
+    "catalogModeAria": "Plugin catalog type",
+    "installedTab": "Installed",
+    "marketplaceTab": "Marketplace",
+    "allCategory": "All",
+    "officialCategory": "Official",
+    "communityCategory": "Community",
+    "marketplaceCategoriesAria": "Plugin categories",
+    "listingCategory": {
+      "official": "Official",
+      "productivity": "Productivity",
+      "agent": "Agent",
+      "workflow": "Workflow",
+      "mcp": "MCP",
+      "other": "Other",
+      "community": "Community"
+    },
+    "readmeTab": "README",
+    "contentsTab": "Contents",
+    "packageTab": "Package",
+    "contentsCatalog": "Plugin contents",
+    "contentsEmpty": "No contents to show",
+    "contentKind": {
+      "package": "Package",
+      "skill": "Skill",
+      "mcp": "MCP",
+      "hook": "Hook",
+      "workflow": "Workflow",
+      "runtime": "Runtime",
+      "viewer": "Viewer",
+      "other": "Other"
+    },
+    "marketplaceLoading": "Loading marketplace",
+    "marketplaceFailed": "Marketplace failed to load",
+    "install": "Install",
+    "installPreviewTitle": "Install plugin",
+    "fullTrustConfirm": "After install, this plugin runs with your full computer permissions. It is not sandboxed.",
+    "installPreviewSourceLabel": "Source",
+    "installPreviewPermissionLabel": "Permissions",
+    "installPreviewSourceOfficial": "Official marketplace",
+    "installPreviewSourceGithub": "GitHub",
+    "installPreviewSourceLocal": "Local file",
+    "updateAvailable": "Update available",
+    "productInstalled": "Added {{name}}",
     "marketplace": "Catalog",
     "marketplaceTitle": "Plugin catalog",
     "marketplaceEmpty": "This catalog has no installable packages.",
@@ -652,9 +695,8 @@
     "noSummary": "This plugin has not provided a summary.",
     "localPublisher": "Local",
     "enableNamed": "Enable {{name}}",
-    "productEmpty": "No matching plugins",
+    "productEmpty": "No installed plugins",
     "productEmptySearchHint": "Try another name, publisher, or plugin ID.",
-    "productEmptyHint": "Plugins you add will appear here.",
     "productCatalogFailed": "Could not load plugins",
     "productEnabled": "{{name}} enabled",
     "productDisabled": "{{name}} disabled",
@@ -684,7 +726,7 @@
         }
       },
       "workflowCreator": {
-        "name": "Workflow Creator",
+        "name": "VibeX Workflow Creator",
         "summary": "Create, inspect, debug, and safely revise VibeX DAG workflows from conversations and editable file tabs.",
         "readme": "# Workflow Creator\n\nAuthor VibeX DAG workflows as real files, then validate, debug, and publish them.\n\nOnce enabled, the Skill, the workflow MCP, and Workflow Studio work together. The source file is the authoring fact. Saving uses an artifact revision and refuses a stale overwrite. Publishing creates an immutable version. Automations stay on the version they already reference.\n\n## Enable\n\nThis plugin ships with the Host, starts off, and cannot be uninstalled. VibeX Desktop must be running so Host can start the loopback gateway and inject a short-lived token. That token is never stored in this package.\n\n## Edit, debug, publish\n\nOpen a `*.vibex-workflow.json` file to use Workflow Studio. Save and validate before any test. `workflow_debug_source` tests unpublished source without creating a catalog version. Publish only when you want a release.\n\n## Configuration\n\nDefault Agent Step completion is the authoring default for new steps that do not declare a policy. It does not rewrite existing steps or running workflows.\n\n## Troubleshooting\n\nIf MCP says VibeX is unavailable, keep Desktop open and re-enable the plugin. A save conflict means the source changed outside the tab — reload, then save. An Automation that ignores edits is pinned to an older published version.",
         "config": {
@@ -743,18 +785,13 @@
       "pluginDevelopment": {
         "name": "Plugin Development",
         "summary": "Let an agent develop, validate, and link plugins with this Host's SDK and CLI.",
-        "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, CLI, and an optional development MCP. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development MCP stays off until you turn it on, so ordinary sessions do not get tools that link a local directory.\n\n## Toolchain\n\nAsk the running Host for the toolchain with `vibex plugin toolchain`, or use the `vibex-plugin` next to the Host binary. Then validate, test, build, and pack against those local contracts.\n\n## Link a local directory\n\nTurn on Development MCP, open or rebind a session, and let the agent call `plugin_dev_link_request`. Confirm Full Trust in VibeX. Do not paste a loopback token into the chat.\n\n## Troubleshooting\n\nIf link tools are missing, Development MCP is off — enable it and start a new session. If a link stays pending, confirm Full Trust in VibeX.",
-        "config": {
-          "devMcp": {
-            "title": "Development MCP",
-            "description": "Allow later sessions to request linking a local plugin after you confirm Full Trust."
-          }
-        }
+        "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, and CLI. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development and testing use the CLI only.\n\n## Toolchain\n\nLocate the local contract with `vibex-plugin toolchain`, then `init`, `validate`, `test`, `build`, and `pack`. Link with `vibex plugin add --dev .`.\n\n## Link a local directory\n\nStart Desktop or `vibex serve`, then run `vibex plugin add --dev .` at the plugin root. Do not ask for a token in chat.\n\n## Troubleshooting\n\nIf the Host is not running, start it first. If the current session has no new tools, open or rebind a session.",
+        "config": {}
       }
     },
     "contentTab": "Content",
     "configTab": "Config",
-    "contentTree": "Plugin content",
+    "contentTree": "Package",
     "contentPreview": "Content preview",
     "noConfig": "This plugin has no configurable options.",
     "agentDefaultsEmpty": "No ready agents to configure.",

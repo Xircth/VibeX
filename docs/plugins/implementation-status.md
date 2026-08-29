@@ -26,7 +26,7 @@
 - `infer_product` 按插件 ID 猜 session/delegation
 - inspect 把 `format=javascript-esm` 编译成 node
 - `--template agent`
-- 产品路径 `VIBEX_PLUGIN_DEV_TOKEN` / `--token`
+- 产品路径 `VIBEX_PLUGIN_DEV_TOKEN` / 开发 MCP `plugin_dev_link_*`
 - `plugin_grants_v4` 表（迁移 `20260818010000`）
 - `agentDefaults` 配置特判
 - Workflow gateway token 注入每个 managed MCP
@@ -40,7 +40,7 @@
 - CPython 3.12.11 lock；Worker 按 node/python/native 启动
 - Isolated allowlist 文件 + macOS seatbelt + Linux bwrap/Landlock + seccomp-bpf + Windows AppContainer
 - CLI 10 模板、`toolchain`、OS watch、pack `signature.json`
-- `plugin_dev_link` grant 文件 0600；CLI 只认 `VIBEX_PLUGIN_DEV_GRANT`
+- 链接开发走 `vibex plugin add --dev` / `plugin_control_import`
 - doctor：无 grants 字段；`recentCrashes`；`mcpRebindingRequired`
 - `depends.kind=plugin` 启用时校验，不自动拉包
 - Remote：`plugin_install` / `plugin_update` / `plugin_uninstall`

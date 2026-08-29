@@ -184,6 +184,48 @@ fn snapshot_update_preserves_the_root_config_file() {
 }
 
 #[test]
+fn marketplace_install_copies_a_temp_package_into_durable_storage() {
+    let source = tempfile::tempdir().expect("downloaded package");
+    let storage = tempfile::tempdir().expect("installed packages");
+    write(
+        &source.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"drawio","publisher":"vibex","name":"Drawio","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
+        }"#,
+    );
+    write(
+        &source.path().join("README.md"),
+        "---\nsummary: Preview Drawio diagrams in VibeX.\n---\n# Drawio\n",
+    );
+    write(&source.path().join("config.json"), "{}");
+    write(
+        &source.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/drawio/SKILL.md","kind":"skill","title":"Drawio"}]}"#,
+    );
+    write(
+        &source.path().join("contents/skills/drawio/SKILL.md"),
+        "---\nname: drawio\ndescription: Drawio\n---\n",
+    );
+    let installed =
+        PluginPackage::materialize(source.path(), storage.path(), PluginSourceKind::Marketplace)
+            .expect("persist marketplace package");
+    drop(source);
+    assert!(installed.source.path.join("README.md").is_file());
+    assert_eq!(
+        installed.source.path,
+        storage.path().canonicalize().unwrap().join("drawio")
+    );
+    installed
+        .product_detail()
+        .expect("detail still loads after the download temp dir is gone");
+}
+
+#[test]
 fn snapshot_update_drops_removed_config_fields_and_keeps_valid_values() {
     let first = tempfile::tempdir().expect("first package");
     let update = tempfile::tempdir().expect("updated package");
@@ -629,4 +671,69 @@ fn actions_and_commands_share_one_invocation_definition() {
     assert_eq!(package.invocations[0].prompt, "Review with the Skill.");
     assert_eq!(package.invocations[0].skill.as_deref(), Some("review"));
     assert_eq!(package.invocations[1].prompt, "Run review.");
+}
+
+#[test]
+fn v4_rejects_plugin_kind_dependencies_with_a_stable_code() {
+    let root = tempfile::tempdir().expect("package root");
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.dep","publisher":"dev.vibex","name":"Dep","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "dependencies":[{"kind":"plugin","id":"dev.vibex.other"}],
+          "integrations":[{"id":"documents","kind":"content.skill","resource":"contents/skills/documents"}]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Dep\n---\n# Dep\n",
+    );
+    write(
+        &root.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/documents/SKILL.md","kind":"skill","title":"Documents"}]}"#,
+    );
+    write(
+        &root.path().join("contents/skills/documents/SKILL.md"),
+        "---\nname: documents\ndescription: Documents\n---\n",
+    );
+    let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap_err();
+    assert_eq!(error.code(), "dependency_kind_unsupported");
+}
+
+#[test]
+fn v4_rejects_conversation_timeline_card_slot_with_a_stable_code() {
+    let root = tempfile::tempdir().expect("package root");
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.card","publisher":"dev.vibex","name":"Card","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"app":{"root":"app","document":"index.html","protocol":"1.0"}},
+          "integrations":[{
+            "id":"card",
+            "kind":"app.surface",
+            "slot":"conversation.timeline.card",
+            "appEntrypoint":"app",
+            "handler":"surface.createSession"
+          }]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Card\n---\n# Card\n",
+    );
+    write(
+        &root.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    );
+    write(&root.path().join("app/index.html"), "<main></main>");
+    let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap_err();
+    assert_eq!(error.code(), "app_surface_slot_unsupported");
 }

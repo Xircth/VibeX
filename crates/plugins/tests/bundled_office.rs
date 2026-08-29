@@ -26,6 +26,14 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
     assert_eq!(manifest.skills.len(), 3);
     assert_eq!(manifest.app.file_openers.len(), 1);
     assert_eq!(manifest.app.preview_providers.len(), 1);
+    let detail = manifest.product_detail().unwrap();
+    assert!(
+        detail
+            .contents
+            .iter()
+            .any(|item| item.kind == "file_opener" && item.title == "Office Preview"),
+        "product contents must include the Office preview opener"
+    );
     let embedded_skills = [
         (
             "office-pptx",

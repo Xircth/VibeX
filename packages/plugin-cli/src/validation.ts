@@ -300,14 +300,26 @@ async function validateDependencies(
     return;
   }
   for (const dependency of value) {
+    if (isObject(dependency) && String(dependency.kind) === "plugin") {
+      diagnostics.push(
+        error(
+          "dependency_kind_unsupported",
+          "dependencies.kind=plugin is not supported; only runtime dependencies are allowed",
+        ),
+      );
+      continue;
+    }
     if (
       !isObject(dependency) ||
-      !["runtime", "plugin"].includes(String(dependency.kind)) ||
+      String(dependency.kind) !== "runtime" ||
       typeof dependency.descriptor !== "string" ||
       !(await safeFile(root, dependency.descriptor))
     ) {
       diagnostics.push(
-        error("dependency_invalid", "Dependency descriptor is invalid"),
+        error(
+          "dependency_invalid",
+          "Dependency must be kind runtime with a package-relative descriptor",
+        ),
       );
     }
   }
@@ -508,17 +520,24 @@ async function validateIntegrations(
         );
       }
     }
-    if (
-      integration.kind === "app.surface" &&
-      (!["plugin.detail.panel", "artifact.editor"].includes(
-        String(integration.slot),
-      ) ||
+    if (integration.kind === "app.surface") {
+      const slot = String(integration.slot);
+      if (slot === "conversation.timeline.card") {
+        diagnostics.push(
+          error(
+            "app_surface_slot_unsupported",
+            "app.surface slot conversation.timeline.card is not a closed Host surface",
+          ),
+        );
+      } else if (
+        !["plugin.detail.panel", "artifact.editor"].includes(slot) ||
         integration.appEntrypoint !== "app" ||
-        integration.handler !== "surface.createSession")
-    ) {
-      diagnostics.push(
-        error("app_surface_invalid", "App surface declaration is invalid"),
-      );
+        integration.handler !== "surface.createSession"
+      ) {
+        diagnostics.push(
+          error("app_surface_invalid", "App surface declaration is invalid"),
+        );
+      }
     }
   }
 }

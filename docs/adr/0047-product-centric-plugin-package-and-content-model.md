@@ -7,6 +7,9 @@ decision-makers:
 
 # 产品中心的 Plugin Package、内容与配置模型
 
+> 目录页信息架构已由 [ADR-0066](0066-plugin-marketplace-authoring-and-session-honesty.md)
+> 修订：设置 → 插件增加「已安装 / 插件市场」两个目录 Tab。详情页仍只有「内容」和「配置」。
+
 ## Context
 
 ADR-0046 建立了统一生命周期、隔离执行、Capability Broker、Runtime lock 与 App extension

@@ -666,7 +666,12 @@ impl PluginRegistry for SqlitePluginRegistry {
                  (publisher, plugin_id, version, package_digest, source_kind, source_path,
                   manifest_json, package_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'))
-             ON CONFLICT(publisher, plugin_id, package_digest) DO NOTHING",
+             ON CONFLICT(publisher, plugin_id, package_digest) DO UPDATE SET
+                 version = excluded.version,
+                 source_kind = excluded.source_kind,
+                 source_path = excluded.source_path,
+                 manifest_json = excluded.manifest_json,
+                 package_json = excluded.package_json",
         )
         .bind(publisher)
         .bind(plugin.id())
@@ -974,7 +979,12 @@ impl PluginRegistry for SqlitePluginRegistry {
                  (publisher, plugin_id, version, package_digest, source_kind, source_path,
                   manifest_json, package_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'))
-             ON CONFLICT(publisher, plugin_id, package_digest) DO NOTHING",
+             ON CONFLICT(publisher, plugin_id, package_digest) DO UPDATE SET
+                 version = excluded.version,
+                 source_kind = excluded.source_kind,
+                 source_path = excluded.source_path,
+                 manifest_json = excluded.manifest_json,
+                 package_json = excluded.package_json",
         )
         .bind(publisher)
         .bind(package.id.as_str())
@@ -1294,8 +1304,41 @@ impl PluginControlPlane {
     ) -> Result<(), PluginError> {
         let roots = utils::assets::materialize_builtin_plugins(data_root)
             .map_err(|error| PluginError::io("materialize official plugins", error))?;
-        self.reconcile_bundled_plugins(&roots, activation.as_ref())
-            .await
+        self.migrate_builtin_memberships(&roots).await?;
+        let _ = activation;
+        Ok(())
+    }
+
+    pub async fn migrate_builtin_memberships(&self, roots: &[PathBuf]) -> Result<(), PluginError> {
+        let catalog = self.catalog().await?;
+        for plugin in catalog {
+            if plugin.source.kind != crate::PluginSourceKind::Builtin {
+                continue;
+            }
+            let mut package = plugin.package.clone();
+            package.source.kind = crate::PluginSourceKind::Marketplace;
+            package.source.origin = Some(crate::marketplace_listing_url(
+                package.publisher.as_deref().unwrap_or("vibex"),
+                package.id.as_str(),
+            ));
+            package.source.git_ref = Some(package.version.clone());
+            package.source.locked = true;
+            if let Some(root) = roots.iter().find(|root| {
+                root.join(".vibex-plugin/plugin.json").is_file()
+                    && crate::PluginPackage::inspect(root, crate::PluginSourceKind::Marketplace)
+                        .ok()
+                        .is_some_and(|candidate| candidate.id.as_str() == package.id.as_str())
+            }) {
+                package.source.path = root.clone();
+            }
+            let migrated = InstalledPlugin {
+                package,
+                activation: plugin.activation,
+                package_digest: plugin.package_digest,
+            };
+            self.registry.put_plugin(migrated).await?;
+        }
+        Ok(())
     }
 
     pub async fn reconcile_bundled_plugins(
@@ -2880,6 +2923,7 @@ fn source_kind_key(kind: crate::PluginSourceKind) -> &'static str {
     match kind {
         crate::PluginSourceKind::Builtin => "builtin",
         crate::PluginSourceKind::Snapshot => "snapshot",
+        crate::PluginSourceKind::Marketplace => "marketplace",
         crate::PluginSourceKind::DeveloperLink => "developer_link",
         crate::PluginSourceKind::CodexNative => "codex_native",
         crate::PluginSourceKind::ClaudeCodeNative => "claude_code_native",

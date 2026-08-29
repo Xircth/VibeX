@@ -1,21 +1,18 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-
-import {
-  PluginDevHostClient,
-  resolvePluginDevConnection,
-} from "./hostClient.js";
-import {
-  doctorPlugin,
-  installLinkedPlugin,
-  uninstallLinkedPlugin,
-} from "./pluginControl.js";
 
 import { build } from "esbuild";
 
 import { buildPlugin, sdkAliases } from "./build.js";
+import { inspectLinkedPackage } from "./pluginControl.js";
+import {
+  doctorOnProductHost,
+  enableOnProductHost,
+  importLinkedOnProductHost,
+  uninstallOnProductHost,
+} from "./productHost.js";
 
 export async function testPlugin(
   root: string,
@@ -68,11 +65,13 @@ export async function testPlugin(
 }
 
 async function testPluginOnHost(root: string) {
-  const client = new PluginDevHostClient(
-    resolvePluginDevConnection(process.argv.slice(2)),
-  );
   await buildPlugin(root);
-  const installed = await installLinkedPlugin(root, client);
+  const plugin = await inspectLinkedPackage(root);
+  const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
+  if (installed.queued) {
+    throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
+  }
+  await enableOnProductHost(plugin.identity.id);
   const skill = await firstSkillFile(root);
   if (skill) {
     const original = await readFile(skill, "utf8");
@@ -80,12 +79,11 @@ async function testPluginOnHost(root: string) {
     const deadline = Date.now() + 10_000;
     let updated = false;
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const report = await doctorPlugin(root, client);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+      const report = await doctorOnProductHost(plugin.identity.id);
       const digest =
         report.installation &&
         typeof report.installation === "object" &&
-        report.installation !== null &&
         "packageDigest" in report.installation
           ? String(
               (report.installation as { packageDigest?: string }).packageDigest ??
@@ -102,8 +100,7 @@ async function testPluginOnHost(root: string) {
       throw new Error("plugin_host_skill_reload_failed");
     }
   }
-  await uninstallLinkedPlugin(root, client, true);
-  const { access } = await import("node:fs/promises");
+  await uninstallOnProductHost(plugin.identity.id, true);
   await access(root);
 }
 

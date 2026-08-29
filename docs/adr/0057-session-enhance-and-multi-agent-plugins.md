@@ -7,6 +7,11 @@ decision-makers:
 
 # 会话增强与多智能体协同成为两个内置插件 MCP
 
+> 「不能卸载的内置插件、随 Host 进入 catalog」已由
+> [ADR-0066](0066-plugin-marketplace-authoring-and-session-honesty.md) 修订。
+> 二者改为官网市场官方分类上的可安装包；产品拆分、MCP 身份、默认禁用、只影响新会话
+> 仍然有效。
+
 ## Context
 
 平台 `vibex-mcp` 把委派、实时反馈、向用户提问、会话查询和会话控制放在同一个按会话

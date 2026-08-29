@@ -116,6 +116,10 @@ impl ServerApplicationDomains {
                 self.plugin_control_install_runtime(args).await
             }
             DomainCommand::PluginControlImport => self.plugin_control_import(args).await,
+            DomainCommand::PluginMarketplaceCatalog => self.plugin_marketplace_catalog(args).await,
+            DomainCommand::PluginMarketplaceListing => self.plugin_marketplace_listing(args).await,
+            DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
+            DomainCommand::PluginCheckUpdates => self.plugin_check_updates().await,
             DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
             DomainCommand::PluginControlGcRuntimes => self.plugin_control_gc_runtimes(args).await,
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
@@ -462,6 +466,8 @@ impl ServerApplicationDomains {
         };
         let source_kind = if args.developer_link {
             plugins::PluginSourceKind::DeveloperLink
+        } else if plugins::origin_kind(args.origin.as_deref()) == Some("marketplace") {
+            plugins::PluginSourceKind::Marketplace
         } else {
             plugins::PluginSourceKind::Snapshot
         };
@@ -472,6 +478,7 @@ impl ServerApplicationDomains {
             plugins::PluginPackage::materialize(&source, &storage, source_kind)
                 .map_err(plugin_error)?
         };
+        package.source.kind = source_kind;
         package.source.origin = args.origin;
         package.source.git_ref = args.git_ref;
         package.source.git_sha = args.git_sha;
@@ -508,6 +515,164 @@ impl ServerApplicationDomains {
         Ok(plugin_control_item(&imported.plugin))
     }
 
+    async fn plugin_marketplace_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CatalogArgs {
+            query: Option<String>,
+        }
+        let args: CatalogArgs = parse(args).unwrap_or(CatalogArgs { query: None });
+        let mut page = plugins::fetch_catalog(args.query.as_deref())
+            .await
+            .unwrap_or_default();
+        if let Ok(roots) = utils::assets::materialize_builtin_plugins(&self.runtime_root) {
+            for root in roots {
+                if let Ok(package) =
+                    plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                {
+                    let listing = plugins::listing_from_package(&package, true);
+                    if !page
+                        .official
+                        .iter()
+                        .any(|item| item.plugin_name == listing.plugin_name)
+                    {
+                        page.official.push(listing);
+                    }
+                }
+            }
+        }
+        serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn plugin_marketplace_listing(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ListingArgs {
+            owner: String,
+            plugin_name: String,
+        }
+        let args: ListingArgs = parse(args)?;
+        let mut listing = plugins::fetch_listing(&args.owner, &args.plugin_name)
+            .await
+            .ok();
+        if let Ok(roots) = utils::assets::materialize_builtin_plugins(&self.runtime_root) {
+            for root in roots {
+                if let Ok(package) =
+                    plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                {
+                    if package.id.as_str() == args.plugin_name
+                        || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name)
+                    {
+                        let snapshot = listing
+                            .take()
+                            .unwrap_or_else(|| plugins::listing_from_package(&package, true));
+                        return serde_json::to_value(plugins::detail_from_package(
+                            &package, snapshot,
+                        ))
+                        .map_err(|error| ApplicationError::internal(error.to_string()));
+                    }
+                }
+            }
+        }
+        let listing = listing.ok_or_else(|| {
+            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
+        })?;
+        serde_json::to_value(plugins::CatalogPluginDetail {
+            summary: listing.summary.clone(),
+            readme: listing.readme.clone().unwrap_or_default(),
+            contents: Vec::new(),
+            listing,
+        })
+        .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn plugin_marketplace_install(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct InstallArgs {
+            owner: String,
+            plugin_name: String,
+            tag: Option<String>,
+            conflict: Option<String>,
+        }
+        let args: InstallArgs = parse(args)?;
+        let decision = match args.conflict.as_deref() {
+            Some("keep") => plugins::ConflictDecision::KeepInstalled,
+            Some("replace") => plugins::ConflictDecision::Replace,
+            _ => plugins::ConflictDecision::Reject,
+        };
+        if let Ok(listing) =
+            plugins::fetch_artifact(&args.owner, &args.plugin_name, args.tag.as_deref()).await
+            && let Some(url) = listing.download_url.clone()
+            && !url.starts_with("builtin://")
+            && !url.starts_with("offline://")
+        {
+            let archive = download_marketplace_archive(&url).await?;
+            return self
+                .plugin_control_import(json!({
+                    "path": archive.to_string_lossy(),
+                    "developerLink": false,
+                    "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
+                    "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
+                    "gitRef": listing.tag,
+                    "locked": true,
+                }))
+                .await;
+        }
+        let roots = utils::assets::materialize_builtin_plugins(&self.runtime_root)
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let root = roots
+            .into_iter()
+            .find(|root| {
+                plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
+                    .ok()
+                    .is_some_and(|package| {
+                        package.id.as_str() == args.plugin_name
+                            || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name)
+                    })
+            })
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
+            })?;
+        let mut package =
+            plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                .map_err(plugin_error)?;
+        package.source.origin = Some(plugins::marketplace_listing_url(
+            &args.owner,
+            &args.plugin_name,
+        ));
+        package.source.git_ref = args.tag.or(Some(package.version.clone()));
+        package.source.locked = true;
+        let imported = self
+            .plugin_control_plane
+            .import(package, decision)
+            .await
+            .map_err(plugin_error)?;
+        Ok(plugin_control_item(&imported.plugin))
+    }
+
+    async fn plugin_check_updates(&self) -> Result<Value, ApplicationError> {
+        let catalog = self
+            .plugin_control_plane
+            .catalog()
+            .await
+            .map_err(plugin_error)?;
+        let updates = plugins::check_installed_updates(
+            &catalog
+                .iter()
+                .map(|plugin| plugins::InstalledOrigin {
+                    plugin_id: plugin.id().to_owned(),
+                    version: plugin.version.clone(),
+                    kind: plugin.source.kind,
+                    origin: plugin.source.origin.clone(),
+                    git_ref: plugin.source.git_ref.clone(),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await;
+        serde_json::to_value(updates).map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
     async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -524,13 +689,11 @@ impl ServerApplicationDomains {
             .await
             .map_err(plugin_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
-        if plugin.source.kind == plugins::PluginSourceKind::Builtin {
-            return Err(ApplicationError::bad_request(
-                "built-in plugins can be disabled but not uninstalled",
-            ));
-        }
-        let snapshot = (plugin.source.kind == plugins::PluginSourceKind::Snapshot)
-            .then(|| plugin.source.path.clone());
+        let snapshot = matches!(
+            plugin.source.kind,
+            plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
+        )
+        .then(|| plugin.source.path.clone());
         self.plugin_control_plane
             .uninstall(&args.plugin_id)
             .await
@@ -1436,6 +1599,7 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
     let source_kind = match plugin.source.kind {
         plugins::PluginSourceKind::Builtin => "builtin",
         plugins::PluginSourceKind::Snapshot => "snapshot",
+        plugins::PluginSourceKind::Marketplace => "marketplace",
         plugins::PluginSourceKind::DeveloperLink => "developer_link",
         plugins::PluginSourceKind::CodexNative => "codex_native",
         plugins::PluginSourceKind::ClaudeCodeNative => "claude_code_native",
@@ -1555,8 +1719,10 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
         "appContributions": app_contributions,
         "nativeManaged": false,
         "enableSupported": true,
-        "updateSupported": plugin.source.kind == plugins::PluginSourceKind::Snapshot
-            && plugin.source.origin.is_some(),
+        "updateSupported": plugins::source_allows_remote_update(
+            plugin.source.kind,
+            plugin.source.origin.as_deref(),
+        ),
         "rollbackSupported": false,
         "uninstallSupported": plugin.source.kind != plugins::PluginSourceKind::Builtin,
         "sourceOrigin": plugin.source.origin,
@@ -1564,6 +1730,30 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
         "sourceSha": plugin.source.git_sha,
         "sourceLocked": plugin.source.locked,
     })
+}
+
+async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, ApplicationError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    if !response.status().is_success() {
+        return Err(ApplicationError::not_found(url.to_owned()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let suffix = plugins::marketplace_archive_suffix(url);
+    let path =
+        std::env::temp_dir().join(format!("vibex-market-{}.{}", uuid::Uuid::new_v4(), suffix));
+    std::fs::write(&path, bytes).map_err(|error| ApplicationError::internal(error.to_string()))?;
+    Ok(path)
 }
 
 fn remove_managed_plugin_snapshot(

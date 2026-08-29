@@ -137,7 +137,7 @@ async fn enabling_each_plugin_opens_only_its_mcp_gate() {
 }
 
 #[test]
-fn bundled_plugin_development_declares_gated_dev_mcp() {
+fn bundled_plugin_development_is_skill_only() {
     let package = inspect("plugin-development");
     assert_eq!(package.id.as_str(), "vibex.plugin-development");
     assert_eq!(package.publisher.as_deref(), Some("vibex"));
@@ -146,49 +146,10 @@ fn bundled_plugin_development_declares_gated_dev_mcp() {
         "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。"
     );
     assert_eq!(package.skills.len(), 1);
-    assert!(package.mcp.get("vibex-plugin-dev-mcp").is_some());
-    assert_eq!(package.config["devMcp"], false);
-}
-
-#[tokio::test]
-async fn plugin_development_mcp_stays_closed_until_config_enables_it() {
-    let workspace = tempfile::tempdir().unwrap();
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets/plugins/plugin-development");
-    let root = workspace.path().join("plugin-development");
-    copy_dir(&source, &root);
-    let package = PluginPackage::inspect(&root, PluginSourceKind::Builtin).unwrap();
-    let control = PluginControlPlane::new(Arc::new(InMemoryPluginRegistry::default()));
-    control
-        .import(package.clone(), ConflictDecision::Reject)
-        .await
-        .unwrap();
-    control
-        .set_enabled("vibex.plugin-development", true)
-        .await
-        .unwrap();
-    let gate = control.official_product_mcp_gate();
-    assert!(!gate.allow_plugin_dev_mcp());
-
-    package
-        .write_config(serde_json::json!({ "devMcp": true }))
-        .unwrap();
-    control.sync_official_product_mcp_gate().await.unwrap();
-    assert!(gate.allow_plugin_dev_mcp());
-}
-
-fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_name() == "node_modules" {
-            continue;
-        }
-        let destination = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir(&entry.path(), &destination);
-        } else {
-            std::fs::copy(entry.path(), destination).unwrap();
-        }
-    }
+    assert!(
+        package
+            .mcp
+            .as_object()
+            .is_none_or(|object| object.is_empty())
+    );
 }

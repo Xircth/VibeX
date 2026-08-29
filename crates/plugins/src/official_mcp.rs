@@ -25,9 +25,6 @@ pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
 /// Host-injected / native-projected MCP identity for session enhancement.
 pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
 
-/// Host-injected MCP identity for plugin development link requests.
-pub const PLUGIN_DEV_MCP_NAME: &str = "vibex-plugin-dev-mcp";
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfficialMcpBinding {
     pub plugin_id: String,
@@ -61,10 +58,6 @@ impl OfficialMcpRuntime {
         self.bindings().iter().any(|binding| {
             binding.binary_id == "vibex-workflow-mcp" || binding.product == "workflow"
         })
-    }
-
-    pub fn allow_plugin_dev_mcp(&self) -> bool {
-        self.has_product("plugin-dev")
     }
 
     pub fn product_mcp_names(&self) -> Vec<String> {
@@ -171,16 +164,11 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
         let binary_id = managed.get("binaryId")?.as_str()?.to_owned();
         let declared = managed.get("product").and_then(Value::as_str);
         let product = match (declared, binary_id.as_str()) {
-            (Some("session" | "delegation" | "workflow" | "plugin-dev"), _) => {
-                declared.unwrap().to_owned()
-            }
+            (Some("session" | "delegation" | "workflow"), _) => declared.unwrap().to_owned(),
             (_, "vibex-workflow-mcp") => "workflow".into(),
             _ => continue,
         };
         let config = live_plugin_config(plugin);
-        if product == "plugin-dev" && config.get("devMcp") != Some(&Value::Bool(true)) {
-            continue;
-        }
         return Some(OfficialMcpBinding {
             plugin_id: plugin.id().to_owned(),
             binary_id,

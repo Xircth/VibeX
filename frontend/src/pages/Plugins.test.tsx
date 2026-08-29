@@ -38,7 +38,13 @@ describe('PluginsPage', () => {
     const heading = screen.getByRole('heading', { name: '插件' });
     expect(heading).toBeVisible();
     expect(heading.querySelector('svg')).toBeInTheDocument();
-    expect(await screen.findByText('没有匹配的插件')).toBeVisible();
+    expect(await screen.findByText('没有已安装的插件')).toBeVisible();
+    expect(
+      screen.queryByText('添加插件后，它会显示在这里。')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '插件市场' })
+    ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '返回 Agent 设置' })
     ).not.toBeInTheDocument();
@@ -49,7 +55,7 @@ describe('PluginsPage', () => {
     async (environment) => {
       renderPage(environment);
       expect(screen.getByRole('heading', { name: '插件' })).toBeVisible();
-      expect(await screen.findByText('没有匹配的插件')).toBeVisible();
+      expect(await screen.findByText('没有已安装的插件')).toBeVisible();
       expect(
         screen.queryByRole('button', { name: '返回项目列表' })
       ).not.toBeInTheDocument();

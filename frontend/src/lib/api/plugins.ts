@@ -113,6 +113,8 @@ export interface PluginControlItem {
   sourceRef?: string | null;
   sourceSha?: string | null;
   sourceLocked?: boolean;
+  updateAvailable?: boolean;
+  availableTag?: string | null;
 }
 
 export interface PluginPermission {
@@ -244,6 +246,50 @@ export interface PluginImportPreview {
 
 export type PluginImportPackageKind = 'codex' | 'vibex';
 
+export interface CatalogListing {
+  owner: string;
+  pluginName: string;
+  tag: string;
+  version: string;
+  displayName: string;
+  summary: string;
+  category: string;
+  sourceKind: string;
+  homepage?: string | null;
+  repo?: string | null;
+  packageDigest?: string | null;
+  downloadUrl?: string | null;
+  sha256?: string | null;
+  offlinePluginId?: string | null;
+  hasWorker?: boolean;
+  hasApp?: boolean;
+  hasMcp?: boolean;
+  opens?: string[];
+  readme?: string | null;
+}
+
+export interface CatalogPluginDetail {
+  listing: CatalogListing;
+  summary: string;
+  readme: string;
+  contents: PluginContentDocument[];
+}
+
+export interface CatalogPage {
+  official: CatalogListing[];
+  community: CatalogListing[];
+  communityLimit: number;
+  query: string;
+  remote: boolean;
+}
+
+export interface PluginUpdateStatus {
+  pluginId: string;
+  updateAvailable: boolean;
+  availableTag?: string | null;
+  availableVersion?: string | null;
+}
+
 export type PluginCliImportEcosystem = 'codex' | 'claude_code';
 
 export type PluginCliImportEvent =
@@ -330,11 +376,7 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'plugin_contribution_catalog'
       ) as Promise<PluginContributionCatalog>,
-    invokeContribution: (
-      pluginId: string,
-      handler: string,
-      input?: unknown
-    ) =>
+    invokeContribution: (pluginId: string, handler: string, input?: unknown) =>
       transport.call('plugin_invoke_contribution', {
         pluginId,
         handler,
@@ -460,6 +502,29 @@ export function createPluginControlApi(transport: BackendTransport) {
           archive: string;
         }>;
       }>,
+    marketplaceCatalog: (query?: string) =>
+      transport.call('plugin_marketplace_catalog', {
+        query: query || null,
+      }) as Promise<CatalogPage>,
+    marketplaceListing: (owner: string, pluginName: string) =>
+      transport.call('plugin_marketplace_listing', {
+        owner,
+        pluginName,
+      }) as Promise<CatalogPluginDetail>,
+    marketplaceInstall: (
+      owner: string,
+      pluginName: string,
+      tag?: string,
+      conflict: 'reject' | 'keep' | 'replace' = 'reject'
+    ) =>
+      transport.call('plugin_marketplace_install', {
+        owner,
+        pluginName,
+        tag: tag ?? null,
+        conflict,
+      }) as Promise<PluginControlItem>,
+    checkUpdates: () =>
+      transport.call('plugin_check_updates') as Promise<PluginUpdateStatus[]>,
     install: (
       source:
         | { artifactId: string }

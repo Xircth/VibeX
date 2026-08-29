@@ -650,20 +650,235 @@ pub async fn plugin_contribution_catalog(
 pub async fn plugin_marketplace_index(
     state: State<'_, AppState>,
 ) -> Result<plugins::MarketplaceIndex, AppError> {
-    let root = plugin_snapshot_root(&state.app_handle)?;
-    let mut index =
-        plugins::load_index(&plugins::default_index_path(&root)).map_err(plugin_error)?;
-    if index.listings.is_empty() {
-        index = bundled_marketplace_index();
-    }
-    Ok(index)
+    let page = plugin_marketplace_catalog(state, None).await?;
+    Ok(plugins::MarketplaceIndex {
+        listings: page
+            .official
+            .into_iter()
+            .chain(page.community)
+            .map(|item| plugins::MarketplaceListing {
+                publisher: item.owner,
+                plugin_id: item.plugin_name,
+                version: item.version,
+                summary: item.summary,
+                package_digest: item.package_digest.unwrap_or_default(),
+                archive: item.download_url.or(item.homepage).unwrap_or_default(),
+            })
+            .collect(),
+    })
 }
 
-fn bundled_marketplace_index() -> plugins::MarketplaceIndex {
-    serde_json::from_str(include_str!(
-        "../../../assets/plugins/index/official.v1.json"
-    ))
-    .expect("bundled official marketplace index")
+#[tauri::command]
+pub async fn plugin_marketplace_catalog(
+    _state: State<'_, AppState>,
+    query: Option<String>,
+) -> Result<plugins::CatalogPage, AppError> {
+    let mut page = plugins::fetch_catalog(query.as_deref())
+        .await
+        .unwrap_or_else(|_| plugins::CatalogPage {
+            community_limit: plugins::COMMUNITY_PAGE_SIZE,
+            ..plugins::CatalogPage::default()
+        });
+    let data_root = utils::assets::asset_dir();
+    if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
+        for root in roots {
+            if let Ok(package) =
+                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+            {
+                let listing = plugins::listing_from_package(&package, true);
+                if !page
+                    .official
+                    .iter()
+                    .any(|item| item.plugin_name == listing.plugin_name)
+                {
+                    page.official.push(listing);
+                }
+            }
+        }
+    }
+    page.official
+        .sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    if let Some(query) = query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let needle = query.to_ascii_lowercase();
+        page.official.retain(|item| {
+            item.display_name.to_ascii_lowercase().contains(&needle)
+                || item.summary.to_ascii_lowercase().contains(&needle)
+                || item.plugin_name.to_ascii_lowercase().contains(&needle)
+                || item.owner.to_ascii_lowercase().contains(&needle)
+        });
+    }
+    Ok(page)
+}
+
+#[tauri::command]
+pub async fn plugin_marketplace_listing(
+    owner: String,
+    plugin_name: String,
+) -> Result<plugins::CatalogPluginDetail, AppError> {
+    let mut listing = plugins::fetch_listing(&owner, &plugin_name).await.ok();
+    let data_root = utils::assets::asset_dir();
+    if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
+        for root in roots {
+            if let Ok(package) =
+                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+            {
+                if package.id.as_str() == plugin_name
+                    || package.id.as_str() == format!("{owner}.{plugin_name}")
+                    || listing.as_ref().is_some_and(|item| {
+                        item.offline_plugin_id.as_deref() == Some(package.id.as_str())
+                    })
+                {
+                    let snapshot = listing
+                        .take()
+                        .unwrap_or_else(|| plugins::listing_from_package(&package, true));
+                    return Ok(plugins::detail_from_package(&package, snapshot));
+                }
+            }
+        }
+    }
+    let listing = listing.ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
+    if let Some(detail) = inspect_marketplace_listing(&listing).await {
+        return Ok(detail);
+    }
+    Ok(plugins::CatalogPluginDetail {
+        summary: listing.summary.clone(),
+        readme: listing.readme.clone().unwrap_or_default(),
+        contents: Vec::new(),
+        listing,
+    })
+}
+
+async fn inspect_marketplace_listing(
+    listing: &plugins::CatalogListing,
+) -> Option<plugins::CatalogPluginDetail> {
+    let url = listing.download_url.as_deref()?;
+    if url.starts_with("builtin://") || url.starts_with("offline://") {
+        return None;
+    }
+    let archive = download_marketplace_archive(url).await.ok()?;
+    let extracted = extract_plugin_archive(&archive).ok()?;
+    let package =
+        plugins::PluginPackage::inspect(&extracted.root, plugins::PluginSourceKind::Marketplace)
+            .ok()?;
+    Some(plugins::detail_from_package(&package, listing.clone()))
+}
+
+#[tauri::command]
+pub async fn plugin_marketplace_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    owner: String,
+    plugin_name: String,
+    tag: Option<String>,
+    conflict: Option<String>,
+) -> Result<PluginControlItemDto, AppError> {
+    let conflict_decision = conflict.unwrap_or_else(|| "reject".into());
+    if let Ok(listing) = plugins::fetch_artifact(&owner, &plugin_name, tag.as_deref()).await
+        && let Some(url) = listing.download_url.clone()
+        && !url.starts_with("builtin://")
+        && !url.starts_with("offline://")
+    {
+        let archive = download_marketplace_archive(&url).await?;
+        return plugin_control_import(
+            app,
+            state,
+            archive.to_string_lossy().into_owned(),
+            false,
+            conflict_decision,
+            None,
+            Vec::new(),
+            Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
+            Some(listing.tag),
+            None,
+            Some(true),
+        )
+        .await;
+    }
+    let data_root = utils::assets::asset_dir();
+    let roots = utils::assets::materialize_builtin_plugins(&data_root)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let root = roots
+        .into_iter()
+        .find(|root| {
+            plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
+                .ok()
+                .is_some_and(|package| {
+                    package.id.as_str() == plugin_name
+                        || package.id.as_str() == format!("{owner}.{plugin_name}")
+                })
+        })
+        .ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
+    plugin_control_import(
+        app,
+        state,
+        root.to_string_lossy().into_owned(),
+        false,
+        conflict_decision,
+        None,
+        Vec::new(),
+        Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
+        tag.or(Some(
+            plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                .ok()
+                .map(|package| package.version)
+                .unwrap_or_default(),
+        )),
+        None,
+        Some(true),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_check_updates(
+    state: State<'_, AppState>,
+) -> Result<Vec<plugins::PluginUpdateStatus>, AppError> {
+    let catalog = state
+        .plugin_control_plane
+        .catalog()
+        .await
+        .map_err(plugin_error)?;
+    Ok(plugins::check_installed_updates(
+        &catalog
+            .iter()
+            .map(|plugin| plugins::InstalledOrigin {
+                plugin_id: plugin.id().to_owned(),
+                version: plugin.version.clone(),
+                kind: plugin.source.kind,
+                origin: plugin.source.origin.clone(),
+                git_ref: plugin.source.git_ref.clone(),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .await)
+}
+
+async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    if !response.status().is_success() {
+        return Err(AppError::NotFound(url.to_owned()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let suffix = plugins::marketplace_archive_suffix(url);
+    let path =
+        std::env::temp_dir().join(format!("vibex-market-{}.{}", uuid::Uuid::new_v4(), suffix));
+    std::fs::write(&path, bytes).map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(path)
 }
 
 #[tauri::command]
@@ -1302,6 +1517,8 @@ pub async fn plugin_control_import(
 ) -> Result<PluginControlItemDto, AppError> {
     let source_kind = if developer_link {
         plugins::PluginSourceKind::DeveloperLink
+    } else if plugins::origin_kind(origin.as_deref()) == Some("marketplace") {
+        plugins::PluginSourceKind::Marketplace
     } else {
         plugins::PluginSourceKind::Snapshot
     };
@@ -1366,6 +1583,7 @@ pub async fn plugin_control_import(
         let storage = plugin_snapshot_root(&app)?;
         plugins::PluginPackage::materialize(source, &storage, source_kind).map_err(plugin_error)?
     };
+    package.source.kind = source_kind;
     package.source.origin = origin.or(package.source.origin);
     package.source.git_ref = git_ref.or(package.source.git_ref);
     package.source.git_sha = git_sha.or(package.source.git_sha);
@@ -2283,18 +2501,18 @@ async fn uninstall_portable_plugin(
         .await
         .map_err(plugin_error)?
         .ok_or_else(|| AppError::NotFound(plugin_id.to_owned()))?;
-    if installed.source.kind == plugins::PluginSourceKind::Builtin {
-        return Err(AppError::BadRequest(
-            "built-in plugins can be disabled but not uninstalled".to_owned(),
-        ));
-    }
     remove_plugin_projections(&installed).await?;
     state
         .plugin_control_plane
         .uninstall(plugin_id)
         .await
         .map_err(plugin_error)?;
-    if !retain_data && installed.source.kind == plugins::PluginSourceKind::Snapshot {
+    if !retain_data
+        && matches!(
+            installed.source.kind,
+            plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
+        )
+    {
         remove_managed_snapshot(app, &installed.source.path)?;
     }
     if let Ok(runtime_root) = crate::managed_artifacts::directory(app) {
@@ -2431,10 +2649,12 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
         permission_delta: Vec::new(),
         native_managed: false,
         enable_supported: true,
-        update_supported: plugin.source.kind == plugins::PluginSourceKind::Snapshot
-            && plugin.source.origin.is_some(),
+        update_supported: plugins::source_allows_remote_update(
+            plugin.source.kind,
+            plugin.source.origin.as_deref(),
+        ),
         rollback_supported: false,
-        uninstall_supported: plugin.source.kind != plugins::PluginSourceKind::Builtin,
+        uninstall_supported: true,
         source_origin: plugin.source.origin.clone(),
         source_ref: plugin.source.git_ref.clone(),
         source_sha: plugin.source.git_sha.clone(),
@@ -3077,6 +3297,7 @@ fn source_kind(kind: &plugins::PluginSourceKind) -> &'static str {
     match kind {
         plugins::PluginSourceKind::Builtin => "builtin",
         plugins::PluginSourceKind::Snapshot => "snapshot",
+        plugins::PluginSourceKind::Marketplace => "marketplace",
         plugins::PluginSourceKind::DeveloperLink => "developer_link",
         plugins::PluginSourceKind::CodexNative => "codex_native",
         plugins::PluginSourceKind::ClaudeCodeNative => "claude_code_native",
@@ -3129,6 +3350,77 @@ struct ExtractedPluginArchive {
 }
 
 fn extract_plugin_archive(path: &Path) -> Result<ExtractedPluginArchive, AppError> {
+    if is_gzip_archive(path) {
+        return extract_plugin_tar_gz(path);
+    }
+    extract_plugin_zip(path)
+}
+
+fn is_gzip_archive(path: &Path) -> bool {
+    let mut magic = [0u8; 2];
+    File::open(path)
+        .and_then(|mut file| file.read_exact(&mut magic))
+        .is_ok()
+        && magic == [0x1f, 0x8b]
+}
+
+fn extract_plugin_tar_gz(path: &Path) -> Result<ExtractedPluginArchive, AppError> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| AppError::BadRequest(format!("cannot read plugin archive: {error}")))?;
+    if metadata.len() > MAX_PLUGIN_ARCHIVE_BYTES {
+        return Err(AppError::BadRequest(
+            "plugin archive must be 100 MB or smaller".to_owned(),
+        ));
+    }
+    let file = File::open(path)
+        .map_err(|error| AppError::BadRequest(format!("cannot open plugin archive: {error}")))?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    let staging = tempfile::tempdir()
+        .map_err(|error| AppError::Internal(format!("cannot stage plugin archive: {error}")))?;
+    let mut extracted_bytes = 0_u64;
+    let mut entries = 0_usize;
+    for entry in archive
+        .entries()
+        .map_err(|error| AppError::BadRequest(format!("invalid plugin tar.gz: {error}")))?
+    {
+        let mut entry = entry
+            .map_err(|error| AppError::BadRequest(format!("unreadable tar.gz entry: {error}")))?;
+        entries += 1;
+        if entries > MAX_PLUGIN_ARCHIVE_ENTRIES {
+            return Err(AppError::BadRequest(
+                "plugin archive contains more than 5,000 entries".to_owned(),
+            ));
+        }
+        let size = entry.header().size().unwrap_or(0);
+        if size > MAX_PLUGIN_ARCHIVE_ENTRY_BYTES {
+            return Err(AppError::BadRequest(
+                "archive entry exceeds 100 MiB".to_owned(),
+            ));
+        }
+        extracted_bytes = extracted_bytes.saturating_add(size);
+        if extracted_bytes > MAX_PLUGIN_ARCHIVE_EXTRACTED_BYTES {
+            return Err(AppError::BadRequest(
+                "plugin archive expands beyond 512 MiB".to_owned(),
+            ));
+        }
+        if !entry.unpack_in(staging.path()).map_err(|error| {
+            AppError::BadRequest(format!("cannot extract tar.gz entry: {error}"))
+        })? {
+            return Err(AppError::BadRequest("unsafe tar.gz entry path".to_owned()));
+        }
+    }
+    if entries == 0 {
+        return Err(AppError::BadRequest("plugin archive is empty".to_owned()));
+    }
+    let root = resolve_extracted_plugin_root(staging.path())?;
+    Ok(ExtractedPluginArchive {
+        _staging: staging,
+        root,
+    })
+}
+
+fn extract_plugin_zip(path: &Path) -> Result<ExtractedPluginArchive, AppError> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| AppError::BadRequest(format!("cannot read plugin ZIP: {error}")))?;
     if metadata.len() > MAX_PLUGIN_ARCHIVE_BYTES {

@@ -81,14 +81,6 @@ impl DelegationInjector for VibexDelegationInjector {
                     command: locate_named_sibling("vibex-workflow-mcp"),
                     args: Vec::new(),
                 }),
-                "plugin-dev" => servers.push(self.product_server(
-                    context,
-                    "vibex-plugin-dev-mcp",
-                    "plugin-dev",
-                    TokenPermissions {
-                        ..TokenPermissions::default()
-                    },
-                )),
                 _ => {}
             }
         }
@@ -183,9 +175,6 @@ impl VibexDelegationInjector {
                             args.push("--server-token".to_string());
                             args.push(plugin_token);
                         }
-                    } else if name == "vibex-plugin-dev-mcp" {
-                        args.push("--product".to_string());
-                        args.push("plugin-dev".to_string());
                     } else {
                         args.push("--product".to_string());
                         args.push("session".to_string());
@@ -325,29 +314,6 @@ mod tests {
             CompanionInjectionList::Unsupported {
                 code: "official_product_mcp_disabled"
             }
-        );
-    }
-
-    #[test]
-    fn plugin_dev_binding_injects_named_server() {
-        let injector = VibexDelegationInjector {
-            tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            official_mcp: gate(&[("plugin-dev", 0)]),
-        };
-        let agent = AgentId::parse("vendor.capable-agent").unwrap();
-        let CompanionInjectionList::Injected(servers) =
-            injector.injected_stdio_servers(context(&agent, true))
-        else {
-            panic!("expected plugin-dev injection");
-        };
-        assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0].name, "vibex-plugin-dev-mcp");
-        assert!(
-            servers[0]
-                .args
-                .windows(2)
-                .any(|window| window == ["--features", "plugin-dev"])
         );
     }
 

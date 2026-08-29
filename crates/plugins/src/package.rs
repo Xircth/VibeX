@@ -24,6 +24,7 @@ pub enum PackageFormat {
 pub enum PluginSourceKind {
     Builtin,
     Snapshot,
+    Marketplace,
     DeveloperLink,
     CodexNative,
     ClaudeCodeNative,
@@ -375,6 +376,58 @@ fn default_readme_path() -> String {
     "README.md".to_owned()
 }
 
+fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocument> {
+    let bound_handlers: std::collections::BTreeSet<&str> = app
+        .file_openers
+        .iter()
+        .map(|opener| opener.handler.as_str())
+        .collect();
+    let mut documents = Vec::new();
+    for opener in &app.file_openers {
+        let mut suffixes = opener
+            .extensions
+            .iter()
+            .map(|ext| format!(".{ext}"))
+            .chain(opener.file_name_suffixes.iter().cloned())
+            .collect::<Vec<_>>();
+        suffixes.sort();
+        suffixes.dedup();
+        documents.push(PluginContentDocument {
+            path: format!("app/openers/{}.md", opener.id),
+            kind: "file_opener".to_owned(),
+            title: opener.label.clone(),
+            content: if suffixes.is_empty() {
+                opener.label.clone()
+            } else {
+                format!("{}\n{}", opener.label, suffixes.join(" "))
+            },
+        });
+    }
+    for provider in &app.preview_providers {
+        if bound_handlers.contains(provider.id.as_str()) {
+            continue;
+        }
+        documents.push(PluginContentDocument {
+            path: format!("app/previews/{}.md", provider.id),
+            kind: "preview_provider".to_owned(),
+            title: provider.id.clone(),
+            content: provider.id.clone(),
+        });
+    }
+    for surface in &app.surfaces {
+        if bound_handlers.contains(surface.id.as_str()) {
+            continue;
+        }
+        documents.push(PluginContentDocument {
+            path: format!("app/surfaces/{}.md", surface.id),
+            kind: "app_surface".to_owned(),
+            title: surface.label.clone(),
+            content: surface.label.clone(),
+        });
+    }
+    documents
+}
+
 fn default_plugin_config() -> Value {
     Value::Object(Map::new())
 }
@@ -411,6 +464,7 @@ impl PluginPackage {
                     .map_err(|error| PluginError::io("read Plugin content", error))?,
             });
         }
+        contents.extend(app_content_documents(&self.app));
         Ok(PluginProductDetail {
             summary: self.summary.clone(),
             readme: strip_readme_frontmatter(&readme).to_owned(),
@@ -554,10 +608,13 @@ impl PluginPackage {
         storage_root: &Path,
         source_kind: PluginSourceKind,
     ) -> Result<Self, PluginError> {
-        if source_kind != PluginSourceKind::Snapshot {
+        if !matches!(
+            source_kind,
+            PluginSourceKind::Snapshot | PluginSourceKind::Marketplace
+        ) {
             return Self::inspect(source, source_kind);
         }
-        let incoming = Self::inspect(source, PluginSourceKind::Snapshot)?;
+        let incoming = Self::inspect(source, source_kind)?;
         validate_storage_segment(incoming.id.as_str())?;
         fs::create_dir_all(storage_root)
             .map_err(|error| PluginError::io("create plugin snapshot directory", error))?;
@@ -566,7 +623,7 @@ impl PluginPackage {
             .map_err(|error| PluginError::io("resolve plugin snapshot directory", error))?;
         let target = storage_root.join(incoming.id.as_str());
         if source.canonicalize().ok().as_ref() == Some(&target) {
-            return Self::inspect(&target, PluginSourceKind::Snapshot);
+            return Self::inspect(&target, source_kind);
         }
         let staging = storage_root.join(format!(".{}.incoming", incoming.id.as_str()));
         if staging.exists() {
@@ -597,13 +654,13 @@ impl PluginPackage {
             .map_err(|error| PluginError::io("preserve installed Plugin config", error))?;
         }
         // Validate the complete staged tree before replacing a prior snapshot.
-        Self::inspect(&staging, PluginSourceKind::Snapshot)?;
+        Self::inspect(&staging, source_kind)?;
         if target.exists() {
             remove_snapshot_path(&target)?;
         }
         fs::rename(&staging, &target)
             .map_err(|error| PluginError::io("activate plugin snapshot", error))?;
-        Self::inspect(&target, PluginSourceKind::Snapshot)
+        Self::inspect(&target, source_kind)
     }
 
     pub fn inspect(root: &Path, source_kind: PluginSourceKind) -> Result<Self, PluginError> {
@@ -915,7 +972,19 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             "artifact.preview" => {
                 preview_providers.push(integration_contribution(integration, &id))
             }
-            "app.surface" => surfaces.push(integration_contribution(integration, &id)),
+            "app.surface" => {
+                let slot = integration
+                    .get("slot")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if slot == "conversation.timeline.card" {
+                    return Err(PluginError::coded(
+                        "app_surface_slot_unsupported",
+                        "app.surface slot conversation.timeline.card is not a closed Host surface",
+                    ));
+                }
+                surfaces.push(integration_contribution(integration, &id));
+            }
             "content.hook"
             | "app.command"
             | "app.toolbar"
@@ -964,8 +1033,9 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
                 PluginError::invalid_manifest("each v4 dependency must be an object")
             })?;
             if dependency.get("kind").and_then(Value::as_str) != Some("runtime") {
-                return Err(PluginError::invalid_manifest(
-                    "only runtime dependencies are currently supported",
+                return Err(PluginError::coded(
+                    "dependency_kind_unsupported",
+                    "dependencies.kind=plugin is not supported; only runtime dependencies are allowed",
                 ));
             }
             let descriptor = required_string(dependency, "descriptor")?;
@@ -1526,10 +1596,7 @@ fn parse_app_contributions(
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             let valid = !id.is_empty()
-                && matches!(
-                    slot.as_str(),
-                    "plugin.detail.panel" | "artifact.editor" | "conversation.timeline.card"
-                )
+                && matches!(slot.as_str(), "plugin.detail.panel" | "artifact.editor")
                 && app_entrypoint == "app"
                 && handler == "surface.createSession"
                 && allowed_methods.iter().all(|method| {

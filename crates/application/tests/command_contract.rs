@@ -47,6 +47,9 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
         "plugin_control_catalog",
         "plugin_contribution_catalog",
         "plugin_resolve_file_opener",
+        "plugin_marketplace_catalog",
+        "plugin_marketplace_listing",
+        "plugin_check_updates",
     ] {
         let command = name.parse::<DomainCommand>().expect("plugin read command");
         assert_eq!(command.required_scope(), "plugin.read");
@@ -69,6 +72,13 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
         "plugin_control_import"
             .parse::<DomainCommand>()
             .expect("plugin import command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
+        "plugin_marketplace_install"
+            .parse::<DomainCommand>()
+            .expect("marketplace install command")
             .required_scope(),
         "plugin.write"
     );

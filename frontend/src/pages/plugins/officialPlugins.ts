@@ -44,6 +44,36 @@ export function officialPluginName(
   return officialPluginCopy(id, 'name', fallback, t);
 }
 
+export function officialListingName(
+  listing: {
+    pluginName: string;
+    displayName: string;
+    offlinePluginId?: string | null;
+  },
+  t: TFunction<'settings'>
+) {
+  return officialPluginName(
+    listing.offlinePluginId ?? listing.pluginName,
+    listing.displayName,
+    t
+  );
+}
+
+export function officialListingSummary(
+  listing: {
+    pluginName: string;
+    summary: string;
+    offlinePluginId?: string | null;
+  },
+  t: TFunction<'settings'>
+) {
+  return officialPluginSummary(
+    listing.offlinePluginId ?? listing.pluginName,
+    listing.summary,
+    t
+  );
+}
+
 export function officialPluginSummary(
   id: string,
   fallback: string | null,
@@ -114,6 +144,27 @@ export function pluginSourceLabel(
   return t('plugins.sourceInstalled');
 }
 
+export function isOpenSourcePluginOrigin(source: {
+  sourceKind?: string | null;
+  repo?: string | null;
+  sourceOrigin?: string | null;
+}) {
+  const kind = (source.sourceKind ?? '').toLowerCase();
+  if (
+    kind === 'snapshot' ||
+    kind === 'archive' ||
+    kind === 'upload' ||
+    kind === 'offline' ||
+    kind === 'builtin' ||
+    kind === 'developer_link'
+  ) {
+    return false;
+  }
+  if (kind === 'github') return true;
+  const origin = `${source.repo ?? ''}\n${source.sourceOrigin ?? ''}`;
+  return /github\.com|gitlab\.com|codeberg\.org|bitbucket\.org/i.test(origin);
+}
+
 export function pluginCanUninstall(
   plugin: Pick<
     PluginControlItem,
@@ -121,5 +172,5 @@ export function pluginCanUninstall(
   >
 ) {
   if (plugin.uninstallSupported === false) return false;
-  return pluginInstallSource(plugin) !== 'builtin';
+  return true;
 }

@@ -608,12 +608,6 @@ impl DelegationInjector for HeadlessDelegationInjector {
                     command: locate_named_sibling("vibex-workflow-mcp"),
                     args: Vec::new(),
                 }),
-                "plugin-dev" => servers.push(self.product_server(
-                    context,
-                    "vibex-plugin-dev-mcp",
-                    "plugin-dev",
-                    false,
-                )),
                 _ => {}
             }
         }
@@ -635,7 +629,6 @@ impl HeadlessDelegationInjector {
         delegation: bool,
     ) -> InjectedMcpServer {
         let token = Uuid::new_v4().to_string();
-        let plugin_dev = name == "vibex-plugin-dev-mcp";
         self.tokens.register_with_permissions(
             token.clone(),
             TokenEntry {
@@ -645,13 +638,13 @@ impl HeadlessDelegationInjector {
             },
             TokenPermissions {
                 delegation,
-                feedback: !delegation && !plugin_dev,
-                ask: !delegation && !plugin_dev,
-                session_info: !delegation && !plugin_dev,
-                session_control: !delegation && !plugin_dev,
+                feedback: !delegation,
+                ask: !delegation,
+                session_info: !delegation,
+                session_control: !delegation,
             },
         );
-        let mut args = vec![
+        let args = vec![
             "--parent-connection-id".to_string(),
             context.parent_connection_id.to_string(),
             "--socket-path".to_string(),
@@ -663,14 +656,6 @@ impl HeadlessDelegationInjector {
             "--conversation-id".to_string(),
             context.parent_conversation_id.to_string(),
         ];
-        if plugin_dev {
-            args.push("--product".to_string());
-            args.push("plugin-dev".to_string());
-            if let Some(url) = self.official_mcp.http_base() {
-                args.push("--server-url".to_string());
-                args.push(url);
-            }
-        }
         InjectedMcpServer {
             name: name.to_string(),
             command: locate_companion(),

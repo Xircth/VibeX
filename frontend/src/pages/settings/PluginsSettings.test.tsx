@@ -558,27 +558,18 @@ describe('PluginsSettings', () => {
     );
   });
 
-  it('opens plugin development without copying a CLI connection', async () => {
-    const user = userEvent.setup();
+  it('does not expose a plugin-dev loopback dialog', async () => {
     const backend = transport();
     renderSettings(backend.value, false, 'vibex');
 
-    await user.click(await screen.findByRole('button', { name: '插件开发' }));
-    const dialog = await screen.findByRole('dialog', { name: '插件开发' });
-    expect(within(dialog).getByText(/普通使用插件不需要它/)).toBeVisible();
+    expect(await screen.findByText('Research Toolkit')).toBeVisible();
     expect(
-      within(dialog).getByRole('link', { name: '开发文档' })
-    ).toHaveAttribute('href', 'https://vibex.xforver.xin/docs/developers');
-    expect(
-      within(dialog).getByRole('button', { name: '启用插件开发' })
-    ).toBeVisible();
-    expect(
-      within(dialog).queryByRole('button', { name: '复制 CLI 连接' })
-    ).not.toBeInTheDocument();
-    expect(
-      within(dialog).queryByText(/vibex-plugin dev、install --link/)
+      screen.queryByRole('button', { name: '插件开发' })
     ).not.toBeInTheDocument();
     expect(screen.queryByText('secret-dev-token')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('http://127.0.0.1:43100')
+    ).not.toBeInTheDocument();
   });
 
   it('separates native ecosystems into tabs and searches only the active tab', async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import i18n from '@/i18n';
 
 import {
+  isOpenSourcePluginOrigin,
   officialConfigFieldCopy,
   officialPluginName,
   officialPluginSummary,
@@ -12,19 +13,39 @@ import {
 } from './officialPlugins';
 
 const t = i18n.getFixedT('zh-CN', 'settings');
+const en = i18n.getFixedT('en', 'settings');
 
 describe('official plugin presentation', () => {
-  it('keeps Office as a proper name and localizes the other built-ins', () => {
-    expect(officialPluginName('vibex.office', 'fallback', t)).toBe(
-      'VibeX Office'
-    );
+  it('localizes official plugin names in the active locale', () => {
+    expect(officialPluginName('vibex.office', 'fallback', t)).toBe('办公套件');
     expect(officialPluginName('vibex.workflow-creator', 'fallback', t)).toBe(
-      '工作流创建器'
+      'DAG 工作流编辑器'
     );
     expect(officialPluginName('vibex.session-enhance', 'fallback', t)).toBe(
       '会话增强'
     );
+    expect(officialPluginName('vibex.multi-agent', 'fallback', t)).toBe(
+      '多智能体协同'
+    );
+    expect(officialPluginName('vibex.plugin-development', 'fallback', t)).toBe(
+      '插件开发'
+    );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
+    expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
+      'VibeX Office'
+    );
+    expect(officialPluginName('vibex.workflow-creator', 'fallback', en)).toBe(
+      'VibeX Workflow Creator'
+    );
+    expect(officialPluginName('vibex.session-enhance', 'fallback', en)).toBe(
+      'Session Enhance'
+    );
+    expect(officialPluginName('vibex.multi-agent', 'fallback', en)).toBe(
+      'Multi-agent'
+    );
+    expect(
+      officialPluginName('vibex.plugin-development', 'fallback', en)
+    ).toBe('Plugin Development');
   });
 
   it('localizes official config labels without rewriting user plugins', () => {
@@ -63,6 +84,26 @@ describe('official plugin presentation', () => {
     ).toBe('让父 Agent 把子任务委托给其它 Agent。');
   });
 
+  it('exposes package structure only for public repository origins', () => {
+    expect(isOpenSourcePluginOrigin({ sourceKind: 'github' })).toBe(true);
+    expect(
+      isOpenSourcePluginOrigin({
+        sourceKind: 'marketplace',
+        sourceOrigin: 'https://github.com/acme/notes',
+      })
+    ).toBe(true);
+    expect(isOpenSourcePluginOrigin({ sourceKind: 'snapshot' })).toBe(false);
+    expect(isOpenSourcePluginOrigin({ sourceKind: 'archive' })).toBe(false);
+    expect(isOpenSourcePluginOrigin({ sourceKind: 'official' })).toBe(false);
+    expect(isOpenSourcePluginOrigin({ sourceKind: 'builtin' })).toBe(false);
+    expect(
+      isOpenSourcePluginOrigin({
+        sourceKind: 'marketplace',
+        sourceOrigin: 'https://vibex.xforever.xin/marketplace/vibex/office',
+      })
+    ).toBe(false);
+  });
+
   it('allows uninstall only for non-builtin packages that support it', () => {
     expect(
       pluginCanUninstall({
@@ -78,7 +119,7 @@ describe('official plugin presentation', () => {
       })
     ).toBe(true);
     expect(pluginCanUninstall({ builtin: true, sourceKind: 'builtin' })).toBe(
-      false
+      true
     );
     expect(
       pluginCanUninstall({

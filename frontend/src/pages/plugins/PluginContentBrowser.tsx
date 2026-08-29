@@ -1,19 +1,10 @@
-import {
-  ChevronDown,
-  ChevronRight,
-  FileCode2,
-  FileText,
-  Folder,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, FileCode2, Folder } from 'lucide-react';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type {
-  PluginContentDocument,
-  PluginProductDetail,
-} from '@/lib/api/plugins';
+import type { PluginContentDocument } from '@/lib/api/plugins';
 import { officialPluginReadme } from './officialPlugins';
 
 interface PluginContentTree {
@@ -33,6 +24,38 @@ interface MutablePluginContentTree {
   documents: PluginContentTree['documents'];
 }
 
+const KIND_ORDER = [
+  'mcp',
+  'runtime',
+  'skill',
+  'viewer',
+  'hook',
+  'workflow',
+  'other',
+] as const;
+
+function kindGroup(kind: string) {
+  if (kind === 'skill') return 'skill';
+  if (kind === 'mcp') return 'mcp';
+  if (kind === 'hook') return 'hook';
+  if (kind === 'workflow') return 'workflow';
+  if (kind === 'runtime') return 'runtime';
+  if (
+    kind === 'file_opener' ||
+    kind === 'preview_provider' ||
+    kind === 'app_surface' ||
+    kind === 'viewer'
+  ) {
+    return 'viewer';
+  }
+  return 'other';
+}
+
+function kindRank(name: string) {
+  const index = KIND_ORDER.indexOf(name as (typeof KIND_ORDER)[number]);
+  return index === -1 ? KIND_ORDER.length : index;
+}
+
 function buildContentTree(documents: PluginContentDocument[]) {
   const root: MutablePluginContentTree = {
     name: '',
@@ -42,11 +65,29 @@ function buildContentTree(documents: PluginContentDocument[]) {
   };
 
   for (const document of documents) {
+    const group = kindGroup(document.kind);
     const segments = document.path.split('/').filter(Boolean);
     const fileName = segments.pop();
     if (!fileName) continue;
+    const nested = segments.filter(
+      (segment) =>
+        segment !== 'contents' && segment !== group && segment !== `${group}s`
+    );
     let current = root;
-    for (const segment of segments) {
+    if (group) {
+      let folder = current.folders.get(group);
+      if (!folder) {
+        folder = {
+          name: group,
+          path: group,
+          folders: new Map(),
+          documents: [],
+        };
+        current.folders.set(group, folder);
+      }
+      current = folder;
+    }
+    for (const segment of nested) {
       const path = current.path ? `${current.path}/${segment}` : segment;
       let folder = current.folders.get(segment);
       if (!folder) {
@@ -67,7 +108,10 @@ function buildContentTree(documents: PluginContentDocument[]) {
     name: node.name,
     path: node.path,
     folders: [...node.folders.values()]
-      .sort((left, right) => left.name.localeCompare(right.name))
+      .sort((left, right) => {
+        const rank = kindRank(left.name) - kindRank(right.name);
+        return rank !== 0 ? rank : left.name.localeCompare(right.name);
+      })
       .map(finalize),
     documents: [...node.documents].sort((left, right) =>
       left.fileName.localeCompare(right.fileName)
@@ -75,6 +119,20 @@ function buildContentTree(documents: PluginContentDocument[]) {
   });
 
   return finalize(root);
+}
+
+export function groupedPluginContents(documents: PluginContentDocument[]) {
+  const groups = new Map<string, PluginContentDocument[]>();
+  for (const document of documents) {
+    const group = kindGroup(document.kind);
+    const items = groups.get(group) ?? [];
+    items.push(document);
+    groups.set(group, items);
+  }
+  return KIND_ORDER.filter((kind) => groups.has(kind)).map((kind) => ({
+    kind,
+    items: groups.get(kind) ?? [],
+  }));
 }
 
 function collectFolderPaths(tree: PluginContentTree): string[] {
@@ -99,6 +157,7 @@ function ContentTree({
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
 }) {
+  const { t } = useTranslation('settings');
   return (
     <>
       {tree.folders.map((folder) => {
@@ -125,7 +184,11 @@ function ContentTree({
                 />
               )}
               <Folder aria-hidden="true" />
-              <span>{folder.name}</span>
+              <span>
+                {t(`plugins.contentKind.${folder.name}`, {
+                  defaultValue: folder.name,
+                })}
+              </span>
             </button>
             {isExpanded ? (
               <ContentTree
@@ -158,36 +221,127 @@ function ContentTree({
   );
 }
 
-export function PluginContentBrowser({
+export function PluginReadmeView({
   pluginId,
-  detail,
+  readme,
 }: {
   pluginId: string;
-  detail: PluginProductDetail;
+  readme: string;
 }) {
   const { t } = useTranslation('settings');
-  const [selectedPath, setSelectedPath] = useState('README.md');
-  const tree = useMemo(() => buildContentTree(detail.contents), [detail]);
+  const value = officialPluginReadme(pluginId, readme, t);
+  return (
+    <article
+      className="product-plugin-readme"
+      aria-label={t('plugins.readmeTab')}
+    >
+      {value.trim() ? (
+        <AstryxMarkdown value={value} />
+      ) : (
+        <p className="product-plugin-muted">{t('plugins.noSummary')}</p>
+      )}
+    </article>
+  );
+}
+
+export function PluginContentsView({
+  contents,
+}: {
+  contents: PluginContentDocument[];
+}) {
+  const { t } = useTranslation('settings');
+  const groups = useMemo(() => groupedPluginContents(contents), [contents]);
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(groups.map((group) => group.kind))
+  );
+
+  useEffect(() => {
+    setExpanded(new Set(groups.map((group) => group.kind)));
+  }, [groups]);
+
+  if (groups.length === 0) {
+    return (
+      <p className="product-plugin-muted">{t('plugins.contentsEmpty')}</p>
+    );
+  }
+
+  const toggleGroup = (kind: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  };
+
+  return (
+    <div
+      className="product-plugin-contents"
+      role="region"
+      aria-label={t('plugins.contentsCatalog')}
+    >
+      {groups.map((group) => {
+        const open = expanded.has(group.kind);
+        const label = t(`plugins.contentKind.${group.kind}`, {
+          defaultValue: group.kind,
+        });
+        const listId = `plugin-contents-${group.kind}`;
+        return (
+          <section key={group.kind} className="product-plugin-contents-group">
+            <button
+              type="button"
+              className="product-plugin-contents-toggle"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() => toggleGroup(group.kind)}
+            >
+              {open ? (
+                <ChevronDown aria-hidden="true" />
+              ) : (
+                <ChevronRight aria-hidden="true" />
+              )}
+              <h2>{label}</h2>
+              <span>{group.items.length}</span>
+            </button>
+            {open ? (
+              <ul id={listId}>
+                {group.items.map((item) => (
+                  <li key={item.path}>
+                    {item.title ||
+                      item.path.split('/').filter(Boolean).at(-1)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PluginPackageTree({
+  contents,
+}: {
+  contents: PluginContentDocument[];
+}) {
+  const { t } = useTranslation('settings');
+  const tree = useMemo(() => buildContentTree(contents), [contents]);
   const allFolderPaths = useMemo(() => collectFolderPaths(tree), [tree]);
+  const [selectedPath, setSelectedPath] = useState(
+    () => tree.documents[0]?.document.path ?? tree.folders[0]?.path ?? ''
+  );
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(allFolderPaths)
   );
 
   useEffect(() => {
-    setSelectedPath('README.md');
     setExpanded(new Set(allFolderPaths));
-  }, [allFolderPaths, detail]);
+  }, [allFolderPaths]);
 
-  const selected = detail.contents.find(
-    (document) => document.path === selectedPath
-  );
-  const documentTitle = selected?.path.split('/').at(-1) ?? 'README.md';
-  const packageContent = selected?.content ?? detail.readme;
-  const documentContent =
-    !selected || selected.path === 'README.md'
-      ? officialPluginReadme(pluginId, packageContent, t)
-      : packageContent;
-  const isMarkdown = !selected || selected.path.endsWith('.md');
+  const selected = contents.find((document) => document.path === selectedPath);
+  const documentTitle = selected?.path.split('/').at(-1) ?? '';
+  const isMarkdown = selected?.path.endsWith('.md') ?? false;
 
   const toggleFolder = (path: string) => {
     setExpanded((current) => {
@@ -206,14 +360,6 @@ export function PluginContentBrowser({
         aria-label={t('plugins.contentTree')}
       >
         <nav aria-label={t('plugins.contentTree')}>
-          <button
-            type="button"
-            className={selectedPath === 'README.md' ? 'is-active' : undefined}
-            onClick={() => setSelectedPath('README.md')}
-          >
-            <FileText aria-hidden="true" />
-            <span>README.md</span>
-          </button>
           <div className="product-plugin-tree-root">
             <ContentTree
               tree={tree}
@@ -230,17 +376,20 @@ export function PluginContentBrowser({
         role="region"
         aria-label={t('plugins.contentPreview')}
       >
-        <article className="product-plugin-document">
-          <header>
-            <strong>{documentTitle}</strong>
-            <code>{selected?.path ?? 'README.md'}</code>
-          </header>
-          {isMarkdown ? (
-            <AstryxMarkdown value={documentContent} />
-          ) : (
-            <pre>{documentContent}</pre>
-          )}
-        </article>
+        {selected ? (
+          <article className="product-plugin-document">
+            <header>
+              <strong>{documentTitle}</strong>
+            </header>
+            {isMarkdown ? (
+              <AstryxMarkdown value={selected.content} />
+            ) : (
+              <pre>{selected.content}</pre>
+            )}
+          </article>
+        ) : (
+          <p className="product-plugin-muted">{t('plugins.contentsEmpty')}</p>
+        )}
       </ScrollArea>
     </section>
   );

@@ -13,7 +13,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BackendTransportProvider } from '@/lib/transport';
 import type { BackendTransport } from '@/lib/backendTransport';
-import { PluginCatalogPage, PluginDetailPage } from './ProductPlugins';
+import {
+  MarketplacePluginDetailPage,
+  PluginCatalogPage,
+  PluginDetailPage,
+} from './ProductPlugins';
 
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -123,6 +127,10 @@ function renderRoute(
         <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route path="/plugins" element={<PluginCatalogPage />} />
+            <Route
+              path="/plugins/marketplace/:owner/:pluginName"
+              element={<MarketplacePluginDetailPage />}
+            />
             <Route path="/plugins/:pluginId" element={<PluginDetailPage />} />
           </Routes>
         </MemoryRouter>
@@ -215,16 +223,20 @@ describe('product plugin experience', () => {
     expect(
       await screen.findByRole('tablist', { name: /插件详情|plugin detail/i })
     ).toBeVisible();
-    expect(screen.getByRole('tab', { name: /配置|config/i })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /README/i })).toHaveAttribute(
       'aria-selected',
       'true'
     );
+    expect(screen.getByRole('article', { name: /README/i })).toBeVisible();
     expect(
-      screen.queryByRole('region', { name: /插件内容|plugin content/i })
+      screen.queryByRole('region', { name: /插件内容|plugin contents/i })
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('switch', { name: 'Document preview' })
-    ).toBeVisible();
+      screen.queryByRole('tab', { name: /包结构|Package/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: 'Document preview' })
+    ).not.toBeInTheDocument();
   });
 
   it('shows one product-oriented list row and no internal contribution metrics', async () => {
@@ -253,10 +265,27 @@ describe('product plugin experience', () => {
     expect(
       screen.queryByRole('button', { name: /目录|catalog/i })
     ).not.toBeInTheDocument();
-    const development = screen.getByRole('button', {
-      name: /插件开发|plugin development/i,
-    });
-    expect(development.parentElement).toContainElement(search.parentElement);
+    expect(
+      screen.getByText(
+        /通过插件扩展平台能力，新建会话后生效|Extend the platform with plugins/i
+      )
+    ).toBeVisible();
+    expect(
+      screen
+        .getByRole('heading', { name: '插件' })
+        .closest('.chat-channel-heading')
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /通过插件扩展平台能力，新建会话后生效|Extend the platform with plugins/i
+      ).parentElement
+    ).toHaveClass('product-plugins-intro-row');
+    expect(
+      screen.getByRole('tab', { name: /已安装|installed/i })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('tab', { name: /插件市场|marketplace/i })
+    ).toBeVisible();
     expect(
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toHaveClass('primary-control');
@@ -279,16 +308,11 @@ describe('product plugin experience', () => {
           runtimes: [],
         };
       }
-      if (command === 'plugin_dev_connection') {
-        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
-      }
+      if (command === 'plugin_check_updates') return [];
       if (command === 'plugin_control_preview_import') {
         return { plugin: drawioPlugin, conflict: null };
       }
       if (command === 'plugin_control_import') return drawioPlugin;
-      if (command === 'plugin_control_set_enabled') {
-        return { ...drawioPlugin, enabled: true };
-      }
       throw new Error(command);
     });
     renderRoute('/plugins', call, [
@@ -299,6 +323,17 @@ describe('product plugin experience', () => {
 
     fireEvent.click(
       await screen.findByRole('button', { name: /添加插件|add plugin/i })
+    );
+    const trustDialog = await screen.findByRole('dialog');
+    expect(trustDialog).toHaveTextContent('Drawio');
+    expect(trustDialog).toHaveTextContent(/来源|Source/);
+    expect(trustDialog).toHaveTextContent(/本机文件|Local file/);
+    expect(trustDialog).toHaveTextContent(/权限|Permissions/);
+    expect(trustDialog).not.toHaveTextContent(
+      'Preview and edit Drawio diagrams.'
+    );
+    fireEvent.click(
+      within(trustDialog).getByRole('button', { name: /安装|install/i })
     );
 
     expect(await screen.findByText('Drawio')).toBeVisible();
@@ -333,9 +368,7 @@ describe('product plugin experience', () => {
       if (command === 'plugin_control_catalog') {
         return { plugins: [incoming], runtimes: [] };
       }
-      if (command === 'plugin_dev_connection') {
-        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
-      }
+      if (command === 'plugin_check_updates') return [];
       if (command === 'plugin_control_preview_import') {
         return {
           plugin: incoming,
@@ -393,16 +426,10 @@ describe('product plugin experience', () => {
         permissionIds: [],
       })
     );
-    expect(call).toHaveBeenCalledWith('plugin_control_configure_agents', {
-      pluginId: incoming.id,
-      allAgents: true,
-      agents: [],
-    });
-    expect(call).toHaveBeenCalledWith('plugin_control_configure_mcp', {
-      pluginId: incoming.id,
-      allAgents: true,
-      agents: [],
-    });
+    expect(call).not.toHaveBeenCalledWith(
+      'plugin_control_set_enabled',
+      expect.anything()
+    );
   });
 
   it('installs a vxp dropped onto the plugin page', async () => {
@@ -415,16 +442,11 @@ describe('product plugin experience', () => {
           runtimes: [],
         };
       }
-      if (command === 'plugin_dev_connection') {
-        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
-      }
+      if (command === 'plugin_check_updates') return [];
       if (command === 'plugin_control_preview_import') {
         return { plugin: drawioPlugin, conflict: null };
       }
       if (command === 'plugin_control_import') return drawioPlugin;
-      if (command === 'plugin_control_set_enabled') {
-        return { ...drawioPlugin, enabled: true };
-      }
       throw new Error(command);
     });
     renderRoute('/plugins', call, [
@@ -459,6 +481,15 @@ describe('product plugin experience', () => {
       });
     });
 
+    const droppedTrust = await screen.findByRole('dialog');
+    expect(droppedTrust).toHaveTextContent('Drawio');
+    expect(droppedTrust).toHaveTextContent(/本机文件|Local file/);
+    expect(droppedTrust).not.toHaveTextContent(
+      'Preview and edit Drawio diagrams.'
+    );
+    fireEvent.click(
+      within(droppedTrust).getByRole('button', { name: /安装|install/i })
+    );
     expect(await screen.findByText('Drawio')).toBeVisible();
     expect(call).toHaveBeenCalledWith('plugin_control_import', {
       path: drawioPlugin.sourcePath,
@@ -525,13 +556,78 @@ describe('product plugin experience', () => {
     });
   });
 
-  it('restores the desktop plugin development entry', async () => {
+  it('opens the marketplace tab with official listings first', async () => {
     const call = vi.fn(async (command: string) => {
       if (command === 'plugin_control_catalog') {
         return { plugins: [plugin], runtimes: [] };
       }
-      if (command === 'plugin_dev_connection') {
-        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
+      if (command === 'plugin_check_updates') return [];
+      if (command === 'plugin_marketplace_catalog') {
+        return {
+          official: [
+            {
+              owner: 'vibex',
+              pluginName: 'vibex.office',
+              tag: '1.0.0',
+              version: '1.0.0',
+              displayName: 'VibeX Office',
+              summary: 'Office files',
+              category: 'official',
+              sourceKind: 'official',
+            },
+          ],
+          community: [
+            {
+              owner: 'acme',
+              pluginName: 'notes',
+              tag: '2.0.0',
+              version: '2.0.0',
+              displayName: 'Notes',
+              summary: 'Take notes',
+              category: 'community',
+              sourceKind: 'github',
+            },
+          ],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      if (command === 'plugin_marketplace_listing') {
+        return {
+          listing: {
+            owner: 'acme',
+            pluginName: 'notes',
+            tag: '2.0.0',
+            version: '2.0.0',
+            displayName: 'Notes',
+            summary: 'Take notes',
+            category: 'community',
+            sourceKind: 'github',
+          },
+          summary: 'Take notes',
+          readme: '# Notes\n\nTake notes in VibeX.',
+          contents: [
+            {
+              path: 'contents/mcp/notes/server.json',
+              kind: 'mcp',
+              title: 'Notes MCP',
+              content: '{"command":"notes-mcp"}',
+            },
+            {
+              path: 'contents/skills/notes/SKILL.md',
+              kind: 'skill',
+              title: 'Notes skill',
+              content: '# Notes skill',
+            },
+            {
+              path: 'contents/runtimes/node.md',
+              kind: 'runtime',
+              title: 'Node',
+              content: 'Node runtime',
+            },
+          ],
+        };
       }
       throw new Error(command);
     });
@@ -541,47 +637,72 @@ describe('product plugin experience', () => {
       'desktop.tauri',
     ]);
 
-    const development = await screen.findByRole('button', {
-      name: /插件开发|plugin development/i,
-    });
-    expect(development).toHaveClass('raised-control');
-    fireEvent.click(development);
-
-    expect(
-      await screen.findByRole('dialog', {
-        name: /插件开发|plugin development/i,
-      })
-    ).toBeVisible();
-    const dialog = screen.getByRole('dialog', {
-      name: /插件开发|plugin development/i,
-    });
-    expect(dialog).toHaveClass('product-plugin-dev-dialog', 'max-w-md');
-    expect(
-      screen
-        .getByText(/供插件作者连接|connect plugin authors/i)
-        .closest('.gap-4')
-    ).not.toHaveClass('max-w-md');
-    expect(screen.getByText('http://127.0.0.1:4555')).toBeVisible();
-    const docs = screen.getByRole('link', {
-      name: /开发文档|developer docs/i,
-    });
-    expect(docs).toHaveAttribute(
-      'href',
-      'https://vibex.xforver.xin/docs/developers'
+    fireEvent.click(
+      await screen.findByRole('tab', { name: /插件市场|marketplace/i })
     );
     expect(
-      screen.getByText(
-        /本地插件开发 Host 已就绪|Local Plugin Dev Host is ready/i
-      ).parentElement
-    ).toContainElement(docs);
+      screen.getByRole('button', { name: /添加插件|add plugin/i })
+    ).toBeVisible();
+    expect(await screen.findByText('Notes')).toBeVisible();
+    const notesRow = screen.getByText('Notes').closest('.product-plugin-row');
+    expect(notesRow).not.toBeNull();
+    expect(within(notesRow as HTMLElement).getByText('acme')).toBeVisible();
+    expect(within(notesRow as HTMLElement).getByText('v2.0.0')).toBeVisible();
     expect(
-      screen.getByRole('button', {
-        name: /启用插件开发|enable plugin development/i,
-      })
+      within(notesRow as HTMLElement).getByText(/社区|Community/)
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /^(全部|All)$/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      screen.getByRole('tab', { name: /^(官方|Official)$/ })
     ).toBeVisible();
     expect(
-      screen.queryByRole('button', { name: /复制 CLI|copy CLI/i })
+      screen.getByRole('tab', { name: /^(社区|Community)$/ })
+    ).toBeVisible();
+    expect(screen.getByText('办公套件')).toBeVisible();
+    expect(screen.queryByText(/vibex\/vibex.office@/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /^(官方|Official)$/ }));
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+    expect(screen.getByText('办公套件')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: /^(全部|All)$/ }));
+    expect(screen.getByText('Notes')).toBeVisible();
+    fireEvent.click(screen.getByText('Notes'));
+    expect(
+      (await screen.findAllByRole('heading', { name: 'Notes' }))[0]
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /README/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      screen.getByRole('tab', { name: /插件内容|Contents/ })
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /包结构|Package/ })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: /插件内容|Contents/ }));
+    expect(screen.getByRole('heading', { name: 'MCP' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Skill' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Runtime' })).toBeVisible();
+    expect(screen.getByText('Notes MCP')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'README.md' })
     ).not.toBeInTheDocument();
+    expect(call).toHaveBeenCalledWith('plugin_marketplace_catalog', {
+      query: null,
+    });
+    expect(call).toHaveBeenCalledWith('plugin_marketplace_listing', {
+      owner: 'acme',
+      pluginName: 'notes',
+    });
+    expect(screen.queryByText('http://127.0.0.1:4555')).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: /返回插件|Back to plugins/i })
+    );
+    expect(
+      await screen.findByRole('tab', { name: /插件市场|marketplace/i })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Notes')).toBeVisible();
   });
 
   it('opens an independent detail page with content and config tabs', async () => {
@@ -611,35 +732,35 @@ describe('product plugin experience', () => {
     expect(detailHeading.parentElement).toContainElement(metadata);
     expect(metadata).toHaveTextContent('内置');
     expect(metadata).toHaveTextContent('v4.0.0');
-    expect(detailHeader).toContainElement(
+    expect(detailHeader).toBeTruthy();
+    expect(
       screen.getByRole('tablist', { name: /插件详情|plugin detail/i })
-    );
-    expect(screen.getByRole('tab', { name: /配置|config/i })).toHaveAttribute(
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /README/i })).toHaveAttribute(
       'aria-selected',
       'true'
     );
+    expect(screen.getByRole('article', { name: /README/i })).toBeVisible();
     expect(
-      screen.getByRole('switch', { name: 'Document preview' })
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole('tab', { name: /内容|content/i }));
-    expect(
-      screen.getByRole('region', { name: /插件内容|plugin content/i })
-    ).toBeVisible();
-    expect(
-      screen.getByRole('region', { name: /内容预览|content preview/i })
-    ).toBeVisible();
+      screen.queryByRole('tab', { name: /包结构|Package/ })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /插件内容|Contents/ }));
+    const skillGroup = screen.getByRole('button', { name: /Skill/ });
+    expect(skillGroup).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('heading', { name: 'Skill' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Workflow' })).toBeVisible();
+    expect(screen.getByText('Word document')).toBeVisible();
+    fireEvent.click(skillGroup);
+    expect(skillGroup).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Word document')).not.toBeInTheDocument();
-    const contentsFolder = screen.getByRole('button', { name: 'contents' });
-    expect(contentsFolder).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(contentsFolder);
+    fireEvent.click(skillGroup);
+    expect(screen.getByText('Word document')).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'SKILL.md' })
     ).not.toBeInTheDocument();
-    fireEvent.click(contentsFolder);
-    const skillDocument = screen.getByRole('button', { name: 'SKILL.md' });
-    fireEvent.click(skillDocument);
+    fireEvent.click(screen.getByRole('tab', { name: /配置|config/i }));
     expect(
-      await screen.findByText('Create and modify DOCX artifacts.')
+      screen.getByRole('switch', { name: 'Document preview' })
     ).toBeVisible();
     expect(screen.getByRole('tab', { name: /配置|config/i })).toBeVisible();
 
@@ -677,22 +798,22 @@ describe('product plugin experience', () => {
     });
     renderRoute('/plugins', call);
 
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('办公套件')).toBeVisible();
     expect(
       screen.getByText(
         '在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
       )
     ).toBeVisible();
     const officialRow = screen
-      .getByText('VibeX Office')
+      .getByText('办公套件')
       .closest('.product-plugin-row');
-    expect(officialRow).toHaveTextContent('内置');
     expect(officialRow).toHaveTextContent('v4.0.0');
+    expect(officialRow).not.toHaveTextContent('vibex/vibex.office@');
     const installedRow = screen
       .getByText('Drawio')
       .closest('.product-plugin-row');
-    expect(installedRow).toHaveTextContent('已安装');
     expect(installedRow).toHaveTextContent('v1.0.0');
+    expect(installedRow).not.toHaveTextContent('已安装');
     expect(
       officialRow?.querySelector('[data-official="office"]')
     ).not.toBeNull();
@@ -755,25 +876,30 @@ describe('product plugin experience', () => {
     expect(screen.getByText('VibeX Office')).toBeVisible();
   });
 
-  it('does not offer uninstall for built-in plugins', async () => {
+  it('offers uninstall for official marketplace packages', async () => {
     const call = vi.fn().mockResolvedValue({
-      plugins: [plugin, drawioPlugin],
+      plugins: [
+        {
+          ...plugin,
+          builtin: false,
+          sourceKind: 'marketplace',
+          uninstallSupported: true,
+        },
+        drawioPlugin,
+      ],
       runtimes: [],
     });
     renderRoute('/plugins', call);
 
-    const builtinRow = (await screen.findByText('VibeX Office')).closest(
+    const officialRow = (await screen.findByText('VibeX Office')).closest(
       '.product-plugin-row'
     );
-    fireEvent.contextMenu(builtinRow as HTMLElement);
+    fireEvent.contextMenu(officialRow as HTMLElement);
     const menu = await screen.findByRole('menu', { name: 'VibeX Office' });
     expect(
-      within(menu).queryByRole('menuitem', {
+      within(menu).getByRole('menuitem', {
         name: /卸载插件|uninstall plugin/i,
       })
-    ).not.toBeInTheDocument();
-    expect(
-      within(menu).getByRole('menuitem', { name: /打开|open/i })
     ).toBeVisible();
   });
 
@@ -847,7 +973,11 @@ describe('product plugin experience', () => {
       </QueryClientProvider>
     );
     expect(await screen.findByText('VibeX Office')).toBeVisible();
-    expect(call).toHaveBeenCalledTimes(1);
+    const catalogCalls = () =>
+      call.mock.calls.filter(
+        ([command]) => command === 'plugin_control_catalog'
+      );
+    expect(catalogCalls()).toHaveLength(1);
 
     view.unmount();
     render(
@@ -860,6 +990,6 @@ describe('product plugin experience', () => {
       </QueryClientProvider>
     );
     expect(await screen.findByText('VibeX Office')).toBeVisible();
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(catalogCalls()).toHaveLength(1);
   });
 });

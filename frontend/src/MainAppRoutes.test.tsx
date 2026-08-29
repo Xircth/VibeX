@@ -138,6 +138,9 @@ vi.mock('@/pages/Plugins', () => ({
 
 vi.mock('@/pages/plugins/ProductPlugins', () => ({
   PluginDetailPage: () => <div data-testid="plugin-detail-page" />,
+  MarketplacePluginDetailPage: () => (
+    <div data-testid="marketplace-plugin-detail-page" />
+  ),
 }));
 
 function renderAt(pathname: string) {
@@ -215,6 +218,15 @@ describe('MainAppRoutes', () => {
     expect(await screen.findByTestId('plugin-detail-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('keeps the settings layout around a marketplace plugin detail page', async () => {
+    renderAt('/plugins/marketplace/vibex/drawio');
+
+    expect(
+      await screen.findByTestId('marketplace-plugin-detail-page')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
   });
 
   it('redirects the legacy settings plugin path to the product module', async () => {

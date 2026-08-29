@@ -493,6 +493,7 @@ async fn doctor(
         "sourceKind": match plugin.source.kind {
             plugins::PluginSourceKind::DeveloperLink => "linked",
             plugins::PluginSourceKind::Builtin => "builtin",
+            plugins::PluginSourceKind::Marketplace => "marketplace",
             _ => "installed",
         },
         "runtimes": runtimes,

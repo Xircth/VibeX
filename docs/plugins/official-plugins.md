@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。它们都是独立 git 子仓库，挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。公共货架还没开，这里只讲已经装进 Host 的这几个。
+我对照的是 Host 0.1.3 和官网市场官方分类里的五份产品包。它们都是独立 git 子仓库，挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
@@ -175,13 +175,11 @@ Desktop 必须在跑。Host 起回环命令网关，用托管 Node 拉起 MCP。
 
 身份 `vibex.plugin-development`，版本 `1.0.0`，产品名「插件开发」。简介是让 Agent 用当前 Host 自带的 SDK 和 CLI，在本机开发、校验并链接插件。源码是 git 子仓库 `assets/plugins/plugin-development`。
 
-当前随 Host 带上的这份包声明了 Skill `vibex-plugin-development`（触发含 `/create-skill`、`/create-plugin`）和开发 MCP `vibex-plugin-dev-mcp`。Skill 目标是 `codex`、`claude-code`、`acp`。首次启用默认投影给已安装、支持 Skill 的 Agent。Skill 旁的 `references/` 写清单、模板、Node stdio 入口和链接步骤。
+这份包只声明 Skill `vibex-plugin-development`（触发含 `/create-skill`、`/create-plugin`）。Skill 目标是 `codex`、`claude-code`、`acp`。没有开发 MCP。首次启用默认投影给已安装、支持 Skill 的 Agent。Skill 旁的 `references/` 写清单、模板、Node stdio 入口和 CLI 链接步骤。
 
-配置只有一项 `devMcp`，默认 `false`。关掉时官方运行时不会注入开发 MCP。打开后，之后新开或重新绑定的会话才会看到 `plugin_dev_link_request` 和 `plugin_dev_link_status`。链接仍要你在 Host 里确认 Full Trust。不要让模型向你要粘贴 token。
+没有可配置项。校验、测试、链接由 `vibex-plugin` 与 `vibex plugin add --dev` 完成。不要让模型向你要粘贴 token。
 
-这份包自己不带 Worker。校验、测试、链接由 Host 家族里的 `vibex-plugin` CLI 完成。
-
-Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `locate_toolchain.py` 与 `node packages/plugin-cli/dist/cli.js`；否则用 `vibex-plugin toolchain` 或 Host 二进制旁边的 `vibex-plugin`。读 Skill 旁 `references/` 与 Host 自带 SDK 类型。
+Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plugin-cli/dist/cli.js`；否则用 `vibex-plugin toolchain` 或 Host 二进制旁边的 `vibex-plugin`。读 Skill 旁 `references/` 与 Host 自带 SDK 类型。
 
 它让 Agent 做一个产品包。README 的 `summary`、`contents/`、根上的 `config.json`、以及声明过的 integrations。常用命令是 `init`、`validate`、`test`、`build`。链接必须你在 Host 里确认 Full Trust。公共 SDK 表达不了的能力，应先加 Host 目录，再写进包。
 

@@ -47,9 +47,6 @@ describe('settings page alignment', () => {
     const chatCopy = declarationsFor(
       '.settings-page .chat-channel-heading__copy p'
     );
-    const pluginTitle = declarationsFor(
-      '.settings-page .product-plugins-header h1'
-    );
     const pluginCopy = declarationsFor(
       '.settings-page .product-plugins-header p'
     );
@@ -62,10 +59,8 @@ describe('settings page alignment', () => {
 
     expect(chatTitle.get('font-size')).toBe(sectionTitle.get('font-size'));
     expect(chatCopy.get('font-size')).toBe(sectionCopy.get('font-size'));
-    expect(pluginTitle.get('font-size')).toBe(sectionTitle.get('font-size'));
-    expect(pluginCopy.get('font-size')).toBe(sectionCopy.get('font-size'));
+    expect(pluginCopy.get('font-size')).toBe('calc(0.875rem - 2px)');
     expect(chatTitle.get('display')).toBe('flex');
-    expect(pluginTitle.get('display')).toBe('flex');
   });
 
   it('keeps updater release notes in a bounded scrolling well', () => {

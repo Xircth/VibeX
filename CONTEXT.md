@@ -161,8 +161,14 @@ Workflow 领域与 Automation 的关系见
 - **Host contribution（Host 贡献）** — 在 VibeX Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
 - **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
 - **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与多智能体协同的产品拆分见 ADR-0057。
-- **Session enhancement plugin（会话增强插件）** — 内置、不可卸载、默认禁用的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；启停与单工具开关属于该插件，不属于「设置 → 常规」。见 ADR-0057。
-- **Multi-agent collaboration plugin（多智能体协同插件）** — 内置、不可卸载、默认禁用的产品插件，向会话提供 LLM-mediated 委派；插件启停即委托启停。深度、结果缓存与子智能体会话默认只属于该插件配置，且只作用于委派子会话。见 ADR-0057。
+- **Session enhancement plugin（会话增强插件）** — 官网市场官方分类中的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；安装后默认禁用，可以卸载。启停与单工具开关属于该插件。见 ADR-0057 与 ADR-0066。
+- **Multi-agent collaboration plugin（多智能体协同插件）** — 官网市场官方分类中的产品插件，向会话提供 LLM-mediated 委派；安装后默认禁用，可以卸载。插件启停即委托启停。见 ADR-0057 与 ADR-0066。
+- **插件目录 Tab** — 设置 → 插件上的「已安装」与「插件市场」。详情页仍只有内容与配置。见 ADR-0066。
+- **官方分类** — 官网已发布且 category=official 的条目，市场 Tab 默认置顶并全量拉取。
+- **安装物身份** — `owner/plugin-name/tag/version`。产品身份仍是 Publisher + Plugin ID。
+- **来源锁** — 已安装包的 marketplace 或 github 远端证据，决定更新从哪拉。
+- **可更新** — 来源锁有效且远端出现更新 tag 或更大 semver。
+- **安装预览弹窗** — 安装或更新前的身份、能力与 Full Trust 确认。见 ADR-0066。
 - **Plugin detail panel（插件详情扩展面）** — 产品详情「配置」Tab 上由插件提供的自定义 App surface；`config.json` 仍是配置真相源，页面布局由插件定义，Host 不按插件 ID 特判设置页。
 - **Plugin membership（插件纳入关系）** — Plugin 是否属于当前 Host 的 catalog；与 installation、activation、permission、Agent binding 和 contribution readiness 分离。
 - **Plugin installation（插件安装）** — 一个精确 package version/digest 已作为当前 Host 的不可变安装物被接受并持久记录；它不等于启用，也不证明所需权限或 Runtime 已经就绪。

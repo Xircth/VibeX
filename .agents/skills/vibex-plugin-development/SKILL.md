@@ -7,7 +7,7 @@ description: Build, migrate, test, link, debug, or package full-trust VibeX v4 p
 
 Build one user-facing product with one identity, README, root config, content tree, and lifecycle. App, Agent, Host, and Runtime are integration targets inside that product, not plugin categories.
 
-The Host-shipped product plugin (Skill `/create-skill`, contract references, gated development MCP) lives in the git submodule `assets/plugins/plugin-development` (`https://github.com/Xircth/vibex-plugin-development`). Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
+The Host product plugin (Skill `/create-skill` and contract references) lives in the git submodule `assets/plugins/plugin-development` (`https://github.com/Xircth/vibex-plugin-development`). Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
 
 ## Load the local contract
 
@@ -43,13 +43,15 @@ Run from the plugin root:
 vibex-plugin build
 vibex-plugin validate
 vibex-plugin test
-vibex-plugin install --link .
-vibex-plugin doctor .
+vibex plugin add --dev .
 vibex-plugin pack
+vibex plugin publish
 ```
 
-The installed product CLI exposes the release packaging path as
-`vibex plugin pack [dir] [--output file.vxp]`.
+Prefer `vibex plugin add --dev .` against a running Desktop or `vibex serve`.
+`vibex-plugin install --link` is only an alias of that Host import when it still exists.
+
+The product CLI also exposes `vibex plugin pack` and `vibex plugin publish`.
 
 When developing VibeX itself, build the local SDK and CLI and invoke `node <repo>/packages/plugin-cli/dist/cli.js`. Verify a real linked install and reload against the running Host; harness-only success is insufficient for App mounting, file editing, Runtime processes, or remote behavior.
 

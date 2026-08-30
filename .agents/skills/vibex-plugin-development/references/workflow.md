@@ -17,8 +17,8 @@ Start with README, root config, and one end-user outcome. Add only integrations 
 - `content.skill`: Agent knowledge and repeatable operating instructions.
 - `content.mcp`: MCP configuration stored as package content.
 - `workflow.binding`: structured repeatable work.
-- `file.opener -> previewProvider`: Runtime-backed read-only preview.
-- `file.opener -> editorSurface`: App-backed editable UTF-8 file tab.
+- `file.opener -> previewProvider`: Runtime-backed read-only preview. The `file-tab` template produces this plus a detail panel.
+- `file.opener -> editorSurface`: App-backed editable UTF-8 file tab. The `editor-tab` template produces this.
 - `app.surface(slot: plugin.detail.panel)`: UI inside plugin details.
 - `app.surface(slot: artifact.editor)`: full file-tab editor with `bridge.artifact`.
 - `artifact.preview`: managed external preview process.

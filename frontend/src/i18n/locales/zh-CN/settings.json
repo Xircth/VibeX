@@ -5,8 +5,8 @@
     "appearance": "外观",
     "general": "常规",
     "mcp": "MCP",
-    "skills": "技能",
-    "instructions": "指令",
+    "skills": "Skill",
+    "instructions": "快捷指令",
     "shortcuts": "交互",
     "versionControl": "版本管理",
     "worktrees": "工作树",
@@ -473,9 +473,9 @@
     },
     "skillsTitle": "Skills",
     "noSkills": "此插件没有提供 Skill。",
-    "skillsViewTitle": "技能",
-    "skillsRegionAria": "{{name}} 技能",
-    "skillListAria": "技能列表",
+    "skillsViewTitle": "Skill",
+    "skillsRegionAria": "{{name}} Skill",
+    "skillListAria": "Skill 列表",
     "mcpViewTitle": "MCP",
     "mcpRegionAria": "{{name}} MCP",
     "mcpListAria": "MCP 列表",
@@ -535,7 +535,7 @@
     "disableFailed": "无法停用 {{name}}",
     "operationFailed": "操作失败：{{error}}",
     "contributionKind": {
-      "skill": "技能",
+      "skill": "Skill",
       "action": "动作",
       "command": "命令",
       "runtime": "Runtime",
@@ -784,9 +784,10 @@
       },
       "pluginDevelopment": {
         "name": "插件开发",
-        "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。",
-        "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发与测试只走 CLI。\n\n## 工具链\n\n用 `vibex-plugin toolchain` 定位本机契约，然后 `init`、`validate`、`test`、`build`、`pack`。用 `vibex plugin add --dev .` 链到正在跑的 Host。\n\n## 链接本机目录\n\n打开 Desktop 或 `vibex serve`，在插件根目录执行 `vibex plugin add --dev .`。不要向对话索要 token。\n\n## 排障\n\nHost 未运行会提示先启动。当前会话没有新工具时，新开或 rebind 会话。",
+        "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。",
+        "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发、测试与发布只走 CLI。\n\n## 工具链\n\n用 `vibex-plugin toolchain` 定位本机契约，然后 `init`、`validate`、`test`、`build`、`pack`。用 `vibex plugin add --dev .` 链到正在跑的 Host。上架用 `vibex plugin publish`。\n\n## 链接本机目录\n\n打开 Desktop 或 `vibex serve`，在插件根目录执行 `vibex plugin add --dev .`。不要向对话索要 token。\n\n## 排障\n\nHost 未运行会提示先启动。当前会话没有新工具时，新开或 rebind 会话。",
         "config": {}
+
       }
     },
     "contentTab": "内容",
@@ -981,7 +982,7 @@
     "stoppedHostForClient": "已停止本机远程连接服务"
   },
   "instructions": {
-    "title": "指令",
+    "title": "快捷指令",
     "description": "管理可通过 #tag_name 插入任务输入框的快捷指令。",
     "nameRequired": "请填写指令名称。",
     "nameNoSpaces": "指令名称不能包含空格。",
@@ -1136,7 +1137,7 @@
     "commitReminderSectionTitle": "提交提醒",
     "commitReminderSectionDescription": "在未提交更改超过边界时提醒提交。",
     "enableCommitReminderLabel": "启用提交提醒",
-    "enableCommitReminderDescription": "检测未提交更改数量并通过设置-指令中的 #commit_changes 发送提醒",
+    "enableCommitReminderDescription": "检测未提交更改数量并通过设置-快捷指令中的 #commit_changes 发送提醒",
     "commitReminderModeLabel": "提醒方式",
     "commitReminderModeDescription": "独立发送指令，或附加到下一条用户消息。",
     "commitReminderModeSeparate": "独立提醒",
@@ -2153,7 +2154,7 @@
     "updateAvailableBadge": "可更新",
     "updateNow": "更新",
     "updateConfirmTitle": "将更新以下内容，请确认",
-    "updateConfirmMessage": "Runtime 与 ACP 会一并更新。",
+    "updateConfirmMessage": "确认后开始安装。",
     "installRuntimeAcp": "安装 Runtime 与 ACP",
     "installLog": "安装日志",
     "installSpecifiedVersion": "安装此版本",

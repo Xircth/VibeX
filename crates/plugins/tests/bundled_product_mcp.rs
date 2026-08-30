@@ -143,7 +143,7 @@ fn bundled_plugin_development_is_skill_only() {
     assert_eq!(package.publisher.as_deref(), Some("vibex"));
     assert_eq!(
         package.summary,
-        "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。"
+        "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。"
     );
     assert_eq!(package.skills.len(), 1);
     assert!(

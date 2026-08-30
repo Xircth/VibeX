@@ -5,8 +5,8 @@
     "appearance": "Appearance",
     "general": "General",
     "mcp": "MCP",
-    "skills": "Skills",
-    "instructions": "Instructions",
+    "skills": "Skill",
+    "instructions": "Quick instructions",
     "shortcuts": "Shortcuts",
     "versionControl": "Version control",
     "worktrees": "Worktrees",
@@ -784,8 +784,8 @@
       },
       "pluginDevelopment": {
         "name": "Plugin Development",
-        "summary": "Let an agent develop, validate, and link plugins with this Host's SDK and CLI.",
-        "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, and CLI. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development and testing use the CLI only.\n\n## Toolchain\n\nLocate the local contract with `vibex-plugin toolchain`, then `init`, `validate`, `test`, `build`, and `pack`. Link with `vibex plugin add --dev .`.\n\n## Link a local directory\n\nStart Desktop or `vibex serve`, then run `vibex plugin add --dev .` at the plugin root. Do not ask for a token in chat.\n\n## Troubleshooting\n\nIf the Host is not running, start it first. If the current session has no new tools, open or rebind a session.",
+        "summary": "Let an agent develop, validate, link, and publish plugins with this Host's SDK and CLI.",
+        "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, and CLI. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development, testing, and publishing use the CLI only.\n\n## Toolchain\n\nLocate the local contract with `vibex-plugin toolchain`, then `init`, `validate`, `test`, `build`, and `pack`. Link with `vibex plugin add --dev .`. List on the marketplace with `vibex plugin publish`.\n\n## Link a local directory\n\nStart Desktop or `vibex serve`, then run `vibex plugin add --dev .` at the plugin root. Do not ask for a token in chat.\n\n## Troubleshooting\n\nIf the Host is not running, start it first. If the current session has no new tools, open or rebind a session.",
         "config": {}
       }
     },
@@ -981,7 +981,7 @@
     "stoppedHostForClient": "Stopped the local remote connection service"
   },
   "instructions": {
-    "title": "Instructions",
+    "title": "Quick instructions",
     "description": "Manage quick instructions that can be inserted into the task input via #tag_name.",
     "nameRequired": "Please enter an instruction name.",
     "nameNoSpaces": "Instruction name cannot contain spaces.",
@@ -1136,7 +1136,7 @@
     "commitReminderSectionTitle": "Commit Reminder",
     "commitReminderSectionDescription": "Remind you to commit when uncommitted changes exceed the boundary.",
     "enableCommitReminderLabel": "Enable commit reminder",
-    "enableCommitReminderDescription": "Detect uncommitted changes and send reminders with #commit_changes from Settings → Instructions.",
+    "enableCommitReminderDescription": "Detect uncommitted changes and send reminders with #commit_changes from Settings → Quick instructions.",
     "commitReminderModeLabel": "Reminder mode",
     "commitReminderModeDescription": "Send a separate instruction or append it to the next user message.",
     "commitReminderModeSeparate": "Separate reminder",
@@ -2156,7 +2156,7 @@
     "updateAvailableBadge": "Update available",
     "updateNow": "Update",
     "updateConfirmTitle": "The following will be updated",
-    "updateConfirmMessage": "Runtime and ACP update together.",
+    "updateConfirmMessage": "Confirm to start installing.",
     "installRuntimeAcp": "Install Runtime and ACP",
     "installLog": "Installation log",
     "installSpecifiedVersion": "Install this version",

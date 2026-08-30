@@ -134,7 +134,7 @@ test('desktop release signs and verifies macOS and Windows artifacts', () => {
     'Import-PfxCertificate',
     'scripts/sign-windows-evsign.ps1',
     'scripts/macos-notarize-and-dmg.js',
-    'timeout-minutes: 100',
+    'timeout-minutes: 140',
     'codesign --verify --deep --strict',
     'Get-AuthenticodeSignature',
   ]) {
@@ -142,7 +142,8 @@ test('desktop release signs and verifies macOS and Windows artifacts', () => {
   }
 
   assert.match(macosRelease, /notarytool/);
-  assert.match(macosRelease, /--timeout/);
+  assert.match(macosRelease, /notarytool",\s*"info"/);
+  assert.match(macosRelease, /isTransientNotaryFailure/);
   assert.match(macosRelease, /hdiutil/);
 });
 

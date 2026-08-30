@@ -312,7 +312,7 @@ jobs:
 
       - name: Notarize macOS app and create DMG
         if: runner.os == 'macOS'
-        timeout-minutes: 100
+        timeout-minutes: 140
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}

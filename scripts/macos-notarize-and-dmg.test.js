@@ -6,30 +6,51 @@ const {
   DEFAULT_NOTARY_TIMEOUT_SECONDS,
   hdiutilCreateArgs,
   hostAppleTarget,
+  isTransientNotaryFailure,
   macosTauriBundles,
   macosWantsDmg,
+  notarytoolInfoArgs,
   notarytoolSubmitArgs,
+  parseNotarytoolJson,
   resolveBundleLayout,
   withoutAppleNotaryEnv,
 } = require("./macos-notarize-and-dmg");
 
-test("notarytool wait is bounded", () => {
+test("notarytool submit returns an id instead of waiting on Apple", () => {
   const args = notarytoolSubmitArgs({
     zipPath: "/tmp/VibeX.zip",
     keyPath: "/tmp/AuthKey.p8",
     keyId: "KEYID",
     issuer: "ISSUER",
-    timeoutSeconds: 3600,
   });
 
   assert.equal(args[0], "notarytool");
   assert.equal(args[1], "submit");
-  assert.ok(args.includes("--wait"));
-  const timeoutIndex = args.indexOf("--timeout");
-  assert.ok(timeoutIndex >= 0);
-  assert.equal(args[timeoutIndex + 1], "3600");
-  assert.equal(DEFAULT_NOTARY_TIMEOUT_SECONDS, 3600);
-  assert.ok(DEFAULT_NOTARY_TIMEOUT_SECONDS <= 3600);
+  assert.equal(args.includes("--wait"), false);
+  assert.ok(args.includes("--output-format"));
+  assert.equal(args[args.indexOf("--output-format") + 1], "json");
+  assert.ok(DEFAULT_NOTARY_TIMEOUT_SECONDS >= 7200);
+});
+
+test("parses notarytool json and retries runner network drops", () => {
+  assert.equal(
+    parseNotarytoolJson('{"id":"abc","status":"Accepted"}').id,
+    "abc",
+  );
+  assert.equal(
+    isTransientNotaryFailure(
+      'The Internet connection appears to be offline. NSURLErrorDomain Code=-1009',
+    ),
+    true,
+  );
+  assert.equal(isTransientNotaryFailure('status: Invalid'), false);
+  const info = notarytoolInfoArgs({
+    id: "abc",
+    keyPath: "/tmp/AuthKey.p8",
+    keyId: "KEYID",
+    issuer: "ISSUER",
+  });
+  assert.deepEqual(info.slice(0, 3), ["notarytool", "info", "abc"]);
 });
 
 test("maps Apple triples onto Tauri DMG file names", () => {

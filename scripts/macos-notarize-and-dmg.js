@@ -7,7 +7,9 @@ const path = require("node:path");
 
 const workspaceRoot = path.join(__dirname, "..");
 const PRODUCT_NAME = "VibeX";
-const DEFAULT_NOTARY_TIMEOUT_SECONDS = 3600;
+const DEFAULT_NOTARY_TIMEOUT_SECONDS = 7200;
+const NOTARY_POLL_INTERVAL_SECONDS = 20;
+const NOTARY_SUBMIT_ATTEMPTS = 3;
 const DMG_ATTEMPTS = 3;
 const APPLE_NOTARY_ENV_KEYS = [
   "APPLE_API_KEY",
@@ -87,27 +89,53 @@ function resolveBundleLayout({
   };
 }
 
-function notarytoolSubmitArgs({
-  zipPath,
-  keyPath,
-  keyId,
-  issuer,
-  timeoutSeconds = DEFAULT_NOTARY_TIMEOUT_SECONDS,
-}) {
+function appleAuthArgs({ keyPath, keyId, issuer }) {
+  return ["--key", keyPath, "--key-id", keyId, "--issuer", issuer];
+}
+
+function notarytoolSubmitArgs({ zipPath, keyPath, keyId, issuer }) {
   return [
     "notarytool",
     "submit",
     zipPath,
-    "--key",
-    keyPath,
-    "--key-id",
-    keyId,
-    "--issuer",
-    issuer,
-    "--wait",
-    "--timeout",
-    String(timeoutSeconds),
+    ...appleAuthArgs({ keyPath, keyId, issuer }),
+    "--output-format",
+    "json",
   ];
+}
+
+function notarytoolInfoArgs({ id, keyPath, keyId, issuer }) {
+  return [
+    "notarytool",
+    "info",
+    id,
+    ...appleAuthArgs({ keyPath, keyId, issuer }),
+    "--output-format",
+    "json",
+  ];
+}
+
+function parseNotarytoolJson(output) {
+  const text = String(output || "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end < start) {
+    throw new Error(`notarytool did not return JSON: ${text}`);
+  }
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+function isTransientNotaryFailure(output) {
+  const text = String(output || "");
+  return (
+    /Internet connection appears to be offline/i.test(text) ||
+    /NSURLErrorDomain/i.test(text) ||
+    /Code=-100[0-9]/i.test(text) ||
+    /unsatisfied \(No network route\)/i.test(text) ||
+    /The request timed out/i.test(text) ||
+    /Connection reset/i.test(text) ||
+    /Network is unreachable/i.test(text)
+  );
 }
 
 function hdiutilCreateArgs({ volname, srcfolder, dest }) {
@@ -166,6 +194,87 @@ function hasNotaryCredentials(env) {
   return Boolean(env.APPLE_API_KEY && env.APPLE_API_ISSUER && env.APPLE_API_KEY_PATH);
 }
 
+function runCaptured(command, args) {
+  return spawnSync(command, args, { encoding: "utf8" });
+}
+
+function commandOutput(result) {
+  return `${result.stdout || ""}\n${result.stderr || ""}`.trim();
+}
+
+function sleepSeconds(seconds) {
+  spawnSync("sleep", [String(seconds)], { stdio: "ignore" });
+}
+
+function submitForNotarization({ zipPath, env }) {
+  const args = notarytoolSubmitArgs({
+    zipPath,
+    keyPath: env.APPLE_API_KEY_PATH,
+    keyId: env.APPLE_API_KEY,
+    issuer: env.APPLE_API_ISSUER,
+  });
+  let lastError = new Error("notarytool submit did not run");
+  for (let attempt = 1; attempt <= NOTARY_SUBMIT_ATTEMPTS; attempt += 1) {
+    console.log(`Uploading notarization zip (attempt ${attempt}/${NOTARY_SUBMIT_ATTEMPTS})`);
+    const result = runCaptured("xcrun", args);
+    const output = commandOutput(result);
+    if (output) {
+      console.log(output);
+    }
+    if (result.status === 0) {
+      const parsed = parseNotarytoolJson(result.stdout);
+      if (!parsed.id) {
+        throw new Error(`notarytool submit succeeded without an id: ${output}`);
+      }
+      return parsed.id;
+    }
+    lastError = new Error(
+      `notarytool submit failed with status ${result.status ?? "null"}: ${output}`,
+    );
+    if (!isTransientNotaryFailure(output) || attempt === NOTARY_SUBMIT_ATTEMPTS) {
+      throw lastError;
+    }
+    sleepSeconds(NOTARY_POLL_INTERVAL_SECONDS);
+  }
+  throw lastError;
+}
+
+function waitForNotarization({ id, env, timeoutSeconds }) {
+  const auth = {
+    keyPath: env.APPLE_API_KEY_PATH,
+    keyId: env.APPLE_API_KEY,
+    issuer: env.APPLE_API_ISSUER,
+  };
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  while (Date.now() < deadline) {
+    const result = runCaptured("xcrun", notarytoolInfoArgs({ id, ...auth }));
+    const output = commandOutput(result);
+    if (result.status !== 0) {
+      if (isTransientNotaryFailure(output)) {
+        console.log(`Transient notary poll failure for ${id}; retrying...`);
+        sleepSeconds(NOTARY_POLL_INTERVAL_SECONDS);
+        continue;
+      }
+      throw new Error(
+        `notarytool info failed with status ${result.status ?? "null"}: ${output}`,
+      );
+    }
+    const parsed = parseNotarytoolJson(result.stdout);
+    const status = parsed.status || "Unknown";
+    console.log(`Notary status for ${id}: ${status}`);
+    if (status === "Accepted") {
+      return parsed;
+    }
+    if (status === "Invalid" || status === "Rejected") {
+      throw new Error(`Notarization ${status} for ${id}`);
+    }
+    sleepSeconds(NOTARY_POLL_INTERVAL_SECONDS);
+  }
+  throw new Error(
+    `Notarization still in progress after ${timeoutSeconds}s (id ${id})`,
+  );
+}
+
 function notarizeAndStaple({ appPath, zipPath, env, timeoutSeconds }) {
   const keyPath = env.APPLE_API_KEY_PATH;
   if (!fs.existsSync(keyPath)) {
@@ -176,20 +285,12 @@ function notarizeAndStaple({ appPath, zipPath, env, timeoutSeconds }) {
   fs.rmSync(zipPath, { force: true });
   run("ditto", ["-c", "-k", "--keepParent", appPath, zipPath]);
 
-  console.log(
-    `Submitting ${path.basename(appPath)} to notarytool (timeout ${timeoutSeconds}s)`,
-  );
   try {
-    run(
-      "xcrun",
-      notarytoolSubmitArgs({
-        zipPath,
-        keyPath,
-        keyId: env.APPLE_API_KEY,
-        issuer: env.APPLE_API_ISSUER,
-        timeoutSeconds,
-      }),
+    const id = submitForNotarization({ zipPath, env });
+    console.log(
+      `Submitted ${path.basename(appPath)} as ${id}; polling up to ${timeoutSeconds}s`,
     );
+    waitForNotarization({ id, env, timeoutSeconds });
   } finally {
     fs.rmSync(zipPath, { force: true });
   }
@@ -349,9 +450,12 @@ module.exports = {
   DEFAULT_NOTARY_TIMEOUT_SECONDS,
   hdiutilCreateArgs,
   hostAppleTarget,
+  isTransientNotaryFailure,
   macosTauriBundles,
   macosWantsDmg,
+  notarytoolInfoArgs,
   notarytoolSubmitArgs,
+  parseNotarytoolJson,
   resolveBundleLayout,
   withoutAppleNotaryEnv,
 };

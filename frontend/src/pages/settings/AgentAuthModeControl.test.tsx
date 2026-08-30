@@ -694,6 +694,6 @@ function authOption(
     credential_env: credentialEnv ?? null,
     credential_required: credentialEnv !== undefined,
     native_config_field_id: nativeConfigFieldId ?? null,
-    official_api_url: officialApiUrl ?? null,
+    official_api_url: officialApiUrl,
   };
 }

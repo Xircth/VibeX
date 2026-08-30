@@ -609,7 +609,9 @@ export const MessageTurnView = memo(function MessageTurnView({
 
   // Every uninterrupted run uses Astryx's aggregate, including runs of one.
   const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] => {
-    const pollResults = collectHostDelegationPollResults(list);
+    const pollResults = collectHostDelegationPollResults(
+      list.filter((item) => item.kind === 'tool')
+    );
     return groupTurnRenderItems(list).map((unit) => {
       if (unit.kind === 'single') {
         return renderTurnItem(unit.item, `${turn.id}-${offset + unit.index}`);

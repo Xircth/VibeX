@@ -9,18 +9,16 @@ import {
   officialListingName,
   officialListingSummary,
 } from './officialPlugins';
-
-export type MarketplaceCategory = 'all' | 'official' | 'community';
+import {
+  flattenMarketplaceListings,
+  listingsInMarketplaceTab,
+  listingTopicCategory,
+  marketplaceCategoryTabIds,
+} from './marketplaceListing';
 
 const MODE_TABS = [
   ['installed', 'plugins.installedTab'],
   ['marketplace', 'plugins.marketplaceTab'],
-] as const;
-
-const CATEGORY_TABS = [
-  ['all', 'plugins.allCategory'],
-  ['official', 'plugins.officialCategory'],
-  ['community', 'plugins.communityCategory'],
 ] as const;
 
 function moveTabIndex(
@@ -95,12 +93,17 @@ export function PluginMarketplaceList({
   onInstall: (listing: CatalogListing) => void;
 }) {
   const { t } = useTranslation('settings');
-  const [category, setCategory] = useState<MarketplaceCategory>('all');
-  const listings = useMemo(() => {
-    if (category === 'official') return official;
-    if (category === 'community') return community;
-    return [...official, ...community];
-  }, [category, community, official]);
+  const [category, setCategory] = useState('all');
+  const listings = useMemo(
+    () => flattenMarketplaceListings(official, community),
+    [community, official]
+  );
+  const tabs = useMemo(() => marketplaceCategoryTabIds(listings), [listings]);
+  const selected = tabs.includes(category) ? category : 'all';
+  const visible = useMemo(
+    () => listingsInMarketplaceTab(listings, selected),
+    [listings, selected]
+  );
 
   if (loading) {
     return (
@@ -118,35 +121,39 @@ export function PluginMarketplaceList({
         role="tablist"
         aria-label={t('plugins.marketplaceCategoriesAria')}
         onKeyDown={(event) => {
-          const index = CATEGORY_TABS.findIndex(([id]) => id === category);
-          const next = moveTabIndex(event, index, CATEGORY_TABS.length);
+          const index = tabs.findIndex((id) => id === selected);
+          const next = moveTabIndex(event, index, tabs.length);
           if (next == null) return;
-          const tab = CATEGORY_TABS[next];
-          setCategory(tab[0]);
+          const tab = tabs[next];
+          setCategory(tab);
           event.currentTarget
             .querySelector<HTMLButtonElement>(
-              `[data-plugin-category="${tab[0]}"]`
+              `[data-plugin-category="${tab}"]`
             )
             ?.focus();
         }}
       >
-        {CATEGORY_TABS.map(([id, label]) => (
+        {tabs.map((id) => (
           <button
             key={id}
             type="button"
             role="tab"
             data-plugin-category={id}
-            aria-selected={category === id}
-            className={category === id ? 'is-active' : undefined}
+            aria-selected={selected === id}
+            className={selected === id ? 'is-active' : undefined}
             onClick={() => setCategory(id)}
           >
-            {t(label)}
+            {id === 'all'
+              ? t('plugins.allCategory')
+              : id === 'official'
+                ? t('plugins.officialCategory')
+                : t(`plugins.listingCategory.${id}`, { defaultValue: id })}
           </button>
         ))}
       </div>
       <div className="product-plugin-market-list">
-        {listings.length ? (
-          listings.map((listing) => (
+        {visible.length ? (
+          visible.map((listing) => (
             <MarketplaceRow
               key={`${listing.owner}/${listing.pluginName}/${listing.tag}`}
               listing={listing}
@@ -194,15 +201,17 @@ function MarketplaceRow({
         <span className="product-plugin-row-copy">
           <span className="product-plugin-row-title">
             <strong>{officialListingName(listing, t)}</strong>
-          </span>
-          <span className="product-plugin-row-tags">
-            <span>{listing.owner}</span>
-            <span>
-              {t(`plugins.listingCategory.${listing.category}`, {
-                defaultValue: listing.category,
-              })}
+            <span className="product-plugin-row-tags">
+              <span>{listing.owner}</span>
+              {listingTopicCategory(listing.category) ? (
+                <span>
+                  {t(`plugins.listingCategory.${listing.category}`, {
+                    defaultValue: listing.category,
+                  })}
+                </span>
+              ) : null}
+              <span>v{listing.version}</span>
             </span>
-            <span>v{listing.version}</span>
           </span>
           <span className="product-plugin-row-summary">
             {officialListingSummary(listing, t)}

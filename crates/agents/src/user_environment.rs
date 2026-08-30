@@ -4,7 +4,10 @@
 //! A leftover CLI is only auto-bound when every required component is present
 //! and at least as new as the frozen plan / Built-in Profile pin.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use crate::{
     PlannedInstallComponent, ResolvedInstallPlan,
@@ -200,6 +203,77 @@ pub fn plan_required_components(plan: &ResolvedInstallPlan) -> Vec<PlannedInstal
         .collect()
 }
 
+/// A preflight item that the next install plan would actually change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedPreflightUpdate {
+    pub item_id: &'static str,
+    pub current_version: String,
+    pub available_version: String,
+}
+
+fn preflight_item_ids_for_component(component_id: &str) -> &'static [&'static str] {
+    match component_id {
+        "agent_runtime" => &["runtime"],
+        "acp_adapter" => &["acp"],
+        "combined_runtime" => &["runtime", "acp"],
+        _ => &[],
+    }
+}
+
+fn is_agent_install_component(component_id: &str) -> bool {
+    !matches!(
+        component_id,
+        "base_runtime_node" | "base_runtime_npm" | "base_runtime_uv"
+    )
+}
+
+/// Compare the next install plan with the current lock/probe so update
+/// badges only appear on components that `apply_update` would actually replace.
+///
+/// Do not compare [`ResolvedInstallPlan::version`] or a lock identity field
+/// with a Registry snapshot version. Adapter-backed Agents keep Runtime at the
+/// Profile pin (`plan.version`) and consume Registry versions on ACP only
+/// (ADR-0038); those two numbers are different artifacts.
+pub fn planned_preflight_updates(
+    planned: &[PlannedInstallComponent],
+    current: &[ObservedUserComponent],
+) -> Vec<PlannedPreflightUpdate> {
+    let current_by_id: HashMap<&str, &str> = current
+        .iter()
+        .filter_map(|component| {
+            component
+                .version
+                .as_deref()
+                .filter(|version| !version.is_empty())
+                .map(|version| (component.component_id.as_str(), version))
+        })
+        .collect();
+    let mut updates = Vec::new();
+    let mut seen = HashSet::new();
+    for component in planned {
+        if !is_agent_install_component(&component.component_id) {
+            continue;
+        }
+        let Some(current_version) = current_by_id.get(component.component_id.as_str()) else {
+            continue;
+        };
+        if version_at_least(current_version, &component.version) {
+            continue;
+        }
+        for item_id in preflight_item_ids_for_component(&component.component_id) {
+            if !seen.insert(*item_id) {
+                continue;
+            }
+            updates.push(PlannedPreflightUpdate {
+                item_id,
+                current_version: (*current_version).to_string(),
+                available_version: component.version.clone(),
+            });
+        }
+    }
+    updates
+}
+
 fn profile_component_id(component: crate::ProfileComponent) -> &'static str {
     match component {
         crate::ProfileComponent::AgentRuntime => "agent_runtime",
@@ -223,7 +297,10 @@ pub fn uv_distribution_name(package_spec: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ArtifactTrust, PlannedDistributionKind};
+    use crate::{
+        ArtifactTrust, BuiltInProfile, BuiltInProfileCatalog, PlannedDistributionKind,
+        ProfileTopology,
+    };
 
     fn planned(id: &str, version: &str) -> PlannedInstallComponent {
         PlannedInstallComponent {
@@ -379,5 +456,158 @@ mod tests {
             ),
             UserEnvironmentAdoptDecision::Adopt
         );
+    }
+
+    #[test]
+    fn planned_updates_mark_only_the_outdated_adapter() {
+        let planned = vec![
+            planned("agent_runtime", "2.1.222"),
+            planned("acp_adapter", "0.70.0"),
+        ];
+        let current = vec![
+            observed("agent_runtime", Some("2.1.222")),
+            observed("acp_adapter", Some("0.64.1")),
+        ];
+        assert_eq!(
+            planned_preflight_updates(&planned, &current),
+            vec![PlannedPreflightUpdate {
+                item_id: "acp",
+                current_version: "0.64.1".into(),
+                available_version: "0.70.0".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn planned_updates_are_empty_when_the_lock_already_matches() {
+        let planned = vec![
+            planned("agent_runtime", "2.1.222"),
+            planned("acp_adapter", "0.70.0"),
+        ];
+        let current = vec![
+            observed("agent_runtime", Some("2.1.222")),
+            observed("acp_adapter", Some("0.70.0")),
+        ];
+        assert!(planned_preflight_updates(&planned, &current).is_empty());
+    }
+
+    #[test]
+    fn planned_updates_ignore_a_newer_user_cli() {
+        let planned = vec![planned("acp_adapter", "0.70.0")];
+        let current = vec![observed("acp_adapter", Some("0.80.0"))];
+        assert!(planned_preflight_updates(&planned, &current).is_empty());
+    }
+
+    #[test]
+    fn planned_updates_mark_combined_runtime_on_both_preflight_items() {
+        let planned = vec![planned("combined_runtime", "1.19.0")];
+        let current = vec![observed("combined_runtime", Some("1.10.0"))];
+        assert_eq!(
+            planned_preflight_updates(&planned, &current),
+            vec![
+                PlannedPreflightUpdate {
+                    item_id: "runtime",
+                    current_version: "1.10.0".into(),
+                    available_version: "1.19.0".into(),
+                },
+                PlannedPreflightUpdate {
+                    item_id: "acp",
+                    current_version: "1.10.0".into(),
+                    available_version: "1.19.0".into(),
+                },
+            ]
+        );
+    }
+
+    fn current_from_profile(profile: &BuiltInProfile) -> Vec<ObservedUserComponent> {
+        profile_required_versions(profile)
+            .into_iter()
+            .map(|(component_id, version)| observed(&component_id, Some(version)))
+            .collect()
+    }
+
+    fn planned_from_profile(
+        profile: &BuiltInProfile,
+        bump: Option<(&str, &str)>,
+    ) -> Vec<PlannedInstallComponent> {
+        profile_required_versions(profile)
+            .into_iter()
+            .map(|(component_id, version)| {
+                let version = bump
+                    .filter(|(id, _)| *id == component_id)
+                    .map(|(_, version)| version)
+                    .unwrap_or(version);
+                planned(&component_id, version)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bundled_profiles_report_no_update_when_the_lock_matches_the_pin() {
+        for profile in BuiltInProfileCatalog::bundled().profiles() {
+            let current = current_from_profile(profile);
+            let planned_components = planned_from_profile(profile, None);
+            assert!(
+                planned_preflight_updates(&planned_components, &current).is_empty(),
+                "{}",
+                profile.agent_id
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_adapter_backed_profiles_only_flag_acp_when_the_adapter_is_newer() {
+        let catalog = BuiltInProfileCatalog::bundled();
+        let profiles = catalog
+            .profiles()
+            .iter()
+            .filter(|profile| profile.topology == ProfileTopology::AdapterBacked)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            profiles
+                .iter()
+                .map(|profile| profile.agent_id.as_str())
+                .collect::<Vec<_>>(),
+            ["claude_code", "codex", "pi"]
+        );
+        for profile in profiles {
+            let current = current_from_profile(profile);
+            let planned_components =
+                planned_from_profile(profile, Some(("acp_adapter", "99999.0.0")));
+            let updates = planned_preflight_updates(&planned_components, &current);
+            assert_eq!(
+                updates
+                    .iter()
+                    .map(|update| update.item_id)
+                    .collect::<Vec<_>>(),
+                ["acp"],
+                "{}",
+                profile.agent_id
+            );
+            assert_eq!(updates[0].available_version, "99999.0.0");
+        }
+    }
+
+    #[test]
+    fn bundled_native_acp_profiles_flag_runtime_and_acp_together() {
+        for profile in BuiltInProfileCatalog::bundled()
+            .profiles()
+            .iter()
+            .filter(|profile| profile.topology == ProfileTopology::NativeAcp)
+        {
+            let current = current_from_profile(profile);
+            let planned_components =
+                planned_from_profile(profile, Some(("combined_runtime", "99999.0.0")));
+            let updates = planned_preflight_updates(&planned_components, &current);
+            assert_eq!(
+                updates
+                    .iter()
+                    .map(|update| update.item_id)
+                    .collect::<Vec<_>>(),
+                ["runtime", "acp"],
+                "{}",
+                profile.agent_id
+            );
+        }
     }
 }

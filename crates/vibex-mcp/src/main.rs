@@ -20,6 +20,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use delegation_proto::{
@@ -34,6 +35,7 @@ use tokio::{
 };
 
 const TOOL_SCHEMA: &str = include_str!("../tool_schema.json");
+const CALL_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(8);
 static HANDLE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Parsed launch arguments.
@@ -94,6 +96,36 @@ impl CompanionFeatures {
             _ => false,
         }
     }
+}
+
+fn parent_tool_use_id(meta: Option<&Value>) -> String {
+    let Some(meta) = meta else {
+        return String::new();
+    };
+    for key in [
+        "tool_use_id",
+        "toolCallId",
+        "tool_call_id",
+        "progressToken",
+        "progress_token",
+    ] {
+        if let Some(value) = meta.get(key) {
+            if let Some(text) = value
+                .as_str()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+            {
+                return text.to_string();
+            }
+            if let Some(number) = value.as_i64() {
+                return number.to_string();
+            }
+            if let Some(number) = value.as_u64() {
+                return number.to_string();
+            }
+        }
+    }
+    String::new()
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -227,13 +259,17 @@ impl Companion {
         }
     }
 
+    fn uses_http(&self) -> bool {
+        self.server_url.is_some() && self.socket_path.is_empty()
+    }
+
     async fn send(
         &self,
         message: &delegation_proto::BrokerMessage,
     ) -> std::io::Result<delegation_proto::BrokerResponse> {
-        if let Some(url) = &self.server_url {
+        if self.uses_http() {
             client::call_http(
-                url,
+                self.server_url.as_deref().unwrap_or_default(),
                 self.server_token.as_deref(),
                 self.conversation_id.as_deref(),
                 &self.product,
@@ -338,6 +374,12 @@ impl Companion {
             biased;
             _ = cancel_rx => None, // canceled: suppress response per MCP spec
             result = self.send(&message) => Some(result),
+            _ = tokio::time::sleep(CALL_ROUNDTRIP_TIMEOUT), if name == "delegate_to_agent" => {
+                Some(Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "delegate_to_agent timed out waiting for the host; the child may still start",
+                )))
+            }
         };
         inflight.take(&key).await;
 
@@ -388,11 +430,7 @@ impl Companion {
             "delegate_to_agent" => Ok(BrokerMessage::Call(BrokerRequest {
                 token,
                 parent_connection_id: self.parent_connection_id.clone(),
-                parent_tool_use_id: meta
-                    .and_then(|m| m.get("tool_use_id"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
+                parent_tool_use_id: parent_tool_use_id(meta),
                 external_handle: Some(next_handle()),
                 input: arguments.clone(),
             })),
@@ -593,6 +631,7 @@ async fn write_opt(stdout: &Arc<Mutex<tokio::io::Stdout>>, response: Option<Stri
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    client::install_rustls_crypto_provider();
     let args = match parse_args() {
         Ok(args) => args,
         Err(err) => {
@@ -659,6 +698,8 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
+    use delegation_proto::BrokerMessage;
+
     use super::*;
 
     fn companion(features: &str) -> Arc<Companion> {
@@ -734,6 +775,8 @@ mod tests {
         assert!(description.contains("[&Codex](vibex://agent/codex)"));
         assert!(description.contains("does not itself start"));
         assert!(description.contains("ASYNCHRONOUS"));
+        assert!(description.contains("do not call search_tool"));
+        assert!(description.contains("MUST call get_delegation_status"));
     }
 
     #[test]
@@ -801,6 +844,22 @@ mod tests {
     }
 
     #[test]
+    fn delegate_reads_progress_token_as_parent_tool_use_id() {
+        let companion = companion("delegation");
+        let message = companion
+            .build_message(
+                "delegate_to_agent",
+                &json!({"agent_type":"codex","task":"x"}),
+                Some(&json!({"progressToken": "call-1"})),
+            )
+            .unwrap();
+        match message {
+            BrokerMessage::Call(req) => assert_eq!(req.parent_tool_use_id, "call-1"),
+            _ => panic!("expected Call"),
+        }
+    }
+
+    #[test]
     fn tools_call_classifies_as_call() {
         let action = classify(
             "delegation",
@@ -842,6 +901,41 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":9,"method":"nope"}"#,
         ));
         assert_eq!(value["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn session_injected_companion_uses_socket_not_http() {
+        let injected = Companion::new(Args {
+            parent_connection_id: "conn-1".to_string(),
+            socket_path: "/tmp/vibex-delegation.sock".to_string(),
+            token: "tok".to_string(),
+            features: CompanionFeatures::parse(Some("delegation")),
+            server_url: Some("http://127.0.0.1:9".to_string()),
+            server_token: Some("plugin-token".to_string()),
+            conversation_id: Some("conv".to_string()),
+            product: "delegation".to_string(),
+        });
+        assert!(!injected.uses_http());
+        let native = Companion::new(Args {
+            parent_connection_id: String::new(),
+            socket_path: String::new(),
+            token: "plugin-token".to_string(),
+            features: CompanionFeatures::parse(Some("delegation")),
+            server_url: Some("http://127.0.0.1:9".to_string()),
+            server_token: Some("plugin-token".to_string()),
+            conversation_id: None,
+            product: "delegation".to_string(),
+        });
+        assert!(native.uses_http());
+    }
+
+    #[test]
+    fn http_client_builds_after_crypto_provider_install() {
+        client::install_rustls_crypto_provider();
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .expect("sidecar HTTP client requires an installed rustls provider");
     }
 
     #[test]

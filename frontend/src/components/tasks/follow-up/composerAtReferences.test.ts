@@ -4,6 +4,7 @@ import {
   buildAtReferenceGroups,
   commitReferenceUri,
   conversationReferenceUri,
+  cycleAtReferenceTab,
   firstNonEmptyTab,
   matchAtReferenceTrigger,
   parseCommitReferenceUri,
@@ -141,5 +142,12 @@ describe('composer @ references', () => {
     expect(matchAtReferenceTrigger('@App')?.matchingString).toBe('App');
     expect(matchAtReferenceTrigger('see @App')?.matchingString).toBe('App');
     expect(matchAtReferenceTrigger('user@App')).toBeNull();
+  });
+
+  it('cycles tabs left and right', () => {
+    expect(cycleAtReferenceTab('file', 1)).toBe('conversation');
+    expect(cycleAtReferenceTab('instruction', 1)).toBe('file');
+    expect(cycleAtReferenceTab('file', -1)).toBe('instruction');
+    expect(cycleAtReferenceTab('conversation', -1)).toBe('file');
   });
 });

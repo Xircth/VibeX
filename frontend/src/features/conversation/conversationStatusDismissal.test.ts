@@ -69,4 +69,52 @@ describe('conversationStatusDismissal announcements', () => {
     expect(wasConversationStatusDismissed('session-1', notice)).toBe(true);
     expect(wasConversationStatusDismissed('session-2', notice)).toBe(false);
   });
+
+  it('keeps a dismissed notice hidden when the same content returns with a new row id', () => {
+    persistConversationStatusDismissal('session-1', {
+      id: 'err:turn-1:12',
+      kind: 'turn-error',
+      error: {
+        message: 'agent connection closed',
+        code: 'connection_closed',
+        raw: { attempt: 1 },
+      },
+    });
+
+    expect(
+      wasConversationStatusDismissed('session-1', {
+        id: 'err:turn-1:44',
+        kind: 'turn-error',
+        error: {
+          message: 'agent connection closed',
+          code: 'connection_closed',
+          raw: { attempt: 2 },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('still shows a later notice that reuses a row id but has different content', () => {
+    persistConversationStatusDismissal('session-1', {
+      id: 'notice-1',
+      kind: 'session-notice',
+      notice: {
+        title: '部分会话记录无法显示',
+        message: '其余会话内容不受影响。',
+        severity: 'warning',
+      },
+    });
+
+    expect(
+      wasConversationStatusDismissed('session-1', {
+        id: 'notice-1',
+        kind: 'session-notice',
+        notice: {
+          title: '回退后产生的新提示',
+          message: '即使复用了事件序号也应显示。',
+          severity: 'warning',
+        },
+      })
+    ).toBe(false);
+  });
 });

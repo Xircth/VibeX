@@ -890,7 +890,7 @@ async fn persist_lock(
     )
     .bind(lock_id.to_string())
     .bind(plan.agent_id.as_str())
-    .bind(&plan.version)
+    .bind(plan.registry_bound_version())
     .bind(&plan.platform)
     .bind(
         plan.components

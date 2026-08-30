@@ -221,6 +221,18 @@ export function firstNonEmptyTab(
   );
 }
 
+export function cycleAtReferenceTab(
+  current: AtReferenceTab,
+  direction: 1 | -1
+): AtReferenceTab {
+  const at = AT_REFERENCE_TAB_ORDER.indexOf(current);
+  const index = at < 0 ? 0 : at;
+  return AT_REFERENCE_TAB_ORDER[
+    (index + direction + AT_REFERENCE_TAB_ORDER.length) %
+      AT_REFERENCE_TAB_ORDER.length
+  ];
+}
+
 export function matchAtReferenceTrigger(text: string) {
   return matchTypeaheadTrigger(text, '@', '#@');
 }

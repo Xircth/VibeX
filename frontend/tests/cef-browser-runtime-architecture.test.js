@@ -183,7 +183,11 @@ test('macOS desktop dev re-signs the bundle after replacing executables', () => 
   assert.ok(launch > sign);
   assert.match(runner, /collectStaleDevAppPids/);
   assert.match(runner, /removeCodesignTempFiles\(appRoot\)/);
-  assert.match(runner, /\['--force', '--deep', '--sign', '-', appRoot\]/);
+  assert.match(runner, /resolveDevSigningIdentity/);
+  assert.match(
+    runner,
+    /\['--force', '--deep', '--sign', identity, appRoot\]/
+  );
   assert.match(runner, /\['--verify', '--deep', '--strict', appRoot\]/);
   assert.match(runner, /'-p', 'vibex-mcp'/);
 });
@@ -224,6 +228,7 @@ test('macOS CEF dev bundle cache ignores packaging-only overlay links', () => {
       manifest,
       JSON.stringify({
         schemaVersion: 1,
+        bundleIdentifier: 'com.vibex.app.dev',
         requiredFiles: ['packaging-only-overlay-link'],
       })
     );

@@ -11,6 +11,7 @@ const HELPER_NAMES = [
   'vibex Helper (Plugin)',
   'vibex Helper (Renderer)',
 ];
+const DEV_BUNDLE_IDENTIFIER = 'com.vibex.app.dev';
 
 class DevRunnerTerminated extends Error {}
 
@@ -111,8 +112,11 @@ function isStagedBundleReady(paths) {
 
   try {
     const manifest = JSON.parse(fs.readFileSync(paths.manifest, 'utf8'));
+    // The packaged app and `tauri build` also write this stage directory.
+    // Reuse it only when the cached bundle is already VibeX Dev.
     return (
       manifest.schemaVersion === 1 &&
+      manifest.bundleIdentifier === DEV_BUNDLE_IDENTIFIER &&
       paths.helperExecutables.every((helper) =>
         fs.existsSync(helper.destination)
       )
@@ -373,6 +377,7 @@ async function stageRuntime(
       'stage_cef_runtime',
       '--',
       profile,
+      '--dev-bundle',
     ],
     { cwd: workspaceRoot, env: stageEnv, trackedPidFile }
   );
@@ -438,10 +443,16 @@ function removeCodesignTempFiles(root) {
   }
 }
 
-function signDevBundle(appRoot) {
+function resolveDevSigningIdentity(env = process.env) {
+  const identity = String(env.APPLE_SIGNING_IDENTITY || '').trim();
+  return identity || '-';
+}
+
+function signDevBundle(appRoot, env = process.env) {
   removeCodesignTempFiles(appRoot);
+  const identity = resolveDevSigningIdentity(env);
   for (const args of [
-    ['--force', '--deep', '--sign', '-', appRoot],
+    ['--force', '--deep', '--sign', identity, appRoot],
     ['--verify', '--deep', '--strict', appRoot],
   ]) {
     const result = spawnSync('/usr/bin/codesign', args, {
@@ -603,6 +614,7 @@ module.exports = {
   parseCargoRunArgs,
   removeCodesignTempFiles,
   replaceExecutable,
+  resolveDevSigningIdentity,
   resolveMacosDevPaths,
   signDevBundle,
 };

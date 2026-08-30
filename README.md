@@ -177,7 +177,7 @@ cargo test --workspace
 pnpm run tauri:build
 ```
 
-`pnpm run dev` starts the React / Vite frontend, the Tauri desktop shell, and the Rust services. Run `pnpm run generate-types` after changing shared Rust types. Platform-specific bundles: `pnpm run tauri:build:macos`, `pnpm run tauri:build:windows`, and `pnpm run tauri:build:linux`.
+`pnpm run dev` starts the React / Vite frontend, the Tauri desktop shell, and the Rust services. That window is **VibeX Dev** (`com.vibex.app.dev`) and can run beside an installed VibeX app. Run `pnpm run generate-types` after changing shared Rust types. Platform-specific bundles: `pnpm run tauri:build:macos`, `pnpm run tauri:build:windows`, and `pnpm run tauri:build:linux`.
 
 ```text
 frontend/        React + TypeScript + Vite user interface

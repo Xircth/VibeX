@@ -7,10 +7,13 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentConnectionStatus, AgentEvent, runtime::AgentRuntime};
+use agents::{
+    AgentConnectionStatus, AgentEvent, AgentId, mcp_bare_tool_name, runtime::AgentRuntime,
+    unwrap_grok_use_tool,
+};
 use delegation::{
-    DelegationBroker, DelegationConfig, DelegationListener, InMemoryCompanionFeatures,
-    TokenRegistry, default_socket_path,
+    DelegationBroker, DelegationConfig, DelegationListener, DelegationMatchKey,
+    InMemoryCompanionFeatures, TokenRegistry, default_socket_path,
 };
 use sqlx::SqlitePool;
 use tokio::sync::{Mutex, broadcast::error::RecvError};
@@ -77,6 +80,7 @@ pub(crate) fn build_delegation(
         features.clone(),
         runtime.clone(),
     );
+    spawn_parent_tool_call_binder(broker.clone(), runtime.clone());
 
     // Install the companion injector so capable ACP parents auto-launch
     // vibex-mcp with a session-scoped token.
@@ -134,6 +138,69 @@ impl server::ProductMcpSessionLookup for RuntimeConversationLookup {
             PathBuf::from(&connection.working_dir),
         ))
     }
+}
+
+fn spawn_parent_tool_call_binder(broker: Arc<DelegationBroker>, runtime: Arc<AgentRuntime>) {
+    tauri::async_runtime::spawn(async move {
+        let mut events = runtime.subscribe_events();
+        loop {
+            let envelope = match events.recv().await {
+                Ok(envelope) => envelope,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            };
+            let AgentEvent::ToolCall { tool_call } = envelope.event else {
+                continue;
+            };
+            let Some(preview) = tool_call.input_preview.as_deref() else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(preview) else {
+                continue;
+            };
+            let (inner_name, args) = match unwrap_grok_use_tool(Some(&value)) {
+                Some((name, inner)) => (Some(name), inner),
+                None => (None, value),
+            };
+            let title = tool_call.title.to_ascii_lowercase();
+            let inner_name_l = inner_name
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            let bare_title = mcp_bare_tool_name(&tool_call.title).to_ascii_lowercase();
+            if !title.contains("delegate_to_agent")
+                && !inner_name_l.contains("delegate_to_agent")
+                && bare_title != "delegate_to_agent"
+            {
+                continue;
+            }
+            let Some(agent_type) = args
+                .get("agent_type")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| AgentId::parse(id).ok())
+            else {
+                continue;
+            };
+            let task = args
+                .get("task")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let working_dir = args
+                .get("working_dir")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            broker.note_parent_tool_call(
+                &envelope.connection_id.to_string(),
+                &tool_call.id,
+                DelegationMatchKey {
+                    agent_type,
+                    task,
+                    working_dir,
+                },
+            );
+        }
+    });
 }
 
 fn spawn_parent_teardown(

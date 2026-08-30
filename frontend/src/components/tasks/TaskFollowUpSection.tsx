@@ -32,6 +32,7 @@ import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
+import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import {
@@ -432,6 +433,7 @@ export function TaskFollowUpSection({
     notices: conversationStatusNotices,
     question: pendingAgentQuestion,
     permissions: pendingPermissions,
+    childrenDock,
   } = useConversationStatus();
   // Live ACP session state is the sole source for composer controls. A global
   // agent catalog cannot account for workspace/provider/account differences.
@@ -875,6 +877,14 @@ export function TaskFollowUpSection({
               localError={followUpError}
               onDismissLocalError={() => setFollowUpError(null)}
               dismissalScope={session?.id ?? null}
+              extra={
+                childrenDock ? (
+                  <ConversationChildrenSummary
+                    conversationId={childrenDock.conversationId}
+                    onOpenChild={childrenDock.onOpenChild}
+                  />
+                ) : null
+              }
             />
           }
           overlay={

@@ -52,7 +52,7 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
         let result = match &event.outcome {
             DelegationOutcome::Ok(success) => DelegationResultSummary::Ok {
                 duration_ms: Some(success.duration_ms),
-                text_preview: Some(preview(&success.text)),
+                text_preview: Some(success.text.clone()),
             },
             DelegationOutcome::Err { code, .. } => DelegationResultSummary::Err {
                 error_code: code.clone(),
@@ -72,18 +72,6 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
             )
             .await;
     }
-}
-
-fn preview(text: &str) -> String {
-    const CAP: usize = 200;
-    if text.len() <= CAP {
-        return text.to_string();
-    }
-    let mut end = CAP;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &text[..end])
 }
 
 /// v1: delegation `DelegationStarted`/`DelegationCompleted` events are enough for

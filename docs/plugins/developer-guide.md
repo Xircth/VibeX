@@ -2,7 +2,7 @@
 
 对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。不要向用户索要 token。
 
-查工具链路径可以在仓库根执行 `vibex-plugin toolchain`（本地 `packages/plugin-cli`）。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。
+查工具链路径执行 `vibex-plugin toolchain`（仓库里是 `node packages/plugin-cli/dist/cli.js toolchain`）。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。链接正在跑的 Host 用 `vibex plugin add --dev .`。
 
 ## 你在开发什么
 
@@ -34,7 +34,7 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 - `rust-worker` native Worker
 - `host-service` 后台定时 handler
 
-不要用 `--template agent`。那个入口已经删了。
+可编辑文件 Tab 要按 `file.opener.editorSurface` + `app.surface(slot: artifact.editor)` 另行声明。
 
 `init` 不是 Next 那种整框架脚手架。它只给你一份能挂进 Host 的包。
 
@@ -162,7 +162,7 @@ vibex-plugin uninstall
 vibex-plugin uninstall --delete-data
 ```
 
-`install` 现在只支持 `--link`。产品 CLI 也可以：`vibex plugin add --dev .` 链到正在跑的 Desktop 或 Server，不必再从界面拷 Dev grant。`--dev` 只负责 build；Host 用文件事件监视 digest 并发布候选代。
+`vibex-plugin install` 只支持 `--link`。产品 CLI：`vibex plugin add --dev .` 会 build、validate、导入为 developer link，并尝试启用。源码变化后重新 build；Host 按 digest 发布候选代。
 
 普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走装、Skill 热更新、卸载。
 
@@ -174,16 +174,15 @@ vibex-plugin uninstall --delete-data
 
 ## 开发流程
 
-1. `init` 选最接近的模板。
+1. `init` 选最接近的模板。Node Worker 模板要补 `runStdioPluginWorker`。
 2. 改 README 的 `summary` 和正文。
 3. 在 `integrations` 里只声明你真要实现的槽。
 4. 写 Worker 或 App，handler id 必须和声明一致。
-5. `build`，看 `dist/` 和 `package.lock.json`。
+5. `build`，看 `dist/`。
 6. `validate` 和 `test`。
-7. 打开 VibeX，用开发工具拿到 host 和 grant。
-8. `install --link .` 或直接 `dev`。
-9. 在 `/plugins` 里启用，走一遍用户能看见的路径。
-10. 要分发就 `pack`，把 `.vxp` 给人拖进去。
+7. 打开 Desktop 或 `vibex serve`，执行 `vibex plugin add --dev .`。
+8. 在「设置 → 插件」里启用，走一遍用户能看见的路径。
+9. 要分发就 `pack`，用 `vibex plugin add --profile file.vxp` 或把 `.vxp` 拖进去。
 
 Harness 绿了不算完。文件页、预览、Runtime、远程行为必须对着正在跑的 Host 点过。
 

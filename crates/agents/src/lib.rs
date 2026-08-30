@@ -25,8 +25,10 @@ mod ext_question;
 pub mod filesystem;
 mod grok_announcements;
 mod grok_ask;
+mod grok_mcp;
 mod grok_plan;
 mod grok_subagent;
+mod grok_usage;
 pub mod history;
 pub mod ids;
 pub mod install_planner;
@@ -124,6 +126,7 @@ pub use events::{
     DelegationResultSummary,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
+pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
 pub use history::{
     AgentHistoryError, AgentHistorySource, HistoryPathDestination, ImportedAgentMessage,
     ImportedAgentMessageMetadata, ImportedAgentMessageRole, ImportedAgentSession,
@@ -227,7 +230,8 @@ pub use terminal::{
 };
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{
-    ObservedUserComponent, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
-    decide_user_environment_adopt, npm_global_install_args, observed_satisfies_profile,
-    plan_required_components, profile_required_versions, uv_distribution_name,
+    ObservedUserComponent, PlannedPreflightUpdate, UserEnvironmentAdoptDecision,
+    UserEnvironmentLayout, decide_user_environment_adopt, npm_global_install_args,
+    observed_satisfies_profile, plan_required_components, planned_preflight_updates,
+    profile_required_versions, uv_distribution_name,
 };

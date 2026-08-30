@@ -120,6 +120,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginMarketplaceListing => self.plugin_marketplace_listing(args).await,
             DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
             DomainCommand::PluginCheckUpdates => self.plugin_check_updates().await,
+            DomainCommand::PluginControlLogs => self.plugin_control_logs(args).await,
             DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
             DomainCommand::PluginControlGcRuntimes => self.plugin_control_gc_runtimes(args).await,
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
@@ -441,6 +442,8 @@ impl ServerApplicationDomains {
             git_sha: Option<String>,
             #[serde(default)]
             locked: bool,
+            #[serde(default)]
+            show_tree: Option<bool>,
         }
         let args: PluginImportArgs = parse(args)?;
         let source = std::path::PathBuf::from(&args.path);
@@ -483,6 +486,7 @@ impl ServerApplicationDomains {
         package.source.git_ref = args.git_ref;
         package.source.git_sha = args.git_sha;
         package.source.locked = args.locked;
+        package.source.show_tree = args.show_tree.or(package.source.show_tree);
         let installed = self
             .plugin_control_plane
             .plugin(package.id.as_str())
@@ -526,20 +530,10 @@ impl ServerApplicationDomains {
             .await
             .unwrap_or_default();
         if let Ok(roots) = utils::assets::materialize_builtin_plugins(&self.runtime_root) {
-            for root in roots {
-                if let Ok(package) =
-                    plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                {
-                    let listing = plugins::listing_from_package(&package, true);
-                    if !page
-                        .official
-                        .iter()
-                        .any(|item| item.plugin_name == listing.plugin_name)
-                    {
-                        page.official.push(listing);
-                    }
-                }
-            }
+            plugins::merge_offline_official(&mut page, roots);
+        } else {
+            page.official = plugins::collapse_replaced_official(page.official);
+            plugins::prepare_marketplace_page(&mut page);
         }
         serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -616,6 +610,7 @@ impl ServerApplicationDomains {
                     "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
                     "gitRef": listing.tag,
                     "locked": true,
+                    "showTree": listing.show_tree,
                 }))
                 .await;
         }
@@ -671,6 +666,20 @@ impl ServerApplicationDomains {
         )
         .await;
         serde_json::to_value(updates).map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn plugin_control_logs(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct LogsArgs {
+            plugin_id: String,
+            #[serde(default)]
+            after: u64,
+        }
+        let args: LogsArgs = parse(args)?;
+        let lines = plugins::recent_plugin_logs(&args.plugin_id, args.after);
+        serde_json::to_value(json!({ "lines": lines }))
+            .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1729,6 +1738,7 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
         "sourceRef": plugin.source.git_ref,
         "sourceSha": plugin.source.git_sha,
         "sourceLocked": plugin.source.locked,
+        "sourceShowTree": plugin.source.show_tree,
     })
 }
 

@@ -3,9 +3,14 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const { withNativeBuildEnv } = require("./cargo-path");
+const { applyLocalEnvFile } = require("./load-local-env");
 
 const workspaceRoot = path.join(__dirname, "..");
 const sqlxOfflineDir = path.join(workspaceRoot, "crates", "db", ".sqlx");
+const localEnv = applyLocalEnvFile(
+  path.join(workspaceRoot, ".env.local"),
+  process.env,
+);
 
 function runCommand(command, args, options = {}) {
   if (process.platform === "win32") {
@@ -95,7 +100,7 @@ if (bundleArgs.length > 0) {
 }
 
 const child = runCommand("pnpm", buildArgs, {
-  env: withTauriBuildEnv(process.env, target),
+  env: withTauriBuildEnv(localEnv, target),
   stdio: "inherit",
 });
 

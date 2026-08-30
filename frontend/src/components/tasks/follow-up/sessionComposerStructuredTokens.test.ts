@@ -63,7 +63,7 @@ describe('session composer structured commands', () => {
     expect(getSessionComposerStructuredTokens(raw)).toEqual([
       expect.objectContaining({
         kind: 'element',
-        label: 'Save]Button',
+        label: '@Save]Button',
         value:
           'From preview click:\n- Selected start: SaveButton (`src/App.tsx:12:3`)\n- Element source: <button>)',
       }),
@@ -129,7 +129,7 @@ describe('session composer structured commands', () => {
           kind: 'file',
           type: '@',
           key: 'App.tsx',
-          label: 'App.tsx',
+          label: '@App.tsx',
           value: 'src/App.tsx',
           raw: fileCommand,
           title: 'src/App.tsx',
@@ -216,7 +216,7 @@ describe('session composer structured commands', () => {
     expect(getSessionComposerStructuredTokens(next.value)).toEqual([
       expect.objectContaining({
         kind: 'element',
-        label: 'SaveButton',
+        label: '@SaveButton',
         value: elementContext,
         title: elementContext,
       }),
@@ -284,14 +284,14 @@ describe('session composer structured commands', () => {
     expect(getSessionComposerStructuredTokens(conversation)).toEqual([
       expect.objectContaining({
         kind: 'conversation',
-        label: 'Fix auth',
+        label: '@Fix auth',
         value: '550e8400-e29b-41d4-a716-446655440000',
       }),
     ]);
     expect(getSessionComposerStructuredTokens(commit)).toEqual([
       expect.objectContaining({
         kind: 'commit',
-        label: 'abcdef1',
+        label: '@abcdef1',
         value: 'abcdef1234567890',
       }),
     ]);
@@ -300,6 +300,23 @@ describe('session composer structured commands', () => {
         `See ${conversation} and ${commit}`
       )
     ).toBe(`See ${conversation} and ${commit}`);
+  });
+
+  it('prefixes every @ reference chip with @', () => {
+    expect(
+      getSessionComposerStructuredTokens(
+        formatSessionComposerCommand({
+          type: '#',
+          key: 'review-changes',
+          value: '#review-changes',
+        })
+      )[0]
+    ).toEqual(
+      expect.objectContaining({
+        kind: 'tag',
+        label: '@review-changes',
+      })
+    );
   });
 
   it('turns a unique bare agent mention into a structured token', () => {

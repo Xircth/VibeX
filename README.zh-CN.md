@@ -177,7 +177,7 @@ cargo test --workspace
 pnpm run tauri:build
 ```
 
-`pnpm run dev` 启动 React / Vite 前端、Tauri 桌面壳与 Rust 服务。修改共享 Rust 类型后运行 `pnpm run generate-types`。按平台打包可使用 `pnpm run tauri:build:macos`、`pnpm run tauri:build:windows` 与 `pnpm run tauri:build:linux`。
+`pnpm run dev` 启动 React / Vite 前端、Tauri 桌面壳与 Rust 服务。该窗口是独立的 **VibeX Dev**（`com.vibex.app.dev`），可以和已安装的正式版 VibeX 同时运行。修改共享 Rust 类型后运行 `pnpm run generate-types`。按平台打包可使用 `pnpm run tauri:build:macos`、`pnpm run tauri:build:windows` 与 `pnpm run tauri:build:linux`。
 
 ```text
 frontend/        React + TypeScript + Vite 用户界面

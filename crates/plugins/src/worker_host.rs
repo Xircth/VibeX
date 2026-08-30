@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -263,7 +263,8 @@ impl WorkerHost {
             "python" => resolve_python_executable(&node_executable).await?,
             _ => node_executable.clone(),
         };
-        let (child, stdin, stdout) = spawn_hosted_worker(
+        let plugin_id = package.id.as_str().to_owned();
+        let (child, stdin, stdout, stderr) = spawn_hosted_worker(
             &program,
             &package_root,
             &entrypoint,
@@ -271,6 +272,14 @@ impl WorkerHost {
             package.package_class == "isolated",
             grants,
         )?;
+        if let Some(stderr) = stderr {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    record_plugin_log(&plugin_id, "stderr", line);
+                }
+            });
+        }
         let scoped_broker = Arc::new(ScopedCapabilityBroker::new(
             package, generation, grants, broker,
         )?);
@@ -453,6 +462,60 @@ pub fn recent_plugin_crashes(plugin_id: &str) -> Vec<serde_json::Value> {
 
 static PLUGIN_CRASHES: std::sync::Mutex<Vec<serde_json::Value>> = std::sync::Mutex::new(Vec::new());
 
+const MAX_PLUGIN_LOG_LINES: usize = 2000;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginLogLine {
+    pub seq: u64,
+    pub plugin_id: String,
+    pub stream: String,
+    pub text: String,
+    pub at_unix_ms: u64,
+}
+
+struct PluginLogBuffer {
+    seq: u64,
+    lines: VecDeque<PluginLogLine>,
+}
+
+static PLUGIN_LOGS: std::sync::Mutex<PluginLogBuffer> = std::sync::Mutex::new(PluginLogBuffer {
+    seq: 0,
+    lines: VecDeque::new(),
+});
+
+pub fn record_plugin_log(plugin_id: &str, stream: &str, text: impl Into<String>) {
+    let Ok(mut logs) = PLUGIN_LOGS.lock() else {
+        return;
+    };
+    logs.seq += 1;
+    let seq = logs.seq;
+    logs.lines.push_back(PluginLogLine {
+        seq,
+        plugin_id: plugin_id.to_owned(),
+        stream: stream.to_owned(),
+        text: text.into(),
+        at_unix_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+    });
+    while logs.lines.len() > MAX_PLUGIN_LOG_LINES {
+        logs.lines.pop_front();
+    }
+}
+
+pub fn recent_plugin_logs(plugin_id: &str, after: u64) -> Vec<PluginLogLine> {
+    let Ok(logs) = PLUGIN_LOGS.lock() else {
+        return Vec::new();
+    };
+    logs.lines
+        .iter()
+        .filter(|line| line.plugin_id == plugin_id && line.seq > after)
+        .cloned()
+        .collect()
+}
+
 pub fn isolated_spawn_supported() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -513,6 +576,7 @@ fn spawn_hosted_worker(
         HostedChild,
         Box<dyn AsyncWrite + Unpin + Send>,
         Box<dyn AsyncRead + Unpin + Send>,
+        Option<tokio::process::ChildStderr>,
     ),
     WorkerHostError,
 > {
@@ -529,6 +593,7 @@ fn spawn_hosted_worker(
             HostedChild::AppContainer(launched.process),
             Box::new(tokio::fs::File::from_std(launched.stdin)),
             Box::new(tokio::fs::File::from_std(launched.stdout)),
+            None,
         ));
     }
     #[cfg(not(windows))]
@@ -582,10 +647,12 @@ fn spawn_hosted_worker(
     let stdout = child.stdout.take().ok_or_else(|| {
         WorkerHostError::new("worker_transport_failed", "Worker stdout is unavailable")
     })?;
+    let stderr = child.stderr.take();
     Ok((
         HostedChild::Command(child),
         Box::new(stdin),
         Box::new(stdout),
+        stderr,
     ))
 }
 
@@ -1221,5 +1288,21 @@ mod isolated_spawn_tests {
         )
         .expect_err("unsupported hosts must not wrap Isolated spawn");
         assert_eq!(error.code(), "plugin_class_unsupported");
+    }
+
+    #[test]
+    fn plugin_logs_are_filtered_by_id_and_sequence() {
+        record_plugin_log("demo.one", "stderr", "first");
+        record_plugin_log("demo.two", "stderr", "other");
+        record_plugin_log("demo.one", "stderr", "second");
+        let first = recent_plugin_logs("demo.one", 0);
+        assert!(first.iter().any(|line| line.text == "first"));
+        let last_seq = first.last().map(|line| line.seq).unwrap_or(0);
+        record_plugin_log("demo.one", "stderr", "third");
+        let next = recent_plugin_logs("demo.one", last_seq);
+        assert_eq!(next.last().map(|line| line.text.as_str()), Some("third"));
+        assert!(recent_plugin_logs("demo.two", 0)
+            .iter()
+            .any(|line| line.text == "other"));
     }
 }

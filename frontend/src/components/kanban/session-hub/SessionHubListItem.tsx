@@ -31,6 +31,7 @@ import {
   INFO_TEXT_CLASS,
   formatTimeAgo,
   getExecutorDisplayName,
+  sessionListAgentKey,
   type SessionMarker,
 } from './utils';
 
@@ -64,6 +65,7 @@ export function SessionHubListItem({
   isOpening = false,
 }: SessionHubListItemProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const agentKey = sessionListAgentKey(session);
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const showRenameControls =
     !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
@@ -236,9 +238,9 @@ export function SessionHubListItem({
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex shrink-0 items-center justify-center text-muted-foreground">
-                  {session.executor ? (
+                  {agentKey ? (
                     <AgentIcon
-                      agent={session.executor as ExecutorProfileId['executor']}
+                      agent={agentKey as ExecutorProfileId['executor']}
                       className="h-4 w-4"
                     />
                   ) : (
@@ -247,7 +249,7 @@ export function SessionHubListItem({
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                {getExecutorDisplayName(session.executor)}
+                {getExecutorDisplayName(agentKey)}
               </TooltipContent>
             </Tooltip>
           ) : null}

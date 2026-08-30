@@ -93,13 +93,7 @@ export function TurnStats({
   const [copied, triggerCopied] = useTemporaryFlag(1600);
   const [showCompletedAt, setShowCompletedAt] = useState(false);
   const hasCopy = Boolean(copyText?.trim());
-  const tokenText = (() => {
-    const totalTokens = formatTokenCount(stats?.totalTokens);
-    if (!totalTokens) return null;
-
-    const contextWindow = formatTokenCount(stats?.contextWindow);
-    return contextWindow ? `${totalTokens} / ${contextWindow}` : totalTokens;
-  })();
+  const tokenText = formatTokenCount(stats?.totalTokens);
   const elapsedText = formatTurnDuration(stats?.elapsedMs);
   const completedAtText = formatCompletionTime(stats?.completedAt);
   const modelText = stats?.model?.trim() || null;

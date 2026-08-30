@@ -2582,7 +2582,7 @@ impl PluginControlPlane {
     /// table until this runs, so the catalog would show two products for one
     /// capability.
     pub const REPLACED_BUILTIN_PLUGINS: &'static [(&'static str, &'static str)] =
-        &[("vibex.collaboration", "vibex.multi-agent")];
+        crate::catalog::REPLACED_PLUGIN_IDS;
 
     pub async fn retire_replaced_builtins(&self) -> Result<(), PluginError> {
         for (retired_id, successor_id) in Self::REPLACED_BUILTIN_PLUGINS {

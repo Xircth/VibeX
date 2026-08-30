@@ -11,6 +11,7 @@
 //! ([`spawner`], depth/status lookups, meta writer, event emitter) so the core
 //! logic unit-tests against mocks without a live agent runtime or database.
 
+pub mod assistant_reply;
 pub mod broker;
 pub mod depth;
 pub mod event_emitter;
@@ -26,6 +27,7 @@ pub mod types;
 #[cfg(test)]
 mod testing;
 
+pub use assistant_reply::AssistantReplyAccumulator;
 pub use broker::{DelegationBroker, StatusWait};
 pub use event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent};
 pub use listener::{DelegationListener, default_socket_path};

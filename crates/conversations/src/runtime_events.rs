@@ -605,7 +605,7 @@ fn map_agent_event(
         AgentEvent::ToolCallUpdate { update } => Some(ConversationEvent::ToolCallUpsert {
             tool_call: ConversationToolCallPatch {
                 tool_call_id: update.id.clone(),
-                title: None,
+                title: update.title.clone(),
                 kind: None,
                 status: update.status.clone(),
                 raw_input: update
@@ -933,7 +933,7 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
 mod tests {
     use agents::{
         AgentConnectionId, AgentEvent, AgentEventEnvelope, AgentSessionId, AgentToolCall,
-        AgentUsage, conversation::ConversationEvent,
+        AgentToolCallUpdate, AgentUsage, conversation::ConversationEvent,
     };
     use chrono::Utc;
     use uuid::Uuid;
@@ -1012,6 +1012,29 @@ mod tests {
             mapped,
             Some(ConversationEvent::ToolCallUpsert { tool_call })
                 if tool_call.metadata == Some(metadata) && tool_call.images == vec![image]
+        ));
+    }
+
+    #[test]
+    fn tool_call_update_can_rewrite_the_title() {
+        let envelope = envelope(AgentEvent::ToolCallUpdate {
+            update: AgentToolCallUpdate {
+                id: "tool-1".to_string(),
+                title: Some("vibex-delegation-mcp__delegate_to_agent".to_string()),
+                status: Some("running".to_string()),
+                content: None,
+                input_preview: Some(r#"{"agent_type":"codex","task":"hi"}"#.to_string()),
+                meta: None,
+                images: Vec::new(),
+            },
+        });
+
+        let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::ToolCallUpsert { tool_call })
+                if tool_call.title.as_deref()
+                    == Some("vibex-delegation-mcp__delegate_to_agent")
         ));
     }
 

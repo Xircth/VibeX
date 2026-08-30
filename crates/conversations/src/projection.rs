@@ -23,13 +23,14 @@ use db::models::{
     conversation_steering::ConversationSteeringRecord,
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
+    session::Session,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v14 hides protocol-ack and expected companion-capability diagnostics.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 14;
+// v15 folds delegated-child assistant deltas that were recorded without a turn.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 15;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
@@ -596,6 +597,10 @@ impl ConversationProjector {
         for record in &tail {
             fold.apply(record)?;
         }
+        let prompt = Session::find_by_id(pool, conversation_id)
+            .await?
+            .and_then(|session| session.initial_prompt);
+        fold.seed_user_prompt_from_session(conversation_id, prompt.as_deref());
         Ok(fold.into_timeline(conversation_id))
     }
 
@@ -1012,8 +1017,10 @@ impl ProjectionFold {
         // re-broadcast its whole text every frame (the O(n²) this batch kills).
         if let ConversationEvent::AssistantTextDelta { ref text, .. }
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
-            && let Some(turn_id) = self.resolved_turn_id(record)
         {
+            let turn_id = self
+                .resolved_turn_id(record)
+                .unwrap_or(record.conversation_id);
             let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
                 TimelineTextStream::Reasoning
             } else {
@@ -1637,9 +1644,11 @@ impl ProjectionFold {
             && let Some(turn) = self.turns.get(&turn_id)
             && turn.revision == record.sequence
         {
-            ops.push(ConversationRowOp::Upsert {
-                row: message_row(turn, TurnRole::User),
-            });
+            if !turn.user.blocks.is_empty() {
+                ops.push(ConversationRowOp::Upsert {
+                    row: message_row(turn, TurnRole::User),
+                });
+            }
             if !turn.assistant.blocks.is_empty() {
                 ops.push(ConversationRowOp::Upsert {
                     row: message_row(turn, TurnRole::Assistant),
@@ -1672,14 +1681,16 @@ impl ProjectionFold {
                     revision,
                     ..
                 } = turn;
-                rows.push(TimelineRow {
-                    row_id: user.id.clone(),
-                    revision,
-                    row: ConversationTimelineRow::MessageTurn {
-                        turn: user,
-                        phase: phase.clone(),
-                    },
-                });
+                if !user.blocks.is_empty() {
+                    rows.push(TimelineRow {
+                        row_id: user.id.clone(),
+                        revision,
+                        row: ConversationTimelineRow::MessageTurn {
+                            turn: user,
+                            phase: phase.clone(),
+                        },
+                    });
+                }
                 if !assistant.blocks.is_empty() {
                     rows.push(TimelineRow {
                         row_id: assistant.id.clone(),
@@ -1711,7 +1722,9 @@ impl ProjectionFold {
             if turn.revision <= after_sequence {
                 continue;
             }
-            rows.push(message_row(turn, TurnRole::User));
+            if !turn.user.blocks.is_empty() {
+                rows.push(message_row(turn, TurnRole::User));
+            }
             if !turn.assistant.blocks.is_empty() {
                 rows.push(message_row(turn, TurnRole::Assistant));
             }
@@ -1727,6 +1740,55 @@ impl ProjectionFold {
 
     fn resolved_turn_id(&self, record: &ConversationEventRecord) -> Option<Uuid> {
         record.turn_id.or_else(|| self.turn_order.last().copied())
+    }
+
+    fn seed_user_prompt_from_session(&mut self, conversation_id: Uuid, prompt: Option<&str>) {
+        let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) else {
+            return;
+        };
+        if self.turns.values().any(|turn| !turn.user.blocks.is_empty()) {
+            return;
+        }
+        let turn_id = self.turn_order.first().copied().unwrap_or(conversation_id);
+        if !self.turns.contains_key(&turn_id) {
+            self.turn_order.push(turn_id);
+            self.turns.insert(
+                turn_id,
+                ProjectedTurn {
+                    turn_id,
+                    user: MessageTurn {
+                        id: format!("{turn_id}:user"),
+                        role: TurnRole::User,
+                        blocks: vec![ContentBlock::Text {
+                            text: prompt.to_string(),
+                        }],
+                        timestamp: chrono::Utc::now(),
+                        usage: None,
+                        duration_ms: None,
+                        model: None,
+                        completed_at: None,
+                    },
+                    assistant: MessageTurn {
+                        id: format!("{turn_id}:assistant"),
+                        role: TurnRole::Assistant,
+                        blocks: Vec::new(),
+                        timestamp: chrono::Utc::now(),
+                        usage: None,
+                        duration_ms: None,
+                        model: None,
+                        completed_at: None,
+                    },
+                    phase: "settled".into(),
+                    revision: self.last_sequence.max(1),
+                },
+            );
+            return;
+        }
+        if let Some(turn) = self.turns.get_mut(&turn_id) {
+            turn.user.blocks = vec![ContentBlock::Text {
+                text: prompt.to_string(),
+            }];
+        }
     }
 }
 
@@ -1790,9 +1852,10 @@ fn settle_turn(
     record: &ConversationEventRecord,
     phase: &str,
 ) {
-    let Some(turn_id) = record.turn_id else {
-        return;
-    };
+    let turn_id = record
+        .turn_id
+        .or_else(|| turn_order.last().copied())
+        .unwrap_or(record.conversation_id);
     ensure_turn(turns, turn_order, turn_id, record);
     let turn = turns.get_mut(&turn_id).expect("turn exists");
     turn.phase = phase.into();
@@ -4312,6 +4375,120 @@ mod tests {
         let detail = permission.details.as_ref().expect("details preserved");
         assert_eq!(detail["fields"]["kind"], "edit");
         assert_eq!(detail["fields"]["content"][0]["path"], "README.md");
+    }
+
+    #[tokio::test]
+    async fn delegated_child_assistant_deltas_without_a_turn_still_render() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: Some("introduce yourself"),
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create child conversation");
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "你好，我是 Codex".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("EndTurn".into()),
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project orphan assistant stream");
+        let assistant = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                Some(turn)
+            }
+            _ => None,
+        });
+        let assistant = assistant.expect("assistant message");
+        assert!(
+            assistant.blocks.iter().any(
+                |block| matches!(block, ContentBlock::Text { text } if text.contains("Codex"))
+            )
+        );
+        let user = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } if turn.role == TurnRole::User => {
+                Some(turn)
+            }
+            _ => None,
+        });
+        let user = user.expect("session prompt becomes the user message");
+        assert!(user.blocks.iter().any(
+            |block| matches!(block, ContentBlock::Text { text } if text == "introduce yourself")
+        ));
+    }
+
+    #[tokio::test]
+    async fn delegated_child_projects_the_task_as_a_user_turn() {
+        let pool = setup_pool().await;
+        let (parent_conversation_id, _) = seed_turn(&pool).await;
+        let child_conversation_id = Uuid::new_v4();
+        create_delegated_conversation(
+            &pool,
+            CreateDelegatedConversation {
+                id: child_conversation_id,
+                parent_conversation_id,
+                parent_tool_call_id: "tool-1".into(),
+                delegation_id: "delegation-call-1".into(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                prompt: "Review the diff".into(),
+                policy: serde_json::json!({"workspaceAccess": "write_serialized"}),
+            },
+        )
+        .await
+        .expect("persist delegated child");
+
+        let timeline = ConversationProjector::project(&pool, child_conversation_id)
+            .await
+            .expect("project child");
+        let user = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } if turn.role == TurnRole::User => {
+                Some(turn)
+            }
+            _ => None,
+        });
+        let user = user.expect("user task message");
+        assert!(user.blocks.iter().any(
+            |block| matches!(block, ContentBlock::Text { text } if text == "Review the diff")
+        ));
+        let active_turn_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+                .bind(child_conversation_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load active turn");
+        assert!(active_turn_id.is_some());
     }
 
     #[tokio::test]

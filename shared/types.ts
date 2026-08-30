@@ -1219,7 +1219,7 @@ export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archi
 
 export type SessionContinuityMode = "new_session" | "resume_in_place";
 
-export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, };
+export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, agent_id: AgentId | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, };
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
 
@@ -1293,7 +1293,12 @@ export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args
 
 export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
-export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null,
+export type AgentToolCallUpdate = { id: string,
+/**
+ * Rewritten title for hosts whose wire title mutates (Grok `use_tool`).
+ * `None` leaves the existing title in place.
+ */
+title?: string | null, status?: string | null, content?: string | null,
 /**
  * Raw input newly supplied by an ACP patch (including a synthesized
  * file/diff payload when ACP reports structured content or locations).
@@ -1925,7 +1930,7 @@ export type GrokPluginSummaryView = { home: string, plugins: Array<GrokPluginVie
 
 export type AgentAuthModeKind = "subscription" | "official_api" | "provider";
 
-export type AgentAuthModeOptionView = { value: string, kind: AgentAuthModeKind, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, official_api_url?: string | null, };
+export type AgentAuthModeOptionView = { value: string, kind: AgentAuthModeKind, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, official_api_url?: string, };
 
 export type AgentEnvironmentEntryView = { name: string, value: string | null, secret: boolean, present: boolean, masked_value: string | null, };
 

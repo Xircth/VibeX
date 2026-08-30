@@ -348,6 +348,122 @@ describe('ConversationStatusDock', () => {
     expect(screen.queryByText('因重启中断')).not.toBeInTheDocument();
   });
 
+  it('does not offer session reload on warning, notice, or interruption cards', () => {
+    const onReload = vi.fn();
+    const onRebind = vi.fn();
+    const onResend = vi.fn();
+
+    render(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        notices={[
+          {
+            id: 'error-turn-1',
+            kind: 'turn-error',
+            error: {
+              message: 'agent connection closed',
+              code: 'connection_closed',
+              raw: null,
+            },
+            onReload,
+          },
+          {
+            id: 'interrupted-turn-2',
+            kind: 'interrupted-turn',
+            onResend,
+          },
+          {
+            id: 'notice-warning',
+            kind: 'session-notice',
+            onRebind,
+            notice: {
+              title: '部分会话记录无法显示',
+              message: '其余会话内容不受影响。',
+              severity: 'warning',
+            },
+          },
+          {
+            id: 'notice-info',
+            kind: 'session-notice',
+            onRebind,
+            notice: {
+              title: 'Grok 4.6 is here!',
+              message: 'See what is new.',
+              severity: 'info',
+              announcement_id: 'grok-4-6',
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /重新加载会话/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /重新加载会话/ })
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole('button', { name: '重新绑定会话' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('anchors stacked status cards to the panel bottom outside the composer', () => {
+    render(
+      <ConversationStatusDock
+        placement="panel"
+        notices={[
+          {
+            id: 'notice-1',
+            kind: 'session-notice',
+            notice: {
+              title: '部分会话记录无法显示',
+              message: '其余会话内容不受影响。',
+              severity: 'warning',
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId('conversation-status-dock')).toHaveAttribute(
+      'data-placement',
+      'panel'
+    );
+    expect(screen.getByTestId('conversation-status-dock')).toHaveClass(
+      'conversation-status-dock--panel'
+    );
+  });
+
+  it('keeps a dismissed card hidden after it is re-emitted with a new row id', () => {
+    const notice = {
+      kind: 'session-notice' as const,
+      notice: {
+        title: '部分会话记录无法显示',
+        message: '其余会话内容不受影响。',
+        severity: 'warning' as const,
+      },
+    };
+
+    const { rerender } = render(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        notices={[{ ...notice, id: 'notice:12' }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(screen.queryByText('部分会话记录无法显示')).not.toBeInTheDocument();
+
+    rerender(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        notices={[{ ...notice, id: 'notice:44' }]}
+      />
+    );
+    expect(screen.queryByText('部分会话记录无法显示')).not.toBeInTheDocument();
+  });
+
   it('does not offer session rebind for notices that do not block the session', () => {
     const onRebind = vi.fn();
     render(
@@ -421,5 +537,34 @@ describe('ConversationStatusDock', () => {
       <ConversationStatusDock dismissalScope="session-2" notices={[notice]} />
     );
     expect(screen.queryByText('Grok 4.6 is here!')).not.toBeInTheDocument();
+  });
+
+  it('stacks extra child-session summary with composer status cards', () => {
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'notice-1',
+            kind: 'session-notice',
+            notice: {
+              title: '部分会话记录无法显示',
+              message: '其余会话内容不受影响。',
+              severity: 'warning',
+            },
+          },
+        ]}
+        extra={
+          <div className="composer-status-row" data-testid="children-extra">
+            子会话（1）
+          </div>
+        }
+      />
+    );
+
+    const dock = screen.getByTestId('conversation-status-dock');
+    expect(within(dock).getByTestId('children-extra')).toHaveTextContent(
+      '子会话（1）'
+    );
+    expect(within(dock).getByText('部分会话记录无法显示')).toBeInTheDocument();
   });
 });

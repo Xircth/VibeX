@@ -4371,6 +4371,30 @@ mod tests {
     }
 
     #[test]
+    fn grok_stdio_companion_forward_writes_command_and_args() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.toml");
+        fs::write(&path, "[ui]\ntheme = \"dark\"\n").expect("seed Grok");
+        upsert_grok_server_at(
+            &path,
+            "vibex-delegation-mcp",
+            &json!({
+                "type": "stdio",
+                "command": "/opt/vibex-mcp",
+                "args": ["--token", "abc", "--features", "delegation"]
+            }),
+        )
+        .expect("write companion");
+        let text = fs::read_to_string(&path).expect("read Grok");
+        assert!(text.contains("vibex-delegation-mcp"));
+        assert!(text.contains("/opt/vibex-mcp"));
+        assert!(text.contains("delegation"));
+        assert!(text.contains("theme = \"dark\""));
+        assert!(remove_grok_server_at(&path, "vibex-delegation-mcp").expect("remove companion"));
+        assert!(read_grok_servers_at(&path).expect("rescan Grok").is_empty());
+    }
+
+    #[test]
     fn codex_rejects_sse_without_blocking_other_targets() {
         let sse = json!({ "type": "sse", "url": "https://x/sse" });
         assert!(canonical_to_codex_entry(&sse).is_err());

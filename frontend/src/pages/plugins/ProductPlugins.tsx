@@ -516,7 +516,10 @@ export function PluginCatalogPage() {
       </header>
 
       {catalogMode === 'marketplace' ? (
-        <section aria-label={t('plugins.marketplaceTab')}>
+        <section
+          className="product-plugin-catalog-body"
+          aria-label={t('plugins.marketplaceTab')}
+        >
           <PluginMarketplaceList
             official={marketPage?.official ?? []}
             community={marketPage?.community ?? []}
@@ -528,7 +531,7 @@ export function PluginCatalogPage() {
         </section>
       ) : (
         <section
-          className="product-plugin-list"
+          className="product-plugin-catalog-body product-plugin-list"
           aria-busy={loading || importing}
           aria-label={t('plugins.catalogAria')}
         >
@@ -648,6 +651,59 @@ export function PluginCatalogPage() {
               )}
             </div>
           ) : null}
+          {!loading && runtimes.length > 0 ? (
+            <section
+              className="product-plugin-runtimes settings-surface"
+              aria-label={t('plugins.runtimeInventoryTitle')}
+            >
+              <header className="product-plugin-runtimes-header">
+                <h2>{t('plugins.runtimeInventoryTitle')}</h2>
+                {canInstall ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void api
+                        .gcRuntimes()
+                        .then((result) => {
+                          toast.success(
+                            t('plugins.runtimeReclaimed', {
+                              count: result.reclaimed.length,
+                            })
+                          );
+                          return refresh(false);
+                        })
+                        .catch((error) =>
+                          toast.error(t('plugins.runtimeGcFailed'), {
+                            description: errorMessage(error),
+                          })
+                        );
+                    }}
+                  >
+                    {t('plugins.reclaimRuntimes')}
+                  </Button>
+                ) : null}
+              </header>
+              {runtimes.map((runtime) => (
+                <div
+                  className="product-plugin-runtime-row"
+                  key={`${runtime.id}:${runtime.version}:${runtime.contentDigest ?? ''}`}
+                >
+                  <strong>
+                    {runtime.id} {runtime.version}
+                  </strong>
+                  <span>
+                    {runtime.referencedPlugins.length
+                      ? t('plugins.runtimeReferencedBy', {
+                          plugins: runtime.referencedPlugins.join(', '),
+                        })
+                      : t('plugins.runtimeUnreferenced')}
+                  </span>
+                </div>
+              ))}
+            </section>
+          ) : null}
         </section>
       )}
 
@@ -659,60 +715,6 @@ export function PluginCatalogPage() {
         }}
         onConfirm={() => void confirmMarketplaceInstall()}
       />
-
-      {!loading && catalogMode === 'installed' && runtimes.length > 0 ? (
-        <section
-          className="product-plugin-runtimes settings-surface"
-          aria-label={t('plugins.runtimeInventoryTitle')}
-        >
-          <header className="product-plugin-runtimes-header">
-            <h2>{t('plugins.runtimeInventoryTitle')}</h2>
-            {canInstall ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void api
-                    .gcRuntimes()
-                    .then((result) => {
-                      toast.success(
-                        t('plugins.runtimeReclaimed', {
-                          count: result.reclaimed.length,
-                        })
-                      );
-                      return refresh(false);
-                    })
-                    .catch((error) =>
-                      toast.error(t('plugins.runtimeGcFailed'), {
-                        description: errorMessage(error),
-                      })
-                    );
-                }}
-              >
-                {t('plugins.reclaimRuntimes')}
-              </Button>
-            ) : null}
-          </header>
-          {runtimes.map((runtime) => (
-            <div
-              className="product-plugin-runtime-row"
-              key={`${runtime.id}:${runtime.version}:${runtime.contentDigest ?? ''}`}
-            >
-              <strong>
-                {runtime.id} {runtime.version}
-              </strong>
-              <span>
-                {runtime.referencedPlugins.length
-                  ? t('plugins.runtimeReferencedBy', {
-                      plugins: runtime.referencedPlugins.join(', '),
-                    })
-                  : t('plugins.runtimeUnreferenced')}
-              </span>
-            </div>
-          ))}
-        </section>
-      ) : null}
 
       {contextMenu && contextMenuStyle ? (
         <div

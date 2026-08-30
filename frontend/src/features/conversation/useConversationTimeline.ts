@@ -32,6 +32,7 @@ export type UseConversationTimelineResult = {
   timeline: ConversationTimelineTurn[];
   items: ConversationTimelineItem[];
   sideRows: TimelineRow[];
+  agentId: string | null;
   loading: boolean;
   error: string | null;
   lastSequence: bigint;
@@ -342,6 +343,7 @@ export function useConversationTimeline(
       timeline: timelineTurnsForEntry(entry),
       items: timelineItemsForEntry(entry),
       sideRows: sideRowsForEntry(entry),
+      agentId: entry?.detail?.summary.agent_id ?? null,
       loading: entry?.loading ?? false,
       error: entry?.error ?? null,
       lastSequence: entry?.lastSequence ?? 0n,

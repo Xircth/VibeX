@@ -133,6 +133,7 @@ pub struct PluginControlItemDto {
     pub source_ref: Option<String>,
     pub source_sha: Option<String>,
     pub source_locked: bool,
+    pub source_show_tree: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -594,6 +595,17 @@ pub async fn plugin_save_config(
         .ok_or_else(|| AppError::NotFound(format!("plugin {plugin_id}")))?;
     plugin.write_config(config).map_err(plugin_error)?;
     apply_official_product_runtime(&state).await?;
+    if plugin.activation == plugins::PluginActivation::Enabled {
+        let (known, desired) = desired_plugin_mcp_agents(&state, &plugin_id).await?;
+        let all_agents = desired == known;
+        for error in configure_plugin_mcp(&state, &plugin, all_agents, &desired).await {
+            tracing::warn!(
+                plugin_id = %plugin_id,
+                %error,
+                "plugin config MCP projection failed"
+            );
+        }
+    }
     let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
         .map_err(plugin_error)?;
     product_detail_dto(refreshed.product_detail().map_err(plugin_error)?)
@@ -681,23 +693,11 @@ pub async fn plugin_marketplace_catalog(
         });
     let data_root = utils::assets::asset_dir();
     if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
-        for root in roots {
-            if let Ok(package) =
-                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-            {
-                let listing = plugins::listing_from_package(&package, true);
-                if !page
-                    .official
-                    .iter()
-                    .any(|item| item.plugin_name == listing.plugin_name)
-                {
-                    page.official.push(listing);
-                }
-            }
-        }
+        plugins::merge_offline_official(&mut page, roots);
+    } else {
+        page.official = plugins::collapse_replaced_official(page.official);
+        plugins::prepare_marketplace_page(&mut page);
     }
-    page.official
-        .sort_by(|left, right| left.display_name.cmp(&right.display_name));
     if let Some(query) = query
         .as_deref()
         .map(str::trim)
@@ -741,6 +741,14 @@ pub async fn plugin_marketplace_listing(
         }
     }
     let listing = listing.ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
+    if listing.show_tree == Some(false) {
+        return Ok(plugins::CatalogPluginDetail {
+            summary: listing.summary.clone(),
+            readme: listing.readme.clone().unwrap_or_default(),
+            contents: Vec::new(),
+            listing,
+        });
+    }
     if let Some(detail) = inspect_marketplace_listing(&listing).await {
         return Ok(detail);
     }
@@ -795,6 +803,7 @@ pub async fn plugin_marketplace_install(
             Some(listing.tag),
             None,
             Some(true),
+            listing.show_tree,
         )
         .await;
     }
@@ -829,8 +838,18 @@ pub async fn plugin_marketplace_install(
         )),
         None,
         Some(true),
+        None,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn plugin_control_logs(
+    plugin_id: String,
+    after: Option<u64>,
+) -> Result<serde_json::Value, AppError> {
+    let lines = plugins::recent_plugin_logs(&plugin_id, after.unwrap_or(0));
+    Ok(serde_json::json!({ "lines": lines }))
 }
 
 #[tauri::command]
@@ -902,6 +921,7 @@ pub async fn plugin_install(
             None,
             None,
             None,
+            None,
         )
         .await;
     }
@@ -933,6 +953,7 @@ pub async fn plugin_install(
             conflict_decision,
             Some("vibex".into()),
             Vec::new(),
+            None,
             None,
             None,
             None,
@@ -1514,6 +1535,7 @@ pub async fn plugin_control_import(
     git_ref: Option<String>,
     git_sha: Option<String>,
     locked: Option<bool>,
+    show_tree: Option<bool>,
 ) -> Result<PluginControlItemDto, AppError> {
     let source_kind = if developer_link {
         plugins::PluginSourceKind::DeveloperLink
@@ -1588,6 +1610,7 @@ pub async fn plugin_control_import(
     package.source.git_ref = git_ref.or(package.source.git_ref);
     package.source.git_sha = git_sha.or(package.source.git_sha);
     package.source.locked = locked.unwrap_or(package.source.locked);
+    package.source.show_tree = show_tree.or(package.source.show_tree);
     let replacing_enabled = decision == plugins::ConflictDecision::Replace
         && installed
             .as_ref()
@@ -1664,6 +1687,7 @@ pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
             lock.git_ref,
             lock.git_sha,
             lock.locked,
+            None,
         )
         .await;
         match result {
@@ -2547,10 +2571,19 @@ async fn remove_plugin_projections(plugin: &plugins::InstalledPlugin) -> Result<
 }
 
 fn plugin_mcp_server_ids(plugin: &plugins::InstalledPlugin) -> Vec<String> {
-    mcp_server_names(Some(&plugin.mcp))
-        .into_iter()
-        .map(|server_id| format!("{}.{}", plugin.id(), server_id))
-        .collect()
+    let mut ids = mcp_server_map(Some(&plugin.mcp))
+        .map(|servers| {
+            servers
+                .iter()
+                .map(|(server_id, spec)| {
+                    plugins::projected_mcp_server_id(plugin.id(), server_id, spec)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 async fn record_plugin_audit(
@@ -2659,6 +2692,7 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
         source_ref: plugin.source.git_ref.clone(),
         source_sha: plugin.source.git_sha.clone(),
         source_locked: plugin.source.locked,
+        source_show_tree: plugin.source.show_tree,
     }
 }
 
@@ -2718,6 +2752,7 @@ fn native_plugin_dto(
         source_ref: None,
         source_sha: None,
         source_locked: false,
+        source_show_tree: None,
     }
 }
 
@@ -3096,7 +3131,7 @@ async fn configure_plugin_mcp(
     };
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
-        let projected_id = format!("{}.{}", plugin.id(), server_id);
+        let projected_id = plugins::projected_mcp_server_id(plugin.id(), &server_id, &spec);
         let materialized = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await
         {
             Ok(spec) => spec,
@@ -3106,7 +3141,16 @@ async fn configure_plugin_mcp(
             }
         };
         let error_message = match materialized {
-            None => None,
+            None => {
+                if let Err(error) =
+                    services::services::mcp::uninstall_server(projected_id.clone()).await
+                {
+                    errors.push(format!("{server_id}: {error}"));
+                    Some(error.to_string())
+                } else {
+                    None
+                }
+            }
             Some(spec) => {
                 let result = services::services::mcp::upsert_local_server(
                     projected_id,
@@ -3168,6 +3212,67 @@ fn is_host_family_binary_mcp(spec: &serde_json::Value) -> bool {
         == Some("hostFamilyBinary")
 }
 
+fn materialize_host_family_binary_mcp(
+    state: &AppState,
+    server_id: &str,
+    spec: &serde_json::Value,
+) -> Result<Option<serde_json::Value>, AppError> {
+    let Some(product) = plugins::host_family_product(spec) else {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` hostFamilyBinary requires a known product"
+        )));
+    };
+    let gate = state.plugin_control_plane.official_product_mcp_gate();
+    if !gate
+        .bindings()
+        .iter()
+        .any(|binding| binding.product == product)
+    {
+        return Ok(None);
+    }
+    let binary_id = spec
+        .get("managedRuntime")
+        .and_then(|value| value.get("binaryId"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "managed MCP `{server_id}` hostFamilyBinary requires managedRuntime.binaryId"
+            ))
+        })?;
+    let command = utils::host_bin::locate_host_family_binary(binary_id);
+    if product == "workflow" {
+        return Ok(Some(plugins::host_family_stdio_spec(
+            &command.to_string_lossy(),
+            product,
+            "",
+            None,
+            None,
+        )));
+    }
+    let token = gate.token_for_product(product);
+    let http_base = gate.http_base();
+    if token.as_ref().is_none_or(|value| value.is_empty())
+        || http_base.as_ref().is_none_or(|value| value.is_empty())
+    {
+        return Err(AppError::Internal(format!(
+            "host family MCP `{server_id}` is not ready for native projection"
+        )));
+    }
+    let features = match product {
+        "delegation" => "delegation".to_string(),
+        "session" => plugins::session_feature_arg(gate.session_features()),
+        "plugin-dev" => "plugin-dev".to_string(),
+        other => other.to_string(),
+    };
+    Ok(Some(plugins::host_family_stdio_spec(
+        &command.to_string_lossy(),
+        product,
+        &features,
+        http_base.as_deref(),
+        token.as_deref(),
+    )))
+}
+
 async fn materialize_plugin_mcp_spec(
     state: &AppState,
     plugin: &plugins::InstalledPlugin,
@@ -3181,7 +3286,7 @@ async fn materialize_plugin_mcp_spec(
         return Ok(Some(spec));
     };
     if is_host_family_binary_mcp(&spec) {
-        return Ok(None);
+        return materialize_host_family_binary_mcp(state, server_id, &spec);
     }
     let entrypoint = managed
         .get("entrypoint")
@@ -3598,14 +3703,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_family_binary_mcp_is_injected_not_saved_as_native_spec() {
-        assert!(is_host_family_binary_mcp(&serde_json::json!({
+    fn host_family_binary_mcp_projects_under_product_identity() {
+        let spec = serde_json::json!({
             "managedRuntime": {
                 "kind": "hostFamilyBinary",
                 "binaryId": "vibex-mcp",
                 "product": "delegation"
             }
-        })));
+        });
+        assert!(is_host_family_binary_mcp(&spec));
+        assert_eq!(
+            plugins::projected_mcp_server_id("vibex.multi-agent", "vibex-delegation-mcp", &spec),
+            plugins::DELEGATION_MCP_NAME
+        );
         assert!(!is_host_family_binary_mcp(&serde_json::json!({
             "command": "npx",
             "args": ["demo-mcp"]
@@ -3616,6 +3726,35 @@ mod tests {
                 "entrypoint": "dist/mcp/hello.mjs"
             }
         })));
+    }
+
+    #[test]
+    fn plugin_mcp_uninstall_ids_use_product_names_for_host_family() {
+        let mut package = plugins::PluginPackage::for_test(
+            "vibex.multi-agent",
+            "多智能体协同",
+            "1.0.0",
+            plugins::PluginSourceKind::Builtin,
+            std::path::Path::new("."),
+        );
+        package.mcp = serde_json::json!({
+            "vibex-delegation-mcp": {
+                "managedRuntime": {
+                    "kind": "hostFamilyBinary",
+                    "binaryId": "vibex-mcp",
+                    "product": "delegation"
+                }
+            }
+        });
+        let plugin = plugins::InstalledPlugin {
+            package,
+            activation: plugins::PluginActivation::Enabled,
+            package_digest: "sha256:test".into(),
+        };
+        assert_eq!(
+            plugin_mcp_server_ids(&plugin),
+            vec![plugins::DELEGATION_MCP_NAME.to_string()]
+        );
     }
 
     #[test]

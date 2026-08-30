@@ -46,6 +46,11 @@ export type PendingConversationPermission = {
   onRespond: (permissionId: string, response: AgentPermissionResponse) => void;
 };
 
+export type ConversationChildrenDock = {
+  conversationId: string;
+  onOpenChild?: (conversationId: string, workspaceId?: string) => void;
+};
+
 type ConversationStatusContextValue = {
   enabled: boolean;
   notices: ConversationStatusNotice[];
@@ -54,6 +59,8 @@ type ConversationStatusContextValue = {
   setQuestion: (question: PendingConversationQuestion | null) => void;
   permissions: PendingConversationPermission[];
   setPermissions: (permissions: PendingConversationPermission[]) => void;
+  childrenDock: ConversationChildrenDock | null;
+  setChildrenDock: (dock: ConversationChildrenDock | null) => void;
 };
 
 const ConversationStatusContext =
@@ -73,6 +80,8 @@ export function ConversationStatusProvider({
   const [permissions, setPermissions] = useState<
     PendingConversationPermission[]
   >([]);
+  const [childrenDock, setChildrenDock] =
+    useState<ConversationChildrenDock | null>(null);
   const value = useMemo(
     () => ({
       enabled,
@@ -82,8 +91,10 @@ export function ConversationStatusProvider({
       setQuestion,
       permissions,
       setPermissions,
+      childrenDock,
+      setChildrenDock,
     }),
-    [enabled, notices, permissions, question]
+    [childrenDock, enabled, notices, permissions, question]
   );
 
   return (

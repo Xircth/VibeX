@@ -33,11 +33,13 @@ use crate::{
     spawner::ConnectionSpawner,
     types::{
         DelegationConfig, DelegationError, DelegationLink, DelegationOutcome, DelegationRequest,
-        DelegationScope, DelegationTaskReport, DelegationWorkspaceAccess, TaskStatus,
+        DelegationScope, DelegationSuccess, DelegationTaskReport, DelegationWorkspaceAccess,
+        TaskStatus,
     },
 };
 
 const COMPLETED_METADATA_CAP: usize = 4_096;
+const PARENT_TOOL_CALL_CLAIM_WAIT: Duration = Duration::from_millis(80);
 
 /// Hard ceiling on a single bounded status wait. The listener also caps the
 /// caller's `wait_ms`; this is a defensive backstop inside the broker.
@@ -93,6 +95,8 @@ struct SetupReservation {
     started_at: Instant,
     external_handle: Option<String>,
     child_connection_id: String,
+    child_session_id: Option<Uuid>,
+    agent_type: AgentId,
     workspace_write_guard: Option<OwnedMutexGuard<()>>,
 }
 
@@ -143,6 +147,9 @@ struct PendingInner {
     /// Monotonic for one parent connection lifetime. Failed spawn attempts are
     /// still calls and therefore consume the hard budget.
     calls_started: HashMap<String, u32>,
+    /// ACP `tool_call_id`s announced on the parent, waiting to be claimed by
+    /// an MCP `delegate_to_agent` that did not send `_meta.tool_use_id`.
+    pending_tool_calls: HashMap<String, Vec<(crate::DelegationMatchKey, String)>>,
 }
 
 /// Everything `finalize` needs to resolve a task to a terminal report,
@@ -317,11 +324,42 @@ impl DelegationBroker {
         *self.config.lock().unwrap() = config.normalized();
     }
 
+    /// Remember an ACP parent tool call so a later MCP round-trip without
+    /// `_meta.tool_use_id` can still bind the child session to that card.
+    pub fn note_parent_tool_call(
+        &self,
+        parent_connection_id: &str,
+        tool_call_id: &str,
+        key: crate::DelegationMatchKey,
+    ) {
+        if parent_connection_id.is_empty() || tool_call_id.is_empty() {
+            return;
+        }
+        self.pending
+            .lock()
+            .unwrap()
+            .pending_tool_calls
+            .entry(parent_connection_id.to_string())
+            .or_default()
+            .push((key, tool_call_id.to_string()));
+    }
+
+    fn take_matching_tool_call(
+        &self,
+        parent_connection_id: &str,
+        key: &crate::DelegationMatchKey,
+    ) -> Option<String> {
+        let mut pending = self.pending.lock().unwrap();
+        let list = pending.pending_tool_calls.get_mut(parent_connection_id)?;
+        let index = list.iter().position(|(candidate, _)| candidate == key)?;
+        Some(list.remove(index).1)
+    }
+
     /// Validate, spawn, and register a delegation. Returns a `Running` ack on
     /// success, or a terminal report when setup fails (disabled / depth / spawn
     /// / send). The child runs in the background; [`Self::complete_call`]
     /// resolves it later.
-    pub async fn start_delegation(&self, req: DelegationRequest) -> DelegationTaskReport {
+    pub async fn start_delegation(&self, mut req: DelegationRequest) -> DelegationTaskReport {
         let config = self.config_snapshot();
         if !config.enabled {
             return failed_setup_report("canceled", "delegation is disabled");
@@ -428,9 +466,19 @@ impl DelegationBroker {
                 .insert(call_id.clone(), req.parent_connection_id.clone());
         }
         // Fall back to a synthetic tool-use id when the MCP client didn't supply
-        // one (full ACP tool_call correlation is deferred to M5). `has_real_tool_call`
-        // records this explicitly so meta writes can be skipped without inferring
-        // it from the id's textual shape.
+        // one. Prefer an ACP tool_call announced on this parent with the same
+        // (agent_type, task, working_dir). Do not wait here — Grok is blocked on
+        // this MCP round-trip until we return a task_id.
+        if req.parent_tool_use_id.trim().is_empty() {
+            let key = crate::DelegationMatchKey {
+                agent_type: req.agent_type.clone(),
+                task: req.task.clone(),
+                working_dir: req.requested_working_dir.clone(),
+            };
+            if let Some(id) = self.take_matching_tool_call(&req.parent_connection_id, &key) {
+                req.parent_tool_use_id = id;
+            }
+        }
         let has_real_tool_call = !req.parent_tool_use_id.trim().is_empty();
         let parent_tool_use_id = if has_real_tool_call {
             req.parent_tool_use_id.clone()
@@ -438,13 +486,6 @@ impl DelegationBroker {
             format!("delegation-{call_id}")
         };
 
-        let workspace_write_guard =
-            if req.workspace_access == DelegationWorkspaceAccess::WriteSerialized {
-                self.acquire_workspace_write(req.working_dir.as_deref())
-                    .await
-            } else {
-                None
-            };
         if parent_setup_lease.revoked.load(Ordering::Acquire) {
             self.pending
                 .lock()
@@ -454,66 +495,23 @@ impl DelegationBroker {
             return failed_setup_report("canceled", "parent connection is closed");
         }
 
-        // Spawn the child connection.
-        let child_connection_id = match self
-            .spawner
-            .spawn(
-                &req.parent_connection_id,
-                req.agent_type.clone(),
-                req.working_dir.clone(),
-            )
-            .await
+        let child_session_id = Uuid::new_v4();
         {
-            Ok(id) => id,
-            Err(err) => {
-                self.pending
-                    .lock()
-                    .unwrap()
-                    .active_reservations
-                    .remove(&call_id);
-                remove_parent_setup_lease(
-                    &mut self.pending.lock().unwrap(),
-                    &req.parent_connection_id,
-                    &parent_setup_lease.revoked,
-                );
-                return failed_setup_report("spawn_failed", &err.to_string());
-            }
-        };
-        // Reserve the call id BEFORE sending so a child that finishes during the
-        // send window buffers its terminal outcome instead of having it dropped.
-        let canceled_before_reservation = {
             let mut pending = self.pending.lock().unwrap();
-            let canceled = parent_setup_lease.revoked.load(Ordering::Acquire)
-                || pending.closed_parents.contains(&req.parent_connection_id)
-                || req.external_handle.as_ref().is_some_and(|handle| {
-                    remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
-                });
-            remove_parent_setup_lease(
-                &mut pending,
-                &req.parent_connection_id,
-                &parent_setup_lease.revoked,
+            pending.active_reservations.remove(&call_id);
+            pending.setups.insert(
+                call_id.clone(),
+                SetupReservation {
+                    parent_connection_id: req.parent_connection_id.clone(),
+                    parent_conversation_id: req.parent_session_id,
+                    started_at: Instant::now(),
+                    external_handle: req.external_handle.clone(),
+                    child_connection_id: String::new(),
+                    child_session_id: Some(child_session_id),
+                    agent_type: req.agent_type.clone(),
+                    workspace_write_guard: None,
+                },
             );
-            if !canceled {
-                pending.active_reservations.remove(&call_id);
-                pending.setups.insert(
-                    call_id.clone(),
-                    SetupReservation {
-                        parent_connection_id: req.parent_connection_id.clone(),
-                        parent_conversation_id: req.parent_session_id,
-                        started_at: Instant::now(),
-                        external_handle: req.external_handle.clone(),
-                        child_connection_id: child_connection_id.clone(),
-                        workspace_write_guard,
-                    },
-                );
-            } else {
-                pending.active_reservations.remove(&call_id);
-            }
-            canceled
-        };
-        if canceled_before_reservation {
-            let _ = self.spawner.disconnect(&child_connection_id).await;
-            return failed_setup_report("canceled", "canceled by MCP client");
         }
 
         let defaults = config
@@ -530,106 +528,101 @@ impl DelegationBroker {
             preferred_mode_id: defaults.mode_id,
             preferred_config_values: defaults.config_values,
         };
-        let child_session_id = match self
+
+        let ack_agent = req.agent_type.clone();
+        let ack_call_id = call_id.clone();
+        // Tests drive spawn inline so failure/cancel during setup still comes
+        // back on this call. Production returns the running ack immediately so
+        // the parent can poll instead of hanging on child process start.
+        #[cfg(test)]
+        {
+            self.finish_start_delegation(
+                req,
+                call_id,
+                parent_tool_use_id,
+                has_real_tool_call,
+                child_session_id,
+                link,
+                scope,
+                parent_setup_lease,
+                config,
+            )
+            .await;
+            if let Some(done) = self.completed_report(&ack_call_id) {
+                return done;
+            }
+            return running_report(&ack_call_id, Some(child_session_id), ack_agent);
+        }
+        #[cfg(not(test))]
+        {
+            let broker = self.clone();
+            tokio::spawn(async move {
+                broker
+                    .finish_start_delegation(
+                        req,
+                        call_id,
+                        parent_tool_use_id,
+                        has_real_tool_call,
+                        child_session_id,
+                        link,
+                        scope,
+                        parent_setup_lease,
+                        config,
+                    )
+                    .await;
+            });
+            running_report(&ack_call_id, Some(child_session_id), ack_agent)
+        }
+    }
+
+    async fn finish_start_delegation(
+        &self,
+        req: DelegationRequest,
+        call_id: String,
+        mut parent_tool_use_id: String,
+        mut has_real_tool_call: bool,
+        child_session_id: Uuid,
+        mut link: DelegationLink,
+        scope: DelegationScope,
+        parent_setup_lease: ParentSetupLease,
+        config: DelegationConfig,
+    ) {
+        if parent_tool_use_id.starts_with("delegation-") {
+            tokio::time::sleep(PARENT_TOOL_CALL_CLAIM_WAIT).await;
+            let key = crate::DelegationMatchKey {
+                agent_type: req.agent_type.clone(),
+                task: req.task.clone(),
+                working_dir: req.requested_working_dir.clone(),
+            };
+            if let Some(id) = self.take_matching_tool_call(&req.parent_connection_id, &key) {
+                parent_tool_use_id = id.clone();
+                has_real_tool_call = true;
+                link.parent_tool_use_id = id;
+            }
+        }
+
+        match self
             .spawner
-            .send_prompt_linked(&child_connection_id, req.task.clone(), link)
+            .create_child_conversation(child_session_id, &req.task, &link)
             .await
         {
-            Ok(id) => id,
+            Ok(_) => {}
             Err(err) => {
-                // Preserve whichever terminal arrived first. A cancellation
-                // buffered during setup must not be overwritten by a later send
-                // error.
-                let (early_outcome, reserved_at, workspace_write_guard) = {
-                    let mut pending = self.pending.lock().unwrap();
-                    let reservation = pending.setups.remove(&call_id);
-                    let reserved_at = reservation
-                        .as_ref()
-                        .map(|reservation| reservation.started_at)
-                        .unwrap_or_else(Instant::now);
-                    let workspace_write_guard =
-                        reservation.and_then(|reservation| reservation.workspace_write_guard);
-                    (
-                        pending.early_completes.remove(&call_id),
-                        reserved_at,
-                        workspace_write_guard,
-                    )
-                };
-                if let Some(child_session_id) = err.linked_child_session_id() {
-                    self.event_emitter
-                        .emit_started(DelegationStartedEvent {
-                            delegation_id: call_id.clone(),
-                            parent_connection_id: req.parent_connection_id.clone(),
-                            parent_conversation_id: req.parent_session_id,
-                            parent_tool_use_id: parent_tool_use_id.clone(),
-                            child_session_id,
-                            agent_type: req.agent_type.clone(),
-                            task_preview: preview(&req.task),
-                        })
-                        .await;
-                    let outcome = early_outcome.unwrap_or_else(|| DelegationOutcome::Err {
-                        code: "spawn_failed".to_string(),
-                        message: err.to_string(),
-                        child_session_id: Some(child_session_id),
-                    });
-                    return self
-                        .finalize(
-                            FinalizeCtx {
-                                call_id,
-                                parent_connection_id: req.parent_connection_id,
-                                parent_conversation_id: req.parent_session_id,
-                                parent_tool_use_id,
-                                has_real_tool_call,
-                                child_connection_id,
-                                child_session_id,
-                                agent_type: req.agent_type,
-                                duration_ms: reserved_at.elapsed().as_millis() as u64,
-                                max_result_bytes: config.max_result_bytes,
-                                _workspace_write_guard: workspace_write_guard,
-                            },
-                            outcome,
-                        )
-                        .await;
-                }
-                let _ = self.spawner.disconnect(&child_connection_id).await;
-                return match early_outcome {
-                    Some(outcome) => {
-                        let child_session_id = match &outcome {
-                            DelegationOutcome::Ok(success) => Some(success.child_session_id),
-                            DelegationOutcome::Err {
-                                child_session_id, ..
-                            } => *child_session_id,
-                        };
-                        let (status, text, error_code, message) =
-                            terminal_fields(&outcome, config.max_result_bytes);
-                        let completed = CompletedTask {
-                            parent_connection_id: req.parent_connection_id.clone(),
-                            parent_conversation_id: req.parent_session_id,
-                            status,
-                            child_session_id,
-                            agent_type: Some(req.agent_type.clone()),
-                            text,
-                            error_code,
-                            message,
-                            duration_ms: None,
-                        };
-                        insert_completed(
-                            &mut self.pending.lock().unwrap(),
-                            call_id.clone(),
-                            completed.clone(),
-                            self.config_snapshot().completed_cache_cap_bytes,
-                        );
-                        self.result_notify.notify_waiters();
-                        completed_report(&call_id, &completed)
-                    }
-                    None => failed_setup_report("spawn_failed", &err.to_string()),
-                };
+                self.fail_started(
+                    &call_id,
+                    &req,
+                    parent_tool_use_id,
+                    has_real_tool_call,
+                    child_session_id,
+                    "spawn_failed",
+                    &err.to_string(),
+                    &parent_setup_lease,
+                    config.max_result_bytes,
+                )
+                .await;
+                return;
             }
-        };
-
-        // Keep the setup reservation in place while announcing Started. Any
-        // concurrent completion/cancel buffers behind it, so Completed can
-        // never overtake Started in the durable event stream.
+        }
         self.event_emitter
             .emit_started(DelegationStartedEvent {
                 delegation_id: call_id.clone(),
@@ -638,9 +631,139 @@ impl DelegationBroker {
                 parent_tool_use_id: parent_tool_use_id.clone(),
                 child_session_id,
                 agent_type: req.agent_type.clone(),
-                task_preview: preview(&req.task),
+                task_preview: req.task.clone(),
             })
             .await;
+
+        let workspace_write_guard =
+            if req.workspace_access == DelegationWorkspaceAccess::WriteSerialized {
+                self.acquire_workspace_write(req.working_dir.as_deref())
+                    .await
+            } else {
+                None
+            };
+        {
+            let mut pending = self.pending.lock().unwrap();
+            if let Some(setup) = pending.setups.get_mut(&call_id) {
+                setup.workspace_write_guard = workspace_write_guard;
+            }
+        }
+
+        // Spawn the child connection.
+        let child_connection_id = match self
+            .spawner
+            .spawn(
+                &req.parent_connection_id,
+                req.agent_type.clone(),
+                req.working_dir.clone(),
+            )
+            .await
+        {
+            Ok(id) => id,
+            Err(err) => {
+                self.fail_started(
+                    &call_id,
+                    &req,
+                    parent_tool_use_id,
+                    has_real_tool_call,
+                    child_session_id,
+                    "spawn_failed",
+                    &err.to_string(),
+                    &parent_setup_lease,
+                    config.max_result_bytes,
+                )
+                .await;
+                return;
+            }
+        };
+        // Reserve the call id BEFORE sending so a child that finishes during the
+        // send window buffers its terminal outcome instead of having it dropped.
+        let canceled_before_reservation = {
+            let mut pending = self.pending.lock().unwrap();
+            let canceled = parent_setup_lease.revoked.load(Ordering::Acquire)
+                || pending.closed_parents.contains(&req.parent_connection_id)
+                || req.external_handle.as_ref().is_some_and(|handle| {
+                    remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
+                });
+            remove_parent_setup_lease(
+                &mut pending,
+                &req.parent_connection_id,
+                &parent_setup_lease.revoked,
+            );
+            pending.active_reservations.remove(&call_id);
+            if let Some(setup) = pending.setups.get_mut(&call_id) {
+                setup.child_connection_id = child_connection_id.clone();
+            }
+            canceled
+        };
+        if canceled_before_reservation {
+            self.fail_started(
+                &call_id,
+                &req,
+                parent_tool_use_id,
+                has_real_tool_call,
+                child_session_id,
+                "canceled",
+                "canceled by MCP client",
+                &parent_setup_lease,
+                config.max_result_bytes,
+            )
+            .await;
+            return;
+        }
+
+        if let Err(err) = self
+            .spawner
+            .send_prompt_linked(
+                &child_connection_id,
+                child_session_id,
+                req.task.clone(),
+                link,
+            )
+            .await
+        {
+            // Preserve whichever terminal arrived first. A cancellation
+            // buffered during setup must not be overwritten by a later send
+            // error.
+            let (early_outcome, reserved_at, workspace_write_guard) = {
+                let mut pending = self.pending.lock().unwrap();
+                let reservation = pending.setups.remove(&call_id);
+                let reserved_at = reservation
+                    .as_ref()
+                    .map(|reservation| reservation.started_at)
+                    .unwrap_or_else(Instant::now);
+                let workspace_write_guard =
+                    reservation.and_then(|reservation| reservation.workspace_write_guard);
+                (
+                    pending.early_completes.remove(&call_id),
+                    reserved_at,
+                    workspace_write_guard,
+                )
+            };
+            let outcome = early_outcome.unwrap_or_else(|| DelegationOutcome::Err {
+                code: "spawn_failed".to_string(),
+                message: err.to_string(),
+                child_session_id: Some(child_session_id),
+            });
+            self.finalize(
+                FinalizeCtx {
+                    call_id,
+                    parent_connection_id: req.parent_connection_id,
+                    parent_conversation_id: req.parent_session_id,
+                    parent_tool_use_id,
+                    has_real_tool_call,
+                    child_connection_id,
+                    child_session_id,
+                    agent_type: req.agent_type,
+                    duration_ms: reserved_at.elapsed().as_millis() as u64,
+                    max_result_bytes: config.max_result_bytes,
+                    _workspace_write_guard: workspace_write_guard,
+                },
+                outcome,
+            )
+            .await;
+            return;
+        }
 
         // Drain any terminal that beat registration; otherwise register running.
         let resolution = {
@@ -698,7 +821,7 @@ impl DelegationBroker {
                     max_result_bytes: config.max_result_bytes,
                     _workspace_write_guard: workspace_write_guard,
                 };
-                self.finalize(ctx, outcome).await
+                self.finalize(ctx, outcome).await;
             }
             Resolution::Registered => {
                 if has_real_tool_call {
@@ -727,9 +850,114 @@ impl DelegationBroker {
                         )
                         .await;
                 });
-                running_report(&call_id, child_session_id, req.agent_type)
             }
         }
+    }
+
+    fn fail_setup(
+        &self,
+        call_id: &str,
+        req: &DelegationRequest,
+        code: &str,
+        message: &str,
+        parent_setup_lease: &ParentSetupLease,
+    ) {
+        let mut pending = self.pending.lock().unwrap();
+        pending.setups.remove(call_id);
+        pending.active_reservations.remove(call_id);
+        remove_parent_setup_lease(
+            &mut pending,
+            &req.parent_connection_id,
+            &parent_setup_lease.revoked,
+        );
+        let status = if code == "canceled" {
+            TaskStatus::Canceled
+        } else {
+            TaskStatus::Failed
+        };
+        let completed = CompletedTask {
+            parent_connection_id: req.parent_connection_id.clone(),
+            parent_conversation_id: req.parent_session_id,
+            status,
+            child_session_id: None,
+            agent_type: Some(req.agent_type.clone()),
+            text: None,
+            error_code: Some(code.to_string()),
+            message: Some(message.to_string()),
+            duration_ms: None,
+        };
+        insert_completed(
+            &mut pending,
+            call_id.to_string(),
+            completed,
+            self.config_snapshot().completed_cache_cap_bytes,
+        );
+        drop(pending);
+        self.result_notify.notify_waiters();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn fail_started(
+        &self,
+        call_id: &str,
+        req: &DelegationRequest,
+        parent_tool_use_id: String,
+        has_real_tool_call: bool,
+        child_session_id: Uuid,
+        code: &str,
+        message: &str,
+        parent_setup_lease: &ParentSetupLease,
+        max_result_bytes: usize,
+    ) {
+        let (reserved_at, workspace_write_guard, child_connection_id, early) = {
+            let mut pending = self.pending.lock().unwrap();
+            let reservation = pending.setups.remove(call_id);
+            pending.active_reservations.remove(call_id);
+            remove_parent_setup_lease(
+                &mut pending,
+                &req.parent_connection_id,
+                &parent_setup_lease.revoked,
+            );
+            let reserved_at = reservation
+                .as_ref()
+                .map(|reservation| reservation.started_at)
+                .unwrap_or_else(Instant::now);
+            let child_connection_id = reservation
+                .as_ref()
+                .map(|reservation| reservation.child_connection_id.clone())
+                .unwrap_or_default();
+            let workspace_write_guard =
+                reservation.and_then(|reservation| reservation.workspace_write_guard);
+            let early = pending.early_completes.remove(call_id);
+            (
+                reserved_at,
+                workspace_write_guard,
+                child_connection_id,
+                early,
+            )
+        };
+        let outcome = early.unwrap_or_else(|| DelegationOutcome::Err {
+            code: code.to_string(),
+            message: message.to_string(),
+            child_session_id: Some(child_session_id),
+        });
+        self.finalize(
+            FinalizeCtx {
+                call_id: call_id.to_string(),
+                parent_connection_id: req.parent_connection_id.clone(),
+                parent_conversation_id: req.parent_session_id,
+                parent_tool_use_id,
+                has_real_tool_call,
+                child_connection_id,
+                child_session_id,
+                agent_type: req.agent_type.clone(),
+                duration_ms: reserved_at.elapsed().as_millis() as u64,
+                max_result_bytes,
+                _workspace_write_guard: workspace_write_guard,
+            },
+            outcome,
+        )
+        .await;
     }
 
     fn take_pre_canceled_handle(
@@ -836,6 +1064,7 @@ impl DelegationBroker {
     /// terminal meta, emit the completed event, and wake status waiters. Shared
     /// by normal completion and the setup-window early-resolution path.
     async fn finalize(&self, ctx: FinalizeCtx, outcome: DelegationOutcome) -> DelegationTaskReport {
+        let outcome = with_elapsed(outcome, ctx.duration_ms);
         let (status, text, error_code, message) = terminal_fields(&outcome, ctx.max_result_bytes);
         let completed = CompletedTask {
             parent_connection_id: ctx.parent_connection_id.clone(),
@@ -859,7 +1088,9 @@ impl DelegationBroker {
         }
 
         let _ = self.spawner.release_child(ctx.child_session_id).await;
-        let _ = self.spawner.disconnect(&ctx.child_connection_id).await;
+        if !ctx.child_connection_id.is_empty() {
+            let _ = self.spawner.disconnect(&ctx.child_connection_id).await;
+        }
         if ctx.has_real_tool_call {
             self.meta_writer
                 .write_meta(
@@ -992,8 +1223,10 @@ impl DelegationBroker {
                 child_connection_id
             };
             if let Some(child_connection_id) = setup_child {
-                let _ = self.spawner.cancel(&child_connection_id).await;
-                let _ = self.spawner.disconnect(&child_connection_id).await;
+                if !child_connection_id.is_empty() {
+                    let _ = self.spawner.cancel(&child_connection_id).await;
+                    let _ = self.spawner.disconnect(&child_connection_id).await;
+                }
                 return canceling_report(task_id);
             }
             return match self.status_lookup.status_by_call_id(task_id).await {
@@ -1163,8 +1396,21 @@ impl DelegationBroker {
                         Slot::Ready {
                             report: running_report(
                                 id,
-                                task.child_session_id,
+                                Some(task.child_session_id),
                                 task.agent_type.clone(),
+                            ),
+                            settled: false,
+                        }
+                    } else if let Some(setup) = pending
+                        .setups
+                        .get(id)
+                        .filter(|setup| setup_matches(scope, setup))
+                    {
+                        Slot::Ready {
+                            report: running_report(
+                                id,
+                                setup.child_session_id,
+                                setup.agent_type.clone(),
                             ),
                             settled: false,
                         }
@@ -1273,6 +1519,16 @@ fn setup_matches(scope: &DelegationScope, setup: &SetupReservation) -> bool {
         && setup.parent_conversation_id == scope.parent_conversation_id
 }
 
+fn with_elapsed(outcome: DelegationOutcome, duration_ms: u64) -> DelegationOutcome {
+    match outcome {
+        DelegationOutcome::Ok(success) => DelegationOutcome::Ok(DelegationSuccess {
+            duration_ms,
+            ..success
+        }),
+        other => other,
+    }
+}
+
 fn cap_text(text: &str, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         text.to_string()
@@ -1307,28 +1563,15 @@ fn terminal_fields(
     }
 }
 
-fn preview(task: &str) -> String {
-    const PREVIEW_CAP: usize = 200;
-    if task.len() <= PREVIEW_CAP {
-        task.to_string()
-    } else {
-        let mut end = PREVIEW_CAP;
-        while !task.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}…", &task[..end])
-    }
-}
-
 fn running_report(
     call_id: &str,
-    child_session_id: Uuid,
+    child_session_id: Option<Uuid>,
     agent_type: AgentId,
 ) -> DelegationTaskReport {
     DelegationTaskReport {
         task_id: Some(call_id.to_string()),
         status: TaskStatus::Running,
-        child_session_id: Some(child_session_id),
+        child_session_id,
         agent_type: Some(agent_type),
         text: None,
         error_code: None,
@@ -1451,8 +1694,18 @@ mod tests {
             MockDepthLookup, MockSpawner, MockStatusLookup, RecordingEventEmitter,
             RecordingMetaWriter,
         },
-        types::{DelegationOutcome, DelegationSuccess},
+        types::{DelegationMatchKey, DelegationOutcome, DelegationSuccess},
     };
+
+    async fn wait_until(cond: impl Fn() -> bool) {
+        for _ in 0..400 {
+            if cond() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("timed out waiting for broker setup");
+    }
 
     fn request(parent_session_id: Uuid) -> DelegationRequest {
         DelegationRequest {
@@ -1513,7 +1766,7 @@ mod tests {
 
         assert_eq!(report.status, TaskStatus::Running);
         let call_id = report.task_id.clone().expect("task id");
-        assert_eq!(h.broker.running_count(), 1);
+        wait_until(|| h.broker.running_count() == 1).await;
         assert_eq!(h.events.started.lock().unwrap().len(), 1);
         assert_eq!(h.spawner.calls.lock().unwrap().prompts.len(), 1);
 
@@ -1530,12 +1783,72 @@ mod tests {
         assert_eq!(h.broker.running_count(), 0);
         let completed = h.broker.completed_report(&call_id).expect("completed");
         assert_eq!(completed.status, TaskStatus::Completed);
-        assert!(completed.text.is_none());
+        assert_eq!(completed.text.as_deref(), Some("all done"));
         assert_eq!(h.events.completed.lock().unwrap().len(), 1);
+        match &h.events.completed.lock().unwrap()[0].outcome {
+            DelegationOutcome::Ok(success) => {
+                assert_eq!(Some(success.duration_ms), completed.duration_ms);
+            }
+            DelegationOutcome::Err { .. } => panic!("expected ok outcome"),
+        }
         // Child is torn down (one-shot v1).
         assert_eq!(h.spawner.calls.lock().unwrap().disconnected.len(), 1);
         // Two meta writes: running, then terminal.
         assert_eq!(h.meta.writes.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn claims_a_noted_parent_tool_call_when_mcp_omits_the_id() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        h.broker.note_parent_tool_call(
+            "parent-conn",
+            "acp-tool-1",
+            DelegationMatchKey {
+                agent_type: AgentId::parse("codex").unwrap(),
+                task: "do the thing".to_string(),
+                working_dir: Some("/work".to_string()),
+            },
+        );
+        let mut req = request(Uuid::nil());
+        req.parent_tool_use_id.clear();
+        let report = h.broker.start_delegation(req).await;
+        assert_eq!(report.status, TaskStatus::Running);
+        wait_until(|| h.events.started.lock().unwrap().len() == 1).await;
+        assert_eq!(
+            h.events.started.lock().unwrap()[0].parent_tool_use_id,
+            "acp-tool-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn announces_the_child_conversation_before_the_agent_connects() {
+        let mut spawner = MockSpawner::new();
+        let release = Arc::new(tokio::sync::Notify::new());
+        spawner.spawn_release_gate = Some(release.clone());
+        let reached = spawner.spawn_reached_gate.clone();
+        let spawner = Arc::new(spawner);
+        let events = Arc::new(crate::testing::RecordingEventEmitter::default());
+        let broker = DelegationBroker::new(
+            spawner.clone(),
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(crate::testing::MockStatusLookup::default()),
+            Arc::new(crate::testing::RecordingMetaWriter::default()),
+            events.clone(),
+            DelegationConfig::default(),
+        );
+        let start_broker = broker.clone();
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        reached.notified().await;
+
+        assert_eq!(events.started.lock().unwrap().len(), 1);
+        assert_ne!(
+            events.started.lock().unwrap()[0].child_session_id,
+            Uuid::nil()
+        );
+
+        release.notify_one();
+        assert_eq!(start.await.unwrap().status, TaskStatus::Running);
     }
 
     #[tokio::test]
@@ -1612,6 +1925,7 @@ mod tests {
         first_request.workspace_access = DelegationWorkspaceAccess::WriteSerialized;
         let first = h.broker.start_delegation(first_request).await;
         assert_eq!(first.status, TaskStatus::Running);
+        wait_until(|| h.spawner.calls.lock().unwrap().spawned.len() == 1).await;
 
         let rejected = h.broker.start_delegation(request(Uuid::nil())).await;
         assert_eq!(rejected.status, TaskStatus::Failed);
@@ -1630,6 +1944,8 @@ mod tests {
         first_request.workspace_access = DelegationWorkspaceAccess::WriteSerialized;
         let first = h.broker.start_delegation(first_request).await;
         let first_task_id = first.task_id.expect("first task accepted");
+        wait_until(|| h.spawner.calls.lock().unwrap().spawned.len() == 1).await;
+        wait_until(|| h.broker.running_count() == 1).await;
 
         let second_broker = h.broker.clone();
         let mut second_request = request(Uuid::nil());
@@ -1644,7 +1960,7 @@ mod tests {
         );
 
         h.broker
-            .complete_call(&first_task_id, ok_outcome(first.child_session_id.unwrap()))
+            .complete_call(&first_task_id, ok_outcome(h.spawner.child_session_id))
             .await;
         let second = tokio::time::timeout(Duration::from_secs(1), second)
             .await
@@ -1665,8 +1981,9 @@ mod tests {
         for _ in 0..2 {
             let started = h.broker.start_delegation(request(Uuid::nil())).await;
             let task_id = started.task_id.expect("accepted task");
+            wait_until(|| h.broker.running_count() == 1).await;
             h.broker
-                .complete_call(&task_id, ok_outcome(started.child_session_id.unwrap()))
+                .complete_call(&task_id, ok_outcome(h.spawner.child_session_id))
                 .await;
         }
 
@@ -1809,11 +2126,7 @@ mod tests {
             .await;
 
         assert_eq!(reports[0].status, TaskStatus::Completed);
-        assert!(reports[0].text.is_none());
-        assert_eq!(
-            reports[0].message.as_deref(),
-            Some("open the child session for full output")
-        );
+        assert_eq!(reports[0].text.as_deref(), Some("first result"));
         assert_eq!(reports[1].status, TaskStatus::Running);
     }
 
@@ -1888,12 +2201,9 @@ mod tests {
     #[tokio::test]
     async fn cancel_running_task_marks_canceled_and_tears_down() {
         let h = harness(MockDepthLookup::default(), DelegationConfig::default());
-        let call_id = h
-            .broker
-            .start_delegation(request(Uuid::nil()))
-            .await
-            .task_id
-            .unwrap();
+        let started = h.broker.start_delegation(request(Uuid::nil())).await;
+        let call_id = started.task_id.clone().unwrap();
+        let child_session_id = started.child_session_id.expect("child session");
 
         let report = h
             .broker
@@ -1903,7 +2213,7 @@ mod tests {
         assert_eq!(h.broker.running_count(), 0);
         let calls = h.spawner.calls.lock().unwrap();
         assert_eq!(calls.canceled.len(), 1);
-        assert_eq!(calls.released, vec![h.spawner.child_session_id]);
+        assert_eq!(calls.released, vec![child_session_id]);
         assert_eq!(calls.disconnected.len(), 1);
     }
 
@@ -1931,16 +2241,13 @@ mod tests {
     #[tokio::test]
     async fn completed_status_does_not_duplicate_child_output_in_memory() {
         let h = harness(MockDepthLookup::default(), DelegationConfig::default());
-        let task_id = h
-            .broker
-            .start_delegation(request(Uuid::nil()))
-            .await
-            .task_id
-            .unwrap();
+        let started = h.broker.start_delegation(request(Uuid::nil())).await;
+        let task_id = started.task_id.clone().unwrap();
+        let child_session_id = started.child_session_id.expect("child session");
         h.broker
             .complete_call(
                 &task_id,
-                ok_text_outcome(h.spawner.child_session_id, "x".repeat(300 * 1024)),
+                ok_text_outcome(child_session_id, "x".repeat(300 * 1024)),
             )
             .await;
 
@@ -1950,15 +2257,9 @@ mod tests {
             .await;
 
         assert_eq!(reports[0].status, TaskStatus::Completed);
-        assert_eq!(
-            reports[0].child_session_id,
-            Some(h.spawner.child_session_id)
-        );
-        assert!(reports[0].text.is_none());
-        assert_eq!(
-            reports[0].message.as_deref(),
-            Some("open the child session for full output")
-        );
+        assert_eq!(reports[0].child_session_id, Some(child_session_id));
+        let text = reports[0].text.as_ref().expect("capped result");
+        assert!(text.len() <= 256 * 1024);
     }
 
     #[tokio::test]

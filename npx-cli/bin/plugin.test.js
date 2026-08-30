@@ -229,6 +229,29 @@ test("plugin add parses GitHub release URLs", () => {
   assert.equal(spec.tag, "v1.2.0");
 });
 
+test("plugin publish parses credentials and marketplace origin", () => {
+  const { parseArgs, marketplaceOrigin } = require("./plugin");
+  const packed = parseArgs([
+    ".",
+    "--owner",
+    "ada",
+    "--password",
+    "secret1",
+    "--show-tree",
+  ]);
+  assert.equal(packed.positional[0], ".");
+  assert.equal(packed.flags.owner, "ada");
+  assert.equal(packed.flags.password, "secret1");
+  assert.equal(packed.flags.showTree, true);
+  const repo = parseArgs(["--web", "ada/notes#v1.2.0", "--owner", "ada"]);
+  assert.equal(repo.flags.web, "ada/notes#v1.2.0");
+  assert.equal(marketplaceOrigin(), "https://vibex.xforever.xin");
+  assert.equal(
+    marketplaceOrigin("https://example.test/"),
+    "https://example.test",
+  );
+});
+
 function writeFixture(root) {
   mkdirSync(join(root, ".vibex-plugin"), { recursive: true });
   mkdirSync(join(root, "contents", "skills", "test"), { recursive: true });

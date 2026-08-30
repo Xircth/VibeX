@@ -7,7 +7,7 @@ import {
   Loader2,
   XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationDelegationView } from 'shared/types';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
@@ -50,7 +50,7 @@ export function DelegationCard({
     durationMs != null ? formatDurationLabel(durationMs, t) : null;
   const agentId = delegation.agent_id ?? null;
   const cardLabel = agentId
-    ? t('delegationCard.delegatedTo', { agent: agentLabel(agentId) })
+    ? agentDisplayLabel(agentId)
     : t('delegationCard.subAgentDelegation');
   const canCancel =
     status === 'running' && childId !== null && supports('delegation.cancel');
@@ -73,114 +73,116 @@ export function DelegationCard({
     }
   };
 
+  const well =
+    openSection === 'task' && delegation.task_preview
+      ? { text: delegation.task_preview, tone: 'default' as const }
+      : openSection === 'result' && resultText
+        ? {
+            text: resultText,
+            tone:
+              status === 'failed' ? ('danger' as const) : ('default' as const),
+          }
+        : null;
+
   return (
     <div
       role="group"
       aria-label={cardLabel}
       data-testid="host-delegation-card"
-      className="rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
+      className="host-delegation-card rounded-lg border border-border/50 bg-[var(--surface-control)] text-sm text-card-foreground"
     >
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted text-muted-foreground">
-          {agentId ? (
-            <AgentTypeIcon agentType={agentId} className="h-3.5 w-3.5" />
-          ) : (
-            <Bot className="h-3.5 w-3.5" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-foreground">
-              {cardLabel}
-            </span>
-            {delegation.task_preview || resultText || durationLabel ? null : (
-              <StatusPill status={status} />
+      <div data-testid="host-delegation-body" className="px-5 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            data-testid="host-delegation-agent-icon"
+            className="inline-flex h-5 w-5 shrink-0 self-center items-center justify-center text-muted-foreground"
+          >
+            {agentId ? (
+              <AgentTypeIcon agentType={agentId} className="h-5 w-5" />
+            ) : (
+              <Bot className="h-5 w-5" />
             )}
-          </div>
-
-          {delegation.task_preview || resultText || durationLabel ? (
-            <div className="mt-2">
-              <div className="flex min-w-0 items-center gap-3">
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                data-testid="host-delegation-agent-name"
+                className="host-delegation-wide-only min-w-0 truncate font-medium text-foreground"
+              >
+                {cardLabel}
+              </span>
+              <StatusPill status={status} />
+              {childId && onOpenChild ? (
+                <button
+                  type="button"
+                  className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                  onClick={() => onOpenChild(childId)}
+                >
+                  <ArrowUpRight className="h-3 w-3" />
+                  {t('delegationCard.openChildSession')}
+                </button>
+              ) : null}
+            </div>
+            {delegation.task_preview ||
+            resultText ||
+            durationLabel ||
+            canCancel ? (
+              <div className="mt-2 flex min-w-0 items-center gap-2 overflow-hidden">
                 {delegation.task_preview ? (
-                  <DisclosureToggle
+                  <DelegationDisclosureButton
                     label={t('delegationCard.task')}
                     open={openSection === 'task'}
                     onToggle={() => toggleSection('task')}
                   />
                 ) : null}
                 {resultText ? (
-                  <DisclosureToggle
+                  <DelegationDisclosureButton
                     label={t('delegationCard.result')}
                     open={openSection === 'result'}
                     onToggle={() => toggleSection('result')}
                   />
                 ) : null}
-                <span className="flex min-w-0 flex-1 items-center justify-center">
-                  {durationLabel ? (
-                    <span className="text-[11px] font-normal text-muted-foreground">
-                      {durationLabel}
-                    </span>
-                  ) : null}
-                </span>
-                <StatusPill status={status} />
+                {canCancel ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    className={cn(!durationLabel && 'ml-auto')}
+                    disabled={isCanceling}
+                    onClick={() => void cancel()}
+                  >
+                    {isCanceling ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <Ban className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    {isCanceling
+                      ? t('delegationCard.canceling')
+                      : t('delegationCard.cancel')}
+                  </Button>
+                ) : null}
+                {durationLabel ? (
+                  <span
+                    data-testid="host-delegation-duration"
+                    className="host-delegation-wide-only ml-auto shrink-0 text-xs text-muted-foreground"
+                  >
+                    {durationLabel}
+                  </span>
+                ) : null}
               </div>
-              {openSection === 'task' && delegation.task_preview ? (
-                <div className="mt-1.5 text-xs text-foreground">
-                  <AstryxMarkdown value={delegation.task_preview} />
-                </div>
-              ) : null}
-              {openSection === 'result' && resultText ? (
-                <div
-                  className={cn(
-                    'mt-1.5 text-xs',
-                    status === 'failed' ? 'text-destructive' : 'text-foreground'
-                  )}
-                >
-                  <AstryxMarkdown value={resultText} />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {(childId && onOpenChild) || canCancel ? (
-            <div className="mt-2 flex items-center gap-3">
-              {childId && onOpenChild ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onOpenChild(childId)}
-                >
-                  <ArrowUpRight className="mr-1 h-3.5 w-3.5" />
-                  {t('delegationCard.openChildSession')}
-                </Button>
-              ) : null}
-              {canCancel ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isCanceling}
-                  onClick={() => void cancel()}
-                >
-                  {isCanceling ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Ban className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {isCanceling
-                    ? t('delegationCard.canceling')
-                    : t('delegationCard.cancel')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {cancelError ? (
-            <p role="alert" className="mt-2 text-xs text-destructive">
-              {t('delegationCard.cancelFailed', { error: cancelError })}
-            </p>
-          ) : null}
+            ) : null}
+          </div>
         </div>
+        {well ? (
+          <DelegationDisclosurePanel tone={well.tone}>
+            <AstryxMarkdown value={well.text} />
+          </DelegationDisclosurePanel>
+        ) : null}
+        {cancelError ? (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {t('delegationCard.cancelFailed', { error: cancelError })}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -229,7 +231,7 @@ function StatusPill({ status }: { status: Status }) {
   );
 }
 
-function DisclosureToggle({
+function DelegationDisclosureButton({
   label,
   open,
   onToggle,
@@ -239,10 +241,15 @@ function DisclosureToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
-      className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+      size="xs"
+      variant="secondary"
       aria-expanded={open}
+      className={cn(
+        'h-6 gap-1 px-2 text-xs font-medium',
+        open && 'bg-[var(--surface-control-hover)] text-foreground'
+      )}
       onClick={onToggle}
     >
       <ChevronRight
@@ -250,7 +257,27 @@ function DisclosureToggle({
         className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')}
       />
       {label}
-    </button>
+    </Button>
+  );
+}
+
+function DelegationDisclosurePanel({
+  tone,
+  children,
+}: {
+  tone: 'default' | 'danger';
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid="host-delegation-well"
+      className={cn(
+        'mt-3 max-h-[min(24rem,50vh)] overflow-y-auto rounded-md bg-background/80 px-3 py-2.5 text-xs break-words',
+        tone === 'danger' ? 'text-destructive' : 'text-foreground'
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -271,7 +298,7 @@ const AGENT_LABELS: Record<string, string> = {
   qa_mock: 'QA Mock',
 };
 
-function agentLabel(agentType: string): string {
+export function agentDisplayLabel(agentType: string): string {
   return AGENT_LABELS[agentType] ?? agentType;
 }
 

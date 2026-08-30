@@ -130,6 +130,13 @@ export function getExecutorDisplayName(executor: string | null) {
   return getAgentName(executor as ExecutorProfileId['executor']);
 }
 
+export function sessionListAgentKey(session: {
+  agentId?: string | null;
+  executor: string | null;
+}): string | null {
+  return session.agentId || session.executor || null;
+}
+
 export function mapSessionErrorMessage(error: unknown, fallback: string) {
   return getSessionUiErrorMessage(error, fallback);
 }
@@ -178,7 +185,11 @@ export function getExecutorFilterOptions(
   sessions: KanbanProjectSessionRecord[]
 ): ExecutorFilterOption[] {
   const values = Array.from(
-    new Set(sessions.map((session) => getExecutorFilterValue(session.executor)))
+    new Set(
+      sessions.map((session) =>
+        getExecutorFilterValue(sessionListAgentKey(session))
+      )
+    )
   );
 
   return values
@@ -210,7 +221,9 @@ export function filterKanbanSessions({
 
     if (
       executorFilterValues.length > 0 &&
-      !executorFilterValues.includes(getExecutorFilterValue(session.executor))
+      !executorFilterValues.includes(
+        getExecutorFilterValue(sessionListAgentKey(session))
+      )
     ) {
       return false;
     }

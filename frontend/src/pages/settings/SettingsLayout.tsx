@@ -182,7 +182,12 @@ export function SettingsLayout() {
         </aside>
 
         <section
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
+          className={cn(
+            'min-h-0 min-w-0 flex-1 p-4 [scrollbar-gutter:stable]',
+            location.pathname === '/plugins'
+              ? 'flex flex-col overflow-hidden'
+              : 'overflow-y-auto'
+          )}
           style={{ scrollbarGutter: 'stable' }}
         >
           <Suspense fallback={<SettingsContentFallback />}>

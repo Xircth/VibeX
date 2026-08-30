@@ -96,6 +96,10 @@ pub struct AgentToolCall {
 #[ts(export)]
 pub struct AgentToolCallUpdate {
     pub id: String,
+    /// Rewritten title for hosts whose wire title mutates (Grok `use_tool`).
+    /// `None` leaves the existing title in place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -559,6 +563,7 @@ mod tests {
             AgentEvent::ToolCallUpdate {
                 update: AgentToolCallUpdate {
                     id: "tool-1".to_string(),
+                    title: None,
                     status: Some("completed".to_string()),
                     content: Some("ok".to_string()),
                     input_preview: None,

@@ -1,6 +1,6 @@
 [package]
 name = "vibex-mcp"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 
 [[bin]]
@@ -13,3 +13,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }

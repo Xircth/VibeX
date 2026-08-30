@@ -4,7 +4,7 @@
     "attachments": "附件",
     "commandSource": {
       "plugin": "插件",
-      "skill": "技能",
+      "skill": "Skill",
       "native": "原生"
     },
     "elementToken": {
@@ -21,7 +21,7 @@
         "file": "文件",
         "conversation": "会话",
         "commit": "提交",
-        "instruction": "指令"
+        "instruction": "快捷指令"
       }
     }
   },

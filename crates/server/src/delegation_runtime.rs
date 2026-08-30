@@ -14,11 +14,12 @@ use conversations::{
 };
 use db::models::session::Session;
 use delegation::{
-    ChildStatusLookup, ChildStatusRecord, CompanionFeaturePort, ConnectionSpawner,
-    DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
-    DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
-    DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup, ParentSessionLookup,
-    SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry, outcome_from_turn,
+    AssistantReplyAccumulator, ChildStatusLookup, ChildStatusRecord, CompanionFeaturePort,
+    ConnectionSpawner, DelegationBroker, DelegationCompletedEvent, DelegationConfig,
+    DelegationError, DelegationEventEmitter, DelegationLink, DelegationListener,
+    DelegationMetaWriter, DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup,
+    ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry,
+    outcome_from_turn,
 };
 use plugins::OfficialMcpRuntime;
 use serde_json::{Value, json};
@@ -327,30 +328,41 @@ impl ConnectionSpawner for RuntimeSpawner {
         Ok(child.id.to_string())
     }
 
-    async fn send_prompt_linked(
+    async fn create_child_conversation(
         &self,
-        child_connection_id: &str,
-        task: String,
-        link: DelegationLink,
+        child_session_id: Uuid,
+        task: &str,
+        link: &DelegationLink,
     ) -> Result<Uuid, SpawnerError> {
-        let connection_id = parse_connection(child_connection_id)
-            .ok_or_else(|| SpawnerError::Other("invalid child connection".to_string()))?;
-        let child_id = Uuid::new_v4();
+        let child_id = child_session_id;
         create_delegated_conversation(
             &self.pool,
             CreateDelegatedConversation {
                 id: child_id,
                 parent_conversation_id: link.parent_session_id,
-                parent_tool_call_id: link.parent_tool_use_id,
+                parent_tool_call_id: link.parent_tool_use_id.clone(),
                 delegation_id: link.delegation_call_id.clone(),
                 agent_id: link.agent_type.clone(),
-                prompt: task.clone(),
+                prompt: task.to_string(),
                 policy: serde_json::to_value(&link.policy)
                     .map_err(|error| SpawnerError::SendPrompt(error.to_string()))?,
             },
         )
         .await
         .map_err(|error| SpawnerError::SendPrompt(error.to_string()))?;
+        Ok(child_id)
+    }
+
+    async fn send_prompt_linked(
+        &self,
+        child_connection_id: &str,
+        child_session_id: Uuid,
+        task: String,
+        link: DelegationLink,
+    ) -> Result<Uuid, SpawnerError> {
+        let connection_id = parse_connection(child_connection_id)
+            .ok_or_else(|| SpawnerError::Other("invalid child connection".to_string()))?;
+        let child_id = child_session_id;
         let session_id = AgentSessionId::from(child_id);
         self.runtime
             .new_session_with_id(connection_id, session_id, child_id.to_string())
@@ -522,7 +534,7 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
         let result = match event.outcome {
             DelegationOutcome::Ok(success) => DelegationResultSummary::Ok {
                 duration_ms: Some(success.duration_ms),
-                text_preview: Some(preview(&success.text)),
+                text_preview: Some(success.text.clone()),
             },
             DelegationOutcome::Err { code, .. } => {
                 DelegationResultSummary::Err { error_code: code }
@@ -671,7 +683,7 @@ fn spawn_resolver(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut receiver = runtime.subscribe_events();
-        let mut text = HashMap::<Uuid, String>::new();
+        let mut replies = HashMap::<Uuid, AssistantReplyAccumulator>::new();
         loop {
             let envelope = match receiver.recv().await {
                 Ok(envelope) => envelope,
@@ -685,7 +697,12 @@ fn spawn_resolver(
                 AgentEvent::MessageChunk {
                     content: AgentContentBlock::Text { text: chunk },
                 } if map.lock().await.contains_key(&session_id) => {
-                    text.entry(session_id).or_default().push_str(&chunk);
+                    replies.entry(session_id).or_default().push_text(&chunk);
+                }
+                AgentEvent::ToolCall { .. } if map.lock().await.contains_key(&session_id) => {
+                    if let Some(reply) = replies.get_mut(&session_id) {
+                        reply.start_tool();
+                    }
                 }
                 AgentEvent::PromptFinished { finished } => {
                     if let Some((call_id, agent_type)) = map.lock().await.remove(&session_id) {
@@ -694,7 +711,7 @@ fn spawn_resolver(
                                 &call_id,
                                 outcome_from_turn(
                                     finished.stop_reason.as_deref(),
-                                    text.remove(&session_id).unwrap_or_default(),
+                                    replies.remove(&session_id).unwrap_or_default().finish(),
                                     session_id,
                                     agent_type,
                                     1,
@@ -766,18 +783,6 @@ fn locate_companion() -> PathBuf {
 
 fn locate_named_sibling(base: &str) -> PathBuf {
     utils::host_bin::locate_host_family_binary(base)
-}
-
-fn preview(text: &str) -> String {
-    const LIMIT: usize = 200;
-    if text.len() <= LIMIT {
-        return text.to_string();
-    }
-    let mut end = LIMIT;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &text[..end])
 }
 
 #[cfg(test)]

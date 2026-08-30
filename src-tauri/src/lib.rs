@@ -1020,6 +1020,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::plugin_control::plugin_marketplace_listing,
         commands::plugin_control::plugin_marketplace_install,
         commands::plugin_control::plugin_check_updates,
+        commands::plugin_control::plugin_control_logs,
         commands::plugin_control::plugin_install,
         commands::plugin_control::plugin_update,
         commands::plugin_control::plugin_uninstall,

@@ -51,6 +51,7 @@ function session(
     workspaceName: currentWorkspace.name ?? currentWorkspace.branch,
     workspaceDisplayLabel: `${currentWorkspace.name ?? currentWorkspace.branch} · ${currentWorkspace.branch}`,
     executor: 'grok',
+    agentId: null,
     updatedAt: '2026-08-17T12:00:00Z',
     createdAt: '2026-08-17T10:00:00Z',
     firstPrompt: 'Double Password Prompt on Project Login',

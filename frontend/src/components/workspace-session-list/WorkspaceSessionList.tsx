@@ -52,6 +52,7 @@ import {
   SESSION_ARCHIVE_DROP_ID,
   getExecutorDisplayName,
   getSessionMarker,
+  sessionListAgentKey,
   type SessionMarker,
 } from '@/components/kanban/session-hub/utils';
 import {
@@ -469,7 +470,8 @@ function WorkspaceSessionRow({
   const title = sessionListTitle(session);
   const tone = workspaceSessionStatusTone(session);
   const statusLabel = t(STATUS_LABEL_KEY[tone]);
-  const agentName = getExecutorDisplayName(session.executor);
+  const agentKey = sessionListAgentKey(session);
+  const agentName = getExecutorDisplayName(agentKey);
   const compactAge = formatCompactSessionAge(session.updatedAt);
   const isPinned = Boolean(session.pinnedAt);
   const [isHovered, setIsHovered] = useState(false);
@@ -549,9 +551,9 @@ function WorkspaceSessionRow({
         {isEditing ? (
           <div className="workspace-session-row-main is-editing">
             <span className="workspace-session-icon" aria-hidden="true">
-              {session.executor ? (
+              {agentKey ? (
                 <AgentIcon
-                  agent={session.executor as ExecutorProfileId['executor']}
+                  agent={agentKey as ExecutorProfileId['executor']}
                   className="h-4 w-4"
                 />
               ) : (
@@ -616,9 +618,9 @@ function WorkspaceSessionRow({
               {...(overlay ? {} : listeners)}
             >
               <span className="workspace-session-icon" aria-hidden="true">
-                {session.executor ? (
+                {agentKey ? (
                   <AgentIcon
-                    agent={session.executor as ExecutorProfileId['executor']}
+                    agent={agentKey as ExecutorProfileId['executor']}
                     className="h-4 w-4"
                   />
                 ) : (

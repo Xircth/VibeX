@@ -34,11 +34,13 @@ pub use app_surface::{
 pub use artifact_preview::PluginArtifactPreviewService;
 pub use catalog::{
     COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage, CatalogPluginDetail, CatalogVersion,
-    DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin, PluginUpdateStatus, check_installed_updates,
+    DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin, PluginUpdateStatus, REPLACED_PLUGIN_IDS,
+    canonical_listing_id, canonical_plugin_id, check_installed_updates, collapse_replaced_official,
     detail_from_package, fetch_artifact, fetch_catalog, fetch_listing, fetch_versions,
-    github_latest_tag, is_newer_version, listing_from_package, listing_identity,
-    marketplace_archive_suffix, marketplace_listing_url, marketplace_origin, origin_kind,
-    origin_owner_name, source_allows_remote_update,
+    fold_official_listings, github_latest_tag, is_newer_version, listing_from_package,
+    listing_identity, listing_is_retired, marketplace_archive_suffix, marketplace_listing_url,
+    marketplace_origin, merge_offline_official, origin_kind, origin_owner_name,
+    prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
 };
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
@@ -68,9 +70,11 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_mcp::{
-    DELEGATION_MCP_NAME, OfficialMcpBinding, OfficialMcpRuntime, SESSION_FEAT_ALL,
-    SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
-    SESSION_MCP_NAME, binding_has_delegation_mcp, session_features_from_config,
+    DELEGATION_MCP_NAME, OfficialMcpBinding, OfficialMcpRuntime, PLUGIN_DEV_MCP_NAME,
+    SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
+    SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, binding_has_delegation_mcp,
+    host_family_product, host_family_stdio_spec, official_product_mcp_name,
+    projected_mcp_server_id, session_feature_arg, session_features_from_config,
 };
 pub use package::{
     AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,
@@ -100,7 +104,7 @@ pub use runtime::{
 };
 pub use service::PluginService;
 pub use worker_host::{
-    CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, ScopedCapabilityBroker,
+    CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginLogLine, ScopedCapabilityBroker,
     WorkerActivation, WorkerHost, WorkerHostError, isolated_spawn_supported, recent_plugin_crashes,
-    record_plugin_crash,
+    recent_plugin_logs, record_plugin_crash, record_plugin_log,
 };

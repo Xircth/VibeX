@@ -25,6 +25,12 @@ pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
 /// Host-injected / native-projected MCP identity for session enhancement.
 pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
 
+/// Host-injected MCP identity for plugin development link requests.
+pub const PLUGIN_DEV_MCP_NAME: &str = "vibex-plugin-dev-mcp";
+
+/// Host-injected / native-projected MCP identity for Workflow Creator.
+pub const WORKFLOW_MCP_NAME: &str = "vibex-workflow-mcp";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfficialMcpBinding {
     pub plugin_id: String,
@@ -114,6 +120,7 @@ impl OfficialMcpRuntime {
 
     pub fn sync_from_plugins(&self, plugins: &[InstalledPlugin]) {
         let http_base = self.http_base();
+        let previous = self.bindings();
         let mut bindings = Vec::new();
         let mut session_bits = 0u8;
         for plugin in plugins {
@@ -125,7 +132,14 @@ impl OfficialMcpRuntime {
                     session_bits = binding.features;
                 }
                 if binding.token.is_empty() {
-                    binding.token = uuid::Uuid::new_v4().to_string();
+                    binding.token = previous
+                        .iter()
+                        .find(|existing| {
+                            existing.plugin_id == binding.plugin_id
+                                && existing.product == binding.product
+                        })
+                        .map(|existing| existing.token.clone())
+                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 }
                 bindings.push(binding);
             }
@@ -157,22 +171,19 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
     let servers = plugin.mcp.get("mcpServers").unwrap_or(&plugin.mcp);
     let object = servers.as_object()?;
     for spec in object.values() {
-        let managed = spec.get("managedRuntime")?.as_object()?;
-        if managed.get("kind").and_then(Value::as_str) != Some("hostFamilyBinary") {
+        let Some(product) = host_family_product(spec) else {
             continue;
-        }
-        let binary_id = managed.get("binaryId")?.as_str()?.to_owned();
-        let declared = managed.get("product").and_then(Value::as_str);
-        let product = match (declared, binary_id.as_str()) {
-            (Some("session" | "delegation" | "workflow"), _) => declared.unwrap().to_owned(),
-            (_, "vibex-workflow-mcp") => "workflow".into(),
-            _ => continue,
         };
+        let binary_id = spec
+            .get("managedRuntime")?
+            .get("binaryId")?
+            .as_str()?
+            .to_owned();
         let config = live_plugin_config(plugin);
         return Some(OfficialMcpBinding {
             plugin_id: plugin.id().to_owned(),
             binary_id,
-            product: product.clone(),
+            product: product.to_owned(),
             features: if product == "session" {
                 session_features_from_config(&config)
             } else {
@@ -182,6 +193,97 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
         });
     }
     None
+}
+
+/// Product key (`delegation`, `session`, `workflow`, `plugin-dev`) declared on a
+/// `hostFamilyBinary` MCP resource.
+pub fn host_family_product(spec: &Value) -> Option<&'static str> {
+    let managed = spec.get("managedRuntime")?.as_object()?;
+    if managed.get("kind").and_then(Value::as_str) != Some("hostFamilyBinary") {
+        return None;
+    }
+    let binary_id = managed
+        .get("binaryId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match (managed.get("product").and_then(Value::as_str), binary_id) {
+        (Some("session"), _) => Some("session"),
+        (Some("delegation"), _) => Some("delegation"),
+        (Some("workflow"), _) | (_, "vibex-workflow-mcp") => Some("workflow"),
+        (Some("plugin-dev"), _) => Some("plugin-dev"),
+        _ => None,
+    }
+}
+
+/// Stable native/ACP MCP server name for an official `hostFamilyBinary` spec.
+pub fn official_product_mcp_name(spec: &Value) -> Option<&'static str> {
+    match host_family_product(spec)? {
+        "session" => Some(SESSION_MCP_NAME),
+        "delegation" => Some(DELEGATION_MCP_NAME),
+        "plugin-dev" => Some(PLUGIN_DEV_MCP_NAME),
+        "workflow" => Some(WORKFLOW_MCP_NAME),
+        _ => None,
+    }
+}
+
+/// Native-config identity written by the MCP manager. Official product MCPs keep
+/// their ADR names so Grok `server__tool` titles and uninstall match injection.
+pub fn projected_mcp_server_id(plugin_id: &str, server_id: &str, spec: &Value) -> String {
+    official_product_mcp_name(spec)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{plugin_id}.{server_id}"))
+}
+
+/// `--features` value consumed by `vibex-mcp`.
+pub fn session_feature_arg(bits: u8) -> String {
+    [
+        (bits & SESSION_FEAT_FEEDBACK != 0, "feedback"),
+        (bits & SESSION_FEAT_ASK != 0, "ask"),
+        (bits & SESSION_FEAT_SESSIONS != 0, "sessions"),
+        (bits & SESSION_FEAT_SESSION_CONTROL != 0, "session-control"),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, name)| enabled.then_some(name))
+    .collect::<Vec<_>>()
+    .join(",")
+}
+
+/// Static stdio spec projected into Agent native MCP files at plugin enable.
+/// Session identity is not baked in; the Agent process inherits
+/// `VIBEX_CONVERSATION_ID`, and ACP agents still get per-session `session/new`.
+pub fn host_family_stdio_spec(
+    command: &str,
+    product: &str,
+    features: &str,
+    http_base: Option<&str>,
+    token: Option<&str>,
+) -> Value {
+    if product == "workflow" {
+        return serde_json::json!({
+            "type": "stdio",
+            "command": command,
+            "args": []
+        });
+    }
+    let mut args = vec![
+        "--features".to_string(),
+        features.to_string(),
+        "--product".to_string(),
+        product.to_string(),
+    ];
+    if let Some(url) = http_base.filter(|value| !value.is_empty()) {
+        args.push("--server-url".to_string());
+        args.push(url.to_string());
+    }
+    if let Some(token) = token.filter(|value| !value.is_empty()) {
+        args.push("--server-token".to_string());
+        args.push(token.to_string());
+    }
+    serde_json::json!({
+        "type": "stdio",
+        "command": command,
+        "args": args,
+    })
 }
 
 fn live_plugin_config(plugin: &InstalledPlugin) -> Value {
@@ -258,5 +360,88 @@ mod tests {
         assert!(!runtime.allow_delegation_mcp());
         assert_eq!(runtime.session_features() & SESSION_FEAT_ASK, 0);
         assert_ne!(runtime.session_features() & SESSION_FEAT_FEEDBACK, 0);
+    }
+
+    #[test]
+    fn official_host_family_keeps_product_mcp_identity() {
+        let spec = json!({
+            "managedRuntime": {
+                "kind": "hostFamilyBinary",
+                "binaryId": "vibex-mcp",
+                "product": "delegation"
+            }
+        });
+        assert_eq!(host_family_product(&spec), Some("delegation"));
+        assert_eq!(
+            projected_mcp_server_id("vibex.multi-agent", "vibex-delegation-mcp", &spec),
+            DELEGATION_MCP_NAME
+        );
+        assert_eq!(
+            projected_mcp_server_id(
+                "acme.tools",
+                "search",
+                &json!({ "command": "npx", "args": ["demo-mcp"] })
+            ),
+            "acme.tools.search"
+        );
+    }
+
+    #[test]
+    fn host_family_stdio_spec_is_plugin_lifetime_not_session_scoped() {
+        let spec = host_family_stdio_spec(
+            "/opt/vibex-mcp",
+            "delegation",
+            "delegation",
+            Some("http://127.0.0.1:9"),
+            Some("plugin-token"),
+        );
+        assert_eq!(spec["type"], "stdio");
+        assert_eq!(spec["command"], "/opt/vibex-mcp");
+        let args = spec["args"]
+            .as_array()
+            .expect("args")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            args,
+            [
+                "--features",
+                "delegation",
+                "--product",
+                "delegation",
+                "--server-url",
+                "http://127.0.0.1:9",
+                "--server-token",
+                "plugin-token"
+            ]
+        );
+        assert!(!args.contains(&"--conversation-id"));
+        assert_eq!(
+            host_family_stdio_spec("/opt/vibex-workflow-mcp", "workflow", "", None, None)["args"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn sync_preserves_plugin_lifetime_token() {
+        let runtime = OfficialMcpRuntime::default();
+        let package = plugin(
+            "vibex.multi-agent",
+            json!({
+                "vibex-delegation-mcp": {
+                    "managedRuntime": {
+                        "kind": "hostFamilyBinary",
+                        "binaryId": "vibex-mcp",
+                        "product": "delegation"
+                    }
+                }
+            }),
+            json!({}),
+        );
+        runtime.sync_from_plugins(&[package.clone()]);
+        let first = runtime.delegation_token().expect("token");
+        runtime.sync_from_plugins(&[package]);
+        assert_eq!(runtime.delegation_token().as_deref(), Some(first.as_str()));
     }
 }

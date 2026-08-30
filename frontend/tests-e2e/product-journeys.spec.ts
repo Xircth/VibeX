@@ -43,7 +43,7 @@ test('two agent mentions create durable completed and cancelled delegation cards
   await page.getByRole('button', { name: 'Send to parent' }).click();
   await expect(page.getByText('已完成')).toBeVisible();
   await expect(page.getByText('已取消')).toBeVisible();
-  await page.getByRole('button', { name: '打开子会话' }).nth(1).click();
+  await page.getByRole('button', { name: '查看会话' }).nth(1).click();
   await expect(
     page.getByRole('region', { name: 'Child conversation' })
   ).toContainText('fixture-child-2');

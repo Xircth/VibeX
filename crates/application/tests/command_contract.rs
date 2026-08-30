@@ -50,6 +50,7 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
         "plugin_marketplace_catalog",
         "plugin_marketplace_listing",
         "plugin_check_updates",
+        "plugin_control_logs",
     ] {
         let command = name.parse::<DomainCommand>().expect("plugin read command");
         assert_eq!(command.required_scope(), "plugin.read");

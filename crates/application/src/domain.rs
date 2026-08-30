@@ -59,6 +59,7 @@ domain_commands! {
     PluginMarketplaceListing => "plugin_marketplace_listing" / "plugin.read",
     PluginMarketplaceInstall => "plugin_marketplace_install" / "plugin.write",
     PluginCheckUpdates => "plugin_check_updates" / "plugin.read",
+    PluginControlLogs => "plugin_control_logs" / "plugin.read",
     PluginControlUninstall => "plugin_control_uninstall" / "plugin.write",
     PluginControlGcRuntimes => "plugin_control_gc_runtimes" / "plugin.write",
     PluginSurfaceOpen => "plugin_surface_open" / "plugin.surface",

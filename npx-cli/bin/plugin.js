@@ -9,6 +9,8 @@ const HELP = `Usage: vibex plugin pack [dir] [--output file.vxp]
        vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
        vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
        vibex plugin add --dev <dir> [--yes] [--detach]
+       vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
+       vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
        vibex plugin list [--json]
        vibex plugin update <id> [--ref tag] [--yes]
        vibex plugin remove <id> [--yes] [--delete-data]
@@ -20,10 +22,17 @@ add     Install a Plugin onto the local Desktop or Server Host.
         --web URL       Git repository, GitHub, marketplace, or archive URL
                         Pin with #tag, #branch, or #commit (also github:owner/repo#tag)
         --profile FILE  Local .vxp, .zip, or other plugin archive
-        --dev DIR       Link a development directory and reload it as it changes
+        --dev DIR       Link a development directory and reload it as it changes.
+                        Prints worker logs from the running Host until Ctrl+C.
         --plugin ID     Plugin id when the archive contains more than one package
         --yes, -y       Skip the Host install prompt
         --detach        With --dev, link and return; Host keeps watching the directory
+publish Submit a packed .vxp or GitHub repository to the official marketplace review queue.
+        --web URL       GitHub owner/repo, optionally #tag. Owner must match marketplace user.
+        --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
+        --password PASS Marketplace password (or VIBEX_MARKET_PASSWORD)
+        --show-tree     Show package structure on the marketplace (uploads only)
+        --hide-tree     Hide package structure (default for uploads)
 list    Show plugins on the running Host
 update  Refresh a snapshot from its locked origin. Linked plugins do not use this.
         --ref tag       Pin a new Git tag, branch, or commit
@@ -62,6 +71,10 @@ async function run(args) {
   }
   if (command === "test") {
     await testAgainstHost(rest);
+    return;
+  }
+  if (command === "publish") {
+    await publishPlugin(rest);
     return;
   }
   if (command !== "pack") {
@@ -353,16 +366,17 @@ async function addDevPlugin(source, flags) {
     return;
   }
   log("Watching for changes. Ctrl+C stops the watcher; the link stays.");
-  await watchDevPlugin(root);
+  await watchDevPlugin(root, identity.id);
 }
 
-async function watchDevPlugin(root) {
+async function watchDevPlugin(root, pluginId) {
   const { watchPluginSources } = await load("dev.js");
   const { buildPlugin } = await load("build.js");
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  const logs = pluginId ? streamPluginLogs(pluginId, controller.signal) : Promise.resolve();
   try {
     await watchPluginSources(root, {
       signal: controller.signal,
@@ -381,7 +395,111 @@ async function watchDevPlugin(root) {
   } finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
+    controller.abort();
+    await logs.catch(() => {});
   }
+}
+
+async function streamPluginLogs(pluginId, signal) {
+  const host = discoverHost();
+  if (!host.token) return;
+  let after = 0;
+  log("Streaming plugin worker logs from the Host.");
+  while (!signal.aborted) {
+    try {
+      const page = await hostCall(host, "plugin_control_logs", { pluginId, after });
+      const lines = Array.isArray(page?.lines) ? page.lines : [];
+      for (const line of lines) {
+        const seq = Number(line.seq) || 0;
+        if (seq > after) after = seq;
+        const text = String(line.text || "");
+        if (text) process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+      }
+    } catch {
+      /* older Hosts omit the log command */
+    }
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 500);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+}
+
+function marketplaceOrigin(flag) {
+  return String(flag || process.env.VIBEX_MARKETPLACE_URL || "https://vibex.xforever.xin").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+async function packDirectory(root, output) {
+  await ensureValidPlugin(root);
+  const { packPlugin } = await load("package.js");
+  return packPlugin(root, output);
+}
+
+async function resolvePublishFile(source) {
+  const root = path.resolve(expandHome(source || "."));
+  if (!fs.existsSync(root)) {
+    throw new Error(`Nothing to publish at ${root}`);
+  }
+  if (fs.statSync(root).isFile()) {
+    return { filePath: root, name: path.basename(root) };
+  }
+  log(`Packing ${root}...`);
+  const packed = await packDirectory(root);
+  return { filePath: packed.output, name: path.basename(packed.output) };
+}
+
+async function publishPlugin(args) {
+  const parsed = parseArgs(args);
+  const owner = parsed.flags.owner || process.env.VIBEX_MARKET_OWNER || "";
+  const password = parsed.flags.password || process.env.VIBEX_MARKET_PASSWORD || "";
+  if (!owner || !password) {
+    throw new Error(
+      "publish requires --owner and --password, or VIBEX_MARKET_OWNER and VIBEX_MARKET_PASSWORD.",
+    );
+  }
+  const origin = marketplaceOrigin(parsed.flags.market);
+  const form = new FormData();
+  if (parsed.flags.web) {
+    form.set("repo", parsed.flags.web);
+    form.set("name", parsed.flags.web);
+  } else {
+    const packed = await resolvePublishFile(parsed.positional[0]);
+    const bytes = fs.readFileSync(packed.filePath);
+    form.append("file", new Blob([bytes]), packed.name);
+    form.set("name", packed.name.replace(/\.(vxp|zip|tgz|tar\.gz)$/i, ""));
+    if (parsed.flags.showTree) form.set("showTree", "1");
+  }
+  const auth = Buffer.from(`${owner}:${password}`).toString("base64");
+  log(`Submitting to ${origin}/marketplace as ${owner}...`);
+  const response = await fetch(`${origin}/api/marketplace/submit`, {
+    method: "POST",
+    headers: { authorization: `Basic ${auth}` },
+    body: form,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    throw new Error("Marketplace credentials were rejected.");
+  }
+  if (!response.ok) {
+    const code = body.error || response.status;
+    throw new Error(`Marketplace submit failed (${code}).`);
+  }
+  log(
+    `Submitted ${body.authorId || owner}/${body.pluginId || "plugin"} ${body.version || ""} for review.`
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 async function ensureValidPlugin(root) {
@@ -1211,6 +1329,11 @@ function parseArgs(args) {
     else if (token === "--profile") flags.profile = requireValue(args, ++index, "--profile");
     else if (token === "--dev") flags.dev = requireValue(args, ++index, "--dev");
     else if (token === "--output") flags.output = requireValue(args, ++index, "--output");
+    else if (token === "--owner") flags.owner = requireValue(args, ++index, "--owner");
+    else if (token === "--password") flags.password = requireValue(args, ++index, "--password");
+    else if (token === "--market") flags.market = requireValue(args, ++index, "--market");
+    else if (token === "--show-tree") flags.showTree = true;
+    else if (token === "--hide-tree") flags.showTree = false;
     else if (token.startsWith("--")) {
       throw new Error(`Unknown argument: ${token}`);
     } else positional.push(token);
@@ -1233,4 +1356,6 @@ module.exports = {
   chmodReadable,
   discoverHost,
   hostDataDirs,
+  marketplaceOrigin,
+  parseArgs,
 };

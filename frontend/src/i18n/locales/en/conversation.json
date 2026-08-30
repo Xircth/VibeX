@@ -131,7 +131,7 @@
     "subAgentDelegation": "Sub-agent delegation",
     "task": "Task",
     "result": "Result",
-    "openChildSession": "Open child session",
+    "openChildSession": "View session",
     "durationMs": "{{count}} ms",
     "durationSeconds": "{{count}}s",
     "durationMinutes": "{{count}} min",
@@ -144,7 +144,7 @@
     "canceled": "Canceled"
   },
   "childViewer": {
-    "title": "Child session",
+    "title": "Delegated session",
     "close": "Close",
     "loading": "Loading child session…",
     "empty": "This child session has no messages yet"

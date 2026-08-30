@@ -43,6 +43,8 @@ pub struct PluginSource {
     pub git_sha: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub locked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_tree: Option<bool>,
 }
 
 impl PluginSource {
@@ -54,6 +56,7 @@ impl PluginSource {
             git_ref: None,
             git_sha: None,
             locked: false,
+            show_tree: None,
         }
     }
 

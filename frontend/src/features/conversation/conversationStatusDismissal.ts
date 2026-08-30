@@ -2,6 +2,8 @@ import { useCallback, useState } from 'react';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 
 const DISMISSED_NOTICE_KEY_PREFIX = 'vibex:dismissed-conversation-notice';
+const DISMISSED_SIGNATURES_KEY =
+  'vibex:dismissed-conversation-notice-signatures';
 const SEEN_ANNOUNCEMENTS_KEY = 'vibex:seen-session-announcements';
 const DISMISSED_ANNOUNCEMENTS_KEY = 'vibex:dismissed-session-announcements';
 
@@ -17,11 +19,7 @@ export function conversationStatusSignature(
 ): string {
   switch (notice.kind) {
     case 'turn-error':
-      return JSON.stringify([
-        notice.error.message,
-        notice.error.code,
-        notice.error.raw,
-      ]);
+      return JSON.stringify([notice.error.message, notice.error.code]);
     case 'interrupted-turn':
       return 'interrupted-turn';
     case 'session-notice':
@@ -135,18 +133,49 @@ function persistAnnouncementDismissal(notice: ConversationStatusNotice): void {
   writeJson(DISMISSED_ANNOUNCEMENTS_KEY, [...dismissed]);
 }
 
+function dismissedSignatureKey(
+  scope: string,
+  notice: ConversationStatusNotice
+): string {
+  return `${scope}::${conversationStatusSignature(notice)}`;
+}
+
+function wasSignatureDismissed(
+  scope: string | null | undefined,
+  notice: ConversationStatusNotice
+): boolean {
+  if (!scope) return false;
+  return readJsonStringSet(DISMISSED_SIGNATURES_KEY).has(
+    dismissedSignatureKey(scope, notice)
+  );
+}
+
+function persistSignatureDismissal(
+  scope: string | null | undefined,
+  notice: ConversationStatusNotice
+): void {
+  if (!scope) return;
+  const dismissed = readJsonStringSet(DISMISSED_SIGNATURES_KEY);
+  dismissed.add(dismissedSignatureKey(scope, notice));
+  writeJson(DISMISSED_SIGNATURES_KEY, [...dismissed]);
+}
+
 export function wasConversationStatusDismissed(
   scope: string | null | undefined,
   notice: ConversationStatusNotice
 ): boolean {
   const key = dismissalStorageKey(scope, notice.id);
-  if (!key || typeof window === 'undefined') return false;
+  if (!key || typeof window === 'undefined') {
+    return wasSignatureDismissed(scope, notice);
+  }
   try {
     return (
-      window.localStorage.getItem(key) === conversationStatusSignature(notice)
+      window.localStorage.getItem(key) ===
+        conversationStatusSignature(notice) ||
+      wasSignatureDismissed(scope, notice)
     );
   } catch {
-    return false;
+    return wasSignatureDismissed(scope, notice);
   }
 }
 
@@ -154,6 +183,7 @@ export function persistConversationStatusDismissal(
   scope: string | null | undefined,
   notice: ConversationStatusNotice
 ): void {
+  persistSignatureDismissal(scope, notice);
   const key = dismissalStorageKey(scope, notice.id);
   if (!key || typeof window === 'undefined') return;
   try {

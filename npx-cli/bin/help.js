@@ -29,6 +29,8 @@ Install the Agent Runtime and ACP into the user environment
        vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
        vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
        vibex plugin add --dev <dir> [--yes] [--detach]
+       vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
+       vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
        vibex plugin list [--json]
        vibex plugin update <id> [--ref tag] [--yes]
        vibex plugin remove <id> [--yes] [--delete-data]
@@ -44,6 +46,11 @@ add     Install onto the local Desktop or Server Host
   --plugin ID     Choose one package when the archive has several
   --yes, -y       Install without a prompt
   --detach        With --dev, return after linking
+publish Submit a packed .vxp or GitHub repo to marketplace review
+  --web URL       GitHub owner/repo[#tag]; GitHub owner must match marketplace user
+  --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
+  --password PASS Marketplace password (or VIBEX_MARKET_PASSWORD)
+  --show-tree     Show package structure for uploads
 list    Show installed plugins on the running Host
   --json          Print JSON
 update  Refresh a snapshot from its locked origin
@@ -134,6 +141,7 @@ Control (needs a running Host, VIBEX_URL, VIBEX_TOKEN)
 Other
   plugin pack             Package a .vxp
   plugin add              Install from --web, --profile, or --dev onto the local Host
+  plugin publish          Submit a packed .vxp or GitHub repo to marketplace review
   plugin list             List plugins on the running Host
   plugin update <id>      Refresh a snapshot from its locked origin
   plugin remove <id>      Uninstall a plugin

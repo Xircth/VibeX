@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
 import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
@@ -34,26 +34,20 @@ import {
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
-import { SessionNoticeActions } from '@/components/tasks/follow-up/SessionNoticeActions';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
-import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
 import {
   appendChildConversationStack,
   popChildConversationStack,
 } from '@/components/NormalizedConversation/conversation/childConversationStack';
-import {
-  hostDelegationToolUseIds,
-  shouldInlineDelegationSideRow,
-} from '@/components/NormalizedConversation/conversation/hostDelegation';
+
 import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
-import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
+import { ConversationStatusDock } from '@/components/tasks/follow-up/ConversationStatusDock';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
 import { PluginTimelineCards } from '@/components/plugins/PluginTimelineCards';
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
-import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
@@ -76,11 +70,7 @@ import {
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
-import {
-  useOptionalConversationStatus,
-  type ConversationStatusNotice,
-} from '@/contexts/ConversationStatusContext';
-import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
+import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
 import {
   resolveResendExecutorProfile,
   useActiveExecutorProfile,
@@ -296,28 +286,16 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
 
 function InlineTimelineSideRow({
   entry,
-  showSessionNotices,
   onRespondQuestion,
   respondingQuestionId,
-  onOpenChild,
-  isStatusDismissed,
-  onDismissStatus,
 }: {
   entry: TimelineRow;
-  showSessionNotices: boolean;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
   ) => void;
   respondingQuestionId: string | null;
-  onOpenChild?: (
-    childConversationId: string,
-    childWorkspaceId?: string
-  ) => void;
-  isStatusDismissed: (notice: ConversationStatusNotice) => boolean;
-  onDismissStatus: (notice: ConversationStatusNotice) => void;
 }) {
-  const { t } = useTranslation(['conversation']);
   const row = entry.row;
   if (row.kind === 'question_request') {
     return (
@@ -353,49 +331,8 @@ function InlineTimelineSideRow({
       </div>
     );
   }
-  if (row.kind === 'delegation') {
-    return (
-      <DelegationCard delegation={row.delegation} onOpenChild={onOpenChild} />
-    );
-  }
   if (row.kind === 'artifact_revision') {
     return <ArtifactTimelineCard artifact={row.artifact} />;
-  }
-  if (row.kind === 'session_notice') {
-    if (!showSessionNotices) return null;
-    const notice: ConversationStatusNotice = {
-      id: entry.row_id,
-      kind: 'session-notice',
-      notice: row.notice,
-    };
-    if (isStatusDismissed(notice)) return null;
-    const copy = getConversationSessionNoticeCopy(row.notice, t);
-    return (
-      <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        <div className="min-w-0 flex-1">
-          <div className="font-medium text-foreground">{copy.title}</div>
-          {copy.message ? (
-            <div className="mt-1 whitespace-pre-wrap break-words">
-              {copy.message}
-            </div>
-          ) : null}
-          {row.notice.action ? (
-            <div className="mt-2">
-              <SessionNoticeActions action={row.notice.action} />
-            </div>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          className="shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          onClick={() => onDismissStatus(notice)}
-          title={t('statusDock.dismiss')}
-          aria-label={t('statusDock.dismiss')}
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    );
   }
   return null;
 }
@@ -443,6 +380,7 @@ const AgentTimelineConversation = forwardRef<
   const setConversationStatusNotices = conversationStatus?.setNotices;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
   const setConversationStatusPermissions = conversationStatus?.setPermissions;
+  const setConversationChildrenDock = conversationStatus?.setChildrenDock;
   const usesComposerStatusDock = conversationStatus?.enabled ?? false;
   const timeline = conversation.timeline;
   const isTurnInFlight = useMemo(
@@ -452,10 +390,6 @@ const AgentTimelineConversation = forwardRef<
   const detailLoading = conversation.loading;
   const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
-  const hostDelegationIds = useMemo(
-    () => hostDelegationToolUseIds(timeline.map((item) => item.turn)),
-    [timeline]
-  );
   const delegations = useMemo(
     () =>
       sideRows.flatMap((row) =>
@@ -475,16 +409,10 @@ const AgentTimelineConversation = forwardRef<
         ) {
           return false;
         }
-        if (
-          kind === 'delegation' &&
-          !shouldInlineDelegationSideRow(
-            item.row.row.delegation.parent_tool_call_id,
-            hostDelegationIds
-          )
-        ) {
+        if (kind === 'delegation') {
           return false;
         }
-        if (usesComposerStatusDock && kind === 'session_notice') return false;
+        if (kind === 'session_notice') return false;
         if (
           usesComposerStatusDock &&
           kind === 'question_request' &&
@@ -494,10 +422,8 @@ const AgentTimelineConversation = forwardRef<
         }
         return true;
       }),
-    [conversation.items, hostDelegationIds, usesComposerStatusDock]
+    [conversation.items, usesComposerStatusDock]
   );
-  const { dismiss: dismissStatus, isDismissed: isStatusDismissed } =
-    useConversationStatusDismissal(sessionId);
   useEffect(() => {
     if (conversationError) toast.error(conversationError);
   }, [conversationError]);
@@ -587,6 +513,28 @@ const AgentTimelineConversation = forwardRef<
   const handleCloseChild = useCallback(() => {
     setChildStack((stack) => popChildConversationStack(stack));
   }, []);
+
+  useEffect(() => {
+    if (
+      !usesComposerStatusDock ||
+      !sessionId ||
+      attempt.session?.executor === 'workflow'
+    ) {
+      setConversationChildrenDock?.(null);
+      return;
+    }
+    setConversationChildrenDock?.({
+      conversationId: sessionId,
+      onOpenChild: handleOpenChild,
+    });
+    return () => setConversationChildrenDock?.(null);
+  }, [
+    attempt.session?.executor,
+    handleOpenChild,
+    sessionId,
+    setConversationChildrenDock,
+    usesComposerStatusDock,
+  ]);
   // Read the composer's live profile selection so resend stays same-source.
   const { getActiveExecutorProfile } = useActiveExecutorProfile();
   // Keep the latest turn error in full (message + the agent's real ACP error
@@ -607,14 +555,6 @@ const AgentTimelineConversation = forwardRef<
     }
     return ids;
   }, [sideRows]);
-  const latestTurnErrorNotice: ConversationStatusNotice | null =
-    latestTurnError && latestTurnErrorRow
-      ? {
-          id: latestTurnErrorRow.row_id,
-          kind: 'turn-error',
-          error: latestTurnError,
-        }
-      : null;
   const latestSessionNoticeRow = sideRows
     .filter((entry) => entry.row.kind === 'session_notice')
     .at(-1);
@@ -1151,9 +1091,7 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
-  const composerStatusNotices = useMemo(() => {
-    if (!usesComposerStatusDock) return [];
-
+  const statusNotices = useMemo(() => {
     const notices = [];
     if (latestTurnError && latestTurnErrorRow) {
       notices.push({
@@ -1202,12 +1140,15 @@ const AgentTimelineConversation = forwardRef<
     latestTurnError,
     latestTurnErrorRow,
     userOrdinalByKey,
-    usesComposerStatusDock,
   ]);
 
   useEffect(() => {
-    setConversationStatusNotices?.(composerStatusNotices);
-  }, [composerStatusNotices, setConversationStatusNotices]);
+    if (!usesComposerStatusDock) {
+      setConversationStatusNotices?.([]);
+      return;
+    }
+    setConversationStatusNotices?.(statusNotices);
+  }, [setConversationStatusNotices, statusNotices, usesComposerStatusDock]);
 
   useEffect(() => {
     setConversationStatusQuestion?.(composerQuestion);
@@ -1252,7 +1193,10 @@ const AgentTimelineConversation = forwardRef<
       ) : null}
       <div
         ref={containerRef}
-        className="min-h-0 flex-1 overflow-y-auto px-2 py-3"
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto px-2 py-3',
+          !usesComposerStatusDock && 'pb-14'
+        )}
         data-panel="conversation-logs"
         onScroll={handleScroll}
       >
@@ -1276,22 +1220,7 @@ const AgentTimelineConversation = forwardRef<
                 {attempt.session?.executor === 'workflow' && sessionId ? (
                   <WorkflowRunCard runId={sessionId} />
                 ) : null}
-                {attempt.session?.executor !== 'workflow' && sessionId ? (
-                  <ConversationChildrenSummary
-                    conversationId={sessionId}
-                    onOpenChild={handleOpenChild}
-                  />
-                ) : null}
-                {latestTurnErrorNotice &&
-                !usesComposerStatusDock &&
-                !isStatusDismissed(latestTurnErrorNotice) ? (
-                  <TurnErrorCard
-                    error={latestTurnErrorNotice.error}
-                    onReload={conversationReconnectAndReload}
-                    onRebind={conversationRebindSession}
-                    onDismiss={() => dismissStatus(latestTurnErrorNotice)}
-                  />
-                ) : null}
+
                 <div
                   ref={virtualListRef}
                   className="relative w-full"
@@ -1326,12 +1255,8 @@ const AgentTimelineConversation = forwardRef<
                         {item.kind === 'side' ? (
                           <InlineTimelineSideRow
                             entry={item.row}
-                            showSessionNotices={!usesComposerStatusDock}
                             onRespondQuestion={handleRespondQuestion}
                             respondingQuestionId={respondingQuestionId}
-                            onOpenChild={handleOpenChild}
-                            isStatusDismissed={isStatusDismissed}
-                            onDismissStatus={dismissStatus}
                           />
                         ) : null}
                         {row ? (
@@ -1363,7 +1288,7 @@ const AgentTimelineConversation = forwardRef<
                             collapseProcess={collapseProcess}
                             delegations={delegations}
                             onOpenChild={handleOpenChild}
-                            showInterruptedNotice={!usesComposerStatusDock}
+                            showInterruptedNotice={false}
                             contextCompact={contextCompactPresentationForRow(
                               timeline,
                               timeline.findIndex(
@@ -1428,17 +1353,39 @@ const AgentTimelineConversation = forwardRef<
           </div>
         )}
       </div>
-      {childStack.map((childConversationId) => (
-        <ChildConversationViewer
-          key={childConversationId}
-          conversationId={childConversationId}
-          attempt={attempt}
-          task={task}
-          workspacePath={workspaceRoot}
-          onClose={handleCloseChild}
-          onOpenChild={handleOpenChild}
+      {!usesComposerStatusDock ? (
+        <ConversationStatusDock
+          notices={statusNotices}
+          dismissalScope={sessionId}
+          placement="panel"
+          extra={
+            sessionId && attempt.session?.executor !== 'workflow' ? (
+              <ConversationChildrenSummary
+                conversationId={sessionId}
+                onOpenChild={handleOpenChild}
+              />
+            ) : null
+          }
         />
-      ))}
+      ) : null}
+      {childStack.map((childConversationId) => {
+        const child = delegations.find(
+          (item) => item.child_conversation_id === childConversationId
+        );
+        return (
+          <ChildConversationViewer
+            key={childConversationId}
+            conversationId={childConversationId}
+            agentId={child?.agent_id ?? null}
+            taskPreview={child?.task_preview ?? null}
+            attempt={attempt}
+            task={task}
+            workspacePath={workspaceRoot}
+            onClose={handleCloseChild}
+            onOpenChild={handleOpenChild}
+          />
+        );
+      })}
     </div>
   );
 });

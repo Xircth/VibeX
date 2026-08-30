@@ -14,19 +14,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import {
-  AtSign,
-  Command,
-  GitCommitHorizontal,
-  Hash,
-  Image,
-  Loader2,
-  MessageSquare,
-  MousePointer2,
-  Puzzle,
-  Sparkles,
-  X,
-} from 'lucide-react';
+import { Image, Loader2, MousePointer2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId } from 'shared/types';
 import {
@@ -40,8 +28,10 @@ import type {
   SearchableItem,
   SearchSource,
 } from '@astryxdesign/core/Typeahead';
-import type { BadgeVariant } from '@astryxdesign/core/Badge';
-import { AgentIcon } from '@/components/agents/AgentIcon';
+import {
+  SESSION_COMPOSER_TOKEN_VARIANTS,
+  SessionComposerTokenIcon,
+} from './SessionComposerStructuredText';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
@@ -358,48 +348,6 @@ type ComposerSearchItemData = {
   commandSourceKind?: 'native' | 'skill' | 'plugin';
 };
 
-const TOKEN_VARIANTS: Record<SessionComposerStructuredTokenKind, BadgeVariant> =
-  {
-    slash: 'blue',
-    dollar: 'green',
-    file: 'cyan',
-    tag: 'orange',
-    plugin_action: 'pink',
-    element: 'purple',
-    agent_mention: 'purple',
-    conversation: 'cyan',
-    commit: 'neutral',
-  };
-
-function ComposerTokenIcon({
-  token,
-  className = 'h-3 w-3',
-}: {
-  token: Pick<SessionComposerStructuredToken, 'kind' | 'value'>;
-  className?: string;
-}) {
-  switch (token.kind) {
-    case 'slash':
-      return <Command className={className} />;
-    case 'dollar':
-      return <Sparkles className={className} />;
-    case 'file':
-      return <AtSign className={className} />;
-    case 'tag':
-      return <Hash className={className} />;
-    case 'plugin_action':
-      return <Puzzle className={className} />;
-    case 'agent_mention':
-      return <AgentIcon agent={token.value} className={className} />;
-    case 'conversation':
-      return <MessageSquare className={className} />;
-    case 'commit':
-      return <GitCommitHorizontal className={className} />;
-    case 'element':
-      return <AtSign className={className} />;
-  }
-}
-
 function getTokenFromInsertText(
   insertText: string
 ): SessionComposerStructuredToken | null {
@@ -611,16 +559,19 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
           kind === 'slash' && 'bg-blue-500/10 text-blue-600 dark:text-blue-300',
           kind === 'dollar' &&
             'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-          kind === 'file' && 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
-          kind === 'tag' &&
-            'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+          (kind === 'file' ||
+            kind === 'tag' ||
+            kind === 'conversation' ||
+            kind === 'commit' ||
+            kind === 'element') &&
+            'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
           kind === 'plugin_action' &&
             'bg-pink-500/10 text-pink-700 dark:text-pink-300',
-          (kind === 'agent_mention' || kind === 'element') &&
+          kind === 'agent_mention' &&
             'bg-violet-500/10 text-violet-700 dark:text-violet-300'
         )}
       >
-        <ComposerTokenIcon token={iconToken} className="h-3.5 w-3.5" />
+        <SessionComposerTokenIcon token={iconToken} className="h-3.5 w-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span
@@ -1072,10 +1023,15 @@ export function SessionComposerInput({
     return {
       value: insertText,
       label: token?.label ?? item.label,
-      variant: token ? TOKEN_VARIANTS[token.kind] : 'neutral',
+      variant: token ? SESSION_COMPOSER_TOKEN_VARIANTS[token.kind] : 'neutral',
       icon:
-        token && token.kind !== 'tag' ? (
-          <ComposerTokenIcon token={token} />
+        token &&
+        token.kind !== 'file' &&
+        token.kind !== 'tag' &&
+        token.kind !== 'conversation' &&
+        token.kind !== 'commit' &&
+        token.kind !== 'element' ? (
+          <SessionComposerTokenIcon token={token} />
         ) : undefined,
     };
   }, []);

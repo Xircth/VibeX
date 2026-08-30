@@ -289,6 +289,9 @@ describe('product plugin experience', () => {
     expect(
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toHaveClass('primary-control');
+    expect(screen.getByRole('region', { name: /插件目录|plugin catalog/i })).toHaveClass(
+      'product-plugin-catalog-body'
+    );
   });
 
   it('refreshes the catalog immediately after adding a packaged plugin', async () => {
@@ -572,7 +575,7 @@ describe('product plugin experience', () => {
               version: '1.0.0',
               displayName: 'VibeX Office',
               summary: 'Office files',
-              category: 'official',
+              category: 'productivity',
               sourceKind: 'official',
             },
           ],
@@ -649,8 +652,14 @@ describe('product plugin experience', () => {
     expect(within(notesRow as HTMLElement).getByText('acme')).toBeVisible();
     expect(within(notesRow as HTMLElement).getByText('v2.0.0')).toBeVisible();
     expect(
-      within(notesRow as HTMLElement).getByText(/社区|Community/)
-    ).toBeVisible();
+      within(notesRow as HTMLElement).queryByText(/社区|Community|官方|Official/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', { name: /插件市场|marketplace/i })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('region', { name: /插件市场|marketplace/i })
+    ).toHaveClass('product-plugin-catalog-body');
     expect(screen.getByRole('tab', { name: /^(全部|All)$/ })).toHaveAttribute(
       'aria-selected',
       'true'
@@ -659,11 +668,21 @@ describe('product plugin experience', () => {
       screen.getByRole('tab', { name: /^(官方|Official)$/ })
     ).toBeVisible();
     expect(
-      screen.getByRole('tab', { name: /^(社区|Community)$/ })
+      screen.queryByRole('tab', { name: /^(社区|Community)$/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('tab', { name: /^(效率|Productivity)$/ })
     ).toBeVisible();
     expect(screen.getByText('办公套件')).toBeVisible();
+    const officeRow = screen.getByText('办公套件').closest('.product-plugin-row');
+    expect(officeRow).not.toBeNull();
+    expect(within(officeRow as HTMLElement).getByText('vibex')).toBeVisible();
+    expect(within(officeRow as HTMLElement).getByText(/效率|Productivity/)).toBeVisible();
     expect(screen.queryByText(/vibex\/vibex.office@/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /^(官方|Official)$/ }));
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+    expect(screen.getByText('办公套件')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: /^(效率|Productivity)$/ }));
     expect(screen.queryByText('Notes')).not.toBeInTheDocument();
     expect(screen.getByText('办公套件')).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: /^(全部|All)$/ }));

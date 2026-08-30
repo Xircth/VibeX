@@ -1,19 +1,28 @@
-import { forwardRef, type HTMLAttributes } from 'react';
-import {
-  AtSign,
-  Bot,
-  Box,
-  Command,
-  File,
-  GitCommitHorizontal,
-  MessageSquare,
-  Puzzle,
-} from 'lucide-react';
+import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
+import type { BadgeVariant } from '@astryxdesign/core/Badge';
+import { Command, Puzzle, Sparkles } from 'lucide-react';
+import { AgentIcon } from '@/components/agents/AgentIcon';
 import { cn } from '@/lib/utils';
 import type {
   SessionComposerStructuredToken,
+  SessionComposerStructuredTokenKind,
   SessionComposerStructuredTokenSegment,
 } from './sessionComposerStructuredTokens';
+
+export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
+  SessionComposerStructuredTokenKind,
+  BadgeVariant
+> = {
+  slash: 'blue',
+  dollar: 'green',
+  file: 'cyan',
+  tag: 'cyan',
+  plugin_action: 'pink',
+  element: 'cyan',
+  agent_mention: 'purple',
+  conversation: 'cyan',
+  commit: 'cyan',
+};
 
 export function getSessionComposerTokenChipTitle(
   token: SessionComposerStructuredToken
@@ -35,46 +44,38 @@ export function getSessionComposerTokenChipClassName(
   token: SessionComposerStructuredToken,
   className?: string
 ): string {
-  const toneClassName =
-    token.kind === 'plugin_action'
-      ? 'session-composer-token-chip--plugin border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
-      : token.kind === 'agent_mention'
-        ? 'session-composer-token-chip--agent border-border bg-muted text-foreground'
-        : token.kind === 'slash'
-          ? 'session-composer-token-chip--slash border-[hsl(var(--status-running)/0.35)] bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]'
-          : token.kind === 'dollar'
-            ? 'session-composer-token-chip--dollar border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
-            : token.kind === 'file' || token.kind === 'conversation'
-              ? 'session-composer-token-chip--file border-[hsl(var(--info)/0.35)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]'
-              : token.kind === 'commit'
-                ? 'session-composer-token-chip--commit border-border bg-muted text-foreground'
-                : token.kind === 'element'
-                  ? 'session-composer-token-chip--element border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
-                  : 'session-composer-token-chip--tag border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
-  const hoverClassName =
-    token.kind === 'plugin_action'
-      ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
-      : token.kind === 'agent_mention'
-        ? 'hover:border-border hover:bg-accent'
-        : token.kind === 'file'
-          ? 'hover:border-[hsl(var(--info)/0.55)] hover:bg-[hsl(var(--info)/0.15)]'
-          : token.kind === 'element'
-            ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
-            : token.kind === 'slash'
-              ? 'hover:border-[hsl(var(--status-running)/0.55)] hover:bg-[hsl(var(--status-running)/0.15)]'
-              : token.kind === 'dollar'
-                ? 'hover:border-[hsl(var(--success)/0.55)] hover:bg-[hsl(var(--success)/0.15)]'
-                : 'hover:border-[hsl(var(--warning)/0.6)] hover:bg-[hsl(var(--warning)/0.15)]';
-
   return cn(
-    'inline-flex max-w-[220px] cursor-default select-none items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] leading-4 transition-colors',
+    'session-composer-token-chip inline-flex max-w-[220px] cursor-default select-none items-center gap-1 align-middle',
     (token.kind === 'file' || token.kind === 'element') &&
       'pointer-events-auto',
     token.kind === 'plugin_action' && 'mr-1',
-    hoverClassName,
-    toneClassName,
     className
   );
+}
+
+export function SessionComposerTokenIcon({
+  token,
+  className = 'h-3 w-3',
+}: {
+  token: Pick<SessionComposerStructuredToken, 'kind' | 'value'>;
+  className?: string;
+}): ReactNode {
+  switch (token.kind) {
+    case 'slash':
+      return <Command className={className} />;
+    case 'dollar':
+      return <Sparkles className={className} />;
+    case 'plugin_action':
+      return <Puzzle className={className} />;
+    case 'agent_mention':
+      return <AgentIcon agent={token.value} className={className} />;
+    case 'file':
+    case 'tag':
+    case 'conversation':
+    case 'commit':
+    case 'element':
+      return null;
+  }
 }
 
 export function SessionComposerTokenChip({
@@ -83,23 +84,6 @@ export function SessionComposerTokenChip({
 }: {
   token: SessionComposerStructuredToken;
 } & HTMLAttributes<HTMLSpanElement>) {
-  const Icon =
-    token.kind === 'plugin_action'
-      ? Puzzle
-      : token.kind === 'agent_mention'
-        ? Bot
-        : token.kind === 'file'
-          ? File
-          : token.kind === 'conversation'
-            ? MessageSquare
-            : token.kind === 'commit'
-              ? GitCommitHorizontal
-              : token.kind === 'tag'
-                ? null
-                : token.kind === 'element'
-                  ? Box
-                  : Command;
-
   return (
     <span
       {...elementProps}
@@ -109,14 +93,12 @@ export function SessionComposerTokenChip({
       )}
       data-testid="session-composer-token-chip"
       data-token-kind={token.kind}
+      data-variant={SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]}
       data-structured-token-atomic="true"
       onMouseDown={(event) => event.preventDefault()}
       title={getSessionComposerTokenChipTitle(token)}
     >
-      {token.kind === 'file' || token.kind === 'element' ? (
-        <AtSign className="h-3 w-3 shrink-0" />
-      ) : null}
-      {Icon ? <Icon className="h-3 w-3 shrink-0 opacity-80" /> : null}
+      <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
       <span className="truncate font-medium">{token.label}</span>
     </span>
   );

@@ -6,7 +6,6 @@ import type {
   AgentPreflightSource,
 } from 'shared/types';
 
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type AgentPreflightCheckItemProps = {
@@ -50,20 +49,11 @@ export function AgentPreflightCheckItem({
         />
         <div className="agent-preflight-trigger">
           <PreflightCheckStatus
+            busy={busy}
+            onUpdate={onUpdate}
             status={item.status}
             updateAvailable={item.update_available}
           />
-          {item.update_available && onUpdate ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              disabled={busy}
-              onClick={onUpdate}
-            >
-              {t('agents.updateNow')}
-            </Button>
-          ) : null}
           <button
             aria-controls={panelId}
             aria-expanded={expanded}
@@ -110,9 +100,13 @@ function PreflightCheckIdentity({
 }
 
 function PreflightCheckStatus({
+  busy,
+  onUpdate,
   status,
   updateAvailable,
 }: {
+  busy: boolean;
+  onUpdate?: () => void;
   status: CheckStatus;
   updateAvailable?: boolean;
 }) {
@@ -126,7 +120,16 @@ function PreflightCheckStatus({
             ? t('agents.optionalWarning')
             : t('agents.needsAction')}
       </span>
-      {updateAvailable ? (
+      {updateAvailable && onUpdate ? (
+        <button
+          className="agent-preflight-status is-update"
+          disabled={busy}
+          onClick={onUpdate}
+          type="button"
+        >
+          {t('agents.updateAvailableBadge')}
+        </button>
+      ) : updateAvailable ? (
         <span className="agent-preflight-status is-update">
           {t('agents.updateAvailableBadge')}
         </span>

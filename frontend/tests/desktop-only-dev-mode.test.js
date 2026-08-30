@@ -48,6 +48,8 @@ test('桌面端启动包装脚本基于共享配置生成临时 dev 配置', () 
   assert.match(source, /devUrl/);
   assert.match(source, /FRONTEND_PORT/);
   assert.match(source, /BACKEND_PORT/);
+  assert.match(source, /applyDesktopDevIdentity/);
+  assert.match(source, /com\.vibex\.app\.dev/);
   assert.match(source, /'tauri'/);
   assert.match(source, /'dev'/);
   assert.match(source, /'src-tauri\/tauri\.dev\.generated\.conf\.json'/);

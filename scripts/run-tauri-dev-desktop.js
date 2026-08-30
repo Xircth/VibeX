@@ -4,11 +4,34 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { withNativeBuildEnv } = require('./cargo-path');
+const { applyLocalEnvFile } = require('./load-local-env');
 const { getPorts } = require('./setup-dev-environment');
 
 const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
 const WORKSPACE_ROOT = path.join(__dirname, '..');
 const SQLX_OFFLINE_DIR = path.join(WORKSPACE_ROOT, 'crates', 'db', '.sqlx');
+const LOCAL_ENV_FILE = path.join(WORKSPACE_ROOT, '.env.local');
+const DESKTOP_DEV_IDENTITY = {
+  deepLinkScheme: 'vibex-dev',
+  identifier: 'com.vibex.app.dev',
+  productName: 'VibeX Dev',
+};
+
+function applyDesktopDevIdentity(config) {
+  const next = JSON.parse(JSON.stringify(config));
+  next.identifier = DESKTOP_DEV_IDENTITY.identifier;
+  next.productName = DESKTOP_DEV_IDENTITY.productName;
+  for (const window of next.app?.windows ?? []) {
+    if (window.title === 'VibeX') {
+      window.title = DESKTOP_DEV_IDENTITY.productName;
+    }
+  }
+  const desktop = next.plugins?.['deep-link']?.desktop;
+  if (desktop) {
+    desktop.schemes = [DESKTOP_DEV_IDENTITY.deepLinkScheme];
+  }
+  return next;
+}
 
 function runCommand(command, args, options = {}) {
   if (process.platform === 'win32') {
@@ -23,13 +46,14 @@ function runCommand(command, args, options = {}) {
 }
 
 function createCargoLeanDevEnv(ports, baseEnv = process.env) {
+  const env = applyLocalEnvFile(LOCAL_ENV_FILE, baseEnv);
   return withNativeBuildEnv({
-    ...baseEnv,
-    CARGO_INCREMENTAL: baseEnv.CARGO_INCREMENTAL || '0',
+    ...env,
+    CARGO_INCREMENTAL: env.CARGO_INCREMENTAL || '0',
     FRONTEND_PORT: String(ports.frontend),
     BACKEND_PORT: String(ports.backend),
-    SQLX_OFFLINE: baseEnv.SQLX_OFFLINE || 'true',
-    SQLX_OFFLINE_DIR: baseEnv.SQLX_OFFLINE_DIR || SQLX_OFFLINE_DIR,
+    SQLX_OFFLINE: env.SQLX_OFFLINE || 'true',
+    SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || SQLX_OFFLINE_DIR,
   });
 }
 
@@ -161,7 +185,9 @@ function writeGeneratedTauriDevConfig(ports) {
     process.cwd(),
     GENERATED_TAURI_DEV_CONFIG
   );
-  const config = JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'));
+  const config = applyDesktopDevIdentity(
+    JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'))
+  );
 
   config.build = {
     ...config.build,
@@ -245,4 +271,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createCargoLeanDevEnv };
+module.exports = {
+  applyDesktopDevIdentity,
+  createCargoLeanDevEnv,
+  DESKTOP_DEV_IDENTITY,
+};

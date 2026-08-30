@@ -458,6 +458,28 @@ describe('SessionComposerInput (Astryx)', () => {
     ).toHaveClass('composer-trigger-description');
   });
 
+  it('switches @ reference tabs with arrow keys', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '@');
+    await screen.findByTestId('composer-at-reference-menu');
+
+    const selectedTab = () =>
+      screen.getByRole('tab', { selected: true }).textContent ?? '';
+    const before = selectedTab();
+
+    await user.keyboard('{ArrowRight}');
+    const afterRight = selectedTab();
+    expect(afterRight).not.toBe(before);
+
+    await user.keyboard('{ArrowLeft}');
+    expect(selectedTab()).toBe(before);
+  });
+
   it('renders a selected instruction token from the @ reference panel', async () => {
     const user = userEvent.setup();
     vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
@@ -474,8 +496,8 @@ describe('SessionComposerInput (Astryx)', () => {
 
     const token = editor.querySelector<HTMLElement>('[data-astryx-token]');
     expect(token).not.toBeNull();
-    expect(token?.textContent?.startsWith('#')).toBe(true);
-    expect(token?.textContent?.match(/#/g)).toHaveLength(1);
+    expect(token?.textContent?.startsWith('@')).toBe(true);
+    expect(token?.textContent?.match(/@/g)).toHaveLength(1);
   });
 
   it('restores serialized structured tokens as token chips', async () => {
@@ -490,7 +512,7 @@ describe('SessionComposerInput (Astryx)', () => {
         'data-astryx-token-value',
         '[@:App.tsx](src/App.tsx)'
       );
-      expect(token).toHaveTextContent('App.tsx');
+      expect(token).toHaveTextContent('@App.tsx');
     });
   });
 

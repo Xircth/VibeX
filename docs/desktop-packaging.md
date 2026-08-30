@@ -79,6 +79,35 @@ Windows smoke test additionally verifies the PE GUI subsystem and rejects a
 visible console descendant. Linux is started through XWayland, matching the CEF
 parent-window requirement.
 
+## Local macOS signing
+
+Local `pnpm run dev` and `pnpm run tauri:build` read Apple signing values
+from gitignored `.env.local`. Copy `.env.example` and fill in a Developer ID
+Application identity that already exists in the login keychain:
+
+```sh
+cp .env.example .env.local
+```
+
+Required keys:
+
+- `APPLE_SIGNING_IDENTITY` — exact `codesign` identity, for example
+  `Developer ID Application: Your Name (TEAMID)`
+- `APPLE_API_KEY` — App Store Connect API Key ID
+- `APPLE_API_ISSUER` — App Store Connect Issuer ID
+- `APPLE_API_KEY_PATH` — path to the downloaded `.p8` private key
+- `APPLE_TEAM_ID` — 10-character Team ID
+
+`pnpm run dev` re-signs the CEF development bundle with that identity and
+does not notarize. `pnpm run tauri:build` uses the same environment for
+Developer ID signing and notarization. Existing process environment variables
+always override `.env.local`.
+
+`pnpm run dev` launches **VibeX Dev** (`com.vibex.app.dev`, `vibex-dev://`)
+as a separate desktop identity from the installed app (`com.vibex.app`,
+`vibex://`). The two can run at the same time. Debug Host data stays in
+`dev_assets/`; the installed app keeps the platform data directory.
+
 ## Release signing contract
 
 When `upload_to_release` is enabled, the prepare job requires the Tauri updater

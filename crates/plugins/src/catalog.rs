@@ -1,11 +1,25 @@
 //! Remote plugin marketplace catalog consumed by the Host.
 
+use std::{collections::HashSet, path::Path};
+
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{PluginContentDocument, PluginError, PluginPackage, PluginSourceKind};
 
 pub const DEFAULT_MARKETPLACE_ORIGIN: &str = "https://vibex.xforever.xin";
 pub const COMMUNITY_PAGE_SIZE: u32 = 50;
+
+/// Retired package id → successor. Official marketplace must show one product.
+pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[("vibex.collaboration", "vibex.multi-agent")];
+
+/// Topic categories for Host-bundled packages. "official" is the vibex owner, not a topic.
+const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
+    ("vibex.office", "productivity"),
+    ("vibex.session-enhance", "productivity"),
+    ("vibex.multi-agent", "agent"),
+    ("vibex.workflow-creator", "workflow"),
+    ("vibex.plugin-development", "other"),
+];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +54,8 @@ pub struct CatalogListing {
     pub opens: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readme: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_tree: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -150,7 +166,9 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
         version: package.version.clone(),
         display_name: package.name.clone(),
         summary: package.summary.clone(),
-        category: "official".to_owned(),
+        category: bundled_topic_category(package.id.as_str())
+            .unwrap_or("productivity")
+            .to_owned(),
         source_kind: if offline { "offline" } else { "official" }.to_owned(),
         homepage: Some(marketplace_listing_url(&owner, &plugin_name)),
         repo: None,
@@ -166,7 +184,123 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
             .as_object()
             .is_some_and(|object| !object.is_empty()),
         opens,
+        show_tree: None,
     }
+}
+
+pub fn plugin_ids_match(id: &str, canonical: &str) -> bool {
+    let id = id.trim();
+    if id.eq_ignore_ascii_case(canonical) {
+        return true;
+    }
+    canonical
+        .rsplit_once('.')
+        .is_some_and(|(_, suffix)| id.eq_ignore_ascii_case(suffix))
+}
+
+pub fn is_channel_category(category: &str) -> bool {
+    category.eq_ignore_ascii_case("official") || category.eq_ignore_ascii_case("community")
+}
+
+pub fn bundled_topic_category(plugin_id: &str) -> Option<&'static str> {
+    let canonical = canonical_plugin_id(plugin_id);
+    BUNDLED_TOPIC_CATEGORIES
+        .iter()
+        .find(|(id, _)| plugin_ids_match(&canonical, id) || plugin_ids_match(plugin_id, id))
+        .map(|(_, topic)| *topic)
+}
+
+pub fn normalize_listing_category(listing: &mut CatalogListing) {
+    if !is_channel_category(&listing.category) && !listing.category.trim().is_empty() {
+        return;
+    }
+    if let Some(topic) = bundled_topic_category(listing_package_id(listing))
+        .or_else(|| bundled_topic_category(&listing.plugin_name))
+    {
+        listing.category = topic.to_owned();
+    }
+}
+
+pub fn prepare_marketplace_page(page: &mut CatalogPage) {
+    for listing in page
+        .official
+        .iter_mut()
+        .chain(page.community.iter_mut())
+    {
+        normalize_listing_category(listing);
+    }
+}
+
+pub fn successor_plugin_id(id: &str) -> Option<&'static str> {
+    REPLACED_PLUGIN_IDS
+        .iter()
+        .find(|(retired, _)| plugin_ids_match(id, retired))
+        .map(|(_, successor)| *successor)
+}
+
+pub fn canonical_plugin_id(id: &str) -> String {
+    successor_plugin_id(id)
+        .unwrap_or(id.trim())
+        .to_string()
+}
+
+pub fn listing_package_id(listing: &CatalogListing) -> &str {
+    listing
+        .offline_plugin_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(listing.plugin_name.as_str())
+}
+
+pub fn listing_is_retired(listing: &CatalogListing) -> bool {
+    successor_plugin_id(listing_package_id(listing)).is_some()
+        || successor_plugin_id(&listing.plugin_name).is_some()
+}
+
+pub fn canonical_listing_id(listing: &CatalogListing) -> String {
+    successor_plugin_id(listing_package_id(listing))
+        .or_else(|| successor_plugin_id(&listing.plugin_name))
+        .map(str::to_string)
+        .unwrap_or_else(|| canonical_plugin_id(listing_package_id(listing)))
+}
+
+pub fn collapse_replaced_official(listings: Vec<CatalogListing>) -> Vec<CatalogListing> {
+    let mut seen = HashSet::new();
+    let mut kept = Vec::with_capacity(listings.len());
+    for listing in listings {
+        if listing_is_retired(&listing) {
+            continue;
+        }
+        if !seen.insert(canonical_listing_id(&listing)) {
+            continue;
+        }
+        kept.push(listing);
+    }
+    kept.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    kept
+}
+
+pub fn fold_official_listings(
+    remote: Vec<CatalogListing>,
+    extra: impl IntoIterator<Item = CatalogListing>,
+) -> Vec<CatalogListing> {
+    let mut listings = remote;
+    listings.extend(extra);
+    collapse_replaced_official(listings)
+}
+
+pub fn merge_offline_official(
+    page: &mut CatalogPage,
+    roots: impl IntoIterator<Item = impl AsRef<Path>>,
+) {
+    let extra = roots.into_iter().filter_map(|root| {
+        PluginPackage::inspect(root.as_ref(), PluginSourceKind::Marketplace)
+            .ok()
+            .map(|package| listing_from_package(&package, true))
+    });
+    page.official = fold_official_listings(std::mem::take(&mut page.official), extra);
+    prepare_marketplace_page(page);
 }
 
 pub async fn fetch_catalog(query: Option<&str>) -> Result<CatalogPage, PluginError> {
@@ -197,7 +331,7 @@ pub async fn fetch_catalog(query: Option<&str>) -> Result<CatalogPage, PluginErr
     };
     if official.is_ok() || community.is_ok() {
         return Ok(CatalogPage {
-            official: official.unwrap_or_default(),
+            official: collapse_replaced_official(official.unwrap_or_default()),
             community: community.unwrap_or_default(),
             community_limit: COMMUNITY_PAGE_SIZE,
             query: query.unwrap_or_default().to_owned(),
@@ -345,15 +479,37 @@ pub fn origin_owner_name(origin: &str, fallback_id: &str) -> (String, String) {
 
 pub async fn github_latest_tag(origin: &str) -> Result<String, PluginError> {
     let url = origin.trim_end_matches('/').trim_end_matches(".git");
-    let api = if let Some(rest) = url.strip_prefix("https://github.com/") {
-        format!("https://api.github.com/repos/{rest}/releases/latest")
-    } else {
-        return Err(PluginError::not_found("github origin"));
-    };
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .ok_or_else(|| PluginError::not_found("github origin"))?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|error| PluginError::io("github client", error))?;
+    let tags_api = format!("https://api.github.com/repos/{rest}/tags?per_page=100");
+    if let Ok(response) = client
+        .get(&tags_api)
+        .header("user-agent", "VibeX")
+        .send()
+        .await
+    {
+        if response.status().is_success() {
+            let body: Vec<serde_json::Value> = response
+                .json()
+                .await
+                .map_err(|error| PluginError::io("github tags json", error))?;
+            let mut tags: Vec<String> = body
+                .iter()
+                .filter_map(|item| item.get("name").and_then(|value| value.as_str()))
+                .map(str::to_owned)
+                .collect();
+            if !tags.is_empty() {
+                tags.sort_by(|left, right| compare_version_desc(left, right));
+                return Ok(tags[0].clone());
+            }
+        }
+    }
+    let api = format!("https://api.github.com/repos/{rest}/releases/latest");
     let response = client
         .get(api)
         .header("user-agent", "VibeX")
@@ -373,6 +529,27 @@ pub async fn github_latest_tag(origin: &str) -> Result<String, PluginError> {
         .ok_or_else(|| PluginError::not_found("github tag"))
 }
 
+fn compare_version_desc(left: &str, right: &str) -> std::cmp::Ordering {
+    if is_newer_version(right, left) {
+        std::cmp::Ordering::Less
+    } else if is_newer_version(left, right) {
+        std::cmp::Ordering::Greater
+    } else {
+        right.cmp(left)
+    }
+}
+
+fn newest_catalog_version(mut versions: Vec<CatalogVersion>) -> Option<CatalogVersion> {
+    versions.sort_by(|left, right| {
+        let by_version = compare_version_desc(&left.version, &right.version);
+        if by_version != std::cmp::Ordering::Equal {
+            return by_version;
+        }
+        compare_version_desc(&left.tag, &right.tag)
+    });
+    versions.into_iter().next()
+}
+
 pub async fn check_installed_updates(plugins: &[InstalledOrigin]) -> Vec<PluginUpdateStatus> {
     let mut updates = Vec::new();
     for plugin in plugins {
@@ -386,23 +563,31 @@ pub async fn check_installed_updates(plugins: &[InstalledOrigin]) -> Vec<PluginU
             .clone()
             .unwrap_or_else(|| plugin.version.clone());
         let available = if origin_kind(Some(&origin)) == Some("github") {
-            github_latest_tag(&origin).await.ok()
+            github_latest_tag(&origin)
+                .await
+                .ok()
+                .map(|tag| CatalogVersion {
+                    tag: tag.clone(),
+                    version: tag,
+                    package_digest: None,
+                })
         } else {
             fetch_versions(&owner, &name)
                 .await
                 .ok()
-                .and_then(|versions| versions.into_iter().next())
-                .map(|item| item.tag)
+                .and_then(newest_catalog_version)
         };
-        let update_available = available
-            .as_deref()
-            .is_some_and(|tag| is_newer_version(&current, tag) || tag != current);
+        let update_available = available.as_ref().is_some_and(|item| {
+            is_newer_version(&current, &item.tag)
+                || is_newer_version(&current, &item.version)
+                || is_newer_version(&plugin.version, &item.version)
+        });
         if update_available {
             updates.push(PluginUpdateStatus {
                 plugin_id: plugin.plugin_id.clone(),
                 update_available: true,
-                available_tag: available.clone(),
-                available_version: available,
+                available_tag: Some(available.as_ref().unwrap().tag.clone()),
+                available_version: Some(available.as_ref().unwrap().version.clone()),
             });
         }
     }
@@ -465,6 +650,8 @@ struct PublishedRecord {
     github_repo: Option<String>,
     #[serde(default)]
     github_branch: Option<String>,
+    #[serde(default)]
+    show_tree: Option<bool>,
 }
 
 impl PublishedRecord {
@@ -518,6 +705,9 @@ impl PublishedRecord {
             has_mcp: false,
             opens: Vec::new(),
             readme: self.readme.and_then(|value| nonempty(&value)),
+            show_tree: self.show_tree.or_else(|| {
+                nonempty(&self.source_kind).map(|kind| kind.eq_ignore_ascii_case("github"))
+            }),
         })
     }
 }
@@ -557,6 +747,7 @@ fn page_from_published(items: Vec<CatalogListing>, query: Option<&str>) -> Catal
             community.push(item);
         }
     }
+    official = collapse_replaced_official(official);
     if needle.is_none() {
         community.truncate(COMMUNITY_PAGE_SIZE as usize);
     }
@@ -670,6 +861,28 @@ mod tests {
         assert!(is_newer_version("1.0.0", "1.1.0"));
         assert!(!is_newer_version("1.2.0", "1.1.9"));
         assert!(is_newer_version("1.0.0", "v1.0.1"));
+        assert_eq!(
+            newest_catalog_version(vec![
+                CatalogVersion {
+                    tag: "v1.0.0".into(),
+                    version: "1.0.0".into(),
+                    package_digest: None,
+                },
+                CatalogVersion {
+                    tag: "v1.2.0".into(),
+                    version: "1.2.0".into(),
+                    package_digest: None,
+                },
+                CatalogVersion {
+                    tag: "v1.1.0".into(),
+                    version: "1.1.0".into(),
+                    package_digest: None,
+                },
+            ])
+            .unwrap()
+            .version,
+            "1.2.0"
+        );
     }
 
     #[test]
@@ -718,6 +931,7 @@ mod tests {
         assert_eq!(listing.version, "1.0.0");
         assert_eq!(listing.category, "productivity");
         assert_eq!(listing.source_kind, "github");
+        assert_eq!(listing.show_tree, Some(true));
         assert_eq!(
             listing.repo.as_deref(),
             Some("https://github.com/Xircth/vibex-drawio")
@@ -746,6 +960,7 @@ mod tests {
             has_mcp: false,
             opens: Vec::new(),
             readme: None,
+            show_tree: Some(true),
         };
         let office = CatalogListing {
             display_name: "Office".into(),
@@ -772,6 +987,94 @@ mod tests {
         assert_eq!(
             marketplace_archive_suffix("https://vibex.xforever.xin/files/a.vxp"),
             "vxp"
+        );
+    }
+
+    fn listing(plugin_name: &str, display_name: &str, summary: &str) -> CatalogListing {
+        CatalogListing {
+            owner: "vibex".into(),
+            plugin_name: plugin_name.into(),
+            tag: "v1.0.0".into(),
+            version: "1.0.0".into(),
+            display_name: display_name.into(),
+            summary: summary.into(),
+            category: "official".into(),
+            source_kind: "official".into(),
+            homepage: None,
+            repo: None,
+            package_digest: None,
+            download_url: None,
+            sha256: None,
+            offline_plugin_id: None,
+            has_worker: false,
+            has_app: false,
+            has_mcp: true,
+            opens: Vec::new(),
+            readme: None,
+            show_tree: None,
+        }
+    }
+
+    #[test]
+    fn official_catalog_keeps_one_multi_agent_product() {
+        let collaboration = listing(
+            "collaboration",
+            "VibeX Collaboration",
+            "让父 Agent 通过 vibex-mcp 把工作委派给其它 Agent。",
+        );
+        let successor = listing(
+            "vibex.multi-agent",
+            "多智能体协同",
+            "让父 Agent 把子任务委托给其它 Agent。",
+        );
+        let office = listing("vibex.office", "办公套件", "Office files");
+        let folded = fold_official_listings(
+            vec![collaboration.clone(), successor.clone(), office.clone()],
+            None,
+        );
+        assert_eq!(
+            folded
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["vibex.office", "vibex.multi-agent"]
+        );
+
+        let from_retired_only = fold_official_listings(vec![collaboration], [successor.clone()]);
+        assert_eq!(from_retired_only.len(), 1);
+        assert_eq!(from_retired_only[0].plugin_name, "vibex.multi-agent");
+        assert_eq!(from_retired_only[0].display_name, "多智能体协同");
+
+        let mut page = CatalogPage {
+            official: vec![listing(
+                "vibex.collaboration",
+                "VibeX Collaboration",
+                "retired",
+            )],
+            ..CatalogPage::default()
+        };
+        page.official = fold_official_listings(page.official, [successor]);
+        assert_eq!(page.official.len(), 1);
+        assert_eq!(page.official[0].plugin_name, "vibex.multi-agent");
+    }
+
+    #[test]
+    fn official_listings_use_topic_categories_not_official_as_category() {
+        let mut session = listing(
+            "vibex.session-enhance",
+            "会话增强",
+            "让父 Agent 把子任务委托给其它 Agent。",
+        );
+        session.category = "official".into();
+        normalize_listing_category(&mut session);
+        assert_eq!(session.category, "productivity");
+        assert_eq!(
+            bundled_topic_category("vibex.multi-agent"),
+            Some("agent")
+        );
+        assert_eq!(
+            bundled_topic_category("vibex.workflow-creator"),
+            Some("workflow")
         );
     }
 }

@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use agents::{
     AgentId, ArtifactTrust, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
     InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
-    PlannedDistributionKind, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,
-    RegistryDistributions, RegistryPackageDistribution, RegistrySnapshot, TofuFingerprint,
-    UserAgentDistributionKind, UserAgentInstallTarget, VersionEvidence,
+    ObservedUserComponent, PlannedDistributionKind, ProfileTopology, RegistryAddTarget,
+    RegistryAgentEntry, RegistryBinaryTarget, RegistryDistributions, RegistryPackageDistribution,
+    RegistrySnapshot, TofuFingerprint, UserAgentDistributionKind, UserAgentInstallTarget,
+    VersionEvidence, planned_preflight_updates, profile_required_versions,
     registry_target_for_built_in_update, verify_artifact_bytes, verify_version_evidence,
 };
 use chrono::Utc;
@@ -543,6 +544,7 @@ fn built_in_update_with_registry_replaces_only_the_acp_adapter() {
 
     assert_eq!(plan.agent_id.as_str(), "codex");
     assert_eq!(plan.version, "0.146.0");
+    assert_eq!(plan.registry_bound_version(), "1.2.0");
     assert!(matches!(
         plan.source,
         LockedInstallSource::BuiltInProfileWithRegistry { .. }
@@ -743,4 +745,124 @@ fn built_in_registry_binding_accepts_a_distinct_registry_agent_id() {
         LockedInstallSource::BuiltInProfileWithRegistry { registry_id, .. }
             if registry_id == "antigravity-acp"
     ));
+}
+
+#[test]
+fn adapter_backed_identity_version_is_not_the_registry_lock_version() {
+    let planner = InstallPlanner::bundled();
+    let environment = InstallEnvironment {
+        node_verified: true,
+        uv_verified: true,
+        python_verified: true,
+    };
+    for agent_id in ["claude_code", "codex", "pi"] {
+        let plan = planner
+            .plan(InstallPlanningInput {
+                agent_id: AgentId::parse(agent_id).unwrap(),
+                source: InstallCandidateSource::BuiltInProfile,
+                platform: "darwin-aarch64".to_string(),
+                environment: environment.clone(),
+            })
+            .unwrap();
+        assert_eq!(
+            plan.registry_bound_component()
+                .map(|component| component.component_id.as_str()),
+            Some("acp_adapter"),
+            "{agent_id}"
+        );
+        assert_ne!(
+            plan.version,
+            plan.registry_bound_version(),
+            "{agent_id} would reintroduce mixed-version update checks if identity were persisted as registry_version"
+        );
+    }
+}
+
+#[test]
+fn bundled_registry_updates_follow_each_profile_topology() {
+    // Adapter-backed Agents (Claude Code / Codex / Pi) keep the Runtime pin and
+    // only consume Registry versions on ACP. Native ACP Agents replace the
+    // combined runtime. Update badges must follow that plan, not mix the two
+    // version namespaces.
+    let catalog = BuiltInProfileCatalog::bundled();
+    let planner = InstallPlanner::bundled();
+    let newer = "99999.0.0";
+    let environment = InstallEnvironment {
+        node_verified: true,
+        uv_verified: true,
+        python_verified: true,
+    };
+    for profile in catalog.profiles() {
+        let binding = profile
+            .registry_binding
+            .as_ref()
+            .expect("bundled profiles declare a Registry binding");
+        let target = RegistryAddTarget {
+            snapshot_id: Uuid::new_v4(),
+            agent_id: profile.agent_id.clone(),
+            registry_id: binding.registry_id.to_string(),
+            version: newer.to_string(),
+            distributions: RegistryDistributions {
+                binary: None,
+                npx: Some(RegistryPackageDistribution {
+                    package: format!("example@{newer}"),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                    integrity: None,
+                }),
+                uvx: None,
+            },
+        };
+        let plan = planner
+            .plan(InstallPlanningInput {
+                agent_id: profile.agent_id.clone(),
+                source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
+                platform: "darwin-aarch64".to_string(),
+                environment: environment.clone(),
+            })
+            .unwrap_or_else(|error| panic!("{}: {error}", profile.agent_id));
+        let current = profile_required_versions(profile)
+            .into_iter()
+            .map(|(component_id, version)| ObservedUserComponent {
+                component_id,
+                version: Some(version.to_string()),
+            })
+            .collect::<Vec<_>>();
+        let updates = planned_preflight_updates(&plan.components, &current);
+        let item_ids = updates
+            .iter()
+            .map(|update| update.item_id)
+            .collect::<Vec<_>>();
+        match profile.topology {
+            ProfileTopology::AdapterBacked => {
+                let runtime_pin = current
+                    .iter()
+                    .find(|component| component.component_id == "agent_runtime")
+                    .and_then(|component| component.version.as_deref())
+                    .unwrap_or_else(|| panic!("{} missing runtime pin", profile.agent_id));
+                assert_eq!(plan.version, runtime_pin, "{}", profile.agent_id);
+                assert_ne!(
+                    plan.version,
+                    plan.registry_bound_version(),
+                    "{} identity version must not be the Registry update target",
+                    profile.agent_id
+                );
+                assert_eq!(item_ids, ["acp"], "{}", profile.agent_id);
+                assert_eq!(updates[0].available_version, newer, "{}", profile.agent_id);
+                assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
+            }
+            ProfileTopology::NativeAcp => {
+                assert_eq!(plan.version, newer, "{}", profile.agent_id);
+                assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
+                assert_eq!(item_ids, ["runtime", "acp"], "{}", profile.agent_id);
+                assert!(
+                    updates
+                        .iter()
+                        .all(|update| update.available_version == newer),
+                    "{}",
+                    profile.agent_id
+                );
+            }
+        }
+    }
 }

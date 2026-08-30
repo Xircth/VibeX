@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
@@ -44,6 +44,7 @@ const api = vi.hoisted(() => ({
   clearDiagnostics: vi.fn(),
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
+const listeners = vi.hoisted(() => new Map<string, (event: unknown) => void>());
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: confirmShow },
@@ -66,6 +67,20 @@ vi.mock('@/lib/tauriApi', async (importOriginal) => {
   return { ...original, tauriListen: vi.fn().mockResolvedValue(vi.fn()) };
 });
 
+vi.mock('@/lib/backendTransport', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
+  return {
+    ...actual,
+    backendListen: vi.fn(
+      async (event: string, listener: (event: unknown) => void) => {
+        listeners.set(event, listener);
+        return vi.fn();
+      }
+    ),
+  };
+});
+
 describe('AgentSettings', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -73,6 +88,7 @@ describe('AgentSettings', () => {
   });
 
   beforeEach(() => {
+    listeners.clear();
     Object.values(api).forEach((mock) => mock.mockReset());
     confirmShow.mockReset();
     confirmShow.mockResolvedValue('cancelled');
@@ -1049,6 +1065,40 @@ describe('AgentSettings', () => {
     );
     expect(api.preflight).toHaveBeenCalledWith('cursor', 'authentication');
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
+  });
+
+  it('refreshes preflight immediately after an update finishes', async () => {
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Codex' });
+    await waitFor(() =>
+      expect(listeners.has('agent-management-event')).toBe(true)
+    );
+    api.preflight.mockClear();
+
+    await act(async () => {
+      listeners.get('agent-management-event')?.({
+        sequence: 1,
+        agent_id: 'codex',
+        operation_id: 'update-1',
+        kind: 'update',
+        status: 'running',
+        progress_percent: 20,
+        message: '正在安装本地 Runtime 与 ACP',
+      });
+    });
+    await act(async () => {
+      listeners.get('agent-management-event')?.({
+        sequence: 2,
+        agent_id: 'codex',
+        operation_id: 'update-1',
+        kind: 'update',
+        status: 'succeeded',
+        progress_percent: 100,
+        message: '安装与 ACP 验证完成',
+      });
+    });
+
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
   });
 });
 

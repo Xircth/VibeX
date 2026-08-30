@@ -66,7 +66,9 @@ describe('TurnStats', () => {
 
     expect(screen.getByText('模型')).toBeInTheDocument();
     expect(screen.getByText('gpt-5-codex')).toBeInTheDocument();
-    expect(screen.getByText('12,345 / 100,000')).toBeInTheDocument();
+    expect(screen.getByText('12,345')).toBeInTheDocument();
+    expect(screen.queryByText(/100,000/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/12,345 \/ /)).not.toBeInTheDocument();
     expect(screen.queryByText('Token')).not.toBeInTheDocument();
     expect(screen.queryByText('耗时')).not.toBeInTheDocument();
     expect(screen.queryByText('缓存读')).not.toBeInTheDocument();
@@ -88,6 +90,22 @@ describe('TurnStats', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '回到上一条用户消息' }));
     expect(onJumpBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows only consumed tokens, not the context-window ratio', () => {
+    render(
+      <TurnStats
+        stats={{
+          totalTokens: 18658,
+          contextWindow: 258400,
+          elapsedMs: 1000,
+        }}
+      />
+    );
+
+    expect(screen.getByText('18,658')).toBeInTheDocument();
+    expect(screen.queryByText(/258,400/)).not.toBeInTheDocument();
+    expect(screen.queryByText('18,658 / 258,400')).not.toBeInTheDocument();
   });
 
   it('does not render an empty stats row', () => {

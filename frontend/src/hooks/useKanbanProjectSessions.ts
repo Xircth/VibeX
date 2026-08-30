@@ -21,6 +21,7 @@ export interface KanbanProjectSessionRecord {
   workspaceName: string;
   workspaceDisplayLabel: string;
   executor: string | null;
+  agentId: string | null;
   updatedAt: string;
   createdAt: string;
   firstPrompt: string | null;
@@ -165,7 +166,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         status: summary.status,
         executor: summary.executor,
         external_session_id: null,
-        agent_id: null,
+        agent_id: summary.agent_id,
         parent_session_id: null,
         parent_tool_use_id: null,
         delegation_call_id: null,
@@ -220,6 +221,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             workspaceName,
             workspaceDisplayLabel: `${workspaceName} · ${summary.workspace_branch}`,
             executor: summary.executor,
+            agentId: summary.agent_id ?? null,
             updatedAt: summary.updated_at,
             createdAt: summary.created_at,
             firstPrompt: summary.first_prompt,

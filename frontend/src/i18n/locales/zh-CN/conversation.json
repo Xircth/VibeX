@@ -131,7 +131,7 @@
     "subAgentDelegation": "子代理委派",
     "task": "任务",
     "result": "结果",
-    "openChildSession": "打开子会话",
+    "openChildSession": "查看会话",
     "durationMs": "耗时 {{count}} 毫秒",
     "durationSeconds": "耗时 {{count}} 秒",
     "durationMinutes": "耗时 {{count}} 分钟",
@@ -144,7 +144,7 @@
     "canceled": "已取消"
   },
   "childViewer": {
-    "title": "子会话",
+    "title": "委派会话",
     "close": "关闭",
     "loading": "正在加载子会话…",
     "empty": "子会话还没有消息"

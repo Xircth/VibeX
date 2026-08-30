@@ -97,6 +97,13 @@ function isTokenBoundary(source: string, index: number): boolean {
   return index === 0 || /[\s([{]/.test(source.charAt(index - 1));
 }
 
+export function atReferenceChipLabel(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '@';
+  if (trimmed.startsWith('@')) return trimmed;
+  return `@${trimmed.replace(/^#/, '')}`;
+}
+
 function parseMarkdownLinkAt(
   source: string,
   start: number
@@ -127,7 +134,7 @@ function parseConversationReferenceAt(
       kind: 'conversation',
       type: '@',
       key: conversationId,
-      label: link.label || conversationId,
+      label: atReferenceChipLabel(link.label || conversationId),
       value: conversationId,
       raw,
       title: conversationId,
@@ -150,7 +157,7 @@ function parseCommitReferenceAt(
       kind: 'commit',
       type: '@',
       key: parsed.sha,
-      label: link.label || shortCommitSha(parsed.sha),
+      label: atReferenceChipLabel(link.label || shortCommitSha(parsed.sha)),
       value: parsed.sha,
       raw,
       title: parsed.sha,
@@ -402,7 +409,7 @@ function createStructuredToken({
       kind: 'tag',
       type,
       key,
-      label: `#${key}`,
+      label: atReferenceChipLabel(key),
       value,
       raw,
     };
@@ -430,7 +437,7 @@ function createStructuredToken({
     kind,
     type,
     key,
-    label: key,
+    label: atReferenceChipLabel(key),
     value,
     raw,
     title: value,

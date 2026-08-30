@@ -259,9 +259,15 @@
   background: var(--conv-user-action-button-hover-bg);
 }
 
-.conv-user-bubble [contenteditable='false'],
-.conv-user-bubble [class*='text-foreground'],
-.conv-user-bubble [class*='text-muted-foreground'],
+.conv-user-bubble [contenteditable='false']:not(.session-composer-token-chip),
+.conv-user-bubble
+  [class*='text-foreground']:not(.session-composer-token-chip):not(
+    .session-composer-token-chip *
+  ),
+.conv-user-bubble
+  [class*='text-muted-foreground']:not(.session-composer-token-chip):not(
+    .session-composer-token-chip *
+  ),
 .conv-user-bubble strong,
 .conv-user-bubble u {
   color: var(--conv-user-text) !important;
@@ -270,8 +276,41 @@
 /* Keep every Astryx prose node on the adaptive user-message foreground. */
 .conv-user-bubble .conv-markdown,
 .conv-user-bubble .conv-markdown [role='paragraph'],
-.conv-user-bubble .conv-markdown :where(p, li, span, strong, u) {
+.conv-user-bubble
+  .conv-markdown
+  :where(p, li, span, strong, u):not(.session-composer-token-chip):not(
+    .session-composer-token-chip *
+  ) {
   color: var(--conv-user-text) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip[data-variant='blue'] {
+  background-color: var(--color-background-blue);
+  color: var(--color-text-blue) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip[data-variant='green'] {
+  background-color: var(--color-background-green);
+  color: var(--color-text-green) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip[data-variant='cyan'] {
+  background-color: var(--color-background-cyan);
+  color: var(--color-text-cyan) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip[data-variant='pink'] {
+  background-color: var(--color-background-pink);
+  color: var(--color-text-pink) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip[data-variant='purple'] {
+  background-color: var(--color-background-purple);
+  color: var(--color-text-purple) !important;
+}
+
+.conv-user-bubble .session-composer-token-chip :where(span, svg) {
+  color: inherit !important;
 }
 
 .conv-user-bubble .conv-markdown .conv-resource-link,

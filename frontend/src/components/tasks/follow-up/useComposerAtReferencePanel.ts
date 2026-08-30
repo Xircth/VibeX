@@ -22,12 +22,17 @@ import type { DbConversationSummary, GitLogEntry, Tag } from 'shared/types';
 import {
   AT_REFERENCE_TAB_ORDER,
   buildAtReferenceGroups,
+  cycleAtReferenceTab,
   firstNonEmptyTab,
   matchAtReferenceTrigger,
   type AtReferenceGroup,
   type AtReferenceItem,
   type AtReferenceTab,
 } from './composerAtReferences';
+import {
+  atReferenceChipLabel,
+  getSessionComposerStructuredTokenSegments,
+} from './sessionComposerStructuredTokens';
 
 export type ComposerAtReferenceContext = {
   sessionId?: string;
@@ -57,16 +62,17 @@ const EMPTY_GROUPS: AtReferenceGroup[] = AT_REFERENCE_TAB_ORDER.map((tab) => ({
 }));
 
 function atReferenceItemToToken(item: AtReferenceItem): ChatComposerToken {
-  const variant =
-    item.tab === 'instruction'
-      ? 'orange'
-      : item.tab === 'commit'
-        ? 'neutral'
-        : 'cyan';
+  const token = getSessionComposerStructuredTokenSegments(item.insertText).find(
+    (segment) => segment.kind === 'token'
+  );
+  const label =
+    token?.kind === 'token'
+      ? token.token.label
+      : atReferenceChipLabel(item.label);
   return {
     value: item.insertText,
-    label: item.label,
-    variant,
+    label,
+    variant: 'cyan',
   };
 }
 
@@ -384,15 +390,16 @@ export function useComposerAtReferencePanel({
           );
           return true;
         }
+        case 'ArrowLeft':
+        case 'ArrowRight':
         case 'Tab': {
           event.preventDefault();
-          const dir = event.shiftKey ? -1 : 1;
-          const at = AT_REFERENCE_TAB_ORDER.indexOf(current.activeTab);
-          const next =
-            AT_REFERENCE_TAB_ORDER[
-              (at + dir + AT_REFERENCE_TAB_ORDER.length) %
-                AT_REFERENCE_TAB_ORDER.length
-            ];
+          const dir =
+            event.key === 'ArrowLeft' ||
+            (event.key === 'Tab' && event.shiftKey)
+              ? -1
+              : 1;
+          const next = cycleAtReferenceTab(current.activeTab, dir);
           pinnedTabRef.current = next;
           setPanel((panel) =>
             panel ? { ...panel, activeTab: next, selectedIndex: 0 } : panel

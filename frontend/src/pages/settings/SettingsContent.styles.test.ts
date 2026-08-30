@@ -69,4 +69,14 @@ describe('settings page alignment', () => {
     expect(notes.get('max-height')).toBe('14rem');
     expect(notes.get('overflow')).toBe('auto');
   });
+
+  it('paints the plugin catalog list as a white settings surface', () => {
+    const list = declarationsFor('.settings-page .product-plugin-list');
+    const surface = declarationsFor('.settings-surface');
+    const card = declarationsFor('.settings-page .settings-card');
+
+    expect(list.get('background')).toBe(surface.get('background'));
+    expect(list.get('background')).toBe('var(--surface-card-strong)');
+    expect(card.get('background')).toBe('var(--surface-content)');
+  });
 });

@@ -97,9 +97,19 @@ impl ConnectionSpawner for MockSpawner {
         Ok(self.child_connection_id.clone())
     }
 
+    async fn create_child_conversation(
+        &self,
+        child_session_id: Uuid,
+        _task: &str,
+        _link: &DelegationLink,
+    ) -> Result<Uuid, SpawnerError> {
+        Ok(child_session_id)
+    }
+
     async fn send_prompt_linked(
         &self,
         child_connection_id: &str,
+        _child_session_id: Uuid,
         task: String,
         link: DelegationLink,
     ) -> Result<Uuid, SpawnerError> {

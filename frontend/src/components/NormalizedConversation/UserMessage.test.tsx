@@ -104,11 +104,11 @@ describe('UserMessage', () => {
     expect(screen.getAllByTestId('session-composer-token-chip')).toHaveLength(
       2
     );
-    expect(screen.getByText('App.tsx')).toBeInTheDocument();
+    expect(screen.getByText('@App.tsx')).toBeInTheDocument();
     expect(screen.getByText('$plan')).toBeInTheDocument();
     expect(
       screen
-        .getByText('App.tsx')
+        .getByText('@App.tsx')
         .closest('[data-testid="session-composer-token-chip"]')
     ).toHaveAttribute('title', 'src/App.tsx');
     expect(
@@ -116,6 +116,21 @@ describe('UserMessage', () => {
         .getByText('$plan')
         .closest('[data-testid="session-composer-token-chip"]')
     ).not.toHaveAttribute('title');
+  });
+
+  it('keeps agent mentions as chips with the real agent icon after send', () => {
+    render(<UserMessage content="Ask [&Codex](vibex://agent/codex) next" />);
+
+    const chip = screen
+      .getByText('&Codex')
+      .closest('[data-testid="session-composer-token-chip"]');
+
+    expect(chip).toHaveAttribute('data-token-kind', 'agent_mention');
+    expect(chip).toHaveAttribute('data-variant', 'purple');
+    expect(screen.getByRole('img', { name: 'Codex' })).toHaveAttribute(
+      'src',
+      '/agents/codex-light.svg'
+    );
   });
 
   it('keeps selected preview elements as chips after send', () => {
@@ -132,10 +147,10 @@ describe('UserMessage', () => {
 
     render(<UserMessage content={content} />);
 
-    expect(screen.getByText('SaveButton')).toBeInTheDocument();
+    expect(screen.getByText('@SaveButton')).toBeInTheDocument();
     expect(
       screen
-        .getByText('SaveButton')
+        .getByText('@SaveButton')
         .closest('[data-testid="session-composer-token-chip"]')
     ).toHaveAttribute('title', elementContext);
   });

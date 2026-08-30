@@ -106,9 +106,36 @@ pub enum LockedInstallSource {
 pub struct ResolvedInstallPlan {
     pub agent_id: AgentId,
     pub source: LockedInstallSource,
+    /// Identity version of the local Runtime (adapter-backed) or the combined
+    /// runtime. This is not the Registry update target; see
+    /// [`Self::registry_bound_version`].
     pub version: String,
     pub platform: String,
     pub components: Vec<PlannedInstallComponent>,
+}
+
+impl ResolvedInstallPlan {
+    /// Component a Registry refresh replaces: `acp_adapter` when present,
+    /// otherwise `combined_runtime`.
+    pub fn registry_bound_component(&self) -> Option<&PlannedInstallComponent> {
+        self.components
+            .iter()
+            .find(|component| component.component_id == "acp_adapter")
+            .or_else(|| {
+                self.components
+                    .iter()
+                    .find(|component| component.component_id == "combined_runtime")
+            })
+    }
+
+    /// Registry-declared version persisted as Installation lock
+    /// `registry_version`. Adapter-backed Agents store the ACP adapter here,
+    /// never the Runtime pin in [`Self::version`].
+    pub fn registry_bound_version(&self) -> &str {
+        self.registry_bound_component()
+            .map(|component| component.version.as_str())
+            .unwrap_or(self.version.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

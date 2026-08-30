@@ -54,6 +54,7 @@ import {
 } from './MessageCard';
 import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
+import { collectHostDelegationPollResults } from './conversation/hostDelegation';
 import { TurnToolCalls } from './TurnToolCalls';
 import {
   STREAMING_ACTIVITY_INTERVAL_MS,
@@ -607,8 +608,9 @@ export const MessageTurnView = memo(function MessageTurnView({
   };
 
   // Every uninterrupted run uses Astryx's aggregate, including runs of one.
-  const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] =>
-    groupTurnRenderItems(list).map((unit) => {
+  const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] => {
+    const pollResults = collectHostDelegationPollResults(list);
+    return groupTurnRenderItems(list).map((unit) => {
       if (unit.kind === 'single') {
         return renderTurnItem(unit.item, `${turn.id}-${offset + unit.index}`);
       }
@@ -624,10 +626,12 @@ export const MessageTurnView = memo(function MessageTurnView({
           task={task}
           workspacePath={resolvedWorkspacePath}
           delegations={delegations}
+          pollResults={pollResults}
           onOpenChild={onOpenChild}
         />
       );
     });
+  };
 
   const plannedItems = planTurnBlocks(turn.blocks);
   const items = hideThinking

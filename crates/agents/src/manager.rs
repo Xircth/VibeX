@@ -68,7 +68,9 @@ use crate::{
         CompanionCapabilities, CompanionInjectionContext, CompanionInjectionList,
         DelegationInjector, InjectedRemoteMcpTransport,
     },
+    grok_mcp::{self, GrokMcpTracker},
     grok_subagent::GrokSubagentTracker,
+    grok_usage,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -116,6 +118,10 @@ fn truncate_preview(value: String) -> String {
         end -= 1;
     }
     value[..end].to_string()
+}
+
+fn json_preview(value: Option<&serde_json::Value>) -> Option<String> {
+    value.and_then(|value| serde_json::to_string(value).ok().map(truncate_preview))
 }
 
 fn acp_tool_input_preview(
@@ -958,6 +964,7 @@ struct AgentConnectionRunner {
     // idle watchdog can fail a silently-hung agent without killing live turns.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+    grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
 }
 
@@ -982,6 +989,10 @@ struct SessionControlState {
     /// and must be written back with `session/set_mode`.
     mode_uses_set_mode: bool,
     available_commands: Option<Vec<AgentAvailableCommand>>,
+    /// `availableModels[]._meta.totalContextTokens` from session establishment.
+    grok_model_windows: HashMap<String, u64>,
+    /// Last occupancy pair emitted as `AgentEvent::Usage` for this session.
+    last_grok_usage: Option<(u64, u64)>,
 }
 
 #[derive(Debug)]
@@ -1065,6 +1076,7 @@ impl AgentConnectionRunner {
             active_prompt: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(Mutex::new(Instant::now())),
             grok_subagent: Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            grok_mcp: Arc::new(Mutex::new(GrokMcpTracker::default())),
             pending_session_id: Arc::new(Mutex::new(None)),
         }
     }
@@ -1289,6 +1301,7 @@ impl AgentConnectionRunner {
             AgentEvent::ToolCallUpdate {
                 update: AgentToolCallUpdate {
                     id: "fixture-tool".to_string(),
+                    title: None,
                     status: Some("running".to_string()),
                     content: Some("reading fixture input".to_string()),
                     input_preview: None,
@@ -1419,6 +1432,7 @@ impl AgentConnectionRunner {
             AgentEvent::ToolCallUpdate {
                 update: AgentToolCallUpdate {
                     id: "fixture-tool".to_string(),
+                    title: None,
                     status: Some("completed".to_string()),
                     content: Some("fixture tool completed".to_string()),
                     input_preview: None,
@@ -1629,6 +1643,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
             Arc::clone(&self.grok_subagent),
+            Arc::clone(&self.grok_mcp),
             Arc::clone(&self.pending_session_id),
         );
         let request_bridge = bridge.clone();
@@ -2096,8 +2111,14 @@ impl AgentConnectionRunner {
                             response.config_options,
                             response.meta.as_ref(),
                         );
-                    self.emit_session_controls(session_id, modes, config_options, vendor_config)
-                        .await;
+                    self.emit_session_controls(
+                        session_id,
+                        modes,
+                        config_options,
+                        vendor_config,
+                        response.meta.as_ref(),
+                    )
+                    .await;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
@@ -2142,8 +2163,14 @@ impl AgentConnectionRunner {
                             response.config_options,
                             response.meta.as_ref(),
                         );
-                    self.emit_session_controls(session_id, modes, config_options, vendor_config)
-                        .await;
+                    self.emit_session_controls(
+                        session_id,
+                        modes,
+                        config_options,
+                        vendor_config,
+                        response.meta.as_ref(),
+                    )
+                    .await;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
@@ -2213,8 +2240,14 @@ impl AgentConnectionRunner {
             response.config_options,
             response.meta.as_ref(),
         );
-        self.emit_session_controls(session_id, modes, config_options, vendor_config)
-            .await;
+        self.emit_session_controls(
+            session_id,
+            modes,
+            config_options,
+            vendor_config,
+            response.meta.as_ref(),
+        )
+        .await;
         Ok(acp_session_id)
     }
 
@@ -2308,6 +2341,7 @@ impl AgentConnectionRunner {
         modes: Option<SessionModeState>,
         config_options: Option<Vec<AcpSessionConfigOption>>,
         vendor_config: Option<VendorConfigWire>,
+        session_meta: Option<&serde_json::Map<String, serde_json::Value>>,
     ) {
         let (config_options, mode_uses_set_mode) = unify_session_config_options(
             modes,
@@ -2321,6 +2355,12 @@ impl AgentConnectionRunner {
             entry.mode_uses_set_mode = mode_uses_set_mode;
             if let Some(vendor_config) = vendor_config {
                 entry.vendor_config = Some(vendor_config);
+            }
+            if let Some(meta) = session_meta {
+                let windows = grok_usage::windows_from_session_meta(Some(meta));
+                if !windows.is_empty() {
+                    entry.grok_model_windows.extend(windows);
+                }
             }
         }
 
@@ -3327,6 +3367,7 @@ struct AcpClientBridge {
     // prompt watchdog only fires on a genuinely silent (hung) agent.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+    grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
 }
 
@@ -3344,6 +3385,7 @@ impl AcpClientBridge {
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
         grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+        grok_mcp: Arc<Mutex<GrokMcpTracker>>,
         pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
     ) -> Self {
         Self {
@@ -3358,6 +3400,7 @@ impl AcpClientBridge {
             stream_dedup,
             last_activity,
             grok_subagent,
+            grok_mcp,
             pending_session_id,
         }
     }
@@ -3711,6 +3754,7 @@ impl AcpClientBridge {
                 event: AgentEvent::ToolCallUpdate {
                     update: AgentToolCallUpdate {
                         id: update.tool_call_id,
+                        title: None,
                         status: None,
                         content: None,
                         input_preview: None,
@@ -3732,6 +3776,10 @@ impl AcpClientBridge {
             self.agent_session_for_acp(acp_session_id.clone()).await,
             *self.pending_session_id.lock().await,
         );
+        if !matches!(args.update, SessionUpdate::UsageUpdate(_)) {
+            self.maybe_emit_grok_usage(session_id, args.meta.as_ref())
+                .await;
+        }
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => self
                 .gate_stream_chunk(
@@ -3750,23 +3798,35 @@ impl AcpClientBridge {
                 .await
                 .map(|content| AgentEvent::ThoughtChunk { content }),
             SessionUpdate::ToolCall(tool_call) => {
-                let input_preview = acp_tool_input_preview(
+                let original_input_preview = acp_tool_input_preview(
                     tool_call.raw_input.as_ref(),
                     &tool_call.content,
                     &tool_call.locations,
                 );
                 let meta = bounded_optional_meta(tool_call.meta);
+                let call_id = tool_call.tool_call_id.0.to_string();
                 self.grok_subagent.lock().await.note_tool_call(
-                    tool_call.tool_call_id.0.as_ref(),
+                    &call_id,
                     Some(tool_call.title.as_str()),
-                    input_preview.as_deref(),
+                    original_input_preview.as_deref(),
                     meta.as_ref(),
                     Some("running"),
                 );
+                let peeled = self.grok_mcp.lock().await.apply(
+                    &call_id,
+                    Some(tool_call.title.as_str()),
+                    tool_call.raw_input.as_ref(),
+                    tool_call.raw_output.as_ref(),
+                );
+                let input_preview = if peeled.peeled_input {
+                    json_preview(peeled.raw_input.as_ref())
+                } else {
+                    original_input_preview
+                };
                 Some(AgentEvent::ToolCall {
                     tool_call: AgentToolCall {
-                        id: tool_call.tool_call_id.0.to_string(),
-                        title: tool_call.title,
+                        id: call_id,
+                        title: peeled.title,
                         kind: Some(acp_enum_label(&tool_call.kind)),
                         input_preview,
                         meta,
@@ -3775,43 +3835,54 @@ impl AcpClientBridge {
                 })
             }
             SessionUpdate::ToolCallUpdate(update) => {
-                let input_preview = acp_tool_input_preview(
+                let content_blocks = update.fields.content.as_deref().unwrap_or_default();
+                let original_input_preview = acp_tool_input_preview(
                     update.fields.raw_input.as_ref(),
-                    update.fields.content.as_deref().unwrap_or_default(),
+                    content_blocks,
                     update.fields.locations.as_deref().unwrap_or_default(),
                 );
                 let status = update.fields.status.as_ref().map(acp_enum_label);
                 let meta = bounded_optional_meta(update.meta);
+                let call_id = update.tool_call_id.0.to_string();
                 self.grok_subagent.lock().await.note_tool_call(
-                    update.tool_call_id.0.as_ref(),
-                    None,
-                    input_preview.as_deref(),
+                    &call_id,
+                    update.fields.title.as_deref(),
+                    original_input_preview.as_deref(),
                     meta.as_ref(),
                     status.as_deref(),
                 );
+                let peeled = self.grok_mcp.lock().await.apply(
+                    &call_id,
+                    update.fields.title.as_deref(),
+                    update.fields.raw_input.as_ref(),
+                    update.fields.raw_output.as_ref(),
+                );
+                let input_preview = if peeled.peeled_input {
+                    json_preview(peeled.raw_input.as_ref())
+                } else {
+                    original_input_preview
+                };
+                let content = peeled
+                    .output_text
+                    .map(truncate_preview)
+                    .or_else(|| {
+                        update.fields.raw_output.as_ref().and_then(|output| {
+                            serde_json::to_string(output).ok().map(truncate_preview)
+                        })
+                    })
+                    .or_else(|| acp_tool_content_preview(content_blocks));
+                let title =
+                    grok_mcp::should_rewrite_title(update.fields.title.as_deref(), &peeled.title)
+                        .then_some(peeled.title);
                 Some(AgentEvent::ToolCallUpdate {
                     update: AgentToolCallUpdate {
-                        id: update.tool_call_id.0.to_string(),
+                        id: call_id,
+                        title,
                         status,
-                        content: update
-                            .fields
-                            .raw_output
-                            .as_ref()
-                            .and_then(|output| {
-                                serde_json::to_string(output).ok().map(truncate_preview)
-                            })
-                            .or_else(|| {
-                                update
-                                    .fields
-                                    .content
-                                    .as_deref()
-                                    .and_then(acp_tool_content_preview)
-                            }),
+                        content,
                         input_preview,
                         meta,
-                        images: acp_tool_images(
-                            update.fields.content.as_deref().unwrap_or_default(),
-                        ),
+                        images: acp_tool_images(content_blocks),
                     },
                 })
             }
@@ -3904,6 +3975,58 @@ impl AcpClientBridge {
             });
         }
         Ok(())
+    }
+
+    /// Grok has no ACP `usage_update`. Occupancy (`_meta.totalTokens`) plus the
+    /// model's window become a synthetic `AgentEvent::Usage` so the composer
+    /// ring and per-turn token display have facts to show.
+    async fn maybe_emit_grok_usage(
+        &self,
+        session_id: Option<AgentSessionId>,
+        meta: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) {
+        if self.agent_id.as_str() != "grok" {
+            return;
+        }
+        let Some(used) = grok_usage::occupancy_from_meta(meta) else {
+            return;
+        };
+        let Some(session_id) = session_id else {
+            return;
+        };
+        let (window, last) = {
+            let controls = self.session_controls.read().await;
+            let state = controls.get(&session_id);
+            let model = state.and_then(|state| current_grok_model_id(&state.config_options));
+            let wire = model.as_deref().and_then(|model| {
+                state.and_then(|state| state.grok_model_windows.get(model).copied())
+            });
+            let window = grok_usage::context_window_for_model(
+                model.as_deref(),
+                grok_usage::grok_home_dir().as_deref(),
+                wire,
+            );
+            (window, state.and_then(|state| state.last_grok_usage))
+        };
+        let Some((used, size)) = grok_usage::live_usage_step(used, window, last) else {
+            return;
+        };
+        {
+            let mut controls = self.session_controls.write().await;
+            controls.entry(session_id).or_default().last_grok_usage = Some((used, size));
+        }
+        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+            connection_id: self.connection_id,
+            session_id: Some(session_id),
+            prompt_id: None,
+            event: AgentEvent::Usage {
+                usage: AgentUsage {
+                    used,
+                    limit: (size > 0).then_some(size),
+                    ..AgentUsage::default()
+                },
+            },
+        });
     }
 
     async fn agent_session_for_acp(&self, acp_session_id: String) -> Option<AgentSessionId> {
@@ -4556,6 +4679,18 @@ struct VendorSessionControls {
 /// to a vendor `_meta` extension when the agent advertised neither (Grok
 /// currently). The returned wire marker tells the apply path which
 /// non-standard method (if any) the agent expects for changes.
+fn current_grok_model_id(options: &[AcpSessionConfigOption]) -> Option<String> {
+    options.iter().find_map(|option| {
+        if option.category != Some(SessionConfigOptionCategory::Model) {
+            return None;
+        }
+        match &option.kind {
+            SessionConfigKind::Select(select) => Some(select.current_value.0.to_string()),
+            _ => None,
+        }
+    })
+}
+
 fn session_controls_with_vendor_fallback(
     modes: Option<SessionModeState>,
     config_options: Option<Vec<AcpSessionConfigOption>>,
@@ -5531,6 +5666,7 @@ mod tests {
                 vendor_config: None,
                 mode_uses_set_mode: false,
                 available_commands: None,
+                ..Default::default()
             },
         )]));
 
@@ -5647,6 +5783,10 @@ mod tests {
             panic!("model option must be a select");
         };
         assert_eq!(select.current_value.0.as_ref(), "grok-4.6");
+        assert_eq!(
+            current_grok_model_id(&vendor.config_options).as_deref(),
+            Some("grok-4.6")
+        );
         let SessionConfigSelectOptions::Ungrouped(model_choices) = &select.options else {
             panic!("model options must be ungrouped");
         };
@@ -5941,6 +6081,7 @@ mod tests {
             vendor_config: None,
             mode_uses_set_mode: false,
             available_commands: None,
+            ..Default::default()
         };
 
         let selection = find_config_override_selection(

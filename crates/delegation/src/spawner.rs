@@ -50,12 +50,22 @@ pub trait ConnectionSpawner: Send + Sync {
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError>;
 
+    /// Persist the child conversation before the agent process is ready so the
+    /// parent card can open the transcript immediately.
+    async fn create_child_conversation(
+        &self,
+        child_session_id: Uuid,
+        task: &str,
+        link: &DelegationLink,
+    ) -> Result<Uuid, SpawnerError>;
+
     /// Create the child `sessions` row (linked to its parent via `link`), send
     /// the delegation `task` as its first prompt, and return the child
     /// `sessions.id`.
     async fn send_prompt_linked(
         &self,
         child_connection_id: &str,
+        child_session_id: Uuid,
         task: String,
         link: DelegationLink,
     ) -> Result<Uuid, SpawnerError>;

@@ -65,11 +65,83 @@ describe('UserMessageMarkdown', () => {
     render(<UserMessageMarkdown value="#commit_changes" />);
 
     const tokenChip = screen
-      .getByText('#commit_changes')
+      .getByText('@commit_changes')
       .closest('[data-testid="session-composer-token-chip"]');
 
     expect(tokenChip).toHaveAttribute('data-token-kind', 'tag');
+    expect(tokenChip).toHaveAttribute('data-variant', 'cyan');
     expect(tokenChip?.querySelector('svg')).toBeNull();
+  });
+
+  it('renders agent mentions with the real agent icon and composer token tone', () => {
+    render(
+      <StyledUserMessage value="Ask [&Codex](vibex://agent/codex) to review" />
+    );
+
+    const chip = screen
+      .getByText('&Codex')
+      .closest('[data-testid="session-composer-token-chip"]');
+
+    expect(chip).toHaveAttribute('data-token-kind', 'agent_mention');
+    expect(chip).toHaveAttribute('data-variant', 'purple');
+    expect(screen.getByRole('img', { name: 'Codex' })).toHaveAttribute(
+      'src',
+      '/agents/codex-light.svg'
+    );
+    expect(chip?.querySelector('svg.lucide-bot')).toBeNull();
+    expect(getComputedStyle(chip as Element).color).toBe(
+      'var(--color-text-purple)'
+    );
+    expect(getComputedStyle(chip as Element).backgroundColor).toBe(
+      'var(--color-background-purple)'
+    );
+  });
+
+  it('keeps composer token variants on user-message chips', () => {
+    const fileCommand = formatSessionComposerCommand({
+      type: '@',
+      key: 'App.tsx',
+      value: 'src/App.tsx',
+    });
+    const dollarCommand = formatSessionComposerCommand({
+      type: '$',
+      key: 'plan',
+      value: '$plan',
+    });
+    const slashCommand = formatSessionComposerCommand({
+      type: '/',
+      key: 'review',
+      value: '/review',
+    });
+
+    render(
+      <StyledUserMessage
+        value={`Use ${fileCommand} with ${dollarCommand} and ${slashCommand}`}
+      />
+    );
+
+    const fileChip = screen
+      .getByText('@App.tsx')
+      .closest('[data-testid="session-composer-token-chip"]');
+    const dollarChip = screen
+      .getByText('$plan')
+      .closest('[data-testid="session-composer-token-chip"]');
+    const slashChip = screen
+      .getByText('/review')
+      .closest('[data-testid="session-composer-token-chip"]');
+
+    expect(fileChip).toHaveAttribute('data-variant', 'cyan');
+    expect(dollarChip).toHaveAttribute('data-variant', 'green');
+    expect(slashChip).toHaveAttribute('data-variant', 'blue');
+    expect(getComputedStyle(fileChip as Element).color).toBe(
+      'var(--color-text-cyan)'
+    );
+    expect(getComputedStyle(dollarChip as Element).color).toBe(
+      'var(--color-text-green)'
+    );
+    expect(getComputedStyle(slashChip as Element).color).toBe(
+      'var(--color-text-blue)'
+    );
   });
 
   it('uses legible adaptive colors for every prose node', () => {

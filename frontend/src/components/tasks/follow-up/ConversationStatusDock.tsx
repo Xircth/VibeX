@@ -1,6 +1,6 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { RefreshCw, RotateCcw, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
@@ -18,6 +18,8 @@ type ConversationStatusDockProps = {
   localError?: string | null;
   onDismissLocalError?: () => void;
   dismissalScope?: string | null;
+  placement?: 'composer' | 'panel';
+  extra?: ReactNode;
 };
 
 export function ConversationStatusDock({
@@ -25,6 +27,8 @@ export function ConversationStatusDock({
   localError,
   onDismissLocalError,
   dismissalScope,
+  placement = 'composer',
+  extra,
 }: ConversationStatusDockProps) {
   const { t } = useTranslation(['conversation']);
   const { dismiss: dismissNotice, isDismissed } =
@@ -35,15 +39,21 @@ export function ConversationStatusDock({
     rememberVisibleSessionAnnouncements(dismissalScope, visibleNotices);
   }, [dismissalScope, visibleNotices]);
 
-  if (visibleNotices.length === 0 && !localError) return null;
+  if (visibleNotices.length === 0 && !localError && extra == null) return null;
 
   return (
     <div
-      className="conversation-status-dock"
+      className={
+        placement === 'panel'
+          ? 'conversation-status-dock conversation-status-dock--panel'
+          : 'conversation-status-dock'
+      }
       data-testid="conversation-status-dock"
+      data-placement={placement}
       aria-live="polite"
     >
       <div className="composer-status-surface rounded-lg">
+        {extra}
         {localError ? (
           <StatusSurface
             tone="error"

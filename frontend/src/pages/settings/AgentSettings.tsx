@@ -422,25 +422,57 @@ export function AgentSettings() {
     }
   }, [selectedAgentId, t]);
 
-  const runPreflight = useCallback(async () => {
-    if (!selectedAgentId) return;
-    const watchId = ++inspectGeneration.current;
-    setChecking(true);
-    try {
-      const report = await agentManagementApi.preflight(selectedAgentId);
-      if (inspectGeneration.current !== watchId) return;
-      writePreflightSnapshot(report);
-      setPreflight(report);
-      await management.refresh();
-      if (inspectGeneration.current !== watchId) return;
-      toast.success(t('settings:agents.preflightComplete'));
-    } catch (error) {
-      if (inspectGeneration.current !== watchId) return;
-      toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
-    } finally {
-      if (inspectGeneration.current === watchId) setChecking(false);
+  const runPreflight = useCallback(
+    async (options?: { notify?: boolean }) => {
+      if (!selectedAgentId) return;
+      const watchId = ++inspectGeneration.current;
+      setChecking(true);
+      try {
+        const report = await agentManagementApi.preflight(selectedAgentId);
+        if (inspectGeneration.current !== watchId) return;
+        writePreflightSnapshot(report);
+        setPreflight(report);
+        setUpdateCheck(null);
+        await management.refresh();
+        if (inspectGeneration.current !== watchId) return;
+        if (options?.notify !== false) {
+          toast.success(t('settings:agents.preflightComplete'));
+        }
+      } catch (error) {
+        if (inspectGeneration.current !== watchId) return;
+        toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
+      } finally {
+        if (inspectGeneration.current === watchId) setChecking(false);
+      }
+    },
+    [management, selectedAgentId, t]
+  );
+
+  const operationActive = Boolean(
+    selectedAgentOperation ||
+      (selectedAgentId && management.state.operations[selectedAgentId])
+  );
+  const previousOperationRef = useRef<{
+    agentId: string | null;
+    busy: boolean;
+  }>({ agentId: null, busy: false });
+  useEffect(() => {
+    const previous = previousOperationRef.current;
+    previousOperationRef.current = {
+      agentId: selectedAgentId,
+      busy: operationActive,
+    };
+    if (
+      !selectedAgentId ||
+      registryOpen ||
+      previous.agentId !== selectedAgentId ||
+      !previous.busy ||
+      operationActive
+    ) {
+      return;
     }
-  }, [management, selectedAgentId, t]);
+    void runPreflight({ notify: false });
+  }, [operationActive, registryOpen, runPreflight, selectedAgentId]);
 
   const pullAuthentication = useCallback(async () => {
     if (!selectedAgentId) return null;

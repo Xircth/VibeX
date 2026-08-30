@@ -148,7 +148,11 @@ export function isOpenSourcePluginOrigin(source: {
   sourceKind?: string | null;
   repo?: string | null;
   sourceOrigin?: string | null;
+  showTree?: boolean | null;
+  sourceShowTree?: boolean | null;
 }) {
+  if (typeof source.showTree === 'boolean') return source.showTree;
+  if (typeof source.sourceShowTree === 'boolean') return source.sourceShowTree;
   const kind = (source.sourceKind ?? '').toLowerCase();
   if (
     kind === 'snapshot' ||

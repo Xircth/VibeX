@@ -721,6 +721,49 @@ describe('AgentDetail', () => {
     expect(onApplyUpdate).toHaveBeenCalledOnce();
   });
 
+  it('starts a preflight item update from the available status', async () => {
+    const onUpdatePreflightItem = vi.fn();
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={{
+          ...preflight,
+          items: preflight.items.map((item) =>
+            item.id === 'acp'
+              ? {
+                  ...item,
+                  update_available: true,
+                  available_version: '1.2.0',
+                }
+              : item
+          ),
+        }}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
+        onUpdatePreflightItem={onUpdatePreflightItem}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '更新' })
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '可更新' }));
+    expect(onUpdatePreflightItem).toHaveBeenCalledWith('acp');
+  });
+
   it('marks all diagnostics read and highlights unread entries', async () => {
     const onMarkAllDiagnosticsRead = vi.fn();
     const diagnostics = [

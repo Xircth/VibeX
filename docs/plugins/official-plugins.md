@@ -181,7 +181,7 @@ Desktop 必须在跑。Host 起回环命令网关，用托管 Node 拉起 MCP。
 
 Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plugin-cli/dist/cli.js`；否则用 `vibex-plugin toolchain` 或 Host 二进制旁边的 `vibex-plugin`。读 Skill 旁 `references/` 与 Host 自带 SDK 类型。
 
-它让 Agent 做一个产品包。README 的 `summary`、`contents/`、根上的 `config.json`、以及声明过的 integrations。常用命令是 `init`、`validate`、`test`、`build`。链接必须你在 Host 里确认 Full Trust。公共 SDK 表达不了的能力，应先加 Host 目录，再写进包。
+它让 Agent 做一个产品包。README 的 `summary`、`contents/`、根上的 `config.json`、以及声明过的 integrations。常用命令是 `init`、`validate`、`test`、`build`、`pack`，然后 `vibex plugin add --dev .`。公共 SDK 表达不了的能力，应先加 Host 目录，再写进包。
 
 关掉这个插件，Skill 投影应从当前代收回。开发目录里的源码不会被删。你自己用 CLI 链上的包，卸的是 VibeX 这一侧的引用。
 

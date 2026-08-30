@@ -133,13 +133,137 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
   'x.ai': 'grok',
 };
 
+/**
+ * Last segment of a host-prefixed MCP name (`mcp__server__tool`,
+ * `server/tool`, `server:tool`). Bare names pass through.
+ */
+export function hostMcpBareToolName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return trimmed;
+  const stripped = trimmed.replace(/^mcp__/i, '');
+  const parts = stripped.split(/__|\/|:/);
+  return parts[parts.length - 1] ?? stripped;
+}
+
+/**
+ * Grok wraps MCP calls as `use_tool` with
+ * `{ tool_name, tool_input }`. Peel that envelope so Host companion tools
+ * classify as themselves even if the ACP layer did not rewrite the title.
+ */
+export function peelHostDelegationCall(use: ToolUseBlock): {
+  name: string;
+  input: Record<string, unknown> | null;
+} {
+  const input = inputRecord(use);
+  const vendorName = readString(
+    asObject(asObject(use.meta)?.['x.ai/tool']) as JsonValue,
+    'name'
+  );
+  const envelopeName = readString(input as JsonValue, 'tool_name');
+  const innerInput = asObject(input?.tool_input);
+  const wireIsEnvelope =
+    canonicalToolName(use.tool_name) === 'usetool' ||
+    canonicalToolName(vendorName ?? '') === 'usetool' ||
+    Boolean(envelopeName && innerInput);
+  if (wireIsEnvelope && envelopeName) {
+    return { name: envelopeName, input: innerInput };
+  }
+  // ACP may already have peeled `{tool_name, tool_input}` while the wire
+  // title is still `use_tool`. Recover the companion tool from inner args.
+  if (
+    canonicalToolName(use.tool_name) === 'usetool' ||
+    canonicalToolName(vendorName ?? '') === 'usetool'
+  ) {
+    if (
+      readString(input as JsonValue, 'agent_type') &&
+      readString(input as JsonValue, 'task')
+    ) {
+      return { name: 'delegate_to_agent', input };
+    }
+    if (Array.isArray(input?.task_ids)) {
+      return { name: 'get_delegation_status', input };
+    }
+    if (
+      readString(input as JsonValue, 'task_id') &&
+      !readString(input as JsonValue, 'agent_type')
+    ) {
+      return { name: 'cancel_delegation', input };
+    }
+  }
+  return { name: use.tool_name, input };
+}
+
+function hostCompanionCanonicalName(name: string): string {
+  return canonicalToolName(hostMcpBareToolName(name));
+}
+
 export function isHostDelegationTool(use: ToolUseBlock): boolean {
-  return canonicalToolName(use.tool_name) === 'delegatetoagent';
+  return (
+    hostCompanionCanonicalName(peelHostDelegationCall(use).name) ===
+    'delegatetoagent'
+  );
 }
 
 export function isHostDelegationLifecycleTool(use: ToolUseBlock): boolean {
-  const name = canonicalToolName(use.tool_name);
-  return name === 'getdelegationstatus' || name === 'canceldelegation';
+  return hostDelegationLifecycleKind(use) !== null;
+}
+
+export function hostDelegationLifecycleKind(
+  use: ToolUseBlock
+): 'status' | 'cancel' | null {
+  const name = hostCompanionCanonicalName(peelHostDelegationCall(use).name);
+  if (name === 'getdelegationstatus') return 'status';
+  if (name === 'canceldelegation') return 'cancel';
+  return null;
+}
+
+const COMPANION_TOOL_QUERY =
+  /delegate_to_agent|get_delegation_status|cancel_delegation|vibex-delegation|vibex\.multi-agent/i;
+
+export function isCompanionSearchQuery(
+  query: string | null | undefined
+): boolean {
+  return Boolean(query && COMPANION_TOOL_QUERY.test(query));
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null,
+  key: string
+): Record<string, unknown> | null {
+  return asObject(record?.[key]);
+}
+
+function searchQueryOf(use: ToolUseBlock): string | null {
+  const peeled = peelHostDelegationCall(use);
+  const input = peeled.input ?? inputRecord(use);
+  const keys = ['query', 'pattern', 'q', 'term', 'glob', 'regex'];
+  return (
+    readString(input as JsonValue, keys) ??
+    readString(nestedRecord(input, 'action') as JsonValue, keys) ??
+    readString(nestedRecord(input, 'input') as JsonValue, keys)
+  );
+}
+
+/**
+ * Grok discovers MCP tools via `search_tool`. Those lookups are not codebase
+ * searches and should not render as empty search rows. Match the displayed
+ * search query even when the ACP title is not `search_tool`.
+ */
+export function isCompanionMcpDiscoverySearch(use: ToolUseBlock): boolean {
+  if (isHostDelegationTool(use) || isHostDelegationLifecycleTool(use)) {
+    return false;
+  }
+  const query = searchQueryOf(use);
+  if (isCompanionSearchQuery(query)) {
+    return true;
+  }
+  if (query) {
+    return false;
+  }
+  const peeled = peelHostDelegationCall(use);
+  const wire = canonicalToolName(hostMcpBareToolName(use.tool_name));
+  const inner = canonicalToolName(hostMcpBareToolName(peeled.name));
+  return wire === 'searchtool' || inner === 'searchtool';
 }
 
 export function isNativeSubagentTool(use: ToolUseBlock): boolean {
@@ -175,7 +299,7 @@ export function isNativeSubagentTool(use: ToolUseBlock): boolean {
 export function subagentLifecycleKind(
   use: ToolUseBlock
 ): SubagentLifecycleKind | null {
-  const name = canonicalToolName(use.tool_name);
+  const name = hostCompanionCanonicalName(peelHostDelegationCall(use).name);
   if (LIFECYCLE_WAIT_NAMES.has(name)) {
     return name === 'wait' && collectBindingIds(use, null).length === 0
       ? null
@@ -208,7 +332,7 @@ export function collectBindingIds(
   result: ToolResultBlock | null
 ): string[] {
   const ids: string[] = [];
-  const input = inputRecord(use);
+  const input = peelHostDelegationCall(use).input;
   if (input) {
     pushBindingId(ids, input.agent_id);
     pushBindingId(ids, input.agentId);

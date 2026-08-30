@@ -1,5 +1,5 @@
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AgentPreflightItemView } from 'shared/types';
 
@@ -42,9 +42,6 @@ const AgentUpdateConfirmDialogImpl = NiceModal.create<Props>((props) => {
     >
       <DialogContent>
         <DialogHeader>
-          <div className="agent-update-dialog-icon" aria-hidden="true">
-            <RefreshCw />
-          </div>
           <DialogTitle>{t('agents.updateConfirmTitle')}</DialogTitle>
           <DialogDescription>
             {t('agents.updateConfirmMessage')}

@@ -2281,8 +2281,8 @@ use agents::{
     ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
     UserEnvironmentLayout, decide_user_environment_adopt, ensure_user_cli_path,
     npm_global_install_args, observed_satisfies_profile, plan_required_components,
-    publish_managed_runtime_cli, remove_managed_runtime_cli, switch_managed_runtime_cli,
-    uv_distribution_name, verify_artifact_bytes,
+    planned_preflight_updates, publish_managed_runtime_cli, remove_managed_runtime_cli,
+    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -4656,42 +4656,81 @@ async fn annotate_preflight_updates(
     agent_id: &AgentId,
     items: &mut [AgentPreflightItemView],
 ) -> Result<(), AgentManagementErrorView> {
-    let current_version = sqlx::query_scalar::<_, String>(
-        r#"SELECT lock.registry_version
-           FROM agent_installation installation
-           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
-           WHERE installation.agent_id = ?"#,
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?;
-    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()))
-        .load()
-        .await
-        .map_err(internal_error)?;
-    let available_version = snapshot.as_ref().and_then(|snapshot| {
-        snapshot
-            .entries
-            .iter()
-            .find(|entry| entry.agent_id == *agent_id)
-            .map(|entry| entry.version.clone())
-    });
-    let update_available = current_version
-        .as_ref()
-        .zip(available_version.as_ref())
-        .is_some_and(|(current, available)| current != available);
-    if !update_available {
+    let Some(comparison) = resolve_planned_update_comparison(pool, agent_id).await? else {
+        return Ok(());
+    };
+    let updates = planned_preflight_updates(&comparison.plan.components, &comparison.current);
+    if updates.is_empty() {
         return Ok(());
     }
+    let mut marked = 0usize;
     for item in items.iter_mut() {
-        if item.id == "runtime" || item.id == "acp" {
-            item.update_available = true;
-            item.available_version = available_version.clone();
-            item.update_group = Some("runtime_acp".into());
+        let Some(update) = updates.iter().find(|update| update.item_id == item.id) else {
+            continue;
+        };
+        if item
+            .version
+            .as_deref()
+            .is_some_and(|version| version_at_least(version, &update.available_version))
+        {
+            continue;
+        }
+        item.update_available = true;
+        item.available_version = Some(update.available_version.clone());
+        marked += 1;
+    }
+    if marked > 1 {
+        for item in items.iter_mut() {
+            if item.update_available {
+                item.update_group = Some("runtime_acp".into());
+            }
         }
     }
     Ok(())
+}
+
+struct PlannedUpdateComparison {
+    plan: ResolvedInstallPlan,
+    current: Vec<ObservedUserComponent>,
+}
+
+async fn resolve_planned_update_comparison(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<Option<PlannedUpdateComparison>, AgentManagementErrorView> {
+    let current = current_lock_components(pool, agent_id).await?;
+    if current.is_empty() {
+        return Ok(None);
+    }
+    let Ok(plan) = resolve_install_plan(pool, agent_id).await else {
+        return Ok(None);
+    };
+    Ok(Some(PlannedUpdateComparison { plan, current }))
+}
+
+async fn current_lock_components(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<Vec<ObservedUserComponent>, AgentManagementErrorView> {
+    sqlx::query_as::<_, (String, String)>(
+        r#"SELECT component.component_kind, component.version
+           FROM agent_installation installation
+           JOIN agent_install_component component
+             ON component.lock_id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_all(pool)
+    .await
+    .map_err(internal_error)
+    .map(|rows| {
+        rows.into_iter()
+            .map(|(component_id, version)| ObservedUserComponent {
+                component_id,
+                version: Some(version),
+            })
+            .collect()
+    })
 }
 
 async fn preflight_authentication_scope(
@@ -5225,40 +5264,30 @@ pub async fn agent_management_check_update(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentUpdateCheckView, AgentManagementErrorView> {
-    let current_version = sqlx::query_scalar::<_, String>(
-        r#"SELECT lock.registry_version
-           FROM agent_installation installation
-           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
-           WHERE installation.agent_id = ?"#,
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(&state.deployment.db().pool)
-    .await
-    .map_err(internal_error)?;
-    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(
-        state.deployment.db().pool.clone(),
-    ))
-    .load()
-    .await
-    .map_err(internal_error)?;
-    let available_version = snapshot.as_ref().and_then(|snapshot| {
-        snapshot
-            .entries
-            .iter()
-            .find(|entry| entry.agent_id == agent_id)
-            .map(|entry| entry.version.clone())
-    });
+    let pool = &state.deployment.db().pool;
+    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()))
+        .load()
+        .await
+        .map_err(internal_error)?;
     let fresh = snapshot.as_ref().is_some_and(|snapshot| {
         Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
     });
+    let comparison = resolve_planned_update_comparison(pool, &agent_id).await?;
+    let updates = comparison
+        .as_ref()
+        .map(|comparison| {
+            planned_preflight_updates(&comparison.plan.components, &comparison.current)
+        })
+        .unwrap_or_default();
+    let primary = updates
+        .iter()
+        .find(|update| update.item_id == "acp")
+        .or_else(|| updates.first());
     Ok(AgentUpdateCheckView {
         agent_id,
-        update_available: current_version
-            .as_ref()
-            .zip(available_version.as_ref())
-            .is_some_and(|(current, available)| current != available),
-        current_version,
-        available_version,
+        update_available: primary.is_some(),
+        current_version: primary.map(|update| update.current_version.clone()),
+        available_version: primary.map(|update| update.available_version.clone()),
         snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
         fetched_at: snapshot
             .as_ref()
@@ -8097,7 +8126,7 @@ async fn persist_installed_lock(
     )
     .bind(lock_id.to_string())
     .bind(plan.agent_id.as_str())
-    .bind(&plan.version)
+    .bind(plan.registry_bound_version())
     .bind(&plan.platform)
     .bind(
         plan.components

@@ -74,6 +74,7 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     display_name: '修复会话标题功能',
     status: 'todo',
     executor: 'codex',
+    agent_id: 'codex' as const,
     workspace_name: 'Workspace',
     workspace_branch: 'main',
     created_at: '2026-07-27T00:00:00Z',

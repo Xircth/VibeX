@@ -73,16 +73,13 @@ impl ConnectionSpawner for RuntimeSpawner {
         Ok(child.id.0.to_string())
     }
 
-    async fn send_prompt_linked(
+    async fn create_child_conversation(
         &self,
-        child_connection_id: &str,
-        task: String,
-        link: DelegationLink,
+        child_session_id: Uuid,
+        task: &str,
+        link: &DelegationLink,
     ) -> Result<Uuid, SpawnerError> {
-        let conn = AgentConnectionId::from(
-            Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
-        );
-        let child_id = Uuid::new_v4();
+        let child_id = child_session_id;
         create_delegated_conversation(
             &self.pool,
             CreateDelegatedConversation {
@@ -91,14 +88,27 @@ impl ConnectionSpawner for RuntimeSpawner {
                 parent_tool_call_id: link.parent_tool_use_id.clone(),
                 delegation_id: link.delegation_call_id.clone(),
                 agent_id: link.agent_type.clone(),
-                prompt: task.clone(),
+                prompt: task.to_string(),
                 policy: serde_json::to_value(&link.policy)
                     .map_err(|error| SpawnerError::SendPrompt(error.to_string()))?,
             },
         )
         .await
         .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
+        Ok(child_id)
+    }
 
+    async fn send_prompt_linked(
+        &self,
+        child_connection_id: &str,
+        child_session_id: Uuid,
+        task: String,
+        link: DelegationLink,
+    ) -> Result<Uuid, SpawnerError> {
+        let conn = AgentConnectionId::from(
+            Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
+        );
+        let child_id = child_session_id;
         let session_id = AgentSessionId::from(child_id);
         self.runtime
             .new_session_with_id(conn, session_id, child_id.to_string())

@@ -113,6 +113,7 @@ export interface PluginControlItem {
   sourceRef?: string | null;
   sourceSha?: string | null;
   sourceLocked?: boolean;
+  sourceShowTree?: boolean | null;
   updateAvailable?: boolean;
   availableTag?: string | null;
 }
@@ -266,6 +267,7 @@ export interface CatalogListing {
   hasMcp?: boolean;
   opens?: string[];
   readme?: string | null;
+  showTree?: boolean | null;
 }
 
 export interface CatalogPluginDetail {

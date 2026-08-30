@@ -866,6 +866,8 @@ impl RegistrySnapshotRepository {
 pub struct InstallLockRecord {
     pub id: Uuid,
     pub agent_id: AgentId,
+    /// Registry-declared version of the bound component (`acp_adapter` or
+    /// `combined_runtime`). Not the adapter-backed local Runtime pin.
     pub registry_version: String,
     pub platform: String,
     pub distribution_kind: String,

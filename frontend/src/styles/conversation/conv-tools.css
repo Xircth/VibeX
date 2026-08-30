@@ -1225,6 +1225,17 @@ button.conv-turn-stat-elapsed:hover .conv-turn-stat-value {
   color: var(--conv-text-primary);
 }
 
+.host-delegation-card {
+  container-type: inline-size;
+  container-name: host-delegation;
+}
+
+@container host-delegation (max-width: 32rem) {
+  .host-delegation-wide-only {
+    display: none !important;
+  }
+}
+
 .conv-turn-stat-label {
   color: var(--conv-text-tertiary);
 }

@@ -38,13 +38,15 @@ function renderCard(card: React.ReactElement) {
   );
 }
 
+function cardContains(node: HTMLElement): boolean {
+  return Boolean(screen.getByTestId('host-delegation-card').contains(node));
+}
+
 describe('DelegationCard', () => {
   it('shows the running host delegation with its agent mark and collapsed task', () => {
     renderCard(<DelegationCard delegation={running()} />);
 
-    expect(
-      screen.getByRole('group', { name: '委派给 Codex' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Codex' })).toBeInTheDocument();
     expect(screen.getByTestId('host-delegation-card')).toBeInTheDocument();
     expect(screen.getByTitle('Codex')).toBeInTheDocument();
     expect(screen.getByText('运行中')).toBeInTheDocument();
@@ -56,6 +58,35 @@ describe('DelegationCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '任务' }));
     expect(screen.getByTestId('markdown')).toHaveTextContent('Review the diff');
+  });
+
+  it('shows the full task and final result in the disclosure well', () => {
+    const task =
+      'Please introduce yourself to the user in Chinese. Goal: Write a brief self-introduction as Codex (OpenAI Codex). This is a social/intro request, not a coding task. Do not modify any files, run commands, or use tools.';
+    const result =
+      '你好，我是 Codex，OpenAI 的编程助手。我擅长编写、调试和审查代码。';
+    renderCard(
+      <DelegationCard
+        delegation={running({
+          task_preview: task,
+          status: 'completed',
+          result: {
+            kind: 'ok',
+            text_preview: result,
+            duration_ms: 1500n,
+          },
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent(task);
+    expect(screen.getByTestId('host-delegation-well').className).toContain(
+      'overflow-y-auto'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent(result);
   });
 
   it('renders the completion result preview and duration', () => {
@@ -130,15 +161,115 @@ describe('DelegationCard', () => {
       <DelegationCard delegation={running()} onOpenChild={onOpenChild} />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /打开子会话/ }));
+    fireEvent.click(screen.getByRole('button', { name: /查看会话/ }));
 
     expect(onOpenChild).toHaveBeenCalledWith('child-conversation-1');
+  });
+
+  it('puts the agent name, status, and view action on one header row', () => {
+    renderCard(
+      <DelegationCard
+        delegation={running({
+          status: 'completed',
+          result: {
+            kind: 'ok',
+            text_preview: 'All good',
+            duration_ms: 1500n,
+          },
+        })}
+        onOpenChild={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('group', { name: 'Codex' })).toBeInTheDocument();
+    expect(screen.queryByText('委派给 Codex')).toBeNull();
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /查看会话/ })
+    ).toBeInTheDocument();
+    expect(screen.getByText('耗时 1.5 秒')).toBeInTheDocument();
+  });
+
+  it('keeps the icon in a left column and duration on the task row', () => {
+    renderCard(
+      <DelegationCard
+        delegation={running({
+          status: 'completed',
+          result: {
+            kind: 'ok',
+            text_preview: 'All good',
+            duration_ms: 1500n,
+          },
+        })}
+        onOpenChild={vi.fn()}
+      />
+    );
+
+    const body = screen.getByTestId('host-delegation-body');
+    expect(body.className).toContain('px-5');
+    expect(body.className).toContain('py-4');
+
+    const icon = screen.getByTestId('host-delegation-agent-icon');
+    const name = screen.getByTestId('host-delegation-agent-name');
+    expect(name.className).toContain('host-delegation-wide-only');
+    const open = screen.getByRole('button', { name: /查看会话/ });
+    const task = screen.getByRole('button', { name: '任务' });
+    const result = screen.getByRole('button', { name: '结果' });
+    const duration = screen.getByTestId('host-delegation-duration');
+
+    expect(icon.className).toContain('self-center');
+    expect(
+      icon.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      name.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(open.className).toContain('text-[11px]');
+    expect(task.className).toContain('text-xs');
+    expect(result.className).toContain('text-xs');
+    expect(duration.className).toContain('text-xs');
+    expect(duration.closest('.host-delegation-wide-only')).not.toBeNull();
+    expect(
+      task.compareDocumentPosition(duration) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('opens task and result copy inside the card well', () => {
+    renderCard(
+      <DelegationCard
+        delegation={running({
+          status: 'completed',
+          result: {
+            kind: 'ok',
+            text_preview: 'All good',
+            duration_ms: 1500n,
+          },
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId('host-delegation-well')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    const well = screen.getByTestId('host-delegation-well');
+    expect(well).toHaveTextContent('Review the diff');
+    expect(cardContains(well)).toBe(true);
+    expect(well.className).not.toContain('ml-8');
+    expect(well.className).not.toContain('host-delegation-wide-only');
+    expect(well.className).toContain('px-3');
+    expect(screen.getByTestId('host-delegation-body').contains(well)).toBe(
+      true
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByTestId('host-delegation-well')).toHaveTextContent(
+      'All good'
+    );
   });
 
   it('hides the open-child action when navigation is unavailable', () => {
     renderCard(<DelegationCard delegation={running()} />);
 
-    expect(screen.queryByRole('button', { name: /打开子会话/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /查看会话/ })).toBeNull();
   });
 
   it('cancels a running delegation through the active remote transport', async () => {

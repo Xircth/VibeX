@@ -7,6 +7,7 @@ import {
   foldSubagentLifecycle,
   formatSubagentDuration,
   formatTokenCount,
+  isCompanionMcpDiscoverySearch,
   isHostDelegationLifecycleTool,
   isHostDelegationTool,
   isNativeSubagentTool,
@@ -77,6 +78,69 @@ describe('subagent card model', () => {
     expect(
       isHostDelegationLifecycleTool(
         use('get_delegation_status', { task_ids: ['task-1'] })
+      )
+    ).toBe(true);
+    expect(
+      isHostDelegationTool(
+        use('mcp__vibex-delegation-mcp__delegate_to_agent', {
+          agent_type: 'codex',
+          task: 'look',
+        })
+      )
+    ).toBe(true);
+    expect(
+      isHostDelegationTool(
+        use(
+          'use_tool',
+          {
+            tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+            tool_input: { agent_type: 'codex', task: 'introduce yourself' },
+          },
+          { 'x.ai/tool': { name: 'use_tool' } }
+        )
+      )
+    ).toBe(true);
+    expect(
+      isHostDelegationLifecycleTool(
+        use('use_tool', {
+          tool_name: 'vibex-delegation-mcp__get_delegation_status',
+          tool_input: { task_ids: ['task-1'] },
+        })
+      )
+    ).toBe(true);
+    expect(
+      isNativeSubagentTool(
+        use('use_tool', {
+          tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+          tool_input: { agent_type: 'codex', task: 'look' },
+        })
+      )
+    ).toBe(false);
+    expect(
+      isCompanionMcpDiscoverySearch(
+        use('search_tool', { query: 'delegate_to_agent' })
+      )
+    ).toBe(true);
+    expect(
+      isCompanionMcpDiscoverySearch(
+        use('search_tool', { query: 'vibex-delegation-mcp' })
+      )
+    ).toBe(true);
+    expect(isCompanionMcpDiscoverySearch(use('search_tool', {}))).toBe(true);
+    expect(
+      isCompanionMcpDiscoverySearch(
+        use('codebase_search', { query: 'delegate_to_agent' })
+      )
+    ).toBe(true);
+    expect(
+      isCompanionMcpDiscoverySearch(use('search_tool', { query: 'grep rust' }))
+    ).toBe(false);
+    expect(
+      isHostDelegationTool(
+        use('use_tool', {
+          agent_type: 'codex',
+          task: 'introduce yourself',
+        })
       )
     ).toBe(true);
   });
@@ -279,7 +343,7 @@ describe('subagent card model', () => {
     expect(model.agentKind).toBe('grok');
   });
 
-  it('folds get_delegation_status onto delegate_to_agent and keeps a running poll running', () => {
+  it('keeps host MCP delegation off the native subagent fold', () => {
     const spawn = use('delegate_to_agent', {
       agent_type: 'grok',
       task: 'Review the diff',
@@ -287,46 +351,24 @@ describe('subagent card model', () => {
     spawn.tool_use_id = 'spawn-1';
     const poll = use('get_delegation_status', { task_ids: ['task-1'] });
     poll.tool_use_id = 'poll-1';
-    const spawnResult = result('{"task_id":"task-1","status":"running"}');
-    spawnResult.tool_use_id = 'spawn-1';
+    const envelope = use('use_tool', {
+      tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+      tool_input: { agent_type: 'codex', task: 'introduce yourself' },
+    });
+    envelope.tool_use_id = 'spawn-2';
 
-    const running = foldSubagentLifecycle([
-      { use: spawn, result: spawnResult },
+    const folded = foldSubagentLifecycle([
+      {
+        use: spawn,
+        result: result('{"task_id":"task-1","status":"running"}'),
+      },
       { use: poll, result: null },
+      { use: envelope, result: null },
     ]);
-    expect(running.hiddenToolUseIds.has('poll-1')).toBe(true);
-    expect(
-      applySubagentLifecycle(
-        buildSubagentCardModel(spawn, spawnResult),
-        running.cards[0].lifecycle
-      ).status
-    ).toBe('running');
-
-    const donePoll = result(
-      JSON.stringify({
-        tasks: [
-          {
-            task_id: 'task-1',
-            status: 'completed',
-            text: 'Review finished.',
-            duration_ms: 2100,
-          },
-        ],
-      })
-    );
-    donePoll.tool_use_id = 'poll-1';
-    const done = foldSubagentLifecycle([
-      { use: spawn, result: spawnResult },
-      { use: poll, result: donePoll },
-    ]);
-    const model = applySubagentLifecycle(
-      buildSubagentCardModel(spawn, spawnResult),
-      done.cards[0].lifecycle
-    );
-    expect(model.status).toBe('completed');
-    expect(model.resultText).toBe('Review finished.');
-    expect(model.durationMs).toBe(2100);
-    expect(model.agentKind).toBe('grok');
+    expect(folded.cards).toHaveLength(0);
+    expect(isHostDelegationTool(spawn)).toBe(true);
+    expect(isHostDelegationTool(envelope)).toBe(true);
+    expect(isHostDelegationLifecycleTool(poll)).toBe(true);
   });
 
   it('unwraps TaskOutput JSON into the child markdown, not the envelope', () => {

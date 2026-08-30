@@ -17,12 +17,18 @@ import type {
 import type { WorkspaceWithSession } from '@/types/attempt';
 import DisplayConversationEntry from './DisplayConversationEntry';
 import { DelegationCard } from './conversation/DelegationCard';
+import { HostDelegationLifecycleRow } from './conversation/HostDelegationLifecycleRow';
 import {
+  collectHostDelegationPollResults,
   isHostDelegationLifecycleTool,
   isHostDelegationTool,
   matchHostDelegationView,
   mergeHostDelegationView,
 } from './conversation/hostDelegation';
+import {
+  isCompanionMcpDiscoverySearch,
+  isCompanionSearchQuery,
+} from './tools/subagentCardModel';
 import { getToolSummary } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
@@ -267,74 +273,20 @@ function subagentChatStatus(status: SubagentStatus): ChatToolCallStatus {
 }
 
 function HostDelegationToolCall({
-  expansionKey,
-  label,
-  target,
   use,
   result,
   event,
+  pollResults,
   onOpenChild,
 }: {
-  expansionKey: string;
-  label: string;
-  target?: string;
   use: ToolUseBlock;
   result: ToolResultBlock | null;
   event: ConversationDelegationView | null;
+  pollResults: readonly ToolResultBlock[];
   onOpenChild?: (childConversationId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const delegation = mergeHostDelegationView(use, result, event);
-  const toggle = () => setExpanded((open) => !open);
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggle();
-    }
-  };
-  const status = delegationChatStatus(delegation.status);
-
-  return (
-    <div className="space-y-1">
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        aria-controls={expansionKey}
-        onClick={toggle}
-        onKeyDown={onKeyDown}
-        className="cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ChatToolCalls
-          calls={[
-            {
-              key: expansionKey,
-              name: label,
-              target,
-              status,
-            },
-          ]}
-        />
-      </div>
-      {expanded ? (
-        <div id={expansionKey}>
-          <DelegationCard delegation={delegation} onOpenChild={onOpenChild} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function delegationChatStatus(status: string): ChatToolCallStatus {
-  if (status === 'failed') return 'error';
-  if (
-    status === 'completed' ||
-    status === 'canceled' ||
-    status === 'cancelled'
-  ) {
-    return 'complete';
-  }
-  return 'running';
+  const delegation = mergeHostDelegationView(use, result, event, pollResults);
+  return <DelegationCard delegation={delegation} onOpenChild={onOpenChild} />;
 }
 
 function SubagentToolCall({
@@ -431,6 +383,7 @@ export function TurnToolCalls({
   task,
   workspacePath,
   delegations = [],
+  pollResults: suppliedPollResults,
   onOpenChild,
 }: {
   turnId: string;
@@ -441,6 +394,7 @@ export function TurnToolCalls({
   task: TaskWithAttemptStatus | null;
   workspacePath?: string | null;
   delegations?: ConversationDelegationView[];
+  pollResults?: readonly ToolResultBlock[];
   onOpenChild?: (childConversationId: string) => void;
 }) {
   const { t } = useTranslation('conversation');
@@ -476,11 +430,23 @@ export function TurnToolCalls({
       )
     );
   }, [entries, lifecycleIndex.events]);
+  const hostLifecycleEntries = useMemo(
+    () => entries.filter((entry) => isHostDelegationLifecycleTool(entry.use)),
+    [entries]
+  );
   const regularEntries = useMemo(
     () =>
       entries.filter((entry) => {
         if (entry.isHostDelegation) return false;
         if (isHostDelegationLifecycleTool(entry.use)) return false;
+        if (isCompanionMcpDiscoverySearch(entry.use)) return false;
+        if (
+          entry.entry.entry_type.type === 'tool_use' &&
+          entry.entry.entry_type.action_type.action === 'search' &&
+          isCompanionSearchQuery(entry.entry.entry_type.action_type.query)
+        ) {
+          return false;
+        }
         if (entry.isSubagent) return false;
         if (!isSubagentLifecycleTool(entry.use)) return true;
         if (entry.toolUseId && folded.hiddenToolUseIds.has(entry.toolUseId)) {
@@ -497,6 +463,14 @@ export function TurnToolCalls({
   const hostDelegationEntries = useMemo(
     () => entries.filter((entry) => entry.isHostDelegation),
     [entries]
+  );
+  const pollResults = useMemo(
+    () =>
+      suppliedPollResults ??
+      collectHostDelegationPollResults(
+        entries.map(({ use, result }) => ({ use, result }))
+      ),
+    [entries, suppliedPollResults]
   );
   const subagentEntries = useMemo(
     () =>
@@ -620,29 +594,23 @@ export function TurnToolCalls({
 
   return (
     <div className="conv-entry-item vibex-turn-tool-calls space-y-1">
-      {hostDelegationEntries.map(({ use, result, toolUseId, index, entry }) => {
-        const toolEntry =
-          entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
-        const summary = toolEntry
-          ? getToolSummary(toolEntry, entry.content.trim())
-          : { label: t('delegationCard.subAgentDelegation'), detail: '' };
-        return (
-          <HostDelegationToolCall
-            key={toolUseId || `${turnId}-delegation-${index}`}
-            expansionKey={`${turnId}-delegation-${toolUseId || index}`}
-            label={summary.label}
-            target={
-              summary.detail && summary.detail !== summary.label
-                ? summary.detail
-                : undefined
-            }
-            use={use}
-            result={result}
-            event={matchHostDelegationView(use, delegations)}
-            onOpenChild={onOpenChild}
-          />
-        );
-      })}
+      {hostDelegationEntries.map(({ use, result, toolUseId, index }) => (
+        <HostDelegationToolCall
+          key={toolUseId || `${turnId}-delegation-${index}`}
+          use={use}
+          result={result}
+          event={matchHostDelegationView(use, delegations)}
+          pollResults={pollResults}
+          onOpenChild={onOpenChild}
+        />
+      ))}
+      {hostLifecycleEntries.map(({ use, result, toolUseId, index }) => (
+        <HostDelegationLifecycleRow
+          key={toolUseId || `${turnId}-delegation-status-${index}`}
+          use={use}
+          result={result}
+        />
+      ))}
       {subagentEntries.map(({ use, result, lifecycle, toolUseId, index }) => {
         const match = entries.find(
           (entry) => entry.use.tool_use_id === use.tool_use_id

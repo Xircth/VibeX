@@ -34,6 +34,21 @@ test('desktop release version has one value across frontend, Tauri, and Cargo', 
   assert.doesNotMatch(cefStager, /Version::new\(0,\s*1,\s*0\)/);
 });
 
+test('installed desktop identity stays distinct from the development instance', () => {
+  const config = readJson('src-tauri/tauri.conf.json');
+  const cefStager = read('crates/browser-cef/src/bin/stage_cef_runtime.rs');
+  const macosRunner = read('scripts/run-tauri-dev-macos.js');
+  const packagingStager = read('scripts/stage-cef-runtime.js');
+
+  assert.equal(config.identifier, 'com.vibex.app');
+  assert.equal(config.productName, 'VibeX');
+  assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['vibex']);
+  assert.match(cefStager, /com\.vibex\.app\.dev/);
+  assert.match(cefStager, /--dev-bundle/);
+  assert.match(macosRunner, /--dev-bundle/);
+  assert.doesNotMatch(packagingStager, /--dev-bundle/);
+});
+
 test('Windows installer is self-contained for WebView2', () => {
   const config = readJson('src-tauri/tauri.windows.conf.json');
 
@@ -47,6 +62,11 @@ test('macOS bundle declares its minimum supported system version', () => {
   const config = readJson('src-tauri/tauri.macos.conf.json');
 
   assert.match(config.bundle?.macOS?.minimumSystemVersion ?? '', /^\d+\.\d+$/);
+  assert.equal(
+    config.bundle?.macOS?.entitlements,
+    'entitlements.macos.plist'
+  );
+  assert.equal(fs.existsSync(path.join(repoRoot, 'src-tauri', 'entitlements.macos.plist')), true);
 });
 
 test('Linux Debian package declares the XWayland runtime required by CEF', () => {
@@ -80,6 +100,22 @@ test('desktop release builds every supported OS and CPU architecture', () => {
   ]) {
     assert.match(updater, new RegExp(`platform: ['"]${platform}['"]`));
   }
+});
+
+test('local Apple signing is loaded from gitignored env without committing secrets', () => {
+  const gitignore = read('.gitignore');
+  const example = read('.env.example');
+  const desktopDev = read('scripts/run-tauri-dev-desktop.js');
+  const desktopBuild = read('scripts/run-tauri-build.js');
+
+  assert.match(gitignore, /^\.env\.local$/m);
+  assert.match(example, /APPLE_SIGNING_IDENTITY=/);
+  assert.match(example, /APPLE_API_KEY=/);
+  assert.match(example, /APPLE_API_ISSUER=/);
+  assert.match(example, /APPLE_API_KEY_PATH=/);
+  assert.match(desktopDev, /applyLocalEnvFile/);
+  assert.match(desktopBuild, /applyLocalEnvFile/);
+  assert.equal(fs.existsSync(path.join(repoRoot, 'scripts', 'load-local-env.js')), true);
 });
 
 test('desktop release signs and verifies macOS and Windows artifacts', () => {

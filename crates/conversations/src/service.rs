@@ -540,12 +540,23 @@ pub async fn create_delegated_conversation(
     };
     let normalized_json = serde_json::to_string(&relation)?;
     let relation_key = format!("conversation-relation-delegation:{}", input.id);
+    let turn_id = Uuid::new_v4();
+    let conversation_blocks = vec![ConversationInputBlock::Text {
+        text: input.prompt.clone(),
+    }];
+    let conversation_blocks_json = serde_json::to_string(&conversation_blocks)?;
+    let created_event = ConversationEvent::UserTurnCreated {
+        blocks: conversation_blocks,
+        workflow_refs: Vec::new(),
+    };
+    let created_json = serde_json::to_string(&created_event)?;
+    let created_key = format!("turn:{turn_id}:created");
     let session = CreateSession {
         executor: None,
         agent_id: Some(input.agent_id),
         task_id: parent.task_id,
         name: None,
-        initial_prompt: Some(input.prompt),
+        initial_prompt: Some(input.prompt.clone()),
         status: Some(SessionStatus::InProgress),
     };
     let mut conn = pool.acquire().await?;
@@ -562,6 +573,36 @@ pub async fn create_delegated_conversation(
         )
         .await
         .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        ConversationTurnRecord::create_pending_on_connection(
+            &mut conn,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id: input.id,
+                prompt_id: None,
+                text_preview: Some(&input.prompt),
+                input_blocks_json: &conversation_blocks_json,
+            },
+        )
+        .await?;
+        ConversationRecord::update_active_turn_on_connection(&mut conn, input.id, Some(turn_id))
+            .await?;
+        ConversationEventAppender::append_and_apply(
+            &mut conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: input.id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "user",
+                event_kind: "user_turn_created",
+                normalized_json: &created_json,
+                raw_json: None,
+                idempotency_key: Some(&created_key),
+            },
+        )
+        .await?;
         ConversationEventAppender::append_and_apply(
             &mut conn,
             AppendConversationEvent {

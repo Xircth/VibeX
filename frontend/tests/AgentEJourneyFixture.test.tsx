@@ -37,7 +37,7 @@ describe('Agent E desktop journey', () => {
       'fixture_delegate'
     );
     const openChildButtons = screen.getAllByRole('button', {
-      name: '打开子会话',
+      name: '查看会话',
     });
     await user.click(openChildButtons[1]);
     expect(
@@ -51,9 +51,7 @@ describe('Agent E desktop journey', () => {
       expect(screen.getByText('已完成')).toBeVisible();
       expect(screen.getByText('已取消')).toBeVisible();
     });
-    expect(screen.getByRole('group', { name: '委派给 Codex' })).toBeVisible();
-    expect(
-      screen.getByRole('group', { name: '委派给 Claude Code' })
-    ).toBeVisible();
+    expect(screen.getByRole('group', { name: 'Codex' })).toBeVisible();
+    expect(screen.getByRole('group', { name: 'Claude Code' })).toBeVisible();
   });
 });

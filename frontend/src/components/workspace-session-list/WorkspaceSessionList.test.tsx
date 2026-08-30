@@ -48,6 +48,7 @@ function session(
     workspaceName: currentWorkspace.name ?? currentWorkspace.branch,
     workspaceDisplayLabel: `${currentWorkspace.name ?? currentWorkspace.branch} · ${currentWorkspace.branch}`,
     executor: 'grok',
+    agentId: null,
     updatedAt: '2026-08-17T12:00:00Z',
     createdAt: '2026-08-17T10:00:00Z',
     firstPrompt: 'Double Password Prompt on Project Login',
@@ -119,6 +120,31 @@ describe('WorkspaceSessionList', () => {
         name: /Modify Plan component styles/,
       })
     ).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('shows the delegated agent mark when executor is empty', () => {
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 's-child',
+            executor: null,
+            agentId: 'codex',
+            firstPrompt: 'Please introduce yourself',
+            fullName: 'Please i',
+            shortName: 'Please i',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId="s-child"
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('img', { name: 'Codex', hidden: true })
+    ).toBeInTheDocument();
   });
 
   it('collapses a workspace group and remembers the choice', () => {

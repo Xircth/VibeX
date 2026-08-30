@@ -20,6 +20,7 @@ vi.mock('../AstryxMarkdown', () => ({
 
 function timelineMock(overrides: Record<string, unknown> = {}) {
   return {
+    agentId: 'codex',
     timeline: [
       {
         key: 'user-1',
@@ -83,7 +84,17 @@ describe('ChildConversationViewer', () => {
     );
 
     expect(useConversationTimeline).toHaveBeenCalledWith('child-1');
-    expect(screen.getByTestId('child-conversation-viewer')).toBeInTheDocument();
+    const dialog = screen.getByTestId('child-conversation-viewer');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    const backdrop = screen.getByTestId('child-conversation-backdrop');
+    expect(backdrop.className).toContain('inset-0');
+    expect(backdrop.className).toContain('backdrop-blur-md');
+    expect(dialog.className).toContain('bg-[var(--surface-control)]');
+    expect(screen.getByTestId('child-conversation-thread').className).toContain(
+      'rounded-xl'
+    );
+    expect(screen.getByRole('heading', { name: 'Codex' })).toBeInTheDocument();
     expect(screen.getByText('Review the diff')).toBeInTheDocument();
     expect(screen.getByText('Looking at the files…')).toBeInTheDocument();
 
@@ -104,5 +115,62 @@ describe('ChildConversationViewer', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('covers the conversation region so the composer does not leak through', () => {
+    const region = document.createElement('div');
+    region.className = 'right-panel-conversation-region relative';
+    document.body.appendChild(region);
+    const onClose = vi.fn();
+    const view = render(
+      <ChildConversationViewer
+        conversationId="child-1"
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+        onClose={onClose}
+      />
+    );
+
+    expect(
+      region.querySelector('[data-testid="child-conversation-backdrop"]')
+    ).toBeInTheDocument();
+    view.unmount();
+    region.remove();
+  });
+
+  it('shows the delegated task as a user message when the child has no user turn', () => {
+    useConversationTimeline.mockImplementation(() =>
+      timelineMock({
+        timeline: [
+          {
+            key: 'assistant-1',
+            phase: 'settled',
+            revision: 1n,
+            turn: {
+              id: 'turn-1:assistant',
+              role: 'assistant',
+              blocks: [{ type: 'text', text: '你好，我是 Codex' }],
+              timestamp: '2026-08-24T00:00:01.000Z',
+            },
+          },
+        ],
+        items: [],
+      })
+    );
+
+    render(
+      <ChildConversationViewer
+        conversationId="child-1"
+        taskPreview="Please introduce yourself to the user in Chinese."
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText('Please introduce yourself to the user in Chinese.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('你好，我是 Codex')).toBeInTheDocument();
   });
 });

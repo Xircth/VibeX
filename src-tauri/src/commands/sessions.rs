@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use api_types::AgentId;
 use db::models::{
     conversation_turn::ConversationTurnRecord,
     execution_process::ExecutionProcess,
@@ -27,6 +28,7 @@ pub struct SessionSummary {
     pub display_name: String,
     pub status: SessionStatus,
     pub executor: Option<String>,
+    pub agent_id: Option<AgentId>,
     pub workspace_name: Option<String>,
     pub workspace_branch: String,
     pub created_at: DateTime<Utc>,
@@ -560,6 +562,7 @@ pub async fn get_session_summaries(
             ),
             status: session.status.clone(),
             executor: session.executor.clone(),
+            agent_id: session.agent_id.clone(),
             workspace_name: workspace.name.clone(),
             workspace_branch: workspace.branch.clone(),
             created_at: session.created_at,

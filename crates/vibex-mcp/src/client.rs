@@ -1,7 +1,24 @@
 //! Thin client for the companion → broker socket. Connects per call, frames one
 //! [`BrokerMessage`], and reads one [`BrokerResponse`] back.
 
+use std::time::Duration;
+
 use delegation_proto::{BrokerMessage, BrokerResponse, read_frame, write_frame};
+
+/// Workspace reqwest is rustls `no-provider`. Sidecar processes must install a
+/// crypto provider before any TLS client is built, same as the Host binary.
+pub fn install_rustls_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
+fn http_client() -> std::io::Result<reqwest::Client> {
+    install_rustls_crypto_provider();
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}
 
 /// POST one broker message to the Host HTTP companion endpoint.
 pub async fn call_http(
@@ -12,7 +29,7 @@ pub async fn call_http(
     message: &BrokerMessage,
 ) -> std::io::Result<BrokerResponse> {
     let url = format!("{}/internal/companion", server_url.trim_end_matches('/'));
-    let mut request = reqwest::Client::new().post(url).json(message);
+    let mut request = http_client()?.post(url).json(message);
     if let Some(token) = server_token {
         request = request.bearer_auth(token);
     }

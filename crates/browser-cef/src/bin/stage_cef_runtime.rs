@@ -1,6 +1,57 @@
 #[cfg(feature = "cef-host")]
 use std::{env, fs, path::PathBuf};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DesktopBundleIdentity {
+    display_name: &'static str,
+    identifier: &'static str,
+    name: &'static str,
+}
+
+struct StageArgs {
+    dev_bundle: bool,
+    profile: String,
+}
+
+fn parse_stage_args<I>(args: I) -> Result<StageArgs, Box<dyn std::error::Error>>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut profile = "release".to_string();
+    let mut dev_bundle = false;
+    let mut saw_profile = false;
+    for arg in args {
+        match arg.as_str() {
+            "--dev-bundle" => dev_bundle = true,
+            "debug" | "release" if !saw_profile => {
+                profile = arg;
+                saw_profile = true;
+            }
+            other => return Err(format!("unsupported argument: {other}").into()),
+        }
+    }
+    Ok(StageArgs {
+        dev_bundle,
+        profile,
+    })
+}
+
+fn desktop_bundle_identity(dev_bundle: bool) -> DesktopBundleIdentity {
+    if dev_bundle {
+        DesktopBundleIdentity {
+            display_name: "VibeX Dev",
+            identifier: "com.vibex.app.dev",
+            name: "VibeX Dev",
+        }
+    } else {
+        DesktopBundleIdentity {
+            display_name: "VibeX",
+            identifier: "com.vibex.app",
+            name: "VibeX",
+        }
+    }
+}
+
 #[cfg(not(feature = "cef-host"))]
 fn main() {
     panic!("stage_cef_runtime requires the cef-host feature");
@@ -8,10 +59,11 @@ fn main() {
 
 #[cfg(feature = "cef-host")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let profile = env::args().nth(1).unwrap_or_else(|| "release".to_string());
-    if profile != "debug" && profile != "release" {
-        return Err(format!("unsupported Cargo profile: {profile}").into());
-    }
+    let StageArgs {
+        dev_bundle,
+        profile,
+    } = parse_stage_args(env::args().skip(1))?;
+    let identity = desktop_bundle_identity(dev_bundle);
     let workspace = workspace_root()?;
     let target_root = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
@@ -23,9 +75,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stage_root = target_root.join("cef-runtime").join(env::consts::OS);
     fs::create_dir_all(&stage_root)?;
 
-    let required_files = stage_platform_runtime(&stage_root, &target_path, &workspace)?;
+    let required_files = stage_platform_runtime(&stage_root, &target_path, &workspace, identity)?;
     let manifest = serde_json::json!({
         "schemaVersion": 1,
+        "bundleIdentifier": identity.identifier,
         "cefVersion": "150.2.1+150.0.14",
         "platform": env::consts::OS,
         "architecture": env::consts::ARCH,
@@ -71,6 +124,7 @@ fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
     workspace: &std::path::Path,
+    identity: DesktopBundleIdentity,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     use std::os::unix::fs::symlink;
 
@@ -101,7 +155,13 @@ fn stage_platform_runtime(
         "vibex",
         "vibex_cef_helper",
         None,
-        BundleInfo::new("VibeX", "com.vibex.app", "VibeX", "en", app_version),
+        BundleInfo::new(
+            identity.name,
+            identity.identifier,
+            identity.display_name,
+            "en",
+            app_version,
+        ),
     )?;
     let frameworks = app_root.join("vibex.app/Contents/Frameworks");
     let framework_helpers = frameworks
@@ -131,6 +191,37 @@ fn stage_platform_runtime(
         "app/vibex.app/Contents/Frameworks/Chromium Embedded Framework.framework/Helpers/vibex Helper.app/Contents/MacOS/vibex Helper",
         "framework-links/vibex Helper.app",
     ])
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::{desktop_bundle_identity, parse_stage_args};
+
+    #[test]
+    fn product_and_dev_bundles_use_distinct_identifiers() {
+        let product = desktop_bundle_identity(false);
+        let dev = desktop_bundle_identity(true);
+        assert_eq!(product.identifier, "com.vibex.app");
+        assert_eq!(product.name, "VibeX");
+        assert_eq!(dev.identifier, "com.vibex.app.dev");
+        assert_eq!(dev.name, "VibeX Dev");
+        assert_ne!(product.identifier, dev.identifier);
+    }
+
+    #[test]
+    fn parse_stage_args_defaults_to_the_product_release_bundle() {
+        let args = parse_stage_args(std::iter::empty::<String>()).expect("empty args");
+        assert_eq!(args.profile, "release");
+        assert!(!args.dev_bundle);
+    }
+
+    #[test]
+    fn parse_stage_args_accepts_dev_bundle_after_the_profile() {
+        let args = parse_stage_args(["debug".to_string(), "--dev-bundle".to_string()])
+            .expect("dev bundle args");
+        assert_eq!(args.profile, "debug");
+        assert!(args.dev_bundle);
+    }
 }
 
 #[cfg(all(test, feature = "cef-host"))]
@@ -180,6 +271,7 @@ fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
     _workspace: &std::path::Path,
+    _identity: DesktopBundleIdentity,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     let executable = cef::build_util::linux::bundle(stage_root, target_path, "vibex")?;
     fs::remove_file(executable)?;
@@ -196,6 +288,7 @@ fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
     _workspace: &std::path::Path,
+    _identity: DesktopBundleIdentity,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     let executable = cef::build_util::win::bundle(stage_root, target_path, "vibex")?;
     fs::remove_file(executable)?;

@@ -121,8 +121,9 @@
 }
 
 /* Top-level entries line up with prose; DisplayConversationEntry adds padding
-   for legacy list contexts, so remove the duplicate inset in a message turn. */
-.conv-assistant-body > .conv-entry-item > div {
+   for legacy list contexts, so remove the duplicate inset in a message turn.
+   Product cards such as host delegation own their inset and must keep it. */
+.conv-assistant-body > .conv-entry-item > div:not(.host-delegation-card) {
   padding-left: 0 !important;
   padding-right: 0 !important;
 }

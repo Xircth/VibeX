@@ -11,7 +11,7 @@ use agents::{
     events::{AgentContentBlock, AgentEvent},
     runtime::AgentRuntime,
 };
-use delegation::{DelegationBroker, outcome_from_turn};
+use delegation::{AssistantReplyAccumulator, DelegationBroker, outcome_from_turn};
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
@@ -24,8 +24,7 @@ pub(crate) fn spawn_resolver(
 ) {
     tauri::async_runtime::spawn(async move {
         let mut events = runtime.subscribe_events();
-        // Accumulated assistant text per delegated child session.
-        let mut texts: HashMap<Uuid, String> = HashMap::new();
+        let mut replies: HashMap<Uuid, AssistantReplyAccumulator> = HashMap::new();
         loop {
             let envelope = match events.recv().await {
                 Ok(envelope) => envelope,
@@ -40,13 +39,20 @@ pub(crate) fn spawn_resolver(
                     content: AgentContentBlock::Text { text },
                 } => {
                     if map.lock().await.contains_key(&session_id) {
-                        texts.entry(session_id).or_default().push_str(&text);
+                        replies.entry(session_id).or_default().push_text(&text);
+                    }
+                }
+                AgentEvent::ToolCall { .. } => {
+                    if map.lock().await.contains_key(&session_id)
+                        && let Some(reply) = replies.get_mut(&session_id)
+                    {
+                        reply.start_tool();
                     }
                 }
                 AgentEvent::PromptFinished { finished } => {
                     let entry = map.lock().await.remove(&session_id);
                     if let Some((call_id, agent_type)) = entry {
-                        let body = texts.remove(&session_id).unwrap_or_default();
+                        let body = replies.remove(&session_id).unwrap_or_default().finish();
                         let outcome = outcome_from_turn(
                             finished.stop_reason.as_deref(),
                             body,

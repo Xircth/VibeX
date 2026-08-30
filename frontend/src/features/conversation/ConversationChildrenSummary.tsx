@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, Bot, Clock3 } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationRelationView } from 'shared/types';
 
-import { Button } from '@/components/ui/button';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { cn } from '@/lib/utils';
 
@@ -75,19 +74,12 @@ export function summarizeConversationChildren(
   };
 }
 
-function statusTone(status: string) {
-  if (status === 'done') return 'text-emerald-700 dark:text-emerald-400';
-  if (status === 'inprogress') return 'text-blue-700 dark:text-blue-400';
-  if (status === 'inreview') return 'text-amber-700 dark:text-amber-400';
-  return 'text-muted-foreground';
-}
-
 export function ConversationChildrenSummary({
   conversationId,
   onOpenChild,
 }: {
   conversationId: string;
-  onOpenChild?: (conversationId: string, workspaceId: string) => void;
+  onOpenChild?: (conversationId: string, workspaceId?: string) => void;
 }) {
   const { t } = useTranslation('conversation');
   const [relations, setRelations] = useState<ConversationRelationView[]>([]);
@@ -116,77 +108,82 @@ export function ConversationChildrenSummary({
   if (children.length === 0) return null;
 
   return (
-    <section className="mb-3 overflow-hidden rounded-lg border border-border/70 bg-card/60">
-      <header className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium">
-          <Bot className="size-3.5 text-muted-foreground" />
-          {t('children.title', { count: children.length })}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px]">
-          {budget ? (
-            <span className="text-muted-foreground">
-              {t('children.budget', {
-                callsUsed: budget.callsUsed,
-                maxCalls: budget.maxCalls,
-                active: budget.activeChildren,
-                maxActive: budget.maxActiveChildren,
-              })}
-            </span>
-          ) : null}
-          {waitingCount > 0 ? (
-            <span className="text-amber-700 dark:text-amber-400">
-              {t('children.waiting', { count: waitingCount })}
-            </span>
-          ) : null}
+    <section
+      className="composer-status-row text-xs"
+      data-tone="info"
+      data-testid="conversation-children-summary"
+      role="status"
+    >
+      <div className="composer-status-header">
+        <div className="composer-status-heading">
+          <p className="composer-status-title">
+            {t('children.title', { count: children.length })}
+          </p>
           {activeCount > 0 ? (
-            <span className="flex items-center gap-1 text-blue-700 dark:text-blue-400">
-              <Clock3 className="size-3" />
+            <span className="text-[11px] text-muted-foreground">
               {t('children.active', { count: activeCount })}
             </span>
           ) : null}
+          {waitingCount > 0 ? (
+            <span className="text-[11px] text-muted-foreground">
+              {t('children.waiting', { count: waitingCount })}
+            </span>
+          ) : null}
         </div>
-      </header>
-      <div className="divide-y divide-border/60">
-        {children.map((relation) => (
-          <div
-            key={relation.id}
-            className="flex min-w-0 items-center justify-between gap-3 px-3 py-2"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-xs font-medium">
-                {relation.child.title || t('children.untitled')}
-              </div>
-              <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-muted-foreground">
-                <span className={cn(statusTone(relation.child.status))}>
-                  {t(`children.status.${relation.child.status}`)}
+        {budget ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {t('children.budget', {
+              callsUsed: budget.callsUsed,
+              maxCalls: budget.maxCalls,
+              active: budget.activeChildren,
+              maxActive: budget.maxActiveChildren,
+            })}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1 space-y-0.5">
+        {children.map((relation) => {
+          const title = relation.child.title || t('children.untitled');
+          const open = onOpenChild
+            ? () =>
+                onOpenChild(
+                  relation.childConversationId,
+                  relation.child.workspaceId
+                )
+            : undefined;
+          return (
+            <button
+              key={relation.id}
+              type="button"
+              className={cn(
+                'flex w-full min-w-0 items-center gap-2 rounded-md px-0 py-1 text-left',
+                open
+                  ? 'hover:text-foreground'
+                  : 'cursor-default text-muted-foreground'
+              )}
+              onClick={open}
+              disabled={!open}
+              aria-label={`${t('children.open')}: ${title}`}
+            >
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                {title}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {t(`children.status.${relation.child.status}`)}
+              </span>
+              {relation.child.queuedInputCount > 0n ? (
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {t('children.queued', {
+                    count: String(relation.child.queuedInputCount),
+                  })}
                 </span>
-                {relation.child.queuedInputCount > 0n ? (
-                  <span>
-                    {t('children.queued', {
-                      count: String(relation.child.queuedInputCount),
-                    })}
-                  </span>
-                ) : null}
-                <span>{relation.kind}</span>
-              </div>
-            </div>
-            {onOpenChild ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label={t('children.open')}
-                onClick={() =>
-                  onOpenChild(
-                    relation.childConversationId,
-                    relation.child.workspaceId
-                  )
-                }
-              >
-                <ArrowUpRight className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-        ))}
+              ) : null}
+              {open ? (
+                <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+              ) : null}
+            </button>
+          );
+        })}
       </div>
     </section>
   );

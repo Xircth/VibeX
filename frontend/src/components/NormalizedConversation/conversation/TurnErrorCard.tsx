@@ -34,8 +34,9 @@ export function TurnErrorCard({
   const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
   const view = describeError(error, t);
-  const showRebind = view.canRebind && onRebind;
-  const showReload = !showRebind && view.canReload && onReload;
+  const showRebind = view.tone === 'error' && view.canRebind && onRebind;
+  const showReload =
+    view.tone === 'error' && !showRebind && view.canReload && onReload;
 
   const handleReload = () => {
     const action = showRebind ? onRebind : onReload;

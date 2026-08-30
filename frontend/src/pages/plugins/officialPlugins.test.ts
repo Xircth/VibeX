@@ -87,6 +87,16 @@ describe('official plugin presentation', () => {
   it('exposes package structure only for public repository origins', () => {
     expect(isOpenSourcePluginOrigin({ sourceKind: 'github' })).toBe(true);
     expect(
+      isOpenSourcePluginOrigin({ sourceKind: 'upload', showTree: true })
+    ).toBe(true);
+    expect(
+      isOpenSourcePluginOrigin({
+        sourceKind: 'marketplace',
+        sourceShowTree: false,
+        sourceOrigin: 'https://github.com/acme/notes',
+      })
+    ).toBe(false);
+    expect(
       isOpenSourcePluginOrigin({
         sourceKind: 'marketplace',
         sourceOrigin: 'https://github.com/acme/notes',

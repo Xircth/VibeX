@@ -207,7 +207,7 @@ describe('VersionControlSettings', () => {
 
     expect(
       screen.getByText(
-        '检测未提交更改数量并通过设置-指令中的 #commit_changes 发送提醒'
+        '检测未提交更改数量并通过设置-快捷指令中的 #commit_changes 发送提醒'
       )
     ).toBeInTheDocument();
     expect(screen.queryByText('提交指令')).not.toBeInTheDocument();

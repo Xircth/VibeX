@@ -60,7 +60,7 @@ impl DelegationInjector for VibexDelegationInjector {
                 )),
                 "session" => {
                     let bits = binding.features;
-                    let features = session_feature_arg(bits);
+                    let features = plugins::session_feature_arg(bits);
                     if !features.is_empty() {
                         servers.push(self.product_server(
                             context,
@@ -190,19 +190,6 @@ impl VibexDelegationInjector {
     }
 }
 
-fn session_feature_arg(bits: u8) -> String {
-    [
-        (bits & SESSION_FEAT_FEEDBACK != 0, "feedback"),
-        (bits & SESSION_FEAT_ASK != 0, "ask"),
-        (bits & SESSION_FEAT_SESSIONS != 0, "sessions"),
-        (bits & SESSION_FEAT_SESSION_CONTROL != 0, "session-control"),
-    ]
-    .into_iter()
-    .filter_map(|(enabled, name)| enabled.then_some(name))
-    .collect::<Vec<_>>()
-    .join(",")
-}
-
 pub(crate) fn locate_vibex_mcp_binary() -> PathBuf {
     utils::host_bin::locate_host_family_binary("vibex-mcp")
 }
@@ -315,6 +302,22 @@ mod tests {
                 code: "official_product_mcp_disabled"
             }
         );
+    }
+
+    #[test]
+    fn grok_still_receives_acp_session_injection() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+        };
+        let agent = AgentId::parse("grok").unwrap();
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected ACP injection for Grok");
+        };
+        assert_eq!(servers[0].name, "vibex-delegation-mcp");
     }
 
     #[test]

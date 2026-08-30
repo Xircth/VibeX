@@ -99,9 +99,11 @@ Required keys:
 - `APPLE_TEAM_ID` — 10-character Team ID
 
 `pnpm run dev` re-signs the CEF development bundle with that identity and
-does not notarize. `pnpm run tauri:build` uses the same environment for
-Developer ID signing and notarization. Existing process environment variables
-always override `.env.local`.
+does not notarize. `pnpm run tauri:build` uses the same identity for Developer
+ID signing, then notarizes with `notarytool --wait --timeout 3600` and builds
+the `.dmg` with `hdiutil`. Tauri's unbounded notary wait and `bundle_dmg.sh`
+path are not used, so a stuck Apple submission fails the job instead of hanging
+the runner. Existing process environment variables always override `.env.local`.
 
 `pnpm run dev` launches **VibeX Dev** (`com.vibex.app.dev`, `vibex-dev://`)
 as a separate desktop identity from the installed app (`com.vibex.app`,

@@ -173,11 +173,11 @@ jobs:
           - artifact_name: macos-x64
             runner: macos-15-intel
             target: x86_64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - artifact_name: macos-arm64
             runner: macos-15
             target: aarch64-apple-darwin
-            bundles: app,dmg
+            bundles: app
 
     steps:
       - name: Checkout repository
@@ -254,8 +254,6 @@ jobs:
           security find-identity -v -p codesigning "$keychain_path"
 
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          printf 'APPLE_API_ISSUER=%s\n' "$APPLE_API_ISSUER" >> "$GITHUB_ENV"
-          printf 'APPLE_API_KEY=%s\n' "$APPLE_API_KEY" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
           echo "VIBEX_MACOS_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
@@ -307,8 +305,20 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY: ""
+          APPLE_API_ISSUER: ""
+          APPLE_API_KEY_PATH: ""
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Notarize macOS app and create DMG
+        if: runner.os == 'macOS'
+        timeout-minutes: 100
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+        run: node scripts/macos-notarize-and-dmg.js --target ${{ matrix.target }}
 
       - name: Sign Windows installers with EVSign
         if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_method == 'evsign' }}

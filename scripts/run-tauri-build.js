@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const { withNativeBuildEnv } = require("./cargo-path");
 const { applyLocalEnvFile } = require("./load-local-env");
+const {
+  macosTauriBundles,
+  macosWantsDmg,
+  withoutAppleNotaryEnv,
+} = require("./macos-notarize-and-dmg");
 
 const workspaceRoot = path.join(__dirname, "..");
 const sqlxOfflineDir = path.join(workspaceRoot, "crates", "db", ".sqlx");
@@ -50,6 +55,43 @@ function getTarget(args) {
   return null;
 }
 
+function getBundlesArg(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--bundles" || arg === "-b") {
+      return args[index + 1] || null;
+    }
+    if (arg.startsWith("--bundles=")) {
+      return arg.slice("--bundles=".length) || null;
+    }
+  }
+  return null;
+}
+
+function replaceBundlesArg(args, nextBundles) {
+  const next = [];
+  let replaced = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--bundles" || arg === "-b") {
+      next.push(arg, nextBundles);
+      index += 1;
+      replaced = true;
+      continue;
+    }
+    if (arg.startsWith("--bundles=")) {
+      next.push(`--bundles=${nextBundles}`);
+      replaced = true;
+      continue;
+    }
+    next.push(arg);
+  }
+  if (!replaced) {
+    next.unshift("--bundles", nextBundles);
+  }
+  return next;
+}
+
 function getDefaultBundles(platform) {
   switch (platform) {
     case "win32":
@@ -77,10 +119,23 @@ const userArgs = process.argv
   .filter((arg, index) => !(index === 0 && arg === "--"));
 const defaultBundles = getDefaultBundles(process.platform);
 const target = getTarget(userArgs);
-const bundleArgs =
-  defaultBundles && !hasBundleArg(userArgs)
-    ? ["--bundles", defaultBundles]
-    : [];
+const requestedBundles = getBundlesArg(userArgs) || defaultBundles;
+const darwinDmgRequested =
+  process.platform === "darwin" && macosWantsDmg(requestedBundles);
+
+let resolvedUserArgs = userArgs;
+let bundleArgs = [];
+if (darwinDmgRequested) {
+  const tauriBundles = macosTauriBundles(requestedBundles);
+  if (hasBundleArg(userArgs)) {
+    resolvedUserArgs = replaceBundlesArg(userArgs, tauriBundles);
+  } else {
+    bundleArgs = ["--bundles", tauriBundles];
+  }
+} else if (defaultBundles && !hasBundleArg(userArgs)) {
+  bundleArgs = ["--bundles", defaultBundles];
+}
+
 const releaseConfig = process.env.VIBEX_TAURI_RELEASE_CONFIG;
 const configArgs =
   releaseConfig && !hasConfigArg(userArgs) ? ["--config", releaseConfig] : [];
@@ -90,17 +145,24 @@ const buildArgs = [
   "build",
   ...bundleArgs,
   ...configArgs,
-  ...userArgs,
+  ...resolvedUserArgs,
 ];
+const buildEnv = withTauriBuildEnv(localEnv, target);
+const tauriEnv = withoutAppleNotaryEnv(buildEnv);
 
 if (bundleArgs.length > 0) {
   console.log(
-    `Using default Tauri bundles for ${process.platform}: ${defaultBundles}`,
+    `Using Tauri bundles for ${process.platform}: ${bundleArgs[1]}`,
+  );
+}
+if (darwinDmgRequested) {
+  console.log(
+    "Signing the app with Tauri, then notarizing and building the DMG with scripts/macos-notarize-and-dmg.js",
   );
 }
 
 const child = runCommand("pnpm", buildArgs, {
-  env: withTauriBuildEnv(localEnv, target),
+  env: tauriEnv,
   stdio: "inherit",
 });
 
@@ -111,6 +173,21 @@ child.on("error", (error) => {
 
 child.on("exit", (code, signal) => {
   if (code === 0) {
+    if (darwinDmgRequested) {
+      const script = path.join(__dirname, "macos-notarize-and-dmg.js");
+      const extraArgs = target ? ["--target", target] : [];
+      const result = spawnSync(process.execPath, [script, ...extraArgs], {
+        env: buildEnv,
+        stdio: "inherit",
+      });
+      if (result.error) {
+        console.error("Failed to notarize or create the DMG:", result.error.message);
+        process.exit(1);
+      }
+      if (result.status !== 0) {
+        process.exit(result.status ?? 1);
+      }
+    }
     process.exit(0);
   }
 

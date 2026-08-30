@@ -120,6 +120,7 @@ test('local Apple signing is loaded from gitignored env without committing secre
 
 test('desktop release signs and verifies macOS and Windows artifacts', () => {
   const workflow = read('.github/workflows/desktop-release.yml');
+  const macosRelease = read('scripts/macos-notarize-and-dmg.js');
 
   for (const requiredText of [
     'APPLE_CERTIFICATE',
@@ -132,11 +133,17 @@ test('desktop release signs and verifies macOS and Windows artifacts', () => {
     'EVSIGN_LICENSE_KEY',
     'Import-PfxCertificate',
     'scripts/sign-windows-evsign.ps1',
+    'scripts/macos-notarize-and-dmg.js',
+    'timeout-minutes: 100',
     'codesign --verify --deep --strict',
     'Get-AuthenticodeSignature',
   ]) {
     assert.match(workflow, new RegExp(requiredText));
   }
+
+  assert.match(macosRelease, /notarytool/);
+  assert.match(macosRelease, /--timeout/);
+  assert.match(macosRelease, /hdiutil/);
 });
 
 test('Windows EVSign signing refreshes updater signatures after Authenticode', () => {

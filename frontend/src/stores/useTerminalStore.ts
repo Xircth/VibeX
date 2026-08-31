@@ -16,7 +16,7 @@ export interface TerminalSession {
   /** Shell type override (e.g. 'powershell.exe', 'cmd.exe') */
   shell?: string;
   /** Session type: 'pty' for normal terminal, 'log-viewer' for dev server logs */
-  type?: 'pty' | 'log-viewer';
+  type?: 'pty' | 'log-viewer' | 'agent-command';
   /** ExecutionProcess ID, only used when type is 'log-viewer' */
   processId?: string;
   /** Whether this terminal should reject user input */
@@ -38,10 +38,11 @@ interface TerminalState {
     shell?: string,
     options?: {
       title?: string;
-      type?: 'pty' | 'log-viewer';
+      type?: 'pty' | 'log-viewer' | 'agent-command';
       processId?: string;
       readOnly?: boolean;
       source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
+      sessionId?: string | null;
     }
   ) => void;
   /** Set the PTY session ID once the backend creates it */
@@ -80,7 +81,7 @@ export const useTerminalStore = create<TerminalState>()(
         const existing = state.sessionsByWorkspace[workspaceId] || [];
         const session: TerminalSession = {
           tabId,
-          sessionId: null,
+          sessionId: options?.sessionId ?? null,
           workspaceId,
           title:
             options?.title ??

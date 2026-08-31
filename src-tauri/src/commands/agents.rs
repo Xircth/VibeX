@@ -1633,6 +1633,32 @@ pub async fn agent_terminal_snapshot(
         .await)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLiveTerminalView {
+    pub terminal_id: String,
+    pub agent_session_id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+}
+
+#[tauri::command]
+pub async fn agent_list_live_terminals() -> Result<Vec<AgentLiveTerminalView>, AppError> {
+    Ok(agent_terminal_registry()
+        .list_live()
+        .await
+        .into_iter()
+        .map(|item| AgentLiveTerminalView {
+            terminal_id: item.terminal_id.to_string(),
+            agent_session_id: item.agent_session_id.to_string(),
+            command: item.command,
+            args: item.args,
+            cwd: item.cwd.and_then(|path| path.to_str().map(str::to_string)),
+        })
+        .collect())
+}
+
 fn parse_uuid(label: &str, value: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(value).map_err(|_| AppError::BadRequest(format!("Invalid {label}: {value}")))
 }

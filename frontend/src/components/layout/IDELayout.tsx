@@ -45,6 +45,7 @@ import {
   type SessionPanelPlacement,
 } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
 import {
   applyLeftGroupHeaderHiding,
@@ -366,6 +367,7 @@ export function IDELayout({
   toolbarContent,
 }: IDELayoutProps) {
   const { t } = useTranslation(['panels', 'common']);
+  useAgentLongRunningTerminals();
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -1240,7 +1242,7 @@ export function IDELayout({
               className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.FILE_TREE) ? 'is-active' : ''
               }`}
-              title="Files"
+              title={t('ideLayout.files')}
               aria-pressed={isPanelOpen(PANEL_IDS.FILE_TREE)}
             >
               <FolderOpen className="h-3.5 w-3.5" />
@@ -1250,7 +1252,7 @@ export function IDELayout({
               className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.GIT) ? 'is-active' : ''
               }`}
-              title="Git"
+              title={t('ideLayout.git')}
               aria-pressed={isPanelOpen(PANEL_IDS.GIT)}
             >
               <GitBranch className="h-3.5 w-3.5" />
@@ -1260,7 +1262,7 @@ export function IDELayout({
               className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.SEARCH) ? 'is-active' : ''
               }`}
-              title="Search (Ctrl+Shift+F)"
+              title={t('ideLayout.search')}
               aria-pressed={isPanelOpen(PANEL_IDS.SEARCH)}
             >
               <Search className="h-3.5 w-3.5" />

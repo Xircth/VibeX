@@ -979,6 +979,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::agents::agent_disconnect,
         commands::agents::agent_respond_permission,
         commands::agents::agent_terminal_snapshot,
+        commands::agents::agent_list_live_terminals,
         // Attention inbox
         commands::attention::attention_inbox_list,
         // Crash report commands

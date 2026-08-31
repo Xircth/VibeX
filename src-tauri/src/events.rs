@@ -10,7 +10,7 @@ use conversations::{
 };
 use db::models::{
     conversation::ConversationRecord, conversation_event::ConversationEventRecord,
-    workspace::Workspace,
+    session::Session, workspace::Workspace,
 };
 use futures::StreamExt;
 use serde::Serialize;
@@ -211,10 +211,17 @@ pub enum AgentTerminalUiEvent {
     Created {
         source: AgentTerminalSource,
         session_id: Uuid,
+        agent_session_id: Uuid,
         workspace_id: Option<Uuid>,
         title: String,
         command: String,
+        agent_label: String,
         cwd: Option<String>,
+    },
+    Exited {
+        source: AgentTerminalSource,
+        session_id: Uuid,
+        workspace_id: Option<Uuid>,
     },
     Released {
         source: AgentTerminalSource,
@@ -521,23 +528,30 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
         loop {
             match acp_lifecycle_rx.recv().await {
                 Ok(AgentTerminalLifecycleEvent::Created(event)) => {
-                    let workspace_id = match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
-                        Some(path) => {
-                            match Workspace::resolve_container_ref_by_prefix(&acp_pool, path).await
-                            {
-                                Ok(info) => Some(info.workspace_id),
-                                Err(error) => {
-                                    tracing::warn!(
-                                        path,
-                                        %error,
-                                        "Failed to resolve terminal workspace from cwd"
-                                    );
-                                    None
+                    let session = Session::find_by_id(&acp_pool, event.session_id.0)
+                        .await
+                        .ok()
+                        .flatten();
+                    let workspace_id = session.as_ref().map(|item| item.workspace_id).or({
+                        match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
+                            Some(path) => {
+                                match Workspace::resolve_container_ref_by_prefix(&acp_pool, path)
+                                    .await
+                                {
+                                    Ok(info) => Some(info.workspace_id),
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            path,
+                                            %error,
+                                            "Failed to resolve terminal workspace from cwd"
+                                        );
+                                        None
+                                    }
                                 }
                             }
+                            None => None,
                         }
-                        None => None,
-                    };
+                    });
 
                     workspace_by_session.insert(event.terminal_id.0, workspace_id);
 
@@ -546,15 +560,40 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                     } else {
                         format!("{} {}", event.command, event.args.join(" "))
                     };
+                    let agent_label = session
+                        .as_ref()
+                        .and_then(|item| {
+                            item.agent_id
+                                .as_ref()
+                                .map(|id| id.as_str().to_string())
+                                .or(item.executor.clone())
+                        })
+                        .unwrap_or_else(|| "Agent".to_string());
                     let payload = AgentTerminalUiEvent::Created {
                         source: AgentTerminalSource::Acp,
                         session_id: event.terminal_id.0,
+                        agent_session_id: event.session_id.0,
                         workspace_id,
                         title: terminal_title(AgentTerminalSource::Acp, &command),
                         command,
+                        agent_label,
                         cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
                     };
 
+                    if acp_app_handle
+                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
+                    let workspace_id = workspace_by_session.get(&terminal_id.0).copied().flatten();
+                    let payload = AgentTerminalUiEvent::Exited {
+                        source: AgentTerminalSource::Acp,
+                        session_id: terminal_id.0,
+                        workspace_id,
+                    };
                     if acp_app_handle
                         .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
                         .is_err()

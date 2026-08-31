@@ -226,7 +226,8 @@ pub use state::{
     AgentSessionSnapshot, AgentSessionStatus,
 };
 pub use terminal::{
-    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalOutputSnapshot,
+    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalLiveItem,
+    AgentTerminalOutputSnapshot,
 };
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{

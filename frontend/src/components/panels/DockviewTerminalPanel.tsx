@@ -15,6 +15,7 @@ import {
 } from '@/stores/useTerminalStore';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useLogStream } from '@/hooks/useLogStream';
+import { useAgentCommandOutputStore } from '@/stores/useAgentCommandOutputStore';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
@@ -232,6 +233,12 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
               isActive={activeTabId === session.tabId}
               onOpenUrl={openPreviewUrl}
             />
+          ) : session.type === 'agent-command' ? (
+            <AgentCommandTab
+              key={session.tabId}
+              session={session}
+              isActive={activeTabId === session.tabId}
+            />
           ) : (
             <TerminalTabContent
               key={session.tabId}
@@ -391,6 +398,40 @@ function TerminalTabContent({
       ) : (
         <div className="h-full w-full" />
       )}
+    </div>
+  );
+}
+
+function AgentCommandTab({
+  session,
+  isActive,
+}: {
+  session: TerminalSession;
+  isActive: boolean;
+}) {
+  const output = useAgentCommandOutputStore((state) =>
+    session.sessionId ? (state.outputByTool[session.sessionId] ?? '') : ''
+  );
+  const containerRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (element) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [output]);
+
+  return (
+    <div
+      className={`absolute inset-0 ${isActive ? 'visible' : 'invisible'}`}
+      data-terminal-tab={session.tabId}
+    >
+      <pre
+        ref={containerRef}
+        className="h-full w-full overflow-auto bg-console p-3 font-mono text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words"
+      >
+        {output || session.title}
+      </pre>
     </div>
   );
 }

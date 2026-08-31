@@ -70,7 +70,22 @@ pub struct AgentTerminalCreateEvent {
 #[derive(Debug, Clone)]
 pub enum AgentTerminalLifecycleEvent {
     Created(AgentTerminalCreateEvent),
-    Released { terminal_id: AgentTerminalId },
+    Exited {
+        terminal_id: AgentTerminalId,
+        exit: AgentTerminalExit,
+    },
+    Released {
+        terminal_id: AgentTerminalId,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentTerminalLiveItem {
+    pub terminal_id: AgentTerminalId,
+    pub agent_session_id: AgentSessionId,
+    pub command: String,
+    pub args: Vec<String>,
+    pub cwd: Option<PathBuf>,
 }
 
 struct AgentTerminalSession {
@@ -156,7 +171,7 @@ impl AgentTerminalRegistry {
 
         self.spawn_reader(stdout, Arc::clone(&session), args.output_byte_limit);
         self.spawn_reader(stderr, Arc::clone(&session), args.output_byte_limit);
-        self.spawn_waiter(Arc::clone(&session));
+        self.spawn_waiter(terminal_id, Arc::clone(&session));
 
         let _ = self.lifecycle_tx.send(AgentTerminalLifecycleEvent::Created(
             AgentTerminalCreateEvent {
@@ -213,7 +228,8 @@ impl AgentTerminalRegistry {
         });
     }
 
-    fn spawn_waiter(&self, session: Arc<AgentTerminalSession>) {
+    fn spawn_waiter(&self, terminal_id: AgentTerminalId, session: Arc<AgentTerminalSession>) {
+        let lifecycle_tx = self.lifecycle_tx.clone();
         tokio::spawn(async move {
             let wait_result = {
                 let mut child = session.child.lock().await;
@@ -224,13 +240,32 @@ impl AgentTerminalRegistry {
                 Ok(exit_status) => exit_status
                     .code()
                     .map(|code| AgentTerminalExit::Code { code })
-                    .or(Some(AgentTerminalExit::Unknown)),
-                Err(_) => Some(AgentTerminalExit::Unknown),
+                    .unwrap_or(AgentTerminalExit::Unknown),
+                Err(_) => AgentTerminalExit::Unknown,
             };
 
-            *session.exit_status.write().await = status;
+            *session.exit_status.write().await = Some(status.clone());
             session.exit_notify.notify_waiters();
+            let _ = lifecycle_tx.send(AgentTerminalLifecycleEvent::Exited {
+                terminal_id,
+                exit: status,
+            });
         });
+    }
+
+    pub async fn list_live(&self) -> Vec<AgentTerminalLiveItem> {
+        self.sessions
+            .read()
+            .await
+            .iter()
+            .map(|(terminal_id, session)| AgentTerminalLiveItem {
+                terminal_id: *terminal_id,
+                agent_session_id: session.agent_session_id,
+                command: session.command.clone(),
+                args: session.args.clone(),
+                cwd: session.cwd.clone(),
+            })
+            .collect()
     }
 
     pub async fn subscribe_output(

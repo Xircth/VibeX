@@ -4,8 +4,8 @@ use std::{
 };
 
 use agents::{
-    AgentAuthenticationStatus, AgentAutoApproveMode, AgentContentBlock, AgentId,
-    AgentLifecycleState, AgentManagementSnapshot, SessionGate, SessionGateInput, SessionLaunchLock,
+    AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentLifecycleState,
+    AgentManagementSnapshot, SessionGate, SessionGateInput, SessionLaunchLock,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{repo::Repo, workspace::Workspace};
@@ -226,6 +226,22 @@ pub async fn resolve_agent_runtime_launch_settings(
     agents::apply_built_in_auth_mode_policy(agent_id, &mut env);
     let mut args = authorization.args;
     agents::apply_built_in_launch_argument_policy(agent_id, &env, &mut args);
+    let _ = utils::shell::refresh_process_path().await;
+    let mut lock_env = authorization.env;
+    if let Ok(process_path) = std::env::var("PATH") {
+        let merged = utils::shell::merge_paths(
+            process_path,
+            lock_env.get("PATH").cloned().unwrap_or_default(),
+        );
+        lock_env.insert("PATH".to_string(), merged.to_string_lossy().into_owned());
+        env.insert(
+            "PATH".to_string(),
+            lock_env
+                .get("PATH")
+                .cloned()
+                .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default()),
+        );
+    }
     // The management lifecycle reflects a probe observation that can go stale.
     // Verify the persisted program still exists so a removed/relocated binary
     // fails as an actionable repair request, not a raw ENOENT at spawn.
@@ -235,13 +251,13 @@ pub async fn resolve_agent_runtime_launch_settings(
         ));
     }
     Ok(AgentRuntimeLaunchSettings {
-        auto_approve_mode: AgentAutoApproveMode::Off,
+        auto_approve_mode: agents::auto_approve_mode_for_launch(agent_id, &env),
         env,
         launch_lock: SessionLaunchLock {
             agent_id: authorization.agent_id,
             absolute_acp_program: authorization.absolute_acp_program,
             args,
-            env: authorization.env,
+            env: lock_env,
             runtime_version: authorization.runtime_version,
             acp_version: authorization.acp_version,
         },

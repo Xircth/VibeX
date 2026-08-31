@@ -65,18 +65,22 @@ test('right sidebar network button removes the old dev-server config dialog and 
 test('git manager toggle shares the stable left-sidebar switching path', () => {
   const source = readFile('src/contexts/PanelActionsContext.tsx');
   const layoutSource = readFile('src/components/layout/IDELayout.tsx');
+  const activityRail = readFile(
+    'src/components/layout/WorkspaceActivityRail.tsx'
+  );
 
   assert.match(source, /const\s+toggleGitPanel\s*=\s*useCallback/);
-  assert.match(source, /switchLeftPanel\(PANEL_IDS\.GIT/);
+  assert.match(source, /toggleLeftDockPanel\(PANEL_IDS\.GIT\)/);
   assert.match(layoutSource, /leftGroup\?\.api\.isVisible/);
-  assert.match(layoutSource, /toggleGitPanel/);
+  assert.match(activityRail, /toggleGitPanel/);
 });
 
-test('workspace entry heals file tree and terminal layout visibility', () => {
+test('workspace entry heals left dock and terminal layout visibility', () => {
   const source = readFile('src/components/layout/IDELayout.tsx');
 
   assert.match(source, /ensureWorkspacePanelsVisible|healWorkspaceLayout/);
-  assert.match(source, /PANEL_IDS\.FILE_TREE/);
+  assert.match(source, /getDefaultActivityRailPanelId/);
+  assert.match(source, /LEFT_PANEL_IDS/);
   assert.match(source, /PANEL_IDS\.TERMINAL/);
   assert.match(source, /activeWorktreeId/);
 });

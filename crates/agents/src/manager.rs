@@ -1645,6 +1645,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.grok_subagent),
             Arc::clone(&self.grok_mcp),
             Arc::clone(&self.pending_session_id),
+            self.snapshot.working_dir.clone(),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -3369,6 +3370,7 @@ struct AcpClientBridge {
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
+    working_dir: PathBuf,
 }
 
 impl AcpClientBridge {
@@ -3387,6 +3389,7 @@ impl AcpClientBridge {
         grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
         grok_mcp: Arc<Mutex<GrokMcpTracker>>,
         pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
+        working_dir: PathBuf,
     ) -> Self {
         Self {
             connection_id,
@@ -3402,6 +3405,7 @@ impl AcpClientBridge {
             grok_subagent,
             grok_mcp,
             pending_session_id,
+            working_dir,
         }
     }
 
@@ -4056,12 +4060,18 @@ impl AcpClientBridge {
             );
             return Err(acp::Error::invalid_params());
         };
+        if args.command.trim().is_empty() {
+            return Err(acp::Error::invalid_params());
+        }
+        let cwd = crate::terminal::resolve_terminal_cwd(args.cwd.as_deref(), &self.working_dir)
+            .map_err(|_| acp::Error::invalid_params())?;
+        let command = args.command.clone();
         let terminal_id = agent_terminal_registry()
             .create_terminal(&AgentTerminalCreateRequest {
                 session_id,
                 command: args.command,
                 args: args.args,
-                cwd: args.cwd.map(|cwd| cwd.display().to_string()),
+                cwd: cwd.map(|cwd| cwd.display().to_string()),
                 env: args
                     .env
                     .into_iter()
@@ -4073,7 +4083,14 @@ impl AcpClientBridge {
                 output_byte_limit: args.output_byte_limit,
             })
             .await
-            .map_err(|_| acp::Error::internal_error())?;
+            .map_err(|error| {
+                tracing::error!(
+                    error = %error,
+                    command = %command,
+                    "create_terminal spawn failed"
+                );
+                acp::Error::new(-32603, format!("failed to spawn terminal: {error}"))
+            })?;
         Ok(CreateTerminalResponse::new(TerminalId::new(
             terminal_id.to_string(),
         )))

@@ -20,7 +20,16 @@ import {
   syncDockviewGroupRegistry,
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
+import { backendCall } from '@/lib/backendTransport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import {
+  editorTerminalPanelId,
+  tabIdFromEditorTerminalPanelId,
+} from '@/lib/workspaceTerminalTabs';
+import {
+  generateTerminalTabId,
+  useTerminalStore,
+} from '@/stores/useTerminalStore';
 import {
   buildPreviewPanelParams,
   type OpenFilePreviewOptions,
@@ -42,6 +51,11 @@ import {
 import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
+import {
+  ACTIVITY_RAIL_PANEL_TITLES,
+  otherActivityRailPanels,
+  type ActivityRailItemId,
+} from '@/lib/activityRailOrder';
 import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
@@ -88,6 +102,34 @@ function isDiffPreviewPanelId(panelId: string): boolean {
   return panelId.startsWith(DIFF_PREVIEW_PANEL_ID_PREFIX);
 }
 
+function closeRemovedEditorTerminal(panelId: string): void {
+  const tabId = tabIdFromEditorTerminalPanelId(panelId);
+  if (!tabId) {
+    return;
+  }
+
+  const store = useTerminalStore.getState();
+  for (const [workspaceId, sessions] of Object.entries(
+    store.sessionsByWorkspace
+  )) {
+    const session = sessions.find((item) => item.tabId === tabId);
+    if (!session || session.surface !== 'editor') {
+      continue;
+    }
+
+    if (session.sessionId && !session.readOnly) {
+      void backendCall('close_terminal', {
+        sessionId: session.sessionId,
+      }).catch((error) => {
+        console.error('Failed to close terminal session:', error);
+      });
+    }
+
+    store.removeSession(workspaceId, tabId);
+    return;
+  }
+}
+
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
@@ -104,6 +146,7 @@ export interface PanelActions {
   ) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
+  openTerminalEditorTab: () => void;
   showTerminal: () => void;
   toggleEditorArea: () => void;
   openPanelInNewEditorGroup: (panelId: string) => boolean;
@@ -112,6 +155,7 @@ export interface PanelActions {
   canSplitActiveEditor: () => boolean;
   closePanel: (panelId: string) => void;
   toggleFileTree: () => void;
+  showFileTree: () => void;
   toggleGitPanel: () => void;
   toggleSearchPanel: () => void;
   toggleSessionList: () => void;
@@ -155,6 +199,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
     imagePanelRemovalDisposableRef.current = api.onDidRemovePanel((panel) => {
       releaseImagePreviewSource(panel.id);
+      closeRemovedEditorTerminal(panel.id);
     });
   }, []);
 
@@ -283,15 +328,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const targetGroup = getActiveEditorGroup();
       if (!targetGroup) return undefined;
 
+      targetGroup.api.setVisible(true);
+
       if (isEditorColumnCrushed(dockviewApi)) {
+        const leftGroup = getLeftGroup(dockviewApi);
         restoreFlexibleEditorColumn(
           dockviewApi,
           getLayoutArrangement(),
-          useLayoutStore.getState().rightPanelWidth
+          useLayoutStore.getState().rightPanelWidth,
+          leftGroup?.api.isVisible ? leftGroup.api.width : undefined
         );
       }
-
-      targetGroup.api.setVisible(true);
 
       const placeholderPanels = targetGroup.panels.filter((panel) =>
         isPlaceholderPanelId(panel.id)
@@ -320,7 +367,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       normalizeEditorGroupIds(dockviewApi);
       return panel;
     },
-    [getActiveEditorGroup, normalizeEditorGroupIds]
+    [getActiveEditorGroup, getLeftGroup, normalizeEditorGroupIds]
   );
 
   const openFilePreview = useCallback(
@@ -613,6 +660,20 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     () => setTerminalVisibility(false),
     [setTerminalVisibility]
   );
+
+  const openTerminalEditorTab = useCallback(() => {
+    const tabId = generateTerminalTabId();
+    const panel = addPanelToActiveEditorGroup({
+      id: editorTerminalPanelId(tabId),
+      component: PANEL_IDS.TERMINAL,
+      title: 'Terminal',
+      params: {
+        surface: 'editor',
+        tabId,
+      },
+    });
+    panel?.api.setActive();
+  }, [addPanelToActiveEditorGroup]);
 
   const toggleEditorArea = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -953,46 +1014,42 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [getLeftGroup, normalizeEditorGroupIds, recreateWelcomeEditorGroup]
   );
 
+  const toggleLeftDockPanel = useCallback(
+    (panelId: ActivityRailItemId) => {
+      switchLeftPanel(
+        panelId,
+        panelId,
+        ACTIVITY_RAIL_PANEL_TITLES[panelId],
+        otherActivityRailPanels(panelId)
+      );
+    },
+    [switchLeftPanel]
+  );
+
   const toggleFileTree = useCallback(() => {
-    switchLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
-      PANEL_IDS.GIT,
-      PANEL_IDS.SEARCH,
-      PANEL_IDS.SESSION_LIST,
-    ]);
-  }, [switchLeftPanel]);
+    toggleLeftDockPanel(PANEL_IDS.FILE_TREE);
+  }, [toggleLeftDockPanel]);
 
   const toggleGitPanel = useCallback(() => {
-    switchLeftPanel(PANEL_IDS.GIT, PANEL_IDS.GIT, 'Git', [
-      PANEL_IDS.FILE_TREE,
-      PANEL_IDS.SEARCH,
-      PANEL_IDS.SESSION_LIST,
-    ]);
-  }, [switchLeftPanel]);
+    toggleLeftDockPanel(PANEL_IDS.GIT);
+  }, [toggleLeftDockPanel]);
 
   const toggleSearchPanel = useCallback(() => {
-    switchLeftPanel(PANEL_IDS.SEARCH, PANEL_IDS.SEARCH, 'Search', [
-      PANEL_IDS.FILE_TREE,
-      PANEL_IDS.GIT,
-      PANEL_IDS.SESSION_LIST,
-    ]);
-  }, [switchLeftPanel]);
+    toggleLeftDockPanel(PANEL_IDS.SEARCH);
+  }, [toggleLeftDockPanel]);
 
   const toggleSessionList = useCallback(() => {
-    switchLeftPanel(
-      PANEL_IDS.SESSION_LIST,
-      PANEL_IDS.SESSION_LIST,
-      'Sessions',
-      [PANEL_IDS.FILE_TREE, PANEL_IDS.GIT, PANEL_IDS.SEARCH]
-    );
-  }, [switchLeftPanel]);
+    toggleLeftDockPanel(PANEL_IDS.SESSION_LIST);
+  }, [toggleLeftDockPanel]);
 
   const showFileTree = useCallback(() => {
     setFileTreeVisible(true);
-    showLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
-      PANEL_IDS.GIT,
-      PANEL_IDS.SEARCH,
-      PANEL_IDS.SESSION_LIST,
-    ]);
+    showLeftPanel(
+      PANEL_IDS.FILE_TREE,
+      PANEL_IDS.FILE_TREE,
+      ACTIVITY_RAIL_PANEL_TITLES[PANEL_IDS.FILE_TREE],
+      otherActivityRailPanels(PANEL_IDS.FILE_TREE)
+    );
   }, [setFileTreeVisible, showLeftPanel]);
 
   const revealInFileTree = useCallback(
@@ -1169,6 +1226,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openDiffPreviewAtPath,
       openCommitDiff,
       openNewTerminal,
+      openTerminalEditorTab,
       showTerminal,
       toggleEditorArea,
       openPanelInNewEditorGroup,
@@ -1177,6 +1235,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       canSplitActiveEditor,
       closePanel,
       toggleFileTree,
+      showFileTree,
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,
@@ -1201,6 +1260,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       revealInFileTree,
       openLogs,
       openNewTerminal,
+      openTerminalEditorTab,
       showTerminal,
       openNotes,
       openOrFocusPanel,
@@ -1209,6 +1269,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       splitActiveEditor,
       toggleEditorArea,
       toggleFileTree,
+      showFileTree,
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,

@@ -302,7 +302,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
 
         let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
             .expect("Failed to initialize app state");
-        let workflow_mcp_ready = match tauri::async_runtime::block_on(
+        let _workflow_mcp_ready = match tauri::async_runtime::block_on(
             workflow_mcp_gateway::start(&state),
         ) {
             Ok(connection) => {
@@ -318,11 +318,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                 false
             }
         };
-        if workflow_mcp_ready {
-            tauri::async_runtime::block_on(
-                commands::plugin_control::refresh_enabled_plugin_projections(&state),
-            );
-        }
+        tauri::async_runtime::block_on(
+            commands::plugin_control::refresh_enabled_plugin_projections(&state),
+        );
         let preview_proxy = tauri::async_runtime::block_on(
             plugin_dev_server::DesktopPreviewProxy::start(),
         )

@@ -384,7 +384,14 @@ const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
         version_args: &["--version"],
     },
 ];
-const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[external("agy_acp_server")];
+const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
+    ProfileExternalCandidate {
+        component: ProfileComponent::CombinedRuntime,
+        executable: "agy_acp_server.par",
+        version_args: &[],
+    },
+    external("agy_acp_server"),
+];
 const ANTIGRAVITY_PLATFORMS: &[&str] = &[
     "darwin-aarch64",
     "linux-aarch64",

@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
+import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import { type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -1019,6 +1020,9 @@ export function KanbanSessionHub({
       isArchiveView={isArchiveView}
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
+      onCreateSessionRequested={() => {
+        requestCreateSessionInExecutionArea(setSearchParams, searchParams);
+      }}
       onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
       onCreateSession={async () => {
         if (

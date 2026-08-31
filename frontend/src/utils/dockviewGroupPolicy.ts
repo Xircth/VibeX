@@ -1,15 +1,11 @@
+import { ACTIVITY_RAIL_ITEMS } from '@/lib/activityRailOrder';
 import {
   EDITOR_GROUP_PREFIX,
   GROUP_IDS,
   PANEL_IDS,
 } from '@/stores/useLayoutStore';
 
-export const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
-  PANEL_IDS.FILE_TREE,
-  PANEL_IDS.GIT,
-  PANEL_IDS.SEARCH,
-  PANEL_IDS.SESSION_LIST,
-]);
+export const LEFT_PANEL_IDS: ReadonlySet<string> = new Set(ACTIVITY_RAIL_ITEMS);
 
 export const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.TERMINAL,

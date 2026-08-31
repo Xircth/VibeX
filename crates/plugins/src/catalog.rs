@@ -222,11 +222,7 @@ pub fn normalize_listing_category(listing: &mut CatalogListing) {
 }
 
 pub fn prepare_marketplace_page(page: &mut CatalogPage) {
-    for listing in page
-        .official
-        .iter_mut()
-        .chain(page.community.iter_mut())
-    {
+    for listing in page.official.iter_mut().chain(page.community.iter_mut()) {
         normalize_listing_category(listing);
     }
 }
@@ -239,9 +235,7 @@ pub fn successor_plugin_id(id: &str) -> Option<&'static str> {
 }
 
 pub fn canonical_plugin_id(id: &str) -> String {
-    successor_plugin_id(id)
-        .unwrap_or(id.trim())
-        .to_string()
+    successor_plugin_id(id).unwrap_or(id.trim()).to_string()
 }
 
 pub fn listing_package_id(listing: &CatalogListing) -> &str {
@@ -1068,10 +1062,7 @@ mod tests {
         session.category = "official".into();
         normalize_listing_category(&mut session);
         assert_eq!(session.category, "productivity");
-        assert_eq!(
-            bundled_topic_category("vibex.multi-agent"),
-            Some("agent")
-        );
+        assert_eq!(bundled_topic_category("vibex.multi-agent"), Some("agent"));
         assert_eq!(
             bundled_topic_category("vibex.workflow-creator"),
             Some("workflow")

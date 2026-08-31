@@ -7,9 +7,15 @@ interface TerminalInputSource {
   onData(listener: (data: string) => void): Disposable;
 }
 
+const IME_MATCH_WINDOW_MS = 32;
+
 /**
  * Bridges xterm input to the PTY and recovers non-composing IME text that
  * WebKit inserts into xterm's textarea before dispatching keydown.
+ *
+ * Third-party IMEs in English mode often also fire a delayed `insertText`
+ * after xterm already emitted `onData`. Keep those two paths from both
+ * reaching the PTY.
  */
 export function attachTerminalInput(
   terminal: TerminalInputSource,
@@ -18,13 +24,14 @@ export function attachTerminalInput(
   const timers = new Set<number>();
   const pendingNativeText: Array<{ data: string }> = [];
   const unmatchedXtermData: Array<{ data: string }> = [];
+  let skipDuplicateInput = false;
   let disposed = false;
 
-  const schedule = (callback: () => void) => {
+  const schedule = (callback: () => void, delayMs = 0) => {
     const timer = window.setTimeout(() => {
       timers.delete(timer);
       callback();
-    }, 0);
+    }, delayMs);
     timers.add(timer);
   };
 
@@ -37,23 +44,38 @@ export function attachTerminalInput(
     } else {
       const emission = { data };
       unmatchedXtermData.push(emission);
-      queueMicrotask(() => {
+      schedule(() => {
         const emissionIndex = unmatchedXtermData.indexOf(emission);
         if (emissionIndex !== -1) {
           unmatchedXtermData.splice(emissionIndex, 1);
         }
-      });
+      }, IME_MATCH_WINDOW_MS);
     }
     onInput(data);
   });
   const textarea = terminal.textarea;
-  const handleInput = (event: Event) => {
+  const handleNativeText = (event: Event) => {
     const inputEvent = event as InputEvent;
     if (
       !inputEvent.data ||
       inputEvent.inputType !== 'insertText' ||
       inputEvent.isComposing
     ) {
+      return;
+    }
+
+    inputEvent.stopImmediatePropagation();
+    if (inputEvent.cancelable) {
+      inputEvent.preventDefault();
+    }
+
+    if (inputEvent.type === 'beforeinput') {
+      skipDuplicateInput = true;
+      queueMicrotask(() => {
+        skipDuplicateInput = false;
+      });
+    } else if (skipDuplicateInput) {
+      skipDuplicateInput = false;
       return;
     }
 
@@ -80,19 +102,22 @@ export function attachTerminalInput(
       })
     );
   };
-  textarea?.addEventListener('input', handleInput, true);
+  textarea?.addEventListener('beforeinput', handleNativeText, true);
+  textarea?.addEventListener('input', handleNativeText, true);
 
   return {
     dispose() {
       disposed = true;
       dataSubscription.dispose();
-      textarea?.removeEventListener('input', handleInput, true);
+      textarea?.removeEventListener('beforeinput', handleNativeText, true);
+      textarea?.removeEventListener('input', handleNativeText, true);
       for (const timer of timers) {
         window.clearTimeout(timer);
       }
       timers.clear();
       pendingNativeText.length = 0;
       unmatchedXtermData.length = 0;
+      skipDuplicateInput = false;
     },
   };
 }

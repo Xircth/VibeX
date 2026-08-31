@@ -6,7 +6,11 @@ import {
   formatCompactSessionAge,
   groupWorkspaceSessions,
   moveSessionInOrder,
+  pinnedWorkspaceSessions,
   sessionListTitle,
+  sessionMatchesQuery,
+  sortWorkspaceSessions,
+  toggleSessionListSort,
   workspaceGroupLabel,
   workspaceSessionStatusTone,
 } from './workspaceSessionListModel';
@@ -188,7 +192,7 @@ describe('groupWorkspaceSessions', () => {
     ]);
   });
 
-  it('keeps pinned sessions above newer unpinned ones in a workspace', () => {
+  it('keeps pinned sessions in workspace recency order', () => {
     const main = workspace({ id: 'ws-main', branch: 'main', name: null });
     const groups = groupWorkspaceSessions([
       session({
@@ -205,8 +209,8 @@ describe('groupWorkspaceSessions', () => {
     ]);
 
     expect(groups[0]?.sessions.map((item) => item.id)).toEqual([
-      'pinned',
       'newer',
+      'pinned',
     ]);
   });
 
@@ -232,6 +236,108 @@ describe('groupWorkspaceSessions', () => {
       'older',
       'newer',
     ]);
+  });
+});
+
+describe('pinnedWorkspaceSessions', () => {
+  const main = workspace({ id: 'ws-main', branch: 'main', name: null });
+
+  it('returns an empty list when nothing is pinned', () => {
+    expect(
+      pinnedWorkspaceSessions([
+        session({
+          id: 'newer',
+          workspace: main,
+          updatedAt: '2026-08-17T12:00:00Z',
+        }),
+      ])
+    ).toEqual([]);
+  });
+
+  it('places the most recently pinned session first', () => {
+    expect(
+      pinnedWorkspaceSessions([
+        session({
+          id: 'older-pin',
+          workspace: main,
+          pinnedAt: '2026-08-17T09:00:00Z',
+          updatedAt: '2026-08-17T12:00:00Z',
+        }),
+        session({
+          id: 'unpinned',
+          workspace: main,
+          updatedAt: '2026-08-17T13:00:00Z',
+        }),
+        session({
+          id: 'newer-pin',
+          workspace: main,
+          pinnedAt: '2026-08-17T11:00:00Z',
+          updatedAt: '2026-08-17T08:00:00Z',
+        }),
+      ]).map((item) => item.id)
+    ).toEqual(['newer-pin', 'older-pin']);
+  });
+});
+
+describe('session list sort and search', () => {
+  const main = workspace({ id: 'ws-main', branch: 'main', name: null });
+
+  it('stacks later sort keys as primary, keeping earlier keys as secondary', () => {
+    const stacked = toggleSessionListSort(
+      toggleSessionListSort([], 'name'),
+      'agent'
+    );
+    expect(stacked).toEqual([
+      { key: 'name', direction: 'asc' },
+      { key: 'agent', direction: 'asc' },
+    ]);
+
+    const sorted = sortWorkspaceSessions(
+      [
+        session({
+          id: 'grok-alpha',
+          workspace: main,
+          executor: 'grok',
+          name: 'Alpha',
+          fullName: 'Alpha',
+          firstPrompt: null,
+        }),
+        session({
+          id: 'codex-beta',
+          workspace: main,
+          executor: 'codex',
+          name: 'Beta',
+          fullName: 'Beta',
+          firstPrompt: null,
+        }),
+        session({
+          id: 'codex-alpha',
+          workspace: main,
+          executor: 'codex',
+          name: 'Alpha',
+          fullName: 'Alpha',
+          firstPrompt: null,
+        }),
+      ],
+      stacked
+    );
+
+    expect(sorted.map((item) => item.id)).toEqual([
+      'codex-alpha',
+      'codex-beta',
+      'grok-alpha',
+    ]);
+  });
+
+  it('matches session titles and user prompts', () => {
+    const login = session({
+      workspace: main,
+      name: 'Login review',
+      firstPrompt: 'Tighten the password prompt',
+    });
+    expect(sessionMatchesQuery(login, 'login')).toBe(true);
+    expect(sessionMatchesQuery(login, 'password prompt')).toBe(true);
+    expect(sessionMatchesQuery(login, 'codex')).toBe(false);
   });
 });
 

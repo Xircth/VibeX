@@ -55,6 +55,15 @@ describe('AgentTimelineConversation composer runtime bridge', () => {
     ).toBe(true);
   });
 
+  it('does not treat a settled user with leftover streaming assistant as in-flight', () => {
+    expect(
+      isTimelineTurnInFlight([
+        row('turn-2', 'user', 'settled'),
+        row('turn-2', 'assistant', 'streaming'),
+      ])
+    ).toBe(false);
+  });
+
   it('exposes the latest visible plan to composer task controls', () => {
     const firstPlan = row('turn-1', 'assistant', 'settled');
     firstPlan.turn.blocks = [

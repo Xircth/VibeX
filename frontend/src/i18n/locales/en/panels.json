@@ -10,7 +10,9 @@
   },
   "terminalPanel": {
     "openExternalTerminalFailed": "Failed to open external terminal",
-    "confirmWarpInstalled": "Please make sure Warp is installed."
+    "confirmWarpInstalled": "Please make sure Warp is installed.",
+    "resizeListAria": "Resize terminal list",
+    "resizeListValue": "{{width}} pixels"
   },
   "diffsPanel": {
     "loadFailed": "Failed to load diff: {{error}}",
@@ -21,15 +23,15 @@
   },
   "welcomePanel": {
     "actionFilesLabel": "Browse files",
-    "actionFilesDescription": "Open source code or docs from the file tree on the left.",
-    "actionSearchLabel": "Search project",
-    "actionSearchDescription": "Locate implementations, configuration, and docs by keyword.",
+    "actionFilesDescription": "Open the file tree and preview a root-level file.",
     "actionDiffsLabel": "View diffs",
     "actionDiffsDescription": "Inspect the workspace's current changes.",
     "actionTerminalLabel": "Open terminal",
     "actionTerminalDescription": "Run commands in the current working directory.",
-    "title": "Take over the code from here.",
-    "copy": "Pick an entry point to start reading, searching, reviewing, or running commands. The editor keeps the context you open.",
+    "actionBrowserLabel": "Open browser",
+    "actionBrowserDescription": "Open a web preview in the editor.",
+    "title": "Start your work",
+    "copy": "Open file previews, the browser, the terminal, and the Git Diff panel here",
     "actionsAriaLabel": "Workspace entry points"
   },
   "diffsReviewPanel": {
@@ -166,7 +168,9 @@
     "openInNewEditorGroup": "Open in new editor group",
     "files": "Files",
     "git": "Git",
-    "search": "Search (Ctrl+Shift+F)"
+    "search": "Search (Ctrl+Shift+F)",
+    "activityRailAria": "Workspace panels",
+    "reorderHint": "Drag to reorder"
   },
   "workspaceSessionList": {
     "title": "Sessions",
@@ -177,15 +181,36 @@
     "statusInProgress": "In progress",
     "statusInReview": "In review",
     "statusDone": "Done",
+    "pinnedGroup": "Pinned",
     "pin": "Pin",
     "unpin": "Unpin",
     "edit": "Edit",
     "deleteSession": "Delete session",
     "archive": "Archive",
+    "restore": "Restore",
+    "newSession": "New session",
+    "openArchive": "Open archive",
+    "backToSessionList": "Back to sessions",
+    "bulkDelete": "Delete sessions",
+    "exitDeleteMode": "Exit delete mode",
+    "selectSessionsToDelete": "Select sessions to delete",
+    "selectedCount": "{{count}} selected",
+    "deleteSelected": "Delete selected",
+    "deleting": "Deleting...",
+    "archiveEmpty": "No archived sessions",
     "pinFailed": "Could not pin the session",
     "archiveFailed": "Could not archive the session",
     "renameFailed": "Could not rename the session",
-    "deleteFailed": "Could not delete the session"
+    "deleteFailed": "Could not delete the session",
+    "restoreFailed": "Could not restore the archived session",
+    "sort": "Sort",
+    "sortName": "Session name",
+    "sortTime": "Recent activity",
+    "sortAgent": "Agent",
+    "sortClear": "Clear sort",
+    "search": "Search sessions",
+    "searchPlaceholder": "Search names or user messages",
+    "searchEmpty": "No matching sessions"
   },
   "worktreeSelector": {
     "currentProjectBranch": "Current project directory branch",

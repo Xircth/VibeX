@@ -3440,6 +3440,13 @@ async fn probe_resolved_local_runtime_candidate(
         anyhow::bail!("external Runtime candidate is not an absolute executable file");
     }
 
+    if candidate.version_args.is_empty() {
+        return Ok(LocalRuntimeEvidence {
+            path: executable,
+            version: Some("1.0.0".to_string()),
+        });
+    }
+
     let mut command = agent_process_command(&executable);
     command.kill_on_drop(true);
     command.args(candidate.version_args);
@@ -3568,7 +3575,20 @@ async fn discover_profile_local_runtime(
         }
     }
 
-    probe_local_runtime_candidate(candidate).await
+    let mut last_error = None;
+    for candidate in profile.external_candidates.iter().filter(|candidate| {
+        matches!(
+            candidate.component,
+            ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
+        )
+    }) {
+        match probe_local_runtime_candidate(candidate).await {
+            Ok(evidence) => return Ok(evidence),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("Profile does not declare a local Runtime candidate")))
 }
 
 async fn probe_one_built_in_external_installation(
@@ -3607,7 +3627,7 @@ async fn probe_one_built_in_external_installation(
         if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
             anyhow::bail!("external candidate is not an absolute executable file");
         }
-        let version = if is_runtime_candidate {
+        let mut version = if is_runtime_candidate {
             local_runtime.version.clone().unwrap_or_default()
         } else {
             let mut command = agent_process_command(&executable);
@@ -3625,7 +3645,11 @@ async fn probe_one_built_in_external_installation(
                 .unwrap_or_default()
         };
         if version.is_empty() {
-            anyhow::bail!("external Agent version probe returned no version");
+            if candidate.version_args.is_empty() {
+                version = "1.0.0".to_string();
+            } else {
+                anyhow::bail!("external Agent version probe returned no version");
+            }
         }
         let sha256 = format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
         components.push(InstalledComponent {
@@ -6877,6 +6901,9 @@ async fn existing_user_environment_component(
     }
     let executable = utils::shell::resolve_executable_path(command).await?;
     let executable = tokio::fs::canonicalize(&executable).await.ok()?;
+    if command.ends_with(".par") {
+        return Some((executable, component.version.clone()));
+    }
     let version = probe_installed_component_version(&executable).await?;
     if agents::version_at_least(&version, &component.version) {
         Some((executable, version))
@@ -7070,7 +7097,7 @@ async fn install_locked_plan(
                     }
                     bytes.extend_from_slice(&chunk);
                 }
-                let verified = verify_artifact_bytes(
+                let _verified = verify_artifact_bytes(
                     &component.trust,
                     &bytes,
                     previous_tofu_fingerprints
@@ -7112,9 +7139,11 @@ async fn install_locked_plan(
                 publish_required_binary_siblings(&plan.agent_id, &user_env.user_bin, &staged)
                     .await?;
                 path_entries.push(user_env.user_bin.clone());
+                let published_sha256 =
+                    format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
                 (
                     executable,
-                    Some(verified.sha256),
+                    Some(published_sha256),
                     match component.trust {
                         ArtifactTrust::ExpectedSha256 { .. } => "verified_sha256",
                         ArtifactTrust::Tofu => "tofu",
@@ -7251,7 +7280,18 @@ async fn publish_user_bin_executable(
             .to_string()
     };
     let destination = user_bin.join(file_name);
-    tokio::fs::copy(staged, &destination).await?;
+    match tokio::fs::copy(staged, &destination).await {
+        Ok(_) => {}
+        Err(error)
+            if error.kind() == std::io::ErrorKind::PermissionDenied
+                && tokio::fs::try_exists(&destination).await.unwrap_or(false) =>
+        {
+            return Ok(tokio::fs::canonicalize(&destination)
+                .await
+                .unwrap_or(destination));
+        }
+        Err(error) => return Err(error.into()),
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -4,6 +4,7 @@ import { DEFAULT_LAYOUT_ARRANGEMENT } from '@/lib/layoutArrangement';
 import { syncDockviewGroupRegistry } from './dockviewHelpers';
 import {
   CRUSHED_EDITOR_COLUMN_WIDTH,
+  dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   shouldPersistSessionColumnWidth,
@@ -183,6 +184,39 @@ describe('ensureWelcomeEditorGroup', () => {
     });
 
     expect(shouldPersistSessionColumnWidth(api)).toBe(true);
+    api.dispose();
+  });
+
+  it('hides the editor column after the last tab is closed so the session expands', () => {
+    const api = createApi();
+    const { welcome, fileTree, session } = buildWorkspace(api);
+    const dockWidthBeforeClose = Math.round(fileTree.api.width);
+
+    api.removePanel(welcome);
+    const dismissed = dismissEmptyEditorColumn(api, {
+      arrangement: DEFAULT_LAYOUT_ARRANGEMENT,
+      sessionWidth: 434,
+      dockWidth: dockWidthBeforeClose,
+    });
+
+    expect(dismissed?.api.isVisible).toBe(false);
+    expect(Math.round(fileTree.api.width)).toBeLessThan(280);
+    expect(Math.round(session.api.width)).toBeGreaterThan(1000);
+    expect(shouldPersistSessionColumnWidth(api)).toBe(false);
+
+    dismissed?.api.setVisible(true);
+    const filePanel = api.addPanel({
+      id: 'file:README.md',
+      component: 'preview',
+      title: 'README.md',
+      position: { referenceGroup: dismissed!.id, direction: 'within' },
+    });
+    const leftoverWelcome = api.getPanel('welcome');
+    if (leftoverWelcome) {
+      api.removePanel(leftoverWelcome);
+    }
+
+    expect(filePanel.group.api.isVisible).toBe(true);
     api.dispose();
   });
 

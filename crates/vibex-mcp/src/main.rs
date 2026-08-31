@@ -260,7 +260,9 @@ impl Companion {
     }
 
     fn uses_http(&self) -> bool {
-        self.server_url.is_some() && self.socket_path.is_empty()
+        self.server_url
+            .as_ref()
+            .is_some_and(|url| !url.trim().is_empty())
     }
 
     async fn send(
@@ -904,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn session_injected_companion_uses_socket_not_http() {
+    fn companion_prefers_http_when_a_server_url_is_present() {
         let injected = Companion::new(Args {
             parent_connection_id: "conn-1".to_string(),
             socket_path: "/tmp/vibex-delegation.sock".to_string(),
@@ -915,7 +917,7 @@ mod tests {
             conversation_id: Some("conv".to_string()),
             product: "delegation".to_string(),
         });
-        assert!(!injected.uses_http());
+        assert!(injected.uses_http());
         let native = Companion::new(Args {
             parent_connection_id: String::new(),
             socket_path: String::new(),

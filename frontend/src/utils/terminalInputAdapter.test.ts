@@ -22,16 +22,27 @@ function dispatchWebKitImeText(
   textarea: HTMLTextAreaElement,
   data: string
 ): void {
-  textarea.value += data;
-  textarea.dispatchEvent(
-    new InputEvent('input', {
-      bubbles: true,
-      composed: true,
-      data,
-      inputType: 'insertText',
-      isComposing: false,
-    })
-  );
+  const beforeInput = new InputEvent('beforeinput', {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    data,
+    inputType: 'insertText',
+    isComposing: false,
+  });
+  textarea.dispatchEvent(beforeInput);
+  if (!beforeInput.defaultPrevented) {
+    textarea.value += data;
+    textarea.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        composed: true,
+        data,
+        inputType: 'insertText',
+        isComposing: false,
+      })
+    );
+  }
 
   const keydown = new KeyboardEvent('keydown', {
     bubbles: true,
@@ -97,7 +108,27 @@ describe('attachTerminalInput', () => {
     subscription.dispose();
   });
 
-  it('does not match native input against xterm data from an earlier event turn', async () => {
+  it('does not duplicate text when a third-party IME inserts after xterm onData', async () => {
+    vi.useFakeTimers();
+    const terminal = createTerminalInputSource();
+    const received: string[] = [];
+    const subscription = attachTerminalInput(terminal.source, (data) => {
+      received.push(data);
+    });
+
+    for (const character of 'pnpm') {
+      terminal.emitData(character);
+      await vi.advanceTimersByTimeAsync(0);
+      dispatchWebKitImeText(terminal.source.textarea, character);
+    }
+
+    await vi.runAllTimersAsync();
+
+    expect(received.join('')).toBe('pnpm');
+    subscription.dispose();
+  });
+
+  it('does not match native input against xterm data from an earlier keystroke', async () => {
     vi.useFakeTimers();
     const terminal = createTerminalInputSource();
     const received: string[] = [];
@@ -106,11 +137,28 @@ describe('attachTerminalInput', () => {
     });
 
     terminal.emitData('.');
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(50);
     dispatchWebKitImeText(terminal.source.textarea, '.');
     await vi.runAllTimersAsync();
 
     expect(received.join('')).toBe('..');
+    subscription.dispose();
+  });
+
+  it('stops non-composing IME insertText from reaching later textarea listeners', () => {
+    const terminal = createTerminalInputSource();
+    const subscription = attachTerminalInput(terminal.source, () => undefined);
+    let reachedBubbleListener = false;
+    terminal.source.textarea.addEventListener('beforeinput', () => {
+      reachedBubbleListener = true;
+    });
+    terminal.source.textarea.addEventListener('input', () => {
+      reachedBubbleListener = true;
+    });
+
+    dispatchWebKitImeText(terminal.source.textarea, 'p');
+
+    expect(reachedBubbleListener).toBe(false);
     subscription.dispose();
   });
 });

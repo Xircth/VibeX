@@ -18,16 +18,10 @@ import {
 } from 'dockview-react';
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
 import {
-  Code2,
-  FolderOpen,
-  GitBranch,
-  MessagesSquare,
-  Search,
-} from 'lucide-react';
-import {
   WorkspaceDockviewTab,
   panelComponents,
 } from '@/components/layout/panels/PanelRegistry';
+import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
@@ -56,10 +50,16 @@ import {
   MIN_LEFT_PANEL_WIDTH,
 } from '@/utils/dockviewWorkspaceConstraints';
 import {
+  dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
+import { editorColumnShouldDismiss } from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import {
+  ACTIVITY_RAIL_PANEL_TITLES,
+  getDefaultActivityRailPanelId,
+} from '@/lib/activityRailOrder';
 import {
   arrangementsEqual,
   getLayoutArrangement,
@@ -84,6 +84,7 @@ import {
   isEditorGroup,
   isLeftGroup,
   isSessionGroup,
+  isPlaceholderPanelId,
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
   SESSION_PANEL_IDS,
@@ -262,10 +263,11 @@ function buildDefaultLayout(api: DockviewApi) {
     initialWidth: defaultDockWidth(api.width),
   });
 
+  const defaultLeftPanelId = getDefaultActivityRailPanelId();
   api.addPanel({
-    id: PANEL_IDS.FILE_TREE,
-    component: PANEL_IDS.FILE_TREE,
-    title: 'Files',
+    id: defaultLeftPanelId,
+    component: defaultLeftPanelId,
+    title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
     position: {
       referenceGroup: leftGroup,
       direction: 'within',
@@ -327,12 +329,24 @@ function buildDefaultLayout(api: DockviewApi) {
 function recreateWelcomeEditorGroup(
   api: DockviewApi
 ): DockviewGroup | undefined {
+  const leftGroup = getLeftGroup(api);
   const group = ensureWelcomeEditorGroup(api, {
     arrangement: getLayoutArrangement(),
     sessionWidth: useLayoutStore.getState().rightPanelWidth,
+    dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
   });
   normalizeGroupIds(api);
   return group;
+}
+
+function dismissEditorColumnAfterLastTab(api: DockviewApi): void {
+  const leftGroup = getLeftGroup(api);
+  dismissEmptyEditorColumn(api, {
+    arrangement: getLayoutArrangement(),
+    sessionWidth: useLayoutStore.getState().rightPanelWidth,
+    dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
+  });
+  normalizeGroupIds(api);
 }
 
 function resolvePanelFromTabElement(
@@ -410,11 +424,6 @@ export function IDELayout({
 
   const {
     setDockviewApi,
-    toggleFileTree,
-    toggleGitPanel,
-    toggleSearchPanel,
-    toggleSessionList,
-    isPanelOpen,
     openPanelInNewEditorGroup,
     canOpenPanelInNewEditorGroup,
   } = usePanelActionsContext();
@@ -424,6 +433,7 @@ export function IDELayout({
     effectiveActiveTab === 'workspace' && !isEditorAreaVisible;
   const isCollapsedRef = useRef(isWorkspaceEditorAreaCollapsed);
   isCollapsedRef.current = isWorkspaceEditorAreaCollapsed;
+  const wasEditorAreaCollapsedRef = useRef(isWorkspaceEditorAreaCollapsed);
 
   const applyDefaultSizes = useCallback(
     (api: DockviewApi, onDone?: () => void) => {
@@ -623,11 +633,15 @@ export function IDELayout({
         });
       }
 
-      if (!api.getPanel(PANEL_IDS.FILE_TREE)) {
+      const hasLeftPanel = [...LEFT_PANEL_IDS].some((panelId) =>
+        api.getPanel(panelId)
+      );
+      if (!hasLeftPanel) {
+        const defaultLeftPanelId = getDefaultActivityRailPanelId();
         api.addPanel({
-          id: PANEL_IDS.FILE_TREE,
-          component: PANEL_IDS.FILE_TREE,
-          title: 'Files',
+          id: defaultLeftPanelId,
+          component: defaultLeftPanelId,
+          title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
           position: {
             referenceGroup: GROUP_IDS.LEFT,
             direction: 'within',
@@ -922,8 +936,8 @@ export function IDELayout({
         }
 
         normalizeGroupIds(api);
-        if (getEditorGroups(api).length === 0) {
-          recreateWelcomeEditorGroup(api);
+        if (editorColumnShouldDismiss(getEditorGroups(api))) {
+          dismissEditorColumnAfterLastTab(api);
         }
       });
 
@@ -1133,11 +1147,19 @@ export function IDELayout({
       for (const group of getEditorGroups(api)) {
         group.api.setVisible(false);
       }
+      wasEditorAreaCollapsedRef.current = true;
       return;
     }
 
+    const recoveringFromToolbarCollapse = wasEditorAreaCollapsedRef.current;
+    wasEditorAreaCollapsedRef.current = false;
+
     for (const group of getEditorGroups(api)) {
-      if (!group.api.isVisible) {
+      if (group.api.isVisible) continue;
+      const hasContent = group.panels.some(
+        (panel) => !isPlaceholderPanelId(panel.id)
+      );
+      if (recoveringFromToolbarCollapse || hasContent) {
         group.api.setVisible(true);
       }
     }
@@ -1236,62 +1258,10 @@ export function IDELayout({
 
       <div className="flex min-h-0 flex-1">
         {effectiveActiveTab === 'workspace' ? (
-          <div className="workspace-activity-rail workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 bg-secondary/30 pt-2">
-            <button
-              onClick={toggleFileTree}
-              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
-                isPanelOpen(PANEL_IDS.FILE_TREE) ? 'is-active' : ''
-              }`}
-              title={t('ideLayout.files')}
-              aria-pressed={isPanelOpen(PANEL_IDS.FILE_TREE)}
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={toggleGitPanel}
-              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
-                isPanelOpen(PANEL_IDS.GIT) ? 'is-active' : ''
-              }`}
-              title={t('ideLayout.git')}
-              aria-pressed={isPanelOpen(PANEL_IDS.GIT)}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={toggleSearchPanel}
-              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
-                isPanelOpen(PANEL_IDS.SEARCH) ? 'is-active' : ''
-              }`}
-              title={t('ideLayout.search')}
-              aria-pressed={isPanelOpen(PANEL_IDS.SEARCH)}
-            >
-              <Search className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={toggleSessionList}
-              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
-                isPanelOpen(PANEL_IDS.SESSION_LIST) ? 'is-active' : ''
-              }`}
-              title={t('panelRegistry.sessionList')}
-              aria-pressed={isPanelOpen(PANEL_IDS.SESSION_LIST)}
-            >
-              <MessagesSquare className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={toggleEditorArea}
-              className={`workspace-side-rail-button hidden h-7 w-7 items-center justify-center ${
-                isEditorAreaVisible ? 'is-active' : ''
-              }`}
-              title={
-                isEditorAreaVisible
-                  ? t('ideLayout.hideEditorAndTerminal')
-                  : t('ideLayout.showEditorAndTerminal')
-              }
-              aria-pressed={isEditorAreaVisible}
-            >
-              <Code2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          <WorkspaceActivityRail
+            isEditorAreaVisible={isEditorAreaVisible}
+            onToggleEditorArea={toggleEditorArea}
+          />
         ) : null}
 
         <RightPanelSlotContext.Provider value={sessionPlacement}>

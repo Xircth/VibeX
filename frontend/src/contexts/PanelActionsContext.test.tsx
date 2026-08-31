@@ -193,3 +193,39 @@ describe('PanelActionsContext terminal visibility', () => {
     expect(terminalPanel.api.setActive).toHaveBeenCalledOnce();
   });
 });
+
+describe('PanelActionsContext terminal editor tab', () => {
+  it('opens a terminal as an editor-group tab instead of the bottom zone', () => {
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+
+    render(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    const dockviewApi = createDockviewApi();
+
+    act(() => actions?.setDockviewApi(dockviewApi));
+    act(() => actions?.openTerminalEditorTab());
+
+    expect(dockviewApi.addPanel).toHaveBeenCalledTimes(1);
+    expect(dockviewApi.addPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.stringMatching(/^terminal:term-/),
+        component: PANEL_IDS.TERMINAL,
+        title: 'Terminal',
+        params: {
+          surface: 'editor',
+          tabId: expect.stringMatching(/^term-/),
+        },
+        position: expect.objectContaining({
+          direction: 'within',
+        }),
+      })
+    );
+  });
+});

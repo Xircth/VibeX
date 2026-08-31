@@ -183,6 +183,12 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         .as_ref()
         .expect("antigravity keeps the extracted tree");
     assert_eq!(entry.unix, "agy_acp_server.par");
+    assert!(
+        profile("antigravity")
+            .external_candidates
+            .iter()
+            .any(|candidate| candidate.executable == "agy_acp_server.par")
+    );
     assert_eq!(entry.windows, "agy_acp_server.exe");
     assert_eq!(entry.unix_siblings, &["localharness_external"]);
     if cfg!(target_os = "linux") {

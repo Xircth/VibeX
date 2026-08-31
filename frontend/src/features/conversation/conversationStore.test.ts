@@ -872,6 +872,65 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('does not grow a settled assistant with the next turn’s stream', () => {
+    let state = loaded([
+      userRow('t1', 'A', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'answer-A' }], 2n),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t2:user', 3n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('t2:user', 'user', [
+                { type: 'text', text: 'B' },
+              ]),
+            }),
+          },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'answer-B',
+          },
+        ],
+        4n
+      ),
+    });
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const byId = Object.fromEntries(
+      turns.map((row) => [row.turn.id, textOf(row.turn.blocks)])
+    );
+    expect(byId['t1:assistant']).toBe('answer-A');
+    expect(byId['t2:assistant']).toBe('answer-B');
+    expect(
+      turns.filter((row) => row.turn.role === 'user').map((row) => row.turn.id)
+    ).toEqual(['t1:user', 't2:user']);
+  });
+
+  it('keeps later optimistic user turns after an earlier streaming turn', () => {
+    let state = loaded([userRow('t1', 'A', 50n)]);
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-b', 'user', [{ type: 'text', text: 'B' }]),
+    });
+    const users = timelineItemsForEntry(entryOf(state)).flatMap((item) =>
+      item.kind === 'message' && item.item.turn.role === 'user'
+        ? [item.item.turn.blocks[0]]
+        : []
+    );
+    expect(users).toEqual([
+      { type: 'text', text: 'A' },
+      { type: 'text', text: 'B' },
+    ]);
+  });
+
   it('interleaves side rows with messages by revision', () => {
     const permission: TimelineRow = timelineRow('perm:p1', 2n, {
       kind: 'permission_request',

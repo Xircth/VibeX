@@ -2532,6 +2532,15 @@
       transform 150ms ease;
   }
 
+  .workspace-activity-rail {
+    user-select: none;
+  }
+
+  .workspace-activity-rail .workspace-side-rail-button {
+    cursor: grab;
+    touch-action: none;
+  }
+
   .workspace-side-rail-button:hover {
     color: hsl(var(--foreground));
     background: hsl(var(--accent));
@@ -2546,6 +2555,19 @@
   .workspace-side-rail-button.is-active {
     color: hsl(var(--foreground));
     background: hsl(var(--accent));
+  }
+
+  .workspace-side-rail-button.is-placeholder {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .workspace-side-rail-button.is-dragging {
+    cursor: grabbing;
+    z-index: 3;
+    color: hsl(var(--foreground));
+    background: hsl(var(--accent));
+    box-shadow: 0 4px 8px hsl(220 36% 8% / 0.14);
   }
 
   .workspace-side-rail-button:focus-visible {
@@ -2671,7 +2693,7 @@
   }
 
   .workspace-welcome h2 {
-    max-width: 14ch;
+    max-width: 16ch;
     margin: 0;
     font-size: clamp(25px, 3vw, 38px);
     font-weight: 720;
@@ -3543,9 +3565,14 @@
     cursor: grabbing;
   }
 
+  .workspace-session-row-main.is-editing,
+  .workspace-session-row.is-delete-mode .workspace-session-row-main {
+    cursor: pointer;
+    touch-action: auto;
+  }
+
   .workspace-session-row-main.is-editing {
     cursor: default;
-    touch-action: auto;
   }
 
   .workspace-session-row-main:focus-visible {
@@ -6422,7 +6449,10 @@
 .settings-page button.agent-preflight-status {
   height: auto;
   min-height: 0;
-  font: inherit;
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
   cursor: pointer;
 }
 

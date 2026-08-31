@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v15 folds delegated-child assistant deltas that were recorded without a turn.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 15;
+// v16 keeps a later turn's stream off a settled predecessor when turn_id is stale.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 16;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
@@ -1019,7 +1019,7 @@ impl ProjectionFold {
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
         {
             let turn_id = self
-                .resolved_turn_id(record)
+                .resolved_turn_id_for_stream(record)
                 .unwrap_or(record.conversation_id);
             let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
                 TimelineTextStream::Reasoning
@@ -1742,6 +1742,37 @@ impl ProjectionFold {
         record.turn_id.or_else(|| self.turn_order.last().copied())
     }
 
+    /// Streaming deltas must never attach to a turn that has already settled once
+    /// a later turn is open. A stale recorder `turn_id` (the previous completed
+    /// turn) would otherwise concatenate reply B onto assistant A while the new
+    /// user row only shows a loading bubble.
+    fn resolved_turn_id_for_stream(&self, record: &ConversationEventRecord) -> Option<Uuid> {
+        let latest_open = self.latest_open_turn_id();
+        if let Some(turn_id) = record.turn_id {
+            if let Some(turn) = self.turns.get(&turn_id)
+                && turn_phase_is_terminal(&turn.phase)
+                && let Some(open_id) = latest_open
+                && open_id != turn_id
+            {
+                return Some(open_id);
+            }
+            return Some(turn_id);
+        }
+        latest_open.or_else(|| self.turn_order.last().copied())
+    }
+
+    fn latest_open_turn_id(&self) -> Option<Uuid> {
+        self.turn_order.iter().rev().find_map(|id| {
+            self.turns.get(id).and_then(|turn| {
+                if turn_phase_is_terminal(&turn.phase) {
+                    None
+                } else {
+                    Some(*id)
+                }
+            })
+        })
+    }
+
     fn seed_user_prompt_from_session(&mut self, conversation_id: Uuid, prompt: Option<&str>) {
         let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) else {
             return;
@@ -1844,6 +1875,10 @@ fn ensure_turn(
             revision: record.sequence,
         },
     );
+}
+
+fn turn_phase_is_terminal(phase: &str) -> bool {
+    matches!(phase, "settled" | "failed" | "cancelled" | "interrupted")
 }
 
 fn settle_turn(
@@ -3242,6 +3277,146 @@ mod tests {
             }
             other => panic!("expected MessageTurn, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn next_turn_stream_does_not_append_to_a_settled_predecessor() {
+        // User A → AI A, then User B. If the recorder still tags B's deltas with
+        // A's turn_id (stale active-turn cache), the fold must still place them
+        // on B. Otherwise the timeline becomes User A → AI AB, User B → loading.
+        let pool = setup_pool().await;
+        let (conversation_id, turn_a) = seed_turn(&pool).await;
+        let turn_b = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-2"),
+                text_preview: Some("B"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create second turn")
+        .id;
+
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("projector");
+
+        let created_a = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "A".into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        projector.apply(&created_a).expect("fold A user");
+
+        let delta_a = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "answer-A".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        projector.apply(&delta_a).expect("fold A assistant");
+
+        let completed_a = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+        projector.apply(&completed_a).expect("settle A");
+
+        let created_b = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_b),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "B".into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        projector.apply(&created_b).expect("fold B user");
+
+        let delta_b = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "answer-B".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&delta_b).expect("fold B assistant");
+        assert!(
+            ops.iter().any(|op| matches!(
+                op,
+                ConversationRowOp::AppendText { row_id, delta, .. }
+                    if row_id == &format!("{turn_b}:assistant") && delta == "answer-B"
+            )),
+            "stale turn_id on B's delta must still append to B, not A: {ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(
+                op,
+                ConversationRowOp::AppendText { row_id, .. }
+                    if row_id == &format!("{turn_a}:assistant")
+            )),
+            "B's stream must not grow A's assistant row: {ops:?}"
+        );
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let assistant_texts: Vec<(String, String)> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    let text = turn
+                        .blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<String>();
+                    Some((row.row_id.clone(), text))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            assistant_texts,
+            vec![
+                (format!("{turn_a}:assistant"), "answer-A".into()),
+                (format!("{turn_b}:assistant"), "answer-B".into()),
+            ]
+        );
     }
 
     #[tokio::test]

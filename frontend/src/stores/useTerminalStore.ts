@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  nextWorkspaceTerminalTitle,
+  type TerminalSurface,
+} from '@/lib/workspaceTerminalTabs';
 
 /**
  * Terminal session metadata tracked per workspace.
@@ -23,6 +27,10 @@ export interface TerminalSession {
   readOnly?: boolean;
   /** Logical source of the terminal session */
   source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
+  /** Whether the tab is currently running a foreground command */
+  busy?: boolean;
+  /** Where this session is shown: bottom terminal zone or an editor tab */
+  surface?: TerminalSurface;
 }
 
 interface TerminalState {
@@ -43,6 +51,7 @@ interface TerminalState {
       readOnly?: boolean;
       source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
       sessionId?: string | null;
+      surface?: TerminalSurface;
     }
   ) => void;
   /** Set the PTY session ID once the backend creates it */
@@ -53,6 +62,8 @@ interface TerminalState {
   setActiveTab: (workspaceId: string, tabId: string | null) => void;
   /** Update the title of a terminal tab */
   updateTitle: (tabId: string, title: string) => void;
+  /** Mark whether a tab is running a command */
+  setBusy: (tabId: string, busy: boolean) => void;
   /** Clear all sessions for a workspace */
   clearWorkspace: (workspaceId: string) => void;
   /** Get sessions for a specific workspace */
@@ -60,10 +71,6 @@ interface TerminalState {
 }
 
 let tabCounter = 0;
-
-function formatTerminalTitle(index: number): string {
-  return `VU-${String(index).padStart(2, '0')}`;
-}
 
 export function generateTerminalTabId(): string {
   tabCounter += 1;
@@ -87,14 +94,19 @@ export const useTerminalStore = create<TerminalState>()(
             options?.title ??
             (options?.type === 'log-viewer'
               ? `Log ${existing.length + 1}`
-              : formatTerminalTitle(existing.length + 1)),
+              : nextWorkspaceTerminalTitle(
+                  shell,
+                  existing.map((session) => session.title)
+                )),
           shell,
+          busy: false,
           type: options?.type ?? 'pty',
           processId: options?.processId,
           readOnly: options?.readOnly ?? false,
           source:
             options?.source ??
             (options?.type === 'log-viewer' ? 'log-viewer' : 'workspace'),
+          surface: options?.surface ?? 'panel',
         };
         set({
           sessionsByWorkspace: {
@@ -169,6 +181,19 @@ export const useTerminalStore = create<TerminalState>()(
         )) {
           updated[wsId] = sessions.map((session) =>
             session.tabId === tabId ? { ...session, title } : session
+          );
+        }
+        set({ sessionsByWorkspace: updated });
+      },
+
+      setBusy: (tabId, busy) => {
+        const state = get();
+        const updated: Record<string, TerminalSession[]> = {};
+        for (const [wsId, sessions] of Object.entries(
+          state.sessionsByWorkspace
+        )) {
+          updated[wsId] = sessions.map((session) =>
+            session.tabId === tabId ? { ...session, busy } : session
           );
         }
         set({ sessionsByWorkspace: updated });

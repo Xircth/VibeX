@@ -311,56 +311,128 @@ impl ConversationAgentEventRecorder {
         Ok(batch)
     }
 
-    async fn active_turn_id(&mut self, conversation_id: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
-        if let Some(turn_id) = self.active_turns.get(&conversation_id).copied() {
-            return Ok(Some(turn_id));
-        }
-        let turn_id = sqlx::query_scalar::<_, Option<Uuid>>(
-            "SELECT active_turn_id FROM sessions WHERE id = ?",
-        )
-        .bind(conversation_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
-        if let Some(turn_id) = turn_id {
-            self.active_turns.insert(conversation_id, turn_id);
-        }
-        Ok(turn_id)
-    }
-
     async fn event_turn_id(
         &mut self,
         conversation_id: Uuid,
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        let AgentEvent::PromptFinished { finished } = event else {
-            if let Some(turn_id) = self.active_turn_id(conversation_id).await? {
+        resolve_agent_event_turn_id(&self.pool, &mut self.active_turns, conversation_id, event)
+            .await
+    }
+}
+
+async fn resolve_agent_event_turn_id(
+    pool: &SqlitePool,
+    active_turns: &mut HashMap<Uuid, Uuid>,
+    conversation_id: Uuid,
+    event: &AgentEvent,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    match event {
+        AgentEvent::PromptStarted { snapshot } => {
+            bind_prompt_turn(
+                pool,
+                active_turns,
+                conversation_id,
+                &snapshot.id.to_string(),
+            )
+            .await
+        }
+        AgentEvent::PromptFinished { finished } => {
+            let prompt_id = finished.prompt_id.to_string();
+            if let Some(turn) =
+                ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, &prompt_id).await?
+            {
+                return Ok(Some(turn.id));
+            }
+            let Some(active_id) =
+                in_flight_active_turn_id(pool, active_turns, conversation_id).await?
+            else {
+                return Ok(None);
+            };
+            let active_turn = ConversationTurnRecord::find_by_id(pool, active_id).await?;
+            Ok(active_turn
+                .filter(|turn| turn.prompt_id.as_deref().is_none_or(|id| id == prompt_id))
+                .map(|turn| turn.id))
+        }
+        event if binds_only_to_in_flight_turn(event) => {
+            in_flight_active_turn_id(pool, active_turns, conversation_id).await
+        }
+        _ => {
+            if let Some(turn_id) =
+                in_flight_active_turn_id(pool, active_turns, conversation_id).await?
+            {
                 return Ok(Some(turn_id));
             }
-            return Ok(ConversationTurnRecord::latest_for_conversation(
-                &self.pool,
-                conversation_id,
+            Ok(
+                ConversationTurnRecord::latest_for_conversation(pool, conversation_id)
+                    .await?
+                    .map(|turn| turn.id),
             )
-            .await?
-            .map(|turn| turn.id));
-        };
-
-        let prompt_id = finished.prompt_id.to_string();
-        if let Some(turn) =
-            ConversationTurnRecord::find_by_prompt_id(&self.pool, conversation_id, &prompt_id)
-                .await?
-        {
-            return Ok(Some(turn.id));
         }
-
-        let Some(active_id) = self.active_turn_id(conversation_id).await? else {
-            return Ok(None);
-        };
-        let active_turn = ConversationTurnRecord::find_by_id(&self.pool, active_id).await?;
-        Ok(active_turn
-            .filter(|turn| turn.prompt_id.as_deref().is_none_or(|id| id == prompt_id))
-            .map(|turn| turn.id))
     }
+}
+
+fn binds_only_to_in_flight_turn(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::MessageChunk { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::ToolCall { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::Plan { .. }
+            | AgentEvent::PermissionRequested { .. }
+            | AgentEvent::ElicitationRequested { .. }
+            | AgentEvent::TerminalCreated { .. }
+            | AgentEvent::TerminalOutput { .. }
+            | AgentEvent::Error { .. }
+    )
+}
+
+fn is_in_flight_turn_status(status: &str) -> bool {
+    matches!(status, "pending" | "queued" | "running" | "blocked")
+}
+
+async fn bind_prompt_turn(
+    pool: &SqlitePool,
+    active_turns: &mut HashMap<Uuid, Uuid>,
+    conversation_id: Uuid,
+    prompt_id: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    if let Some(turn) =
+        ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, prompt_id).await?
+        && is_in_flight_turn_status(&turn.status)
+    {
+        active_turns.insert(conversation_id, turn.id);
+        return Ok(Some(turn.id));
+    }
+    in_flight_active_turn_id(pool, active_turns, conversation_id).await
+}
+
+async fn in_flight_active_turn_id(
+    pool: &SqlitePool,
+    active_turns: &mut HashMap<Uuid, Uuid>,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    if let Some(turn_id) = active_turns.get(&conversation_id).copied() {
+        return Ok(Some(turn_id));
+    }
+    let turn_id =
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    let Some(turn_id) = turn_id else {
+        return Ok(None);
+    };
+    let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
+        return Ok(None);
+    };
+    if !is_in_flight_turn_status(&turn.status) {
+        return Ok(None);
+    }
+    active_turns.insert(conversation_id, turn.id);
+    Ok(Some(turn.id))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -931,16 +1003,27 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, str::FromStr};
+
     use agents::{
-        AgentConnectionId, AgentEvent, AgentEventEnvelope, AgentSessionId, AgentToolCall,
-        AgentToolCallUpdate, AgentUsage, conversation::ConversationEvent,
+        AgentConnectionId, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentPromptId,
+        AgentPromptSnapshot, AgentPromptStatus, AgentSessionId, AgentToolCall, AgentToolCallUpdate,
+        AgentUsage, conversation::ConversationEvent,
     };
     use chrono::Utc;
+    use db::models::{
+        conversation::{ConversationRecord, CreateConversationRecord},
+        conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+    };
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
     use uuid::Uuid;
 
     use super::{
         ConversationEventCoalescer, MappedConversationEventRecord, conversation_event_kind,
-        conversation_event_source, map_agent_event,
+        conversation_event_source, map_agent_event, resolve_agent_event_turn_id,
     };
 
     #[test]
@@ -1248,5 +1331,202 @@ mod tests {
             last_agent_sequence: sequence,
             complete_reply: false,
         }
+    }
+
+    async fn setup_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect memory db");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        pool
+    }
+
+    async fn seed_conversation_turn(
+        pool: &SqlitePool,
+        prompt_id: &str,
+        preview: &str,
+    ) -> (Uuid, Uuid) {
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let turn = ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some(prompt_id),
+                text_preview: Some(preview),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        ConversationRecord::update_active_turn(pool, conversation_id, Some(turn.id))
+            .await
+            .expect("set active turn");
+        (conversation_id, turn.id)
+    }
+
+    fn message_chunk() -> AgentEvent {
+        AgentEvent::MessageChunk {
+            content: AgentContentBlock::Text {
+                text: "token".into(),
+            },
+        }
+    }
+
+    fn prompt_started(prompt_id: AgentPromptId, session_id: AgentSessionId) -> AgentEvent {
+        let now = Utc::now();
+        AgentEvent::PromptStarted {
+            snapshot: AgentPromptSnapshot {
+                id: prompt_id,
+                session_id,
+                status: AgentPromptStatus::Running,
+                text_preview: "B".into(),
+                created_at: now,
+                updated_at: now,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn post_completion_events_do_not_pin_the_next_turn_to_the_previous() {
+        let pool = setup_pool().await;
+        let prompt_a = AgentPromptId::new();
+        let (conversation_id, turn_a) =
+            seed_conversation_turn(&pool, &prompt_a.to_string(), "A").await;
+        let mut cache = HashMap::new();
+
+        let first =
+            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
+                .await
+                .expect("bind A stream");
+        assert_eq!(first, Some(turn_a));
+
+        ConversationTurnRecord::mark_completed(&pool, turn_a, Some("end_turn"), None, None)
+            .await
+            .expect("complete A");
+        cache.remove(&conversation_id);
+
+        let usage = resolve_agent_event_turn_id(
+            &pool,
+            &mut cache,
+            conversation_id,
+            &AgentEvent::Usage {
+                usage: AgentUsage::default(),
+            },
+        )
+        .await
+        .expect("bind usage");
+        assert_eq!(usage, Some(turn_a));
+        assert!(
+            !cache.contains_key(&conversation_id),
+            "end-of-turn usage must not re-cache a completed turn"
+        );
+
+        let prompt_b = AgentPromptId::new();
+        let turn_b = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some(&prompt_b.to_string()),
+                text_preview: Some("B"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create B")
+        .id;
+        ConversationRecord::update_active_turn(&pool, conversation_id, Some(turn_b))
+            .await
+            .expect("activate B");
+
+        let started = resolve_agent_event_turn_id(
+            &pool,
+            &mut cache,
+            conversation_id,
+            &prompt_started(prompt_b, AgentSessionId(conversation_id)),
+        )
+        .await
+        .expect("bind PromptStarted");
+        assert_eq!(started, Some(turn_b));
+
+        let second =
+            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
+                .await
+                .expect("bind B stream");
+        assert_eq!(
+            second,
+            Some(turn_b),
+            "B's stream must not inherit A's cached turn id"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_active_pointer_does_not_capture_the_next_message_chunk() {
+        let pool = setup_pool().await;
+        let prompt_a = AgentPromptId::new();
+        let (conversation_id, turn_a) =
+            seed_conversation_turn(&pool, &prompt_a.to_string(), "A").await;
+        ConversationTurnRecord::mark_completed(&pool, turn_a, Some("end_turn"), None, None)
+            .await
+            .expect("complete A");
+
+        let mut cache = HashMap::new();
+        let orphan =
+            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
+                .await
+                .expect("refuse completed pointer");
+        assert_eq!(orphan, None);
+        assert!(!cache.contains_key(&conversation_id));
+
+        let prompt_b = AgentPromptId::new();
+        let turn_b = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some(&prompt_b.to_string()),
+                text_preview: Some("B"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create B")
+        .id;
+        ConversationRecord::update_active_turn(&pool, conversation_id, Some(turn_b))
+            .await
+            .expect("activate B");
+
+        let second =
+            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
+                .await
+                .expect("bind B");
+        assert_eq!(second, Some(turn_b));
     }
 }

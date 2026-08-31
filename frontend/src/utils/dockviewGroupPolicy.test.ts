@@ -52,6 +52,12 @@ describe('dockview group policy', () => {
     expect(isEditorGroup(group('group-editor-1', [PANEL_IDS.WELCOME]))).toBe(
       true
     );
+    expect(isBottomGroup(group('group-editor-1', ['terminal:term-1']))).toBe(
+      false
+    );
+    expect(isEditorGroup(group('group-editor-1', ['terminal:term-1']))).toBe(
+      true
+    );
   });
 
   it('keeps welcome placeholder panels out of editor split targets', () => {
@@ -62,6 +68,12 @@ describe('dockview group policy', () => {
     ).toBe(false);
     expect(
       isSplittableEditorPanel({ id: 'file:C:/repo/a.ts', group: editorGroup })
+    ).toBe(true);
+    expect(
+      isSplittableEditorPanel({
+        id: 'terminal:term-1',
+        group: editorGroup,
+      })
     ).toBe(true);
     expect(isPlaceholderPanelId(PANEL_IDS.WELCOME)).toBe(true);
   });

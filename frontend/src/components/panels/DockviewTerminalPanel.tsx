@@ -22,12 +22,27 @@ import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { backendCall } from '@/lib/backendTransport';
 import {
   getDefaultTerminalShell,
+  getPlatformDefaultTerminalShell,
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
   isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
 import { isTerminalTabCloseKey } from './terminalTabClosePolicy';
+import {
+  clampTerminalListPaneWidth,
+  isEditorTerminalPanelId,
+  TERMINAL_LIST_PANE_MAX_WIDTH,
+  TERMINAL_LIST_PANE_MIN_WIDTH,
+  isWorkspacePanelTerminal,
+  lastTerminalCloseHidesPanel,
+  persistTerminalListPaneWidth,
+  readStoredTerminalListPaneWidth,
+  reduceTerminalBusy,
+  shouldCreateInitialTerminal,
+  tabIdFromEditorTerminalPanelId,
+} from '@/lib/workspaceTerminalTabs';
+import type { TerminalPanelParams } from '@/types/panels';
 
 type TerminalCloseEvent = Pick<React.SyntheticEvent, 'stopPropagation'>;
 
@@ -43,8 +58,16 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     getTerminalWorkspaceKey(activeWorktreeId ?? routeWorkspaceId ?? null) ||
     undefined;
   const defaultShell = getDefaultTerminalShell(config);
+  const editorShell = isExternalTerminalShell(defaultShell)
+    ? getPlatformDefaultTerminalShell()
+    : defaultShell;
   const terminalShellOptions = getTerminalShellOptions();
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
+  const panelParams = (props.params ?? {}) as Partial<TerminalPanelParams>;
+  const editorTabId =
+    panelParams.tabId ?? tabIdFromEditorTerminalPanelId(props.api.id);
+  const isEditorSurface =
+    panelParams.surface === 'editor' || isEditorTerminalPanelId(props.api.id);
 
   const sessionsByWorkspace = useTerminalStore(
     (state) => state.sessionsByWorkspace
@@ -56,15 +79,23 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const removeSession = useTerminalStore((state) => state.removeSession);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const setSessionId = useTerminalStore((state) => state.setSessionId);
+  const setBusy = useTerminalStore((state) => state.setBusy);
 
-  const sessions = useMemo(
-    () => (workspaceId ? sessionsByWorkspace[workspaceId] || [] : []),
-    [sessionsByWorkspace, workspaceId]
-  );
+  const sessions = useMemo(() => {
+    const allSessions = workspaceId
+      ? sessionsByWorkspace[workspaceId] || []
+      : [];
+    if (isEditorSurface) {
+      return allSessions.filter((session) => session.tabId === editorTabId);
+    }
+    return allSessions.filter(isWorkspacePanelTerminal);
+  }, [editorTabId, isEditorSurface, sessionsByWorkspace, workspaceId]);
 
-  const activeTabId = workspaceId
-    ? (activeTabByWorkspace[workspaceId] ?? null)
-    : null;
+  const activeTabId = isEditorSurface
+    ? (editorTabId ?? null)
+    : workspaceId
+      ? (activeTabByWorkspace[workspaceId] ?? null)
+      : null;
 
   const openPreviewUrl = useCallback(
     (url: string) => {
@@ -75,10 +106,15 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     [openOrFocusPanel, setOverrideUrl]
   );
 
-  const lastEnsuredWorkspaceRef = useRef<string | null>(null);
   const [selectedShell, setSelectedShell] =
     useState<TerminalShellValue>(defaultShell);
   const [panelRefitVersion, setPanelRefitVersion] = useState(0);
+  const [listPaneWidth, setListPaneWidth] = useState(
+    readStoredTerminalListPaneWidth
+  );
+  const [isResizingList, setIsResizingList] = useState(false);
+  const panelRootRef = useRef<HTMLDivElement>(null);
+  const resizingListRef = useRef(false);
   const isPanelVisible = props.api.isVisible;
 
   useEffect(() => {
@@ -104,43 +140,57 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   }, [props.api]);
 
   useEffect(() => {
+    persistTerminalListPaneWidth(listPaneWidth);
+  }, [listPaneWidth]);
+
+  useEffect(() => {
     if (!workspaceId) {
-      lastEnsuredWorkspaceRef.current = null;
       return;
     }
 
-    if (lastEnsuredWorkspaceRef.current === workspaceId) {
+    if (isEditorSurface) {
+      if (!editorTabId) {
+        return;
+      }
+      const currentSessions =
+        useTerminalStore.getState().sessionsByWorkspace[workspaceId] || [];
+      if (currentSessions.some((session) => session.tabId === editorTabId)) {
+        return;
+      }
+      addSession(workspaceId, editorTabId, editorShell, {
+        surface: 'editor',
+      });
       return;
     }
 
-    lastEnsuredWorkspaceRef.current = workspaceId;
-    const currentSessions =
-      useTerminalStore.getState().sessionsByWorkspace[workspaceId] || [];
-    if (currentSessions.length > 0) {
-      return;
-    }
-    if (isExternalTerminalShell(defaultShell)) {
+    const currentSessions = (
+      useTerminalStore.getState().sessionsByWorkspace[workspaceId] || []
+    ).filter(isWorkspacePanelTerminal);
+    if (
+      !shouldCreateInitialTerminal({
+        panelVisible: isPanelVisible,
+        sessionCount: currentSessions.length,
+        isExternalShell: isExternalTerminalShell(defaultShell),
+      })
+    ) {
       return;
     }
 
-    const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, defaultShell);
-  }, [workspaceId, addSession, defaultShell]);
+    addSession(workspaceId, generateTerminalTabId(), defaultShell, {
+      surface: 'panel',
+    });
+  }, [
+    addSession,
+    defaultShell,
+    editorShell,
+    editorTabId,
+    isEditorSurface,
+    isPanelVisible,
+    workspaceId,
+  ]);
 
   useEffect(() => {
-    if (!workspaceId || !isPanelVisible || sessions.length > 0) {
-      return;
-    }
-    if (isExternalTerminalShell(defaultShell)) {
-      return;
-    }
-
-    const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, defaultShell);
-  }, [addSession, defaultShell, isPanelVisible, sessions.length, workspaceId]);
-
-  useEffect(() => {
-    if (!workspaceId || sessions.length === 0) {
+    if (isEditorSurface || !workspaceId || sessions.length === 0) {
       return;
     }
 
@@ -152,7 +202,17 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     }
 
     setActiveTab(workspaceId, sessions[0].tabId);
-  }, [activeTabId, sessions, setActiveTab, workspaceId]);
+  }, [activeTabId, isEditorSurface, sessions, setActiveTab, workspaceId]);
+
+  useEffect(() => {
+    if (!isEditorSurface) {
+      return;
+    }
+    const title = sessions[0]?.title;
+    if (title && props.api.title !== title) {
+      props.api.setTitle(title);
+    }
+  }, [isEditorSurface, props.api, sessions]);
 
   const handleCloseTab = useCallback(
     async (event: TerminalCloseEvent, tabId: string) => {
@@ -169,8 +229,18 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
       }
 
       removeSession(workspaceId, tabId);
+      const remaining = (
+        useTerminalStore.getState().sessionsByWorkspace[workspaceId] || []
+      ).filter(isWorkspacePanelTerminal);
+      if (lastTerminalCloseHidesPanel(remaining.length)) {
+        try {
+          props.api.group.api.setVisible(false);
+        } catch {
+          // The group may already be tearing down with the last tab.
+        }
+      }
     },
-    [workspaceId, sessions, removeSession]
+    [workspaceId, sessions, removeSession, props.api]
   );
 
   const handleSelectTab = useCallback(
@@ -201,8 +271,69 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     }
 
     const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, selectedShell);
+    addSession(workspaceId, tabId, selectedShell, { surface: 'panel' });
   }, [addSession, selectedShell, workspaceId, t]);
+
+  const resizeListFromClientX = useCallback((clientX: number) => {
+    const bounds = panelRootRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0) {
+      return;
+    }
+    setListPaneWidth(
+      clampTerminalListPaneWidth(bounds.right - clientX, bounds.width)
+    );
+  }, []);
+
+  const beginListResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      resizingListRef.current = true;
+      setIsResizingList(true);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      resizeListFromClientX(event.clientX);
+    },
+    [resizeListFromClientX]
+  );
+
+  const continueListResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!resizingListRef.current) {
+        return;
+      }
+      resizeListFromClientX(event.clientX);
+    },
+    [resizeListFromClientX]
+  );
+
+  const finishListResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      resizingListRef.current = false;
+      setIsResizingList(false);
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      setPanelRefitVersion((value) => value + 1);
+    },
+    []
+  );
+
+  const resizeListFromKeyboard = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      let next = listPaneWidth;
+      if (event.key === 'ArrowLeft') next += 8;
+      else if (event.key === 'ArrowRight') next -= 8;
+      else if (event.key === 'Home') next = TERMINAL_LIST_PANE_MIN_WIDTH;
+      else if (event.key === 'End') next = TERMINAL_LIST_PANE_MAX_WIDTH;
+      else return;
+      event.preventDefault();
+      const bounds = panelRootRef.current?.getBoundingClientRect();
+      setListPaneWidth(
+        clampTerminalListPaneWidth(
+          next,
+          bounds?.width ?? Number.POSITIVE_INFINITY
+        )
+      );
+      setPanelRefitVersion((value) => value + 1);
+    },
+    [listPaneWidth]
+  );
 
   if (!workspaceId) {
     return (
@@ -221,8 +352,12 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
 
   return (
     <div
-      className="h-full w-full min-h-0 overflow-hidden flex bg-console"
+      ref={panelRootRef}
+      className={`h-full w-full min-h-0 overflow-hidden flex bg-console${
+        isResizingList ? ' is-resizing-terminal-list' : ''
+      }`}
       data-panel="terminal"
+      data-terminal-surface={isEditorSurface ? 'editor' : 'panel'}
     >
       <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
         {sessions.map((session) =>
@@ -249,80 +384,119 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
               shell={session.shell}
               readOnly={session.readOnly}
               isPanelVisible={isPanelVisible}
-              refitSignal={panelRefitVersion}
+              refitSignal={panelRefitVersion + listPaneWidth}
               onSessionId={setSessionId}
               onOpenUrl={openPreviewUrl}
+              onBusyChange={(busy) => setBusy(session.tabId, busy)}
             />
           )
         )}
       </div>
 
-      <div className="shrink-0 w-24 min-h-0 border-l border-border bg-secondary overflow-hidden">
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="shrink-0 border-b border-border p-1.5">
-            <div className="flex items-center gap-1">
-              <select
-                value={selectedShell}
-                onChange={(event) =>
-                  setSelectedShell(event.target.value as TerminalShellValue)
-                }
-                className="raised-control h-6 min-w-0 flex-1 px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                title="Shell type"
-              >
-                {terminalShellOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
+      {isEditorSurface ? null : (
+        <>
+          <div
+            className="terminal-list-resizer"
+            role="separator"
+            tabIndex={0}
+            aria-label={t('terminalPanel.resizeListAria')}
+            aria-orientation="vertical"
+            aria-valuemin={TERMINAL_LIST_PANE_MIN_WIDTH}
+            aria-valuemax={TERMINAL_LIST_PANE_MAX_WIDTH}
+            aria-valuenow={listPaneWidth}
+            aria-valuetext={t('terminalPanel.resizeListValue', {
+              width: listPaneWidth,
+            })}
+            onPointerDown={beginListResize}
+            onPointerMove={continueListResize}
+            onPointerUp={finishListResize}
+            onPointerCancel={finishListResize}
+            onLostPointerCapture={() => {
+              resizingListRef.current = false;
+              setIsResizingList(false);
+            }}
+            onKeyDown={resizeListFromKeyboard}
+          />
+          <div
+            className="shrink-0 min-h-0 bg-secondary overflow-hidden"
+            style={{ width: listPaneWidth }}
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="shrink-0 border-b border-border p-1.5">
+                <div className="flex items-center gap-1">
+                  <select
+                    value={selectedShell}
+                    onChange={(event) =>
+                      setSelectedShell(event.target.value as TerminalShellValue)
+                    }
+                    className="raised-control h-6 min-w-0 flex-1 px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                    title="Shell type"
+                  >
+                    {terminalShellOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateTab()}
+                    disabled={!workspaceId}
+                    className="raised-control flex h-6 w-6 shrink-0 items-center justify-center disabled:opacity-50"
+                    title="New terminal"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                {sessions.map((session) => (
+                  <button
+                    key={session.tabId}
+                    onClick={() => handleSelectTab(session.tabId)}
+                    className={`flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs transition-colors ${
+                      activeTabId === session.tabId
+                        ? 'bg-console text-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {session.type === 'log-viewer' ? (
+                      <ScrollText className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <TerminalIcon className="h-3 w-3 shrink-0" />
+                    )}
+                    <span className="truncate flex-1 text-left">
+                      {session.title}
+                    </span>
+                    {session.busy ? (
+                      <span
+                        aria-hidden="true"
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                        data-terminal-busy=""
+                      />
+                    ) : null}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) =>
+                        void handleCloseTab(event, session.tabId)
+                      }
+                      onKeyDown={(event) => {
+                        if (isTerminalTabCloseKey(event.key)) {
+                          void handleCloseTab(event, session.tabId);
+                        }
+                      }}
+                      className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </span>
+                  </button>
                 ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void handleCreateTab()}
-                disabled={!workspaceId}
-                className="raised-control flex h-6 w-6 shrink-0 items-center justify-center disabled:opacity-50"
-                title="New terminal"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
+              </div>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-            {sessions.map((session) => (
-              <button
-                key={session.tabId}
-                onClick={() => handleSelectTab(session.tabId)}
-                className={`flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs transition-colors ${
-                  activeTabId === session.tabId
-                    ? 'bg-console text-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >
-                {session.type === 'log-viewer' ? (
-                  <ScrollText className="h-3 w-3 shrink-0" />
-                ) : (
-                  <TerminalIcon className="h-3 w-3 shrink-0" />
-                )}
-                <span className="truncate flex-1 text-left">
-                  {session.title}
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => void handleCloseTab(event, session.tabId)}
-                  onKeyDown={(event) => {
-                    if (isTerminalTabCloseKey(event.key)) {
-                      void handleCloseTab(event, session.tabId);
-                    }
-                  }}
-                  className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -338,6 +512,7 @@ function TerminalTabContent({
   refitSignal,
   onSessionId,
   onOpenUrl,
+  onBusyChange,
 }: {
   workspaceId: string;
   tabId: string;
@@ -349,10 +524,12 @@ function TerminalTabContent({
   refitSignal: number;
   onSessionId: (tabId: string, sessionId: string) => void;
   onOpenUrl: (url: string) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   // Latch the connection: once a tab has been shown, keep its terminal
   // mounted through visibility flaps (panel toggles, layout transforms).
   // Repeated dispose/re-attach cycles drop keystrokes typed mid-transition.
+  const busyRef = useRef(false);
   const [hasConnected, setHasConnected] = useState(false);
   useEffect(() => {
     if (isActive && isPanelVisible && !hasConnected) {
@@ -369,6 +546,10 @@ function TerminalTabContent({
     readOnly,
     onSessionId: (resolvedSessionId) => onSessionId(tabId, resolvedSessionId),
     onLinkActivated: onOpenUrl,
+    onIo: (event) => {
+      busyRef.current = reduceTerminalBusy(busyRef.current, event);
+      onBusyChange(busyRef.current);
+    },
   });
 
   useEffect(() => {

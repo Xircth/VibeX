@@ -1301,8 +1301,10 @@ mod isolated_spawn_tests {
         record_plugin_log("demo.one", "stderr", "third");
         let next = recent_plugin_logs("demo.one", last_seq);
         assert_eq!(next.last().map(|line| line.text.as_str()), Some("third"));
-        assert!(recent_plugin_logs("demo.two", 0)
-            .iter()
-            .any(|line| line.text == "other"));
+        assert!(
+            recent_plugin_logs("demo.two", 0)
+                .iter()
+                .any(|line| line.text == "other")
+        );
     }
 }

@@ -13,22 +13,25 @@ function readFile(relativePath) {
 }
 
 test('Workspace 左右工具栏共用宽度、表面与按钮交互', () => {
-  const ideLayout = readFile('src/components/layout/IDELayout.tsx');
+  const activityRail = readFile(
+    'src/components/layout/WorkspaceActivityRail.tsx'
+  );
   const rightPanelSidebar = readFile(
     'src/components/layout/RightPanelSidebar.tsx'
   );
   const styles = readFile('src/styles/legacy/index.css');
 
   assert.match(
-    ideLayout,
+    activityRail,
     /workspace-activity-rail workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0\.5 bg-secondary\/30 pt-2/
   );
   assert.match(
     rightPanelSidebar,
     /workspace-divider-left relative flex w-9 shrink-0 flex-col items-center gap-0\.5 bg-secondary\/30 pt-2/
   );
-  assert.match(ideLayout, /workspace-side-rail-button flex h-7 w-7/);
+  assert.match(activityRail, /workspace-side-rail-button flex h-7 w-7/);
   assert.match(rightPanelSidebar, /workspace-side-rail-button flex h-7 w-7/);
+  assert.match(rightPanelSidebar, /transport\.environment !== 'web'/);
   assert.match(styles, /\.workspace-side-rail-button:hover\s*\{/);
   assert.match(styles, /\.workspace-side-rail-button:active\s*\{/);
   assert.match(styles, /\.workspace-side-rail-button\.is-active\s*\{/);

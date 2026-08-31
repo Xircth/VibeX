@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use api_types::{AgentAuthModeKind, AgentId, AgentKind};
 
+use crate::permissions::AgentAutoApproveMode;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInAuthModePolicy {
     pub mode_env: &'static str,
@@ -336,7 +338,7 @@ pub fn apply_built_in_launch_argument_policy(
         }
         "grok" => {
             prefix.push("--no-auto-update".to_string());
-            if let Some(mode) = env
+            let mode = env
                 .get("GROK_PERMISSION_MODE")
                 .map(|value| value.trim())
                 .filter(|value| {
@@ -344,9 +346,16 @@ pub fn apply_built_in_launch_argument_policy(
                         *value,
                         "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions" | "plan"
                     )
-                })
-            {
+                });
+            if let Some(mode) = mode {
                 prefix.extend(["--permission-mode".to_string(), mode.to_string()]);
+            }
+            if grok_mode_skips_permission_prompts(mode) {
+                if let Some(index) = args.iter().position(|argument| argument == "agent") {
+                    args.insert(index + 1, "--always-approve".to_string());
+                } else {
+                    args.insert(0, "--always-approve".to_string());
+                }
             }
         }
         "openclaw" => {
@@ -406,6 +415,25 @@ pub fn apply_built_in_launch_policy(
     apply_built_in_launch_argument_policy(agent_id, env, args);
 }
 
+pub fn auto_approve_mode_for_launch(
+    agent_id: &AgentId,
+    env: &HashMap<String, String>,
+) -> AgentAutoApproveMode {
+    if agent_id.as_str() != "grok" {
+        return AgentAutoApproveMode::Off;
+    }
+    let mode = env.get("GROK_PERMISSION_MODE").map(String::as_str);
+    if grok_mode_skips_permission_prompts(mode.map(str::trim)) {
+        AgentAutoApproveMode::Yolo
+    } else {
+        AgentAutoApproveMode::Off
+    }
+}
+
+fn grok_mode_skips_permission_prompts(mode: Option<&str>) -> bool {
+    matches!(mode, Some("bypassPermissions" | "dontAsk"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -414,7 +442,8 @@ mod tests {
 
     use super::{
         apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
-        apply_built_in_launch_policy, auth_mode_kind, official_api_url,
+        apply_built_in_launch_policy, auth_mode_kind, auto_approve_mode_for_launch,
+        official_api_url,
     };
 
     #[test]
@@ -547,6 +576,37 @@ mod tests {
                 "agent",
                 "stdio"
             ]
+        );
+
+        let mut grok_bypass = vec!["agent".to_string(), "stdio".to_string()];
+        apply_built_in_launch_argument_policy(
+            &AgentId::parse("grok").unwrap(),
+            &HashMap::from([(
+                "GROK_PERMISSION_MODE".to_string(),
+                "bypassPermissions".to_string(),
+            )]),
+            &mut grok_bypass,
+        );
+        assert_eq!(
+            grok_bypass,
+            [
+                "--no-auto-update",
+                "--permission-mode",
+                "bypassPermissions",
+                "agent",
+                "--always-approve",
+                "stdio"
+            ]
+        );
+        assert_eq!(
+            auto_approve_mode_for_launch(
+                &AgentId::parse("grok").unwrap(),
+                &HashMap::from([(
+                    "GROK_PERMISSION_MODE".to_string(),
+                    "bypassPermissions".to_string(),
+                )])
+            ),
+            crate::permissions::AgentAutoApproveMode::Yolo
         );
 
         let mut openclaw_args = vec!["acp".to_string()];

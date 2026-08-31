@@ -149,9 +149,25 @@ export function buildTimelineNavEntries(
 export function isTimelineTurnInFlight(
   timeline: ConversationTimelineTurn[]
 ): boolean {
-  return timeline.some(
-    (row) => row.phase === 'streaming' || row.phase === 'optimistic'
-  );
+  return timeline.some((row) => {
+    if (row.phase !== 'streaming' && row.phase !== 'optimistic') {
+      return false;
+    }
+    if (row.turn.role !== 'assistant') {
+      return true;
+    }
+    const userId = row.turn.id.endsWith(':assistant')
+      ? `${row.turn.id.slice(0, -':assistant'.length)}:user`
+      : null;
+    if (!userId) {
+      return true;
+    }
+    const user = timeline.find(
+      (candidate) =>
+        candidate.turn.role === 'user' && candidate.turn.id === userId
+    );
+    return !user || user.phase === 'streaming' || user.phase === 'optimistic';
+  });
 }
 
 export function getLatestTimelinePlanEntries(

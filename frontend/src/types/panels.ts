@@ -28,6 +28,14 @@ export interface PreviewPanelParams {
   imagePreviewId?: string | null;
 }
 
+export type TerminalPanelSurface = 'panel' | 'editor';
+
+/** Params for a workspace terminal opened as an editor-group tab. */
+export interface TerminalPanelParams {
+  surface?: TerminalPanelSurface;
+  tabId?: string;
+}
+
 /** Params for the Web Preview panel (built-in browser / dev-server preview). */
 export interface WebPreviewPanelParams {
   /** URL the panel was asked to load (e.g. a link clicked in a conversation). */

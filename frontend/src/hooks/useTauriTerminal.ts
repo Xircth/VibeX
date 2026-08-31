@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { attachTerminalInput } from '@/utils/terminalInputAdapter';
 import { getTerminalTheme } from '@/utils/terminalTheme';
+import type { TerminalBusyEvent } from '@/lib/workspaceTerminalTabs';
 type UnlistenFn = () => void;
 
 function isTerminalCopyShortcut(
@@ -96,6 +97,8 @@ interface UseTauriTerminalOptions {
   onLinkActivated?: (url: string) => void;
   /** Prevent user input from being written into the terminal */
   readOnly?: boolean;
+  /** Terminal input/output for tab busy detection */
+  onIo?: (event: TerminalBusyEvent) => void;
 }
 
 interface UseTauriTerminalResult {
@@ -164,6 +167,7 @@ export function useTauriTerminal({
   shell,
   onSessionId,
   onLinkActivated,
+  onIo,
   readOnly = false,
 }: UseTauriTerminalOptions): UseTauriTerminalResult {
   const terminalRef = useRef<Terminal | null>(null);
@@ -176,6 +180,7 @@ export function useTauriTerminal({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const onSessionIdRef = useRef(onSessionId);
   const onLinkActivatedRef = useRef(onLinkActivated);
+  const onIoRef = useRef(onIo);
   const errorRef = useRef<string | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -197,6 +202,10 @@ export function useTauriTerminal({
   useEffect(() => {
     onLinkActivatedRef.current = onLinkActivated;
   }, [onLinkActivated]);
+
+  useEffect(() => {
+    onIoRef.current = onIo;
+  }, [onIo]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId ?? null;
@@ -310,6 +319,7 @@ export function useTauriTerminal({
 
   const enqueueTerminalInput = useCallback(
     (data: string) => {
+      onIoRef.current?.({ type: 'input', data });
       pendingInputRef.current += data;
       if (inputFlushScheduledRef.current) {
         return;
@@ -485,6 +495,10 @@ export function useTauriTerminal({
               const bytes = decodeBase64ToBytes(payload);
               try {
                 terminal.write(bytes);
+                onIoRef.current?.({
+                  type: 'output',
+                  data: new TextDecoder().decode(bytes),
+                });
               } catch (error) {
                 console.warn('Failed to write terminal output:', error);
               }

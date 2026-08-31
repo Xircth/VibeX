@@ -10,7 +10,9 @@
   },
   "terminalPanel": {
     "openExternalTerminalFailed": "无法打开外部终端",
-    "confirmWarpInstalled": "请确认 Warp 已安装。"
+    "confirmWarpInstalled": "请确认 Warp 已安装。",
+    "resizeListAria": "调整终端列表宽度",
+    "resizeListValue": "{{width}} 像素"
   },
   "diffsPanel": {
     "loadFailed": "加载差异失败：{{error}}",
@@ -21,15 +23,15 @@
   },
   "welcomePanel": {
     "actionFilesLabel": "浏览文件",
-    "actionFilesDescription": "从左侧文件树打开源码或文档。",
-    "actionSearchLabel": "搜索项目",
-    "actionSearchDescription": "按关键字定位实现、配置和说明。",
+    "actionFilesDescription": "打开文件树并预览一个根目录文件。",
     "actionDiffsLabel": "查看差异",
     "actionDiffsDescription": "检查工作区当前改动。",
     "actionTerminalLabel": "打开终端",
     "actionTerminalDescription": "在当前工作目录运行命令。",
-    "title": "从这里接手代码。",
-    "copy": "选择一个入口开始阅读、搜索、审查或运行命令。编辑区会保留你打开的上下文。",
+    "actionBrowserLabel": "打开浏览器",
+    "actionBrowserDescription": "在编辑区打开网页预览。",
+    "title": "开始你的工作",
+    "copy": "在此打开文件编辑预览、浏览器、终端、Git Diff 面板等",
     "actionsAriaLabel": "工作区入口"
   },
   "diffsReviewPanel": {
@@ -166,7 +168,9 @@
     "openInNewEditorGroup": "在新的编辑区打开",
     "files": "文件",
     "git": "Git",
-    "search": "搜索 (Ctrl+Shift+F)"
+    "search": "搜索 (Ctrl+Shift+F)",
+    "activityRailAria": "工作区面板",
+    "reorderHint": "拖动以调整顺序"
   },
   "workspaceSessionList": {
     "title": "会话列表",
@@ -177,15 +181,36 @@
     "statusInProgress": "进行中",
     "statusInReview": "待复核",
     "statusDone": "已完成",
+    "pinnedGroup": "置顶",
     "pin": "置顶",
     "unpin": "取消置顶",
     "edit": "编辑",
     "deleteSession": "删除会话",
     "archive": "归档",
+    "restore": "恢复",
+    "newSession": "新建会话",
+    "openArchive": "打开归档区",
+    "backToSessionList": "返回会话列表",
+    "bulkDelete": "批量删除",
+    "exitDeleteMode": "退出删除模式",
+    "selectSessionsToDelete": "请选择要删除的会话",
+    "selectedCount": "已选择 {{count}} 项",
+    "deleteSelected": "删除选中",
+    "deleting": "删除中...",
+    "archiveEmpty": "归档区暂无会话",
     "pinFailed": "无法置顶会话",
     "archiveFailed": "无法归档会话",
     "renameFailed": "无法重命名会话",
-    "deleteFailed": "无法删除会话"
+    "deleteFailed": "无法删除会话",
+    "restoreFailed": "无法恢复归档会话",
+    "sort": "排序",
+    "sortName": "会话名称",
+    "sortTime": "最近活跃",
+    "sortAgent": "Agent",
+    "sortClear": "清除排序",
+    "search": "搜索会话",
+    "searchPlaceholder": "搜索名称或用户消息",
+    "searchEmpty": "没有匹配的会话"
   },
   "worktreeSelector": {
     "currentProjectBranch": "当前项目目录分支",

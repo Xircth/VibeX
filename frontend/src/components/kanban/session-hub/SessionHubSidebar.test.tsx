@@ -1,11 +1,5 @@
 import { useState, type ComponentProps } from 'react';
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -125,6 +119,7 @@ function Harness({
   deleteErrorMessage = null,
   onArchiveViewChange = vi.fn(),
   onRestoreArchivedSession = vi.fn(),
+  onCreateSessionRequested = vi.fn(),
 }: {
   sessions?: SidebarProps['sessions'];
   archivedSessions?: SidebarProps['archivedSessions'];
@@ -133,6 +128,7 @@ function Harness({
   deleteErrorMessage?: string | null;
   onArchiveViewChange?: SidebarProps['onArchiveViewChange'];
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
+  onCreateSessionRequested?: SidebarProps['onCreateSessionRequested'];
 }) {
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [queryClient] = useState(
@@ -219,6 +215,7 @@ function Harness({
         isArchiveView={isArchiveView}
         onResizeMouseDown={vi.fn()}
         onArchiveViewChange={onArchiveViewChange}
+        onCreateSessionRequested={onCreateSessionRequested}
         onCreatePopoverOpenChange={setIsCreatePopoverOpen}
         onCreateSession={vi.fn()}
         onCreateModeChange={vi.fn()}
@@ -249,9 +246,12 @@ describe('SessionHubSidebar', () => {
     listView.current = 'status';
   });
 
-  it('keeps the create-session popover open when the workspace select is clicked twice', async () => {
+  it('requests a new session in the execution area', async () => {
     const user = userEvent.setup();
-    const { container } = render(<Harness />);
+    const onCreateSessionRequested = vi.fn();
+    const { container } = render(
+      <Harness onCreateSessionRequested={onCreateSessionRequested} />
+    );
 
     const openButton = container
       .querySelector('svg.lucide-plus')
@@ -259,24 +259,7 @@ describe('SessionHubSidebar', () => {
     expect(openButton).not.toBeNull();
 
     await user.click(openButton as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(
-        document.querySelector('#session-create-workspace')
-      ).not.toBeNull();
-      expect(document.querySelector('#session-create-name')).not.toBeNull();
-    });
-
-    const workspaceTrigger = document.querySelector(
-      '#session-create-workspace'
-    ) as HTMLButtonElement | null;
-    expect(workspaceTrigger).not.toBeNull();
-
-    fireEvent.mouseDown(workspaceTrigger as HTMLButtonElement);
-    fireEvent.mouseDown(workspaceTrigger as HTMLButtonElement);
-
-    expect(document.querySelector('#session-create-workspace')).not.toBeNull();
-    expect(document.querySelector('#session-create-name')).not.toBeNull();
+    expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
   });
 
   it('keeps delete available in archive view and styles the archive toggle distinctly', () => {

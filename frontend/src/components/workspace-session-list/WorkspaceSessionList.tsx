@@ -36,11 +36,13 @@ import {
   Loader2,
   Pencil,
   Pin,
+  RotateCcw,
   Trash2,
   X,
 } from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -56,15 +58,18 @@ import {
   type SessionMarker,
 } from '@/components/kanban/session-hub/utils';
 import {
+  PINNED_SESSION_GROUP_ID,
   formatCompactSessionAge,
   groupWorkspaceSessions,
   moveSessionInOrder,
+  pinnedWorkspaceSessions,
   readCollapsedWorkspaceIds,
   readWorkspaceSessionOrders,
   sessionListTitle,
   workspaceSessionStatusTone,
   writeCollapsedWorkspaceIds,
   writeWorkspaceSessionOrders,
+  type SessionListSortSpec,
   type WorkspaceSessionStatusTone,
 } from './workspaceSessionListModel';
 
@@ -83,9 +88,15 @@ interface WorkspaceSessionListProps {
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
+  onRestoreSession?: (session: KanbanProjectSessionRecord) => void;
+  showPinnedSection?: boolean;
+  isDeleteMode?: boolean;
+  selectedSessionIds?: Set<string>;
+  onToggleSessionSelection?: (sessionId: string) => void;
   dndContextProvided?: boolean;
   monitorPlacements?: Array<{ sessionId: string }>;
   currentExecutionPlacement?: { sessionId: string } | null;
+  sortSpecs?: SessionListSortSpec[];
 }
 
 const STATUS_LABEL_KEY: Record<WorkspaceSessionStatusTone, string> = {
@@ -105,9 +116,15 @@ export function WorkspaceSessionList({
   onArchiveSession,
   onRenameSession,
   onDeleteSession,
+  onRestoreSession,
+  showPinnedSection = true,
+  isDeleteMode = false,
+  selectedSessionIds,
+  onToggleSessionSelection,
   dndContextProvided = false,
   monitorPlacements = [],
   currentExecutionPlacement = null,
+  sortSpecs = [],
 }: WorkspaceSessionListProps) {
   const { t } = useTranslation(['panels']);
   const [orderByWorkspace, setOrderByWorkspace] = useState(
@@ -118,8 +135,14 @@ export function WorkspaceSessionList({
       groupWorkspaceSessions(sessions, {
         activeWorkspaceId,
         sessionOrderByWorkspace: orderByWorkspace,
+        sortSpecs,
       }),
-    [activeWorkspaceId, orderByWorkspace, sessions]
+    [activeWorkspaceId, orderByWorkspace, sessions, sortSpecs]
+  );
+  const pinnedSessions = useMemo(
+    () =>
+      showPinnedSection ? pinnedWorkspaceSessions(sessions, sortSpecs) : [],
+    [sessions, showPinnedSection, sortSpecs]
   );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
     () => new Set(readCollapsedWorkspaceIds())
@@ -142,19 +165,32 @@ export function WorkspaceSessionList({
 
   useEffect(() => {
     if (!activeSessionId) return;
-    const activeGroup = groups.find((group) =>
-      group.sessions.some((session) => session.id === activeSessionId)
-    );
-    if (!activeGroup) return;
+    const matchingIds = [
+      ...(pinnedSessions.some((session) => session.id === activeSessionId)
+        ? [PINNED_SESSION_GROUP_ID]
+        : []),
+      ...groups
+        .filter((group) =>
+          group.sessions.some((session) => session.id === activeSessionId)
+        )
+        .map((group) => group.workspaceId),
+    ];
+    if (matchingIds.length === 0) return;
 
     setCollapsedIds((current) => {
-      if (!current.has(activeGroup.workspaceId)) return current;
       const next = new Set(current);
-      next.delete(activeGroup.workspaceId);
+      let changed = false;
+      matchingIds.forEach((id) => {
+        if (next.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      });
+      if (!changed) return current;
       writeCollapsedWorkspaceIds(next);
       return next;
     });
-  }, [activeSessionId, groups]);
+  }, [activeSessionId, groups, pinnedSessions]);
 
   const toggleGroup = (workspaceId: string) => {
     setCollapsedIds((current) => {
@@ -170,12 +206,20 @@ export function WorkspaceSessionList({
   };
 
   const handleDragStart = ({ active }: DragStartEvent) => {
+    if (isDeleteMode || sortSpecs.length > 0) return;
     setActiveId(String(active.id));
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
-    if (!over || over.id === SESSION_ARCHIVE_DROP_ID) return;
+    if (
+      isDeleteMode ||
+      sortSpecs.length > 0 ||
+      !over ||
+      over.id === SESSION_ARCHIVE_DROP_ID
+    ) {
+      return;
+    }
 
     const activeSessionIdValue = String(active.id);
     const overId = String(over.id);
@@ -223,50 +267,53 @@ export function WorkspaceSessionList({
         />
       ) : null}
       <div className="workspace-session-list space-y-3">
-        {groups.map((group) => {
-          const expanded = !collapsedIds.has(group.workspaceId);
-          const listId = `workspace-session-group-${group.workspaceId}`;
-          return (
-            <section
-              key={group.workspaceId}
-              className="workspace-session-group min-w-0"
-            >
-              <button
-                type="button"
-                className="workspace-session-group-header"
-                aria-label={group.label}
-                aria-expanded={expanded}
-                aria-controls={listId}
-                onClick={() => toggleGroup(group.workspaceId)}
-              >
-                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span
-                  className="min-w-0 flex-1 truncate text-left"
-                  title={group.label}
-                >
-                  {group.label}
-                </span>
-                <span className="workspace-session-group-count">
-                  {group.sessions.length}
-                </span>
-              </button>
-              {expanded ? (
-                <WorkspaceSessionGroupList
-                  listId={listId}
-                  sessions={group.sessions}
-                  activeSessionId={activeSessionId}
-                  monitorPlacements={monitorPlacements}
-                  currentExecutionPlacement={currentExecutionPlacement}
-                  onSessionClick={onSessionClick}
-                  onPinSession={onPinSession}
-                  onArchiveSession={onArchiveSession}
-                  onRenameSession={onRenameSession}
-                  onDeleteSession={onDeleteSession}
-                />
-              ) : null}
-            </section>
-          );
-        })}
+        {pinnedSessions.length > 0 ? (
+          <WorkspaceSessionSection
+            sectionId={PINNED_SESSION_GROUP_ID}
+            label={t('workspaceSessionList.pinnedGroup')}
+            icon="pin"
+            sessions={pinnedSessions}
+            expanded={!collapsedIds.has(PINNED_SESSION_GROUP_ID)}
+            sortable={false}
+            activeSessionId={activeSessionId}
+            isDeleteMode={isDeleteMode}
+            selectedSessionIds={selectedSessionIds}
+            monitorPlacements={monitorPlacements}
+            currentExecutionPlacement={currentExecutionPlacement}
+            onToggle={() => toggleGroup(PINNED_SESSION_GROUP_ID)}
+            onSessionClick={onSessionClick}
+            onToggleSessionSelection={onToggleSessionSelection}
+            onPinSession={onPinSession}
+            onArchiveSession={onArchiveSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+            onRestoreSession={onRestoreSession}
+          />
+        ) : null}
+        {groups.map((group) => (
+          <WorkspaceSessionSection
+            key={group.workspaceId}
+            sectionId={group.workspaceId}
+            label={group.label}
+            icon="folder"
+            sessions={group.sessions}
+            expanded={!collapsedIds.has(group.workspaceId)}
+            sortable={!isDeleteMode}
+            activeSessionId={activeSessionId}
+            isDeleteMode={isDeleteMode}
+            selectedSessionIds={selectedSessionIds}
+            monitorPlacements={monitorPlacements}
+            currentExecutionPlacement={currentExecutionPlacement}
+            onToggle={() => toggleGroup(group.workspaceId)}
+            onSessionClick={onSessionClick}
+            onToggleSessionSelection={onToggleSessionSelection}
+            onPinSession={onPinSession}
+            onArchiveSession={onArchiveSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+            onRestoreSession={onRestoreSession}
+          />
+        ))}
       </div>
       <DragOverlay>
         {activeSession ? (
@@ -315,24 +362,41 @@ function WorkspaceSessionListDndMonitor({
   return null;
 }
 
-function WorkspaceSessionGroupList({
-  listId,
+function WorkspaceSessionSection({
+  sectionId,
+  label,
+  icon,
   sessions,
+  expanded,
+  sortable,
   activeSessionId,
+  isDeleteMode,
+  selectedSessionIds,
   monitorPlacements,
   currentExecutionPlacement,
+  onToggle,
   onSessionClick,
+  onToggleSessionSelection,
   onPinSession,
   onArchiveSession,
   onRenameSession,
   onDeleteSession,
+  onRestoreSession,
 }: {
-  listId: string;
+  sectionId: string;
+  label: string;
+  icon: 'pin' | 'folder';
   sessions: KanbanProjectSessionRecord[];
+  expanded: boolean;
+  sortable: boolean;
   activeSessionId: string | null;
+  isDeleteMode: boolean;
+  selectedSessionIds?: Set<string>;
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
+  onToggle: () => void;
   onSessionClick: (session: KanbanProjectSessionRecord) => void;
+  onToggleSessionSelection?: (sessionId: string) => void;
   onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
   onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
   onRenameSession?: (
@@ -342,41 +406,209 @@ function WorkspaceSessionGroupList({
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
+  onRestoreSession?: (session: KanbanProjectSessionRecord) => void;
 }) {
-  const sessionIds = sessions.map((session) => session.id);
+  const listId = `workspace-session-group-${sectionId}`;
+  const Icon = icon === 'pin' ? Pin : Folder;
+
+  return (
+    <section className="workspace-session-group min-w-0">
+      <button
+        type="button"
+        className="workspace-session-group-header"
+        aria-label={label}
+        aria-expanded={expanded}
+        aria-controls={listId}
+        onClick={onToggle}
+      >
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-left" title={label}>
+          {label}
+        </span>
+        <span className="workspace-session-group-count">{sessions.length}</span>
+      </button>
+      {expanded ? (
+        <WorkspaceSessionGroupList
+          listId={listId}
+          sortableIdPrefix={sortable ? undefined : `${sectionId}:`}
+          sessions={sessions}
+          sortable={sortable}
+          activeSessionId={activeSessionId}
+          isDeleteMode={isDeleteMode}
+          selectedSessionIds={selectedSessionIds}
+          monitorPlacements={monitorPlacements}
+          currentExecutionPlacement={currentExecutionPlacement}
+          onSessionClick={onSessionClick}
+          onToggleSessionSelection={onToggleSessionSelection}
+          onPinSession={onPinSession}
+          onArchiveSession={onArchiveSession}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
+          onRestoreSession={onRestoreSession}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function sessionRowProps({
+  session,
+  activeSessionId,
+  isDeleteMode,
+  selectedSessionIds,
+  monitorPlacements,
+  currentExecutionPlacement,
+  onSessionClick,
+  onToggleSessionSelection,
+  onPinSession,
+  onArchiveSession,
+  onRenameSession,
+  onDeleteSession,
+  onRestoreSession,
+}: {
+  session: KanbanProjectSessionRecord;
+  activeSessionId: string | null;
+  isDeleteMode: boolean;
+  selectedSessionIds?: Set<string>;
+  monitorPlacements: Array<{ sessionId: string }>;
+  currentExecutionPlacement: { sessionId: string } | null;
+  onSessionClick: (session: KanbanProjectSessionRecord) => void;
+  onToggleSessionSelection?: (sessionId: string) => void;
+  onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
+  onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
+  onRenameSession?: (
+    session: KanbanProjectSessionRecord,
+    name: string | null
+  ) => void | Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
+  onRestoreSession?: (session: KanbanProjectSessionRecord) => void;
+}) {
+  return {
+    session,
+    isSelected: isDeleteMode
+      ? Boolean(selectedSessionIds?.has(session.id))
+      : session.id === activeSessionId,
+    isDeleteMode,
+    marker: getSessionMarker(
+      session.id,
+      monitorPlacements,
+      currentExecutionPlacement
+    ),
+    onClick: () => onSessionClick(session),
+    onToggleSelect: onToggleSessionSelection
+      ? () => onToggleSessionSelection(session.id)
+      : undefined,
+    onPin:
+      !isDeleteMode && onPinSession
+        ? (pinned: boolean) => onPinSession(session, pinned)
+        : undefined,
+    onArchive:
+      !isDeleteMode && onArchiveSession
+        ? () => onArchiveSession(session)
+        : undefined,
+    onRename:
+      !isDeleteMode && onRenameSession
+        ? (name: string | null) => onRenameSession(session, name)
+        : undefined,
+    onDelete:
+      !isDeleteMode && onDeleteSession
+        ? () => onDeleteSession(session)
+        : undefined,
+    onRestore:
+      !isDeleteMode && onRestoreSession
+        ? () => onRestoreSession(session)
+        : undefined,
+  };
+}
+
+function WorkspaceSessionGroupList({
+  listId,
+  sortableIdPrefix,
+  sessions,
+  sortable,
+  activeSessionId,
+  isDeleteMode,
+  selectedSessionIds,
+  monitorPlacements,
+  currentExecutionPlacement,
+  onSessionClick,
+  onToggleSessionSelection,
+  onPinSession,
+  onArchiveSession,
+  onRenameSession,
+  onDeleteSession,
+  onRestoreSession,
+}: {
+  listId: string;
+  sortableIdPrefix?: string;
+  sessions: KanbanProjectSessionRecord[];
+  sortable: boolean;
+  activeSessionId: string | null;
+  isDeleteMode: boolean;
+  selectedSessionIds?: Set<string>;
+  monitorPlacements: Array<{ sessionId: string }>;
+  currentExecutionPlacement: { sessionId: string } | null;
+  onSessionClick: (session: KanbanProjectSessionRecord) => void;
+  onToggleSessionSelection?: (sessionId: string) => void;
+  onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
+  onArchiveSession?: (session: KanbanProjectSessionRecord) => void;
+  onRenameSession?: (
+    session: KanbanProjectSessionRecord,
+    name: string | null
+  ) => void | Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
+  onRestoreSession?: (session: KanbanProjectSessionRecord) => void;
+}) {
+  const sessionIds = sessions.map(
+    (session) => `${sortableIdPrefix ?? ''}${session.id}`
+  );
+  const rows = sessions.map((session) => {
+    const props = sessionRowProps({
+      session,
+      activeSessionId,
+      isDeleteMode,
+      selectedSessionIds,
+      monitorPlacements,
+      currentExecutionPlacement,
+      onSessionClick,
+      onToggleSessionSelection,
+      onPinSession,
+      onArchiveSession,
+      onRenameSession,
+      onDeleteSession,
+      onRestoreSession,
+    });
+
+    if (!sortable) {
+      return (
+        <div
+          key={`${sortableIdPrefix ?? ''}${session.id}`}
+          className="max-w-full min-w-0"
+        >
+          <WorkspaceSessionRow {...props} />
+        </div>
+      );
+    }
+
+    return <SortableWorkspaceSessionRow key={session.id} {...props} />;
+  });
+
+  if (!sortable) {
+    return (
+      <div id={listId} role="list" className="workspace-session-rail">
+        {rows}
+      </div>
+    );
+  }
 
   return (
     <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
       <div id={listId} role="list" className="workspace-session-rail">
-        {sessions.map((session) => (
-          <SortableWorkspaceSessionRow
-            key={session.id}
-            session={session}
-            isSelected={session.id === activeSessionId}
-            marker={getSessionMarker(
-              session.id,
-              monitorPlacements,
-              currentExecutionPlacement
-            )}
-            onClick={() => onSessionClick(session)}
-            onPin={
-              onPinSession
-                ? (pinned) => onPinSession(session, pinned)
-                : undefined
-            }
-            onArchive={
-              onArchiveSession ? () => onArchiveSession(session) : undefined
-            }
-            onRename={
-              onRenameSession
-                ? (name) => onRenameSession(session, name)
-                : undefined
-            }
-            onDelete={
-              onDeleteSession ? () => onDeleteSession(session) : undefined
-            }
-          />
-        ))}
+        {rows}
       </div>
     </SortableContext>
   );
@@ -385,21 +617,27 @@ function WorkspaceSessionGroupList({
 function SortableWorkspaceSessionRow({
   session,
   isSelected,
+  isDeleteMode,
   marker,
   onClick,
+  onToggleSelect,
   onPin,
   onArchive,
   onRename,
   onDelete,
+  onRestore,
 }: {
   session: KanbanProjectSessionRecord;
   isSelected: boolean;
+  isDeleteMode: boolean;
   marker: SessionMarker | null;
   onClick: () => void;
+  onToggleSelect?: () => void;
   onPin?: (pinned: boolean) => void;
   onArchive?: () => void;
   onRename?: (name: string | null) => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
+  onRestore?: () => void;
 }) {
   const {
     attributes,
@@ -410,6 +648,7 @@ function SortableWorkspaceSessionRow({
     isDragging,
   } = useSortable({
     id: session.id,
+    disabled: isDeleteMode,
     animateLayoutChanges: () => false,
   });
 
@@ -417,19 +656,22 @@ function SortableWorkspaceSessionRow({
     <WorkspaceSessionRow
       session={session}
       isSelected={isSelected}
+      isDeleteMode={isDeleteMode}
       marker={marker}
       onClick={onClick}
+      onToggleSelect={onToggleSelect}
       onPin={onPin}
       onArchive={onArchive}
       onRename={onRename}
       onDelete={onDelete}
+      onRestore={onRestore}
       setNodeRef={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
       }}
-      attributes={attributes}
-      listeners={listeners}
+      attributes={isDeleteMode ? undefined : attributes}
+      listeners={isDeleteMode ? undefined : listeners}
       isDragging={isDragging}
     />
   );
@@ -438,12 +680,15 @@ function SortableWorkspaceSessionRow({
 function WorkspaceSessionRow({
   session,
   isSelected,
+  isDeleteMode = false,
   marker = null,
   onClick,
+  onToggleSelect,
   onPin,
   onArchive,
   onRename,
   onDelete,
+  onRestore,
   overlay = false,
   setNodeRef,
   style,
@@ -453,12 +698,15 @@ function WorkspaceSessionRow({
 }: {
   session: KanbanProjectSessionRecord;
   isSelected: boolean;
+  isDeleteMode?: boolean;
   marker?: SessionMarker | null;
   onClick: () => void;
+  onToggleSelect?: () => void;
   onPin?: (pinned: boolean) => void;
   onArchive?: () => void;
   onRename?: (name: string | null) => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
+  onRestore?: () => void;
   overlay?: boolean;
   setNodeRef?: (node: HTMLElement | null) => void;
   style?: CSSProperties;
@@ -482,7 +730,8 @@ function WorkspaceSessionRow({
     x: number;
     y: number;
   } | null>(null);
-  const showRowActions = Boolean(onPin || onRename || onDelete);
+  const showRowActions =
+    !isDeleteMode && Boolean(onPin || onRename || onDelete);
 
   useEffect(() => {
     if (!isEditing) {
@@ -531,11 +780,13 @@ function WorkspaceSessionRow({
           isSelected && 'is-selected',
           isDragging && 'is-dragging',
           overlay && 'is-overlay',
+          isDeleteMode && 'is-delete-mode',
           isHovered && !isEditing && 'is-hovered'
         )}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onContextMenu={(event) => {
+          if (isDeleteMode) return;
           event.preventDefault();
           event.stopPropagation();
           setContextMenu({ x: event.clientX, y: event.clientY });
@@ -548,6 +799,18 @@ function WorkspaceSessionRow({
           )}
           aria-hidden="true"
         />
+        {isDeleteMode ? (
+          <div
+            className="flex shrink-0 items-center pl-1.5"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => onToggleSelect?.()}
+            />
+          </div>
+        ) : null}
         {isEditing ? (
           <div className="workspace-session-row-main is-editing">
             <span className="workspace-session-icon" aria-hidden="true">
@@ -717,6 +980,19 @@ function WorkspaceSessionRow({
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.preventDefault()}
         >
+          {onRestore ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                onRestore();
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t('workspaceSessionList.restore')}
+            </button>
+          ) : null}
           {onArchive ? (
             <button
               type="button"

@@ -1,15 +1,25 @@
+import type { ExecutorProfileId } from 'shared/types';
+import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { dateTimestamp } from '@/utils/date';
 
 export const WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY =
   'vibex-workspace-session-groups-collapsed';
 export const WORKSPACE_SESSION_ORDER_KEY = 'vibex-workspace-session-order';
+export const PINNED_SESSION_GROUP_ID = '__pinned__';
 
 export type WorkspaceSessionStatusTone =
   | 'todo'
   | 'inprogress'
   | 'inreview'
   | 'done';
+
+export type SessionListSortKey = 'name' | 'time' | 'agent';
+
+export type SessionListSortSpec = {
+  key: SessionListSortKey;
+  direction: 'asc' | 'desc';
+};
 
 export interface WorkspaceSessionGroup {
   workspaceId: string;
@@ -36,6 +46,7 @@ export function groupWorkspaceSessions(
   options: {
     activeWorkspaceId?: string | null;
     sessionOrderByWorkspace?: Record<string, string[]>;
+    sortSpecs?: SessionListSortSpec[];
   } = {}
 ): WorkspaceSessionGroup[] {
   const groups = new Map<string, WorkspaceSessionGroup>();
@@ -60,10 +71,13 @@ export function groupWorkspaceSessions(
   });
 
   groups.forEach((group) => {
-    group.sessions = applyWorkspaceSessionOrder(
-      group.sessions,
-      sessionOrderByWorkspace[group.workspaceId]
-    );
+    group.sessions =
+      options.sortSpecs && options.sortSpecs.length > 0
+        ? sortWorkspaceSessions(group.sessions, options.sortSpecs)
+        : applyWorkspaceSessionOrder(
+            group.sessions,
+            sessionOrderByWorkspace[group.workspaceId]
+          );
   });
 
   const activeWorkspaceId = options.activeWorkspaceId ?? null;
@@ -114,7 +128,7 @@ export function applyWorkspaceSessionOrder(
   savedOrder?: string[]
 ): KanbanProjectSessionRecord[] {
   if (!savedOrder || savedOrder.length === 0) {
-    return [...sessions].sort(comparePinnedThenRecent);
+    return [...sessions].sort(compareSessionsByRecency);
   }
 
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -123,7 +137,7 @@ export function applyWorkspaceSessionOrder(
 
   sessions
     .filter((session) => !savedOrder.includes(session.id))
-    .sort(comparePinnedThenRecent)
+    .sort(compareSessionsByRecency)
     .forEach((session) => {
       ordered.push(session);
       placed.add(session.id);
@@ -230,15 +244,134 @@ export function writeCollapsedWorkspaceIds(
   );
 }
 
-function comparePinnedThenRecent(
+export function pinnedWorkspaceSessions(
+  sessions: KanbanProjectSessionRecord[],
+  sortSpecs?: SessionListSortSpec[]
+): KanbanProjectSessionRecord[] {
+  const pinned = sessions.filter((session) => Boolean(session.pinnedAt));
+  if (sortSpecs && sortSpecs.length > 0) {
+    return sortWorkspaceSessions(pinned, sortSpecs);
+  }
+
+  return pinned.sort((left, right) => {
+    const pinDelta =
+      dateTimestamp(right.pinnedAt ?? 0) - dateTimestamp(left.pinnedAt ?? 0);
+    if (pinDelta !== 0) {
+      return pinDelta;
+    }
+    return compareSessionsByRecency(left, right);
+  });
+}
+
+export function sessionAgentLabel(session: KanbanProjectSessionRecord): string {
+  const agentKey = session.agentId || session.executor;
+  if (!agentKey) {
+    return '';
+  }
+  return getAgentName(agentKey as ExecutorProfileId['executor']);
+}
+
+export function sessionMatchesQuery(
+  session: KanbanProjectSessionRecord,
+  query: string
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+
+  return [
+    sessionListTitle(session),
+    session.fullName,
+    session.shortName,
+    session.name,
+    session.firstPrompt,
+  ].some((value) => value?.toLowerCase().includes(needle));
+}
+
+export function defaultSessionListSortDirection(
+  key: SessionListSortKey
+): 'asc' | 'desc' {
+  return key === 'time' ? 'desc' : 'asc';
+}
+
+export function toggleSessionListSort(
+  current: SessionListSortSpec[],
+  key: SessionListSortKey
+): SessionListSortSpec[] {
+  const last = current[current.length - 1];
+  if (last?.key === key) {
+    return [
+      ...current.slice(0, -1),
+      {
+        key,
+        direction: last.direction === 'asc' ? 'desc' : 'asc',
+      },
+    ];
+  }
+
+  return [
+    ...current.filter((spec) => spec.key !== key),
+    { key, direction: defaultSessionListSortDirection(key) },
+  ];
+}
+
+export function sortWorkspaceSessions(
+  sessions: KanbanProjectSessionRecord[],
+  sortSpecs: SessionListSortSpec[]
+): KanbanProjectSessionRecord[] {
+  if (sortSpecs.length === 0) {
+    return [...sessions];
+  }
+
+  return [...sessions].sort((left, right) => {
+    for (let index = sortSpecs.length - 1; index >= 0; index -= 1) {
+      const spec = sortSpecs[index];
+      if (!spec) continue;
+      const delta = compareSessionsBySortKey(left, right, spec);
+      if (delta !== 0) {
+        return delta;
+      }
+    }
+    return 0;
+  });
+}
+
+function compareSessionsBySortKey(
+  left: KanbanProjectSessionRecord,
+  right: KanbanProjectSessionRecord,
+  spec: SessionListSortSpec
+): number {
+  const direction = spec.direction === 'desc' ? -1 : 1;
+  switch (spec.key) {
+    case 'name':
+      return (
+        sessionListTitle(left).localeCompare(
+          sessionListTitle(right),
+          undefined,
+          { sensitivity: 'base' }
+        ) * direction
+      );
+    case 'agent':
+      return (
+        sessionAgentLabel(left).localeCompare(
+          sessionAgentLabel(right),
+          undefined,
+          { sensitivity: 'base' }
+        ) * direction
+      );
+    case 'time':
+      return (
+        (dateTimestamp(left.updatedAt) - dateTimestamp(right.updatedAt)) *
+        direction
+      );
+  }
+}
+
+function compareSessionsByRecency(
   left: KanbanProjectSessionRecord,
   right: KanbanProjectSessionRecord
 ) {
-  const leftPinned = Boolean(left.pinnedAt);
-  const rightPinned = Boolean(right.pinnedAt);
-  if (leftPinned !== rightPinned) {
-    return leftPinned ? -1 : 1;
-  }
   return dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt);
 }
 

@@ -61,10 +61,9 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { WorkspaceSessionList } from '@/components/workspace-session-list/WorkspaceSessionList';
 import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
-import {
-  SessionCreationForm,
-  type SessionControlsPreset,
-  type SessionCreationMode,
+import type {
+  SessionControlsPreset,
+  SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { SessionHubListItem } from './SessionHubListItem';
@@ -81,7 +80,6 @@ import {
   filterKanbanSessions,
   getSessionMarker,
   getSortLabel,
-  mapSessionErrorMessage,
   toggleStringValue,
   type SortField,
 } from './utils';
@@ -130,8 +128,9 @@ interface SessionHubSidebarProps {
   isArchiveView: boolean;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onArchiveViewChange: (value: boolean) => void;
-  onCreatePopoverOpenChange: (open: boolean) => void;
-  onCreateSession: () => void;
+  onCreateSessionRequested: () => void;
+  onCreatePopoverOpenChange?: (open: boolean) => void;
+  onCreateSession?: () => void;
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null
   ) => void;
@@ -182,26 +181,6 @@ function parseStatusDropId(id: unknown): ActiveSessionStatus | null {
   }
 
   return value;
-}
-
-function isNestedOverlayTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  return Boolean(
-    target.closest(
-      [
-        '[role="combobox"]',
-        '[role="menu"]',
-        '[role="menuitem"]',
-        '[role="menuitemradio"]',
-        '[role="listbox"]',
-        '[role="option"]',
-        '[aria-haspopup="listbox"]',
-      ].join(', ')
-    )
-  );
 }
 
 function SessionListNotice({
@@ -492,15 +471,6 @@ export function SessionHubSidebar({
   groupedSessions,
   flatSessions,
   workspaces,
-  workspaceBranchOptions,
-  profiles,
-  createMode,
-  createWorkspaceValue,
-  createSessionName,
-  selectedExecutorProfile,
-  repoBranchConfigs,
-  isLoadingRepoBranches,
-  isCreatePopoverOpen,
   sortField,
   workspaceFilterIds,
   executorFilterValues,
@@ -511,9 +481,6 @@ export function SessionHubSidebar({
   deleteErrorMessage,
   deleteSuccessMessage,
   isDeletingSessions,
-  canCreateSession,
-  isCreatePending,
-  createError,
   displayedCount,
   monitorPlacements,
   currentExecutionPlacement,
@@ -522,14 +489,7 @@ export function SessionHubSidebar({
   isArchiveView,
   onResizeMouseDown,
   onArchiveViewChange,
-  onCreatePopoverOpenChange,
-  onCreateSession,
-  onSessionControlsPresetChange,
-  onCreateModeChange,
-  onCreateWorkspaceValueChange,
-  onCreateSessionNameChange,
-  onSelectedExecutorProfileChange,
-  onRepoBranchChange,
+  onCreateSessionRequested,
   onSortFieldChange,
   onWorkspaceFilterIdsChange,
   onExecutorFilterValuesChange,
@@ -683,87 +643,21 @@ export function SessionHubSidebar({
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
-              <Popover
-                modal={false}
-                open={isCreatePopoverOpen}
-                onOpenChange={onCreatePopoverOpenChange}
-              >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className={SESSION_LIST_ACTION_BUTTON_CLASS}
-                      >
-                        <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
-                      </Button>
-                    </PopoverTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
-                </Tooltip>
-
-                <PopoverContent
-                  align="end"
-                  side="bottom"
-                  sideOffset={8}
-                  className="dialog-surface relative w-[340px] space-y-4 p-4"
-                  onInteractOutside={(event) => {
-                    if (isNestedOverlayTarget(event.target)) {
-                      event.preventDefault();
-                    }
-                  }}
-                >
-                  <button
-                    className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    onClick={() => onCreatePopoverOpenChange(false)}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className={SESSION_LIST_ACTION_BUTTON_CLASS}
+                    aria-label={t('hubSidebar.newSession')}
+                    onClick={onCreateSessionRequested}
                   >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">{t('common:close')}</span>
-                  </button>
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold text-foreground">
-                      {t('hubSidebar.createSessionTitle')}
-                    </div>
-                  </div>
-
-                  <SessionCreationForm
-                    mode={createMode}
-                    onModeChange={onCreateModeChange}
-                    workspaceBranchOptions={workspaceBranchOptions}
-                    selectedWorkspaceValue={createWorkspaceValue}
-                    onSelectedWorkspaceValueChange={
-                      onCreateWorkspaceValueChange
-                    }
-                    sessionName={createSessionName}
-                    onSessionNameChange={onCreateSessionNameChange}
-                    profiles={profiles}
-                    selectedExecutorProfile={selectedExecutorProfile}
-                    onSelectedExecutorProfileChange={
-                      onSelectedExecutorProfileChange
-                    }
-                    repoBranchConfigs={repoBranchConfigs}
-                    onRepoBranchChange={onRepoBranchChange}
-                    isLoadingBranches={isLoadingRepoBranches}
-                    onSessionControlsPresetChange={
-                      onSessionControlsPresetChange
-                    }
-                    canSubmit={canCreateSession}
-                    isSubmitting={isCreatePending}
-                    errorMessage={
-                      createError
-                        ? mapSessionErrorMessage(
-                            createError,
-                            t('hubSidebar.createSessionFailed')
-                          )
-                        : null
-                    }
-                    onSubmit={onCreateSession}
-                    onCancel={() => onCreatePopoverOpenChange(false)}
-                  />
-                </PopoverContent>
-              </Popover>
+                    <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
+              </Tooltip>
 
               {isWorkspaceListView ? null : (
                 <DropdownMenu>

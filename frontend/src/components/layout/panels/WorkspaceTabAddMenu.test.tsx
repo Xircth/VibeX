@@ -4,21 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceOverlayContext } from '@/contexts/WorkspaceOverlayContext';
 import { WorkspaceTabAddMenu } from './WorkspaceTabAddMenu';
 
-const { openDiffPreview, openNotes, openWebPreview, showTerminal } = vi.hoisted(
-  () => ({
+const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab } =
+  vi.hoisted(() => ({
     openDiffPreview: vi.fn(),
     openNotes: vi.fn(),
     openWebPreview: vi.fn(),
-    showTerminal: vi.fn(),
-  })
-);
+    openTerminalEditorTab: vi.fn(),
+  }));
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openDiffPreview,
     openNotes,
     openWebPreview,
-    showTerminal,
+    openTerminalEditorTab,
   }),
 }));
 
@@ -74,7 +73,7 @@ describe('WorkspaceTabAddMenu', () => {
     expect(openWebPreview).toHaveBeenCalledWith();
     expect(openDiffPreview).not.toHaveBeenCalled();
     expect(openNotes).not.toHaveBeenCalled();
-    expect(showTerminal).not.toHaveBeenCalled();
+    expect(openTerminalEditorTab).not.toHaveBeenCalled();
   });
 
   it('renders the menu before starting native-surface occlusion work', () => {
@@ -128,7 +127,7 @@ describe('WorkspaceTabAddMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '终端' }));
 
     expect(props.api.setActive).toHaveBeenCalledOnce();
-    expect(showTerminal).toHaveBeenCalledOnce();
+    expect(openTerminalEditorTab).toHaveBeenCalledOnce();
   });
 
   it('does not make the workspace inert while the tab menu is open', () => {

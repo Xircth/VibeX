@@ -519,6 +519,7 @@ export function RightPanelContent() {
       return;
     }
 
+    useLayoutStore.getState().setRightPanelVisible(true);
     if (effectiveActiveTab === 'kanban') {
       useLayoutStore.getState().setKanbanSessionVisible(true);
     }

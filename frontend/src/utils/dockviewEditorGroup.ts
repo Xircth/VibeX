@@ -20,6 +20,7 @@ import {
   settleDockviewGroupWidths,
 } from '@/utils/dockviewStartupSizing';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
+import { collapsedEditorColumnWidths } from '@/utils/lastPreviewTabLayout';
 
 /**
  * Dockview's built-in group minimum is 100px. Adding a group without
@@ -174,12 +175,80 @@ export function restoreFlexibleEditorColumn(
   settleDockviewGroupWidths(targets);
 }
 
+/**
+ * After the last editor tab closes, keep a hidden editor group as an anchor
+ * and give the leftover width to the session column instead of leaving a
+ * crushed Welcome pane.
+ */
+export function dismissEmptyEditorColumn(
+  api: DockviewApi,
+  options: EnsureWelcomeEditorGroupOptions
+): DockviewGroup | undefined {
+  const group = ensureWelcomeEditorGroup(api, options);
+  group?.api.setVisible(false);
+  absorbHiddenEditorColumn(api, options.arrangement, options.dockWidth);
+  return group;
+}
+
+export function absorbHiddenEditorColumn(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  dockWidth?: number
+): void {
+  if (slotOfZone(arrangement, 'workspace') !== 'center') return;
+
+  const leftGroup = getLeftGroup(api);
+  const rightGroup = getRightGroup(api);
+  if (
+    !rightGroup?.api.isVisible ||
+    !isSideColumn(slotOfZone(arrangement, 'session'))
+  ) {
+    return;
+  }
+
+  const leftIsSide =
+    !!leftGroup?.api.isVisible && isSideColumn(slotOfZone(arrangement, 'dock'));
+  const gridWidth = api.width;
+  const nextDockWidth =
+    leftIsSide && leftGroup
+      ? intendedDockColumnWidth(gridWidth, leftGroup.api.width, dockWidth)
+      : 0;
+  const widths = collapsedEditorColumnWidths({
+    gridWidth,
+    dockWidth: nextDockWidth,
+    minDockWidth: MIN_LEFT_PANEL_WIDTH,
+    minSessionWidth: MIN_RIGHT_PANEL_WIDTH,
+  });
+
+  const targets: Array<{ group: DockviewGroup; width: number }> = [
+    { group: rightGroup, width: widths.session },
+  ];
+  if (leftIsSide && leftGroup) {
+    targets.push({ group: leftGroup, width: widths.dock });
+  }
+  settleDockviewGroupWidths(targets);
+}
+
 export function ensureWelcomeEditorGroup(
   api: DockviewApi,
   options: EnsureWelcomeEditorGroupOptions
 ): DockviewGroup | undefined {
   const editorGroups = getEditorGroups(api);
   if (editorGroups.length > 0) {
+    const existing = editorGroups[0];
+    if (
+      existing &&
+      existing.panels.length === 0 &&
+      !api.getPanel(PANEL_IDS.WELCOME)
+    ) {
+      api.addPanel({
+        id: PANEL_IDS.WELCOME,
+        component: PANEL_IDS.WELCOME,
+        title: 'Welcome',
+        position: { referenceGroup: existing, direction: 'within' },
+        inactive: true,
+      });
+    }
     if (isEditorColumnCrushed(api)) {
       restoreFlexibleEditorColumn(
         api,
@@ -188,7 +257,7 @@ export function ensureWelcomeEditorGroup(
         options.dockWidth
       );
     }
-    return editorGroups[0];
+    return existing;
   }
 
   const existingWelcome = api.getPanel(PANEL_IDS.WELCOME);

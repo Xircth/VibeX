@@ -303,7 +303,7 @@ function applyRowOpBatch(
         delete liveText[op.row_id];
       }
     } else {
-      liveText = appendLiveText(liveText, op);
+      liveText = appendLiveText(liveText, rows, currentTurnId, op);
     }
   }
 
@@ -416,10 +416,13 @@ function preserveStructuredUserText(
 
 function appendLiveText(
   liveText: Record<string, LiveTextOverlay>,
+  rows: TimelineRow[],
+  currentTurnId: string | null,
   op: Extract<ConversationRowOp, { op: 'append_text' }>
 ): Record<string, LiveTextOverlay> {
+  const rowId = retargetStreamingRowId(rows, currentTurnId, op.row_id);
   const revision = toBigInt(op.revision);
-  const existing = liveText[op.row_id];
+  const existing = liveText[rowId];
   if (existing && revision <= existing.revision) return liveText; // already applied
   const base = existing ?? { text: '', reasoning: '', revision: 0n };
   const next: LiveTextOverlay = {
@@ -428,7 +431,36 @@ function appendLiveText(
       op.stream === 'reasoning' ? base.reasoning + op.delta : base.reasoning,
     revision,
   };
-  return { ...liveText, [op.row_id]: next };
+  return { ...liveText, [rowId]: next };
+}
+
+const TERMINAL_ROW_PHASES = new Set([
+  'persisted',
+  'settled',
+  'failed',
+  'cancelled',
+  'interrupted',
+]);
+
+/** If a text-append names a settled predecessor after the next user turn is
+ * already open, attach it to that open turn instead of growing the previous
+ * assistant bubble. */
+function retargetStreamingRowId(
+  rows: TimelineRow[],
+  currentTurnId: string | null,
+  rowId: string
+): string {
+  if (!currentTurnId || !rowId.endsWith(':assistant')) return rowId;
+  const expected = `${currentTurnId}:assistant`;
+  if (rowId === expected) return rowId;
+  const existing = rows.find((row) => row.row_id === rowId);
+  if (
+    existing?.row.kind === 'message_turn' &&
+    TERMINAL_ROW_PHASES.has(existing.row.phase)
+  ) {
+    return expected;
+  }
+  return rowId;
 }
 
 export function timelineTurnsForEntry(
@@ -437,7 +469,7 @@ export function timelineTurnsForEntry(
   if (!entry) return [];
   const persisted = entry.rows.flatMap((row) => {
     if (row.row.kind !== 'message_turn') return [];
-    const overlay = entry.liveText[row.row_id];
+    const overlay = liveOverlayForRow(row, entry.liveText);
     const turn = overlay
       ? {
           ...row.row.turn,
@@ -453,15 +485,24 @@ export function timelineTurnsForEntry(
       },
     ];
   });
-  const optimistic = entry.optimisticTurns.map((turn) => ({
+  const optimistic = entry.optimisticTurns.map((turn, index) => ({
     key: `optimistic-${turn.id}`,
     turn,
-    revision: entry.lastSequence,
+    revision: entry.lastSequence + BigInt(index + 1),
     phase: 'optimistic' as const,
   }));
   return alignStreamingAssistantWithUserPhase(
     withPendingAssistantTurns(entry, dedupeTurns([...persisted, ...optimistic]))
   );
+}
+
+function liveOverlayForRow(
+  row: TimelineRow,
+  liveText: Record<string, LiveTextOverlay>
+): LiveTextOverlay | undefined {
+  if (row.row.kind !== 'message_turn') return undefined;
+  if (TERMINAL_ROW_PHASES.has(row.row.phase)) return undefined;
+  return liveText[row.row_id];
 }
 
 const TERMINAL_USER_PHASES = new Set<ConversationTimelineTurn['phase']>([
@@ -526,6 +567,9 @@ export function timelineItemsForEntry(
       row,
     }));
   return [...messages, ...sides].sort((left, right) => {
+    if (left.kind === 'message' && right.kind === 'message') {
+      return 0;
+    }
     if (left.revision === right.revision) {
       if (left.kind === right.kind) return 0;
       return left.kind === 'message' ? -1 : 1;

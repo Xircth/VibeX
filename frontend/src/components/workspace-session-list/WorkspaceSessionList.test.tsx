@@ -363,6 +363,101 @@ describe('WorkspaceSessionList', () => {
     expect(titles[1]).toMatch(/Newer session prompt/);
   });
 
+  it('mirrors pinned sessions in a pinned group without reordering the workspace', () => {
+    const main = workspace({ id: 'ws-main', branch: 'main' });
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 'newer',
+            workspace: main,
+            firstPrompt: 'Newer session prompt',
+            updatedAt: '2026-08-17T12:00:00Z',
+          }),
+          session({
+            id: 'pinned',
+            workspace: main,
+            firstPrompt: 'Pinned session prompt',
+            pinnedAt: '2026-08-17T11:00:00Z',
+            updatedAt: '2026-08-17T10:00:00Z',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="ws-main"
+        onSessionClick={vi.fn()}
+        onPinSession={vi.fn()}
+      />
+    );
+
+    expect(
+      screen
+        .getAllByRole('button', { name: '置顶' })
+        .some((button) =>
+          button.classList.contains('workspace-session-group-header')
+        )
+    ).toBe(true);
+    expect(
+      screen.getAllByRole('button', { name: /Pinned session prompt/ })
+    ).toHaveLength(2);
+
+    const titles = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label') ?? '')
+      .filter((label) => label.includes('session prompt'));
+
+    expect(titles[0]).toMatch(/Pinned session prompt/);
+    expect(titles[1]).toMatch(/Newer session prompt/);
+    expect(titles[2]).toMatch(/Pinned session prompt/);
+  });
+
+  it('hides the pinned group until a session is pinned', () => {
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: 'Compare codeg vs custom APP',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '置顶' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows checkboxes in delete mode instead of opening a session', () => {
+    const onSessionClick = vi.fn();
+    const onToggleSessionSelection = vi.fn();
+    render(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: 'Compare codeg vs custom APP',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        isDeleteMode
+        selectedSessionIds={new Set()}
+        onSessionClick={onSessionClick}
+        onToggleSessionSelection={onToggleSessionSelection}
+      />
+    );
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(checkbox);
+    expect(onToggleSessionSelection).toHaveBeenCalledWith('session-1');
+    expect(onSessionClick).not.toHaveBeenCalled();
+  });
+
   it('reveals pin, edit, and delete actions on hover instead of archive', () => {
     const onPinSession = vi.fn();
     const onRenameSession = vi.fn();

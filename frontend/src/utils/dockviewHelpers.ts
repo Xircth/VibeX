@@ -1,12 +1,12 @@
 import type { DockviewApi } from 'dockview-react';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { ACTIVITY_RAIL_ITEMS } from '@/lib/activityRailOrder';
 
 /**
- * Apply header hiding to the left group (file tree / git panel).
+ * Apply header hiding to the left group (file tree / git / search / sessions).
  *
  * Dockview's `hideHeader` is honored during `addGroup()` but may not
  * survive a `fromJSON()` layout restore.  This function finds the group
- * containing the file-tree or git panel and hides its tab header via DOM,
+ * containing a left dock panel and hides its tab header via DOM,
  * acting as a reliable post-restore fallback.
  */
 export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
@@ -18,8 +18,9 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
     };
   };
 
-  const leftPanel =
-    api.getPanel(PANEL_IDS.FILE_TREE) ?? api.getPanel(PANEL_IDS.GIT);
+  const leftPanel = ACTIVITY_RAIL_ITEMS.map((panelId) =>
+    api.getPanel(panelId)
+  ).find(Boolean);
 
   if (!leftPanel) return;
 

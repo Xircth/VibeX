@@ -433,9 +433,10 @@ pub async fn verify_external_component_change(
                 ExternalChangeVerdict::Verified
             }
             Some(_) => ExternalChangeVerdict::NotVerified,
-            None => ExternalChangeVerdict::Unverifiable(
-                "Registry binary target has no official SHA-256".to_string(),
-            ),
+            // ADR-0017 TOFU + ADR-0060: user-environment binaries without an
+            // official digest are not integrity-damaged. Adopt the on-disk
+            // fingerprint instead of fail-closing Launch Gate.
+            None => ExternalChangeVerdict::Verified,
         },
         other => ExternalChangeVerdict::Unverifiable(format!(
             "unsupported external distribution kind `{other}`"
@@ -722,5 +723,13 @@ mod tests {
             verify_external_component_change(&fetcher, "uvx", Some("some-pkg@1.0.0"), None, "hash")
                 .await;
         assert!(matches!(verdict, ExternalChangeVerdict::Unverifiable(_)));
+    }
+
+    #[tokio::test]
+    async fn tofu_registry_binaries_adopt_the_on_disk_fingerprint() {
+        let fetcher = ScriptedFetcher(Mutex::new(HashMap::new()));
+        let verdict =
+            verify_external_component_change(&fetcher, "binary", None, None, "abc123").await;
+        assert_eq!(verdict, ExternalChangeVerdict::Verified);
     }
 }

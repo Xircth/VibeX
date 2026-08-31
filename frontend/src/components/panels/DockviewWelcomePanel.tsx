@@ -1,14 +1,26 @@
+import { useCallback } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import {
   FileSearch,
   FolderOpen,
   GitCompare,
-  Search,
+  Globe2,
   Terminal,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useProject } from '@/contexts/ProjectContext';
+import { useWorktree } from '@/contexts/WorktreeContext';
+import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
+import { useAttempt } from '@/hooks/useAttempt';
+import { useAttemptRepo } from '@/hooks/useAttemptRepo';
+import { useProjectRepos } from '@/hooks/useProjectRepos';
+import { fileTreeApi } from '@/lib/api';
+import { useFileTreeStore } from '@/stores/useFileTreeStore';
+import {
+  pickRandomProjectRootFile,
+  resolveWelcomeWorkspaceRootPath,
+} from './welcomeRootFile';
 
 const welcomeActions = [
   {
@@ -16,12 +28,6 @@ const welcomeActions = [
     descriptionKey: 'welcomePanel.actionFilesDescription',
     icon: FolderOpen,
     action: 'files',
-  },
-  {
-    labelKey: 'welcomePanel.actionSearchLabel',
-    descriptionKey: 'welcomePanel.actionSearchDescription',
-    icon: Search,
-    action: 'search',
   },
   {
     labelKey: 'welcomePanel.actionDiffsLabel',
@@ -35,27 +41,84 @@ const welcomeActions = [
     icon: Terminal,
     action: 'terminal',
   },
+  {
+    labelKey: 'welcomePanel.actionBrowserLabel',
+    descriptionKey: 'welcomePanel.actionBrowserDescription',
+    icon: Globe2,
+    action: 'browser',
+  },
 ] as const;
 
 function DockviewWelcomePanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation(['panels', 'common']);
-  const { openOrFocusPanel, openDiffPreview, openNewTerminal } =
-    usePanelActionsContext();
+  const {
+    openDiffPreview,
+    openFilePreview,
+    openNewTerminal,
+    openWebPreview,
+    showFileTree,
+  } = usePanelActionsContext();
+  const storedRootPath = useFileTreeStore((state) => state.rootPath);
+  const { activeWorktreeId } = useWorktree();
+  const { data: workspace } = useAttempt(activeWorktreeId ?? undefined);
+  const { repos: workspaceRepos } = useAttemptRepo(
+    activeWorktreeId ?? undefined
+  );
+  const { projectId } = useProject();
+  const { data: projectRepos } = useProjectRepos(projectId);
+
+  const openBrowseFiles = useCallback(async () => {
+    showFileTree();
+
+    const workspaceRoot = resolveWelcomeWorkspaceRootPath({
+      storedRootPath,
+      workspace,
+      workspaceRepos,
+      projectRepoPath: projectRepos?.[0]?.path ?? null,
+    });
+    if (!workspaceRoot) {
+      return;
+    }
+
+    try {
+      const response = await fileTreeApi.listDirectoryChildren(
+        workspaceRoot,
+        ''
+      );
+      const relativePath = pickRandomProjectRootFile(
+        response.files,
+        response.gitignored_files
+      );
+      if (!relativePath) {
+        return;
+      }
+      openFilePreview(resolveFileTreeAbsolutePath(workspaceRoot, relativePath));
+    } catch {
+      // The file tree is already open; skip preview if listing fails.
+    }
+  }, [
+    openFilePreview,
+    projectRepos,
+    showFileTree,
+    storedRootPath,
+    workspace,
+    workspaceRepos,
+  ]);
 
   const handleAction = (action: (typeof welcomeActions)[number]['action']) => {
     if (action === 'files') {
-      openOrFocusPanel(PANEL_IDS.FILE_TREE, 'Files');
-      return;
-    }
-    if (action === 'search') {
-      openOrFocusPanel(PANEL_IDS.SEARCH, 'Search');
+      void openBrowseFiles();
       return;
     }
     if (action === 'diffs') {
       openDiffPreview();
       return;
     }
-    openNewTerminal();
+    if (action === 'terminal') {
+      openNewTerminal();
+      return;
+    }
+    openWebPreview();
   };
 
   return (

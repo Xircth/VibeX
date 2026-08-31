@@ -40,7 +40,7 @@ export function WorkspaceTabAddMenu({
   group,
 }: IDockviewHeaderActionsProps) {
   const { t } = useTranslation('panels');
-  const { openDiffPreview, openNotes, openWebPreview, showTerminal } =
+  const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab } =
     usePanelActionsContext();
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
 
@@ -83,7 +83,9 @@ export function WorkspaceTabAddMenu({
           <StickyNote />
           {t('tabCreation.note')}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => runInThisGroup(showTerminal)}>
+        <DropdownMenuItem
+          onSelect={() => runInThisGroup(openTerminalEditorTab)}
+        >
           <SquareTerminal />
           {t('tabCreation.terminal')}
         </DropdownMenuItem>

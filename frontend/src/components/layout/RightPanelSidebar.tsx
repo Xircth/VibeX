@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { useTauriInspector } from '@/hooks/useTauriInspector';
+import { useBackendTransport } from '@/lib/transport';
 
 function RightPanelSidebarContent({
   workspaceId,
@@ -33,6 +34,8 @@ function RightPanelSidebarContent({
   sessionId?: string;
 }) {
   const { t } = useTranslation(['panels', 'common']);
+  const transport = useBackendTransport();
+  const showEmbeddedBrowser = transport.environment !== 'web';
   const { openNewTerminal, openDiffPreview, openNotes, openOrFocusPanel } =
     usePanelActionsContext();
   const { runningDevServers, devServerProcesses } = useDevServer(workspaceId);
@@ -104,6 +107,7 @@ function RightPanelSidebarContent({
                 <button
                   onClick={button.onClick}
                   className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
+                  aria-label={button.label}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </button>
@@ -115,12 +119,13 @@ function RightPanelSidebarContent({
 
         <div className="my-1 h-px w-5 bg-border" />
 
-        {workspaceId && (
+        {showEmbeddedBrowser && workspaceId && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={handleOpenPreview}
                 className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${networkButtonClass}`}
+                aria-label={networkTooltipLabel}
               >
                 <Globe className="h-3.5 w-3.5" />
               </button>

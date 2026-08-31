@@ -572,35 +572,38 @@ function updateEntry(
   };
 }
 
-/** Append the streaming overlay (reasoning then text) as trailing blocks. */
+/** Merge streaming overlay into the existing text/thinking blocks. */
 function overlayLiveText(
   blocks: ContentBlock[],
   overlay: LiveTextOverlay
 ): ContentBlock[] {
   const result = [...blocks];
   if (overlay.reasoning) {
-    const last = result[result.length - 1];
-    if (last?.type === 'thinking') {
-      result[result.length - 1] = {
-        type: 'thinking',
-        text: mergeOverlayText(last.text, overlay.reasoning),
-      };
-    } else {
-      result.push({ type: 'thinking', text: overlay.reasoning });
-    }
+    mergeOverlayBlock(result, 'thinking', overlay.reasoning);
   }
   if (overlay.text) {
-    const last = result[result.length - 1];
-    if (last?.type === 'text') {
-      result[result.length - 1] = {
-        type: 'text',
-        text: mergeOverlayText(last.text, overlay.text),
-      };
-    } else {
-      result.push({ type: 'text', text: overlay.text });
-    }
+    mergeOverlayBlock(result, 'text', overlay.text);
   }
   return result;
+}
+
+function mergeOverlayBlock(
+  result: ContentBlock[],
+  type: 'text' | 'thinking',
+  overlay: string
+) {
+  for (let index = result.length - 1; index >= 0; index -= 1) {
+    const block = result[index];
+    if (block?.type !== type) {
+      continue;
+    }
+    result[index] = {
+      type,
+      text: mergeOverlayText(block.text, overlay),
+    };
+    return;
+  }
+  result.push({ type, text: overlay });
 }
 
 /**

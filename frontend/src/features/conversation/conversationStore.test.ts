@@ -733,6 +733,49 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(persisted?.key).toBe('conversation-t1:assistant');
   });
 
+  it('merges overlay text into an earlier assistant text block after tools', () => {
+    let state = loaded([
+      userRow('t1', 'q', 1n),
+      assistantRow(
+        't1',
+        [
+          { type: 'text', text: '项目已启动完成。' },
+          {
+            type: 'tool_use',
+            tool_name: 'bash',
+            tool_use_id: 'tool-1',
+            input_preview: '{}',
+            meta: null,
+          },
+        ],
+        2n,
+        'streaming'
+      ),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: '项目已启动完成。',
+          },
+        ],
+        3n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    const texts = (assistant?.turn.blocks ?? [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text);
+    expect(texts).toEqual(['项目已启动完成。']);
+  });
+
   it('does not concatenate overlay text onto a fuller upserted prefix', () => {
     let state = loaded([userRow('t1', 'q', 1n)]);
     state = conversationStoreReducer(state, {

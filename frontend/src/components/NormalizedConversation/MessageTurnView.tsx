@@ -47,6 +47,7 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
+import { splitCollapsedTurnItems } from './messageTurnCollapse';
 import { splitAssistantCommandOutput } from './conversation-entry-utils';
 import {
   AssistantCommandOutputEntry,
@@ -654,13 +655,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   let body: ReactNode[];
 
   if (collapseProcess) {
-    const lastTextIndex = items.reduce(
-      (acc, item, index) => (item.kind === 'markdown' ? index : acc),
-      -1
-    );
-    const collapsibleEnd = lastTextIndex >= 0 ? lastTextIndex : items.length;
-    const prelude = items.slice(0, collapsibleEnd);
-    const rest = items.slice(collapsibleEnd);
+    const { prelude, rest } = splitCollapsedTurnItems(items);
+    const restOffset = items.length - rest.length;
     body = [
       ...(prelude.length > 0
         ? [
@@ -672,7 +668,7 @@ export const MessageTurnView = memo(function MessageTurnView({
             />,
           ]
         : []),
-      ...renderUnits(rest, collapsibleEnd),
+      ...renderUnits(rest, restOffset),
     ];
   } else {
     body = renderUnits(items, 0);

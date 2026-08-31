@@ -55,6 +55,7 @@ pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::Webv
     .inner_size(DESKTOP_TOAST_WIDTH as f64, DESKTOP_TOAST_HEIGHT as f64)
     .resizable(false)
     .decorations(false)
+    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .background_color(Color(0, 0, 0, 0))
@@ -87,16 +88,34 @@ fn position_desktop_toast_window(
         .ok_or_else(|| "No monitor available for desktop toast".to_string())?;
 
     let work_area = monitor.work_area();
-    let x = work_area.position.x + work_area.size.width as i32
-        - DESKTOP_TOAST_WIDTH
-        - DESKTOP_TOAST_MARGIN;
-    let y = work_area.position.y + work_area.size.height as i32
-        - DESKTOP_TOAST_HEIGHT
-        - DESKTOP_TOAST_MARGIN;
+    let (x, y) = toast_window_physical_position(
+        (work_area.position.x, work_area.position.y),
+        (work_area.size.width, work_area.size.height),
+        monitor.scale_factor(),
+    );
 
     window
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| error.to_string())
+}
+
+fn toast_window_physical_position(
+    work_area_position: (i32, i32),
+    work_area_size: (u32, u32),
+    scale_factor: f64,
+) -> (i32, i32) {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let width = (f64::from(DESKTOP_TOAST_WIDTH) * scale).round() as i32;
+    let height = (f64::from(DESKTOP_TOAST_HEIGHT) * scale).round() as i32;
+    let margin = (f64::from(DESKTOP_TOAST_MARGIN) * scale).round() as i32;
+    (
+        work_area_position.0 + work_area_size.0 as i32 - width - margin,
+        work_area_position.1 + work_area_size.1 as i32 - height - margin,
+    )
 }
 
 #[tauri::command]
@@ -153,4 +172,25 @@ pub async fn activate_desktop_toast(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::toast_window_physical_position;
+
+    #[test]
+    fn positions_the_window_in_physical_pixels_on_retina() {
+        assert_eq!(
+            toast_window_physical_position((0, 0), (3024, 1964), 2.0),
+            (2080, 892)
+        );
+    }
+
+    #[test]
+    fn positions_the_window_on_unscaled_displays() {
+        assert_eq!(
+            toast_window_physical_position((0, 0), (1920, 1080), 1.0),
+            (1448, 544)
+        );
+    }
 }

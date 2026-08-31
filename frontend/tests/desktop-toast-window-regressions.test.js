@@ -108,10 +108,13 @@ test('desktop toast window keeps a dedicated route, window, and ready handshake'
   assert.match(rustSource, /\.icon\(crate::load_app_icon\(\)/);
   assert.match(rustSource, /position_desktop_toast_window/);
   assert.match(rustSource, /\.background_color\(Color\(0, 0, 0, 0\)\)/);
+  assert.match(rustSource, /\.transparent\(true\)/);
+  assert.match(rustSource, /monitor\.scale_factor\(\)/);
   assert.match(
     rustSource,
     /set_background_color\(Some\(Color\(0, 0, 0, 0\)\)\)/
   );
+  assert.match(desktopToastSource, /desktop-toast-shell/);
   assert.match(capabilitySource, /"desktop-toast"/);
 });
 

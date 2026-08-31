@@ -204,11 +204,13 @@ export function DesktopToastWindow() {
 
   useEffect(() => {
     const root = document.getElementById('root');
+    document.documentElement.classList.add('desktop-toast-shell');
     document.documentElement.style.background = 'transparent';
     document.body.style.background = 'transparent';
     document.body.style.margin = '0';
     if (root) root.style.background = 'transparent';
     return () => {
+      document.documentElement.classList.remove('desktop-toast-shell');
       document.documentElement.style.background = '';
       document.body.style.background = '';
       document.body.style.margin = '';
@@ -291,8 +293,8 @@ export function DesktopToastWindow() {
   );
 
   return (
-    <div className="min-h-screen bg-transparent p-4">
-      <div className="pointer-events-none flex min-h-screen items-end justify-end">
+    <div className="h-full bg-transparent p-4">
+      <div className="pointer-events-none flex h-full items-end justify-end">
         <div className="flex w-[424px] max-w-full flex-col gap-3">
           {toasts.map((toast) => {
             const status = replyStatus[toast.id] ?? 'idle';

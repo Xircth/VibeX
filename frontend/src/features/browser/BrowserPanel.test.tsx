@@ -392,8 +392,14 @@ describe('BrowserPanel', () => {
     fireEvent.change(address, { target: { value: 'localhost:5173' } });
     fireEvent.submit(address.closest('form')!);
 
-    expect(onOpenExternalTab).toHaveBeenCalledWith('http://localhost:5173');
-    expect(createBrowserTabMock).not.toHaveBeenCalled();
+    expect(onOpenExternalTab).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(createBrowserTabMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialUrl: 'http://localhost:5173',
+        })
+      )
+    );
   });
 
   it('lazily creates the browser tab when a dev-server URL is detected', async () => {
@@ -727,7 +733,7 @@ describe('BrowserPanel', () => {
     expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-2');
   });
 
-  it('opens an address-bar destination in an outer preview tab', async () => {
+  it('navigates the current preview tab from the address bar', async () => {
     const onOpenExternalTab = vi.fn();
     render(
       <BrowserPanel
@@ -743,10 +749,13 @@ describe('BrowserPanel', () => {
     fireEvent.change(address, { target: { value: 'example.org/docs' } });
     fireEvent.submit(address.closest('form')!);
 
-    expect(onOpenExternalTab).toHaveBeenCalledWith('https://example.org/docs');
-    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+    expect(onOpenExternalTab).not.toHaveBeenCalled();
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith(
       'browser-tab-1',
-      expect.objectContaining({ type: 'navigate' })
+      expect.objectContaining({
+        type: 'navigate',
+        url: 'https://example.org/docs',
+      })
     );
     expect(createBrowserTabMock).toHaveBeenCalledOnce();
   });

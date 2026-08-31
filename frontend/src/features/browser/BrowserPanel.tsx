@@ -723,12 +723,6 @@ export function BrowserPanel({
     const url = normalizeBrowserUrl(address);
     editingAddressRef.current = false;
     clearError();
-    const openExternalTab = onOpenExternalTabRef.current;
-    if (url !== BLANK_PAGE && openExternalTab) {
-      openExternalTab(url);
-      setAddress(tab ? browserAddress(tab.url) : '');
-      return;
-    }
     updateBlankPageVisibility(url === BLANK_PAGE);
     setAddress(url);
     if (!tab) {

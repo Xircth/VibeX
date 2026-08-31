@@ -41,6 +41,40 @@ function createBranch(overrides: Partial<GitBranch>): GitBranch {
 }
 
 describe('buildWorkspaceBranchOptions', () => {
+  it('prefers the project-root workspace when a worktree shares the current branch', () => {
+    const options = buildWorkspaceBranchOptions({
+      workspaces: [
+        createWorkspace({
+          id: 'wt-main',
+          branch: 'main',
+          use_worktree: true,
+          updated_at: '2026-08-31T12:00:00.000Z',
+        }),
+        createWorkspace({
+          id: 'root-main',
+          branch: 'main',
+          use_worktree: false,
+          updated_at: '2026-08-30T12:00:00.000Z',
+        }),
+      ],
+      repoBranches: [
+        createBranch({
+          name: 'main',
+          is_current: true,
+        }),
+      ],
+    });
+
+    expect(options).toEqual([
+      expect.objectContaining({
+        branch: 'main',
+        useWorktree: false,
+        isCurrentProjectBranch: true,
+        existingWorkspaceId: 'root-main',
+      }),
+    ]);
+  });
+
   it('prefers worktree workspaces for matching branches and still includes the current project branch', () => {
     const options = buildWorkspaceBranchOptions({
       workspaces: [

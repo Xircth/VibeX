@@ -92,7 +92,7 @@ describe('WorktreeProvider', () => {
     });
   });
 
-  it('falls back to the stored workspace when the URL has no attempt', async () => {
+  it('does not restore a stored worktree when opening a project without a workspace route', async () => {
     useProjectViewStateStore.getState().setWorktreeState('project-1', {
       activeWorktreeId: 'stored-worktree',
       activeTaskId: 'stored-task',
@@ -101,10 +101,8 @@ describe('WorktreeProvider', () => {
     renderWorktreeRoute('/local-projects/project-1/sessions');
 
     await waitFor(() => {
-      expect(screen.getByTestId('active-worktree').textContent).toBe(
-        'stored-worktree'
-      );
-      expect(screen.getByTestId('active-task').textContent).toBe('stored-task');
+      expect(screen.getByTestId('active-worktree').textContent).toBe('none');
+      expect(screen.getByTestId('active-task').textContent).toBe('none');
     });
   });
 });

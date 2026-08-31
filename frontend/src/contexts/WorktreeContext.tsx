@@ -25,30 +25,14 @@ export function WorktreeProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();
   const projectKey = getProjectScopeKey(projectId);
   const routeWorktreeId = useMemo(() => workspaceId ?? null, [workspaceId]);
-  const [activeWorktreeId, setWorktreeId] = useState<string | null>(() => {
-    const stored = useProjectViewStateStore
-      .getState()
-      .getWorktreeState(projectKey);
-    return routeWorktreeId ?? stored.activeWorktreeId;
-  });
-  const [activeTaskId, setTaskId] = useState<string | null>(() => {
-    const stored = useProjectViewStateStore
-      .getState()
-      .getWorktreeState(projectKey);
-    return routeWorktreeId ? null : stored.activeTaskId;
-  });
+  const [activeWorktreeId, setWorktreeId] = useState<string | null>(
+    () => routeWorktreeId
+  );
+  const [activeTaskId, setTaskId] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = useProjectViewStateStore
-      .getState()
-      .getWorktreeState(projectKey);
-    const nextWorktreeId = routeWorktreeId ?? stored.activeWorktreeId;
-    const nextTaskId = routeWorktreeId ? null : stored.activeTaskId;
-
-    setWorktreeId((current) =>
-      current === nextWorktreeId ? current : nextWorktreeId
-    );
-    setTaskId((current) => (current === nextTaskId ? current : nextTaskId));
+    setWorktreeId(routeWorktreeId);
+    setTaskId(null);
   }, [projectKey, routeWorktreeId]);
 
   useEffect(() => {

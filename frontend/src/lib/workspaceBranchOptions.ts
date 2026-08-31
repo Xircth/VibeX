@@ -25,7 +25,7 @@ function compareWorkspacePriority(
   }
 
   if (current.use_worktree !== candidate.use_worktree) {
-    return candidate.use_worktree ? candidate : current;
+    return current.use_worktree ? candidate : current;
   }
 
   const currentUpdatedAt = dateTimestamp(current.updated_at);

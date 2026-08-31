@@ -138,10 +138,6 @@ fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>)
     NEW_SESSION_WORKSPACE_TITLE.to_string()
 }
 
-fn normalize_branch_name(branch: &str) -> String {
-    branch.trim().to_lowercase()
-}
-
 fn canonicalize_for_workspace_safety(path: &Path) -> PathBuf {
     if let Ok(path) = std::fs::canonicalize(path) {
         return path;
@@ -185,31 +181,6 @@ fn workspace_container_overlaps_repo(workspace: &Workspace, repos: &[Repo]) -> b
     })
 }
 
-async fn find_matching_project_worktree_workspace(
-    state: &AppState,
-    project_id: Uuid,
-    branch: &str,
-) -> Result<Option<Workspace>, AppError> {
-    let pool = &state.deployment.db().pool;
-    let normalized_branch = normalize_branch_name(branch);
-    let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
-    let mut workspaces = Workspace::fetch_by_project_id(pool, project_id).await?;
-    workspaces.retain(|workspace| {
-        workspace.use_worktree
-            && !workspace.archived
-            && normalize_branch_name(&workspace.branch) == normalized_branch
-            && !workspace_container_overlaps_repo(workspace, &repos)
-    });
-    workspaces.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then(right.created_at.cmp(&left.created_at))
-    });
-
-    Ok(workspaces.into_iter().next())
-}
-
 pub(crate) async fn resolve_project_workspace(
     state: &AppState,
     project_id: Uuid,
@@ -219,13 +190,6 @@ pub(crate) async fn resolve_project_workspace(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned);
-
-    if let Some(ref desired_branch) = desired_branch
-        && let Some(workspace) =
-            find_matching_project_worktree_workspace(state, project_id, desired_branch).await?
-    {
-        return Ok(workspace);
-    }
 
     ensure_project_root_workspace(state, project_id, desired_branch.as_deref()).await
 }

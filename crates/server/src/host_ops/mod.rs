@@ -1031,14 +1031,10 @@ impl ServerApplicationDomains {
         project_id: Uuid,
         branch: Option<&str>,
     ) -> Result<Workspace, ApplicationError> {
-        if let Some(existing) = Workspace::fetch_by_project_id(&self.pool, project_id)
+        let workspaces = Workspace::fetch_by_project_id(&self.pool, project_id)
             .await
-            .map_err(internal_error)?
-            .into_iter()
-            .find(|workspace| {
-                !workspace.archived && branch.is_none_or(|wanted| workspace.branch == wanted)
-            })
-        {
+            .map_err(internal_error)?;
+        if let Some(existing) = select_project_root_workspace(&workspaces, branch).cloned() {
             let _ = self
                 .deployment
                 .container()
@@ -1059,12 +1055,6 @@ impl ServerApplicationDomains {
             .get_current_branch(&primary.path)
             .map_err(internal_error)?;
         let branch = branch.unwrap_or(&current).to_string();
-        let workspaces = Workspace::fetch_by_project_id(&self.pool, project_id)
-            .await
-            .map_err(internal_error)?;
-        if let Some(workspace) = workspaces.into_iter().next() {
-            return Ok(workspace);
-        }
         let task = Task::find_by_id(&self.pool, {
             // Seed a workspace from the first project task if one exists.
             sqlx::query_scalar::<_, Uuid>("SELECT id FROM tasks WHERE project_id = ? LIMIT 1")
@@ -1206,6 +1196,28 @@ impl ServerApplicationDomains {
         }
         Ok(roots.into_iter().collect())
     }
+}
+
+fn select_project_root_workspace<'a>(
+    workspaces: &'a [Workspace],
+    branch: Option<&str>,
+) -> Option<&'a Workspace> {
+    let active = workspaces
+        .iter()
+        .filter(|workspace| !workspace.archived)
+        .collect::<Vec<_>>();
+    let matches_branch =
+        |workspace: &&Workspace| branch.is_none_or(|wanted| workspace.branch == wanted);
+    active
+        .iter()
+        .copied()
+        .find(|workspace| !workspace.use_worktree && matches_branch(workspace))
+        .or_else(|| {
+            active
+                .iter()
+                .copied()
+                .find(|workspace| !workspace.use_worktree)
+        })
 }
 
 fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {

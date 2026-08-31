@@ -389,6 +389,15 @@
     border-radius: var(--radius);
   }
 
+  :where(.legacy-design) textarea.notes-editor {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0.25rem 0.5rem 0.75rem;
+    overflow: auto;
+  }
+
   html,
   body,
   #root {
@@ -397,6 +406,13 @@
     min-height: 0;
     overflow: hidden;
     overscroll-behavior: none;
+  }
+
+  html.desktop-toast-shell,
+  html.desktop-toast-shell body,
+  html.desktop-toast-shell #root {
+    background: transparent !important;
+    overflow: hidden;
   }
 
   html,

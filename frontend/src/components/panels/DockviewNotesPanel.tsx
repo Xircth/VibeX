@@ -37,7 +37,7 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
         <span className="text-sm font-medium">Notes</span>
       </div>
       <textarea
-        className="h-[calc(100%-2rem)] w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        className="notes-editor h-[calc(100%-2rem)] w-full resize-none text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         placeholder={
           isLoading ? 'Loading notes...' : 'Write workspace notes here...'
         }

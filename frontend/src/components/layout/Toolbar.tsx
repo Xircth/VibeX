@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { settingsWindowApi } from '@/lib/api';
+import { sessionsApi, settingsWindowApi } from '@/lib/api';
 import { useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,7 +51,9 @@ import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { cn } from '@/lib/utils';
+import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
+import { resolveDefaultProjectWorkspace } from '@/lib/workspaceDefault';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
@@ -171,23 +173,7 @@ export function KanbanLayoutToggles() {
   );
 }
 
-const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 const RECENT_PROJECT_MENU_LIMIT = 6;
-
-function matchesBranch(branch: string, expectedBranch: string) {
-  const normalized = branch.trim().toLowerCase();
-  const expected = expectedBranch.trim().toLowerCase();
-  return normalized === expected || normalized.endsWith(`/${expected}`);
-}
-
-function isMainlineBranch(branch: string) {
-  const normalized = branch.trim().toLowerCase();
-  return (
-    MAINLINE_BRANCH_NAMES.has(normalized) ||
-    normalized.endsWith('/main') ||
-    normalized.endsWith('/master')
-  );
-}
 
 export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   const { data: branchStatus } = useWorkspaceBranchStatus(workspaceId);
@@ -281,9 +267,10 @@ export function WorkspaceBranchControls({
 }
 
 function WorkspaceTabSwitcher() {
+  const { t } = useTranslation('panels');
   const navigate = useNavigate();
   const { projectId, project } = useProject();
-  const { activeWorktreeId, activeTaskId, setActiveWorktree } = useWorktree();
+  const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
@@ -291,6 +278,10 @@ function WorkspaceTabSwitcher() {
   }>();
   const { data: repos } = useProjectRepos(projectId);
   const { worktrees } = useProjectWorktrees(projectId);
+  const primaryRepo = repos?.[0];
+  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
+    enabled: Boolean(primaryRepo?.id),
+  });
   const { activeTab, setActiveTab } = useLayoutStore();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
@@ -308,6 +299,10 @@ function WorkspaceTabSwitcher() {
     return projectBranch && projectBranch.length > 0 ? projectBranch : null;
   }, [project?.default_main_branch, repos]);
 
+  const currentProjectBranch =
+    primaryRepoBranches.find((branch) => branch.is_current)?.name ??
+    preferredWorkspaceBranch;
+
   const resolveFallbackWorktree = useCallback(() => {
     const currentWorktree =
       worktrees.find(
@@ -317,28 +312,23 @@ function WorkspaceTabSwitcher() {
       return currentWorktree;
     }
 
-    if (preferredWorkspaceBranch) {
-      const preferredWorktree = worktrees.find((worktree) =>
-        matchesBranch(worktree.workspace.branch, preferredWorkspaceBranch)
-      );
-      if (preferredWorktree) {
-        return preferredWorktree;
-      }
+    const selected = resolveDefaultProjectWorkspace({
+      workspaces: worktrees.map((item) => item.workspace),
+      currentBranch: currentProjectBranch,
+    });
+    if (!selected) {
+      return null;
     }
-
-    const mainlineWorktree = worktrees.find((worktree) =>
-      isMainlineBranch(worktree.workspace.branch)
-    );
-    return mainlineWorktree ?? worktrees[0] ?? null;
-  }, [activeWorktreeId, preferredWorkspaceBranch, worktrees]);
+    return worktrees.find((item) => item.workspace.id === selected.id) ?? null;
+  }, [activeWorktreeId, currentProjectBranch, worktrees]);
 
   const tabs: {
     key: WorkspaceTab;
     label: string;
     icon: typeof LayoutDashboard;
   }[] = [
-    { key: 'kanban', label: 'Kanban', icon: LayoutDashboard },
-    { key: 'workspace', label: 'Workspace', icon: Monitor },
+    { key: 'kanban', label: t('toolbar.kanban'), icon: LayoutDashboard },
+    { key: 'workspace', label: t('toolbar.workspace'), icon: Monitor },
   ];
 
   const handleTabSelect = useCallback(
@@ -351,24 +341,33 @@ function WorkspaceTabSwitcher() {
         return;
       }
 
-      const navigateToFallbackWorkspace = () => {
+      const navigateToFallbackWorkspace = async () => {
         const fallbackWorktree = resolveFallbackWorktree();
-        const targetAttemptId =
-          activeWorktreeId ?? fallbackWorktree?.workspace.id ?? null;
-        const targetTaskId =
-          activeTaskId ?? fallbackWorktree?.workspace.task_id ?? null;
+        let targetWorkspace = fallbackWorktree?.workspace ?? null;
+        if (
+          !targetWorkspace ||
+          (targetWorkspace.use_worktree && !activeWorktreeId)
+        ) {
+          try {
+            targetWorkspace = await sessionsApi.ensureProjectWorkspace({
+              project_id: projectId,
+              branch: currentProjectBranch ?? null,
+            });
+          } catch {
+            // Keep any existing fallback workspace if the project root
+            // cannot be created yet.
+          }
+        }
+
+        const targetAttemptId = targetWorkspace?.id ?? null;
+        const targetTaskId = targetWorkspace?.task_id ?? null;
 
         if (targetAttemptId) {
           setActiveWorktree(targetAttemptId, targetTaskId);
-        }
-
-        if (targetAttemptId) {
           navigate(paths.projectWorkspace(projectId, targetAttemptId));
           return;
         }
 
-        // No workspace entity yet: keep workspace tab active and fall back to
-        // project root directory context.
         setActiveWorktree(null, null);
         navigate(paths.projectSessions(projectId));
       };
@@ -387,8 +386,8 @@ function WorkspaceTabSwitcher() {
       navigateToFallbackWorkspace();
     },
     [
-      activeTaskId,
       activeWorktreeId,
+      currentProjectBranch,
       effectiveActiveTab,
       navigate,
       projectId,
@@ -522,7 +521,9 @@ export function Toolbar() {
               const metadata = contributionMetadata(item);
               const title = String(metadata.title ?? item.label);
               const handler =
-                typeof metadata.handler === 'string' ? metadata.handler : item.id;
+                typeof metadata.handler === 'string'
+                  ? metadata.handler
+                  : item.id;
               return (
                 <Tooltip key={`${item.pluginId}:${item.id}`}>
                   <TooltipTrigger asChild>
@@ -532,7 +533,10 @@ export function Toolbar() {
                       className="workspace-toolbar-button h-7 w-7"
                       aria-label={title}
                       onClick={() =>
-                        void pluginApi.invokeContribution(item.pluginId, handler)
+                        void pluginApi.invokeContribution(
+                          item.pluginId,
+                          handler
+                        )
                       }
                     >
                       <Puzzle className="h-3.5 w-3.5" />
@@ -588,14 +592,14 @@ export function Toolbar() {
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={toggleFileTree}
-                      aria-label="Toggle file tree"
+                      aria-label={t('toolbar.toggleFileTree')}
                       tabIndex={isWorkspaceTab ? 0 : -1}
                     >
                       <FolderTree className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    Toggle File Tree
+                    {t('toolbar.toggleFileTree')}
                   </TooltipContent>
                 </Tooltip>
 
@@ -631,14 +635,16 @@ export function Toolbar() {
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={openNewTerminal}
-                      aria-label="Toggle terminal"
+                      aria-label={t('toolbar.toggleTerminal')}
                       aria-pressed={isTerminalOpen}
                       tabIndex={isWorkspaceTab ? 0 : -1}
                     >
                       <Terminal className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Toggle Terminal</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {t('toolbar.toggleTerminal')}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -649,7 +655,7 @@ export function Toolbar() {
                       className="workspace-toolbar-button h-7 w-7"
                       aria-pressed={isRightPanelVisible}
                       onClick={toggleRightPanel}
-                      aria-label="Toggle AI panel"
+                      aria-label={t('toolbar.toggleAiPanel')}
                       tabIndex={isWorkspaceTab ? 0 : -1}
                     >
                       {isRightPanelVisible ? (
@@ -659,7 +665,9 @@ export function Toolbar() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Toggle AI Panel</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {t('toolbar.toggleAiPanel')}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -669,13 +677,15 @@ export function Toolbar() {
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={resetLayout}
-                      aria-label="Reset layout"
+                      aria-label={t('toolbar.resetLayout')}
                       tabIndex={isWorkspaceTab ? 0 : -1}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Reset Layout</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {t('toolbar.resetLayout')}
+                  </TooltipContent>
                 </Tooltip>
 
                 <ToolbarDivider />

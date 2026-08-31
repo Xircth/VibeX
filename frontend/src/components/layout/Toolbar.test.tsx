@@ -75,7 +75,7 @@ describe('KanbanLayoutToggles', () => {
     expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(false);
     expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(false);
 
-    await user.click(screen.getByRole('button', { name: '重置 Kanban 布局' }));
+    await user.click(screen.getByRole('button', { name: '重置看板布局' }));
 
     expect(useLayoutStore.getState().isKanbanListVisible).toBe(true);
     expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(true);

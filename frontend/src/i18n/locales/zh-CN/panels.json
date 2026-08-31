@@ -104,10 +104,16 @@
   "toolbar": {
     "hideEditorAndTerminal": "隐藏编辑区和终端区",
     "showEditorAndTerminal": "显示编辑区和终端区",
+    "toggleFileTree": "显示/隐藏文件树",
+    "toggleTerminal": "显示/隐藏终端",
+    "toggleAiPanel": "显示/隐藏 AI 面板",
+    "resetLayout": "重置布局",
+    "kanban": "看板",
+    "workspace": "工作区",
     "toggleSessionList": "显示/隐藏会话列表",
     "toggleSessionMonitor": "显示/隐藏会话监控区",
     "toggleSessionExecution": "显示/隐藏会话执行区",
-    "resetKanbanLayout": "重置 Kanban 布局",
+    "resetKanbanLayout": "重置看板布局",
     "homeOrRecentProjects": "返回首页或打开最近项目",
     "backToHome": "回到首页",
     "recentProjects": "最近项目",
@@ -157,7 +163,10 @@
   "ideLayout": {
     "hideEditorAndTerminal": "隐藏编辑区和终端区",
     "showEditorAndTerminal": "显示编辑区和终端区",
-    "openInNewEditorGroup": "在新的编辑区打开"
+    "openInNewEditorGroup": "在新的编辑区打开",
+    "files": "文件",
+    "git": "Git",
+    "search": "搜索 (Ctrl+Shift+F)"
   },
   "workspaceSessionList": {
     "title": "会话列表",
@@ -193,10 +202,28 @@
     "openExternalFailed": "无法打开外部终端",
     "confirmWarpInstalled": "请确认 Warp 已安装。"
   },
+  "workspaceActivity": {
+    "title": "执行进程",
+    "sessions": "Agent 会话进程",
+    "background": "后台任务",
+    "notices": "错误与警告",
+    "emptySessions": "当前工作区没有 Agent 会话。",
+    "emptyBackground": "没有后台任务。",
+    "emptyNotices": "没有错误或警告。",
+    "openFlame": "查看时间跨度",
+    "backToList": "返回",
+    "noSpans": "该会话还没有可计时的事件。",
+    "running": "运行中",
+    "exited": "已结束"
+  },
   "rightPanelContent": {
     "newSession": "新建会话"
   },
   "rightPanelSidebar": {
+    "openTerminal": "打开终端",
+    "processes": "执行进程",
+    "gitDiff": "Git 差异",
+    "notes": "笔记",
     "devServerRunningTooltip": "开发服务器运行中，点击打开网络预览",
     "devServerFailedTooltip": "开发服务器启动失败，点击查看预览与日志",
     "openNetworkPreview": "打开网络预览",

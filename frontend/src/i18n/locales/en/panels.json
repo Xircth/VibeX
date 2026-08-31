@@ -104,6 +104,12 @@
   "toolbar": {
     "hideEditorAndTerminal": "Hide editor and terminal areas",
     "showEditorAndTerminal": "Show editor and terminal areas",
+    "toggleFileTree": "Toggle file tree",
+    "toggleTerminal": "Toggle terminal",
+    "toggleAiPanel": "Toggle AI panel",
+    "resetLayout": "Reset layout",
+    "kanban": "Kanban",
+    "workspace": "Workspace",
     "toggleSessionList": "Toggle session list",
     "toggleSessionMonitor": "Toggle session monitor",
     "toggleSessionExecution": "Toggle session execution",
@@ -157,7 +163,10 @@
   "ideLayout": {
     "hideEditorAndTerminal": "Hide editor and terminal areas",
     "showEditorAndTerminal": "Show editor and terminal areas",
-    "openInNewEditorGroup": "Open in new editor group"
+    "openInNewEditorGroup": "Open in new editor group",
+    "files": "Files",
+    "git": "Git",
+    "search": "Search (Ctrl+Shift+F)"
   },
   "workspaceSessionList": {
     "title": "Sessions",
@@ -193,10 +202,28 @@
     "openExternalFailed": "Failed to open external terminal",
     "confirmWarpInstalled": "Please make sure Warp is installed."
   },
+  "workspaceActivity": {
+    "title": "Processes",
+    "sessions": "Agent sessions",
+    "background": "Background tasks",
+    "notices": "Errors and warnings",
+    "emptySessions": "No agent sessions in this workspace.",
+    "emptyBackground": "No background tasks.",
+    "emptyNotices": "No errors or warnings.",
+    "openFlame": "Show timeline",
+    "backToList": "Back",
+    "noSpans": "This session has no timed events yet.",
+    "running": "Running",
+    "exited": "Ended"
+  },
   "rightPanelContent": {
     "newSession": "New Session"
   },
   "rightPanelSidebar": {
+    "openTerminal": "Open terminal",
+    "processes": "Processes",
+    "gitDiff": "Git Diff",
+    "notes": "Notes",
     "devServerRunningTooltip": "Dev server running, click to open network preview",
     "devServerFailedTooltip": "Dev server failed to start, click to view preview and logs",
     "openNetworkPreview": "Open network preview",

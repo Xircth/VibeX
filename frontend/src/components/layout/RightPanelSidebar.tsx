@@ -66,18 +66,31 @@ function RightPanelSidebarContent({
       : t('rightPanelSidebar.openNetworkPreview');
 
   const buttons = [
-    { icon: Terminal, label: 'Open Terminal', onClick: openNewTerminal },
+    {
+      icon: Terminal,
+      label: t('rightPanelSidebar.openTerminal'),
+      onClick: openNewTerminal,
+    },
     {
       icon: List,
-      label: 'Processes',
+      label: t('rightPanelSidebar.processes'),
       onClick: () =>
         ViewProcessesDialog.show({
+          workspaceId,
           sessionId,
           initialProcessId: null,
         }),
     },
-    { icon: GitCompareArrows, label: 'Git Diff', onClick: openDiffPreview },
-    { icon: StickyNote, label: 'Notes', onClick: openNotes },
+    {
+      icon: GitCompareArrows,
+      label: t('rightPanelSidebar.gitDiff'),
+      onClick: openDiffPreview,
+    },
+    {
+      icon: StickyNote,
+      label: t('rightPanelSidebar.notes'),
+      onClick: openNotes,
+    },
   ];
 
   return (

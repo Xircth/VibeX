@@ -1310,15 +1310,17 @@ const AgentTimelineConversation = forwardRef<
                                 fileChangesByTurnId.get(turnId);
                               if (!fileChanges) return null;
                               return (
-                                <TurnFileChangesCard
-                                  summary={fileChanges.summary}
-                                  expansionKey={`turn-files:${turnId}`}
-                                  defaultExpanded={expandFileChanges}
-                                  onUndo={() =>
-                                    void handleUndoTurnChanges(turnId)
-                                  }
-                                  undoDisabled={isTurnInFlight}
-                                />
+                                <div className="min-w-0 px-4">
+                                  <TurnFileChangesCard
+                                    summary={fileChanges.summary}
+                                    expansionKey={`turn-files:${turnId}`}
+                                    defaultExpanded={expandFileChanges}
+                                    onUndo={() =>
+                                      void handleUndoTurnChanges(turnId)
+                                    }
+                                    undoDisabled={isTurnInFlight}
+                                  />
+                                </div>
                               );
                             })()
                           : null}

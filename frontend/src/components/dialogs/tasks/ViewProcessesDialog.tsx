@@ -7,18 +7,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import ProcessesTab from '@/components/tasks/TaskDetails/ProcessesTab';
-import { ProcessSelectionProvider } from '@/contexts/ProcessSelectionContext';
+import { WorkspaceActivityPanel } from '@/features/workspace-activity/WorkspaceActivityPanel';
 
 export interface ViewProcessesDialogProps {
+  workspaceId?: string;
   sessionId: string | undefined;
   initialProcessId?: string | null;
 }
 
 const ViewProcessesDialogImpl = NiceModal.create<ViewProcessesDialogProps>(
-  ({ sessionId, initialProcessId }) => {
+  ({ workspaceId, sessionId }) => {
     const modal = useModal();
-    const { t } = useTranslation(['dialogs', 'common']);
+    const { t } = useTranslation(['dialogs', 'common', 'panels']);
 
     const handleOpenChange = (open: boolean) => {
       if (!open) {
@@ -42,12 +42,13 @@ const ViewProcessesDialogImpl = NiceModal.create<ViewProcessesDialogProps>(
           }}
         >
           <DialogHeader className="px-4 py-3 border-b">
-            <DialogTitle>{t('viewProcesses.title')}</DialogTitle>
+            <DialogTitle>{t('panels:workspaceActivity.title')}</DialogTitle>
           </DialogHeader>
           <div className="h-[75vh] flex flex-col min-h-0 min-w-0">
-            <ProcessSelectionProvider initialProcessId={initialProcessId}>
-              <ProcessesTab sessionId={sessionId} />
-            </ProcessSelectionProvider>
+            <WorkspaceActivityPanel
+              workspaceId={workspaceId}
+              sessionId={sessionId}
+            />
           </div>
         </DialogContent>
       </Dialog>

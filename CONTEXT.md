@@ -89,6 +89,9 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 [ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
 
 - **Workspace-less conversation（无工作区会话）** — 一种不挂靠任何 Project / Workspace 的 Conversation：没有 worktree、没有隔离工作区、没有 git 面板，用于纯聊天/咨询场景。与常规会话的唯一区别是缺少 Workspace 归属；其事件日志、Turn 生命周期、恢复与中断语义与常规会话**完全一致**。因无仓库工作区，其 agent 的文件/终端工具根目录由宿主指定的**专用临时目录**提供（而非某个项目仓库），并据此成为一个能力受限的低权限模式。落地决策（数据模型 + 工作目录/沙箱）见 ADR-0006。
+- **Project-root workspace（项目根工作区）** — 绑定项目仓库目录本身、当前检出分支的 Workspace（`use_worktree: false`）。从首页打开项目后的默认 Workspace 必须是它，不得因为已有 Git Worktree 就改成隔离工作区。见 [ADR-0068](docs/adr/0068-workspace-default-surfaces-and-activity.md)。
+- **Agent long-running terminal（Agent 长期终端）** — Agent 通过 ACP 拉起、直到命令结束才销毁的终端进程，在 Workspace 终端列表中以 `Codex-01` 这类名称出现。它是 ACP 终端事实的投影，不是用户 PTY，也不是 `ExecutionProcess`。见 [ADR-0068](docs/adr/0068-workspace-default-surfaces-and-activity.md)。
+- **Workspace activity（工作区活动）** — 右侧栏执行进程入口打开的列表：Agent 会话进程（可点开时间跨度图）、后台长期任务、错误与警告。Agent 会话不伪装成 `ExecutionProcess`。见 [ADR-0068](docs/adr/0068-workspace-default-surfaces-and-activity.md)。
 
 ## Channel domain
 

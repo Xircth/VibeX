@@ -46,20 +46,17 @@ test('tauri backend exposes scratch CRUD commands', () => {
   assert.match(libSource, /commands::events::subscribe_scratch_stream/);
 });
 
-test('tauri startup manages AppState before creating auxiliary windows', () => {
+test('desktop toast window is created on demand after AppState is managed', () => {
   const libSource = readRepoFile('src-tauri/src/lib.rs');
+  const toastSource = readRepoFile('src-tauri/src/commands/desktop_toast.rs');
 
   const manageIndex = libSource.indexOf('app.manage(state);');
-  const desktopToastIndex = libSource.indexOf(
-    'commands::desktop_toast::ensure_desktop_toast_window'
-  );
-  const projectRailIndex = libSource.indexOf(
-    'commands::project_rail_window::ensure_project_rail_window'
-  );
-
   assert.notEqual(manageIndex, -1);
-  assert.notEqual(desktopToastIndex, -1);
-  assert.notEqual(projectRailIndex, -1);
-  assert.ok(manageIndex < desktopToastIndex);
-  assert.ok(manageIndex < projectRailIndex);
+  assert.equal(
+    libSource.indexOf('ensure_desktop_toast_window(app.handle())'),
+    -1
+  );
+  assert.match(toastSource, /pub fn ensure_desktop_toast_window/);
+  assert.match(toastSource, /show_desktop_toast/);
+  assert.match(toastSource, /ensure_desktop_toast_window\(&app\)/);
 });

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
 const workspaceRoot = path.join(__dirname, "..");
@@ -25,17 +26,15 @@ function run(args) {
   }
 }
 
-if (process.platform === "darwin") {
-  run([
-    "build",
-    "-p",
-    "vibex",
-    "--bin",
-    "vibex_cef_helper",
-    ...targetArgs,
-    ...profileArgs,
-  ]);
-}
+run([
+  "build",
+  "-p",
+  "vibex",
+  "--bin",
+  "vibex_cef_helper",
+  ...targetArgs,
+  ...profileArgs,
+]);
 
 run([
   "run",
@@ -49,3 +48,23 @@ run([
   "--",
   profile,
 ]);
+
+const helperName =
+  process.platform === "win32" ? "vibex_cef_helper.exe" : "vibex_cef_helper";
+const helperSource = path.join(
+  process.env.CARGO_TARGET_DIR || path.join(workspaceRoot, "target"),
+  ...(process.env.VIBEX_BUILD_TARGET || process.env.TAURI_ENV_TARGET_TRIPLE
+    ? [process.env.VIBEX_BUILD_TARGET || process.env.TAURI_ENV_TARGET_TRIPLE]
+    : []),
+  profile,
+  helperName
+);
+const helperDestDir = path.join(
+  process.env.CARGO_TARGET_DIR || path.join(workspaceRoot, "target"),
+  "cef-runtime",
+  process.platform
+);
+if (fs.existsSync(helperSource)) {
+  fs.mkdirSync(helperDestDir, { recursive: true });
+  fs.copyFileSync(helperSource, path.join(helperDestDir, helperName));
+}

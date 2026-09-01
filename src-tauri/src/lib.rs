@@ -1,4 +1,13 @@
-use std::{cell::RefCell, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc::Receiver,
+    },
+    time::Duration,
+};
 
 use browser_cef::{
     CefBootstrap, CefRuntimeConfig, CefSession, NativeBrowserParent, PumpScheduler,
@@ -40,24 +49,76 @@ const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
 const BROWSER_EVENT: &str = "browser://event";
 const CEF_COMMAND_CAPACITY: usize = 512;
+static CEF_PUMP_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+struct PendingCefHost {
+    bootstrap: Option<CefBootstrap>,
+    config: CefRuntimeConfig,
+    parent: NativeBrowserParent,
+    scheduler: PumpScheduler,
+    subprocess: Option<PathBuf>,
+    commands: Receiver<browser_runtime::BrowserEngineCommand>,
+    runtime: Arc<BrowserRuntime>,
+}
+
+enum CefHost {
+    Pending(PendingCefHost),
+    Ready(CefSession),
+}
 
 thread_local! {
-    static CEF_SESSION: RefCell<Option<CefSession>> = const { RefCell::new(None) };
+    static CEF_HOST: RefCell<Option<CefHost>> = const { RefCell::new(None) };
 }
 
 fn pump_cef_session() {
-    CEF_SESSION.with(|session| {
-        if let Ok(mut session) = session.try_borrow_mut()
-            && let Some(session) = session.as_mut()
-        {
-            session.pump();
-        }
+    CEF_HOST.with(|slot| {
+        let Ok(mut slot) = slot.try_borrow_mut() else {
+            return;
+        };
+        let Some(host) = slot.take() else {
+            return;
+        };
+        *slot = Some(match host {
+            CefHost::Pending(pending) => match pending.into_session() {
+                Ok(mut session) => {
+                    session.pump();
+                    CefHost::Ready(session)
+                }
+                Err(error) => {
+                    tracing::error!(%error, "failed to start Chromium browser runtime");
+                    return;
+                }
+            },
+            CefHost::Ready(mut session) => {
+                session.pump();
+                CefHost::Ready(session)
+            }
+        });
     });
 }
 
+impl PendingCefHost {
+    fn into_session(mut self) -> Result<CefSession, String> {
+        let bootstrap = self
+            .bootstrap
+            .take()
+            .ok_or_else(|| "Chromium bootstrap is missing".to_string())?;
+        bootstrap
+            .initialize(
+                self.config,
+                self.scheduler,
+                self.subprocess.as_deref(),
+                self.commands,
+                self.runtime,
+                self.parent,
+            )
+            .map_err(|error| error.to_string())
+    }
+}
+
 fn shutdown_cef_session() {
-    CEF_SESSION.with(|session| {
-        if let Some(session) = session.borrow_mut().take() {
+    CEF_HOST.with(|slot| {
+        if let Some(CefHost::Ready(session)) = slot.borrow_mut().take() {
             session.shutdown();
         }
     });
@@ -96,11 +157,11 @@ fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserP
     unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
 }
 
-fn cef_subprocess_path() -> Option<PathBuf> {
+fn cef_subprocess_path_from(resource_dir: Option<&std::path::Path>) -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    let directory = executable.parent()?;
     #[cfg(target_os = "macos")]
     {
-        let executable = std::env::current_exe().ok()?;
-        let directory = executable.parent()?;
         let bundled = directory.join("../Frameworks/vibex Helper.app/Contents/MacOS/vibex Helper");
         if bundled.is_file() {
             return Some(bundled);
@@ -115,11 +176,43 @@ fn cef_subprocess_path() -> Option<PathBuf> {
         if development_helper.is_file() {
             return Some(development_helper);
         }
+        if let Some(resource_dir) = resource_dir {
+            let helper = resource_dir.join("vibex_cef_helper");
+            if helper.is_file() {
+                return Some(helper);
+            }
+        }
         Some(executable)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        None
+        let helper_name = "vibex_cef_helper.exe";
+        let helper = directory.join(helper_name);
+        if helper.is_file() {
+            return Some(helper);
+        }
+        if let Some(resource_dir) = resource_dir {
+            let helper = resource_dir.join(helper_name);
+            if helper.is_file() {
+                return Some(helper);
+            }
+        }
+        Some(executable)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let helper_name = "vibex_cef_helper";
+        let helper = directory.join(helper_name);
+        if helper.is_file() {
+            return Some(helper);
+        }
+        if let Some(resource_dir) = resource_dir {
+            let helper = resource_dir.join(helper_name);
+            if helper.is_file() {
+                return Some(helper);
+            }
+        }
+        Some(executable)
     }
 }
 
@@ -133,6 +226,7 @@ fn setup_browser_runtime(
     let parent = native_browser_parent(&main_window)?;
     let app_data_dir = app.path().app_data_dir()?;
     let resource_dir = app.path().resource_dir()?;
+    let subprocess = cef_subprocess_path_from(Some(&resource_dir));
     let nested_resources = resource_dir.join("cef");
     let runtime_resources = if nested_resources.join("icudtl.dat").is_file() {
         Some(nested_resources)
@@ -149,10 +243,18 @@ fn setup_browser_runtime(
     };
     let app_handle = app.handle().clone();
     let scheduler: PumpScheduler = Arc::new(move |delay_ms| {
+        if delay_ms < 0 {
+            CEF_PUMP_GENERATION.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let generation = CEF_PUMP_GENERATION.load(Ordering::Relaxed);
         let app_handle = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             if delay_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
+                if CEF_PUMP_GENERATION.load(Ordering::Relaxed) != generation {
+                    return;
+                }
             }
             let _ = app_handle.run_on_main_thread(pump_cef_session);
         });
@@ -161,14 +263,6 @@ fn setup_browser_runtime(
     let (engine, commands) =
         command_channel_with_waker(CEF_COMMAND_CAPACITY, Arc::new(move || wake_scheduler(0)));
     let runtime = Arc::new(BrowserRuntime::new(engine));
-    let session = bootstrap.initialize(
-        runtime_config,
-        scheduler,
-        cef_subprocess_path().as_deref(),
-        commands,
-        runtime.clone(),
-        parent,
-    )?;
 
     let mut browser_events = runtime.subscribe();
     let browser_event_app = app.handle().clone();
@@ -185,9 +279,19 @@ fn setup_browser_runtime(
             }
         }
     });
-    app.manage(commands::browser::BrowserCommandState { runtime });
-    CEF_SESSION.with(|stored| {
-        *stored.borrow_mut() = Some(session);
+    app.manage(commands::browser::BrowserCommandState {
+        runtime: runtime.clone(),
+    });
+    CEF_HOST.with(|stored| {
+        *stored.borrow_mut() = Some(CefHost::Pending(PendingCefHost {
+            bootstrap: Some(bootstrap),
+            config: runtime_config,
+            parent,
+            scheduler,
+            subprocess,
+            commands,
+            runtime,
+        }));
     });
     Ok(())
 }
@@ -495,9 +599,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // reconciliation and catch-up happen behind the owner lease.
         commands::automation::start_automation_engine(app.handle().clone());
 
-        if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
-            tracing::warn!("Failed to initialize desktop toast window: {}", error);
-        }
         if let Err(error) = tauri::async_runtime::block_on(
             commands::web_service::ensure_web_service_autostart(app.handle().clone()),
         ) {
@@ -1062,7 +1163,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
     .run(move |_app_handle, event| {
-        pump_cef_session();
         if let tauri::RunEvent::WindowEvent {
             label,
             event: tauri::WindowEvent::Destroyed,

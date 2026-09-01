@@ -76,7 +76,7 @@ use api_types::{
     UserAgentDefinitionView, UserAgentDistributionKind, UserAgentDistributionView,
     UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
-use application::ConversationOutputView;
+use application::{ConversationLiveFeedbackNote, ConversationOutputView};
 use conversations::{
     ConversationChildSummaryView, ConversationInputStatus, ConversationInputSubmission,
     ConversationInputView, ConversationRelationView, ConversationSearchHit,
@@ -590,6 +590,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationSteeringEvent>(&mut decls);
     insert_declaration::<ConversationSteeringStatus>(&mut decls);
     insert_declaration::<ConversationSteeringReceipt>(&mut decls);
+    insert_declaration::<ConversationLiveFeedbackNote>(&mut decls);
     insert_declaration::<ConversationPlanEntry>(&mut decls);
     insert_declaration::<ConversationFileLocation>(&mut decls);
     insert_declaration::<ConversationToolCallPatch>(&mut decls);

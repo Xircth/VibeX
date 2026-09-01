@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use agents::{
     AgentElicitationResponse, AgentId, AgentPermissionResponse, AgentSessionConfigOverride,
 };
@@ -13,18 +15,27 @@ use conversations::{
 use executors::profile::ExecutorProfileId;
 
 use crate::{
-    ApplicationError, CancelConversationTurn, ConversationExecutionPort,
-    RespondConversationPermission, RespondConversationQuestion, StartConversationTurn,
+    ApplicationError, CancelConversationTurn, CompanionSessionPort, ConversationExecutionPort,
+    ConversationLiveFeedbackNote, RespondConversationPermission, RespondConversationQuestion,
+    StartConversationTurn, SubmitConversationFeedback,
 };
 
 pub struct ConversationSessionExecutionPort {
     service: ConversationSessionService,
     inputs: ConversationInputControl,
     relations: ConversationRelationControl,
+    companion: Option<Arc<dyn CompanionSessionPort>>,
 }
 
 impl ConversationSessionExecutionPort {
     pub fn new(context: ConversationContext) -> Self {
+        Self::with_companion(context, None)
+    }
+
+    pub fn with_companion(
+        context: ConversationContext,
+        companion: Option<Arc<dyn CompanionSessionPort>>,
+    ) -> Self {
         let inputs = ConversationInputControl::with_publisher(
             context.deployment.db().pool.clone(),
             context.event_publisher.clone(),
@@ -33,6 +44,7 @@ impl ConversationSessionExecutionPort {
             relations: ConversationRelationControl::new(context.deployment.db().pool.clone()),
             service: ConversationSessionService::new(context),
             inputs,
+            companion,
         }
     }
 
@@ -66,11 +78,13 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             .map(serde_json::from_value::<AgentSessionConfigOverride>)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        self.service
+        let conversation_id = request.conversation_id;
+        let turn = self
+            .service
             .start_turn(ConversationStartTurnInput {
                 agent_id,
                 workspace_id: request.workspace_id,
-                conversation_id: request.conversation_id,
+                conversation_id,
                 executor_profile_id,
                 text: request.text,
                 display_text: None,
@@ -91,7 +105,11 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             })
             .await
             .map(|(turn, _)| turn)
-            .map_err(map_service_error)
+            .map_err(map_service_error)?;
+        if let Some(companion) = &self.companion {
+            companion.clear_turn(conversation_id).await;
+        }
+        Ok(turn)
     }
 
     async fn respond_permission(
@@ -112,6 +130,17 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
     ) -> Result<(), ApplicationError> {
         let response = serde_json::from_value::<AgentElicitationResponse>(request.response)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        if let Some(companion) = &self.companion
+            && companion
+                .answer_question(
+                    request.conversation_id,
+                    &request.question_id,
+                    response.clone(),
+                )
+                .await?
+        {
+            return Ok(());
+        }
         self.service
             .respond_question(request.conversation_id, request.question_id, response)
             .await
@@ -245,6 +274,30 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             .set_session_config_option(conversation_id, key, value)
             .await
             .map_err(map_service_error)
+    }
+
+    async fn submit_feedback(
+        &self,
+        request: SubmitConversationFeedback,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        let Some(companion) = &self.companion else {
+            return Err(ApplicationError::capability_unavailable(
+                "live feedback is not configured",
+            ));
+        };
+        companion
+            .submit_feedback(request.conversation_id, &request.text)
+            .await
+    }
+
+    async fn list_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Vec<ConversationLiveFeedbackNote>, ApplicationError> {
+        let Some(companion) = &self.companion else {
+            return Ok(Vec::new());
+        };
+        companion.list_feedback(conversation_id).await
     }
 }
 

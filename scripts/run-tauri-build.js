@@ -110,8 +110,27 @@ function withTauriBuildEnv(env, target) {
     ...withNativeBuildEnv(env),
     SQLX_OFFLINE: env.SQLX_OFFLINE || "true",
     SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || sqlxOfflineDir,
+    CEF_PATH: env.CEF_PATH || path.join(workspaceRoot, ".cef"),
     ...(target ? { VIBEX_BUILD_TARGET: target } : {}),
   };
+}
+
+function withCefHelperCargoArgs(args) {
+  const helperArgs = ["--bin", "vibex_cef_helper"];
+  const separator = args.indexOf("--");
+  if (separator === -1) {
+    return [...args, "--", ...helperArgs];
+  }
+  const cargoArgs = args.slice(separator + 1);
+  if (
+    cargoArgs.some(
+      (arg, index) =>
+        arg === "--bin" && cargoArgs[index + 1] === "vibex_cef_helper",
+    )
+  ) {
+    return args;
+  }
+  return [...args.slice(0, separator + 1), ...cargoArgs, ...helperArgs];
 }
 
 const userArgs = process.argv
@@ -139,14 +158,14 @@ if (darwinDmgRequested) {
 const releaseConfig = process.env.VIBEX_TAURI_RELEASE_CONFIG;
 const configArgs =
   releaseConfig && !hasConfigArg(userArgs) ? ["--config", releaseConfig] : [];
-const buildArgs = [
+const buildArgs = withCefHelperCargoArgs([
   "exec",
   "tauri",
   "build",
   ...bundleArgs,
   ...configArgs,
   ...resolvedUserArgs,
-];
+]);
 const buildEnv = withTauriBuildEnv(localEnv, target);
 const tauriEnv = withoutAppleNotaryEnv(buildEnv);
 

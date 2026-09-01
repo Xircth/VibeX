@@ -7,6 +7,7 @@ export const SETTINGS_CHANGED_EVENT = 'vibex://settings-file-changed';
 
 const STORAGE_KEYS = {
   'vibex:ui-zoom': 'ui_zoom',
+  'vibex:accent-color': 'accent_color',
   'vibex:mono-font': 'mono_font',
   'vibex:ui-language': 'language',
   'vibex:app-icon-style': 'app_icon_style',

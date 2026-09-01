@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
@@ -11,10 +12,68 @@ use uuid::Uuid;
 
 use crate::DelegationScope;
 
+pub const MAX_FEEDBACK_CHARS: usize = 4096;
+pub const MAX_FEEDBACK_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackStatus {
+    Pending,
+    Delivered,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FeedbackNote {
     pub id: String,
     pub text: String,
+    pub created_at: DateTime<Utc>,
+    pub status: FeedbackStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeedbackError {
+    Empty,
+    TooLong,
+}
+
+impl FeedbackNote {
+    fn new_pending(text: String) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            text,
+            created_at: Utc::now(),
+            status: FeedbackStatus::Pending,
+            delivered_at: None,
+        }
+    }
+
+    fn agent_payload(&self) -> Value {
+        json!({
+            "id": self.id,
+            "text": self.text,
+            "created_at": self.created_at.to_rfc3339(),
+        })
+    }
+}
+
+fn estimated_note_response_bytes(text: &str) -> usize {
+    text.len().saturating_mul(6).saturating_add(128)
+}
+
+fn bounded_feedback_batch(pending: Vec<FeedbackNote>) -> Vec<FeedbackNote> {
+    let mut out: Vec<FeedbackNote> = Vec::new();
+    let mut total: usize = 64;
+    for note in pending {
+        let cost = estimated_note_response_bytes(&note.text);
+        if !out.is_empty() && total.saturating_add(cost) > MAX_FEEDBACK_RESPONSE_BYTES {
+            break;
+        }
+        total = total.saturating_add(cost);
+        out.push(note);
+    }
+    out
 }
 
 #[async_trait]
@@ -145,18 +204,44 @@ impl InMemoryCompanionFeatures {
         Self::default()
     }
 
-    pub async fn push_feedback(&self, scope: DelegationScope, text: impl Into<String>) -> String {
-        let id = Uuid::new_v4().to_string();
+    pub async fn push_feedback(
+        &self,
+        scope: DelegationScope,
+        text: impl Into<String>,
+    ) -> Result<FeedbackNote, FeedbackError> {
+        let text = text.into();
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err(FeedbackError::Empty);
+        }
+        if trimmed.chars().count() > MAX_FEEDBACK_CHARS {
+            return Err(FeedbackError::TooLong);
+        }
+        let note = FeedbackNote::new_pending(trimmed.to_string());
         self.feedback
             .lock()
             .await
             .entry(scope)
             .or_default()
-            .push(FeedbackNote {
-                id: id.clone(),
-                text: text.into(),
-            });
-        id
+            .push(note.clone());
+        Ok(note)
+    }
+
+    pub async fn list_feedback(&self, conversation_id: Uuid) -> Vec<FeedbackNote> {
+        self.feedback
+            .lock()
+            .await
+            .iter()
+            .filter(|(scope, _)| scope.parent_conversation_id == conversation_id)
+            .flat_map(|(_, notes)| notes.clone())
+            .collect()
+    }
+
+    pub async fn clear_conversation(&self, conversation_id: Uuid) {
+        self.feedback
+            .lock()
+            .await
+            .retain(|scope, _| scope.parent_conversation_id != conversation_id);
     }
 
     pub async fn next_question(&self, scope: &DelegationScope) -> PendingQuestion {
@@ -267,14 +352,21 @@ impl InMemoryCompanionFeatures {
 #[async_trait]
 impl CompanionFeaturePort for InMemoryCompanionFeatures {
     async fn feedback(&self, scope: &DelegationScope) -> Value {
-        let notes = self
+        let pending = self
             .feedback
             .lock()
             .await
             .get(scope)
+            .into_iter()
+            .flatten()
+            .filter(|note| note.status == FeedbackStatus::Pending)
             .cloned()
-            .unwrap_or_default();
-        json!({ "count": notes.len(), "feedback": notes })
+            .collect::<Vec<_>>();
+        let batch = bounded_feedback_batch(pending);
+        json!({
+            "count": batch.len(),
+            "feedback": batch.iter().map(FeedbackNote::agent_payload).collect::<Vec<_>>(),
+        })
     }
 
     async fn commit_feedback(&self, scope: &DelegationScope, ids: &[String]) {
@@ -282,9 +374,12 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
         let Some(notes) = queues.get_mut(scope) else {
             return;
         };
-        notes.retain(|note| !ids.contains(&note.id));
-        if notes.is_empty() {
-            queues.remove(scope);
+        let now = Utc::now();
+        for note in notes.iter_mut() {
+            if ids.contains(&note.id) && note.status == FeedbackStatus::Pending {
+                note.status = FeedbackStatus::Delivered;
+                note.delivered_at = Some(now);
+            }
         }
     }
 
@@ -436,5 +531,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.await.unwrap()["declined"], false);
+    }
+
+    #[tokio::test]
+    async fn feedback_rejects_empty_and_oversized_notes() {
+        let features = InMemoryCompanionFeatures::new();
+        let scope = DelegationScope {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::new_v4(),
+        };
+        assert_eq!(
+            features.push_feedback(scope.clone(), "   ").await,
+            Err(FeedbackError::Empty)
+        );
+        assert_eq!(
+            features
+                .push_feedback(scope, "x".repeat(MAX_FEEDBACK_CHARS + 1))
+                .await,
+            Err(FeedbackError::TooLong)
+        );
+    }
+
+    #[tokio::test]
+    async fn feedback_read_does_not_consume_until_commit() {
+        let features = InMemoryCompanionFeatures::new();
+        let scope = DelegationScope {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::new_v4(),
+        };
+        let note = features
+            .push_feedback(scope.clone(), "turn left")
+            .await
+            .unwrap();
+        let first = features.feedback(&scope).await;
+        let second = features.feedback(&scope).await;
+        assert_eq!(first["count"], 1);
+        assert_eq!(second["count"], 1);
+        features.commit_feedback(&scope, &[note.id.clone()]).await;
+        assert_eq!(features.feedback(&scope).await["count"], 0);
+        assert_eq!(
+            features.list_feedback(scope.parent_conversation_id).await[0].status,
+            FeedbackStatus::Delivered
+        );
+        features
+            .clear_conversation(scope.parent_conversation_id)
+            .await;
+        assert!(
+            features
+                .list_feedback(scope.parent_conversation_id)
+                .await
+                .is_empty()
+        );
     }
 }

@@ -74,6 +74,7 @@ __pycache__/
 .parcel-cache
 .cache
 .scratch/
+.cef/
 
 # ===== Tauri =====
 src-tauri/gen/

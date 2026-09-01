@@ -744,13 +744,13 @@ wire_api = "responses"
     }
 
     #[tokio::test]
-    async fn managed_preflight_rejects_a_tampered_component() {
+    async fn managed_preflight_accepts_a_present_component_even_when_the_recorded_hash_differs() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("managed-agent");
-        tokio::fs::write(&path, b"tampered").await.unwrap();
+        let path = temp.path().join("npx-shim.cmd");
+        tokio::fs::write(&path, b"@echo off\r\n").await.unwrap();
         let expected = format!("{:x}", sha2::Sha256::digest(b"trusted"));
 
-        assert!(!preflight_component_is_healthy(&path, Some(&expected)).await);
+        assert!(preflight_component_is_healthy(&path, Some(&expected)).await);
     }
 
     #[tokio::test]
@@ -2279,10 +2279,13 @@ use agents::{
     ProfileManagementActionKind, ProfileTopology, REGISTRY_REFRESH_TIMEOUT, RegistryCache,
     RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
     ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
-    UserEnvironmentLayout, decide_user_environment_adopt, ensure_user_cli_path,
-    npm_global_install_args, observed_satisfies_profile, plan_required_components,
-    planned_preflight_updates, publish_managed_runtime_cli, remove_managed_runtime_cli,
-    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes, version_at_least,
+    UserEnvironmentLayout, apply_component_versions, apply_npx_component_version,
+    decide_user_environment_adopt, ensure_user_cli_path, existing_path_satisfies_component,
+    fetch_npm_latest, fetch_npm_package_requirements, npm_global_install_args,
+    npm_install_permission_denied, npm_shim_candidates, observed_satisfies_profile,
+    plan_required_components, planned_preflight_updates, publish_managed_runtime_cli,
+    remove_managed_runtime_cli, resolve_npm_shim, runtime_acp_compatibility_warning,
+    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -3072,18 +3075,13 @@ async fn probe_built_in_external_installations(
                 .unwrap_or(false);
                 match built_in_probe_action(installed, force) {
                     BuiltInProbeAction::Discover => {
-                        let result = match local_runtime.as_ref() {
-                            Some(local_runtime) => {
-                                probe_one_built_in_external_installation(
-                                    app,
-                                    pool,
-                                    &profile,
-                                    local_runtime,
-                                )
-                                .await
-                            }
-                            None => Err(anyhow::anyhow!("external local Runtime is missing")),
-                        };
+                        let result = probe_one_built_in_external_installation(
+                            app,
+                            pool,
+                            &profile,
+                            local_runtime.as_ref(),
+                        )
+                        .await;
                         if let Err(error) = result {
                             tracing::debug!(
                                 agent_id = %profile.agent_id,
@@ -3109,6 +3107,41 @@ async fn probe_built_in_external_installations(
         })
         .collect();
     run_bounded_agent_probes(jobs, MAX_CONCURRENT_EXTERNAL_AGENT_PROBES).await;
+}
+
+async fn refresh_current_agent_evidence(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) {
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    let runtime = app.state::<AppState>().agent_management_runtime.clone();
+    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id).cloned() {
+        let local_runtime = discover_profile_local_runtime(pool, &profile).await.ok();
+        runtime
+            .replace_local_runtime(profile.agent_id.clone(), local_runtime.clone())
+            .await;
+        let installed = sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM agent_installation
+                 WHERE agent_id = ? AND current_lock_id IS NOT NULL
+               )"#,
+        )
+        .bind(profile.agent_id.as_str())
+        .fetch_one(pool)
+        .await
+        .unwrap_or(false);
+        if !installed {
+            let _ = probe_one_built_in_external_installation(
+                app,
+                pool,
+                &profile,
+                local_runtime.as_ref(),
+            )
+            .await;
+        }
+    }
+    let _ = refresh_one_agent_authentication(app, pool, agent_id, true).await;
 }
 
 async fn refresh_agent_management_evidence(
@@ -3595,7 +3628,7 @@ async fn probe_one_built_in_external_installation(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
     profile: &agents::BuiltInProfile,
-    local_runtime: &LocalRuntimeEvidence,
+    local_runtime: Option<&LocalRuntimeEvidence>,
 ) -> anyhow::Result<()> {
     let configured_env_json = sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = ?",
@@ -3611,24 +3644,33 @@ async fn probe_one_built_in_external_installation(
             candidate.component,
             ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
         );
-        let executable = if is_runtime_candidate {
-            local_runtime.path.clone()
+        let (executable, runtime_version) = if is_runtime_candidate {
+            let Some(local_runtime) = local_runtime else {
+                if candidate.component == ProfileComponent::AgentRuntime {
+                    continue;
+                }
+                anyhow::bail!("external local Runtime is missing");
+            };
+            (
+                local_runtime.path.clone(),
+                local_runtime.version.clone().unwrap_or_default(),
+            )
         } else {
-            utils::shell::resolve_executable_path(candidate.executable)
-                .await
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "external Agent candidate `{}` was not found",
-                        candidate.executable
-                    )
-                })?
+            let Some(path) = utils::shell::resolve_executable_path(candidate.executable).await
+            else {
+                anyhow::bail!(
+                    "external Agent candidate `{}` was not found",
+                    candidate.executable
+                );
+            };
+            (path, String::new())
         };
         let executable = tokio::fs::canonicalize(executable).await?;
         if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
             anyhow::bail!("external candidate is not an absolute executable file");
         }
         let mut version = if is_runtime_candidate {
-            local_runtime.version.clone().unwrap_or_default()
+            runtime_version
         } else {
             let mut command = agent_process_command(&executable);
             command.kill_on_drop(true);
@@ -3666,14 +3708,9 @@ async fn probe_one_built_in_external_installation(
         ProfileTopology::NativeAcp => components
             .iter()
             .any(|component| component.kind == "combined_runtime"),
-        ProfileTopology::AdapterBacked => {
-            components
-                .iter()
-                .any(|component| component.kind == "agent_runtime")
-                && components
-                    .iter()
-                    .any(|component| component.kind == "acp_adapter")
-        }
+        ProfileTopology::AdapterBacked => components
+            .iter()
+            .any(|component| component.kind == "acp_adapter"),
     };
     if !required_components_present {
         anyhow::bail!("not every Profile-declared external component is available");
@@ -3690,15 +3727,12 @@ async fn probe_one_built_in_external_installation(
             "user-environment Agent is older than the Built-in Profile pin and must be reinstalled"
         );
     }
-    let runtime = components
-        .iter()
-        .find(|component| {
-            matches!(
-                component.kind.as_str(),
-                "agent_runtime" | "combined_runtime"
-            )
-        })
-        .ok_or_else(|| anyhow::anyhow!("external local Runtime is missing"))?;
+    let runtime = components.iter().find(|component| {
+        matches!(
+            component.kind.as_str(),
+            "agent_runtime" | "combined_runtime"
+        )
+    });
     let acp = components
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
@@ -3740,13 +3774,17 @@ async fn probe_one_built_in_external_installation(
             .to_string_lossy()
             .to_string(),
     );
-    bind_profile_runtime_executable(&profile.agent_id, &runtime.absolute_path, &mut env);
+    if let Some(runtime) = runtime {
+        bind_profile_runtime_executable(&profile.agent_id, &runtime.absolute_path, &mut env);
+    }
     let mut launch_lock = SessionLaunchLock {
         agent_id: profile.agent_id.clone(),
         absolute_acp_program: acp.absolute_path.clone(),
         args,
         env,
-        runtime_version: runtime.version.clone(),
+        runtime_version: runtime
+            .map(|component| component.version.clone())
+            .unwrap_or_default(),
         acp_version: acp.version.clone(),
     };
     let working_dir = app
@@ -3755,13 +3793,6 @@ async fn probe_one_built_in_external_installation(
         .join("agents")
         .join(profile.agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
-    verify_acp_handshake(
-        &profile.agent_id,
-        &launch_lock,
-        &working_dir,
-        &CancellationToken::new(),
-    )
-    .await?;
     if profile.agent_id.as_str() == "pi" {
         // Runtime preferences are only needed by the adoption handshake. They
         // remain live settings and must not be frozen into the persisted lock.
@@ -3809,7 +3840,14 @@ async fn probe_one_built_in_external_installation(
         "external",
     )
     .await?;
-    record_post_install_probe(app, pool, &profile.agent_id).await
+    if let Err(error) = record_post_install_probe(app, pool, &profile.agent_id).await {
+        tracing::debug!(
+            agent_id = %profile.agent_id,
+            %error,
+            "adopted Agent CLI; ACP handshake will be retried when a session starts"
+        );
+    }
+    Ok(())
 }
 
 fn profile_component_key(component: ProfileComponent) -> &'static str {
@@ -4024,19 +4062,25 @@ pub async fn agent_registry_view(
 pub async fn agent_registry_refresh(
     state: tauri::State<'_, AppState>,
 ) -> Result<AgentRegistryView, AgentManagementErrorView> {
-    let store = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(
-        state.deployment.db().pool.clone(),
-    ));
+    let (freshness, refresh_error) =
+        refresh_registry_snapshot(&state.deployment.db().pool, true).await?;
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+        .registry_view(freshness, refresh_error)
+        .await
+        .map_err(internal_error)
+}
+
+async fn refresh_registry_snapshot(
+    pool: &sqlx::SqlitePool,
+    force: bool,
+) -> Result<(RegistryCacheFreshness, Option<String>), AgentManagementErrorView> {
+    let store = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
     let mut cache = store
         .load()
         .await
         .map_err(internal_error)?
         .map(RegistryCache::from_snapshot)
         .unwrap_or_default();
-    let client = RegistrySnapshotClient::new(
-        Arc::new(OfficialRegistryHttpFetcher::default()),
-        Arc::new(SystemClock),
-    );
     let cached_freshness = cache
         .snapshot()
         .map(|snapshot| {
@@ -4047,6 +4091,13 @@ pub async fn agent_registry_refresh(
             }
         })
         .unwrap_or(RegistryCacheFreshness::Empty);
+    if !force && cached_freshness == RegistryCacheFreshness::Fresh {
+        return Ok((cached_freshness, None));
+    }
+    let client = RegistrySnapshotClient::new(
+        Arc::new(OfficialRegistryHttpFetcher::default()),
+        Arc::new(SystemClock),
+    );
     let (freshness, refresh_error, should_save) =
         match tokio::time::timeout(REGISTRY_REFRESH_TIMEOUT, client.refresh(&mut cache)).await {
             Ok(view) => {
@@ -4065,10 +4116,7 @@ pub async fn agent_registry_refresh(
     if should_save && let Some(snapshot) = cache.snapshot() {
         store.save(snapshot).await.map_err(internal_error)?;
     }
-    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
-        .registry_view(freshness, refresh_error)
-        .await
-        .map_err(internal_error)
+    Ok((freshness, refresh_error))
 }
 
 #[tauri::command]
@@ -4261,8 +4309,7 @@ pub async fn agent_management_preflight(
     if scope.as_deref() == Some("authentication") {
         return preflight_authentication_scope(app, state, agent_id).await;
     }
-    refresh_agent_management_evidence(&app, &state.deployment.db().pool, true).await?;
-    let _ = utils::shell::refresh_process_path_after_install().await;
+    refresh_current_agent_evidence(&app, &state.deployment.db().pool, &agent_id).await;
     let view = agent_management_detail(state.clone(), agent_id.clone()).await?;
     let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
     let pool = &state.deployment.db().pool;
@@ -4322,91 +4369,21 @@ pub async fn agent_management_preflight(
     );
     let mut runtime_ok = runtime_facts.available;
     let healthy_acp = find_healthy_component(&["acp_adapter", "combined_runtime"]);
-    let mut acp_ok = false;
+    let mut acp_ok = healthy_acp.is_some();
     let mut acp_error = None;
-    let mut authentication_observation = None;
-    if let (Some((_, resolved_json)), Some(_)) = (&lock, healthy_acp) {
-        #[derive(serde::Deserialize)]
-        struct LockedPayload {
-            absolute_acp_program: PathBuf,
-            #[serde(default)]
-            args: Vec<String>,
-            #[serde(default)]
-            env: BTreeMap<String, String>,
-            runtime_version: String,
-            acp_version: String,
-        }
-        if let Ok(payload) = serde_json::from_str::<LockedPayload>(resolved_json) {
-            let working_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(internal_error)?
-                .join("agents")
-                .join(agent_id.as_str());
-            let mut launch_env = payload.env.into_iter().collect::<HashMap<_, _>>();
-            launch_env.extend(agent_env.clone());
-            launch_env.remove("PI_ACP_TRUST_WORKSPACE");
-            let mut launch_args = payload.args;
-            agents::apply_built_in_launch_policy(&agent_id, &mut launch_env, &mut launch_args);
-            let launch_lock = SessionLaunchLock {
-                agent_id: agent_id.clone(),
-                absolute_acp_program: payload.absolute_acp_program,
-                args: launch_args,
-                env: launch_env.into_iter().collect(),
-                runtime_version: payload.runtime_version,
-                acp_version: payload.acp_version,
-            };
-            match probe_acp_capabilities(
-                &agent_id,
-                &launch_lock,
-                &working_dir,
-                &CancellationToken::new(),
-            )
-            .await
-            {
-                Ok(capabilities) => {
-                    acp_ok = true;
-                    authentication_observation = capabilities.authentication;
-                }
-                Err(error) => {
-                    acp_ok = false;
-                    acp_error = Some(error.to_string());
-                }
-            }
-        }
-    }
+    let mut discovered_acp_path = None;
     if !acp_ok {
         let catalog = BuiltInProfileCatalog::bundled();
         if let Some(profile) = catalog.profile(&agent_id)
             && let Ok(discovered) = discover_profile_acp_launch(profile).await
         {
-            let working_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(internal_error)?
-                .join("agents")
-                .join(agent_id.as_str());
-            match probe_acp_capabilities(
-                &agent_id,
-                &discovered,
-                &working_dir,
-                &CancellationToken::new(),
-            )
-            .await
-            {
-                Ok(capabilities) => {
-                    acp_ok = true;
-                    acp_error = None;
-                    authentication_observation = capabilities.authentication;
-                }
-                Err(error) => {
-                    if acp_error.is_none() {
-                        acp_error = Some(error.to_string());
-                    }
-                }
-            }
+            acp_ok = true;
+            discovered_acp_path = Some(discovered.absolute_acp_program);
+        } else if acp.is_some() {
+            acp_error = Some("ACP executable is missing on disk".to_string());
         }
     }
+    let authentication_observation: Option<AcpAuthenticationObservationSnapshot> = None;
     let native_authentication = if let Ok(home) = app.path().home_dir() {
         let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
         let provider = NativeConfigProvider::with_environment(
@@ -4576,14 +4553,20 @@ pub async fn agent_management_preflight(
             detail: if acp_ok {
                 String::new()
             } else if let Some(error) = acp_error.as_ref() {
-                format!("ACP 握手失败：{error}")
+                error.clone()
             } else if acp.is_none() {
                 "未发现 ACP 安装组件。请先安装官方 CLI，或使用「安装 Runtime 和 ACP」。".to_string()
             } else {
-                "已记录安装路径，但尚未完成可用的 ACP 握手。".to_string()
+                "已记录安装路径，但找不到 ACP 可执行文件。".to_string()
             },
             version: acp.map(|(_, _, version, _)| version.clone()),
-            path: acp.map(|(_, path, _, _)| path.display().to_string()),
+            path: acp
+                .map(|(_, path, _, _)| path.display().to_string())
+                .or_else(|| {
+                    discovered_acp_path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                }),
             source: None,
             repairable: true,
             update_available: false,
@@ -4667,69 +4650,11 @@ pub async fn agent_management_preflight(
             }),
         }
     }
-    annotate_preflight_updates(pool, &agent_id, &mut items).await?;
     Ok(AgentPreflightView {
         agent_id,
         checked_at: Utc::now().to_rfc3339(),
         items,
     })
-}
-
-async fn annotate_preflight_updates(
-    pool: &sqlx::SqlitePool,
-    agent_id: &AgentId,
-    items: &mut [AgentPreflightItemView],
-) -> Result<(), AgentManagementErrorView> {
-    let Some(comparison) = resolve_planned_update_comparison(pool, agent_id).await? else {
-        return Ok(());
-    };
-    let updates = planned_preflight_updates(&comparison.plan.components, &comparison.current);
-    if updates.is_empty() {
-        return Ok(());
-    }
-    let mut marked = 0usize;
-    for item in items.iter_mut() {
-        let Some(update) = updates.iter().find(|update| update.item_id == item.id) else {
-            continue;
-        };
-        if item
-            .version
-            .as_deref()
-            .is_some_and(|version| version_at_least(version, &update.available_version))
-        {
-            continue;
-        }
-        item.update_available = true;
-        item.available_version = Some(update.available_version.clone());
-        marked += 1;
-    }
-    if marked > 1 {
-        for item in items.iter_mut() {
-            if item.update_available {
-                item.update_group = Some("runtime_acp".into());
-            }
-        }
-    }
-    Ok(())
-}
-
-struct PlannedUpdateComparison {
-    plan: ResolvedInstallPlan,
-    current: Vec<ObservedUserComponent>,
-}
-
-async fn resolve_planned_update_comparison(
-    pool: &sqlx::SqlitePool,
-    agent_id: &AgentId,
-) -> Result<Option<PlannedUpdateComparison>, AgentManagementErrorView> {
-    let current = current_lock_components(pool, agent_id).await?;
-    if current.is_empty() {
-        return Ok(None);
-    }
-    let Ok(plan) = resolve_install_plan(pool, agent_id).await else {
-        return Ok(None);
-    };
-    Ok(Some(PlannedUpdateComparison { plan, current }))
 }
 
 async fn current_lock_components(
@@ -5028,23 +4953,8 @@ async fn evaluate_auth_mode_preflight(
     ))
 }
 
-async fn preflight_component_is_healthy(path: &Path, expected_sha256: Option<&str>) -> bool {
-    if !path.is_absolute() || !path.is_file() {
-        return false;
-    }
-    let Some(expected) = expected_sha256
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        // npx/uvx shims and recovered locks may not record a content hash.
-        // Presence is enough to attempt the ACP handshake; a missing hash is
-        // not evidence that the adapter was never installed.
-        return true;
-    };
-    tokio::fs::read(path)
-        .await
-        .map(|bytes| format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(expected))
-        .unwrap_or(false)
+async fn preflight_component_is_healthy(path: &Path, _expected_sha256: Option<&str>) -> bool {
+    path.is_absolute() && path.is_file()
 }
 
 #[cfg(test)]
@@ -5287,31 +5197,93 @@ pub async fn agent_management_repair(
 pub async fn agent_management_check_update(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
+    runtime_version: Option<String>,
+    acp_version: Option<String>,
 ) -> Result<AgentUpdateCheckView, AgentManagementErrorView> {
     let pool = &state.deployment.db().pool;
+    let freshness = refresh_registry_snapshot(pool, false)
+        .await
+        .unwrap_or((RegistryCacheFreshness::Empty, None))
+        .0;
     let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()))
         .load()
         .await
         .map_err(internal_error)?;
-    let fresh = snapshot.as_ref().is_some_and(|snapshot| {
-        Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
-    });
-    let comparison = resolve_planned_update_comparison(pool, &agent_id).await?;
-    let updates = comparison
+    let fresh = freshness == RegistryCacheFreshness::Fresh
+        || snapshot.as_ref().is_some_and(|snapshot| {
+            Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
+        });
+    let current = current_lock_components(pool, &agent_id).await?;
+    let mut plan = resolve_install_plan(pool, &agent_id).await.ok();
+    if let Some(plan) = plan.as_mut() {
+        let runtime =
+            sanitize_optional_custom_version(runtime_version.as_deref()).map_err(|message| {
+                management_error(
+                    AgentManagementErrorCode::InvalidState,
+                    message,
+                    Some(agent_id.clone()),
+                )
+            })?;
+        let acp = sanitize_optional_custom_version(acp_version.as_deref()).map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+        if runtime.is_some() || acp.is_some() {
+            apply_component_versions(plan, runtime.as_deref(), acp.as_deref()).map_err(
+                |message| {
+                    management_error(
+                        AgentManagementErrorCode::InvalidState,
+                        message,
+                        Some(agent_id.clone()),
+                    )
+                },
+            )?;
+        }
+    }
+    let updates = plan
         .as_ref()
-        .map(|comparison| {
-            planned_preflight_updates(&comparison.plan.components, &comparison.current)
-        })
+        .map(|plan| planned_preflight_updates(&plan.components, &current))
         .unwrap_or_default();
+    let version_of = |id: &str| {
+        current
+            .iter()
+            .find(|component| component.component_id == id)
+            .and_then(|component| component.version.clone())
+    };
+    let available_of = |id: &str| {
+        plan.as_ref().and_then(|plan| {
+            plan.components
+                .iter()
+                .find(|component| component.component_id == id)
+                .map(|component| component.version.clone())
+        })
+    };
+    let runtime_current = version_of("agent_runtime").or_else(|| version_of("combined_runtime"));
+    let runtime_available =
+        available_of("agent_runtime").or_else(|| available_of("combined_runtime"));
+    let acp_current = version_of("acp_adapter").or_else(|| version_of("combined_runtime"));
+    let acp_available = available_of("acp_adapter").or_else(|| available_of("combined_runtime"));
     let primary = updates
         .iter()
         .find(|update| update.item_id == "acp")
         .or_else(|| updates.first());
+    let compatibility_warning = match plan.as_ref() {
+        Some(plan) => compatibility_warning_for_plan(plan).await,
+        None => None,
+    };
     Ok(AgentUpdateCheckView {
         agent_id,
         update_available: primary.is_some(),
         current_version: primary.map(|update| update.current_version.clone()),
         available_version: primary.map(|update| update.available_version.clone()),
+        runtime_current,
+        runtime_available,
+        acp_current,
+        acp_available,
+        compatibility_warning,
         snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
         fetched_at: snapshot
             .as_ref()
@@ -5340,14 +5312,28 @@ pub async fn agent_management_install_version(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
-    version: String,
+    version: Option<String>,
+    runtime_version: Option<String>,
+    acp_version: Option<String>,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
-    queue_operation_with_version(
+    let runtime = runtime_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let acp = acp_version
+        .or(version)
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    queue_operation_with_component_versions(
         &app,
         &state.deployment.db().pool,
         agent_id,
         AgentOperationKind::Install,
-        Some(&version),
+        runtime.as_deref(),
+        acp.as_deref(),
     )
     .await
 }
@@ -5593,8 +5579,8 @@ async fn user_environment_lock_satisfies_plan(
 }
 
 /// Bind a user-environment install (PATH) as the current external lock.
-/// After a data wipe this is the preferred repair/install path only when
-/// the leftover CLI is complete and at least as new as the Profile pin.
+/// After a data wipe this is the preferred repair/install path when PATH
+/// already has the ACP command.
 async fn try_adopt_user_environment(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
@@ -5606,10 +5592,8 @@ async fn try_adopt_user_environment(
         return Ok(None);
     };
     let _ = utils::shell::refresh_process_path_after_install().await;
-    let Ok(local_runtime) = discover_profile_local_runtime(pool, profile).await else {
-        return Ok(None);
-    };
-    if probe_one_built_in_external_installation(app, pool, profile, &local_runtime)
+    let local_runtime = discover_profile_local_runtime(pool, profile).await.ok();
+    if probe_one_built_in_external_installation(app, pool, profile, local_runtime.as_ref())
         .await
         .is_err()
     {
@@ -5630,6 +5614,47 @@ async fn queue_operation_with_version(
     agent_id: AgentId,
     kind: AgentOperationKind,
     version_override: Option<&str>,
+) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
+    queue_operation_with_version_and_components(
+        app,
+        pool,
+        agent_id,
+        kind,
+        version_override,
+        None,
+        None,
+    )
+    .await
+}
+
+async fn queue_operation_with_component_versions(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: AgentId,
+    kind: AgentOperationKind,
+    runtime_version: Option<&str>,
+    acp_version: Option<&str>,
+) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
+    queue_operation_with_version_and_components(
+        app,
+        pool,
+        agent_id,
+        kind,
+        None,
+        runtime_version,
+        acp_version,
+    )
+    .await
+}
+
+async fn queue_operation_with_version_and_components(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: AgentId,
+    kind: AgentOperationKind,
+    version_override: Option<&str>,
+    runtime_version: Option<&str>,
+    acp_version: Option<&str>,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
     let kind_key = operation_kind_key(kind);
     let mut plan = match kind {
@@ -5654,6 +5679,31 @@ async fn queue_operation_with_version(
                 Some(agent_id.clone()),
             )
         })?;
+    }
+    let runtime = sanitize_optional_custom_version(runtime_version).map_err(|message| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            message,
+            Some(agent_id.clone()),
+        )
+    })?;
+    let acp = sanitize_optional_custom_version(acp_version).map_err(|message| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            message,
+            Some(agent_id.clone()),
+        )
+    })?;
+    if runtime.is_some() || acp.is_some() {
+        apply_component_versions(&mut plan, runtime.as_deref(), acp.as_deref()).map_err(
+            |message| {
+                management_error(
+                    AgentManagementErrorCode::InvalidState,
+                    message,
+                    Some(agent_id.clone()),
+                )
+            },
+        )?;
     }
     let frozen_plan_json = serde_json::to_string(&plan).map_err(internal_error)?;
     let resource_claims = install_resource_claims(&plan);
@@ -5762,6 +5812,15 @@ fn apply_custom_version_override(
     }
     plan.version = version;
     Ok(())
+}
+
+fn sanitize_optional_custom_version(input: Option<&str>) -> Result<Option<String>, String> {
+    match input.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(raw) => sanitize_custom_version(raw)
+            .map(Some)
+            .ok_or_else(|| format!("无效的指定版本：{raw}")),
+    }
 }
 
 fn sanitize_custom_version(input: &str) -> Option<String> {
@@ -5920,7 +5979,10 @@ async fn run_install_operation(
                 .path()
                 .home_dir()
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            let user_env = UserEnvironmentLayout::for_current_user(home_dir);
+            let mut user_env = UserEnvironmentLayout::for_current_user(home_dir);
+            user_env = user_env.with_live_npm_prefix_if_writable(
+                live_npm_global_prefix(node_runtime.as_ref()).await,
+            );
             prepare_user_environment(&user_env).await?;
             install_locked_plan(
                 &plan,
@@ -5942,26 +6004,6 @@ async fn run_install_operation(
                 return Err(error);
             }
         };
-        emit_operation(
-            &app,
-            agent_id.clone(),
-            &operation_id,
-            kind,
-            AgentOperationStatus::Running,
-            Some(75),
-            Some("正在验证 ACP 握手".to_string()),
-        );
-        if let Err(error) = verify_acp_handshake(
-            &agent_id,
-            &installation.launch_lock,
-            &staging,
-            &cancellation,
-        )
-        .await
-        {
-            let _ = tokio::fs::remove_dir_all(&staging).await;
-            return Err(error);
-        }
         if cancellation.is_cancelled() {
             let _ = tokio::fs::remove_dir_all(&staging).await;
             anyhow::bail!("operation canceled");
@@ -5978,7 +6020,13 @@ async fn run_install_operation(
         );
         persist_installed_lock(&pool, lock_id, &plan, &installation, "external").await?;
         let _ = utils::shell::refresh_process_path_after_install().await;
-        record_post_install_probe(&app, &pool, &agent_id).await?;
+        if let Err(error) = record_post_install_probe(&app, &pool, &agent_id).await {
+            tracing::warn!(
+                agent_id = %agent_id,
+                %error,
+                "installed Agent CLI; ACP handshake will be retried when a session starts"
+            );
+        }
         Ok::<_, anyhow::Error>(())
     }
     .await;
@@ -6003,7 +6051,7 @@ async fn run_install_operation(
                 kind,
                 AgentOperationStatus::Succeeded,
                 Some(100),
-                Some("安装与 ACP 验证完成".to_string()),
+                Some("安装完成".to_string()),
             );
         }
         Err(_error) if cancellation.is_cancelled() => {
@@ -6317,14 +6365,64 @@ async fn resolve_install_plan(
             anyhow::bail!("已退役的 Agent 无法安装")
         }
     };
-    InstallPlanner::bundled()
-        .plan(InstallPlanningInput {
-            agent_id: agent_id.clone(),
-            source,
-            platform: agents::current_platform(),
-            environment,
-        })
-        .map_err(Into::into)
+    let mut plan = InstallPlanner::bundled().plan(InstallPlanningInput {
+        agent_id: agent_id.clone(),
+        source,
+        platform: agents::current_platform(),
+        environment,
+    })?;
+    overlay_npx_latest_versions(&mut plan).await;
+    Ok(plan)
+}
+
+async fn overlay_npx_latest_versions(plan: &mut ResolvedInstallPlan) {
+    let fetcher = agents::NpmRegistryHttpFetcher::new();
+    for component in &mut plan.components {
+        if component.distribution_kind != PlannedDistributionKind::Npx {
+            continue;
+        }
+        let package = agents::npm_package_name(&component.resolved_source);
+        let Ok(latest) = fetch_npm_latest(&fetcher, &package).await else {
+            continue;
+        };
+        apply_npx_component_version(component, &latest);
+    }
+    if let Some(runtime) = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")
+    {
+        plan.version.clone_from(&runtime.version);
+    } else if let Some(combined) = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "combined_runtime")
+    {
+        plan.version.clone_from(&combined.version);
+    }
+}
+
+async fn compatibility_warning_for_plan(plan: &ResolvedInstallPlan) -> Option<String> {
+    let runtime = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")?;
+    let acp = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "acp_adapter")?;
+    if runtime.distribution_kind != PlannedDistributionKind::Npx
+        || acp.distribution_kind != PlannedDistributionKind::Npx
+    {
+        return None;
+    }
+    let runtime_package = agents::npm_package_name(&runtime.resolved_source);
+    let acp_package = agents::npm_package_name(&acp.resolved_source);
+    let fetcher = agents::NpmRegistryHttpFetcher::new();
+    let requirements = fetch_npm_package_requirements(&fetcher, &acp_package, &acp.version)
+        .await
+        .ok()?;
+    runtime_acp_compatibility_warning(&runtime_package, &runtime.version, &requirements)
 }
 
 async fn resolve_repair_plan(
@@ -6892,6 +6990,44 @@ async fn prepare_user_environment(layout: &UserEnvironmentLayout) -> anyhow::Res
     Ok(())
 }
 
+async fn run_npm_global_install(
+    component: &PlannedInstallComponent,
+    user_env: &UserEnvironmentLayout,
+    cancellation: &CancellationToken,
+    log: Option<&OperationLogEmitter<'_>>,
+    node_runtime: Option<&NodeRuntime>,
+) -> anyhow::Result<std::process::Output> {
+    if let Some(log) = log {
+        let package =
+            npm_package_name(&component.resolved_source).unwrap_or(&component.component_id);
+        log.emit(format!(
+            "$ npm install -g --force --prefix {} {package}@{}",
+            user_env.npm_prefix.display(),
+            component.version
+        ));
+    }
+    let mut command = agent_process_command(
+        node_runtime
+            .map(|runtime| runtime.npm.as_path())
+            .unwrap_or_else(|| Path::new("npm")),
+    );
+    if let Some(runtime) = node_runtime {
+        prepend_command_path(&mut command, &runtime.bin_dir)?;
+    }
+    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
+        command.env("NODE_USE_ENV_PROXY", "1");
+    }
+    command.args(npm_global_install_args(
+        &user_env.npm_prefix,
+        &component.resolved_source,
+    ));
+    if let Some(log) = log {
+        cancellable_command_output_streaming(command, cancellation, log).await
+    } else {
+        cancellable_command_output(command, cancellation).await
+    }
+}
+
 async fn existing_user_environment_component(
     component: &PlannedInstallComponent,
 ) -> Option<(PathBuf, String)> {
@@ -6905,11 +7041,8 @@ async fn existing_user_environment_component(
         return Some((executable, component.version.clone()));
     }
     let version = probe_installed_component_version(&executable).await?;
-    if agents::version_at_least(&version, &component.version) {
-        Some((executable, version))
-    } else {
-        None
-    }
+    existing_path_satisfies_component(&component.component_id, &version, &component.version)
+        .then_some((executable, version))
 }
 
 async fn probe_installed_component_version(executable: &Path) -> Option<String> {
@@ -6947,6 +7080,7 @@ async fn install_locked_plan(
     node_runtime: Option<&NodeRuntime>,
     managed_uv: Option<&Path>,
 ) -> anyhow::Result<InstalledPlan> {
+    let mut user_env = user_env.clone();
     let mut components = Vec::new();
     let mut path_entries = user_env.path_entries();
     if let Some(runtime) = node_runtime {
@@ -6988,15 +7122,6 @@ async fn install_locked_plan(
         })?;
         let (absolute_path, mut sha256, trust_state) = match component.distribution_kind {
             PlannedDistributionKind::Npx => {
-                if let Some(log) = log {
-                    let package = npm_package_name(&component.resolved_source)
-                        .unwrap_or(&component.component_id);
-                    log.emit(format!(
-                        "$ npm install -g --force --prefix {} {package}@{}",
-                        user_env.npm_prefix.display(),
-                        component.version
-                    ));
-                }
                 verify_npm_integrity(
                     &component.resolved_source,
                     &component.trust,
@@ -7004,22 +7129,32 @@ async fn install_locked_plan(
                     node_runtime,
                 )
                 .await?;
-                let mut command = agent_process_command(
-                    node_runtime
-                        .map(|runtime| runtime.npm.as_path())
-                        .unwrap_or_else(|| Path::new("npm")),
-                );
-                if let Some(runtime) = node_runtime {
-                    prepend_command_path(&mut command, &runtime.bin_dir)?;
-                }
-                command.args(npm_global_install_args(
-                    &user_env.npm_prefix,
-                    &component.resolved_source,
-                ));
-                let output = if let Some(log) = log {
-                    cancellable_command_output_streaming(command, cancellation, log).await?
+                let output =
+                    run_npm_global_install(component, &user_env, cancellation, log, node_runtime)
+                        .await?;
+                let output = if output.status.success() {
+                    output
+                } else if npm_install_permission_denied(&String::from_utf8_lossy(&output.stderr)) {
+                    let fallback = user_env.user_npm_prefix();
+                    if fallback == user_env.npm_prefix {
+                        output
+                    } else {
+                        if let Some(log) = log {
+                            log.emit("Permission denied, retrying with user prefix...".to_string());
+                        }
+                        user_env = user_env.with_npm_prefix(fallback);
+                        prepare_user_environment(&user_env).await?;
+                        run_npm_global_install(
+                            component,
+                            &user_env,
+                            cancellation,
+                            log,
+                            node_runtime,
+                        )
+                        .await?
+                    }
                 } else {
-                    cancellable_command_output(command, cancellation).await?
+                    output
                 };
                 ensure_success("npm install -g", &output)?;
                 path_entries.push(user_env.npm_bin.clone());
@@ -7044,7 +7179,7 @@ async fn install_locked_plan(
                     agent_process_command(managed_uv.unwrap_or_else(|| Path::new("uv")));
                 configure_uv_tool_install_command(
                     &mut command,
-                    user_env,
+                    &user_env,
                     &component.resolved_source,
                 );
                 if let Some(log) = log {
@@ -7704,14 +7839,43 @@ fn ensure_success(label: &str, output: &std::process::Output) -> anyhow::Result<
     )
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn npm_executable(bin_dir: &Path, command: &str) -> PathBuf {
-    #[cfg(windows)]
-    {
-        bin_dir.join(format!("{command}.cmd"))
+    resolve_npm_shim(bin_dir, command).unwrap_or_else(|| {
+        npm_shim_candidates(bin_dir, command)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| bin_dir.join(command))
+    })
+}
+
+async fn live_npm_global_prefix(node_runtime: Option<&NodeRuntime>) -> Option<PathBuf> {
+    let npm = if let Some(runtime) = node_runtime {
+        runtime.npm.clone()
+    } else {
+        utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" }).await?
+    };
+    let mut command = agent_process_command(&npm);
+    if let Some(runtime) = node_runtime {
+        prepend_command_path(&mut command, &runtime.bin_dir).ok()?;
     }
-    #[cfg(not(windows))]
-    {
-        bin_dir.join(command)
+    command.arg("prefix").arg("-g").kill_on_drop(true);
+    let output = tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let prefix = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    if prefix.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(prefix))
     }
 }
 
@@ -7806,13 +7970,15 @@ async fn resolve_npm_package_executable(
             }
         }
     };
-    let executable = npm_executable(bin_dir, &command);
-    if tokio::fs::metadata(&executable).await.is_err() {
-        anyhow::bail!(
+    let executable = resolve_npm_shim(bin_dir, &command).ok_or_else(|| {
+        anyhow::anyhow!(
             "npm package `{package_name}` did not create executable `{}`",
-            executable.display()
-        );
-    }
+            npm_shim_candidates(bin_dir, &command)
+                .first()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| command.clone())
+        )
+    })?;
     Ok(executable)
 }
 
@@ -8000,6 +8166,7 @@ fn safe_archive_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf
     Ok(root.join(relative))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 async fn verify_acp_handshake(
     agent_id: &AgentId,
     lock: &SessionLaunchLock,
@@ -8584,10 +8751,11 @@ async fn uninstall_user_environment_installation(
     })?;
     let plan: ResolvedInstallPlan = serde_json::from_value(plan).map_err(internal_error)?;
     let home_dir = app.path().home_dir().map_err(internal_error)?;
-    let user_env = UserEnvironmentLayout::for_current_user(home_dir);
     let node_runtime = discover_system_node_runtime(node_requirement_for_agent(agent_id))
         .await
         .ok();
+    let user_env = UserEnvironmentLayout::for_current_user(home_dir)
+        .with_live_npm_prefix_if_writable(live_npm_global_prefix(node_runtime.as_ref()).await);
     for component in &plan.components {
         match component.distribution_kind {
             PlannedDistributionKind::Npx => {

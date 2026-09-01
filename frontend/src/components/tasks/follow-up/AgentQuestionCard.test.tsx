@@ -50,13 +50,13 @@ function delegatedQuestion(): ConversationQuestionRequest {
 }
 
 describe('AgentQuestionCard', () => {
-  it('starts tucked behind the composer with the recommended option selected', () => {
+  it('starts expanded above the composer with the recommended option selected', () => {
     render(
       <AgentQuestionCard request={delegatedQuestion()} onRespond={vi.fn()} />
     );
 
     const card = screen.getByRole('group', { name: '智能体提问' });
-    expect(card).toHaveAttribute('data-expanded', 'false');
+    expect(card).toHaveAttribute('data-expanded', 'true');
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
     expect(screen.getByText('推荐')).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Focused patch/ })).toBeChecked();
@@ -74,12 +74,6 @@ describe('AgentQuestionCard', () => {
     const onRespond = vi.fn();
     render(
       <AgentQuestionCard request={delegatedQuestion()} onRespond={onRespond} />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '展开智能体提问' }));
-    expect(screen.getByRole('group', { name: '智能体提问' })).toHaveAttribute(
-      'data-expanded',
-      'true'
     );
 
     fireEvent.click(screen.getByRole('radio', { name: /Broad refactor/ }));
@@ -158,6 +152,19 @@ describe('AgentQuestionCard', () => {
         scope: 'project',
         note: 'Preserve the public API.',
       },
+    });
+  });
+
+  it('lets the user dismiss the card without choosing', () => {
+    const onRespond = vi.fn();
+    render(
+      <AgentQuestionCard request={delegatedQuestion()} onRespond={onRespond} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝回答' }));
+
+    expect(onRespond).toHaveBeenCalledWith('question-set-1', {
+      action: 'decline',
     });
   });
 });

@@ -10,7 +10,6 @@
 //! injection (so the agent auto-launches the companion) is a follow-up (T4.4).
 
 mod emitter;
-mod features;
 pub(crate) mod inject;
 mod lookups;
 mod resolver;

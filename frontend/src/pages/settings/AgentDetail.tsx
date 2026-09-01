@@ -43,10 +43,17 @@ type AgentDetailProps = {
   onSetEnabled: (enabled: boolean) => void;
   onPreflight: () => void;
   onInstall: () => void;
-  onInstallVersion?: (version: string) => void;
+  onInstallVersion?: (input: {
+    version?: string;
+    runtimeVersion?: string;
+    acpVersion?: string;
+  }) => void;
+  onPreviewVersions?: (input: {
+    runtimeVersion?: string;
+    acpVersion?: string;
+  }) => Promise<string | null>;
   onRepair: () => void;
   onCheckUpdate: () => void;
-  onApplyUpdate: () => void;
   onRollback: () => void;
   onCancelOperation: () => void;
   onUninstall: () => void;
@@ -95,9 +102,9 @@ export function AgentDetail({
   onPreflight,
   onInstall,
   onInstallVersion,
+  onPreviewVersions,
   onRepair,
   onCheckUpdate,
-  onApplyUpdate,
   onRollback,
   onCancelOperation,
   onUninstall,
@@ -141,10 +148,60 @@ export function AgentDetail({
     ? operationMessage(t, i18n.resolvedLanguage, operation)
     : null;
   const [customVersion, setCustomVersion] = useState('');
-  useEffect(() => setCustomVersion(''), [agent.agent_id]);
-  const customVersionValid = isValidCustomVersion(customVersion);
+  const [customRuntimeVersion, setCustomRuntimeVersion] = useState('');
+  const [customAcpVersion, setCustomAcpVersion] = useState('');
+  const [specifiedCompatibilityWarning, setSpecifiedCompatibilityWarning] =
+    useState<string | null>(null);
+  useEffect(() => {
+    setCustomVersion('');
+    setCustomRuntimeVersion('');
+    setCustomAcpVersion('');
+    setSpecifiedCompatibilityWarning(null);
+  }, [agent.agent_id]);
+  const adapterBacked =
+    agent.agent_id === 'claude_code' ||
+    agent.agent_id === 'codex' ||
+    agent.agent_id === 'pi';
+  const customVersionValid = adapterBacked
+    ? (!customRuntimeVersion || isValidCustomVersion(customRuntimeVersion)) &&
+      (!customAcpVersion || isValidCustomVersion(customAcpVersion)) &&
+      Boolean(customRuntimeVersion || customAcpVersion)
+    : isValidCustomVersion(customVersion);
   const supportsCustomVersion =
     agent.built_in && agent.agent_id !== 'hermes' && onInstallVersion != null;
+  useEffect(() => {
+    if (!supportsCustomVersion || !customVersionValid || !onPreviewVersions) {
+      setSpecifiedCompatibilityWarning(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void onPreviewVersions(
+        adapterBacked
+          ? {
+              runtimeVersion: customRuntimeVersion.trim() || undefined,
+              acpVersion: customAcpVersion.trim() || undefined,
+            }
+          : { acpVersion: customVersion.trim() || undefined }
+      ).then((warning) => {
+        if (!cancelled) {
+          setSpecifiedCompatibilityWarning(warning);
+        }
+      });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    adapterBacked,
+    customAcpVersion,
+    customRuntimeVersion,
+    customVersion,
+    customVersionValid,
+    onPreviewVersions,
+    supportsCustomVersion,
+  ]);
 
   return (
     <div className="space-y-4">
@@ -214,40 +271,6 @@ export function AgentDetail({
           ) : null}
         </div>
       </header>
-
-      {updateCheck ? (
-        <section
-          aria-label={t('agents.updateComparison')}
-          className="settings-surface flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-        >
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              {updateCheck.update_available
-                ? t('agents.updateVersions', {
-                    current:
-                      updateCheck.current_version ?? t('agents.versionUnknown'),
-                    available: updateCheck.available_version,
-                  })
-                : t('agents.upToDate')}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {updateCheck.fresh
-                ? t('agents.updateFreshSnapshot')
-                : t('agents.updateOfflineSnapshot')}
-            </p>
-          </div>
-          {updateCheck.update_available ? (
-            <Button
-              size="sm"
-              className="h-8"
-              disabled={busy || !updateCheck.fresh}
-              onClick={onApplyUpdate}
-            >
-              {t('agents.installUpdate')}
-            </Button>
-          ) : null}
-        </section>
-      ) : null}
 
       {authentication}
 
@@ -341,37 +364,97 @@ export function AgentDetail({
               <details className="agent-custom-version">
                 <summary>{t('agents.customVersionInstall')}</summary>
                 <div className="agent-custom-version-body">
-                  <label>
-                    <span>{t('agents.customVersionLabel')}</span>
-                    <input
-                      aria-label={t('agents.customVersionLabel')}
-                      aria-invalid={Boolean(
-                        customVersion && !customVersionValid
-                      )}
-                      autoComplete="off"
-                      disabled={busy || agent.retired}
-                      placeholder={
-                        agent.runtime_version ??
-                        t('agents.customVersionPlaceholder')
-                      }
-                      spellCheck={false}
-                      value={customVersion}
-                      onChange={(event) => setCustomVersion(event.target.value)}
-                    />
-                  </label>
+                  {adapterBacked ? (
+                    <>
+                      <label>
+                        <span>{t('agents.customRuntimeVersionLabel')}</span>
+                        <input
+                          aria-label={t('agents.customRuntimeVersionLabel')}
+                          autoComplete="off"
+                          disabled={busy || agent.retired}
+                          placeholder={
+                            updateCheck?.runtime_available ??
+                            agent.runtime_version ??
+                            t('agents.customVersionPlaceholder')
+                          }
+                          spellCheck={false}
+                          value={customRuntimeVersion}
+                          onChange={(event) =>
+                            setCustomRuntimeVersion(event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>{t('agents.customAcpVersionLabel')}</span>
+                        <input
+                          aria-label={t('agents.customAcpVersionLabel')}
+                          autoComplete="off"
+                          disabled={busy || agent.retired}
+                          placeholder={
+                            updateCheck?.acp_available ??
+                            agent.acp_version ??
+                            t('agents.customVersionPlaceholder')
+                          }
+                          spellCheck={false}
+                          value={customAcpVersion}
+                          onChange={(event) =>
+                            setCustomAcpVersion(event.target.value)
+                          }
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <label>
+                      <span>{t('agents.customVersionLabel')}</span>
+                      <input
+                        aria-label={t('agents.customVersionLabel')}
+                        aria-invalid={Boolean(
+                          customVersion && !customVersionValid
+                        )}
+                        autoComplete="off"
+                        disabled={busy || agent.retired}
+                        placeholder={
+                          updateCheck?.available_version ??
+                          agent.runtime_version ??
+                          t('agents.customVersionPlaceholder')
+                        }
+                        spellCheck={false}
+                        value={customVersion}
+                        onChange={(event) =>
+                          setCustomVersion(event.target.value)
+                        }
+                      />
+                    </label>
+                  )}
                   <Button
                     className="h-8 shrink-0"
                     disabled={busy || agent.retired || !customVersionValid}
                     size="sm"
                     variant="outline"
-                    onClick={() => onInstallVersion?.(customVersion.trim())}
+                    onClick={() =>
+                      onInstallVersion?.(
+                        adapterBacked
+                          ? {
+                              runtimeVersion: customRuntimeVersion.trim(),
+                              acpVersion: customAcpVersion.trim(),
+                            }
+                          : { version: customVersion.trim() }
+                      )
+                    }
                   >
                     <Download aria-hidden="true" className="h-3.5 w-3.5" />
                     {t('agents.installSpecifiedVersion')}
                   </Button>
                 </div>
-                {customVersion && !customVersionValid ? (
+                {customVersionValid ? null : customVersion ||
+                  customRuntimeVersion ||
+                  customAcpVersion ? (
                   <p role="alert">{t('agents.customVersionInvalid')}</p>
+                ) : null}
+                {specifiedCompatibilityWarning ? (
+                  <p role="status" className="text-xs text-amber-700">
+                    {specifiedCompatibilityWarning}
+                  </p>
                 ) : null}
                 <small>{t('agents.customVersionTrustHint')}</small>
               </details>
@@ -703,7 +786,9 @@ function localizedOperationLogLine(
     正在解析已锁定的安装方案: 'resolvePlan',
     '正在安装本地 Runtime 与 ACP': 'installRuntime',
     '正在验证 ACP 握手': 'verifyAcp',
+    正在绑定用户环境命令: 'publishCommand',
     正在发布本地终端命令: 'publishCommand',
+    安装完成: 'complete',
     '安装与 ACP 验证完成': 'complete',
     操作已取消: 'canceled',
     正在取消操作: 'canceling',

@@ -120,6 +120,39 @@ pub fn expose_user_bin_to_process_path(directory: &Path) {
     }
 }
 
+/// Repair the GUI process PATH before any Agent lookup.
+///
+/// Desktop launches inherit Explorer/launchd PATH, which commonly omits
+/// nvm-windows, fnm, Volta, Scoop, and the user npm prefix. Call this once
+/// at process start, before worker threads read PATH.
+pub fn bootstrap_desktop_path() {
+    #[cfg(windows)]
+    if let Some(refreshed) = get_fresh_path_blocking() {
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let merged = merge_paths(OsString::from(&refreshed), &existing);
+        if merged != existing {
+            unsafe {
+                std::env::set_var("PATH", merged);
+            }
+        }
+    }
+
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let platform = if cfg!(windows) {
+        UserBinPlatform::Windows
+    } else {
+        UserBinPlatform::Unix
+    };
+    for directory in discovery_bin_directories(platform, &home, |name| std::env::var_os(name)) {
+        expose_user_bin_to_process_path(&directory);
+    }
+    if let Some(node_dir) = find_node_bin_dir(platform, &home, |name| std::env::var_os(name)) {
+        expose_user_bin_to_process_path(&node_dir);
+    }
+}
+
 async fn refresh_path() -> bool {
     let Some(refreshed) = get_fresh_path().await else {
         return false;
@@ -223,7 +256,184 @@ fn user_bin_directories(
 
     push(home.join(".bun/bin"));
     push(home.join(".cargo/bin"));
+    push(home.join(".volta/bin"));
+    if platform == UserBinPlatform::Windows {
+        let scoop = read_env("SCOOP")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("scoop"));
+        push(scoop.join("shims"));
+        if let Some(nvm_symlink) = read_env("NVM_SYMLINK") {
+            push(PathBuf::from(nvm_symlink));
+        }
+    }
     directories
+}
+
+fn toolchain_bin_directories(
+    platform: UserBinPlatform,
+    home: &Path,
+    mut read_env: impl FnMut(&str) -> Option<OsString>,
+) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !path.as_os_str().is_empty() && !directories.contains(&path) {
+            directories.push(path);
+        }
+    };
+
+    if let Some(fnm_multishell) = read_env("FNM_MULTISHELL_PATH") {
+        push(PathBuf::from(fnm_multishell));
+    }
+
+    match platform {
+        UserBinPlatform::Windows => {
+            if let Some(nvm_symlink) = read_env("NVM_SYMLINK") {
+                push(PathBuf::from(nvm_symlink));
+            }
+            let nvm_home = read_env("NVM_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    read_env("APPDATA")
+                        .map(PathBuf::from)
+                        .map(|app_data| app_data.join("nvm"))
+                })
+                .unwrap_or_else(|| home.join("AppData").join("Roaming").join("nvm"));
+            push_version_dirs(&nvm_home, &mut push, |name| name.starts_with('v'), false);
+
+            let fnm_dir = read_env("FNM_DIR")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    read_env("APPDATA")
+                        .map(PathBuf::from)
+                        .map(|app_data| app_data.join("fnm"))
+                })
+                .unwrap_or_else(|| home.join(".fnm"));
+            push_fnm_installations(&fnm_dir, &mut push);
+
+            let scoop = read_env("SCOOP")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("scoop"));
+            push(scoop.join("apps").join("nodejs-lts").join("current"));
+            push(scoop.join("apps").join("nodejs").join("current"));
+        }
+        UserBinPlatform::Unix => {
+            let nvm_dir = read_env("NVM_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".nvm"));
+            push_version_dirs(
+                &nvm_dir.join("versions").join("node"),
+                &mut push,
+                |_| true,
+                true,
+            );
+            let fnm_dir = read_env("FNM_DIR")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    read_env("XDG_DATA_HOME")
+                        .map(PathBuf::from)
+                        .map(|data| data.join("fnm"))
+                })
+                .unwrap_or_else(|| home.join(".local").join("share").join("fnm"));
+            push_fnm_installations(&fnm_dir, &mut push);
+        }
+    }
+
+    let volta_home = read_env("VOLTA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".volta"));
+    push(volta_home.join("bin"));
+
+    let mise_dir = read_env("MISE_DATA_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            read_env("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .map(|data| data.join("mise"))
+        })
+        .unwrap_or_else(|| home.join(".local").join("share").join("mise"));
+    push_version_dirs(
+        &mise_dir.join("installs").join("node"),
+        &mut push,
+        |_| true,
+        true,
+    );
+
+    directories
+}
+
+fn push_version_dirs(
+    root: &Path,
+    push: &mut impl FnMut(PathBuf),
+    mut include: impl FnMut(&str) -> bool,
+    join_bin: bool,
+) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if !include(name) {
+            continue;
+        }
+        if join_bin {
+            let bin = path.join("bin");
+            push(if bin.is_dir() { bin } else { path });
+        } else {
+            push(path);
+        }
+    }
+}
+
+fn push_fnm_installations(fnm_dir: &Path, push: &mut impl FnMut(PathBuf)) {
+    let versions = fnm_dir.join("node-versions");
+    let Ok(entries) = std::fs::read_dir(&versions) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let installation = entry.path().join("installation");
+        let bin = installation.join("bin");
+        if bin.is_dir() {
+            push(bin);
+        } else if installation.is_dir() {
+            push(installation);
+        }
+    }
+}
+
+fn discovery_bin_directories(
+    platform: UserBinPlatform,
+    home: &Path,
+    mut read_env: impl FnMut(&str) -> Option<OsString>,
+) -> Vec<PathBuf> {
+    let mut directories = user_bin_directories(platform, home, &mut read_env);
+    for directory in toolchain_bin_directories(platform, home, read_env) {
+        if !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    directories
+}
+
+fn find_node_bin_dir(
+    platform: UserBinPlatform,
+    home: &Path,
+    read_env: impl FnMut(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    let node = if platform == UserBinPlatform::Windows {
+        "node.exe"
+    } else {
+        "node"
+    };
+    toolchain_bin_directories(platform, home, read_env)
+        .into_iter()
+        .find(|directory| directory.join(node).is_file())
 }
 
 fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf> {
@@ -232,7 +442,7 @@ fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf>
     } else {
         UserBinPlatform::Unix
     };
-    let search_path = join_paths(user_bin_directories(platform, home, |name| {
+    let search_path = join_paths(discovery_bin_directories(platform, home, |name| {
         std::env::var_os(name)
     }))
     .ok()?;
@@ -494,7 +704,61 @@ mod tests {
                 home.join(".local/bin"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
+                home.join(".volta/bin"),
+                home.join("scoop/shims"),
             ]
+        );
+    }
+
+    #[test]
+    fn windows_discovery_bins_include_nvm_windows_fnm_and_scoop_node() {
+        let home = tempfile::tempdir().unwrap();
+        let nvm_home = home.path().join("nvm");
+        let active = nvm_home.join("v22.14.0");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::write(active.join("node.exe"), []).unwrap();
+        let fnm_install = home
+            .path()
+            .join("fnm")
+            .join("node-versions")
+            .join("v22.14.0")
+            .join("installation");
+        std::fs::create_dir_all(&fnm_install).unwrap();
+        std::fs::write(fnm_install.join("node.exe"), []).unwrap();
+        let scoop_node = home
+            .path()
+            .join("scoop")
+            .join("apps")
+            .join("nodejs")
+            .join("current");
+        std::fs::create_dir_all(&scoop_node).unwrap();
+        std::fs::write(scoop_node.join("node.exe"), []).unwrap();
+
+        let environment = HashMap::from([
+            ("NVM_HOME", OsString::from(nvm_home.as_os_str())),
+            ("NVM_SYMLINK", OsString::from(active.as_os_str())),
+            (
+                "FNM_DIR",
+                OsString::from(home.path().join("fnm").as_os_str()),
+            ),
+            (
+                "SCOOP",
+                OsString::from(home.path().join("scoop").as_os_str()),
+            ),
+        ]);
+
+        let directories =
+            super::toolchain_bin_directories(UserBinPlatform::Windows, home.path(), |name| {
+                environment.get(name).cloned()
+            });
+        assert!(directories.contains(&active));
+        assert!(directories.contains(&fnm_install));
+        assert!(directories.contains(&scoop_node));
+        assert_eq!(
+            super::find_node_bin_dir(UserBinPlatform::Windows, home.path(), |name| {
+                environment.get(name).cloned()
+            }),
+            Some(active)
         );
     }
 
@@ -520,6 +784,7 @@ mod tests {
                 home.join(".npm-global/bin"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
+                home.join(".volta/bin"),
             ]
         );
     }

@@ -7,6 +7,7 @@ mod automation_runtime;
 mod chat_inbound;
 mod chat_notify;
 mod cli;
+mod companion_session;
 mod composition;
 mod config;
 mod delegation_runtime;
@@ -38,6 +39,7 @@ pub use chat_notify::{ChatDeliveryPublisher, notify_conversation_event};
 pub use cli::{
     AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, parse_args, usage,
 };
+pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};

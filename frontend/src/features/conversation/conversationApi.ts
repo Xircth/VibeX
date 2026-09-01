@@ -44,6 +44,14 @@ export type ConversationStartTurnRequest = {
   workflowRefs?: ConversationWorkflowRef[];
 };
 
+export type ConversationLiveFeedbackNote = {
+  id: string;
+  text: string;
+  createdAt: string;
+  status: string;
+  deliveredAt?: string | null;
+};
+
 export type ConversationCreateRequest = {
   workspaceId: string;
   agentId: AgentId;
@@ -285,6 +293,21 @@ export function createConversationApi(transport: BackendTransport) {
     respondQuestion: (
       request: ConversationQuestionResponseRequest
     ): Promise<void> => call('conversation_respond_question', { request }),
+
+    submitFeedback: (request: {
+      conversationId: string;
+      text: string;
+    }): Promise<ConversationLiveFeedbackNote> =>
+      callApplicationCommand(transport, 'conversation_submit_feedback', {
+        request,
+      }),
+
+    listFeedback: (
+      conversationId: string
+    ): Promise<ConversationLiveFeedbackNote[]> =>
+      callApplicationCommand(transport, 'conversation_list_feedback', {
+        request: { conversationId },
+      }),
 
     cancel: (request: ConversationCancelTurnRequest): Promise<void> =>
       call('conversation_cancel_turn', { request }),

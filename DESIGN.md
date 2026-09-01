@@ -4,8 +4,8 @@ description: Local-first AI coding-agent orchestration workspace, dressed as a n
 register: product
 platform: Tauri desktop (React + Tailwind + Radix). macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
 colors:
-  # One calm system-blue accent, reserved for state (selected / focused / primary / live).
-  primary: "#3F6CC4"
+  # One user-configurable accent, reserved for state (selected / focused / primary / live).
+  primary: "#171717"
   primary-foreground: "#ffffff"
   primary-control-foreground: "#ffffff"
   switch-checked-track: "#1d2530"
@@ -112,8 +112,8 @@ components:
   button-secondary:
     backgroundColor: "{colors.raised-control-bg}"
     hoverBackgroundColor: "{colors.raised-control-hover}"
-    border: "none"
-    shadow: "0 0 4px #0d121c24"
+    border: "1px solid {colors.border-subtle}"
+    shadow: "none"
     rounded: "{rounded.control}"
     padding: "0 12px"
     height: "32px"
@@ -127,8 +127,8 @@ components:
     height: "32px"
   select-default:
     backgroundColor: "{colors.raised-control-bg}"
-    border: "none"
-    shadow: "0 0 4px #0d121c24"
+    border: "1px solid {colors.border-subtle}"
+    shadow: "none"
     rounded: "{rounded.control}"
     padding: "0 10px"
     height: "32px"
@@ -175,7 +175,7 @@ VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and
 
 - Dense information, quiet surfaces, visible state.
 - Glass is structural, not decorative — chrome only, never content.
-- One calm system-blue accent, used only for selected / focused / primary / live.
+- One user-configurable accent (default `#171717`, white on fill), used only for selected / focused / primary / live.
 - Light mode is the primary working scene; dark mode (Ayu Mirage) is first-class for code-heavy sessions.
 - Hierarchy is expressed by grouping and spacing; remove any background, border, or internal rule added purely for emphasis.
 
@@ -213,11 +213,11 @@ Everything users read, edit, or scan. **No glass here.** Use opaque panels:
 
 ## 3. Color & Accent
 
-A restrained, system-adaptive neutral palette with one calm blue accent and small semantic status colors. Brand comes from content, iconography, and the accent — not from replacing structure.
+A restrained, system-adaptive neutral palette with one user-configurable accent and small semantic status colors. Brand comes from content, iconography, and the accent — not from replacing structure.
 
 ### Accent
 
-- **Workbench Blue** (`--primary`, `#3F6CC4`): the calm macOS selection-blue equivalent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use the shared white control-foreground token.
+- **Ink** (`--primary`, `#171717`): the default accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default). Users can change the hex in Settings → Appearance.
 
 ### Semantic status
 
@@ -235,11 +235,11 @@ A restrained, system-adaptive neutral palette with one calm blue accent and smal
 
 ## 6. Radius, Elevation, And Motion
 
-**The State-Only Accent Rule.** Blue means selected, focused, primary, or live. It is never a decorative fill.
+**The State-Only Accent Rule.** The accent means selected, focused, primary, or live. It is never a decorative fill.
 
 **The System-Adaptive Rule.** Surfaces are built from tinted-neutral tokens that flip with light/dark and strengthen under `prefers-contrast: more`. Avoid pure `#000`/`#fff` and hard-coded hex; reach for the tokens.
 
-**The Honor-The-Accent Rule.** Treat Workbench Blue as the user's system accent: if the platform exposes an accent color, the selection/focus accent should be the only place we'd ever defer to it.
+**The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is `#171717`.
 
 ## 4. Typography
 
@@ -308,7 +308,7 @@ Unified Liquid Glass strip, full drag region, hairline beneath. Keep it sparse: 
 
 ### Sidebar
 
-A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a white label** (the macOS System Settings idiom, adjusted for the deeper Workbench Blue). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
+A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a contrasting label** (the macOS System Settings idiom). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
 
 ### Toolbars
 
@@ -321,7 +321,7 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 ### Controls
 
 - **Switch**: dark-ink track with a white thumb when on; dark mode adds a light hairline so the track stays distinct. Keep a clear off state and never use the switch as the only signal for a meaningful change.
-- **Secondary / outline buttons and selects**: borderless, with a very light cool-gray surface in light mode, an evenly distributed compact shadow on all four sides, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow hierarchy.
+- **Secondary / outline buttons and selects**: a very light cool-gray surface in light mode, a 1px hairline border, no drop shadow, and `14px` radius. Dark mode uses the reciprocal dark surface with the same hairline.
 - **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
 
 #### Single control frame rule

@@ -238,6 +238,21 @@ pub struct AgentUpdateCheckView {
     pub current_version: Option<String>,
     pub available_version: Option<String>,
     pub update_available: bool,
+    #[serde(default)]
+    #[ts(optional)]
+    pub runtime_current: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub runtime_available: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub acp_current: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub acp_available: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub compatibility_warning: Option<String>,
     pub snapshot_id: Option<String>,
     pub fetched_at: Option<String>,
     pub fresh: bool,

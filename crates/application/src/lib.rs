@@ -13,16 +13,17 @@ mod workflow;
 pub use agents::ConversationWorkflowRef;
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
-    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, ConversationCatalog,
-    ConversationCatalogAgent, ConversationCatalogProject, ConversationCatalogTag,
-    ConversationCatalogWorkspace, ConversationExecutionPort, ConversationOutputView,
-    ConversationRepository, ConversationSlashCommand, ConversationSubscriptionRegistrar,
-    ConversationWorkspaceEntry, CreateChildConversationRequest, CreateConversation,
-    CreateConversationWorkspace, ListConversationInputsRequest, ListConversationRelationsRequest,
-    ListConversations, ListRecentConversations, ReorderConversationInputRequest,
-    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
-    StartConversationTurn, SteerConversationTurnRequest, SubmitConversationInputRequest,
-    UpdateConversationInputRequest,
+    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, CompanionSessionPort,
+    ConversationCatalog, ConversationCatalogAgent, ConversationCatalogProject,
+    ConversationCatalogTag, ConversationCatalogWorkspace, ConversationExecutionPort,
+    ConversationLiveFeedbackNote, ConversationOutputView, ConversationRepository,
+    ConversationSlashCommand, ConversationSubscriptionRegistrar, ConversationWorkspaceEntry,
+    CreateChildConversationRequest, CreateConversation, CreateConversationWorkspace,
+    ListConversationFeedbackRequest, ListConversationInputsRequest,
+    ListConversationRelationsRequest, ListConversations, ListRecentConversations,
+    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
+    SqliteConversationRepository, StartConversationTurn, SteerConversationTurnRequest,
+    SubmitConversationFeedback, SubmitConversationInputRequest, UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;

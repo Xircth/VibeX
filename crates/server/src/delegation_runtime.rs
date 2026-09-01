@@ -9,20 +9,19 @@ use agents::{
 };
 use async_trait::async_trait;
 use conversations::{
-    ConversationContext, ConversationRelationControl, CreateDelegatedConversation,
-    ScopedConversationControl, ScopedConversationControlError, create_delegated_conversation,
+    ConversationContext, CreateDelegatedConversation, ScopedConversationControl,
+    create_delegated_conversation,
 };
 use db::models::session::Session;
 use delegation::{
-    AssistantReplyAccumulator, ChildStatusLookup, ChildStatusRecord, CompanionFeaturePort,
-    ConnectionSpawner, DelegationBroker, DelegationCompletedEvent, DelegationConfig,
-    DelegationError, DelegationEventEmitter, DelegationLink, DelegationListener,
-    DelegationMetaWriter, DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup,
+    AssistantReplyAccumulator, ChildStatusLookup, ChildStatusRecord, ConnectionSpawner,
+    DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
+    DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
+    DelegationOutcome, DelegationStartedEvent, DepthLookup, InMemoryCompanionFeatures,
     ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry,
     outcome_from_turn,
 };
 use plugins::OfficialMcpRuntime;
-use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::{
     sync::{Mutex, broadcast::error::RecvError},
@@ -42,7 +41,7 @@ impl HeadlessDelegationRuntime {
         pool: SqlitePool,
         conversation_context: ConversationContext,
         official_mcp: Arc<OfficialMcpRuntime>,
-    ) -> Self {
+    ) -> (Self, Arc<InMemoryCompanionFeatures>) {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
             Arc::new(RuntimeSpawner {
@@ -59,6 +58,7 @@ impl HeadlessDelegationRuntime {
             DelegationConfig::default(),
         ));
         let tokens = Arc::new(TokenRegistry::new());
+        let features = Arc::new(InMemoryCompanionFeatures::new());
         let socket_path = process_socket_path();
         runtime.install_delegation_injector(Arc::new(HeadlessDelegationInjector {
             tokens: tokens.clone(),
@@ -71,10 +71,12 @@ impl HeadlessDelegationRuntime {
             Arc::new(RuntimeParentLookup {
                 runtime: runtime.clone(),
             }),
-            Arc::new(HeadlessCompanionFeatures {
-                pool,
-                conversations: ScopedConversationControl::new(conversation_context),
-            }),
+            Arc::new(delegation::HostCompanionFeatures::new(
+                features.clone(),
+                pool.clone(),
+                runtime.clone(),
+                ScopedConversationControl::new(conversation_context),
+            )),
         ));
         let listen_path = socket_path.clone();
         let gateway_listener = listener.clone();
@@ -98,11 +100,15 @@ impl HeadlessDelegationRuntime {
             }
         });
         let resolver_task = spawn_resolver(broker.clone(), runtime.clone(), map);
-        let teardown_task = spawn_parent_teardown(broker.clone(), tokens.clone(), runtime);
+        let teardown_task =
+            spawn_parent_teardown(broker.clone(), tokens.clone(), features.clone(), runtime);
 
-        Self {
-            tasks: vec![listener_task, resolver_task, teardown_task],
-        }
+        (
+            Self {
+                tasks: vec![listener_task, resolver_task, teardown_task],
+            },
+            features,
+        )
     }
 }
 
@@ -134,154 +140,6 @@ impl crate::ProductMcpSessionLookup for RuntimeConversationLookup {
             connection.id.0.to_string(),
             PathBuf::from(&connection.working_dir),
         ))
-    }
-}
-
-struct HeadlessCompanionFeatures {
-    pool: SqlitePool,
-    conversations: ScopedConversationControl,
-}
-
-impl std::fmt::Debug for HeadlessCompanionFeatures {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("HeadlessCompanionFeatures")
-            .finish_non_exhaustive()
-    }
-}
-
-#[async_trait]
-impl CompanionFeaturePort for HeadlessCompanionFeatures {
-    async fn feedback(&self, _scope: &DelegationScope) -> Value {
-        json!({ "count": 0, "feedback": [] })
-    }
-
-    async fn commit_feedback(&self, _scope: &DelegationScope, _ids: &[String]) {}
-
-    async fn session_info(
-        &self,
-        scope: &DelegationScope,
-        conversation_id: &str,
-        _max_messages: u32,
-    ) -> Value {
-        let Ok(conversation_id) = Uuid::parse_str(conversation_id) else {
-            return json!({ "found": false, "conversation_id": conversation_id });
-        };
-        let Ok(Some(summary)) = ConversationRelationControl::new(self.pool.clone())
-            .companion_scope_target(scope.parent_conversation_id, conversation_id)
-            .await
-        else {
-            return json!({ "found": false, "conversation_id": conversation_id });
-        };
-        json!({
-            "found": true,
-            "conversation_id": summary.id,
-            "title": summary.title,
-            "agent_id": summary.agent_id,
-            "status": summary.status,
-            "workspace_id": summary.workspace_id,
-            "message_count": summary.message_count,
-            "parent_conversation_id": summary.parent_session_id,
-            "messages": [],
-        })
-    }
-
-    async fn session_send(
-        &self,
-        scope: &DelegationScope,
-        conversation_id: &str,
-        operation_id: &str,
-        text: &str,
-    ) -> Value {
-        match self
-            .conversations
-            .submit_text(
-                scope.parent_conversation_id,
-                conversation_id,
-                operation_id,
-                text,
-            )
-            .await
-        {
-            Ok(submission) => json!({
-                "accepted": true,
-                "conversation_id": conversation_id,
-                "input": submission.input,
-                "turn": submission.turn,
-            }),
-            Err(error) => companion_control_error(conversation_id, error, true),
-        }
-    }
-
-    async fn session_cancel(
-        &self,
-        scope: &DelegationScope,
-        conversation_id: &str,
-        reason: Option<&str>,
-    ) -> Value {
-        match self
-            .conversations
-            .cancel_turn(
-                scope.parent_conversation_id,
-                conversation_id,
-                reason.map(str::to_string),
-            )
-            .await
-        {
-            Ok(()) => json!({ "accepted": true, "conversation_id": conversation_id }),
-            Err(error) => companion_control_error(conversation_id, error, true),
-        }
-    }
-
-    async fn session_wait(
-        &self,
-        scope: &DelegationScope,
-        conversation_id: &str,
-        after_sequence: Option<i64>,
-        wait_ms: Option<u64>,
-    ) -> Value {
-        match self
-            .conversations
-            .wait(
-                scope.parent_conversation_id,
-                conversation_id,
-                after_sequence,
-                wait_ms,
-            )
-            .await
-        {
-            Ok(snapshot) => serde_json::to_value(snapshot).unwrap_or(Value::Null),
-            Err(error) => companion_control_error(conversation_id, error, false),
-        }
-    }
-}
-
-fn companion_control_error(
-    conversation_id: &str,
-    error: ScopedConversationControlError,
-    send: bool,
-) -> Value {
-    let code = match &error {
-        ScopedConversationControlError::InvalidConversationId => "invalid_conversation_id",
-        ScopedConversationControlError::InvalidOperationId => "invalid_operation_id",
-        ScopedConversationControlError::OutOfScope => "conversation_out_of_scope",
-        ScopedConversationControlError::MissingAgent => "conversation_missing_agent",
-        ScopedConversationControlError::Internal(_) => "conversation_control_failed",
-    };
-    if send {
-        json!({
-            "accepted": false,
-            "conversation_id": conversation_id,
-            "error_code": code,
-            "message": error.to_string(),
-        })
-    } else {
-        json!({
-            "found": false,
-            "conversation_id": conversation_id,
-            "error_code": code,
-            "message": error.to_string(),
-        })
     }
 }
 
@@ -730,6 +588,7 @@ fn spawn_resolver(
 fn spawn_parent_teardown(
     broker: Arc<DelegationBroker>,
     tokens: Arc<TokenRegistry>,
+    features: Arc<InMemoryCompanionFeatures>,
     runtime: Arc<AgentRuntime>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -749,6 +608,7 @@ fn spawn_parent_teardown(
             ) {
                 let parent = snapshot.id.to_string();
                 tokens.revoke_by_parent(&parent);
+                features.close_parent_connection(&parent).await;
                 broker.parent_closed(&parent).await;
             }
         }

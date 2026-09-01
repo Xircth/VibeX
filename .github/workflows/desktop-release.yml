@@ -145,11 +145,46 @@ jobs:
             fi
           fi
 
+  build-frontend:
+    name: Build frontend
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm run frontend:build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 1
+
   build:
     name: Build ${{ matrix.artifact_name }}
-    needs: prepare-release
+    needs: [prepare-release, build-frontend]
     if: ${{ always() && !failure() && !cancelled() }}
     runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_CACHE_SIZE: "10G"
+      CEF_PATH: ${{ github.workspace }}/.cef
+      VIBEX_SKIP_FRONTEND_BUILD: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -171,11 +206,11 @@ jobs:
             target: aarch64-unknown-linux-gnu
             bundles: appimage
           - artifact_name: macos-x64
-            runner: macos-15-intel
+            runner: macos-15-xlarge
             target: x86_64-apple-darwin
             bundles: app
           - artifact_name: macos-arm64
-            runner: macos-15
+            runner: macos-15-xlarge
             target: aarch64-apple-darwin
             bundles: app
 
@@ -202,6 +237,9 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node
 
+      - name: Setup sccache
+        uses: BloopAI/sccache-action@main
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -215,10 +253,24 @@ jobs:
           cache-provider: github
           cache-on-failure: true
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}
-          cache-all-crates: true
+          cache-targets: false
+
+      - name: Cache CEF downloads
+        uses: actions/cache@v4
+        with:
+          path: .cef
+          key: cef-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cef-${{ matrix.target }}-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Import macOS signing certificate and notarization key
         if: ${{ runner.os == 'macOS' && needs.prepare-release.outputs.apple_signing_enabled == 'true' }}

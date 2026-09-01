@@ -38,6 +38,7 @@ function detail(): DbConversationDetail {
       projection_version: 2,
       last_sequence: 0n,
       rows: [],
+      truncated_from_start: false,
     },
     projection_version: 2,
     session_config_options: [],

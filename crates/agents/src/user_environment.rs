@@ -1,8 +1,9 @@
 //! User-environment Agent install layout and adopt/upgrade policy (ADR-0060).
 //!
 //! Installation truth is PATH, the user npm prefix, uv tools, and `~/.local/bin`.
-//! A leftover CLI is only auto-bound when every required component is present
-//! and at least as new as the frozen plan / Built-in Profile pin.
+//! Auto-bind requires a resolvable ACP (or combined) command with a non-empty
+//! version. Adapter-backed vendor CLIs are optional: if PATH has the command,
+//! reuse it. Explicit ACP updates still write the planned adapter version.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -45,11 +46,7 @@ impl UserEnvironmentLayout {
 
     fn from_home_and_npm_prefix(home: PathBuf, npm_prefix: PathBuf) -> Self {
         let user_bin = home.join(".local").join("bin");
-        let npm_bin = if cfg!(windows) {
-            npm_prefix.clone()
-        } else {
-            npm_prefix.join("bin")
-        };
+        let npm_bin = npm_bin_dir(&npm_prefix);
         let local_share = home.join(".local").join("share").join("uv");
         Self {
             uv_tool_dir: local_share.join("tools"),
@@ -61,6 +58,25 @@ impl UserEnvironmentLayout {
             npm_bin,
             user_bin,
         }
+    }
+
+    /// Rebind the layout to the prefix `npm prefix -g` actually uses.
+    pub fn with_npm_prefix(self, npm_prefix: impl Into<PathBuf>) -> Self {
+        Self::from_home_and_npm_prefix(self.home, npm_prefix.into())
+    }
+
+    /// Use the live `npm prefix -g` only when the current user can write it.
+    /// `/usr/local` on a Homebrew Mac is skipped, keeping `~/.local`.
+    pub fn with_live_npm_prefix_if_writable(self, live: Option<PathBuf>) -> Self {
+        match live.filter(|prefix| npm_prefix_is_writable(prefix)) {
+            Some(prefix) => self.with_npm_prefix(prefix),
+            None => self,
+        }
+    }
+
+    /// User-owned fallback used when the live global prefix is not writable.
+    pub fn user_npm_prefix(&self) -> PathBuf {
+        default_npm_prefix(&self.home, None)
     }
 
     pub fn path_entries(&self) -> Vec<PathBuf> {
@@ -89,6 +105,7 @@ pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
         "install".to_string(),
         "-g".to_string(),
         "--force".to_string(),
+        "--foreground-scripts".to_string(),
         "--prefix".to_string(),
         prefix.display().to_string(),
         "--no-audit".to_string(),
@@ -98,6 +115,77 @@ pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
         "--registry=https://registry.npmjs.org".to_string(),
         package.to_string(),
     ]
+}
+
+fn npm_bin_dir(prefix: &Path) -> PathBuf {
+    if cfg!(windows) {
+        prefix.to_path_buf()
+    } else {
+        prefix.join("bin")
+    }
+}
+
+/// Windows npm global shims are `.cmd` first, then `.exe`, then a bare name.
+pub fn npm_shim_candidates(bin_dir: &Path, command: &str) -> Vec<PathBuf> {
+    let name = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    if cfg!(windows) {
+        vec![
+            bin_dir.join(format!("{name}.cmd")),
+            bin_dir.join(format!("{name}.exe")),
+            bin_dir.join(name),
+        ]
+    } else {
+        vec![bin_dir.join(name)]
+    }
+}
+
+pub fn resolve_npm_shim(bin_dir: &Path, command: &str) -> Option<PathBuf> {
+    npm_shim_candidates(bin_dir, command)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// Whether `npm install -g --prefix` can create packages under this prefix.
+pub fn npm_prefix_is_writable(prefix: &Path) -> bool {
+    let modules = if cfg!(windows) {
+        prefix.join("node_modules")
+    } else {
+        prefix.join("lib").join("node_modules")
+    };
+    let probe_dir = first_existing_directory(&modules).unwrap_or(prefix);
+    write_probe_file(probe_dir)
+}
+
+pub fn npm_install_permission_denied(stderr: &str) -> bool {
+    stderr.contains("EACCES") || stderr.contains("EPERM") || stderr.contains("permission denied")
+}
+
+fn first_existing_directory(path: &Path) -> Option<&Path> {
+    let mut current = path;
+    loop {
+        if current.is_dir() {
+            return Some(current);
+        }
+        current = current.parent()?;
+    }
+}
+
+fn write_probe_file(dir: &Path) -> bool {
+    let probe = dir.join(format!(".vibex-write-{}", std::process::id()));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn default_npm_prefix(home: &Path, app_data: Option<&Path>) -> PathBuf {
@@ -126,6 +214,26 @@ pub struct ObservedUserComponent {
     pub version: Option<String>,
 }
 
+/// Whether a PATH-resolved command can satisfy this planned component without
+/// rewriting the user environment.
+///
+/// `agent_runtime` (vendor CLI) is reused whenever it resolves. ACP / combined
+/// still require the planned version so an explicit update actually writes the
+/// requested adapter.
+pub fn existing_path_satisfies_component(
+    component_id: &str,
+    observed_version: &str,
+    planned_version: &str,
+) -> bool {
+    if observed_version.trim().is_empty() {
+        return false;
+    }
+    if component_id == "agent_runtime" {
+        return true;
+    }
+    version_at_least(observed_version, planned_version)
+}
+
 /// Adopt only when every required component exists and is not older than the
 /// planned pin. Newer user-upgraded versions are accepted.
 pub fn decide_user_environment_adopt(
@@ -137,7 +245,7 @@ pub fn decide_user_environment_adopt(
     for component in required {
         if matches!(
             component.component_id.as_str(),
-            "base_runtime_node" | "base_runtime_npm" | "base_runtime_uv"
+            "base_runtime_node" | "base_runtime_npm" | "base_runtime_uv" | "agent_runtime"
         ) {
             continue;
         }
@@ -181,12 +289,15 @@ pub fn observed_satisfies_profile(
     profile: &BuiltInProfile,
     observed: &[ObservedUserComponent],
 ) -> bool {
-    profile_required_versions(profile).iter().all(|(id, pin)| {
+    profile_required_versions(profile).iter().all(|(id, _pin)| {
+        if id == "agent_runtime" {
+            return true;
+        }
         observed
             .iter()
             .find(|component| &component.component_id == id)
             .and_then(|component| component.version.as_deref())
-            .is_some_and(|version| version_at_least(version, pin))
+            .is_some_and(|version| !version.trim().is_empty())
     })
 }
 
@@ -231,9 +342,9 @@ fn is_agent_install_component(component_id: &str) -> bool {
 /// badges only appear on components that `apply_update` would actually replace.
 ///
 /// Do not compare [`ResolvedInstallPlan::version`] or a lock identity field
-/// with a Registry snapshot version. Adapter-backed Agents keep Runtime at the
-/// Profile pin (`plan.version`) and consume Registry versions on ACP only
-/// (ADR-0038); those two numbers are different artifacts.
+/// with a Registry snapshot version. Adapter-backed Agents overlay npm latest
+/// (or specified versions) onto Runtime and ACP independently; those two
+/// numbers are different artifacts.
 pub fn planned_preflight_updates(
     planned: &[PlannedInstallComponent],
     current: &[ObservedUserComponent],
@@ -331,8 +442,68 @@ mod tests {
         assert_eq!(args[0], "install");
         assert_eq!(args[1], "-g");
         assert_eq!(args[2], "--force");
+        assert!(args.contains(&"--foreground-scripts".to_string()));
         assert!(args.contains(&"--prefix".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("deepseek-acp@0.1.0"));
+    }
+
+    #[test]
+    fn windows_npm_shims_prefer_cmd_then_exe() {
+        let bin = PathBuf::from(r"C:\Users\developer\AppData\Roaming\npm");
+        let candidates = npm_shim_candidates(&bin, "claude-agent-acp");
+        if cfg!(windows) {
+            assert_eq!(
+                candidates,
+                vec![
+                    bin.join("claude-agent-acp.cmd"),
+                    bin.join("claude-agent-acp.exe"),
+                    bin.join("claude-agent-acp"),
+                ]
+            );
+        } else {
+            assert_eq!(candidates, vec![bin.join("claude-agent-acp")]);
+        }
+    }
+
+    #[test]
+    fn live_prefix_is_kept_only_when_writable() {
+        let root = tempfile::tempdir().unwrap();
+        let live = root.path().join("npm-global");
+        std::fs::create_dir_all(&live).unwrap();
+        let layout = UserEnvironmentLayout::for_home(root.path().join("home"))
+            .with_live_npm_prefix_if_writable(Some(live.clone()));
+        assert_eq!(layout.npm_prefix, live);
+
+        let skipped = UserEnvironmentLayout::for_home(root.path().join("home"))
+            .with_live_npm_prefix_if_writable(None);
+        assert_eq!(skipped.npm_prefix, skipped.user_npm_prefix());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_npm_prefix_is_not_writable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let prefix = root.path().join("prefix");
+        let modules = prefix.join("lib").join("node_modules");
+        std::fs::create_dir_all(&modules).unwrap();
+        let mut permissions = std::fs::metadata(&modules).unwrap().permissions();
+        permissions.set_mode(0o555);
+        std::fs::set_permissions(&modules, permissions).unwrap();
+        if npm_prefix_is_writable(&prefix) {
+            return;
+        }
+        let layout = UserEnvironmentLayout::for_home(root.path().join("home"))
+            .with_live_npm_prefix_if_writable(Some(prefix));
+        assert_eq!(layout.npm_prefix, layout.user_npm_prefix());
+    }
+
+    #[test]
+    fn npm_eacces_log_is_treated_as_permission_denied() {
+        let stderr = "npm error code EACCES npm error syscall mkdir npm error path /usr/local/lib/node_modules/@agentclientprotocol npm error Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/@agentclientprotocol'";
+        assert!(npm_install_permission_denied(stderr));
+        assert!(!npm_install_permission_denied("npm error code EEXIST"));
     }
 
     #[test]
@@ -414,32 +585,50 @@ mod tests {
                     observed("acp_adapter", Some("0.64.1")),
                 ]
             ),
-            UserEnvironmentAdoptDecision::Install {
-                missing: Vec::new(),
-                outdated: vec!["agent_runtime".to_string()],
-            }
+            UserEnvironmentAdoptDecision::Adopt
         );
     }
 
     #[test]
-    fn claude_profile_rejects_an_old_runtime_leftover() {
+    fn path_reuse_accepts_any_vendor_cli_and_requires_planned_acp() {
+        assert!(existing_path_satisfies_component(
+            "agent_runtime",
+            "0.146.0",
+            "0.148.0"
+        ));
+        assert!(!existing_path_satisfies_component(
+            "acp_adapter",
+            "1.5.0",
+            "1.7.0"
+        ));
+        assert!(existing_path_satisfies_component(
+            "acp_adapter",
+            "1.7.0",
+            "1.7.0"
+        ));
+        assert!(!existing_path_satisfies_component(
+            "combined_runtime",
+            "",
+            "1.0.0"
+        ));
+    }
+
+    #[test]
+    fn claude_profile_adopts_any_path_adapter() {
         let profile = crate::BuiltInProfileCatalog::bundled()
             .profile(&crate::AgentId::parse("claude_code").unwrap())
             .cloned()
             .unwrap();
-        assert!(!observed_satisfies_profile(
-            &profile,
-            &[
-                observed("agent_runtime", Some("1.0.0")),
-                observed("acp_adapter", Some("0.64.1")),
-            ]
-        ));
         assert!(observed_satisfies_profile(
             &profile,
             &[
-                observed("agent_runtime", Some("2.1.222")),
-                observed("acp_adapter", Some("0.64.1")),
+                observed("agent_runtime", Some("1.0.0")),
+                observed("acp_adapter", Some("0.1.0")),
             ]
+        ));
+        assert!(!observed_satisfies_profile(
+            &profile,
+            &[observed("agent_runtime", Some("2.1.222"))]
         ));
     }
 

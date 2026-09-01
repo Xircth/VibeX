@@ -897,7 +897,11 @@ mod tests {
             parent_connection_id: "conn-1".to_string(),
             parent_conversation_id: Uuid::nil(),
         };
-        let feedback_id = features.push_feedback(scope, "change direction").await;
+        let feedback_id = features
+            .push_feedback(scope, "change direction")
+            .await
+            .unwrap()
+            .id;
 
         let message = BrokerMessage::Feedback(BrokerFeedbackRequest {
             token: "tok".to_string(),
@@ -949,7 +953,10 @@ mod tests {
             parent_connection_id: "conn-1".to_string(),
             parent_conversation_id: Uuid::nil(),
         };
-        features.push_feedback(scope, "must stay hidden").await;
+        features
+            .push_feedback(scope, "must stay hidden")
+            .await
+            .unwrap();
 
         let feedback = round_trip(
             &listener,

@@ -62,11 +62,11 @@ test('macOS bundle declares its minimum supported system version', () => {
   const config = readJson('src-tauri/tauri.macos.conf.json');
 
   assert.match(config.bundle?.macOS?.minimumSystemVersion ?? '', /^\d+\.\d+$/);
+  assert.equal(config.bundle?.macOS?.entitlements, 'entitlements.macos.plist');
   assert.equal(
-    config.bundle?.macOS?.entitlements,
-    'entitlements.macos.plist'
+    fs.existsSync(path.join(repoRoot, 'src-tauri', 'entitlements.macos.plist')),
+    true
   );
-  assert.equal(fs.existsSync(path.join(repoRoot, 'src-tauri', 'entitlements.macos.plist')), true);
 });
 
 test('Linux Debian package declares the XWayland runtime required by CEF', () => {
@@ -115,7 +115,10 @@ test('local Apple signing is loaded from gitignored env without committing secre
   assert.match(example, /APPLE_API_KEY_PATH=/);
   assert.match(desktopDev, /applyLocalEnvFile/);
   assert.match(desktopBuild, /applyLocalEnvFile/);
-  assert.equal(fs.existsSync(path.join(repoRoot, 'scripts', 'load-local-env.js')), true);
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, 'scripts', 'load-local-env.js')),
+    true
+  );
 });
 
 test('desktop release signs and verifies macOS and Windows artifacts', () => {
@@ -177,4 +180,38 @@ test('desktop release runs platform-native startup smoke tests', () => {
       `${script} must run in desktop release CI`
     );
   }
+});
+
+test('desktop release compiles frontend once and reuses Rust and CEF caches', () => {
+  const workflow = read('.github/workflows/desktop-release.yml');
+  const tauriConfig = read('src-tauri/tauri.conf.json');
+  const desktopBuild = read('scripts/run-tauri-build.js');
+  const stager = read('scripts/stage-cef-runtime.js');
+
+  assert.match(workflow, /name: Build frontend/);
+  assert.match(workflow, /VIBEX_SKIP_FRONTEND_BUILD:\s*"1"/);
+  assert.match(workflow, /SCCACHE_GHA_ENABLED:\s*"true"/);
+  assert.match(workflow, /BloopAI\/sccache-action@main/);
+  assert.match(workflow, /cache-targets:\s*false/);
+  assert.match(
+    workflow,
+    /CEF_PATH:\s*\$\{\{\s*github\.workspace\s*\}\}\/\.cef/
+  );
+  assert.match(workflow, /name: Cache CEF downloads/);
+  assert.doesNotMatch(workflow, /macos-15-intel/);
+  assert.match(
+    workflow,
+    /artifact_name: macos-x64[\s\S]*runner: macos-15-xlarge/
+  );
+  assert.match(
+    workflow,
+    /artifact_name: macos-arm64[\s\S]*runner: macos-15-xlarge/
+  );
+  assert.doesNotMatch(workflow, /cache-all-crates:\s*true/);
+
+  assert.match(tauriConfig, /scripts\/tauri-before-build\.js/);
+  assert.match(tauriConfig, /scripts\/tauri-before-bundle\.js/);
+  assert.match(desktopBuild, /--bin/);
+  assert.match(desktopBuild, /vibex_cef_helper/);
+  assert.doesNotMatch(stager, /["']run["']/);
 });

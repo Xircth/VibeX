@@ -1,7 +1,5 @@
 import type { AgentId, AgentPreflightView } from 'shared/types';
 
-export const AGENT_PREFLIGHT_IDLE_DELAY_MS = 5000;
-
 function storageKey(agentId: AgentId): string {
   return `vibex:agent-preflight:${agentId}`;
 }

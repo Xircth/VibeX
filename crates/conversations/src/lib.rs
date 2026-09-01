@@ -15,6 +15,7 @@ pub mod runtime_events;
 pub mod scoped_control;
 pub mod search;
 pub mod service;
+pub mod session_info;
 pub mod workbench_status;
 
 pub use export::{render_html, render_markdown};
@@ -57,4 +58,7 @@ pub use service::{
     QueuedConversationInputClaim, create_delegated_conversation, create_fork_conversation,
     create_workflow_conversation, finalize_checkpoint_file_changes,
     preview_checkpoint_file_changes,
+};
+pub use session_info::{
+    SessionInfo, load_compact_transcript, resolve_referenced_session, session_info_value,
 };

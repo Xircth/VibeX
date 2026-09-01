@@ -15,6 +15,7 @@ pub mod assistant_reply;
 pub mod broker;
 pub mod depth;
 pub mod event_emitter;
+pub mod host_features;
 pub mod listener;
 pub mod lookups;
 pub mod meta_writer;
@@ -30,13 +31,15 @@ mod testing;
 pub use assistant_reply::AssistantReplyAccumulator;
 pub use broker::{DelegationBroker, StatusWait};
 pub use event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent};
+pub use host_features::HostCompanionFeatures;
 pub use listener::{DelegationListener, default_socket_path};
 pub use lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup, ParentSessionLookup};
 pub use meta_writer::DelegationMetaWriter;
 pub use spawner::{ConnectionSpawner, SpawnerError};
 pub use steering::{
-    CompanionFeaturePort, FeedbackNote, InMemoryCompanionFeatures, NoopCompanionFeatures,
-    PendingQuestion, PendingQuestionWait, SharedCompanionFeatures,
+    CompanionFeaturePort, FeedbackError, FeedbackNote, FeedbackStatus, InMemoryCompanionFeatures,
+    MAX_FEEDBACK_CHARS, NoopCompanionFeatures, PendingQuestion, PendingQuestionWait,
+    SharedCompanionFeatures,
 };
 pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
 pub use token_registry::{TokenEntry, TokenFeature, TokenPermissions, TokenRegistry};

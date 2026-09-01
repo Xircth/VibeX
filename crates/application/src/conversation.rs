@@ -38,6 +38,7 @@ const RESPOND_PERMISSION_SCOPE: &str = "conversation.permission";
 const RESPOND_QUESTION_SCOPE: &str = "conversation.question";
 const CANCEL_CONVERSATION_SCOPE: &str = "conversation.cancel";
 const STEER_CONVERSATION_SCOPE: &str = "conversation.steer";
+const LIVE_FEEDBACK_SCOPE: &str = "conversation.steer";
 const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
 const MAX_OFFLINE_EVENTS: i64 = 10_000;
@@ -465,6 +466,30 @@ pub struct SteerConversationTurnRequest {
     pub images: Vec<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitConversationFeedback {
+    pub conversation_id: Uuid,
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListConversationFeedbackRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct ConversationLiveFeedbackNote {
+    pub id: String,
+    pub text: String,
+    pub created_at: String,
+    pub status: String,
+    pub delivered_at: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitConversationInputRequest {
@@ -633,6 +658,47 @@ pub trait ConversationExecutionPort: Send + Sync {
             "session config is not configured",
         ))
     }
+
+    async fn submit_feedback(
+        &self,
+        _request: SubmitConversationFeedback,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "live feedback is not configured",
+        ))
+    }
+
+    async fn list_feedback(
+        &self,
+        _conversation_id: Uuid,
+    ) -> Result<Vec<ConversationLiveFeedbackNote>, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "live feedback is not configured",
+        ))
+    }
+}
+
+#[async_trait]
+pub trait CompanionSessionPort: Send + Sync {
+    async fn submit_feedback(
+        &self,
+        conversation_id: Uuid,
+        text: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError>;
+
+    async fn list_feedback(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<Vec<ConversationLiveFeedbackNote>, ApplicationError>;
+
+    async fn answer_question(
+        &self,
+        conversation_id: Uuid,
+        question_id: &str,
+        response: agents::AgentElicitationResponse,
+    ) -> Result<bool, ApplicationError>;
+
+    async fn clear_turn(&self, conversation_id: Uuid);
 }
 
 struct UnavailableConversationExecution;
@@ -2250,6 +2316,32 @@ where
                 principal: principal_evidence(principal),
             })
             .await
+    }
+
+    pub async fn submit_conversation_feedback(
+        &self,
+        principal: &Principal,
+        request: SubmitConversationFeedback,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        if !principal.allows(LIVE_FEEDBACK_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.steer",
+            ));
+        }
+        self.execution.submit_feedback(request).await
+    }
+
+    pub async fn list_conversation_feedback(
+        &self,
+        principal: &Principal,
+        request: ListConversationFeedbackRequest,
+    ) -> Result<Vec<ConversationLiveFeedbackNote>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.execution.list_feedback(request.conversation_id).await
     }
 
     pub async fn list_conversation_inputs(

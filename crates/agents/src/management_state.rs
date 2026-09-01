@@ -154,8 +154,9 @@ impl ProbeService {
             .unwrap_or_default()
     }
 
-    /// Attach an external candidate only after every required read-only check
-    /// has been completed by the boundary adapter.
+    /// Attach an external candidate once the path is absolute and the version
+    /// probe succeeded. Handshake and shim hashes are session-time health, not
+    /// adoption gates.
     pub fn adopt_external_candidate(
         &self,
         agent_id: &AgentId,
@@ -165,11 +166,7 @@ impl ProbeService {
         let version = observation
             .version
             .filter(|version| !version.trim().is_empty())?;
-        if !observation.absolute_path.is_absolute()
-            || !observation.version_verified
-            || !observation.hash_verified
-            || !observation.acp_handshake_verified
-        {
+        if !observation.absolute_path.is_absolute() || !observation.version_verified {
             return None;
         }
         Some(VerifiedExternalRuntime {

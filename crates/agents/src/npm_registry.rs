@@ -56,12 +56,18 @@ impl RegistryFetcher for NpmRegistryHttpFetcher {
 
 #[derive(Debug, Clone, Deserialize)]
 struct NpmMetadata {
+    #[serde(default, rename = "dist-tags")]
+    dist_tags: std::collections::BTreeMap<String, String>,
     versions: std::collections::BTreeMap<String, NpmVersion>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct NpmVersion {
     dist: NpmDist,
+    #[serde(default)]
+    dependencies: std::collections::BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependencies")]
+    peer_dependencies: std::collections::BTreeMap<String, String>,
     #[serde(default, rename = "optionalDependencies")]
     optional_dependencies: std::collections::BTreeMap<String, String>,
     #[serde(default)]
@@ -167,44 +173,139 @@ pub async fn verify_npm_component_file(
     }
 }
 
+pub async fn fetch_npm_latest(
+    fetcher: &dyn RegistryFetcher,
+    package_name: &str,
+) -> Result<String, String> {
+    let metadata = fetch_npm_metadata(fetcher, package_name).await?;
+    metadata
+        .dist_tags
+        .get("latest")
+        .cloned()
+        .or_else(|| metadata.versions.keys().next_back().cloned())
+        .ok_or_else(|| format!("npm package `{package_name}` has no latest version"))
+}
+
+pub async fn fetch_npm_package_requirements(
+    fetcher: &dyn RegistryFetcher,
+    package_name: &str,
+    version: &str,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let version_info = fetch_npm_version(fetcher, package_name, version).await?;
+    let mut requirements = version_info.dependencies;
+    for (name, range) in version_info.peer_dependencies {
+        requirements.entry(name).or_insert(range);
+    }
+    Ok(requirements)
+}
+
+/// Warn when a Runtime package version does not satisfy the ACP adapter's
+/// declared dependency range. Missing declarations are not a warning.
+pub fn runtime_acp_compatibility_warning(
+    runtime_package: &str,
+    runtime_version: &str,
+    acp_requirements: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let range = acp_requirements.get(runtime_package)?;
+    if npm_range_allows(range, runtime_version) {
+        return None;
+    }
+    Some(format!(
+        "{runtime_package} {runtime_version} does not satisfy ACP requirement {range}"
+    ))
+}
+
+pub fn npm_range_allows(range: &str, version: &str) -> bool {
+    let version = version.trim().trim_start_matches('v');
+    range
+        .split("||")
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .any(|candidate| npm_single_range_allows(candidate, version))
+}
+
+fn npm_single_range_allows(range: &str, version: &str) -> bool {
+    let range = range.trim();
+    if range == "*" || range == "x" || range == "latest" {
+        return true;
+    }
+    if let Some(minimum) = range.strip_prefix(">=") {
+        return crate::local_detection::version_at_least(version, minimum.trim());
+    }
+    if let Some(minimum) = range.strip_prefix('^') {
+        let minimum = minimum.trim();
+        return same_semver_major(version, minimum)
+            && crate::local_detection::version_at_least(version, minimum);
+    }
+    if let Some(minimum) = range.strip_prefix('~') {
+        let minimum = minimum.trim();
+        return same_semver_minor(version, minimum)
+            && crate::local_detection::version_at_least(version, minimum);
+    }
+    let exact = range.strip_prefix('=').unwrap_or(range).trim();
+    version == exact || crate::local_detection::version_at_least(version, exact)
+}
+
+fn semver_parts(version: &str) -> Vec<u64> {
+    version
+        .split(|character: char| !character.is_ascii_digit() && character != '.')
+        .next()
+        .unwrap_or(version)
+        .split('.')
+        .map_while(|part| part.parse().ok())
+        .collect()
+}
+
+fn same_semver_major(left: &str, right: &str) -> bool {
+    match (semver_parts(left).first(), semver_parts(right).first()) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn same_semver_minor(left: &str, right: &str) -> bool {
+    let left = semver_parts(left);
+    let right = semver_parts(right);
+    matches!(
+        (left.first(), left.get(1), right.first(), right.get(1)),
+        (Some(a), Some(b), Some(c), Some(d)) if a == c && b == d
+    )
+}
+
+async fn fetch_npm_metadata(
+    fetcher: &dyn RegistryFetcher,
+    package_name: &str,
+) -> Result<NpmMetadata, String> {
+    let metadata_url = format!(
+        "https://registry.npmjs.org/{}",
+        package_name.replace('/', "%2f")
+    );
+    match fetcher.fetch(&metadata_url, None).await {
+        Ok(response) if response.status == 200 => {
+            serde_json::from_slice::<NpmMetadata>(&response.body)
+                .map_err(|error| format!("npm metadata for `{package_name}` is invalid: {error}"))
+        }
+        Ok(response) => Err(format!(
+            "npm metadata for `{package_name}` returned status {}",
+            response.status
+        )),
+        Err(error) => Err(format!(
+            "npm metadata fetch for `{package_name}` failed: {error}"
+        )),
+    }
+}
+
 async fn fetch_npm_version(
     fetcher: &dyn RegistryFetcher,
     package_name: &str,
     version: &str,
 ) -> Result<NpmVersion, String> {
-    let metadata_url = format!(
-        "https://registry.npmjs.org/{}",
-        package_name.replace('/', "%2f")
-    );
-    let metadata = match fetcher.fetch(&metadata_url, None).await {
-        Ok(response) if response.status == 200 => {
-            match serde_json::from_slice::<NpmMetadata>(&response.body) {
-                Ok(metadata) => metadata,
-                Err(error) => {
-                    return Err(format!(
-                        "npm metadata for `{package_name}` is invalid: {error}"
-                    ));
-                }
-            }
-        }
-        Ok(response) => {
-            return Err(format!(
-                "npm metadata for `{package_name}` returned status {}",
-                response.status
-            ));
-        }
-        Err(error) => {
-            return Err(format!(
-                "npm metadata fetch for `{package_name}` failed: {error}"
-            ));
-        }
-    };
-    let Some(version_info) = metadata.versions.get(version) else {
-        return Err(format!(
-            "npm package `{package_name}` has no version `{version}`"
-        ));
-    };
-    Ok(version_info.clone())
+    let metadata = fetch_npm_metadata(fetcher, package_name).await?;
+    metadata
+        .versions
+        .get(version)
+        .cloned()
+        .ok_or_else(|| format!("npm package `{package_name}` has no version `{version}`"))
 }
 
 async fn verify_npm_dist_file(
@@ -671,6 +772,45 @@ mod tests {
         assert!(matches!(outcome, NpmVerificationOutcome::Unverifiable(_)));
     }
 
+    #[tokio::test]
+    async fn reads_the_npm_latest_dist_tag() {
+        let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([(
+            "https://registry.npmjs.org/@openai%2fcodex".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "dist-tags": { "latest": "0.148.0" },
+                "versions": { "0.148.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
+            }))
+            .unwrap(),
+        )])));
+        assert_eq!(
+            fetch_npm_latest(&fetcher, "@openai/codex").await.unwrap(),
+            "0.148.0"
+        );
+    }
+
+    #[test]
+    fn warns_when_the_runtime_misses_the_acp_dependency_range() {
+        let requirements = std::collections::BTreeMap::from([(
+            "@openai/codex".to_string(),
+            "^0.148.0".to_string(),
+        )]);
+        assert!(
+            runtime_acp_compatibility_warning("@openai/codex", "0.148.0", &requirements).is_none()
+        );
+        assert_eq!(
+            runtime_acp_compatibility_warning("@openai/codex", "0.146.0", &requirements).as_deref(),
+            Some("@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0")
+        );
+        assert!(
+            runtime_acp_compatibility_warning(
+                "@anthropic-ai/claude-code",
+                "2.1.222",
+                &requirements
+            )
+            .is_none()
+        );
+    }
+
     #[test]
     fn splits_package_and_version_from_npm_specs() {
         assert_eq!(
@@ -689,6 +829,8 @@ mod tests {
                 integrity: String::new(),
                 tarball: String::new(),
             },
+            dependencies: std::collections::BTreeMap::new(),
+            peer_dependencies: std::collections::BTreeMap::new(),
             optional_dependencies: std::collections::BTreeMap::new(),
             os: os.iter().map(|value| (*value).to_string()).collect(),
             cpu: cpu.iter().map(|value| (*value).to_string()).collect(),

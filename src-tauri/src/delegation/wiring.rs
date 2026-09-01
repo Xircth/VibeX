@@ -20,7 +20,6 @@ use tokio::sync::{Mutex, broadcast::error::RecvError};
 
 use crate::delegation::{
     emitter::{NoopMetaWriter, RuntimeEventEmitter},
-    features::RuntimeCompanionFeatures,
     lookups::{DbChildStatusLookup, DbDepthLookup, RuntimeParentLookup},
     resolver::spawn_resolver,
     spawner::RuntimeSpawner,
@@ -65,12 +64,12 @@ pub(crate) fn build_delegation(
     ));
     let tokens = Arc::new(TokenRegistry::new());
     let features = Arc::new(InMemoryCompanionFeatures::new());
-    let runtime_features = Arc::new(RuntimeCompanionFeatures {
-        memory: features.clone(),
-        pool: feature_pool,
-        runtime: runtime.clone(),
-        conversations: conversations::ScopedConversationControl::new(conversation_context),
-    });
+    let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
+        features.clone(),
+        feature_pool,
+        runtime.clone(),
+        conversations::ScopedConversationControl::new(conversation_context),
+    ));
     let socket_path = default_socket_path(&std::env::temp_dir());
 
     spawn_resolver(broker.clone(), runtime.clone(), map);

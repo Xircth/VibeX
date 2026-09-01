@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import type { CatalogListing } from '@/lib/api/plugins';
 
 import {
+  findInstalledPluginForListing,
   flattenMarketplaceListings,
+  listingMatchesPlugin,
   listingsInMarketplaceTab,
   listingTopicCategory,
   marketplaceCategoryTabIds,
+  pluginIdentitiesMatch,
 } from './marketplaceListing';
 
 function listing(
@@ -54,5 +57,70 @@ describe('marketplace listing categories', () => {
     expect(
       listingsInMarketplaceTab(listings, 'all').map((item) => item.pluginName)
     ).toEqual(['vibex.session-enhance', 'notes', 'drawio']);
+  });
+});
+
+describe('marketplace installed matching', () => {
+  it('treats publisher-prefixed and bare plugin ids as the same product', () => {
+    expect(pluginIdentitiesMatch('office', 'vibex.office')).toBe(true);
+    expect(pluginIdentitiesMatch('vibex.office', 'office')).toBe(true);
+    expect(pluginIdentitiesMatch('vibex.office', 'vibex.office')).toBe(true);
+    expect(pluginIdentitiesMatch('notes', 'vibex.office')).toBe(false);
+  });
+
+  it('matches an installed catalog plugin to its marketplace listing', () => {
+    expect(
+      listingMatchesPlugin(
+        { owner: 'vibex', pluginName: 'vibex.office' },
+        { id: 'office', publisher: 'vibex' }
+      )
+    ).toBe(true);
+    expect(
+      listingMatchesPlugin(
+        { owner: 'vibex', pluginName: 'vibex.office' },
+        { id: 'vibex.office' }
+      )
+    ).toBe(true);
+    expect(
+      listingMatchesPlugin(
+        {
+          owner: 'acme',
+          pluginName: 'notes',
+          offlinePluginId: 'acme.notes',
+        },
+        { id: 'acme.notes' }
+      )
+    ).toBe(true);
+    expect(
+      listingMatchesPlugin(
+        { owner: 'acme', pluginName: 'notes' },
+        {
+          id: 'journal',
+          sourceOrigin: 'https://vibex.xforever.xin/marketplace/acme/notes',
+        }
+      )
+    ).toBe(true);
+    expect(
+      listingMatchesPlugin(
+        { owner: 'acme', pluginName: 'notes' },
+        { id: 'office', publisher: 'vibex' }
+      )
+    ).toBe(false);
+  });
+
+  it('finds the installed plugin for a listing', () => {
+    const office = { id: 'office', publisher: 'vibex' };
+    const notes = { id: 'notes', publisher: 'acme' };
+    expect(
+      findInstalledPluginForListing(
+        { owner: 'vibex', pluginName: 'vibex.office' },
+        [office, notes]
+      )
+    ).toBe(office);
+    expect(
+      findInstalledPluginForListing({ owner: 'acme', pluginName: 'notes' }, [
+        office,
+      ])
+    ).toBeUndefined();
   });
 });

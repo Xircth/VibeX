@@ -443,9 +443,40 @@ fn built_in_update_target_pins_profile_locked_versions() {
         .expect("codex declares an acp_adapter component");
     assert_eq!(
         adapter.resolved_source,
-        "@agentclientprotocol/codex-acp@1.1.9"
+        "@agentclientprotocol/codex-acp@1.7.0"
     );
-    assert_eq!(adapter.version, "1.1.9");
+    assert_eq!(adapter.version, "1.7.0");
+}
+
+#[test]
+fn paired_versions_update_runtime_and_acp_independently() {
+    let mut plan = InstallPlanner::bundled()
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("codex").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    agents::apply_component_versions(&mut plan, Some("0.148.0"), Some("1.7.0")).unwrap();
+    let runtime = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")
+        .unwrap();
+    let adapter = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "acp_adapter")
+        .unwrap();
+    assert_eq!(runtime.resolved_source, "@openai/codex@0.148.0");
+    assert_eq!(
+        adapter.resolved_source,
+        "@agentclientprotocol/codex-acp@1.7.0"
+    );
 }
 
 #[test]

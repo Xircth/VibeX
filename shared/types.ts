@@ -1789,7 +1789,7 @@ export type SubscriptionSnapshot = { through_sequence: bigint, payload: JsonValu
 
 export type AcpAuthenticationObservationSnapshot = { state: AuthenticationObservationState, method: AuthenticationMethod, source: AuthenticationSource, observed_at: string, capability_generation: bigint, draft_revision: string, diagnostic_code?: string | null, };
 
-export type AgentUpdateCheckView = { agent_id: AgentId, current_version: string | null, available_version: string | null, update_available: boolean, snapshot_id: string | null, fetched_at: string | null, fresh: boolean, };
+export type AgentUpdateCheckView = { agent_id: AgentId, current_version: string | null, available_version: string | null, update_available: boolean, runtime_current?: string, runtime_available?: string, acp_current?: string, acp_available?: string, compatibility_warning?: string, snapshot_id: string | null, fetched_at: string | null, fresh: boolean, };
 
 export type AuthenticationMethod = "api_key" | "account" | "unknown";
 
@@ -2091,3 +2091,5 @@ export type NotifyStepSpec = { title: string, };
 export type ReachabilityOrigin = { origin: string, kind: string, };
 
 export type ConversationWorkflowRef = { pluginId: string, workflowId: string, };
+
+export type ConversationLiveFeedbackNote = { id: string, text: string, createdAt: string, status: string, deliveredAt: string | null, };

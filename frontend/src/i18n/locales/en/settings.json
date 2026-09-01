@@ -89,12 +89,20 @@
   },
   "appearance": {
     "title": "Appearance",
-    "description": "Manage the app theme, interface zoom, and display language.",
+    "description": "Manage the app theme, accent color, interface zoom, and display language.",
     "theme": {
       "title": "Theme",
       "description": "Choose a light, dark, or system-matching color scheme.",
       "label": "App theme",
       "hint": "Dark mode (Ayu Mirage) is tuned for code-dense sessions."
+    },
+    "accent": {
+      "title": "Accent color",
+      "description": "Used for primary buttons, selection, and focus. Applies instantly and is remembered.",
+      "label": "Accent color",
+      "hex": "Hex",
+      "picker": "Choose accent color",
+      "hue": "Hue"
     },
     "appIcon": {
       "title": "Application icon",
@@ -669,6 +677,7 @@
     "marketplaceLoading": "Loading marketplace",
     "marketplaceFailed": "Marketplace failed to load",
     "install": "Install",
+    "installedStatus": "Installed",
     "installPreviewTitle": "Install plugin",
     "fullTrustConfirm": "After install, this plugin runs with your full computer permissions. It is not sandboxed.",
     "installPreviewSourceLabel": "Source",
@@ -1957,6 +1966,9 @@
     "repairStarted": "Repair started",
     "operationStartFailed": "Unable to start the operation",
     "installStarted": "Runtime and ACP installation started",
+    "runtimeAcpInstallComplete": "Runtime and ACP installation complete",
+    "runtimeAcpUpdateComplete": "Runtime and ACP update complete",
+    "repairComplete": "Installation repair complete",
     "installStartFailed": "Unable to start installation",
     "updateAvailable": "An update is available",
     "upToDate": "Already up to date",
@@ -2019,11 +2031,7 @@
     "moveBackward": "Move backward",
     "checking": "Checking…",
     "checkUpdates": "Check for updates",
-    "updateComparison": "Update comparison",
-    "updateVersions": "Update available: {{current}} → {{available}}",
-    "updateFreshSnapshot": "Compared against the current valid Registry snapshot.",
-    "updateOfflineSnapshot": "Compared against the offline cache. Refresh the Registry before installing the update.",
-    "installUpdate": "Install update",
+
     "actionKind": {
       "login": "Sign in to {{agent}}",
       "logout": "Sign out of {{agent}}",
@@ -2164,8 +2172,11 @@
     "customVersionInstallStarted": "Started installing {{version}}.",
     "customVersionInvalid": "Enter a concrete dotted version. Pre-release and build suffixes are allowed; latest/next are not.",
     "customVersionLabel": "Version",
+    "customRuntimeVersionLabel": "Runtime version",
+    "customAcpVersionLabel": "ACP version",
     "customVersionPlaceholder": "For example, 1.2.3",
-    "customVersionTrustHint": "npm packages are revalidated against registry integrity. A specifically requested binary release uses a first-use fingerprint for that request.",
+    "customVersionTrustHint": "Empty fields install npm latest. Runtime and ACP are written together. A version mismatch is a warning, not a block.",
+
     "repairInstallation": "Repair installation",
     "operationComplete": "Operation complete",
     "operationFailed": "The Agent operation failed. Review diagnostics and try again.",

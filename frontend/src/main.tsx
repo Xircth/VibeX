@@ -12,6 +12,7 @@ import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/errors';
 import { applyHostPlatformToDocument } from '@/utils/platform';
 import { initUiZoom } from '@/lib/uiZoom';
+import { initAccentColor } from '@/lib/uiAccent';
 import { initMonoFont } from '@/lib/uiFont';
 import { initResolvedTheme } from '@/lib/resolvedTheme';
 import { warmDefaultSettingsSurface } from '@/lib/settingsPreload';
@@ -60,6 +61,7 @@ export const queryClient = new QueryClient({
 
 applyHostPlatformToDocument();
 initUiZoom();
+initAccentColor();
 initMonoFont();
 initResolvedTheme();
 warmDefaultSettingsSurface();

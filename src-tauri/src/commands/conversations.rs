@@ -4,10 +4,9 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentAvailableCommand, AgentConnectionId, AgentElicitationId, AgentElicitationResponse,
-    AgentEvent, AgentId, AgentPermissionResponse, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
-    ImportedAgentMessageRole, ImportedAgentSession,
+    AgentAvailableCommand, AgentElicitationResponse, AgentId, AgentPermissionResponse,
+    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
+    AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -417,8 +416,13 @@ pub async fn application_call(
 
     CommandRegistry::new(ApplicationCore::with_execution_and_workflows(
         SqliteConversationRepository::new(state.deployment.db().pool.clone()),
-        std::sync::Arc::new(ConversationSessionExecutionPort::new(
+        std::sync::Arc::new(ConversationSessionExecutionPort::with_companion(
             state.conversation_context(),
+            Some(std::sync::Arc::new(server::CompanionSessionAdapter::new(
+                state.delegation.features.clone(),
+                state.conversation_context(),
+                state.plugin_control_plane.official_product_mcp_gate(),
+            ))),
         )),
         std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
             state.deployment.db().pool.clone(),
@@ -756,85 +760,58 @@ pub async fn conversation_respond_question(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let companion_answer = match &request.response {
-        AgentElicitationResponse::Accept { content } => content
-            .get("answers")
-            .cloned()
-            .unwrap_or_else(|| content.clone()),
-        AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel => {
-            serde_json::json!({ "__declined": true })
-        }
-    };
-    if let Ok(pending) = state
-        .delegation
-        .features
-        .answer_question(&request.question_id, conversation_id, companion_answer)
-        .await
-    {
-        let connection_id = Uuid::parse_str(&pending.scope.parent_connection_id)
-            .map(AgentConnectionId::from)
-            .map_err(|error| {
-                AppError::BadRequest(format!("invalid companion connection id: {error}"))
-            })?;
-        let question_id = Uuid::parse_str(&pending.id)
-            .map(AgentElicitationId)
-            .map_err(|error| {
-                AppError::BadRequest(format!("invalid companion question id: {error}"))
-            })?;
-        state
-            .agent_runtime
-            .emit_external(
-                connection_id,
-                Some(AgentSessionId::from(pending.scope.parent_conversation_id)),
-                AgentEvent::ElicitationResponded {
-                    elicitation_id: question_id,
-                    response: request.response,
-                },
-            )
-            .await;
-        return Ok(());
-    }
-    let result = ConversationSessionService::new(state.conversation_context())
-        .respond_question(conversation_id, request.question_id, request.response)
-        .await;
+    let response = serde_json::to_value(&request.response)
+        .map_err(|error| AppError::BadRequest(format!("invalid question response: {error}")))?;
+    let result = application::ConversationSessionExecutionPort::with_companion(
+        state.conversation_context(),
+        Some(std::sync::Arc::new(server::CompanionSessionAdapter::new(
+            state.delegation.features.clone(),
+            state.conversation_context(),
+            state.plugin_control_plane.official_product_mcp_gate(),
+        ))),
+    )
+    .respond_question(application::RespondConversationQuestion {
+        conversation_id,
+        question_id: request.question_id,
+        response,
+    })
+    .await;
     notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
-    result.map_err(Into::into)
+    result.map_err(map_application_error)
 }
 
 #[tauri::command]
 pub async fn conversation_submit_feedback(
     state: tauri::State<'_, AppState>,
     request: ConversationSubmitFeedbackRequest,
-) -> Result<(), AppError> {
-    let text = request.text.trim();
-    if text.is_empty() {
-        return Err(AppError::BadRequest("feedback is empty".into()));
+) -> Result<application::ConversationLiveFeedbackNote, AppError> {
+    application::ConversationSessionExecutionPort::with_companion(
+        state.conversation_context(),
+        Some(std::sync::Arc::new(server::CompanionSessionAdapter::new(
+            state.delegation.features.clone(),
+            state.conversation_context(),
+            state.plugin_control_plane.official_product_mcp_gate(),
+        ))),
+    )
+    .submit_feedback(application::SubmitConversationFeedback {
+        conversation_id: Uuid::parse_str(&request.conversation_id)
+            .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?,
+        text: request.text,
+    })
+    .await
+    .map_err(map_application_error)
+}
+
+use application::ConversationExecutionPort;
+
+fn map_application_error(error: application::ApplicationError) -> AppError {
+    let envelope = error.into_envelope();
+    match envelope.code {
+        remote_protocol::ErrorCode::NotFound => AppError::NotFound(envelope.message),
+        remote_protocol::ErrorCode::Conflict => AppError::Conflict(envelope.message),
+        remote_protocol::ErrorCode::Internal => AppError::Internal(envelope.message),
+        _ => AppError::BadRequest(envelope.message),
     }
-    let conversation_id = Uuid::parse_str(&request.conversation_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    let gate = state.plugin_control_plane.official_product_mcp_gate();
-    if !gate.allow_session_mcp() || gate.session_features() & plugins::SESSION_FEAT_FEEDBACK == 0 {
-        return Err(AppError::Conflict("live feedback is off".into()));
-    }
-    let connection_id = state
-        .conversation_runtime_states
-        .lock()
-        .await
-        .get(&conversation_id)
-        .and_then(|runtime| runtime.connection_id.clone())
-        .ok_or_else(|| AppError::Conflict("no live session".into()))?;
-    state
-        .delegation
-        .features
-        .push_feedback(
-            delegation::DelegationScope {
-                parent_connection_id: connection_id,
-                parent_conversation_id: conversation_id,
-            },
-            text,
-        )
-        .await;
-    Ok(())
 }
 
 /// Immediately switch the conversation's live ACP session mode

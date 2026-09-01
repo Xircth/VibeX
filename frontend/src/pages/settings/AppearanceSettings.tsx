@@ -6,6 +6,7 @@ import {
   ListTree,
   Loader2,
   Maximize2,
+  Palette,
   Sun,
   Type,
 } from 'lucide-react';
@@ -53,6 +54,7 @@ import {
   setKanbanSessionListView,
   type KanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
+import { AccentColorField } from './AccentColorField';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import {
   KanbanLayoutSchematic,
@@ -189,6 +191,19 @@ export function AppearanceSettings() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Palette}
+          title={t('appearance.accent.title')}
+          description={t('appearance.accent.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.accent.label')}</Label>
+            </div>
+            <AccentColorField />
           </div>
         </SettingsSection>
 

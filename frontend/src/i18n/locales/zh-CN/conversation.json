@@ -157,7 +157,8 @@
     "title": "问题",
     "questionLabel": "问题",
     "optionsLabel": "选项",
-    "answerLabel": "回答"
+    "answerLabel": "回答",
+    "declined": "已跳过"
   },
   "permissionRequestCard": {
     "title": "权限申请",
@@ -241,10 +242,13 @@
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",
-    "send": "发送"
+    "send": "发送",
+    "pending": "等待读取",
+    "delivered": "已读取"
   },
   "feedbackCheck": {
-    "label": "反馈",
+    "label": "实时反馈",
+    "count": "{{count}} 条备注",
     "checkItems": "检查项",
     "result": "结果"
   },

@@ -157,7 +157,8 @@
     "title": "Question",
     "questionLabel": "Question",
     "optionsLabel": "Options",
-    "answerLabel": "Answer"
+    "answerLabel": "Answer",
+    "declined": "Dismissed"
   },
   "permissionRequestCard": {
     "title": "Permission Request",
@@ -241,10 +242,13 @@
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",
-    "send": "Send"
+    "send": "Send",
+    "pending": "Waiting",
+    "delivered": "Read"
   },
   "feedbackCheck": {
-    "label": "Feedback",
+    "label": "Live feedback",
+    "count": "{{count}} notes",
     "checkItems": "Check Items",
     "result": "Result"
   },

@@ -106,27 +106,26 @@ describe('shared raised controls', () => {
     const design = readFileSync(join(frontendRoot, '../DESIGN.md'), 'utf8');
 
     expect(css).toContain('--_radius: 0.875rem;');
-    expect(css).toContain('--_primary: 219.7 52.99% 50.78%;');
-    expect(css).toContain('--_primary-foreground: 0 0% 100%;');
-    expect(css).toContain('--primary-control-foreground: hsl(0 0% 100%);');
+    expect(css).toContain('--_primary: var(--accent-hsl, 0 0% 9.02%);');
+    expect(css).toContain(
+      '--_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);'
+    );
+    expect(css).toContain(
+      '--primary-control-foreground: hsl(var(--_primary-foreground));'
+    );
     expect(css).toContain('--switch-checked-track: hsl(213 25% 15%);');
     expect(css).toContain('--switch-checked-thumb: hsl(0 0% 100%);');
     expect(css).toContain('--switch-checked-border: hsl(0 0% 100% / 0.34);');
     expect(css).toContain('--_ring: var(--_primary);');
     expect(css).toContain('--surface-raised-control: hsl(220 14% 97%);');
-    expect(css).toContain(
-      '--shadow-raised-control: 0 0 4px hsl(220 36% 8% / 0.14);'
-    );
-    expect(css).toContain('border: 0 !important;');
-    expect(css).toContain(
-      'box-shadow: var(--shadow-raised-control) !important;'
-    );
+    expect(css).toContain('border: 1px solid var(--border-subtle) !important;');
+    expect(css).toContain('box-shadow: none !important;');
     expect(css).toContain('.primary-control,');
     expect(css).toContain('.destructive-control {');
-    expect(design).toContain('primary: "#3F6CC4"');
+    expect(design).toContain('primary: "#171717"');
     expect(design).toContain('primary-control-foreground: "#ffffff"');
-    expect(design).toContain('border: "none"');
-    expect(design).toContain('shadow: "0 0 4px #0d121c24"');
+    expect(design).toContain('border: "1px solid {colors.border-subtle}"');
+    expect(design).toContain('shadow: "none"');
     expect(css).toContain(".raised-control[aria-disabled='true']");
     expect(css).toContain('opacity: 0.5;');
     expect(tailwind).toContain("DEFAULT: 'var(--radius)'");

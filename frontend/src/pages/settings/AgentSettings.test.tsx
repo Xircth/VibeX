@@ -129,6 +129,15 @@ describe('AgentSettings', () => {
       checked_at: '2026-08-21T00:00:00Z',
       items: [],
     });
+    api.checkUpdate.mockResolvedValue({
+      agent_id: 'codex',
+      current_version: null,
+      available_version: null,
+      update_available: false,
+      snapshot_id: null,
+      fetched_at: null,
+      fresh: false,
+    });
     api.diagnostics.mockResolvedValue([]);
     api.markDiagnosticsRead.mockResolvedValue(undefined);
     api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
@@ -390,9 +399,7 @@ describe('AgentSettings', () => {
       screen.queryByLabelText('OpenAI API Key', { selector: 'input' })
     ).not.toBeVisible();
 
-    await waitFor(() =>
-      expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
-    );
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
     const callsAfterLoad = api.preflight.mock.calls.length;
 
     api.setAuthMode.mockResolvedValue({
@@ -855,7 +862,7 @@ describe('AgentSettings', () => {
     );
   });
 
-  it('checks the selected Agent auth mode before a full preflight', async () => {
+  it('runs a local preflight for the selected Agent immediately', async () => {
     const loggedOut = {
       agent_id: 'codex',
       display_name: 'Codex',
@@ -892,67 +899,112 @@ describe('AgentSettings', () => {
       available_version: null,
       update_group: null,
     };
-    api.preflight.mockImplementation(
-      async (agentId: string, scope?: string) => {
-        if (scope === 'authentication') {
-          authenticated = true;
-          return {
-            agent_id: agentId,
-            checked_at: '2026-08-22T00:00:00Z',
-            items: [
-              {
-                ...item,
-                id: 'auth.mode',
-                label: '鉴权模式',
-                status: 'pass',
-                detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
-                version: 'chatgpt_subscription',
-                path: '/tmp/.codex/auth.json',
-              },
-            ],
-          };
-        }
-        return {
-          agent_id: agentId,
-          checked_at: '2026-08-22T00:00:00Z',
-          items: [
-            {
-              ...item,
-              id: 'runtime',
-              label: '本地 Runtime',
-              status: 'pass',
-              detail: '',
-              version: '1.0.0',
-              path: '/usr/local/bin/codex',
-            },
-            {
-              ...item,
-              id: 'auth.mode',
-              label: '鉴权模式',
-              status: 'pass',
-              detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
-              version: 'chatgpt_subscription',
-              path: '/tmp/.codex/auth.json',
-            },
-          ],
-        };
-      }
-    );
+    api.preflight.mockImplementation(async (agentId: string) => {
+      authenticated = true;
+      return {
+        agent_id: agentId,
+        checked_at: '2026-08-22T00:00:00Z',
+        items: [
+          {
+            ...item,
+            id: 'runtime',
+            label: '本地 Runtime',
+            status: 'pass',
+            detail: '',
+            version: '1.0.0',
+            path: '/usr/local/bin/codex',
+          },
+          {
+            ...item,
+            id: 'auth.mode',
+            label: '鉴权模式',
+            status: 'pass',
+            detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
+            version: 'chatgpt_subscription',
+            path: '/tmp/.codex/auth.json',
+          },
+        ],
+      };
+    });
 
     render(<AgentSettings />);
 
     expect(await screen.findByText('暂未登录')).toBeVisible();
-    await waitFor(() =>
-      expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
-    );
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
     expect(await screen.findByText('已通过账号登录')).toBeVisible();
     expect(await screen.findByText('未获得有效用户信息')).toBeVisible();
-    expect(api.preflight.mock.calls[0]).toEqual(['codex', 'authentication']);
+    expect(api.preflight.mock.calls[0]).toEqual(['codex']);
+  });
+
+  it('applies a background update check after local preflight without blocking the list', async () => {
+    api.preflight.mockResolvedValue({
+      agent_id: 'codex',
+      checked_at: '2026-08-22T00:00:00Z',
+      items: [
+        {
+          id: 'runtime',
+          label: '本地 Runtime',
+          status: 'pass',
+          detail: '',
+          version: '1.0.0',
+          path: '/usr/local/bin/codex',
+          source: null,
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '1.1.0',
+          path: '/usr/local/bin/codex-acp',
+          source: null,
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    });
+    let finishUpdate: (value: unknown) => void = () => undefined;
+    api.checkUpdate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishUpdate = resolve;
+        })
+    );
+
+    render(<AgentSettings />);
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
+    expect(await screen.findByTitle('1.0.0')).toBeInTheDocument();
+    expect(screen.queryByText('可更新')).not.toBeInTheDocument();
     expect(
-      api.preflight.mock.calls.some(
-        (call) => call.length === 1 || call[1] === undefined
-      )
-    ).toBe(false);
+      screen.queryByRole('button', { name: '立即检查' })
+    ).not.toHaveAttribute('disabled');
+    await waitFor(() => expect(api.checkUpdate).toHaveBeenCalledWith('codex'));
+
+    await act(async () => {
+      finishUpdate({
+        agent_id: 'codex',
+        current_version: '1.1.0',
+        available_version: '1.7.0',
+        update_available: true,
+        runtime_current: '1.0.0',
+        runtime_available: '0.148.0',
+        acp_current: '1.1.0',
+        acp_available: '1.7.0',
+        snapshot_id: null,
+        fetched_at: null,
+        fresh: true,
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getAllByText('可更新')).toHaveLength(2)
+    );
   });
 
   it('refreshes login status after a terminal account flow finishes', async () => {
@@ -1067,13 +1119,70 @@ describe('AgentSettings', () => {
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 
-  it('refreshes preflight immediately after an update finishes', async () => {
+  it('updates Runtime and ACP preflight items and toasts when an update finishes', async () => {
+    api.preflight.mockResolvedValue({
+      agent_id: 'codex',
+      checked_at: '2026-08-21T00:00:00Z',
+      items: [
+        {
+          id: 'runtime',
+          label: '本地 Runtime',
+          status: 'pass',
+          detail: '',
+          version: '1.0.0',
+          path: '/opt/codex',
+          source: null,
+          repairable: false,
+          update_available: true,
+          available_version: '0.148.0',
+          update_group: 'runtime-acp',
+        },
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '1.1.0',
+          path: '/opt/codex-acp',
+          source: null,
+          repairable: true,
+          update_available: true,
+          available_version: '1.7.0',
+          update_group: 'runtime-acp',
+        },
+      ],
+    });
+    const success = vi.spyOn(toast, 'success');
     render(<AgentSettings />);
     await screen.findByRole('button', { name: 'Codex' });
     await waitFor(() =>
       expect(listeners.has('agent-management-event')).toBe(true)
     );
+    expect(await screen.findByTitle('1.0.0')).toBeInTheDocument();
+    expect(screen.getByTitle('1.1.0')).toBeInTheDocument();
     api.preflight.mockClear();
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '0.148.0',
+        acp_version: '1.7.0',
+        active_operation: null,
+        rollback_available: true,
+        settings_features: ['authentication_mode'],
+      },
+    ]);
 
     await act(async () => {
       listeners.get('agent-management-event')?.({
@@ -1098,7 +1207,15 @@ describe('AgentSettings', () => {
       });
     });
 
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith('已完成 Runtime 与 ACP 更新')
+    );
+    expect(api.preflight).not.toHaveBeenCalledWith('codex');
+    await waitFor(() =>
+      expect(screen.getByTitle('0.148.0')).toBeInTheDocument()
+    );
+    expect(screen.getByTitle('1.7.0')).toBeInTheDocument();
+    expect(screen.queryByText('可更新')).not.toBeInTheDocument();
   });
 });
 

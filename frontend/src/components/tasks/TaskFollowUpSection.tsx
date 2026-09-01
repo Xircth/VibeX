@@ -48,7 +48,7 @@ import {
 import { SessionComposerFrame } from './follow-up/SessionComposerFrame';
 import { DraftConflictBanner } from './follow-up/DraftConflictBanner';
 import { AgentMentionProvider } from './follow-up/AgentMention';
-import { LiveFeedbackBar } from './follow-up/LiveFeedbackBar';
+import { LiveFeedbackNotes } from './follow-up/LiveFeedbackBar';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
@@ -107,6 +107,7 @@ import {
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
 import { configuredBackendTransport } from '@/lib/backendTransport';
+import { createPluginControlApi } from '@/lib/api/plugins';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
 import { useConversationAvailableCommands } from '@/features/conversation/useConversationAvailableCommands';
 
@@ -232,6 +233,33 @@ export function TaskFollowUpSection({
     },
     enabled: Boolean(sessionId && isComposerExecutionRunning),
     refetchInterval: isComposerExecutionRunning ? 2_000 : false,
+  });
+  const pluginApi = useMemo(
+    () => createPluginControlApi(configuredBackendTransport),
+    []
+  );
+  const { data: liveFeedbackOn } = useQuery({
+    queryKey: ['session-enhance-feedback'],
+    queryFn: async () => {
+      const catalog = await pluginApi.catalog();
+      const plugin = catalog.plugins.find(
+        (item) => item.id === 'vibex.session-enhance'
+      );
+      if (!plugin?.enabled) return false;
+      const detail = await pluginApi.productDetail(plugin.id);
+      return detail.config.feedback !== false;
+    },
+    staleTime: 5_000,
+  });
+  const { data: liveFeedbackNotes = [] } = useQuery({
+    queryKey: ['conversation-live-feedback', sessionId],
+    queryFn: async () => {
+      if (!sessionId) return [];
+      return conversationApi.listFeedback(sessionId);
+    },
+    enabled: Boolean(sessionId && isComposerExecutionRunning && liveFeedbackOn),
+    refetchInterval:
+      isComposerExecutionRunning && liveFeedbackOn ? 2_000 : false,
   });
   const summaryRepoId = useMemo(
     () => getSummaryRepoId(selectedRepoId, repos),
@@ -598,7 +626,7 @@ export function TaskFollowUpSection({
   });
   const [isSteering, setIsSteering] = useState(false);
   const handleSteer = useCallback(async () => {
-    if (!sessionId || !steeringTarget) return;
+    if (!sessionId) return;
     const followUp = buildQueuedFollowUp({
       message: localMessage,
       conflictMarkdown: conflictResolutionInstructions,
@@ -614,24 +642,39 @@ export function TaskFollowUpSection({
     setIsSteering(true);
     setFollowUpError(null);
     try {
-      const receipt = await conversationApi.steer({
-        conversationId: sessionId,
-        expectedTurnId: steeringTarget.turnId,
-        text: followUp.message,
-        images: followUp.images,
-      });
-      if (receipt.status === 'accepted') {
-        cancelDebouncedSave();
-        await handleAfterSendWithSessionControlCleanup();
+      if (steeringTarget) {
+        const receipt = await conversationApi.steer({
+          conversationId: sessionId,
+          expectedTurnId: steeringTarget.turnId,
+          text: followUp.message,
+          images: followUp.images,
+        });
+        if (receipt.status === 'accepted') {
+          cancelDebouncedSave();
+          await handleAfterSendWithSessionControlCleanup();
+          return;
+        }
+        setFollowUpError(
+          receipt.status === 'unknown'
+            ? `纠偏送达状态未知；为避免重复注入，内容已保留。${receipt.message ? ` ${receipt.message}` : ''}`
+            : receipt.message || 'Agent 未接受本次运行中纠偏。'
+        );
         return;
       }
-      setFollowUpError(
-        receipt.status === 'unknown'
-          ? `纠偏送达状态未知；为避免重复注入，内容已保留。${receipt.message ? ` ${receipt.message}` : ''}`
-          : receipt.message || 'Agent 未接受本次运行中纠偏。'
-      );
+      await conversationApi.submitFeedback({
+        conversationId: sessionId,
+        text: followUp.message,
+      });
+      cancelDebouncedSave();
+      await handleAfterSendWithSessionControlCleanup();
     } catch (error) {
-      setFollowUpError(error instanceof Error ? error.message : String(error));
+      const message =
+        error instanceof Error ? error.message : String(error);
+      if (/no active turn/i.test(message)) {
+        setFollowUpError('回合已结束，内容已保留。请发送或加入队列。');
+        return;
+      }
+      setFollowUpError(message);
     } finally {
       setIsSteering(false);
     }
@@ -962,10 +1005,7 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
-          <LiveFeedbackBar
-            conversationId={sessionId}
-            visible={isComposerExecutionRunning}
-          />
+          <LiveFeedbackNotes notes={liveFeedbackNotes} />
           <AgentMentionProvider
             transport={configuredBackendTransport}
             conversationId={sessionId}
@@ -1008,7 +1048,9 @@ export function TaskFollowUpSection({
             isCompactingContext={isCompactingContext}
             isStopping={isStopping}
             isSteering={isSteering}
-            supportsSteering={Boolean(steeringTarget)}
+            supportsSteering={
+              Boolean(steeringTarget) || Boolean(liveFeedbackOn)
+            }
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}
             isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -122,7 +122,7 @@ describe('AgentDetail', () => {
           onInstall={vi.fn()}
           onRepair={vi.fn()}
           onCheckUpdate={vi.fn()}
-          onApplyUpdate={vi.fn()}
+
           onRollback={vi.fn()}
           onCancelOperation={vi.fn()}
           onUninstall={vi.fn()}
@@ -227,7 +227,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -288,7 +288,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={onRepair}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -375,7 +375,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -418,7 +418,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -461,7 +461,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={onCancelOperation}
         onUninstall={vi.fn()}
@@ -502,7 +502,7 @@ describe('AgentDetail', () => {
         onInstallVersion={onInstallVersion}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -512,16 +512,87 @@ describe('AgentDetail', () => {
     );
 
     await userEvent.click(screen.getByText('指定版本安装'));
-    const input = screen.getByLabelText('版本');
+    const runtimeInput = screen.getByLabelText('Runtime 版本');
+    const acpInput = screen.getByLabelText('ACP 版本');
     const submit = screen.getByRole('button', { name: '安装此版本' });
-    await userEvent.type(input, 'latest');
+    await userEvent.type(acpInput, 'latest');
     expect(submit).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('具体的点分版本号');
-    await userEvent.clear(input);
-    await userEvent.type(input, 'v2.1.0-beta.1');
+    await userEvent.clear(acpInput);
+    await userEvent.type(runtimeInput, '0.148.0');
+    await userEvent.type(acpInput, 'v1.7.0');
     await userEvent.click(submit);
 
-    expect(onInstallVersion).toHaveBeenCalledWith('v2.1.0-beta.1');
+    expect(onInstallVersion).toHaveBeenCalledWith({
+      runtimeVersion: '0.148.0',
+      acpVersion: 'v1.7.0',
+    });
+  });
+
+  it('warns about a Runtime/ACP mismatch without blocking the specified install', async () => {
+    const onInstallVersion = vi.fn();
+    const onPreviewVersions = vi.fn().mockResolvedValue(
+      '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0'
+    );
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={{
+          agent_id: 'codex',
+          current_version: '1.5.0',
+          available_version: '1.7.0',
+          update_available: true,
+          runtime_current: '0.146.0',
+          runtime_available: '0.148.0',
+          acp_current: '1.5.0',
+          acp_available: '1.7.0',
+          compatibility_warning:
+            '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0',
+          snapshot_id: null,
+          fetched_at: null,
+          fresh: true,
+        }}
+        onSetEnabled={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onInstallVersion={onInstallVersion}
+        onPreviewVersions={onPreviewVersions}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByText('指定版本安装'));
+    await userEvent.type(screen.getByLabelText('Runtime 版本'), '0.146.0');
+    await userEvent.type(screen.getByLabelText('ACP 版本'), '1.7.0');
+    const submit = screen.getByRole('button', { name: '安装此版本' });
+    expect(submit).toBeEnabled();
+    await waitFor(() =>
+      expect(onPreviewVersions).toHaveBeenCalledWith({
+        runtimeVersion: '0.146.0',
+        acpVersion: '1.7.0',
+      })
+    );
+    expect(
+      screen.getAllByText(
+        '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0'
+      ).length
+    ).toBeGreaterThan(0);
+    await userEvent.click(submit);
+    expect(onInstallVersion).toHaveBeenCalledWith({
+      runtimeVersion: '0.146.0',
+      acpVersion: '1.7.0',
+    });
   });
 
   it('uses stable English semantics instead of backend Chinese messages', async () => {
@@ -549,7 +620,7 @@ describe('AgentDetail', () => {
           onInstall={vi.fn()}
           onRepair={vi.fn()}
           onCheckUpdate={vi.fn()}
-          onApplyUpdate={vi.fn()}
+
           onRollback={vi.fn()}
           onCancelOperation={vi.fn()}
           onUninstall={vi.fn()}
@@ -611,7 +682,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={onUninstall}
@@ -657,23 +728,42 @@ describe('AgentDetail', () => {
     expect(onExportDiagnostics).toHaveBeenCalledOnce();
   });
 
-  it('requires an explicit second action before applying an available update', async () => {
+  it('keeps update install on the preflight row instead of a separate banner', async () => {
     const onCheckUpdate = vi.fn();
-    const onApplyUpdate = vi.fn();
-    const { rerender } = render(
+    const onUpdatePreflightItem = vi.fn();
+    render(
       <AgentDetail
         agent={agent}
         operation={null}
-        preflight={preflight}
+        preflight={{
+          ...preflight,
+          items: preflight.items.map((item) =>
+            item.id === 'acp'
+              ? {
+                  ...item,
+                  update_available: true,
+                  available_version: '1.7.0',
+                }
+              : item
+          ),
+        }}
         checking={false}
         checkingUpdate={false}
-        updateCheck={null}
+        updateCheck={{
+          agent_id: agent.agent_id,
+          current_version: '1.1.9',
+          available_version: '1.7.0',
+          update_available: true,
+          snapshot_id: 'snapshot-1',
+          fetched_at: '2026-07-30T00:00:00Z',
+          fresh: false,
+        }}
         onSetEnabled={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
-        onApplyUpdate={onApplyUpdate}
+        onUpdatePreflightItem={onUpdatePreflightItem}
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -684,41 +774,12 @@ describe('AgentDetail', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '检查更新' }));
     expect(onCheckUpdate).toHaveBeenCalledOnce();
-    expect(onApplyUpdate).not.toHaveBeenCalled();
-
-    rerender(
-      <AgentDetail
-        agent={agent}
-        operation={null}
-        preflight={preflight}
-        checking={false}
-        checkingUpdate={false}
-        updateCheck={{
-          agent_id: agent.agent_id,
-          current_version: '1.0.0',
-          available_version: '1.1.0',
-          update_available: true,
-          snapshot_id: 'snapshot-1',
-          fetched_at: '2026-07-30T00:00:00Z',
-          fresh: true,
-        }}
-        onSetEnabled={vi.fn()}
-        onPreflight={vi.fn()}
-        onInstall={vi.fn()}
-        onRepair={vi.fn()}
-        onCheckUpdate={onCheckUpdate}
-        onApplyUpdate={onApplyUpdate}
-        onRollback={vi.fn()}
-        onCancelOperation={vi.fn()}
-        onUninstall={vi.fn()}
-        onRemove={vi.fn()}
-        onExportDiagnostics={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText('可更新：1.0.0 → 1.1.0')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '安装更新' }));
-    expect(onApplyUpdate).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole('button', { name: '安装更新' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/可更新：/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '可更新' }));
+    expect(onUpdatePreflightItem).toHaveBeenCalledWith('acp');
   });
 
   it('starts a preflight item update from the available status', async () => {
@@ -747,7 +808,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onUpdatePreflightItem={onUpdatePreflightItem}
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
@@ -802,7 +863,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -851,7 +912,7 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-        onApplyUpdate={vi.fn()}
+
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}

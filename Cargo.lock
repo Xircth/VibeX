@@ -1525,9 +1525,12 @@ version = "0.1.7"
 dependencies = [
  "agents",
  "async-trait",
+ "chrono",
+ "conversations",
  "delegation-proto",
  "serde",
  "serde_json",
+ "sqlx",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

@@ -12,8 +12,8 @@
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;
-    --_primary: 219.7 52.99% 50.78%;
-    --_primary-foreground: 0 0% 100%;
+    --_primary: var(--accent-hsl, 0 0% 9.02%);
+    --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
     --_secondary: 0 0% 94%;
     --_secondary-foreground: 213 10% 37%;
     --_muted: 220 4% 91%;
@@ -61,8 +61,8 @@
     color-scheme: dark;
     --_background: 220 22% 14%;
     --_foreground: 215 20% 73%;
-    --_primary: 219.7 52.99% 50.78%;
-    --_primary-foreground: 0 0% 100%;
+    --_primary: var(--accent-hsl, 0 0% 9.02%);
+    --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
     --_secondary: 220 20% 17%;
     --_secondary-foreground: 215 20% 73%;
     --_muted: 220 18% 20%;
@@ -209,7 +209,7 @@
     --text-muted: hsl(213 8% 45%);
     --text-subtle: hsl(214 7% 56%);
     --text-faint: hsl(214 6% 66%);
-    --primary-control-foreground: hsl(0 0% 100%);
+    --primary-control-foreground: hsl(var(--_primary-foreground));
     --switch-checked-track: hsl(213 25% 15%);
     --switch-checked-border: var(--switch-checked-track);
     --switch-checked-thumb: hsl(0 0% 100%);
@@ -248,7 +248,6 @@
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
     --shadow-control:
       0 1px 1px hsl(220 36% 8% / 0.08), 0 2px 4px hsl(220 36% 8% / 0.1);
-    --shadow-raised-control: 0 0 4px hsl(220 36% 8% / 0.14);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
     --status-running: var(--info);
@@ -326,7 +325,6 @@
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
     --shadow-control:
       0 1px 1px hsl(220 48% 2% / 0.2), 0 2px 4px hsl(220 48% 2% / 0.3);
-    --shadow-raised-control: 0 0 4px hsl(220 48% 2% / 0.38);
     --switch-checked-border: hsl(0 0% 100% / 0.34);
     --usage-pink: hsl(340 26% 24% / 0.6);
     --usage-pink-border: hsl(340 34% 66% / 0.22);
@@ -2014,14 +2012,15 @@
   }
 
   .raised-control {
-    border: 0 !important;
+    border: 1px solid var(--border-subtle) !important;
     border-radius: var(--radius) !important;
     background: var(--surface-raised-control) !important;
-    box-shadow: var(--shadow-raised-control) !important;
+    box-shadow: none !important;
     color: var(--text-strong) !important;
     transition:
       color 150ms cubic-bezier(0.22, 1, 0.36, 1),
       background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -2033,14 +2032,11 @@
   .raised-control[aria-disabled='true'] {
     cursor: not-allowed;
     opacity: 0.5;
-    box-shadow: none !important;
   }
 
   .raised-control:focus-visible {
     outline: none;
-    box-shadow:
-      var(--shadow-raised-control),
-      0 0 0 2px var(--focus-ring) !important;
+    box-shadow: 0 0 0 2px var(--focus-ring) !important;
   }
 
   .primary-control,
@@ -11036,7 +11032,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-size: 0.75rem;
 }
 
-.settings-page .product-plugin-search input.product-plugin-search-input::placeholder {
+.settings-page
+  .product-plugin-search
+  input.product-plugin-search-input::placeholder {
   color: var(--text-secondary);
   opacity: 1;
 }
@@ -11232,6 +11230,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   gap: 8px;
   padding-left: 12px;
+}
+
+.settings-page .product-plugin-installed {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .settings-page .product-plugin-row-spinner {

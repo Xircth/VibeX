@@ -5,10 +5,13 @@ edition = "2024"
 
 [dependencies]
 agents = { path = "../agents" }
+conversations = { path = "../conversations" }
 delegation-proto = { path = "../delegation-proto" }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

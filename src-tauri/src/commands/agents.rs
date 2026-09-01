@@ -1192,12 +1192,15 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
         // External installs carry no integrity evidence, but the session must
         // still fail with an actionable repair request when the adopted binary
         // has been removed or relocated since adoption.
-        if agents::launch_program_available(&launch_lock.absolute_acp_program) {
+        let program = agents::prefer_path_launch_program(&launch_lock.absolute_acp_program);
+        if agents::launch_program_available(&program) {
+            let mut launch_lock = launch_lock;
+            launch_lock.absolute_acp_program = program;
             Ok(launch_lock)
         } else {
             Err(LaunchGateError::Missing {
                 component_kind: "acp".to_string(),
-                path: launch_lock.absolute_acp_program.clone(),
+                path: program,
             })
         }
     } else {

@@ -201,12 +201,6 @@ impl HeadlessServer {
             .sync_official_product_mcp_gate()
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-        let delegation_runtime = HeadlessDelegationRuntime::start(
-            agent_runtime.clone(),
-            pool.clone(),
-            conversation_context.clone(),
-            plugin_control_plane.official_product_mcp_gate(),
-        );
         let app_surfaces = Arc::new(plugins::PluginAppSurfaceHost::new(
             plugin_control_plane.clone(),
         ));
@@ -236,10 +230,17 @@ impl HeadlessServer {
         .reconcile_interrupted()
         .await
         .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        let (delegation_runtime, companion_memory) = HeadlessDelegationRuntime::start(
+            agent_runtime.clone(),
+            pool.clone(),
+            conversation_context.clone(),
+            plugin_control_plane.official_product_mcp_gate(),
+        );
         let core = crate::host_application_core(
             pool.clone(),
             conversation_context.clone(),
             plugin_control_plane,
+            Some(companion_memory),
             preview_host,
             capability_broker,
             app_surfaces,

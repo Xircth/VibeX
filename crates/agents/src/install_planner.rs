@@ -138,6 +138,65 @@ impl ResolvedInstallPlan {
     }
 }
 
+pub fn apply_npx_component_version(component: &mut PlannedInstallComponent, version: &str) {
+    let package = crate::local_detection::npm_package_name(&component.resolved_source);
+    component.resolved_source = format!("{package}@{version}");
+    component.version = version.to_string();
+    component.trust = ArtifactTrust::EcosystemIntegrityRequired;
+}
+
+/// Apply independently chosen Runtime and ACP versions. Combined runtimes use
+/// the ACP version when both are supplied.
+pub fn apply_component_versions(
+    plan: &mut ResolvedInstallPlan,
+    runtime_version: Option<&str>,
+    acp_version: Option<&str>,
+) -> Result<(), String> {
+    let mut changed = false;
+    for component in &mut plan.components {
+        let selected = match component.component_id.as_str() {
+            "agent_runtime" => runtime_version,
+            "acp_adapter" => acp_version,
+            "combined_runtime" => acp_version.or(runtime_version),
+            _ => None,
+        };
+        let Some(version) = selected.filter(|version| !version.is_empty()) else {
+            continue;
+        };
+        match component.distribution_kind {
+            PlannedDistributionKind::Npx => apply_npx_component_version(component, version),
+            PlannedDistributionKind::Binary => {
+                if plan.version.is_empty() || !component.resolved_source.contains(&plan.version) {
+                    return Err("当前二进制下载地址无法安全替换指定版本".to_string());
+                }
+                component.resolved_source =
+                    component.resolved_source.replace(&plan.version, version);
+                component.version = version.to_string();
+                component.trust = ArtifactTrust::Tofu;
+            }
+            PlannedDistributionKind::Uvx => {
+                return Err("uvx Agent 不支持指定版本安装".to_string());
+            }
+        }
+        changed = true;
+    }
+    if !changed {
+        return Err("Agent 的安装方案没有可替换的版本组件".to_string());
+    }
+    if let Some(version) = runtime_version.filter(|version| !version.is_empty()) {
+        plan.version = version.to_string();
+    }
+    if let Some(version) = acp_version.filter(|version| !version.is_empty())
+        && plan
+            .components
+            .iter()
+            .all(|component| component.component_id != "agent_runtime")
+    {
+        plan.version = version.to_string();
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InstallPlanningError {
     #[error("no Built-in Profile exists for {agent_id}")]

@@ -111,6 +111,11 @@ describe('AppearanceSettings', () => {
     mocks.backendEmit.mockResolvedValue(undefined);
   });
 
+  it('shows the accent color setting', () => {
+    render(<AppearanceSettings />);
+    expect(screen.getByRole('heading', { name: '强调色' })).toBeInTheDocument();
+  });
+
   it('applies immediate display preferences and persists the theme on save', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);

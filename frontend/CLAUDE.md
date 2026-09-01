@@ -59,9 +59,9 @@ Dark/light mode is toggled via `.dark` on the root element.
 
 All standard corner utilities resolve through `--radius` (`14px`). Use
 `rounded-full` only for true circles, avatars, and status pills. Secondary and
-outline actions plus selectors use the shared borderless raised-control surface
-and centered-shadow tokens; apply `.raised-control` to native controls and do
-not recreate the light fill or shadow locally.
+outline actions plus selectors use the shared raised-control surface (light
+fill + 1px hairline, no drop shadow); apply `.raised-control` to native
+controls and do not recreate the fill or border locally.
 
 For inputs, searches, and selects, enforce a single visual frame: exactly one
 element or component owns the background, border, radius, shadow, and focus ring.

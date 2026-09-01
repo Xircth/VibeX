@@ -5,15 +5,14 @@ import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import type { CatalogListing } from '@/lib/api/plugins';
-import {
-  officialListingName,
-  officialListingSummary,
-} from './officialPlugins';
+import { officialListingName, officialListingSummary } from './officialPlugins';
 import {
   flattenMarketplaceListings,
+  listingMatchesPlugin,
   listingsInMarketplaceTab,
   listingTopicCategory,
   marketplaceCategoryTabIds,
+  type InstalledPluginIdentity,
 } from './marketplaceListing';
 
 const MODE_TABS = [
@@ -80,6 +79,7 @@ export function PluginCatalogModeTabs({
 export function PluginMarketplaceList({
   official,
   community,
+  plugins,
   loading,
   installingId,
   canInstall,
@@ -87,6 +87,7 @@ export function PluginMarketplaceList({
 }: {
   official: CatalogListing[];
   community: CatalogListing[];
+  plugins: InstalledPluginIdentity[];
   loading: boolean;
   installingId: string | null;
   canInstall: boolean;
@@ -127,9 +128,7 @@ export function PluginMarketplaceList({
           const tab = tabs[next];
           setCategory(tab);
           event.currentTarget
-            .querySelector<HTMLButtonElement>(
-              `[data-plugin-category="${tab}"]`
-            )
+            .querySelector<HTMLButtonElement>(`[data-plugin-category="${tab}"]`)
             ?.focus();
         }}
       >
@@ -160,6 +159,9 @@ export function PluginMarketplaceList({
               installing={
                 installingId === `${listing.owner}/${listing.pluginName}`
               }
+              installed={plugins.some((plugin) =>
+                listingMatchesPlugin(listing, plugin)
+              )}
               canInstall={canInstall}
               onInstall={onInstall}
             />
@@ -177,11 +179,13 @@ export function PluginMarketplaceList({
 function MarketplaceRow({
   listing,
   installing,
+  installed,
   canInstall,
   onInstall,
 }: {
   listing: CatalogListing;
   installing: boolean;
+  installed: boolean;
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
 }) {
@@ -218,19 +222,27 @@ function MarketplaceRow({
           </span>
         </span>
       </button>
-      {canInstall ? (
+      {installed || canInstall ? (
         <span className="product-plugin-row-actions">
-          <Button
-            type="button"
-            size="sm"
-            disabled={installing}
-            onClick={(event) => {
-              event.stopPropagation();
-              onInstall(listing);
-            }}
-          >
-            {installing ? t('plugins.installingPlugin') : t('plugins.install')}
-          </Button>
+          {installed ? (
+            <span className="product-plugin-installed">
+              {t('plugins.installedStatus')}
+            </span>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              disabled={installing}
+              onClick={(event) => {
+                event.stopPropagation();
+                onInstall(listing);
+              }}
+            >
+              {installing
+                ? t('plugins.installingPlugin')
+                : t('plugins.install')}
+            </Button>
+          )}
         </span>
       ) : null}
     </div>

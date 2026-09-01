@@ -146,12 +146,12 @@ pub use install_planner::{
     ArtifactTrust, ArtifactVerification, InstallCandidateSource, InstallEnvironment,
     InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
     PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, TofuFingerprint,
-    VersionEvidence, registry_target_for_built_in_update, verify_artifact_bytes,
-    verify_version_evidence,
+    VersionEvidence, apply_component_versions, apply_npx_component_version,
+    registry_target_for_built_in_update, verify_artifact_bytes, verify_version_evidence,
 };
 pub use launch_gate::{
     LaunchComponentEvidence, LaunchGate, LaunchGateError, launch_program_available,
-    missing_launch_program_error,
+    missing_launch_program_error, prefer_path_launch_program,
 };
 pub use lifecycle::{
     BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
@@ -182,8 +182,9 @@ pub use native_config::{
     NativeConfigSaveResult, NativeConfigSnapshot,
 };
 pub use npm_registry::{
-    ExternalChangeVerdict, NpmRegistryHttpFetcher, NpmVerificationOutcome, split_npm_spec,
-    verify_external_component_change, verify_npm_component_file,
+    ExternalChangeVerdict, NpmRegistryHttpFetcher, NpmVerificationOutcome, fetch_npm_latest,
+    fetch_npm_package_requirements, npm_range_allows, runtime_acp_compatibility_warning,
+    split_npm_spec, verify_external_component_change, verify_npm_component_file,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{
@@ -233,7 +234,8 @@ pub use terminal::{
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{
     ObservedUserComponent, PlannedPreflightUpdate, UserEnvironmentAdoptDecision,
-    UserEnvironmentLayout, decide_user_environment_adopt, npm_global_install_args,
-    observed_satisfies_profile, plan_required_components, planned_preflight_updates,
-    profile_required_versions, uv_distribution_name,
+    UserEnvironmentLayout, decide_user_environment_adopt, existing_path_satisfies_component,
+    npm_global_install_args, npm_install_permission_denied, npm_prefix_is_writable,
+    npm_shim_candidates, observed_satisfies_profile, plan_required_components,
+    planned_preflight_updates, profile_required_versions, resolve_npm_shim, uv_distribution_name,
 };

@@ -367,6 +367,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     // Persist panics as local crash reports (opt-in surfacing happens in the UI).
     crash_reports::install_panic_hook();
     install_rustls_crypto_provider();
+    utils::shell::bootstrap_desktop_path();
 
     {
         let mut builder = tauri::Builder::default();

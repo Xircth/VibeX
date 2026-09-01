@@ -32,6 +32,8 @@ const APPLICATION_COMMANDS = new Set([
   'conversation_output',
   'conversation_start_turn',
   'conversation_steer',
+  'conversation_submit_feedback',
+  'conversation_list_feedback',
   'conversation_input_submit',
   'conversation_input_list',
   'conversation_relation_list',

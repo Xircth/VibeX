@@ -314,17 +314,36 @@ export const agentManagementApi = {
   repair: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     backendCall('agent_management_repair', { agentId }),
 
-  checkUpdate: (agentId: AgentId): Promise<AgentUpdateCheckView> =>
-    backendCall('agent_management_check_update', { agentId }),
+  checkUpdate: (
+    agentId: AgentId,
+    input?: {
+      runtimeVersion?: string;
+      acpVersion?: string;
+    }
+  ): Promise<AgentUpdateCheckView> =>
+    backendCall('agent_management_check_update', {
+      agentId,
+      runtimeVersion: input?.runtimeVersion,
+      acpVersion: input?.acpVersion,
+    }),
 
   applyUpdate: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     backendCall('agent_management_apply_update', { agentId }),
 
   installVersion: (
     agentId: AgentId,
-    version: string
+    input: {
+      version?: string;
+      runtimeVersion?: string;
+      acpVersion?: string;
+    }
   ): Promise<AgentOperationReceipt> =>
-    backendCall('agent_management_install_version', { agentId, version }),
+    backendCall('agent_management_install_version', {
+      agentId,
+      version: input.version,
+      runtimeVersion: input.runtimeVersion,
+      acpVersion: input.acpVersion,
+    }),
 
   rollback: (agentId: AgentId): Promise<AgentManagementView> =>
     backendCall('agent_management_rollback', { agentId }),

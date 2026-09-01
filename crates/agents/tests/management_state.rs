@@ -119,22 +119,29 @@ fn probe_service_only_adopts_fully_verified_profile_candidates() {
             .is_some()
     );
 
-    for invalid in [
-        ExternalCandidateObservation {
-            absolute_path: PathBuf::from("codex"),
-            ..candidate.clone()
-        },
-        ExternalCandidateObservation {
-            hash_verified: false,
-            ..candidate.clone()
-        },
-        ExternalCandidateObservation {
-            acp_handshake_verified: false,
-            ..candidate
-        },
-    ] {
-        assert!(service.adopt_external_candidate(&codex, invalid).is_none());
-    }
+    assert!(
+        service
+            .adopt_external_candidate(
+                &codex,
+                ExternalCandidateObservation {
+                    hash_verified: false,
+                    acp_handshake_verified: false,
+                    ..candidate.clone()
+                }
+            )
+            .is_some()
+    );
+    assert!(
+        service
+            .adopt_external_candidate(
+                &codex,
+                ExternalCandidateObservation {
+                    absolute_path: PathBuf::from("codex"),
+                    ..candidate
+                }
+            )
+            .is_none()
+    );
 }
 
 #[test]

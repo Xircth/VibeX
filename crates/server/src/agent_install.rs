@@ -13,8 +13,9 @@ use agents::{
     InstallPlanner, InstallPlanningInput, LockedInstallSource, OfficialRegistryHttpFetcher,
     PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileTopology,
     RegistryCache, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, SystemClock,
-    UserEnvironmentLayout, current_platform, npm_global_install_args,
-    npm_package_name as npm_spec_name, observed_satisfies_profile, version_at_least,
+    UserEnvironmentLayout, current_platform, existing_path_satisfies_component,
+    npm_global_install_args, npm_install_permission_denied, npm_package_name as npm_spec_name,
+    observed_satisfies_profile, resolve_npm_shim,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -267,18 +268,21 @@ async fn install_agent(
     );
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
-    let user_env = UserEnvironmentLayout::for_current_user(&home);
+    let mut user_env = UserEnvironmentLayout::for_current_user(&home);
+    user_env = user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix().await);
     prepare_user_environment(&user_env).await?;
     let installation = if let Some(adopted) = try_adopt(&agent_id, &plan, &user_env).await? {
         println!("Using the user-environment CLI that already matches the locked versions.");
         adopted
     } else {
-        install_plan(&plan, &user_env).await?
+        install_plan(&plan, &mut user_env).await?
     };
+    persist_lock(pool, &plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
-    verify_handshake(&agent_id, &installation.launch_lock, &working_dir).await?;
-    persist_lock(pool, &plan, &installation).await?;
+    if let Err(error) = verify_handshake(&agent_id, &installation.launch_lock, &working_dir).await {
+        println!("Installed CLI; ACP handshake will be retried when a session starts ({error})");
+    }
     println!(
         "Installed {} runtime {} / ACP {}",
         agent_id.as_str(),
@@ -437,11 +441,17 @@ async fn try_adopt(
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
         let Some(path) = utils::shell::resolve_executable_path(candidate.executable).await else {
+            if candidate.component == ProfileComponent::AgentRuntime {
+                continue;
+            }
             return Ok(None);
         };
         let path = tokio::fs::canonicalize(&path).await?;
         let version = probe_version(&path).await.unwrap_or_default();
         if version.is_empty() {
+            if candidate.component == ProfileComponent::AgentRuntime {
+                continue;
+            }
             return Ok(None);
         }
         components.push(InstalledComponent {
@@ -476,7 +486,7 @@ async fn try_adopt(
 
 async fn install_plan(
     plan: &ResolvedInstallPlan,
-    user_env: &UserEnvironmentLayout,
+    user_env: &mut UserEnvironmentLayout,
 ) -> anyhow::Result<InstalledPlan> {
     let mut components = Vec::new();
     for component in &plan.components {
@@ -529,15 +539,12 @@ fn build_installed_plan(
     user_env: &UserEnvironmentLayout,
     components: Vec<InstalledComponent>,
 ) -> anyhow::Result<InstalledPlan> {
-    let runtime = components
-        .iter()
-        .find(|component| {
-            matches!(
-                component.kind.as_str(),
-                "agent_runtime" | "combined_runtime"
-            )
-        })
-        .ok_or_else(|| anyhow::anyhow!("installation is missing the local Runtime"))?;
+    let runtime = components.iter().find(|component| {
+        matches!(
+            component.kind.as_str(),
+            "agent_runtime" | "combined_runtime"
+        )
+    });
     let acp = components
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
@@ -564,9 +571,10 @@ fn build_installed_plan(
             .to_string_lossy()
             .into_owned(),
     );
-    if let Some(variable) = BuiltInProfileCatalog::bundled()
-        .profile(agent_id)
-        .and_then(|profile| profile.runtime_executable_env)
+    if let Some(runtime) = runtime
+        && let Some(variable) = BuiltInProfileCatalog::bundled()
+            .profile(agent_id)
+            .and_then(|profile| profile.runtime_executable_env)
     {
         env.insert(
             variable.to_string(),
@@ -579,7 +587,9 @@ fn build_installed_plan(
             absolute_acp_program: acp.absolute_path.clone(),
             args,
             env,
-            runtime_version: runtime.version.clone(),
+            runtime_version: runtime
+                .map(|component| component.version.clone())
+                .unwrap_or_default(),
             acp_version: acp.version.clone(),
         },
         components,
@@ -594,52 +604,92 @@ async fn existing_component(component: &PlannedInstallComponent) -> Option<(Path
     let path = utils::shell::resolve_executable_path(command).await?;
     let path = tokio::fs::canonicalize(path).await.ok()?;
     let version = probe_version(&path).await?;
-    version_at_least(&version, &component.version).then_some((path, version))
+    existing_path_satisfies_component(&component.component_id, &version, &component.version)
+        .then_some((path, version))
 }
 
-async fn install_npm(
+async fn run_npm_global_install(
+    npm: &Path,
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
-) -> anyhow::Result<PathBuf> {
-    let npm = utils::shell::resolve_executable_path("npm")
-        .await
-        .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
+) -> anyhow::Result<()> {
     println!(
         "$ npm install -g --force --prefix {} {}",
         user_env.npm_prefix.display(),
         component.resolved_source
     );
-    let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
+    let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
+    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
+        command.env("NODE_USE_ENV_PROXY", "1");
+    }
     command.args(npm_global_install_args(
         &user_env.npm_prefix,
         &component.resolved_source,
     ));
-    run_command("npm install -g", command).await?;
-    let package = npm_spec_name(&component.resolved_source);
-    let bin = npm_bin_path(user_env, &component.command, &package);
-    if tokio::fs::metadata(&bin).await.is_err() {
-        anyhow::bail!(
-            "npm install did not produce `{}` under {}",
-            component.command,
-            user_env.npm_bin.display()
-        );
+    run_command("npm install -g", command).await
+}
+
+async fn install_npm(
+    component: &PlannedInstallComponent,
+    user_env: &mut UserEnvironmentLayout,
+) -> anyhow::Result<PathBuf> {
+    let npm = utils::shell::resolve_executable_path("npm")
+        .await
+        .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
+    if let Err(error) = run_npm_global_install(&npm, component, user_env).await {
+        let fallback = user_env.user_npm_prefix();
+        if !npm_install_permission_denied(&error.to_string()) || fallback == user_env.npm_prefix {
+            return Err(error);
+        }
+        println!("Permission denied, retrying with user prefix...");
+        *user_env = user_env.clone().with_npm_prefix(fallback);
+        prepare_user_environment(user_env).await?;
+        run_npm_global_install(&npm, component, user_env).await?;
     }
+    let package = npm_spec_name(&component.resolved_source);
+    let name = if command_is_placeholder(&component.command) {
+        package.rsplit('/').next().unwrap_or(package.as_str())
+    } else {
+        Path::new(&component.command)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&component.command)
+    };
+    let bin = resolve_npm_shim(&user_env.npm_bin, name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "npm install did not produce `{}` under {}",
+            name,
+            user_env.npm_bin.display()
+        )
+    })?;
     Ok(tokio::fs::canonicalize(bin).await?)
 }
 
-fn npm_bin_path(user_env: &UserEnvironmentLayout, command: &str, package: &str) -> PathBuf {
-    let name = if command.is_empty() || command == "npm" {
-        package.rsplit('/').next().unwrap_or(package)
+fn command_is_placeholder(command: &str) -> bool {
+    command.is_empty() || command == "npm"
+}
+
+async fn live_npm_global_prefix() -> Option<PathBuf> {
+    let npm = utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
+        .await?;
+    let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
+    command.arg("prefix").arg("-g").kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(3), command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let prefix = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    if prefix.is_empty() {
+        None
     } else {
-        Path::new(command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(command)
-    };
-    if cfg!(windows) {
-        user_env.npm_bin.join(format!("{name}.cmd"))
-    } else {
-        user_env.npm_bin.join(name)
+        Some(PathBuf::from(prefix))
     }
 }
 

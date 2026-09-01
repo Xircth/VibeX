@@ -50,6 +50,7 @@ import {
   PluginCatalogModeTabs,
   PluginMarketplaceList,
 } from './PluginMarketplace';
+import { findInstalledPluginForListing } from './marketplaceListing';
 import { PluginConfigForm } from './PluginConfigForm';
 import {
   PluginContentsView,
@@ -350,11 +351,7 @@ export function PluginCatalogPage() {
     const id = `${listing.owner}/${listing.pluginName}`;
     setInstallingId(id);
     try {
-      const already = plugins.some(
-        (plugin) =>
-          plugin.id === listing.pluginName ||
-          plugin.id === `${listing.owner}.${listing.pluginName}`
-      );
+      const already = Boolean(findInstalledPluginForListing(listing, plugins));
       const imported = path
         ? await api.import(path, false, already ? 'replace' : 'reject', 'vibex')
         : await api.marketplaceInstall(
@@ -523,6 +520,7 @@ export function PluginCatalogPage() {
           <PluginMarketplaceList
             official={marketPage?.official ?? []}
             community={marketPage?.community ?? []}
+            plugins={plugins}
             loading={marketLoading}
             installingId={installingId}
             canInstall={canInstall}
@@ -1070,11 +1068,13 @@ export function MarketplacePluginDetailPage() {
     retry: false,
   });
   const market = query.data ?? null;
-  const installed = plugins.find(
-    (plugin) =>
-      plugin.id === decodedName ||
-      plugin.id === `${decodedOwner}.${decodedName}` ||
-      plugin.id === market?.listing.offlinePluginId
+  const installed = findInstalledPluginForListing(
+    {
+      owner: decodedOwner,
+      pluginName: decodedName,
+      offlinePluginId: market?.listing.offlinePluginId,
+    },
+    plugins
   );
 
   const confirmInstall = async () => {
@@ -1160,7 +1160,11 @@ export function MarketplacePluginDetailPage() {
           </div>
           <p>{officialListingSummary(market.listing, t)}</p>
         </div>
-        {canInstall && !installed ? (
+        {installed ? (
+          <span className="product-plugin-installed">
+            {t('plugins.installedStatus')}
+          </span>
+        ) : canInstall ? (
           <Button
             type="button"
             disabled={installing}

@@ -19,6 +19,7 @@ import {
   syncFrontendPreferences,
 } from '@/lib/frontendPreferences';
 import { initUiZoom } from '@/lib/uiZoom';
+import { initAccentColor } from '@/lib/uiAccent';
 import { initMonoFont } from '@/lib/uiFont';
 import { getUiLanguage } from '@/lib/uiLanguage';
 import i18n from '@/i18n';
@@ -78,6 +79,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
         await Promise.all([
           syncFrontendPreferences().then(() => {
             initUiZoom();
+            initAccentColor();
             initMonoFont();
           }),
           language === i18n.language

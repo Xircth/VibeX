@@ -1,75 +1,58 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { Check, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { createPluginControlApi } from '@/lib/api/plugins';
-import { configuredBackendTransport } from '@/lib/backendTransport';
+import type { ConversationLiveFeedbackNote } from '@/features/conversation/conversationApi';
+import { cn } from '@/lib/utils';
 
-export function LiveFeedbackBar({
-  conversationId,
-  visible,
+export function LiveFeedbackNotes({
+  notes,
 }: {
-  conversationId?: string | null;
-  visible: boolean;
+  notes: ConversationLiveFeedbackNote[];
 }) {
   const { t } = useTranslation('conversation');
-  const api = useMemo(
-    () => createPluginControlApi(configuredBackendTransport),
-    []
+  if (notes.length === 0) return null;
+
+  const ordered = [...notes].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
   );
-  const { data: feedbackOn } = useQuery({
-    queryKey: ['session-enhance-feedback'],
-    queryFn: async () => {
-      const catalog = await api.catalog();
-      const plugin = catalog.plugins.find(
-        (item) => item.id === 'vibex.session-enhance'
-      );
-      if (!plugin?.enabled) return false;
-      const detail = await api.productDetail(plugin.id);
-      return detail.config.feedback !== false;
-    },
-    staleTime: 5_000,
-  });
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-
-  if (!visible || !feedbackOn || !conversationId) return null;
-
-  const send = async () => {
-    const next = text.trim();
-    if (!next || sending) return;
-    setSending(true);
-    try {
-      await configuredBackendTransport.call('conversation_submit_feedback', {
-        conversationId,
-        text: next,
-      });
-      setText('');
-    } finally {
-      setSending(false);
-    }
-  };
 
   return (
-    <form
-      className="flex items-center gap-2 px-3 pb-1"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void send();
-      }}
-    >
-      <Input
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder={t('liveFeedback.placeholder')}
-        aria-label={t('liveFeedback.placeholder')}
-        disabled={sending}
-      />
-      <Button type="submit" size="sm" disabled={sending || !text.trim()}>
-        {t('liveFeedback.send')}
-      </Button>
-    </form>
+    <div className="max-h-28 overflow-y-auto px-3 pb-1">
+      <div className="flex flex-col gap-0.5">
+        {ordered.map((note) => {
+          const delivered = note.status === 'delivered';
+          return (
+            <div
+              key={note.id}
+              className={cn(
+                'flex items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] leading-none',
+                'border-border/70 bg-muted/40'
+              )}
+              title={note.text}
+            >
+              {delivered ? (
+                <Check
+                  className="h-3 w-3 shrink-0 text-emerald-500"
+                  aria-hidden
+                />
+              ) : (
+                <Clock
+                  className="h-3 w-3 shrink-0 text-muted-foreground/70"
+                  aria-hidden
+                />
+              )}
+              <span className="min-w-0 flex-1 truncate text-foreground/80">
+                {note.text}
+              </span>
+              <span className="shrink-0 text-muted-foreground">
+                {delivered
+                  ? t('liveFeedback.delivered')
+                  : t('liveFeedback.pending')}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

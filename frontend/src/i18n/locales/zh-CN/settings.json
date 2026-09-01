@@ -89,12 +89,20 @@
   },
   "appearance": {
     "title": "外观",
-    "description": "管理应用主题、界面缩放与显示语言。",
+    "description": "管理应用主题、强调色、界面缩放与显示语言。",
     "theme": {
       "title": "主题",
       "description": "选择浅色、深色或跟随系统的配色方案。",
       "label": "应用主题",
       "hint": "深色模式（Ayu Mirage）针对代码密集会话优化。"
+    },
+    "accent": {
+      "title": "强调色",
+      "description": "用于主按钮、选中态与焦点。即时生效并记住。",
+      "label": "强调色",
+      "hex": "色值",
+      "picker": "选择强调色",
+      "hue": "色相"
     },
     "appIcon": {
       "title": "应用图标",
@@ -669,6 +677,7 @@
     "marketplaceLoading": "正在加载插件市场",
     "marketplaceFailed": "插件市场加载失败",
     "install": "安装",
+    "installedStatus": "已安装",
     "installPreviewTitle": "安装插件",
     "fullTrustConfirm": "安装后该插件以你的本机用户权限运行，不是沙箱。",
     "installPreviewSourceLabel": "来源",
@@ -787,7 +796,6 @@
         "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。",
         "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发、测试与发布只走 CLI。\n\n## 工具链\n\n用 `vibex-plugin toolchain` 定位本机契约，然后 `init`、`validate`、`test`、`build`、`pack`。用 `vibex plugin add --dev .` 链到正在跑的 Host。上架用 `vibex plugin publish`。\n\n## 链接本机目录\n\n打开 Desktop 或 `vibex serve`，在插件根目录执行 `vibex plugin add --dev .`。不要向对话索要 token。\n\n## 排障\n\nHost 未运行会提示先启动。当前会话没有新工具时，新开或 rebind 会话。",
         "config": {}
-
       }
     },
     "contentTab": "内容",
@@ -1955,6 +1963,9 @@
     "repairStarted": "已开始修复",
     "operationStartFailed": "无法开始操作",
     "installStarted": "已开始安装 Runtime 与 ACP",
+    "runtimeAcpInstallComplete": "已完成 Runtime 与 ACP 安装",
+    "runtimeAcpUpdateComplete": "已完成 Runtime 与 ACP 更新",
+    "repairComplete": "已完成安装修复",
     "installStartFailed": "无法开始安装",
     "updateAvailable": "发现可用更新",
     "upToDate": "当前已是最新版本",
@@ -2017,11 +2028,7 @@
     "moveBackward": "向后移动",
     "checking": "正在检查…",
     "checkUpdates": "检查更新",
-    "updateComparison": "更新比较",
-    "updateVersions": "可更新：{{current}} → {{available}}",
-    "updateFreshSnapshot": "比较基于当前有效的 Registry 快照。",
-    "updateOfflineSnapshot": "比较基于离线缓存；刷新 Registry 后才能安装更新。",
-    "installUpdate": "安装更新",
+
     "actionKind": {
       "login": "登录 {{agent}}",
       "logout": "退出 {{agent}}",
@@ -2162,8 +2169,11 @@
     "customVersionInstallStarted": "已开始安装 {{version}}。",
     "customVersionInvalid": "请输入具体的点分版本号；可使用预发布或构建后缀，不支持 latest/next。",
     "customVersionLabel": "版本",
+    "customRuntimeVersionLabel": "Runtime 版本",
+    "customAcpVersionLabel": "ACP 版本",
     "customVersionPlaceholder": "例如 1.2.3",
-    "customVersionTrustHint": "npm 包会重新核验 Registry 完整性；指定版本的二进制归档采用本次明确请求的首次信任指纹。",
+    "customVersionTrustHint": "空字段会安装 npm latest。Runtime 与 ACP 会一起写入。版本不匹配只提示风险，不会阻止安装。",
+
     "repairInstallation": "修复安装",
     "operationComplete": "操作已完成",
     "operationFailed": "Agent 操作失败，请查看诊断后重试。",

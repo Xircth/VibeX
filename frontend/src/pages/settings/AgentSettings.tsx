@@ -5,9 +5,12 @@ import type {
   AgentDiagnosticView,
   AgentId,
   AgentManagementActionsView,
+  AgentManagementView,
   AgentNativeConfigPatchRequest,
   AgentNativeConfigFileWriteRequest,
   AgentNativeConfigView,
+  AgentOperationKind,
+  AgentPreflightItemView,
   AgentPreflightView,
   AgentRegistryView,
   AgentRegistryViewRow,
@@ -52,7 +55,6 @@ import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 import { AgentUpdateConfirmDialog } from './AgentUpdateConfirmDialog';
 import {
-  AGENT_PREFLIGHT_IDLE_DELAY_MS,
   readPreflightSnapshot,
   writePreflightSnapshot,
 } from './agentPreflightSnapshot';
@@ -227,41 +229,34 @@ export function AgentSettings() {
     setConfig(null);
     setConfigConflict(null);
     setUpdateCheck(null);
-    setChecking(false);
+    setChecking(true);
     void (async () => {
       try {
-        const authReport = await agentManagementApi.preflight(
-          selectedAgentId,
-          'authentication'
-        );
+        const report = await agentManagementApi.preflight(selectedAgentId);
         if (!active || inspectGeneration.current !== watchId) return;
-        setPreflight((current) =>
-          current ? mergeAuthPreflightItems(current, authReport) : authReport
-        );
+        writePreflightSnapshot(report);
+        setPreflight(report);
+        setChecking(false);
         await refreshManagement().catch(() => undefined);
+        if (!active || inspectGeneration.current !== watchId) return;
+        const comparison =
+          await agentManagementApi.checkUpdate(selectedAgentId);
+        if (!active || inspectGeneration.current !== watchId) return;
+        setUpdateCheck(comparison);
+        setPreflight((current) => {
+          if (!current || current.agent_id !== selectedAgentId) return current;
+          const next = applyUpdateCheckToPreflight(current, comparison);
+          writePreflightSnapshot(next);
+          return next;
+        });
       } catch {
-        // Snapshot remains visible; a later full check refreshes auth.mode.
+        return;
+      } finally {
+        if (active && inspectGeneration.current === watchId) {
+          setChecking(false);
+        }
       }
     })();
-    const timer = window.setTimeout(() => {
-      if (!active || inspectGeneration.current !== watchId) return;
-      setChecking(true);
-      void (async () => {
-        try {
-          const report = await agentManagementApi.preflight(selectedAgentId);
-          if (!active || inspectGeneration.current !== watchId) return;
-          writePreflightSnapshot(report);
-          setPreflight(report);
-          await refreshManagement().catch(() => undefined);
-        } catch {
-          return;
-        } finally {
-          if (active && inspectGeneration.current === watchId) {
-            setChecking(false);
-          }
-        }
-      })();
-    }, AGENT_PREFLIGHT_IDLE_DELAY_MS);
     void Promise.allSettled([
       agentManagementApi.readConfig(selectedAgentId),
       agentManagementApi.diagnostics(selectedAgentId),
@@ -282,7 +277,6 @@ export function AgentSettings() {
     });
     return () => {
       active = false;
-      window.clearTimeout(timer);
     };
   }, [refreshManagement, registryOpen, selectedAgentId]);
 
@@ -422,6 +416,22 @@ export function AgentSettings() {
     }
   }, [selectedAgentId, t]);
 
+  const applyBackgroundUpdateCheck = useCallback(async (agentId: AgentId) => {
+    try {
+      const comparison = await agentManagementApi.checkUpdate(agentId);
+      setUpdateCheck(comparison);
+      setPreflight((current) => {
+        if (!current || current.agent_id !== agentId) return current;
+        const next = applyUpdateCheckToPreflight(current, comparison);
+        writePreflightSnapshot(next);
+        return next;
+      });
+      return comparison;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const runPreflight = useCallback(
     async (options?: { notify?: boolean }) => {
       if (!selectedAgentId) return;
@@ -432,12 +442,13 @@ export function AgentSettings() {
         if (inspectGeneration.current !== watchId) return;
         writePreflightSnapshot(report);
         setPreflight(report);
-        setUpdateCheck(null);
+        setChecking(false);
         await management.refresh();
         if (inspectGeneration.current !== watchId) return;
         if (options?.notify !== false) {
           toast.success(t('settings:agents.preflightComplete'));
         }
+        await applyBackgroundUpdateCheck(selectedAgentId);
       } catch (error) {
         if (inspectGeneration.current !== watchId) return;
         toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
@@ -445,22 +456,28 @@ export function AgentSettings() {
         if (inspectGeneration.current === watchId) setChecking(false);
       }
     },
-    [management, selectedAgentId, t]
+    [applyBackgroundUpdateCheck, management, selectedAgentId, t]
   );
 
-  const operationActive = Boolean(
-    selectedAgentOperation ||
-      (selectedAgentId && management.state.operations[selectedAgentId])
-  );
+  const liveOperation =
+    (selectedAgentId && management.state.operations[selectedAgentId]) || null;
+  const operationActive = Boolean(selectedAgentOperation || liveOperation);
+  useEffect(() => {
+    if (!operationActive) return;
+    inspectGeneration.current += 1;
+    setChecking(false);
+  }, [operationActive]);
   const previousOperationRef = useRef<{
     agentId: string | null;
     busy: boolean;
-  }>({ agentId: null, busy: false });
+    kind: AgentOperationKind | null;
+  }>({ agentId: null, busy: false, kind: null });
   useEffect(() => {
     const previous = previousOperationRef.current;
     previousOperationRef.current = {
       agentId: selectedAgentId,
       busy: operationActive,
+      kind: liveOperation?.kind ?? previous.kind,
     };
     if (
       !selectedAgentId ||
@@ -471,8 +488,49 @@ export function AgentSettings() {
     ) {
       return;
     }
-    void runPreflight({ notify: false });
-  }, [operationActive, registryOpen, runPreflight, selectedAgentId]);
+    if (selectedAgent?.lifecycle === 'needs_repair') {
+      return;
+    }
+    const finishedKind = previous.kind;
+    if (
+      finishedKind !== 'install' &&
+      finishedKind !== 'update' &&
+      finishedKind !== 'repair'
+    ) {
+      return;
+    }
+    toast.success(
+      t(
+        finishedKind === 'install'
+          ? 'settings:agents.runtimeAcpInstallComplete'
+          : finishedKind === 'repair'
+            ? 'settings:agents.repairComplete'
+            : 'settings:agents.runtimeAcpUpdateComplete'
+      )
+    );
+    void management
+      .refresh()
+      .then((agents) => {
+        const agent = agents.find((item) => item.agent_id === selectedAgentId);
+        if (!agent) return;
+        setPreflight((current) => {
+          const next = applyInstallationToPreflight(current, agent);
+          writePreflightSnapshot(next);
+          return next;
+        });
+        setUpdateCheck(null);
+        setChecking(false);
+      })
+      .catch(() => undefined);
+  }, [
+    liveOperation?.kind,
+    management.refresh,
+    operationActive,
+    registryOpen,
+    selectedAgent?.lifecycle,
+    selectedAgentId,
+    t,
+  ]);
 
   const pullAuthentication = useCallback(async () => {
     if (!selectedAgentId) return null;
@@ -628,10 +686,16 @@ export function AgentSettings() {
   }, [selectedAgentId, t]);
 
   const queueVersionInstall = useCallback(
-    async (version: string) => {
+    async (input: {
+      version?: string;
+      runtimeVersion?: string;
+      acpVersion?: string;
+    }) => {
       if (!selectedAgentId) return;
+      const version =
+        input.acpVersion || input.runtimeVersion || input.version || '';
       try {
-        await agentManagementApi.installVersion(selectedAgentId, version);
+        await agentManagementApi.installVersion(selectedAgentId, input);
         toast.success(
           t('settings:agents.customVersionInstallStarted', { version })
         );
@@ -644,12 +708,31 @@ export function AgentSettings() {
     [selectedAgentId, t]
   );
 
+  const previewVersions = useCallback(
+    async (input: { runtimeVersion?: string; acpVersion?: string }) => {
+      if (!selectedAgentId) return null;
+      try {
+        const comparison = await agentManagementApi.checkUpdate(
+          selectedAgentId,
+          input
+        );
+        return comparison.compatibility_warning ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [selectedAgentId]
+  );
+
   const checkUpdate = useCallback(async () => {
     if (!selectedAgentId) return;
     setCheckingUpdate(true);
     try {
-      const comparison = await agentManagementApi.checkUpdate(selectedAgentId);
-      setUpdateCheck(comparison);
+      const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+      if (!comparison) {
+        toast.error(t('settings:agents.updateCheckFailed'));
+        return;
+      }
       toast.success(
         comparison.update_available
           ? t('settings:agents.updateAvailable')
@@ -660,7 +743,7 @@ export function AgentSettings() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [selectedAgentId, t]);
+  }, [applyBackgroundUpdateCheck, selectedAgentId, t]);
 
   const applyUpdate = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -1088,10 +1171,10 @@ export function AgentSettings() {
               onSetEnabled={(enabled) => void setEnabled(enabled)}
               onPreflight={() => void runPreflight()}
               onInstall={() => void queueInstall()}
-              onInstallVersion={(version) => void queueVersionInstall(version)}
+              onInstallVersion={(input) => void queueVersionInstall(input)}
+              onPreviewVersions={previewVersions}
               onRepair={() => void queueRepair()}
               onCheckUpdate={() => void checkUpdate()}
-              onApplyUpdate={() => void applyUpdate()}
               onUpdatePreflightItem={(itemId) =>
                 void applyPreflightItemUpdate(itemId)
               }
@@ -1235,6 +1318,93 @@ export function AgentSettings() {
       )}
     </div>
   );
+}
+
+function applyUpdateCheckToPreflight(
+  current: AgentPreflightView,
+  check: AgentUpdateCheckView
+): AgentPreflightView {
+  const runtimeUpdate = Boolean(
+    check.runtime_available &&
+      check.runtime_current &&
+      check.runtime_available !== check.runtime_current
+  );
+  const acpUpdate = Boolean(
+    check.acp_available &&
+      check.acp_current &&
+      check.acp_available !== check.acp_current
+  );
+  const grouped = runtimeUpdate && acpUpdate;
+  return {
+    ...current,
+    items: current.items.map((item) => {
+      if (item.id === 'runtime') {
+        return {
+          ...item,
+          update_available: runtimeUpdate,
+          available_version: runtimeUpdate
+            ? (check.runtime_available ?? null)
+            : null,
+          update_group: grouped ? 'runtime_acp' : null,
+        };
+      }
+      if (item.id === 'acp') {
+        return {
+          ...item,
+          update_available: acpUpdate,
+          available_version: acpUpdate ? (check.acp_available ?? null) : null,
+          update_group: grouped ? 'runtime_acp' : null,
+        };
+      }
+      return item;
+    }),
+  };
+}
+
+function applyInstallationToPreflight(
+  current: AgentPreflightView | null,
+  agent: AgentManagementView
+): AgentPreflightView {
+  const items = [...(current?.items ?? [])];
+  const patch = (
+    id: 'runtime' | 'acp',
+    version: string | null,
+    path: string | null
+  ) => {
+    const index = items.findIndex((item) => item.id === id);
+    const previous = index >= 0 ? items[index] : null;
+    const available = Boolean(version);
+    const next: AgentPreflightItemView = {
+      id,
+      label:
+        previous?.label ?? (id === 'runtime' ? '本地 Runtime' : 'ACP 适配器'),
+      status: available ? 'pass' : (previous?.status ?? 'fail'),
+      detail: available ? '' : (previous?.detail ?? ''),
+      version,
+      path: path ?? previous?.path ?? null,
+      source: previous?.source ?? null,
+      repairable: !available,
+      update_available: false,
+      available_version: null,
+      update_group: previous?.update_group ?? null,
+    };
+    if (index >= 0) {
+      items[index] = { ...previous, ...next };
+    } else {
+      items.push(next);
+    }
+  };
+  patch(
+    'runtime',
+    agent.runtime_version ?? agent.local_runtime?.version ?? null,
+    agent.local_runtime?.path ?? null
+  );
+  patch('acp', agent.acp_version, null);
+  return {
+    agent_id: agent.agent_id,
+    checked_at: new Date().toISOString(),
+    items,
+  };
 }
 
 function mergeAuthPreflightItems(

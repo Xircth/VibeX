@@ -289,9 +289,9 @@ describe('product plugin experience', () => {
     expect(
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toHaveClass('primary-control');
-    expect(screen.getByRole('region', { name: /插件目录|plugin catalog/i })).toHaveClass(
-      'product-plugin-catalog-body'
-    );
+    expect(
+      screen.getByRole('region', { name: /插件目录|plugin catalog/i })
+    ).toHaveClass('product-plugin-catalog-body');
   });
 
   it('refreshes the catalog immediately after adding a packaged plugin', async () => {
@@ -652,7 +652,9 @@ describe('product plugin experience', () => {
     expect(within(notesRow as HTMLElement).getByText('acme')).toBeVisible();
     expect(within(notesRow as HTMLElement).getByText('v2.0.0')).toBeVisible();
     expect(
-      within(notesRow as HTMLElement).queryByText(/社区|Community|官方|Official/)
+      within(notesRow as HTMLElement).queryByText(
+        /社区|Community|官方|Official/
+      )
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole('tab', { name: /插件市场|marketplace/i })
@@ -674,10 +676,27 @@ describe('product plugin experience', () => {
       screen.getByRole('tab', { name: /^(效率|Productivity)$/ })
     ).toBeVisible();
     expect(screen.getByText('办公套件')).toBeVisible();
-    const officeRow = screen.getByText('办公套件').closest('.product-plugin-row');
+    const officeRow = screen
+      .getByText('办公套件')
+      .closest('.product-plugin-row');
     expect(officeRow).not.toBeNull();
     expect(within(officeRow as HTMLElement).getByText('vibex')).toBeVisible();
-    expect(within(officeRow as HTMLElement).getByText(/效率|Productivity/)).toBeVisible();
+    expect(
+      within(officeRow as HTMLElement).getByText(/效率|Productivity/)
+    ).toBeVisible();
+    expect(
+      within(officeRow as HTMLElement).getByText(/已安装|Installed/)
+    ).toBeVisible();
+    expect(
+      within(officeRow as HTMLElement).queryByRole('button', {
+        name: /^(安装|Install)$/,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      within(notesRow as HTMLElement).getByRole('button', {
+        name: /^(安装|Install)$/,
+      })
+    ).toBeVisible();
     expect(screen.queryByText(/vibex\/vibex.office@/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /^(官方|Official)$/ }));
     expect(screen.queryByText('Notes')).not.toBeInTheDocument();
@@ -722,6 +741,115 @@ describe('product plugin experience', () => {
       await screen.findByRole('tab', { name: /插件市场|marketplace/i })
     ).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Notes')).toBeVisible();
+  });
+
+  it('marks a marketplace listing as installed after install succeeds', async () => {
+    const notesListing = {
+      owner: 'acme',
+      pluginName: 'notes',
+      tag: '2.0.0',
+      version: '2.0.0',
+      displayName: 'Notes',
+      summary: 'Take notes',
+      category: 'community',
+      sourceKind: 'github',
+    };
+    const notesPlugin = {
+      ...drawioPlugin,
+      id: 'notes',
+      publisher: 'acme',
+      name: 'Notes',
+      description: 'Take notes',
+      sourceKind: 'marketplace',
+      sourceOrigin: 'https://vibex.xforever.xin/marketplace/acme/notes',
+    };
+    let catalogPlugins = [plugin];
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: catalogPlugins, runtimes: [] };
+      }
+      if (command === 'plugin_marketplace_catalog') {
+        return {
+          official: [],
+          community: [notesListing],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      if (command === 'plugin_marketplace_install') {
+        catalogPlugins = [plugin, notesPlugin];
+        return notesPlugin;
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    const notesRow = (await screen.findByText('Notes')).closest(
+      '.product-plugin-row'
+    ) as HTMLElement;
+    fireEvent.click(
+      within(notesRow).getByRole('button', { name: /^(安装|Install)$/ })
+    );
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /^(安装|Install)$/ })
+    );
+
+    await waitFor(() => {
+      expect(within(notesRow).getByText(/已安装|Installed/)).toBeVisible();
+    });
+    expect(
+      within(notesRow).queryByRole('button', { name: /^(安装|Install)$/ })
+    ).not.toBeInTheDocument();
+    expect(call).toHaveBeenCalledWith('plugin_marketplace_install', {
+      owner: 'acme',
+      pluginName: 'notes',
+      tag: '2.0.0',
+      conflict: 'reject',
+    });
+  });
+
+  it('shows installed status on a marketplace detail page for a catalog plugin', async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [plugin], runtimes: [] };
+      }
+      if (command === 'plugin_marketplace_listing') {
+        return {
+          listing: {
+            owner: 'vibex',
+            pluginName: 'vibex.office',
+            tag: '1.0.0',
+            version: '1.0.0',
+            displayName: 'VibeX Office',
+            summary: 'Office files',
+            category: 'productivity',
+            sourceKind: 'official',
+            offlinePluginId: 'vibex.office',
+          },
+          summary: 'Office files',
+          readme: '# Office',
+          contents: [],
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins/marketplace/vibex/vibex.office', call);
+
+    const heading = (
+      await screen.findAllByRole('heading', { name: '办公套件' })
+    )[0];
+    expect(heading).toBeVisible();
+    const detailHeader = heading.closest('header') as HTMLElement;
+    expect(within(detailHeader).getByText(/已安装|Installed/)).toBeVisible();
+    expect(
+      within(detailHeader).queryByRole('button', { name: /^(安装|Install)$/ })
+    ).not.toBeInTheDocument();
   });
 
   it('opens an independent detail page with content and config tabs', async () => {

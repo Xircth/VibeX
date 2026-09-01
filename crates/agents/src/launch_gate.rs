@@ -14,6 +14,26 @@ pub fn launch_program_available(program: &Path) -> bool {
     program.is_absolute() && program.is_file()
 }
 
+/// Prefer a same-named command on PATH over a stale Installation lock path.
+pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
+    let Some(name) = launch_command_name(locked) else {
+        return locked.to_path_buf();
+    };
+    which::which(name)
+        .ok()
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| locked.to_path_buf())
+}
+
+fn launch_command_name(program: &Path) -> Option<&str> {
+    let stem = program.file_stem()?.to_str()?;
+    let name = stem
+        .strip_suffix(".cmd")
+        .or_else(|| stem.strip_suffix(".CMD"))
+        .unwrap_or(stem);
+    (!name.is_empty()).then_some(name)
+}
+
 /// Actionable failure for a session whose launch program is gone. The
 /// management lifecycle ("ready") is a probe observation that can go stale, so
 /// the session must surface a repair request, not a cryptic spawn error.
@@ -120,9 +140,22 @@ impl LaunchGate {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use super::{launch_program_available, missing_launch_program_error};
+    use super::{
+        launch_command_name, launch_program_available, missing_launch_program_error,
+        prefer_path_launch_program,
+    };
+
+    #[test]
+    fn path_launch_uses_the_command_stem_and_falls_back_to_the_lock() {
+        assert_eq!(
+            launch_command_name(Path::new("codex-acp.cmd")),
+            Some("codex-acp")
+        );
+        let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+        assert_eq!(prefer_path_launch_program(&missing), missing);
+    }
 
     #[test]
     fn launch_program_is_unavailable_when_the_binary_is_gone() {

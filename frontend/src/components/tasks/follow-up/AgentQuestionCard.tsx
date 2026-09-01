@@ -50,7 +50,7 @@ export function AgentQuestionCard({
     initialAnswerState(questions)
   );
   const [activeIndex, setActiveIndex] = useState(0);
-  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [pinnedOpen, setPinnedOpen] = useState(true);
   const activeQuestion = questions[activeIndex];
   const activeAnswer = activeQuestion
     ? answerState[activeQuestion.id]
@@ -121,6 +121,11 @@ export function AgentQuestionCard({
       action: 'accept',
       content: responseContent(request, questions, answerState),
     });
+  };
+
+  const decline = () => {
+    if (responding) return;
+    onRespond(request.question_id, { action: 'decline' });
   };
 
   return (
@@ -261,7 +266,7 @@ export function AgentQuestionCard({
         </div>
 
         <footer className="agent-question-card-actions">
-          <span>
+          <span className="flex items-center gap-2">
             {activeIndex > 0 ? (
               <Button
                 label={t('questionRequestCard.previous')}
@@ -271,6 +276,13 @@ export function AgentQuestionCard({
                 onClick={() => setActiveIndex((index) => index - 1)}
               />
             ) : null}
+            <Button
+              label={t('questionRequestCard.decline')}
+              variant="secondary"
+              size="sm"
+              isDisabled={responding}
+              onClick={decline}
+            />
           </span>
           {isLast ? (
             <Button

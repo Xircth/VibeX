@@ -106,6 +106,28 @@ export interface ApplicationCommandMap {
     };
     result: ConversationSteeringReceipt;
   };
+  conversation_submit_feedback: {
+    args: {
+      request: { conversationId: string; text: string };
+    };
+    result: {
+      id: string;
+      text: string;
+      createdAt: string;
+      status: string;
+      deliveredAt?: string | null;
+    };
+  };
+  conversation_list_feedback: {
+    args: { request: { conversationId: string } };
+    result: Array<{
+      id: string;
+      text: string;
+      createdAt: string;
+      status: string;
+      deliveredAt?: string | null;
+    }>;
+  };
   conversation_input_submit: {
     args: {
       request: { conversationId: string; payload: ConversationInputPayload };

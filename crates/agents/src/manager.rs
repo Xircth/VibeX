@@ -1479,9 +1479,10 @@ impl AgentConnectionRunner {
         // The persisted program can go stale (Agent self-update, interrupted
         // install cleanup, moved external install). Fail with an actionable
         // repair message instead of a raw ENOENT from `Command::spawn`.
-        if !crate::launch_program_available(&launch_lock.absolute_acp_program) {
+        let acp_program = crate::prefer_path_launch_program(&launch_lock.absolute_acp_program);
+        if !crate::launch_program_available(&acp_program) {
             return Err(AgentError::Runtime(crate::missing_launch_program_error(
-                &launch_lock.absolute_acp_program,
+                &acp_program,
             )));
         }
         if !self.snapshot.working_dir.is_dir() {
@@ -1490,8 +1491,7 @@ impl AgentConnectionRunner {
                 self.snapshot.working_dir.display()
             )));
         }
-        let mut command =
-            new_hidden_tokio_command(&launch_lock.absolute_acp_program, &launch_lock.args);
+        let mut command = new_hidden_tokio_command(&acp_program, &launch_lock.args);
 
         if self.snapshot.agent_id.as_str() == "pi"
             && let Err(error) =

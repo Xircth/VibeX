@@ -120,6 +120,20 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     ) -> Result<Vec<conversations::ConversationRelationView>, ApplicationError> {
         self.inner.list_relations(conversation_id).await
     }
+
+    async fn submit_feedback(
+        &self,
+        request: application::SubmitConversationFeedback,
+    ) -> Result<application::ConversationLiveFeedbackNote, ApplicationError> {
+        self.inner.submit_feedback(request).await
+    }
+
+    async fn list_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Vec<application::ConversationLiveFeedbackNote>, ApplicationError> {
+        self.inner.list_feedback(conversation_id).await
+    }
 }
 
 /// Shared Application Core used by `vibex-server` and the desktop remote listener.
@@ -127,6 +141,7 @@ pub fn host_application_core(
     pool: SqlitePool,
     conversations: ConversationContext,
     plugin_control_plane: Arc<PluginControlPlane>,
+    companion_memory: Option<std::sync::Arc<delegation::InMemoryCompanionFeatures>>,
     preview_host: Arc<dyn plugins::PluginPreviewHost>,
     capability_broker: Arc<plugins::HostCapabilityBroker>,
     app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
@@ -151,8 +166,15 @@ pub fn host_application_core(
         runtime_root,
         worker_runtime,
     }));
+    let companion = companion_memory.map(|memory| {
+        std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(
+            memory,
+            conversations.clone(),
+            plugin_control_plane.official_product_mcp_gate(),
+        )) as std::sync::Arc<dyn application::CompanionSessionPort>
+    });
     let execution = Arc::new(PluginAwareConversationExecution {
-        inner: ConversationSessionExecutionPort::new(conversations.clone()),
+        inner: ConversationSessionExecutionPort::with_companion(conversations.clone(), companion),
         plugin_control_plane,
     });
     let workflows = Arc::new(WorkflowStoreExecutionPort::with_conversations(

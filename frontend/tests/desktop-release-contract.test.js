@@ -199,6 +199,8 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
   assert.match(workflow, /VIBEX_SKIP_FRONTEND_BUILD:\s*"1"/);
   assert.match(workflow, /SCCACHE_GHA_ENABLED:\s*"true"/);
   assert.match(workflow, /BloopAI\/sccache-action@main/);
+  assert.match(workflow, /Disable sccache on Windows/);
+  assert.match(workflow, /if: runner\.os != 'Windows'/);
   assert.match(workflow, /cache-targets:\s*false/);
   assert.match(
     workflow,

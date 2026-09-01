@@ -258,7 +258,15 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Setup sccache
+        if: runner.os != 'Windows'
         uses: BloopAI/sccache-action@main
+
+      - name: Disable sccache on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

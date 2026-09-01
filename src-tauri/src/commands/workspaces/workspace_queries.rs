@@ -233,9 +233,8 @@ pub async fn get_workspace_git_status(
     repo_id: Uuid,
 ) -> Result<git::DetailedGitStatus, AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.get_detailed_status(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.get_detailed_status(&worktree_path)).await
 }
 
 #[tauri::command]
@@ -246,9 +245,8 @@ pub async fn stage_workspace_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.stage_file(&worktree_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.stage_file(&worktree_path, &file_path)).await
 }
 
 #[tauri::command]
@@ -258,9 +256,8 @@ pub async fn stage_workspace_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.stage_all(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.stage_all(&worktree_path)).await
 }
 
 #[tauri::command]
@@ -271,9 +268,8 @@ pub async fn unstage_workspace_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.unstage_file(&worktree_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.unstage_file(&worktree_path, &file_path)).await
 }
 
 #[tauri::command]
@@ -284,9 +280,8 @@ pub async fn revert_workspace_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.revert_file(&worktree_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.revert_file(&worktree_path, &file_path)).await
 }
 
 #[tauri::command]
@@ -296,9 +291,8 @@ pub async fn revert_workspace_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.revert_all(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.revert_all(&worktree_path)).await
 }
 
 #[tauri::command]
@@ -308,9 +302,8 @@ pub async fn get_workspace_file_diffs(
     repo_id: Uuid,
 ) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.get_file_diffs(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.get_file_diffs(&worktree_path)).await
 }
 
 #[tauri::command]
@@ -321,9 +314,8 @@ pub async fn commit_workspace_changes(
     message: String,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.commit_changes(&worktree_path, &message)
-        .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.commit_changes(&worktree_path, &message)).await
 }
 
 #[tauri::command]
@@ -333,9 +325,8 @@ pub async fn get_workspace_git_log(
     repo_id: Uuid,
 ) -> Result<git::GitLogStatus, AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.get_log_status(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.get_log_status(&worktree_path)).await
 }
 
 // --- Pull/Fetch operations ---
@@ -347,9 +338,8 @@ pub async fn pull_workspace_branch(
     repo_id: Uuid,
 ) -> Result<git::PullResult, AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.pull(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.pull(&worktree_path)).await
 }
 
 #[tauri::command]
@@ -359,9 +349,8 @@ pub async fn fetch_workspace(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.fetch_all(&worktree_path)
-        .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.fetch_all(&worktree_path)).await
 }
 
 // --- Branch operations ---
@@ -374,9 +363,9 @@ pub async fn checkout_workspace_branch(
     branch_name: String,
 ) -> Result<(), AppError> {
     let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
-    let git = state.deployment.git();
-    git.checkout_branch(&worktree_path, &branch_name)
-        .map_err(|e| AppError::Internal(format!("git checkout failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.checkout_branch(&worktree_path, &branch_name))
+        .await
 }
 
 #[tauri::command]

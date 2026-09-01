@@ -71,12 +71,11 @@ pub async fn get_workspace_branch_status(
             .repo_path(&repo)
             .unwrap_or_else(|| workspace_dir.clone());
 
-        let head_oid = state
-            .deployment
-            .git()
-            .get_head_info(&worktree_path)
-            .ok()
-            .map(|h| h.oid);
+        let git = state.deployment.git().clone();
+        let worktree_for_git = worktree_path.clone();
+        let head_oid = tokio::task::block_in_place(|| {
+            git.get_head_info(&worktree_for_git).ok().map(|h| h.oid)
+        });
 
         let (is_rebase_in_progress, conflicted_files, conflict_op) = {
             let in_rebase = state

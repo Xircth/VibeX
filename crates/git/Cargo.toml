@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 ts-rs = { workspace = true }
 utils = { path = "../utils" }
+wait-timeout = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

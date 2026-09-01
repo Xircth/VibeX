@@ -17,11 +17,11 @@
 //! network operations when useful.
 use std::{
     ffi::{OsStr, OsString},
-    io::Write as _,
-    path::Path,
+    io::{Read as _, Write as _},
+    path::{Path, PathBuf},
     process::Stdio,
-    thread,
-    time::{Duration, Instant},
+    sync::OnceLock,
+    time::Duration,
 };
 
 use thiserror::Error;
@@ -29,8 +29,11 @@ use utils::{
     path::ALWAYS_SKIP_DIRS, process::new_hidden_std_command,
     shell::resolve_executable_path_blocking,
 };
+use wait_timeout::ChildExt;
 
 use super::Commit;
+
+static GIT_EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum GitCliError {
@@ -1140,17 +1143,24 @@ impl GitCli {
         }
     }
 
-    /// Ensure `git` is available on PATH
-    fn ensure_available(&self) -> Result<(), GitCliError> {
+    /// Resolve `git` once per process. Subsequent calls reuse the cached path
+    /// and do not spawn `git --version`.
+    fn git_executable(&self) -> Result<&'static Path, GitCliError> {
+        if let Some(path) = GIT_EXECUTABLE.get() {
+            return Ok(path.as_path());
+        }
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
         let out = new_hidden_std_command(&git, ["--version"])
             .output()
             .map_err(|_| GitCliError::NotAvailable)?;
-        if out.status.success() {
-            Ok(())
-        } else {
-            Err(GitCliError::NotAvailable)
+        if !out.status.success() {
+            return Err(GitCliError::NotAvailable);
         }
+        Ok(GIT_EXECUTABLE.get_or_init(|| git).as_path())
+    }
+
+    fn ensure_available(&self) -> Result<(), GitCliError> {
+        self.git_executable().map(|_| ())
     }
 
     /// Run `git -C <repo_path> <args...>` and return stdout bytes on success.
@@ -1177,9 +1187,8 @@ impl GitCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        self.ensure_available()?;
-        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
-        let mut cmd = new_hidden_std_command(&git, std::iter::empty::<&OsStr>());
+        let git = self.git_executable()?;
+        let mut cmd = new_hidden_std_command(git, std::iter::empty::<&OsStr>());
         cmd.arg("-c")
             .arg(format!("safe.directory={}", repo_path.display()));
         cmd.arg("-C").arg(repo_path);
@@ -1224,43 +1233,42 @@ impl GitCli {
             None
         };
 
-        let started_at = Instant::now();
-        loop {
-            match child
-                .try_wait()
-                .map_err(|e| GitCliError::CommandFailed(e.to_string()))?
-            {
-                Some(_) => break,
-                None => {
-                    if started_at.elapsed() >= Self::DEFAULT_COMMAND_TIMEOUT {
-                        let _ = child.kill();
-                        let out = child
-                            .wait_with_output()
-                            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
-                        let output = Self::format_command_output(&out.stdout, &out.stderr);
-                        return Err(GitCliError::CommandFailed(format!(
-                            "git command timed out after {}s{}",
-                            Self::DEFAULT_COMMAND_TIMEOUT.as_secs(),
-                            if output.is_empty() {
-                                String::new()
-                            } else {
-                                format!("\n{output}")
-                            }
-                        )));
-                    }
-                    thread::sleep(Duration::from_millis(100));
-                }
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| GitCliError::CommandFailed("git stdout pipe missing".to_string()))?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| GitCliError::CommandFailed("git stderr pipe missing".to_string()))?;
+        let status = match child
+            .wait_timeout(Self::DEFAULT_COMMAND_TIMEOUT)
+            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?
+        {
+            Some(status) => status,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(GitCliError::CommandFailed(format!(
+                    "git command timed out after {}s",
+                    Self::DEFAULT_COMMAND_TIMEOUT.as_secs()
+                )));
             }
-        }
+        };
 
-        let out = child
-            .wait_with_output()
+        let mut stdout_bytes = Vec::new();
+        let mut stderr_bytes = Vec::new();
+        stdout
+            .read_to_end(&mut stdout_bytes)
+            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        stderr
+            .read_to_end(&mut stderr_bytes)
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
 
-        if !out.status.success() {
+        if !status.success() {
             return Err(GitCliError::CommandFailed(Self::format_command_output(
-                &out.stdout,
-                &out.stderr,
+                &stdout_bytes,
+                &stderr_bytes,
             )));
         }
         if let Some(Err(e)) = stdin_write_result {
@@ -1268,7 +1276,7 @@ impl GitCli {
                 "failed to write to git stdin: {e}"
             )));
         }
-        Ok(out.stdout)
+        Ok(stdout_bytes)
     }
 
     pub fn git<I, S>(&self, repo_path: &Path, args: I) -> Result<String, GitCliError>

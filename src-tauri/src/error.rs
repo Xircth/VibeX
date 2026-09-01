@@ -21,6 +21,18 @@ impl Serialize for AppError {
     }
 }
 
+pub async fn spawn_blocking_result<T, E, F>(work: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce() -> Result<T, E> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
 impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
         AppError::Internal(e.to_string())

@@ -1105,7 +1105,9 @@ impl ServerApplicationDomains {
         path: PathBuf,
         op: impl FnOnce(&git::GitService, &Path) -> Result<T, git::GitServiceError>,
     ) -> Result<Value, ApplicationError> {
-        serialize(op(self.deployment.git(), &path).map_err(internal_error)?)
+        let git = self.deployment.git().clone();
+        let value = tokio::task::block_in_place(|| op(&git, &path)).map_err(internal_error)?;
+        serialize(value)
     }
 
     async fn git_write(
@@ -1113,7 +1115,8 @@ impl ServerApplicationDomains {
         path: PathBuf,
         op: impl FnOnce(&git::GitService, &Path) -> Result<(), git::GitServiceError>,
     ) -> Result<Value, ApplicationError> {
-        op(self.deployment.git(), &path).map_err(internal_error)?;
+        let git = self.deployment.git().clone();
+        tokio::task::block_in_place(|| op(&git, &path)).map_err(internal_error)?;
         Ok(Value::Null)
     }
 

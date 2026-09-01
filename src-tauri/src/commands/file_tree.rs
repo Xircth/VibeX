@@ -451,7 +451,9 @@ pub async fn list_directory_children(
     root_path: String,
     relative_path: String,
 ) -> Result<DirectoryChildrenResponse, AppError> {
-    list_directory_children_at_path(&root_path, &relative_path)
+    tokio::task::spawn_blocking(move || list_directory_children_at_path(&root_path, &relative_path))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 /// Recursively scan tree from root, skipping special directories.

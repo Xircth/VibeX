@@ -389,11 +389,8 @@ pub async fn get_repo_git_status(
     repo_id: Uuid,
 ) -> Result<git::DetailedGitStatus, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .get_detailed_status(&repo_path)
-        .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
+    let git = state.deployment.git().clone();
+    crate::error::spawn_blocking_result(move || git.get_detailed_status(&repo_path)).await
 }
 
 #[tauri::command]

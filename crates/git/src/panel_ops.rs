@@ -396,7 +396,19 @@ impl GitService {
     }
 }
 
+const MAX_UNTRACKED_LINECOUNT_BYTES: u64 = 256 * 1024;
+
 fn untracked_file_stats(repo: &Repository, path: &str) -> (i32, i32) {
+    let workdir = match repo.workdir() {
+        Some(dir) => dir,
+        None => return (0, 0),
+    };
+    let file_path = workdir.join(path);
+    match std::fs::metadata(&file_path) {
+        Ok(meta) if meta.len() > MAX_UNTRACKED_LINECOUNT_BYTES => return (0, 0),
+        Err(_) => return (0, 0),
+        Ok(_) => {}
+    }
     let additions = GitService::read_file_to_string(repo, Path::new(path))
         .map(|content| content.lines().count() as i32)
         .unwrap_or(0);

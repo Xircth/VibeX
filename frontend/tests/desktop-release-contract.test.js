@@ -198,14 +198,13 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
     /CEF_PATH:\s*\$\{\{\s*github\.workspace\s*\}\}\/\.cef/
   );
   assert.match(workflow, /name: Cache CEF downloads/);
-  assert.doesNotMatch(workflow, /macos-15-intel/);
   assert.match(
     workflow,
-    /artifact_name: macos-x64[\s\S]*runner: macos-15-xlarge/
+    /artifact_name: macos-x64[\s\S]*runner: macos-15-intel/
   );
   assert.match(
     workflow,
-    /artifact_name: macos-arm64[\s\S]*runner: macos-15-xlarge/
+    /artifact_name: macos-arm64[\s\S]*runner: macos-15$/m
   );
   assert.doesNotMatch(workflow, /cache-all-crates:\s*true/);
 

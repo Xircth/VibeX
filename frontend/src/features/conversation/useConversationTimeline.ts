@@ -59,6 +59,8 @@ export type UseConversationTimelineResult = {
     questionId: string,
     response: AgentElicitationResponse
   ) => Promise<void>;
+  hasEarlier: boolean;
+  loadOlder: () => Promise<void>;
 };
 
 export function useConversationTimeline(
@@ -71,6 +73,7 @@ export function useConversationTimeline(
   const stateRef = useRef(state);
   const pendingBatchesRef = useRef<ConversationRowOpBatch[]>([]);
   const flushFrameRef = useRef<number | null>(null);
+  const loadingOlderRef = useRef(false);
   stateRef.current = state;
 
   const loadDetail = useCallback((): Promise<void> => {
@@ -194,7 +197,7 @@ export function useConversationTimeline(
       if (!active || batch.conversation_id !== conversationId) return;
       pendingBatchesRef.current.push(batch);
       scheduleFlush();
-    })
+    }, conversationId)
       .then((unsubscribe) => {
         if (!active) {
           unsubscribe();
@@ -326,6 +329,35 @@ export function useConversationTimeline(
     [conversationId]
   );
 
+  const loadOlder = useCallback(async () => {
+    if (!conversationId || loadingOlderRef.current) return;
+    const cursor =
+      stateRef.current.byConversationId[conversationId]?.olderCursor;
+    if (!cursor) return;
+    const end = Number(cursor);
+    if (!Number.isFinite(end) || end <= 0) return;
+    const start = Math.max(0, end - 80);
+    loadingOlderRef.current = true;
+    try {
+      const page = await conversationApi.timelinePage({
+        conversationId,
+        cursor: String(start),
+        limit: end - start,
+      });
+      dispatch({
+        type: 'upsert_rows',
+        conversationId,
+        rows: page.rows,
+        lastSequence: toBigInt(
+          stateRef.current.byConversationId[conversationId]?.lastSequence ?? 0n
+        ),
+        olderCursor: start > 0 ? String(start) : null,
+      });
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [conversationId]);
+
   const respondQuestion = useCallback(
     (questionId: string, response: AgentElicitationResponse) => {
       if (!conversationId) return Promise.resolve();
@@ -357,6 +389,8 @@ export function useConversationTimeline(
       cancel,
       respondPermission,
       respondQuestion,
+      hasEarlier: Boolean(entry?.olderCursor),
+      loadOlder,
     }),
     [
       entry,
@@ -368,6 +402,7 @@ export function useConversationTimeline(
       cancel,
       respondPermission,
       respondQuestion,
+      loadOlder,
     ]
   );
 }

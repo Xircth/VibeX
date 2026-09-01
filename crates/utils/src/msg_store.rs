@@ -10,8 +10,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{log_msg::LogMsg, stream_lines::LinesStreamExt};
 
-// 100 MB Limit
-const HISTORY_BYTES: usize = 100000 * 1024;
+const HISTORY_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone)]
 struct StoredMsg {

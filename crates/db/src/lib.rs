@@ -364,7 +364,7 @@ impl DBService {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
         let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
         let pool = SqlitePoolOptions::new()
-            .max_connections(20)
+            .max_connections(8)
             .min_connections(1)
             .acquire_timeout(Duration::from_secs(30))
             .connect_with(options)
@@ -420,7 +420,7 @@ impl DBService {
     {
         let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
         let pool_options = SqlitePoolOptions::new()
-            .max_connections(20)
+            .max_connections(8)
             .min_connections(1)
             .acquire_timeout(Duration::from_secs(30));
 

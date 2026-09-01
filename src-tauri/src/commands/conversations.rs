@@ -58,8 +58,9 @@ use crate::{
 #[ts(export)]
 pub struct DbConversationDetail {
     pub summary: DbConversationSummary,
-    /// Derived from `timeline` for transitional consumers only. The timeline is
-    /// the canonical rendering contract.
+    /// Open path no longer ships a duplicate of `timeline` (ADR-0061). Kept empty
+    /// so existing TypeScript bindings remain valid.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turns: Vec<MessageTurn>,
     pub timeline: ConversationTimeline,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -247,9 +248,9 @@ pub async fn conversation_detail_core(
     let Some(summary) = DbConversationSummary::find_by_id(pool, id).await? else {
         return Ok(None);
     };
-    let timeline = ConversationProjector::project(pool, id).await?;
-    let turns = message_turns_from_timeline(&timeline);
-    let session_stats = session_stats_from_turns(&turns);
+    let mut timeline = ConversationProjector::project(pool, id).await?;
+    let session_stats = session_stats_from_turns(&message_turns_from_timeline(&timeline));
+    truncate_timeline_for_open(&mut timeline);
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
@@ -264,7 +265,7 @@ pub async fn conversation_detail_core(
     let available_commands = latest_available_commands(pool, id).await?;
     Ok(Some(DbConversationDetail {
         summary,
-        turns,
+        turns: Vec::new(),
         timeline,
         active_binding,
         current_turn,
@@ -1139,6 +1140,21 @@ pub async fn conversation_fork(
     }
 }
 
+const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
+
+fn truncate_timeline_for_open(timeline: &mut ConversationTimeline) {
+    let len = timeline.rows.len();
+    if len <= OPEN_TIMELINE_ROW_LIMIT {
+        timeline.truncated_from_start = false;
+        timeline.older_cursor = None;
+        return;
+    }
+    let start = len - OPEN_TIMELINE_ROW_LIMIT;
+    timeline.rows = timeline.rows.split_off(start);
+    timeline.truncated_from_start = true;
+    timeline.older_cursor = Some(start.to_string());
+}
+
 fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTurn> {
     timeline
         .rows
@@ -1829,7 +1845,9 @@ mod tests {
             .expect("conversation");
 
         assert_eq!(detail.timeline.last_sequence, 2);
-        assert_eq!(detail.turns.len(), 2);
+        assert!(detail.turns.is_empty());
+        assert!(!detail.timeline.truncated_from_start);
+        assert_eq!(detail.timeline.rows.len(), 2);
         assert_eq!(detail.projection_version, CONVERSATION_PROJECTION_VERSION);
     }
 
@@ -1899,11 +1917,14 @@ mod tests {
             Some("external-import-1")
         );
         assert!(
-            detail.turns.iter().any(|turn| {
-                matches!(turn.role, agents::conversation::TurnRole::Assistant)
-                    && turn.blocks.iter().any(|block| {
-                    matches!(block, ContentBlock::Text { text } if text.contains("imported reply"))
-                })
+            detail.timeline.rows.iter().any(|row| match &row.row {
+                agents::conversation::ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    matches!(turn.role, agents::conversation::TurnRole::Assistant)
+                        && turn.blocks.iter().any(|block| {
+                            matches!(block, ContentBlock::Text { text } if text.contains("imported reply"))
+                        })
+                }
+                _ => false,
             }),
             "imported assistant text should be renderable from the event log"
         );

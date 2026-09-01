@@ -1210,6 +1210,13 @@ pub struct ConversationTimeline {
     pub projection_version: u32,
     pub last_sequence: i64,
     pub rows: Vec<TimelineRow>,
+    /// True when `rows` is a tail window, not the full projection.
+    #[serde(default)]
+    pub truncated_from_start: bool,
+    /// Index of the first loaded row in the full projection. Present when
+    /// older history can still be paged in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub older_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

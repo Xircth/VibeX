@@ -125,8 +125,8 @@ pub async fn compute_diff_stats(
     Some(stats)
 }
 
-/// Maximum cumulative diff bytes to stream before omitting content (200MB)
-pub const MAX_CUMULATIVE_DIFF_BYTES: usize = 200 * 1024 * 1024;
+/// Maximum cumulative diff bytes to stream before omitting content.
+pub const MAX_CUMULATIVE_DIFF_BYTES: usize = 64 * 1024 * 1024;
 
 const DIFF_STREAM_CHANNEL_CAPACITY: usize = 1000;
 

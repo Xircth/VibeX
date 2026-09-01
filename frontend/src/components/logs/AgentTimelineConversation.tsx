@@ -683,6 +683,14 @@ const AgentTimelineConversation = forwardRef<
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
 
+  useEffect(() => {
+    if (!conversation.hasEarlier) return;
+    const first = virtualRows[0];
+    if (first && first.index === 0) {
+      void conversation.loadOlder();
+    }
+  }, [conversation, virtualRows]);
+
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');

@@ -176,6 +176,12 @@ pub async fn emit_conversation_row_ops_after(
             session_config_options,
             available_commands,
         };
+        if let Err(error) = app.emit(
+            &format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
+            &batch,
+        ) {
+            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
+        }
         if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
             tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
         }
@@ -191,13 +197,10 @@ pub async fn emit_conversation_row_ops_after(
     }
 }
 
-/// How often pending streaming text/reasoning deltas are flushed to the DB and
-/// the frontend. Kept small so the conversation renders token-by-token in near
-/// real time. The coalescer still merges the deltas that land inside one window,
-/// so each flush is a single append (`BEGIN IMMEDIATE` + projection fold), not
-/// one write transaction per token — persisting every token individually would
-/// storm the SQLite write lock on fast agents.
-const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(8);
+/// Persist coalesced streaming deltas on this interval. Overlay text still
+/// reaches the UI on the same flush; 80 ms is ~12 Hz and keeps SQLite's single
+/// writer from being the global clock (ADR-0061).
+const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(80);
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]

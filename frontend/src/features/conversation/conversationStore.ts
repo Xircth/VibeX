@@ -86,6 +86,7 @@ export type ConversationStoreEntry = {
   sessionConfigOptions: AgentSessionConfigOption[];
   /** Agent-advertised slash/skill catalog. `null` until the first update. */
   availableCommands: AgentAvailableCommand[] | null;
+  olderCursor: string | null;
 };
 
 export type ConversationStoreState = {
@@ -111,6 +112,7 @@ export type ConversationStoreAction =
       conversationId: string;
       rows: TimelineRow[];
       lastSequence: bigint;
+      olderCursor?: string | null;
     }
   | { type: 'optimistic_turn'; conversationId: string; turn: MessageTurn }
   | { type: 'remove_optimistic_turn'; conversationId: string; turnId: string }
@@ -181,6 +183,9 @@ export function conversationStoreReducer(
             action.detail.available_commands !== null
               ? action.detail.available_commands
               : entry.availableCommands,
+          olderCursor: keepRealtimeRows
+            ? entry.olderCursor
+            : (action.detail.timeline.older_cursor ?? null),
         };
       });
     case 'load_error':
@@ -236,6 +241,10 @@ export function conversationStoreReducer(
             action.lastSequence > entry.lastSequence
               ? action.lastSequence
               : entry.lastSequence,
+          olderCursor:
+            action.olderCursor !== undefined
+              ? action.olderCursor
+              : entry.olderCursor,
           gap: { kind: 'none' },
         };
       });
@@ -349,7 +358,8 @@ function upsertRow(
     applied = true;
   } else if (incomingRevision >= toBigInt(rows[index].revision)) {
     const mergedIncoming = preserveStructuredUserText(rows[index], incoming);
-    nextRows = rows.map((row, i) => (i === index ? mergedIncoming : row));
+    nextRows = rows.slice();
+    nextRows[index] = mergedIncoming;
     applied = true;
   }
   // Drop the streaming overlay only when we actually applied a row whose revision is at
@@ -598,6 +608,7 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     sessionModes: { current: null, modes: [] },
     sessionConfigOptions: [],
     availableCommands: null,
+    olderCursor: null,
   };
 }
 

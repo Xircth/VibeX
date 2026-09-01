@@ -1399,10 +1399,10 @@ title_locked: boolean, status: SessionStatus, agent_id: AgentId | null, model: s
 
 export type DbConversationDetail = { summary: DbConversationSummary,
 /**
- * Derived from `timeline` for transitional consumers only. The timeline is
- * the canonical rendering contract.
+ * Open path no longer ships a duplicate of `timeline` (ADR-0061). Kept empty
+ * so existing TypeScript bindings remain valid.
  */
-turns: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
+turns?: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
 /**
  * Latest agent-advertised session modes, hydrated from the event log so a
  * reopened conversation renders the real ACP pickers immediately.
@@ -1525,7 +1525,16 @@ export type ConversationTerminalPatch = { terminal_id: string, command?: string 
 
 export type ConversationTerminalView = { terminal_id: string, command: string | null, status: string, output_summary: string | null, output_truncated: boolean, };
 
-export type ConversationTimeline = { conversation_id: string, projection_version: number, last_sequence: bigint, rows: Array<TimelineRow>, };
+export type ConversationTimeline = { conversation_id: string, projection_version: number, last_sequence: bigint, rows: Array<TimelineRow>,
+/**
+ * True when `rows` is a tail window, not the full projection.
+ */
+truncated_from_start: boolean,
+/**
+ * Index of the first loaded row in the full projection. Present when
+ * older history can still be paged in.
+ */
+older_cursor?: string | null, };
 
 export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<TimelineRow>, };
 

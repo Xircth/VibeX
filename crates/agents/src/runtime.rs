@@ -32,18 +32,32 @@ impl RuntimeEventSink for NoopEventSink {
     fn emit(&self, _envelope: AgentEventEnvelope) {}
 }
 
-struct UnboundedRuntimeEventSink {
-    sender: mpsc::UnboundedSender<AgentEventEnvelope>,
+const PERSIST_EVENT_CHANNEL_CAPACITY: usize = 8192;
+
+struct BoundedRuntimeEventSink {
+    sender: mpsc::Sender<AgentEventEnvelope>,
 }
 
-impl RuntimeEventSink for UnboundedRuntimeEventSink {
+impl RuntimeEventSink for BoundedRuntimeEventSink {
     fn emit(&self, envelope: AgentEventEnvelope) {
-        let _ = self.sender.send(envelope);
+        match self.sender.try_send(envelope) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
+            Err(mpsc::error::TrySendError::Full(envelope)) => {
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    tokio::task::block_in_place(|| {
+                        let _ = handle.block_on(self.sender.send(envelope));
+                    });
+                } else {
+                    let _ = self.sender.blocking_send(envelope);
+                }
+            }
+        }
     }
 }
 
-/// A lossless, non-blocking event path for the single Conversation persistence
-/// consumer. Live observers continue to use the bounded broadcast channel.
+/// A lossless persist path for Conversation events. The channel is bounded so a
+/// fast Agent cannot grow Host RAM without bound; the producer waits when full.
+/// Live observers continue to use the bounded broadcast channel.
 const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
 
 fn env_with_conversation_id(
@@ -56,10 +70,10 @@ fn env_with_conversation_id(
 
 pub fn runtime_event_channel() -> (
     Arc<dyn RuntimeEventSink>,
-    mpsc::UnboundedReceiver<AgentEventEnvelope>,
+    mpsc::Receiver<AgentEventEnvelope>,
 ) {
-    let (sender, receiver) = mpsc::unbounded_channel();
-    (Arc::new(UnboundedRuntimeEventSink { sender }), receiver)
+    let (sender, receiver) = mpsc::channel(PERSIST_EVENT_CHANNEL_CAPACITY);
+    (Arc::new(BoundedRuntimeEventSink { sender }), receiver)
 }
 
 #[derive(Debug, Clone)]

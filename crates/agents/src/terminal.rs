@@ -17,6 +17,7 @@ use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_
 use crate::ids::{AgentSessionId, AgentTerminalId};
 
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 512 * 1024;
+const HARD_OUTPUT_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
 /// After the child exits, wait this long for stdout/stderr readers to drain
 /// before publishing the exit status. `wait_for_exit` then `terminal/output`
@@ -206,9 +207,7 @@ impl AgentTerminalRegistry {
                     Ok(0) => break,
                     Ok(count) => {
                         let chunk = buffer[..count].to_vec();
-                        let limit = output_byte_limit
-                            .map(|value| value as usize)
-                            .unwrap_or(DEFAULT_OUTPUT_BYTE_LIMIT);
+                        let limit = effective_output_byte_limit(output_byte_limit);
                         let mut was_truncated = false;
 
                         {
@@ -361,6 +360,15 @@ impl AgentTerminalRegistry {
 
     pub fn subscribe_lifecycle(&self) -> broadcast::Receiver<AgentTerminalLifecycleEvent> {
         self.lifecycle_tx.subscribe()
+    }
+}
+
+fn effective_output_byte_limit(requested: Option<u64>) -> usize {
+    match requested {
+        None | Some(0) => DEFAULT_OUTPUT_BYTE_LIMIT,
+        Some(value) => usize::try_from(value)
+            .unwrap_or(HARD_OUTPUT_BYTE_LIMIT)
+            .clamp(1, HARD_OUTPUT_BYTE_LIMIT),
     }
 }
 
@@ -668,11 +676,26 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT, ShellFamily,
-        can_retry_command_through_shell, classify_shell_family, default_platform_shell,
+        AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
+        HARD_OUTPUT_BYTE_LIMIT, ShellFamily, can_retry_command_through_shell,
+        classify_shell_family, default_platform_shell, effective_output_byte_limit,
         is_utf8_boundary_byte, resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
     };
     use crate::ids::AgentSessionId;
+
+    #[test]
+    fn agent_output_byte_limit_is_hard_capped() {
+        assert_eq!(effective_output_byte_limit(None), DEFAULT_OUTPUT_BYTE_LIMIT);
+        assert_eq!(
+            effective_output_byte_limit(Some(0)),
+            DEFAULT_OUTPUT_BYTE_LIMIT
+        );
+        assert_eq!(
+            effective_output_byte_limit(Some(u64::MAX)),
+            HARD_OUTPUT_BYTE_LIMIT
+        );
+        assert_eq!(effective_output_byte_limit(Some(4096)), 4096);
+    }
 
     fn request(command: &str) -> AgentTerminalCreateRequest {
         AgentTerminalCreateRequest {

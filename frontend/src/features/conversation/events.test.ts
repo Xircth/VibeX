@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   CONVERSATION_EVENTS_CHANNEL,
+  conversationEventsChannel,
   listenToConversationEvents,
 } from './events';
 
@@ -24,6 +25,22 @@ describe('listenToConversationEvents', () => {
 
     expect(backendListenMock).toHaveBeenCalledWith(
       CONVERSATION_EVENTS_CHANNEL,
+      handler
+    );
+  });
+
+  it('subscribes to a per-conversation channel when an id is given', async () => {
+    const unsubscribe = vi.fn();
+    backendListenMock.mockResolvedValue(unsubscribe);
+    const handler = vi.fn();
+    const conversationId = '11111111-1111-1111-1111-111111111111';
+
+    await expect(
+      listenToConversationEvents(handler, conversationId)
+    ).resolves.toBe(unsubscribe);
+
+    expect(backendListenMock).toHaveBeenCalledWith(
+      conversationEventsChannel(conversationId),
       handler
     );
   });

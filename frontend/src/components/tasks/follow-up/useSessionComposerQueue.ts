@@ -79,7 +79,7 @@ export function useSessionComposerQueue({
     listenToConversationEvents((batch) => {
       if (!active || batch.conversation_id !== sessionId) return;
       void refetch();
-    })
+    }, sessionId)
       .then((unsubscribe) => {
         if (!active) {
           unsubscribe();

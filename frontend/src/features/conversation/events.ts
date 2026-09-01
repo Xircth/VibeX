@@ -5,11 +5,18 @@ import type { ConversationRowOpBatch } from 'shared/types';
 // raw event envelopes; the frontend never folds events.
 export const CONVERSATION_EVENTS_CHANNEL = 'conversation-events';
 
+export function conversationEventsChannel(conversationId: string): string {
+  return `${CONVERSATION_EVENTS_CHANNEL}:${conversationId}`;
+}
+
 export function listenToConversationEvents(
-  onBatch: (batch: ConversationRowOpBatch) => void
+  onBatch: (batch: ConversationRowOpBatch) => void,
+  conversationId?: string
 ): Promise<() => void> {
   return backendListen<ConversationRowOpBatch>(
-    CONVERSATION_EVENTS_CHANNEL,
+    conversationId
+      ? conversationEventsChannel(conversationId)
+      : CONVERSATION_EVENTS_CHANNEL,
     onBatch
   );
 }

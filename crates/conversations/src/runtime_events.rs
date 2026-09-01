@@ -581,7 +581,7 @@ pub enum RuntimeEventRecordError {
 /// Start the durable runtime-event bridge for a host composition root.
 pub fn start_agent_event_persistence(
     context: ConversationContext,
-    mut receiver: mpsc::UnboundedReceiver<AgentEventEnvelope>,
+    mut receiver: mpsc::Receiver<AgentEventEnvelope>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut recorder = ConversationAgentEventRecorder::with_context(context);

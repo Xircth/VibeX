@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 // v16 keeps a later turn's stream off a settled predecessor when turn_id is stale.
 pub const CONVERSATION_PROJECTION_VERSION: u32 = 16;
+const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
@@ -660,22 +661,23 @@ impl ConversationProjector {
         }
     }
 
-    /// Refresh the materialized snapshot when a turn settles, inside the append
-    /// transaction. Loads the prior snapshot and folds only this turn's tail, so the
-    /// cost is bounded by the turn rather than the whole conversation.
+    /// Refresh the materialized snapshot on turn settle, and also every
+    /// `SNAPSHOT_REFRESH_EVENT_GAP` events during a long in-flight turn so
+    /// detail/gap reloads do not replay the whole turn.
     pub(super) async fn refresh_snapshot_on_settle(
         conn: &mut SqliteConnection,
         record: &ConversationEventRecord,
     ) -> Result<(), sqlx::Error> {
-        if !matches!(
+        let settled = matches!(
             record.event_kind.as_str(),
             "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
-        ) {
-            return Ok(());
-        }
+        );
 
         let conversation_id = record.conversation_id;
         let mut fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
+        if !settled && record.sequence - fold.last_sequence < SNAPSHOT_REFRESH_EVENT_GAP {
+            return Ok(());
+        }
         let tail = ConversationEventRecord::events_since(
             &mut *conn,
             conversation_id,
@@ -687,6 +689,10 @@ impl ConversationProjector {
             fold.apply(record)?;
         }
         Self::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
+
+        if !settled {
+            return Ok(());
+        }
 
         // Best-effort full-text reindex from the freshly-settled projection.
         // A search-index failure must never block a turn from settling (P1-2).
@@ -1710,6 +1716,8 @@ impl ProjectionFold {
             projection_version: CONVERSATION_PROJECTION_VERSION,
             last_sequence,
             rows,
+            truncated_from_start: false,
+            older_cursor: None,
         }
     }
 
@@ -3054,6 +3062,20 @@ mod tests {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
 
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "hello".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
         append_event(
             &pool,
             conversation_id,

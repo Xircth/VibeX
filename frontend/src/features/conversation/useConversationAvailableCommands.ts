@@ -36,7 +36,7 @@ export function useConversationAvailableCommands(
       if (batch.available_commands) {
         setCommands(batch.available_commands);
       }
-    });
+    }, conversationId);
 
     return () => {
       active = false;

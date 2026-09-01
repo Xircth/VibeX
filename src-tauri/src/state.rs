@@ -171,7 +171,7 @@ pub struct AppState {
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
-    pub conversation_agent_events: StdMutex<Option<mpsc::UnboundedReceiver<AgentEventEnvelope>>>,
+    pub conversation_agent_events: StdMutex<Option<mpsc::Receiver<AgentEventEnvelope>>>,
     pub delegation: crate::delegation::DelegationState,
     pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
     pub conversation_runtime_states:

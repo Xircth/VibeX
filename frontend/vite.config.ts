@@ -172,7 +172,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
     include: ['lucide-react'],
   },
   build: {
-    sourcemap: true,
+    sourcemap: process.env.VITE_SOURCEMAP === 'true',
     rollupOptions: {
       output: {
         manualChunks: createManualChunks,

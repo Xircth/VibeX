@@ -311,6 +311,7 @@ function buildDefaultLayout(api: DockviewApi) {
     id: PANEL_IDS.TERMINAL,
     component: PANEL_IDS.TERMINAL,
     title: 'Terminal',
+    renderer: 'onlyWhenVisible',
     position: {
       referenceGroup: bottomGroup,
       direction: 'within',

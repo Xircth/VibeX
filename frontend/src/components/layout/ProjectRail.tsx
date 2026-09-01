@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Trash2, X } from 'lucide-react';
-import LiquidGlass from 'liquid-glass-react';
+import { HostGlass } from '@/components/ui/HostGlass';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { useProjects } from '@/hooks/useProjects';
@@ -452,7 +452,7 @@ export function ProjectRail({
         className="project-rail-inline-stage"
         style={{ height: `${projectRailHeight}px` }}
       >
-        <LiquidGlass
+        <HostGlass
           className="project-rail-liquid-glass"
           padding="0"
           cornerRadius={20}
@@ -476,7 +476,7 @@ export function ProjectRail({
           }}
         >
           {shell}
-        </LiquidGlass>
+        </HostGlass>
       </div>
     </div>
   );

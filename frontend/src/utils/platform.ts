@@ -31,6 +31,25 @@ export function isMac(): boolean {
   return getHostPlatform() === 'macos';
 }
 
+export function isWindows(): boolean {
+  return getHostPlatform() === 'windows';
+}
+
+export function usesSolidHostChrome(): boolean {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  return document.documentElement.classList.contains('host-windows');
+}
+
+export function applyHostPlatformToDocument(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  document.documentElement.dataset.hostPlatform = getHostPlatform();
+  document.documentElement.classList.toggle('host-windows', isWindows());
+}
+
 export function getModifierKey(): string {
   return isMac() ? '⌘' : 'Ctrl';
 }

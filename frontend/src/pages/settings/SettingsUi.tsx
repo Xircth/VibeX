@@ -1,7 +1,7 @@
 import { useId, useRef, type ComponentType, type ReactNode } from 'react';
 import { ChevronRight, Loader2, Save, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import LiquidGlass from 'liquid-glass-react';
+import { HostGlass } from '@/components/ui/HostGlass';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -193,7 +193,7 @@ export function SettingsActionBar({
   return (
     <div className="settings-action-bar" data-testid="settings-action-bar">
       <div ref={glassStageRef} className="settings-action-bar__stage">
-        <LiquidGlass
+        <HostGlass
           className="settings-action-bar__glass"
           padding="0"
           cornerRadius={14}
@@ -241,7 +241,7 @@ export function SettingsActionBar({
               </Button>
             </div>
           </div>
-        </LiquidGlass>
+        </HostGlass>
       </div>
       {error ? (
         <p className="settings-action-bar__error" role="alert">

@@ -8,7 +8,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import LiquidGlass from 'liquid-glass-react';
+import { HostGlass } from '@/components/ui/HostGlass';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -108,7 +108,7 @@ export function BranchInfoHeader() {
   return (
     <div className="branch-info-header-host">
       <div ref={glassStageRef} className="branch-info-glass-stage">
-        <LiquidGlass
+        <HostGlass
           className="branch-info-liquid-glass"
           padding="0"
           cornerRadius={12}
@@ -187,7 +187,7 @@ export function BranchInfoHeader() {
               </div>
             </div>
           </TooltipProvider>
-        </LiquidGlass>
+        </HostGlass>
       </div>
     </div>
   );

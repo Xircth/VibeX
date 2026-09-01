@@ -346,6 +346,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const panel = dockviewApi.addPanel({
         ...options,
+        renderer:
+          options.component === PANEL_IDS.PREVIEW ||
+          options.component === PANEL_IDS.WEB_PREVIEW ||
+          options.component === PANEL_IDS.TERMINAL
+            ? 'onlyWhenVisible'
+            : options.renderer,
         position: {
           referenceGroup: targetGroup,
           direction: 'within',
@@ -596,6 +602,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           id: PANEL_IDS.TERMINAL,
           component: PANEL_IDS.TERMINAL,
           title: 'Terminal',
+          renderer: 'onlyWhenVisible',
           position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
         });
         terminalPanel.api.setActive();
@@ -635,6 +642,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         id: PANEL_IDS.TERMINAL,
         component: PANEL_IDS.TERMINAL,
         title: 'Terminal',
+        renderer: 'onlyWhenVisible',
         position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
       });
       terminalPanel.api.setActive();

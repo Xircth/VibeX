@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-query';
 import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/errors';
+import { applyHostPlatformToDocument } from '@/utils/platform';
 import { initUiZoom } from '@/lib/uiZoom';
 import { initMonoFont } from '@/lib/uiFont';
 import { initResolvedTheme } from '@/lib/resolvedTheme';
@@ -57,6 +58,7 @@ export const queryClient = new QueryClient({
   },
 });
 
+applyHostPlatformToDocument();
 initUiZoom();
 initMonoFont();
 initResolvedTheme();

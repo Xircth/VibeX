@@ -1,6 +1,6 @@
 {
   "name": "vibex",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "bin": {
     "vibex": "npx-cli/bin/cli.js"

@@ -189,6 +189,13 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
   const stager = read('scripts/stage-cef-runtime.js');
 
   assert.match(workflow, /name: Build frontend/);
+  assert.match(workflow, /probe-runners:/);
+  assert.match(workflow, /fail-fast:\s*true/);
+  assert.match(
+    workflow,
+    /needs: \[prepare-release, build-frontend, probe-runners\]/
+  );
+  assert.match(workflow, /cancel-in-progress:\s*true/);
   assert.match(workflow, /VIBEX_SKIP_FRONTEND_BUILD:\s*"1"/);
   assert.match(workflow, /SCCACHE_GHA_ENABLED:\s*"true"/);
   assert.match(workflow, /BloopAI\/sccache-action@main/);
@@ -207,6 +214,8 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
     /artifact_name: macos-arm64[\s\S]*runner: macos-15$/m
   );
   assert.doesNotMatch(workflow, /cache-all-crates:\s*true/);
+  assert.match(stager, /isCefRuntimeStaged/);
+  assert.match(stager, /already staged/);
 
   assert.match(tauriConfig, /scripts\/tauri-before-build\.js/);
   assert.match(tauriConfig, /scripts\/tauri-before-bundle\.js/);

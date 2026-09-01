@@ -64,6 +64,24 @@ jobs:
       - name: Check JavaScript advisories
         run: pnpm audit --prod --audit-level high
 
+  frontend-build:
+    runs-on: *runner_label
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: cd frontend && npm run build
+
   frontend-checks:
     runs-on: *runner_label
     steps:
@@ -83,12 +101,11 @@ jobs:
         run: |
           npx concurrently \
             --kill-others-on-fail \
-            --names "lint,i18n,fmt,build,test" \
+            --names "lint,i18n,fmt,test" \
             --timings \
             "cd frontend && npm run lint" \
             "GITHUB_BASE_REF=${{ github.base_ref || 'master' }} ./scripts/check-i18n.sh" \
             "cd frontend && npm run format:check" \
-            "cd frontend && npm run build" \
             "cd frontend && npm run test"
 
   backend-schema-checks:

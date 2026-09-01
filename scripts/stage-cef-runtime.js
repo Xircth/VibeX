@@ -138,6 +138,33 @@ function withCefLibraryPath(env = process.env, { targetRoot, platform = process.
   };
 }
 
+function cefRuntimeStageRoot(
+  env = process.env,
+  { targetRoot, platform = process.platform } = {},
+) {
+  const root =
+    targetRoot || env.CARGO_TARGET_DIR || path.join(workspaceRoot, "target");
+  return path.join(root, "cef-runtime", platform);
+}
+
+function isCefRuntimeStaged(env = process.env, options = {}) {
+  const stageRoot = cefRuntimeStageRoot(env, options);
+  const manifestPath = path.join(stageRoot, "cef-runtime-manifest.json");
+  if (!fs.existsSync(manifestPath)) return false;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const required = Array.isArray(manifest.requiredFiles)
+      ? manifest.requiredFiles
+      : [];
+    if (required.length === 0) return false;
+    return required.every((relativePath) =>
+      fs.existsSync(path.join(stageRoot, relativePath)),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function runCompiledBin(binPath, args, env = process.env) {
   if (!fs.existsSync(binPath)) {
     throw new Error(`missing binary ${binPath}`);
@@ -154,11 +181,34 @@ function runCompiledBin(binPath, args, env = process.env) {
   }
 }
 
+function copyStagedHelper({ targetRoot, target, profile, platform = process.platform }) {
+  const helperSource = resolveProfileBin({
+    targetRoot,
+    target,
+    profile,
+    name: "vibex_cef_helper",
+    platform,
+  });
+  const helperDestDir = path.join(targetRoot, "cef-runtime", platform);
+  if (!fs.existsSync(helperSource)) return;
+  fs.mkdirSync(helperDestDir, { recursive: true });
+  fs.copyFileSync(
+    helperSource,
+    path.join(helperDestDir, path.basename(helperSource)),
+  );
+}
+
 function stageCefRuntime(env = process.env) {
   const debug = isDebugBuild(env);
   const profile = cargoProfile(debug);
   const target = cargoTarget(env);
   const targetRoot = env.CARGO_TARGET_DIR || path.join(workspaceRoot, "target");
+
+  if (env.VIBEX_FORCE_CEF_STAGE !== "1" && isCefRuntimeStaged(env, { targetRoot })) {
+    console.log("CEF runtime already staged; skipping rebuild");
+    copyStagedHelper({ targetRoot, target, profile });
+    return;
+  }
 
   runCargo(helperBuildArgs({ debug, target }), env);
   runCargo(stagerBuildArgs({ debug, target }), env);
@@ -172,21 +222,7 @@ function stageCefRuntime(env = process.env) {
     [profile],
     withCefLibraryPath(env, { targetRoot }),
   );
-
-  const helperSource = resolveProfileBin({
-    targetRoot,
-    target,
-    profile,
-    name: "vibex_cef_helper",
-  });
-  const helperDestDir = path.join(targetRoot, "cef-runtime", process.platform);
-  if (fs.existsSync(helperSource)) {
-    fs.mkdirSync(helperDestDir, { recursive: true });
-    fs.copyFileSync(
-      helperSource,
-      path.join(helperDestDir, path.basename(helperSource)),
-    );
-  }
+  copyStagedHelper({ targetRoot, target, profile });
 }
 
 module.exports = {
@@ -198,6 +234,8 @@ module.exports = {
   cefSharedLibraryName,
   findCefLibraryDir,
   withCefLibraryPath,
+  cefRuntimeStageRoot,
+  isCefRuntimeStaged,
   stageCefRuntime,
 };
 

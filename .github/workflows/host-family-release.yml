@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
@@ -30,7 +34,7 @@ jobs:
     name: Package ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - name: linux-x64

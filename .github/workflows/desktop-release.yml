@@ -19,6 +19,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
@@ -145,6 +149,46 @@ jobs:
             fi
           fi
 
+  probe-runners:
+    name: Probe ${{ matrix.artifact_name }} runner
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        include: &desktop-targets
+          - artifact_name: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - artifact_name: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+          - artifact_name: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage
+          - artifact_name: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: appimage
+          - artifact_name: macos-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app
+          - artifact_name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app
+    steps:
+      - name: Confirm runner
+        run: |
+          echo "runner=${{ matrix.runner }}"
+          echo "target=${{ matrix.target }}"
+          echo "os=${{ runner.os }}"
+          echo "arch=${{ runner.arch }}"
+
   build-frontend:
     name: Build frontend
     runs-on: ubuntu-22.04
@@ -175,7 +219,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.artifact_name }}
-    needs: [prepare-release, build-frontend]
+    needs: [prepare-release, build-frontend, probe-runners]
     if: ${{ always() && !failure() && !cancelled() }}
     runs-on: ${{ matrix.runner }}
     env:
@@ -186,33 +230,9 @@ jobs:
       CEF_PATH: ${{ github.workspace }}/.cef
       VIBEX_SKIP_FRONTEND_BUILD: "1"
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        include:
-          - artifact_name: windows-x64
-            runner: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - artifact_name: windows-arm64
-            runner: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            bundles: nsis
-          - artifact_name: linux-x64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage
-          - artifact_name: linux-arm64
-            runner: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-            bundles: appimage
-          - artifact_name: macos-x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: app
-          - artifact_name: macos-arm64
-            runner: macos-15
-            target: aarch64-apple-darwin
-            bundles: app
+        include: *desktop-targets
 
     steps:
       - name: Checkout repository

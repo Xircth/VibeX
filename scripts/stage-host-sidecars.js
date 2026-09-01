@@ -40,6 +40,20 @@ function resolveSidecarBinDir({
   };
 }
 
+function sidecarBinsExist({
+  repo,
+  env = process.env,
+  hostTriple,
+  platform = process.platform,
+} = {}) {
+  const { binDir } = resolveSidecarBinDir({ repo, env, hostTriple });
+  const ext = platform === "win32" ? ".exe" : "";
+  return (
+    fs.existsSync(path.join(binDir, `vibex-mcp${ext}`)) &&
+    fs.existsSync(path.join(binDir, `vibex-workflow-mcp${ext}`))
+  );
+}
+
 function copySidecar(name, source, destinationDir, triple) {
   const ext = process.platform === "win32" ? ".exe" : "";
   const from = `${source}${ext}`;
@@ -71,4 +85,9 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main, resolveSidecarBinDir, resolveTargetTriple };
+module.exports = {
+  main,
+  resolveSidecarBinDir,
+  resolveTargetTriple,
+  sidecarBinsExist,
+};

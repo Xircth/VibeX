@@ -2,6 +2,8 @@
 
 const { execSync, spawnSync } = require("child_process");
 const path = require("path");
+const { isCefRuntimeStaged } = require("./stage-cef-runtime");
+const { sidecarBinsExist } = require("./stage-host-sidecars");
 
 const workspaceRoot = path.join(__dirname, "..");
 
@@ -64,8 +66,16 @@ function main(env = process.env) {
     TAURI_ENV_TARGET_TRIPLE: env.TAURI_ENV_TARGET_TRIPLE || target,
   };
 
-  run(process.execPath, [path.join(__dirname, "stage-cef-runtime.js")], nextEnv);
-  run(nextEnv.CARGO || "cargo", sidecarBuildArgs({ debug, target }), nextEnv);
+  if (isCefRuntimeStaged(nextEnv)) {
+    console.log("CEF runtime already staged; skipping before-bundle rebuild");
+  } else {
+    run(process.execPath, [path.join(__dirname, "stage-cef-runtime.js")], nextEnv);
+  }
+  if (sidecarBinsExist({ repo: workspaceRoot, env: nextEnv, hostTriple: target })) {
+    console.log("Host sidecars already built; skipping cargo rebuild");
+  } else {
+    run(nextEnv.CARGO || "cargo", sidecarBuildArgs({ debug, target }), nextEnv);
+  }
   run(
     process.execPath,
     [path.join(__dirname, "stage-host-sidecars.js")],

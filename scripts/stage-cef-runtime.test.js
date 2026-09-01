@@ -93,3 +93,21 @@ test('Linux stager execution prepends the CEF library directory', () => {
     `${libraryDir}:/usr/lib`
   );
 });
+
+test('already-staged CEF runtime is detected from the manifest and required files', () => {
+  const { isCefRuntimeStaged } = require('./stage-cef-runtime');
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-cef-stage-'));
+  const stageRoot = path.join(targetRoot, 'cef-runtime', 'linux');
+  fs.mkdirSync(stageRoot, { recursive: true });
+
+  assert.equal(isCefRuntimeStaged({}, { targetRoot, platform: 'linux' }), false);
+
+  fs.writeFileSync(
+    path.join(stageRoot, 'cef-runtime-manifest.json'),
+    JSON.stringify({ requiredFiles: ['libcef.so'] })
+  );
+  assert.equal(isCefRuntimeStaged({}, { targetRoot, platform: 'linux' }), false);
+
+  fs.writeFileSync(path.join(stageRoot, 'libcef.so'), '');
+  assert.equal(isCefRuntimeStaged({}, { targetRoot, platform: 'linux' }), true);
+});

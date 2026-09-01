@@ -82,6 +82,62 @@ function runCargo(args, env = process.env) {
   }
 }
 
+function cefSharedLibraryName(platform = process.platform) {
+  if (platform === "win32") return "libcef.dll";
+  if (platform === "darwin") return "Chromium Embedded Framework";
+  return "libcef.so";
+}
+
+function cefLibraryPathKey(platform = process.platform) {
+  if (platform === "win32") return "PATH";
+  if (platform === "darwin") return "DYLD_LIBRARY_PATH";
+  return "LD_LIBRARY_PATH";
+}
+
+function walkForNamed(root, name, maxDepth, depth = 0) {
+  if (!root || depth > maxDepth) return null;
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (entry.name === name) {
+      return root;
+    }
+    if (!entry.isDirectory() || entry.name === "." || entry.name === "..") {
+      continue;
+    }
+    const found = walkForNamed(path.join(root, entry.name), name, maxDepth, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findCefLibraryDir(roots, platform = process.platform) {
+  const name = cefSharedLibraryName(platform);
+  for (const root of roots) {
+    if (!root) continue;
+    const found = walkForNamed(root, name, 8);
+    if (found) return found;
+  }
+  return null;
+}
+
+function withCefLibraryPath(env = process.env, { targetRoot, platform = process.platform } = {}) {
+  const roots = [env.CEF_PATH, targetRoot].filter(Boolean);
+  const libraryDir = findCefLibraryDir(roots, platform);
+  if (!libraryDir) return { ...env };
+  const key = cefLibraryPathKey(platform);
+  const delimiter = platform === "win32" ? ";" : ":";
+  const current = env[key];
+  return {
+    ...env,
+    [key]: current ? `${libraryDir}${delimiter}${current}` : libraryDir,
+  };
+}
+
 function runCompiledBin(binPath, args, env = process.env) {
   if (!fs.existsSync(binPath)) {
     throw new Error(`missing binary ${binPath}`);
@@ -114,7 +170,7 @@ function stageCefRuntime(env = process.env) {
       name: "stage_cef_runtime",
     }),
     [profile],
-    env,
+    withCefLibraryPath(env, { targetRoot }),
   );
 
   const helperSource = resolveProfileBin({
@@ -139,6 +195,9 @@ module.exports = {
   resolveProfileBin,
   cargoTarget,
   isDebugBuild,
+  cefSharedLibraryName,
+  findCefLibraryDir,
+  withCefLibraryPath,
   stageCefRuntime,
 };
 

@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -6,6 +8,8 @@ const {
   helperBuildArgs,
   resolveProfileBin,
   stagerBuildArgs,
+  findCefLibraryDir,
+  withCefLibraryPath,
 } = require('./stage-cef-runtime');
 
 test('release CEF staging builds the helper and stager instead of cargo run', () => {
@@ -71,5 +75,21 @@ test('CEF binaries resolve under the cargo target triple directory', () => {
       platform: 'win32',
     }),
     path.join('/repo/target', 'debug', 'vibex_cef_helper.exe')
+  );
+});
+
+test('Linux stager execution prepends the CEF library directory', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-cef-'));
+  const libraryDir = path.join(root, 'cef_binary', 'Release');
+  fs.mkdirSync(libraryDir, { recursive: true });
+  fs.writeFileSync(path.join(libraryDir, 'libcef.so'), '');
+
+  assert.equal(findCefLibraryDir([root], 'linux'), libraryDir);
+  assert.equal(
+    withCefLibraryPath(
+      { CEF_PATH: root, LD_LIBRARY_PATH: '/usr/lib' },
+      { platform: 'linux' }
+    ).LD_LIBRARY_PATH,
+    `${libraryDir}:/usr/lib`
   );
 });

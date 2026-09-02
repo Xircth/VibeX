@@ -37,17 +37,19 @@ export function LegacyDesignScope({
       ref={setContainer}
       className={cn(
         TAHOE_DESIGN_SCOPE_CLASS,
-        'h-full min-h-0 w-full overflow-hidden',
+        'relative h-full min-h-0 w-full',
         className
       )}
     >
-      {container && (
-        <PortalContainerContext.Provider value={container}>
-          <AstryxTheme theme={neutralTheme} mode={resolvedTheme}>
-            <NiceModal.Provider>{children}</NiceModal.Provider>
-          </AstryxTheme>
-        </PortalContainerContext.Provider>
-      )}
+      <div className="legacy-design-shell h-full min-h-0 w-full overflow-hidden">
+        {container && (
+          <PortalContainerContext.Provider value={container}>
+            <AstryxTheme theme={neutralTheme} mode={resolvedTheme}>
+              <NiceModal.Provider>{children}</NiceModal.Provider>
+            </AstryxTheme>
+          </PortalContainerContext.Provider>
+        )}
+      </div>
     </div>
   );
 }

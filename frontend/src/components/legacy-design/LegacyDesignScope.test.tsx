@@ -33,16 +33,28 @@ describe('LegacyDesignScope', () => {
       </ThemeProvider>
     );
 
-    expect(container.firstElementChild).toHaveClass(
+    const scope = container.firstElementChild;
+    expect(scope).toHaveClass('legacy-design', 'h-full', 'min-h-0');
+    expect(scope).not.toHaveClass('overflow-hidden');
+    expect(scope).not.toHaveClass('min-h-screen');
+    expect(scope?.querySelector(':scope > .legacy-design-shell')).toHaveClass(
+      'overflow-hidden',
       'h-full',
-      'min-h-0',
-      'overflow-hidden'
+      'min-h-0'
     );
-    expect(container.firstElementChild).not.toHaveClass('min-h-screen');
     const viewportRule =
       legacyStyles.match(/html,\s*body,\s*#root\s*\{[^}]+\}/u)?.[0] ?? '';
     expect(viewportRule).toContain('height: 100%');
     expect(viewportRule).toContain('overflow: hidden');
     expect(viewportRule).toContain('overscroll-behavior: none');
+  });
+
+  it('resets anchor-positioned popovers so a failed fallback cannot pin to the origin', () => {
+    expect(legacyStyles).toMatch(
+      /\[popover\]\[style\*=['"]position-anchor['"]\][\s\S]*?inset:\s*auto/
+    );
+    expect(legacyStyles).toMatch(
+      /\[data-astryx-trigger-anchor\][\s\S]*?min-height:\s*1px/
+    );
   });
 });

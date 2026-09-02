@@ -47,6 +47,7 @@
     "core:window:allow-hide",
     "core:window:allow-is-maximized",
     "core:window:allow-set-focus",
+    "core:webview:allow-set-webview-zoom",
     "redline:default",
     "vibex-inspector:default"
   ]

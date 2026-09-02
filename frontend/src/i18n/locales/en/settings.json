@@ -145,6 +145,13 @@
       "status": "Status groups",
       "workspace": "Workspace groups"
     },
+    "kanbanBoardStyle": {
+      "title": "Session board style",
+      "description": "Choose how the session monitor and execution area are presented.",
+      "label": "Board style",
+      "fixed": "Fixed layout",
+      "canvas": "Infinite canvas"
+    },
     "layout": {
       "title": "Page layout",
       "description": "Drag the zones in the diagrams to rearrange them; changes apply after saving below. The Workspace and Kanban pages are configured separately.",

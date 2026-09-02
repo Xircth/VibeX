@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppWindow,
+  Infinity as InfinityIcon,
   Languages,
   LayoutGrid,
   ListTree,
@@ -54,6 +55,12 @@ import {
   setKanbanSessionListView,
   type KanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
+import {
+  KANBAN_BOARD_STYLES,
+  getKanbanBoardStyle,
+  setKanbanBoardStyle,
+  type KanbanBoardStyle,
+} from '@/lib/kanbanBoardStyle';
 import { AccentColorField } from './AccentColorField';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import {
@@ -77,6 +84,8 @@ export function AppearanceSettings() {
   );
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
+  const [kanbanBoardStyle, setKanbanBoardStyleState] =
+    useState<KanbanBoardStyle>(() => getKanbanBoardStyle());
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -376,6 +385,37 @@ export function AppearanceSettings() {
                 {KANBAN_SESSION_LIST_VIEWS.map((view) => (
                   <SelectItem key={view} value={view}>
                     {t(`appearance.kanbanSessionList.${view}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={InfinityIcon}
+          title={t('appearance.kanbanBoardStyle.title')}
+          description={t('appearance.kanbanBoardStyle.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.kanbanBoardStyle.label')}</Label>
+            </div>
+            <Select
+              value={kanbanBoardStyle}
+              onValueChange={(value) => {
+                const next = value as KanbanBoardStyle;
+                setKanbanBoardStyleState(next);
+                setKanbanBoardStyle(next);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {KANBAN_BOARD_STYLES.map((style) => (
+                  <SelectItem key={style} value={style}>
+                    {t(`appearance.kanbanBoardStyle.${style}`)}
                   </SelectItem>
                 ))}
               </SelectContent>

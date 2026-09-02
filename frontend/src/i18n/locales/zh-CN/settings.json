@@ -145,6 +145,13 @@
       "status": "状态分组视图",
       "workspace": "工作区分组视图"
     },
+    "kanbanBoardStyle": {
+      "title": "会话看板样式",
+      "description": "选择会话监控与执行区的呈现方式。",
+      "label": "看板样式",
+      "fixed": "固定布局",
+      "canvas": "无限画布"
+    },
     "layout": {
       "title": "页面布局",
       "description": "在示意图中拖动区域重新排列，点击下方保存后生效。Workspace 与 Kanban 页面分别设置。",

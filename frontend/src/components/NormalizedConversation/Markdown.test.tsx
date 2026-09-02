@@ -602,16 +602,41 @@ $$`);
       )
     );
 
-    const image = await screen.findByRole('img', { name: /Mermaid/ });
-    expect(image).toHaveAttribute(
-      'src',
-      expect.stringContaining('data:image/svg+xml;charset=utf-8,')
-    );
+    const diagram = await screen.findByRole('img', { name: /Mermaid/ });
+    expect(diagram.querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u653e\u5927' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u7f29\u5c0f' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u9002\u5e94' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '\u5168\u5c4f' })).toBeInTheDocument();
     expect(screen.queryByText('mermaid')).not.toBeInTheDocument();
   });
 
+  it('normalizes legacy graph syntax before rendering Mermaid diagrams', async () => {
+    mermaidMock.render
+      .mockRejectedValueOnce(new Error('parse error'))
+      .mockResolvedValueOnce({
+        svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Mock diagram</text></svg>',
+      });
+
+    renderMarkdown(
+      '```mermaid\ngraph TB\nsubgraph 基础层\nBM[BaseModel<br/>- ID, CreatedAt]\nend\n```'
+    );
+
+    await waitFor(() => expect(mermaidMock.render).toHaveBeenCalledTimes(2));
+    expect(mermaidMock.render).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/^mermaid-/),
+      expect.stringContaining('flowchart TB')
+    );
+    expect(mermaidMock.render).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/^mermaid-/),
+      expect.stringContaining('subgraph 基础层["基础层"]')
+    );
+  });
+
   it('keeps Mermaid source inspectable when rendering fails', async () => {
-    mermaidMock.render.mockRejectedValueOnce(new Error('bad diagram'));
+    mermaidMock.render.mockRejectedValue(new Error('bad diagram'));
 
     renderMarkdown('```mermaid\ngraph TD\nA-->B\n```');
 

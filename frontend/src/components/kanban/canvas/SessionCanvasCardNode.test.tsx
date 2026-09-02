@@ -1,0 +1,113 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { SessionCanvasCardNode } from './SessionCanvasCardNode';
+
+vi.mock('@xyflow/react', () => ({
+  Handle: () => null,
+  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+}));
+
+vi.mock('./CanvasViewContext', () => ({
+  useSessionCanvasView: () => ({
+    sessionsById: new Map([
+      [
+        'session-1',
+        {
+          id: 'session-1',
+          fullName: '画布卡片',
+          updatedAt: '2026-09-01T00:00:00.000Z',
+          branch: 'main',
+          workspaceName: 'ws',
+        } as KanbanProjectSessionRecord,
+      ],
+    ]),
+    sessionsReady: true,
+    expandCard: vi.fn(),
+    collapseCard: vi.fn(),
+    removeCard: vi.fn(),
+    zoomToCard: vi.fn(),
+    resizeCard: vi.fn(),
+    resetCardSize: vi.fn(),
+    renameGroup: vi.fn(),
+    toggleGroupShowAll: vi.fn(),
+  }),
+}));
+
+vi.mock('@/components/kanban/session-hub/SessionHubListItem', () => ({
+  SessionHubListItem: ({
+    displayMode,
+    isSelected,
+    session,
+  }: {
+    displayMode?: string;
+    isSelected?: boolean;
+    session: { fullName: string };
+  }) => (
+    <div
+      data-testid="status-session-card"
+      data-display-mode={displayMode}
+      data-selected={String(!!isSelected)}
+    >
+      {session.fullName}
+    </div>
+  ),
+}));
+
+vi.mock('@/components/workspace-session-list/WorkspaceSessionList', () => ({
+  WorkspaceSessionList: () => <div data-testid="workspace-session-list" />,
+}));
+
+describe('SessionCanvasCardNode', () => {
+  it('keeps the status-column card chrome regardless of list grouping', () => {
+    render(
+      <SessionCanvasCardNode
+        id="session-session-1"
+        data={{ sessionId: 'session-1' }}
+        selected={false}
+        type="sessionCard"
+        dragging={false}
+        draggable
+        selectable
+        deletable
+        zIndex={1}
+        isConnectable={false}
+        positionAbsoluteX={0}
+        positionAbsoluteY={0}
+      />
+    );
+
+    expect(screen.getByTestId('status-session-card')).toHaveAttribute(
+      'data-display-mode',
+      'canvas'
+    );
+    expect(
+      screen.queryByTestId('workspace-session-list')
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not wrap a selected card in an extra outer ring', () => {
+    const { container } = render(
+      <SessionCanvasCardNode
+        id="session-session-1"
+        data={{ sessionId: 'session-1' }}
+        selected
+        type="sessionCard"
+        dragging={false}
+        draggable
+        selectable
+        deletable
+        zIndex={1}
+        isConnectable={false}
+        positionAbsoluteX={0}
+        positionAbsoluteY={0}
+      />
+    );
+
+    expect(container.firstElementChild).not.toHaveClass('ring-2');
+    expect(screen.getByTestId('status-session-card')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+  });
+});

@@ -88,6 +88,10 @@
     "hide": "隐藏项目栏",
     "show": "显示项目栏"
   },
+  "canvasSessionList": {
+    "hide": "隐藏会话列表",
+    "show": "显示会话列表"
+  },
   "gitStash": {
     "readFailed": "读取 stash 失败：{{error}}",
     "operationFailed": "操作失败：{{error}}",

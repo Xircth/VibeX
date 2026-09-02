@@ -10,10 +10,14 @@ vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
+  DragOverlay: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="drag-overlay">{children}</div>
+  ),
   PointerSensor: function PointerSensor() {
     return null;
   },
   closestCenter: vi.fn(),
+  pointerWithin: vi.fn(),
   useDraggable: () => ({
     attributes: {},
     listeners: {},

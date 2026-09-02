@@ -21,6 +21,7 @@ import {
 } from '@/hooks/useKanbanProjectSessions';
 import { dateTimestamp } from '@/utils/date';
 import { resolveCreateSessionHref } from '@/lib/createSessionHref';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -85,13 +86,16 @@ export function KanbanBoard() {
   const { panelView, goToBoard, goToSessionHub, goToUsageDashboard } =
     useKanbanSessionContext();
   const kanbanArrangement = useKanbanArrangement();
+  const boardStyle = useKanbanBoardStyle();
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
+  const canvasHub = boardStyle === 'canvas' && panelView === 'sessionHub';
   // The center slot only exists inside the session hub; on the other views
-  // the session column docks to the outer edge instead.
+  // the session column docks to the outer edge instead. Infinite canvas
+  // absorbs the execution column entirely.
   const outerSessionSide: 'left' | 'right' =
     sessionSlotSide === 'left' ? 'left' : 'right';
   const outerSessionActive =
-    sessionSlotSide !== 'center' || panelView !== 'sessionHub';
+    !canvasHub && (sessionSlotSide !== 'center' || panelView !== 'sessionHub');
 
   const showLeftArrow = shouldShowLeftArrow(panelView);
   const showRightArrow = shouldShowRightArrow(panelView);
@@ -127,7 +131,7 @@ export function KanbanBoard() {
 
   return (
     <div className="flex h-full w-full" data-panel="kanban">
-      {outerSessionSide === 'left' && (
+      {!canvasHub && outerSessionSide === 'left' && (
         <KanbanSessionSlot side="left" active={outerSessionActive} />
       )}
       <div className="kanban-shell group relative h-full min-w-0 flex-1 overflow-hidden">
@@ -200,7 +204,7 @@ export function KanbanBoard() {
           </div>
         </div>
       </div>
-      {outerSessionSide === 'right' && (
+      {!canvasHub && outerSessionSide === 'right' && (
         <KanbanSessionSlot side="right" active={outerSessionActive} />
       )}
     </div>

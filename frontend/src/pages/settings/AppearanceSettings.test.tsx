@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   setLayoutArrangement: vi.fn(),
   setKanbanArrangement: vi.fn(),
   setKanbanSessionListView: vi.fn(),
+  setKanbanBoardStyle: vi.fn(),
 }));
 
 vi.mock('@/components/ConfigProvider', () => ({
@@ -90,6 +91,12 @@ vi.mock('@/lib/kanbanSessionListView', () => ({
   KANBAN_SESSION_LIST_VIEWS: ['status', 'workspace'],
   getKanbanSessionListView: () => 'status',
   setKanbanSessionListView: mocks.setKanbanSessionListView,
+}));
+
+vi.mock('@/lib/kanbanBoardStyle', () => ({
+  KANBAN_BOARD_STYLES: ['fixed', 'canvas'],
+  getKanbanBoardStyle: () => 'fixed',
+  setKanbanBoardStyle: mocks.setKanbanBoardStyle,
 }));
 
 vi.mock('./LayoutArrangementSchematic', () => ({
@@ -170,5 +177,17 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
+  });
+
+  it('applies the session board style immediately', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByText('会话看板样式')).toBeInTheDocument();
+    const selects = screen.getAllByRole('combobox');
+    await user.click(selects[6]);
+    await user.click(screen.getByRole('option', { name: '无限画布' }));
+
+    expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');
   });
 });

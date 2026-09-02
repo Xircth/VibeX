@@ -45,7 +45,7 @@ interface SessionHubListItemProps {
   onRenameSession?: (name: string | null) => void | Promise<void>;
   onDeleteSession?: () => void | Promise<void>;
   onRestoreFromArchive?: () => void | Promise<void>;
-  displayMode?: 'default' | 'kanban-board';
+  displayMode?: 'default' | 'kanban-board' | 'canvas';
   dragging?: boolean;
   isOpening?: boolean;
 }
@@ -67,9 +67,11 @@ export function SessionHubListItem({
   const { t } = useTranslation(['tasks', 'common']);
   const agentKey = sessionListAgentKey(session);
   const isKanbanBoardMode = displayMode === 'kanban-board';
+  const isCanvasMode = displayMode === 'canvas';
   const showRenameControls =
     !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
   const branchHoverText = session.workspaceName || session.branch;
+  const workspaceLabel = session.workspaceName || session.branch;
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,6 +127,60 @@ export function SessionHubListItem({
       window.removeEventListener('keydown', closeMenu);
     };
   }, [contextMenu]);
+
+  const actionButtons = showCardActions ? (
+    <div
+      className={cn(
+        'z-[1] flex items-center gap-1',
+        isCanvasMode
+          ? 'nodrag shrink-0'
+          : cn(
+              'absolute bottom-1.5 right-1.5 transition-opacity',
+              isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
+            )
+      )}
+    >
+      {onDeleteSession ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('hubListItem.deleteSession')}
+              className="composer-control rounded-md p-1 text-muted-foreground hover:text-foreground"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onDeleteSession();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
+        </Tooltip>
+      ) : null}
+
+      {showRenameControls ? (
+        <button
+          type="button"
+          aria-label={t('hubListItem.renameSession')}
+          className="composer-control rounded-md p-1"
+          onClick={(event) => {
+            event.stopPropagation();
+            setDraftName(session.fullName);
+            setIsEditing(true);
+          }}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -258,8 +314,9 @@ export function SessionHubListItem({
         {!isEditing ? (
           <div
             className={cn(
-              'mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground',
-              isHovered && showCardActions && 'pr-12'
+              'mt-0.5 flex min-w-0 max-w-full items-center gap-x-1.5 text-[10px] text-muted-foreground',
+              isCanvasMode ? 'gap-1' : 'flex-wrap gap-y-1',
+              !isCanvasMode && isHovered && showCardActions && 'pr-12'
             )}
           >
             <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
@@ -267,69 +324,25 @@ export function SessionHubListItem({
             </span>
             <span className="shrink-0 text-muted-foreground/50">·</span>
             <span
-              className="flex min-w-0 max-w-full items-center gap-1"
-              title={branchHoverText}
+              className="flex min-w-0 flex-1 items-center gap-1"
+              title={isCanvasMode ? workspaceLabel : branchHoverText}
             >
               <GitBranch className="h-3 w-3 shrink-0 opacity-80" />
-              <span className="min-w-0 truncate">{session.branch}</span>
+              <span className="min-w-0 truncate">
+                {isCanvasMode ? workspaceLabel : session.branch}
+              </span>
             </span>
             {session.isRunning ? (
               <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
                 {t('hubListItem.running')}
               </span>
             ) : null}
+            {isCanvasMode && showCardActions ? actionButtons : null}
           </div>
         ) : null}
       </div>
 
-      {showCardActions ? (
-        <div
-          className={cn(
-            'absolute bottom-1.5 right-1.5 z-[1] flex items-center gap-1 transition-opacity',
-            isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
-          )}
-        >
-          {onDeleteSession ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t('hubListItem.deleteSession')}
-                  className="composer-control rounded-md p-1 text-muted-foreground hover:text-foreground"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void onDeleteSession();
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
-            </Tooltip>
-          ) : null}
-
-          {showRenameControls ? (
-            <button
-              type="button"
-              aria-label={t('hubListItem.renameSession')}
-              className="composer-control rounded-md p-1"
-              onClick={(event) => {
-                event.stopPropagation();
-                setDraftName(session.fullName);
-                setIsEditing(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      {!isCanvasMode && showCardActions ? actionButtons : null}
       {contextMenu ? (
         <div
           className="tahoe-popover fixed z-50 min-w-40 rounded-md p-1 text-popover-foreground"

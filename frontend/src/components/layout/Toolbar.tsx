@@ -50,6 +50,11 @@ import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { usePanelActions } from '@/hooks/usePanelActions';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import {
+  toggleKanbanCanvasListVisible,
+  useKanbanCanvasListVisible,
+} from '@/lib/kanbanCanvasListVisible';
 import { cn } from '@/lib/utils';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
@@ -75,8 +80,32 @@ function ToolbarDivider() {
   );
 }
 
+function CanvasSessionListToggleButton() {
+  const { t } = useTranslation('panels');
+  const listVisible = useKanbanCanvasListVisible();
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8"
+      onClick={() => toggleKanbanCanvasListVisible()}
+      aria-label={
+        listVisible ? t('canvasSessionList.hide') : t('canvasSessionList.show')
+      }
+      aria-pressed={listVisible}
+      title={
+        listVisible ? t('canvasSessionList.hide') : t('canvasSessionList.show')
+      }
+    >
+      <List className="h-4 w-4" />
+    </Button>
+  );
+}
+
 export function KanbanLayoutToggles() {
   const { t } = useTranslation('panels');
+  const boardStyle = useKanbanBoardStyle();
   const isKanbanListVisible = useLayoutStore(
     (state) => state.isKanbanListVisible
   );
@@ -94,6 +123,10 @@ export function KanbanLayoutToggles() {
     (state) => state.toggleKanbanSession
   );
   const resetKanbanLayout = useLayoutStore((state) => state.resetKanbanLayout);
+
+  if (boardStyle === 'canvas') {
+    return null;
+  }
 
   return (
     <div className="flex items-center gap-0.5">
@@ -253,6 +286,9 @@ export function WorkspaceBranchControls({
   isWorkspaceTab: boolean;
   workspaceId?: string;
 }) {
+  const boardStyle = useKanbanBoardStyle();
+  const showCanvasListToggle = !isWorkspaceTab && boardStyle === 'canvas';
+
   return (
     <div
       className="flex min-w-0 shrink-0 items-center gap-2"
@@ -260,6 +296,7 @@ export function WorkspaceBranchControls({
       aria-label="Workspace and target branches"
     >
       <ProjectRailToggleButton />
+      {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
       {isWorkspaceTab ? <WorktreeSelector /> : null}
       {workspaceId ? <BranchStatusBadge workspaceId={workspaceId} /> : null}
     </div>

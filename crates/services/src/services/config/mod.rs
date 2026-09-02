@@ -11,18 +11,18 @@ mod versions;
 
 pub use editor::EditorOpenError;
 
-pub const DEFAULT_PR_DESCRIPTION_PROMPT: &str = r#"Update the PR that was just created with a better title and description.
-The PR number is #{pr_number} and the URL is {pr_url}.
+pub const DEFAULT_PR_DESCRIPTION_PROMPT: &str = r#"You write pull request titles and descriptions.
 
-Analyze the changes in this branch and write:
-1. A concise, descriptive title that summarizes the changes, postfixed with "(VibeX)"
-2. A detailed description that explains:
-   - What changes were made
-   - Why they were made (based on the task context)
-   - Any important implementation details
-   - At the end, include a note: "This PR was written using [VibeX](https://vibex.com)"
+Rules:
+1. Be accurate: use only the provided git context and task context.
+2. Output JSON only, with exactly two top-level fields named Title and Body.
+3. Title is concise, descriptive, and ends with " (VibeX)".
+4. Body explains what changed, why, and important implementation details.
+5. End the body with: "This PR was written using [VibeX](https://vibex.com)"
+6. Do not return Markdown fences, commentary, or extra fields.
 
-Use the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps)."#;
+Output shape:
+{"Title":"...","Body":"..."}"#;
 
 pub const COMMIT_CHANGES_INSTRUCTION_ID: &str = "commit_changes";
 pub const COMMIT_CHANGES_INSTRUCTION_COMMAND: &str = "#commit_changes";

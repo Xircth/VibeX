@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 import { DEFAULT_PR_DESCRIPTION_PROMPT, type Config } from 'shared/types';
 
+import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -229,6 +230,10 @@ export function VersionControlSettings() {
         commit_reminder_line_threshold: draft.commit_reminder_line_threshold,
         pr_auto_description_enabled: draft.pr_auto_description_enabled,
         pr_auto_description_prompt: draft.pr_auto_description_prompt,
+        pr_auto_description_agent_id: draft.pr_auto_description_agent_id,
+        pr_auto_description_mode: draft.pr_auto_description_mode,
+        pr_auto_description_session_config:
+          draft.pr_auto_description_session_config,
       });
       if (!saved) {
         throw new Error(t('versionControl.saveFailedDesc'));
@@ -560,21 +565,50 @@ export function VersionControlSettings() {
           title={t('versionControl.prSectionTitle')}
           description={t('versionControl.prSectionDescription')}
         >
-          <div className="settings-row">
-            <div>
-              <Label>{t('versionControl.autoPrDescriptionLabel')}</Label>
-              <p className="settings-row__description">
-                {t('versionControl.autoPrDescriptionDescription')}
-              </p>
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label>{t('versionControl.autoPrDescriptionLabel')}</Label>
+                <p className="settings-row__description">
+                  {t('versionControl.autoPrDescriptionDescription')}
+                </p>
+              </div>
+              <Switch
+                checked={draft.pr_auto_description_enabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateDraft({ pr_auto_description_enabled: checked })
+                }
+              />
             </div>
-            <Switch
-              checked={draft.pr_auto_description_enabled ?? false}
-              onCheckedChange={(checked) =>
-                updateDraft({ pr_auto_description_enabled: checked })
+            <AgentSessionConfigPicker
+              agentId={draft.pr_auto_description_agent_id ?? ''}
+              selectedModeId={draft.pr_auto_description_mode ?? null}
+              pendingConfigValues={
+                (draft.pr_auto_description_session_config ?? {}) as Record<
+                  string,
+                  string
+                >
+              }
+              agentLabel={t('versionControl.prDescriptionAgent')}
+              onAgentChange={(value) =>
+                updateDraft({
+                  pr_auto_description_agent_id: value,
+                  pr_auto_description_mode: null,
+                  pr_auto_description_session_config: {},
+                })
+              }
+              onSelectMode={(modeId) =>
+                updateDraft({ pr_auto_description_mode: modeId })
+              }
+              onSelectConfigValue={(key, value) =>
+                updateDraft({
+                  pr_auto_description_session_config: {
+                    ...draft.pr_auto_description_session_config,
+                    [key]: value,
+                  },
+                })
               }
             />
-          </div>
-          <div className="space-y-4">
             <div className="settings-row">
               <div>
                 <Label>{t('versionControl.customPrPromptLabel')}</Label>

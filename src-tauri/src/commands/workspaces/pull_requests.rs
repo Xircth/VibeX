@@ -1,29 +1,21 @@
 use std::path::PathBuf;
 
-use agents::{AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput};
 use db::models::{
-    execution_process::ExecutionProcess,
     merge::{Merge, MergeStatus},
     repo::{Repo, RepoError},
-    session::{CreateSession, Session, SessionStatus},
     task::{Task, TaskStatus},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
 use git::{GitCliError, GitServiceError};
-use services::services::{
-    config::DEFAULT_PR_DESCRIPTION_PROMPT,
-    git_host::{self, CreatePrRequest, GitHostError, GitHostProvider},
-};
+use services::services::git_host::{self, CreatePrRequest, GitHostError, GitHostProvider};
 use uuid::Uuid;
 
 use super::{
     AttachPrResponse, AttachPrResult, CreatePrResult, GetPrCommentsError, PrCommentsResponse,
     PrCommentsResult, PrError,
 };
-use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_default_open_path,
-};
+use crate::{error::AppError, state::AppState};
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -140,6 +132,25 @@ pub async fn create_workspace_pr(
     };
 
     let provider = git_host.provider_kind();
+    let mut title = title;
+    let mut body = body;
+
+    if auto_generate_description.unwrap_or(false) {
+        let task = workspace.parent_task(pool).await?;
+        let remote_base = format!("{}/{}", target_remote.name, base_branch);
+        let generated = crate::pr_description::generate_pr_description(
+            &state,
+            task.as_ref().map(|task| task.title.clone()),
+            task.as_ref().and_then(|task| task.description.clone()),
+            &worktree_path,
+            &base_branch,
+            &workspace.branch,
+            &[remote_base, base_branch.clone()],
+        )
+        .await?;
+        title = generated.title;
+        body = Some(generated.body);
+    }
 
     let pr_request = CreatePrRequest {
         title: title.clone(),
@@ -173,23 +184,6 @@ pub async fn create_workspace_pr(
                 tracing::warn!("Failed to open PR in browser: {}", e);
             }
 
-            // Trigger auto-description follow-up if enabled
-            if auto_generate_description.unwrap_or(false)
-                && let Err(e) = trigger_pr_description_continuation(
-                    &state,
-                    &workspace,
-                    pr_info.number,
-                    &pr_info.url,
-                )
-                .await
-            {
-                tracing::warn!(
-                    "Failed to trigger PR description follow-up for workspace {}: {}",
-                    workspace.id,
-                    e
-                );
-            }
-
             Ok(CreatePrResult {
                 url: Some(pr_info.url),
                 error: None,
@@ -217,111 +211,6 @@ pub async fn create_workspace_pr(
             }
         }
     }
-}
-
-async fn trigger_pr_description_continuation(
-    state: &tauri::State<'_, AppState>,
-    workspace: &Workspace,
-    pr_number: i64,
-    pr_url: &str,
-) -> Result<(), AppError> {
-    let pool = &state.deployment.db().pool;
-
-    let config = state.deployment.config().read().await;
-    let prompt_template = config
-        .pr_auto_description_prompt
-        .as_deref()
-        .unwrap_or(DEFAULT_PR_DESCRIPTION_PROMPT);
-
-    let prompt = prompt_template
-        .replace("{pr_number}", &pr_number.to_string())
-        .replace("{pr_url}", pr_url);
-
-    drop(config);
-
-    let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
-        Some(s) => s,
-        None => {
-            Session::create(
-                pool,
-                &CreateSession {
-                    executor: None,
-                    agent_id: None,
-                    task_id: None,
-                    name: None,
-                    initial_prompt: None,
-                    status: Some(SessionStatus::Todo),
-                },
-                Uuid::new_v4(),
-                workspace.id,
-            )
-            .await?
-        }
-    };
-
-    let Some(executor_profile_id) =
-        ExecutionProcess::latest_executor_profile_for_session(pool, session.id).await?
-    else {
-        tracing::warn!(
-            "No executor profile found for session {}, skipping PR description follow-up",
-            session.id
-        );
-        return Ok(());
-    };
-
-    let container_ref = state
-        .deployment
-        .container()
-        .ensure_container_exists(workspace)
-        .await?;
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let working_dir = resolve_workspace_default_open_path(workspace, &container_ref, &repos)
-        .to_string_lossy()
-        .into_owned();
-    let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
-        workspace,
-        &container_ref,
-        &repos,
-        &working_dir,
-    );
-    let agent_id = executor_profile_id.executor;
-    let launch = crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(
-        pool, &agent_id,
-    )
-    .await?;
-    let agent_session_id = AgentSessionId(session.id);
-    let agent_session = crate::commands::agents::settle_session_authentication(
-        pool,
-        &agent_id,
-        state
-            .agent_runtime
-            .ensure_session(EnsureAgentSessionInput {
-                agent_id: agent_id.clone(),
-                launch_lock: launch.launch_lock,
-                workspace_id: workspace.id,
-                working_dir: PathBuf::from(working_dir),
-                additional_directories,
-                session_id: agent_session_id,
-                acp_session_id: session.id.to_string(),
-                auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
-            })
-            .await,
-    )
-    .await?;
-
-    state
-        .agent_runtime
-        .send_prompt(SendAgentPromptInput {
-            connection_id: agent_session.connection_id,
-            session_id: agent_session.id,
-            blocks: vec![AgentContentBlock::Text { text: prompt }],
-            mode_override: None,
-            config_overrides: Vec::new(),
-        })
-        .await?;
-
-    Ok(())
 }
 
 #[tauri::command]

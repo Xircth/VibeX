@@ -146,6 +146,16 @@ impl From<services::services::mcp::McpError> for AppError {
     }
 }
 
+impl From<services::services::pr_description::PrDescriptionError> for AppError {
+    fn from(e: services::services::pr_description::PrDescriptionError) -> Self {
+        use services::services::pr_description::PrDescriptionError;
+        match e {
+            PrDescriptionError::BadRequest(message) => AppError::BadRequest(message),
+            PrDescriptionError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
 impl From<services::services::prompt_enhancement::PromptEnhancementError> for AppError {
     fn from(e: services::services::prompt_enhancement::PromptEnhancementError) -> Self {
         use services::services::prompt_enhancement::PromptEnhancementError;

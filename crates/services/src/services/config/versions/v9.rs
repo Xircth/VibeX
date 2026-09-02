@@ -93,6 +93,12 @@ pub struct Config {
     pub pr_auto_description_enabled: bool,
     #[serde(default)]
     pub pr_auto_description_prompt: Option<String>,
+    #[serde(default)]
+    pub pr_auto_description_agent_id: String,
+    #[serde(default)]
+    pub pr_auto_description_mode: Option<String>,
+    #[serde(default)]
+    pub pr_auto_description_session_config: std::collections::BTreeMap<String, String>,
     #[serde(default = "default_commit_reminder_enabled")]
     pub commit_reminder_enabled: bool,
     #[serde(default)]
@@ -158,6 +164,9 @@ impl Config {
             git_branch_prefix: old_config.git_branch_prefix,
             pr_auto_description_enabled: old_config.pr_auto_description_enabled,
             pr_auto_description_prompt: old_config.pr_auto_description_prompt,
+            pr_auto_description_agent_id: String::new(),
+            pr_auto_description_mode: None,
+            pr_auto_description_session_config: std::collections::BTreeMap::new(),
             commit_reminder_enabled: old_config.commit_reminder_enabled,
             commit_reminder_mode: CommitReminderMode::default(),
             commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
@@ -224,6 +233,9 @@ impl Default for Config {
             git_branch_prefix: default_git_branch_prefix(),
             pr_auto_description_enabled: true,
             pr_auto_description_prompt: None,
+            pr_auto_description_agent_id: String::new(),
+            pr_auto_description_mode: None,
+            pr_auto_description_session_config: std::collections::BTreeMap::new(),
             commit_reminder_enabled: true,
             commit_reminder_mode: CommitReminderMode::default(),
             commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
@@ -333,5 +345,21 @@ mod tests {
         let loaded: Config = serde_json::from_value(saved).expect("load older v9 config");
 
         assert!(!loaded.previous_session_continuation_enabled);
+    }
+
+    #[test]
+    fn older_v9_configs_receive_pr_description_agent_defaults() {
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        let saved = saved.as_object_mut().expect("config object");
+        saved.remove("pr_auto_description_agent_id");
+        saved.remove("pr_auto_description_mode");
+        saved.remove("pr_auto_description_session_config");
+
+        let loaded: Config =
+            serde_json::from_value(serde_json::Value::Object(saved.clone())).expect("load config");
+
+        assert!(loaded.pr_auto_description_agent_id.is_empty());
+        assert!(loaded.pr_auto_description_mode.is_none());
+        assert!(loaded.pr_auto_description_session_config.is_empty());
     }
 }

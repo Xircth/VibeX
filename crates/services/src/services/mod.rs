@@ -16,6 +16,7 @@ pub mod git_host;
 pub mod image;
 pub mod mcp;
 pub mod notification;
+pub mod pr_description;
 pub mod pr_monitor;
 pub mod project;
 pub mod prompt_enhancement;

@@ -5,6 +5,15 @@ import type { Config } from 'shared/types';
 
 import { VersionControlSettings } from './VersionControlSettings';
 
+const agentManagementApiMock = vi.hoisted(() => ({
+  bar: vi.fn(),
+}));
+
+const agentsApiMock = vi.hoisted(() => ({
+  refreshCapabilityCatalog: vi.fn(),
+  capabilityCatalog: vi.fn(),
+}));
+
 const mocks = vi.hoisted(() => ({
   config: {
     workspace_dir: '/workspace',
@@ -14,6 +23,9 @@ const mocks = vi.hoisted(() => ({
     commit_reminder_line_threshold: 10000,
     pr_auto_description_enabled: false,
     pr_auto_description_prompt: null,
+    pr_auto_description_agent_id: '',
+    pr_auto_description_mode: null,
+    pr_auto_description_session_config: {},
   } as Config,
   updateAndSaveConfig: vi.fn(),
   getSettings: vi.fn(),
@@ -37,6 +49,18 @@ vi.mock('@/components/ConfigProvider', () => ({
     loading: false,
     updateAndSaveConfig: mocks.updateAndSaveConfig,
   }),
+}));
+
+vi.mock('@/features/agent-management/api', () => ({
+  agentManagementApi: agentManagementApiMock,
+}));
+
+vi.mock('@/features/agents/api', () => ({
+  agentsApi: agentsApiMock,
+}));
+
+vi.mock('@/features/agents/sessionControlsQuery', () => ({
+  loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -94,6 +118,23 @@ describe('VersionControlSettings', () => {
     mocks.testGitPath.mockResolvedValue(gitStatus);
     mocks.getGithubCliStatus.mockResolvedValue(githubStatus);
     mocks.openGithubCliLogin.mockResolvedValue(undefined);
+    agentManagementApiMock.bar.mockReset();
+    agentsApiMock.refreshCapabilityCatalog.mockReset();
+    agentsApiMock.capabilityCatalog.mockReset();
+    agentManagementApiMock.bar.mockResolvedValue([
+      {
+        agent_id: 'opencode',
+        display_name: 'OpenCode',
+        enabled: true,
+        retired: false,
+      },
+    ]);
+    agentsApiMock.capabilityCatalog.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [],
+    });
+    agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
   });
 
   it('loads Git/GitHub state and persists CLI settings', async () => {
@@ -236,6 +277,16 @@ describe('VersionControlSettings', () => {
         })
       );
     });
+  });
+
+  it('lists enabled Agents for PR description generation', async () => {
+    render(<VersionControlSettings />);
+
+    await waitFor(() => {
+      expect(agentManagementApiMock.bar).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByRole('combobox', { name: 'Agent' })).not.toBeDisabled();
   });
 
   it('persists the reminder mode and changed-line threshold', async () => {

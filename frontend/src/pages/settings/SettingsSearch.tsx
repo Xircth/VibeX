@@ -1,0 +1,1 @@
+export { SettingsSearch } from './SettingsSearchField';

@@ -1,5 +1,11 @@
 {
   "windowTitle": "Settings",
+  "search": {
+    "placeholder": "Search",
+    "noResults": "No matching settings",
+    "aria": "Search settings",
+    "clear": "Clear"
+  },
   "nav": {
     "agents": "Agents",
     "appearance": "Appearance",
@@ -1154,9 +1160,10 @@
     "commitReminderThresholdDescription": "Remind only when total added and deleted lines strictly exceed this value.",
     "linesUnit": "lines",
     "prSectionTitle": "PR Settings",
-    "prSectionDescription": "Configure whether PR description generation is enabled and its default prompt.",
+    "prSectionDescription": "Choose an enabled Agent and the session config used only for writing PR titles and descriptions.",
     "autoPrDescriptionLabel": "Auto-generate PR description",
-    "autoPrDescriptionDescription": "Automatically prepare a description draft when creating a PR.",
+    "autoPrDescriptionDescription": "Use the selected Agent to write the title and description when creating a PR.",
+    "prDescriptionAgent": "Agent",
     "customPrPromptLabel": "Custom PR prompt",
     "customPrPromptDescription": "When off, the system default PR description template is used.",
     "githubAccountSectionTitle": "GitHub Account",

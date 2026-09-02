@@ -184,6 +184,93 @@ describe('SettingsLayout capability gating', () => {
   });
 });
 
+describe('SettingsLayout search', () => {
+  const desktopTransport: BackendTransport = {
+    environment: 'desktop',
+    call: vi.fn(),
+  };
+
+  it('lists matching settings and jumps to the selected row', async () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route
+                path="general"
+                element={
+                  <div>
+                    <h2>常规</h2>
+                    <label>默认终端</label>
+                  </div>
+                }
+              />
+              <Route
+                path="appearance"
+                element={
+                  <div>
+                    <h3>主题</h3>
+                    <label>应用主题</label>
+                  </div>
+                }
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const search = screen.getByRole('searchbox', { name: '搜索设置' });
+    expect(search).toHaveClass('settings-search-input');
+    await user.type(search, '主题');
+
+    expect(
+      screen.queryByRole('button', { name: /常规/ })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '清除' })).toBeInTheDocument();
+    const result = await screen.findByRole('button', { name: '主题, 外观' });
+    expect(result).toHaveClass('settings-search-result');
+    await user.click(result);
+
+    expect(
+      await screen.findByRole('heading', { name: '主题' })
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        document.querySelector('.settings-search-flash')
+      ).toHaveTextContent('主题');
+    });
+  });
+
+  it('clears the query and restores the settings menu', async () => {
+    const user = userEvent.setup();
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/appearance']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="appearance" element={<div>Appearance</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索设置' }),
+      '外观'
+    );
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '清除' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '清除' }));
+    expect(screen.getByRole('searchbox', { name: '搜索设置' })).toHaveValue('');
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+  });
+});
+
 describe('SettingsLayout window title', () => {
   const desktopTransport: BackendTransport = {
     environment: 'desktop',

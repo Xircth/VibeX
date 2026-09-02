@@ -1,5 +1,11 @@
 {
   "windowTitle": "设置",
+  "search": {
+    "placeholder": "搜索",
+    "noResults": "没有匹配的设置",
+    "aria": "搜索设置",
+    "clear": "清除"
+  },
   "nav": {
     "agents": "Agent",
     "appearance": "外观",
@@ -1154,9 +1160,10 @@
     "commitReminderThresholdDescription": "仅在新增与删除的总行数严格超过此值时提醒。",
     "linesUnit": "行",
     "prSectionTitle": "PR 设置",
-    "prSectionDescription": "配置 PR 描述生成的启用状态与默认提示词。",
+    "prSectionDescription": "选择用于生成 PR 描述的已启用 Agent 及其会话配置。",
     "autoPrDescriptionLabel": "自动生成 PR 描述",
-    "autoPrDescriptionDescription": "创建 PR 时自动准备描述草稿。",
+    "autoPrDescriptionDescription": "创建 PR 时用所选 Agent 生成标题与描述。",
+    "prDescriptionAgent": "Agent",
     "customPrPromptLabel": "自定义 PR 提示词",
     "customPrPromptDescription": "关闭后使用系统默认 PR 描述模板。",
     "githubAccountSectionTitle": "GitHub 账号",

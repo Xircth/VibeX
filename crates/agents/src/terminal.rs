@@ -271,6 +271,17 @@ impl AgentTerminalRegistry {
             .collect()
     }
 
+    pub async fn has_running_for_session(&self, session_id: AgentSessionId) -> bool {
+        let sessions = self.sessions.read().await;
+        for session in sessions.values() {
+            if session.agent_session_id == session_id && session.exit_status.read().await.is_none()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     pub async fn subscribe_output(
         &self,
         terminal_id: AgentTerminalId,
@@ -970,6 +981,34 @@ mod tests {
             .await
             .expect_err("empty command");
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn has_running_for_session_is_true_only_while_the_child_is_alive() {
+        let registry = AgentTerminalRegistry::new();
+        let session_id = AgentSessionId::new();
+        let other_session = AgentSessionId::new();
+        let terminal_id = registry
+            .create_terminal(&AgentTerminalCreateRequest {
+                session_id,
+                command: "sleep".to_string(),
+                args: vec!["30".to_string()],
+                cwd: None,
+                env: Vec::new(),
+                output_byte_limit: Some(4096),
+            })
+            .await
+            .expect("create sleep terminal");
+
+        assert!(registry.has_running_for_session(session_id).await);
+        assert!(!registry.has_running_for_session(other_session).await);
+
+        assert!(registry.kill_terminal(terminal_id).await);
+        let _ = registry.wait_for_exit(terminal_id).await;
+        assert!(!registry.has_running_for_session(session_id).await);
+
+        registry.release_terminal(terminal_id).await;
     }
 
     #[test]

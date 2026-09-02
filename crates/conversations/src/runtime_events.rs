@@ -876,7 +876,13 @@ fn map_agent_event(
                         message: error.message.clone(),
                     },
                 }
-            } else if turn_id.is_some() {
+            } else if let Some(turn_id) = turn_id {
+                tracing::error!(
+                    turn_id = %turn_id,
+                    code = error.code.as_deref().unwrap_or("unknown"),
+                    message = %error.message,
+                    "agent turn failed"
+                );
                 ConversationEvent::TurnFailed {
                     error: ConversationError {
                         message: error.message.clone(),
@@ -885,6 +891,10 @@ fn map_agent_event(
                     },
                 }
             } else {
+                tracing::error!(
+                    message = %error.message,
+                    "agent binding recovery failed"
+                );
                 ConversationEvent::AgentBindingRecoveryFailed {
                     reason: error.message.clone(),
                 }
@@ -1288,6 +1298,23 @@ mod tests {
             Some(ConversationEvent::TurnBlocked {
                 reason: agents::conversation::TurnBlockedReason::Authentication { message }
             }) if message == "please log in"
+        ));
+    }
+
+    #[test]
+    fn idle_timeout_errors_fail_the_turn_with_the_idle_timeout_code() {
+        let envelope = envelope(AgentEvent::Error {
+            error: agents::AgentErrorEvent {
+                message: "Agent stopped responding (idle timeout after 120s).".into(),
+                code: Some("idle_timeout".into()),
+                raw: None,
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::TurnFailed {
+                error: agents::conversation::ConversationError { code: Some(code), .. }
+            }) if code == "idle_timeout"
         ));
     }
 

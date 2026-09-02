@@ -193,12 +193,13 @@ const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
-// A prompt that produces no ACP activity (no message/thought/tool/plan/usage
-// notification) for this long is treated as a hung agent and the turn is failed,
-// so a Codex/agent stuck retrying an unreachable model can't spin "生成中"
-// forever. Generous (10 min) and reset on ANY activity so it never kills a
-// legitimately-streaming long turn; permission waits are exempt (see run_prompt).
-const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
+// Opt-in prompt idle watchdog. Unset or `0` disables it: an in-flight turn
+// stays alive until the agent returns, the user cancels, or the connection
+// dies (Codeg parity — Codeg never kills a Prompting connection). A positive
+// `VIBEX_PROMPT_IDLE_TIMEOUT_SECS` fails a turn that produces no ACP traffic
+// for that long. When enabled, every inbound ACP request/notification (not
+// just session/update) refreshes the clock, and permission, elicitation, and
+// live-terminal waits are exempt.
 const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
 const PI_COMMAND_ENV: &str = "PI_ACP_PI_COMMAND";
 const PI_CONFIG_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
@@ -290,16 +291,23 @@ fn handshake_timeout_from_env_value(value: Option<&str>) -> Duration {
     Duration::from_secs(seconds)
 }
 
-fn prompt_idle_timeout() -> Duration {
+fn prompt_idle_timeout() -> Option<Duration> {
     prompt_idle_timeout_from_env_value(std::env::var(PROMPT_IDLE_TIMEOUT_ENV).ok().as_deref())
 }
 
-fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Duration {
-    let seconds = value
+fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Option<Duration> {
+    value
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
-        .unwrap_or(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS);
-    Duration::from_secs(seconds)
+        .map(Duration::from_secs)
+}
+
+fn prompt_idle_watchdog_blocked(
+    pending_permission: bool,
+    pending_elicitation: bool,
+    running_terminal: bool,
+) -> bool {
+    pending_permission || pending_elicitation || running_terminal
 }
 
 fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> String {
@@ -959,9 +967,8 @@ struct AgentConnectionRunner {
     // the connection-death fallback in `run()` emit a turn-terminal event carrying
     // the real prompt_id so the conversation fails cleanly instead of hanging.
     active_prompt: Arc<Mutex<Option<(AgentSessionId, AgentPromptId)>>>,
-    // Last time the agent produced ACP activity for the in-flight prompt; shared
-    // with the bridge (refreshed on every session notification) so the prompt
-    // idle watchdog can fail a silently-hung agent without killing live turns.
+    // Last inbound ACP traffic for the in-flight prompt; shared with the
+    // bridge so an opt-in idle watchdog can fail a silently-hung agent.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
@@ -2841,20 +2848,28 @@ impl AgentConnectionRunner {
                     *self.active_prompt.lock().await = None;
                     return Ok(());
                 }
-                // Idle watchdog: fail a silently-hung agent (e.g. Codex stuck
-                // retrying an unreachable model) instead of spinning "生成中"
-                // forever. Polls cheaply; the real measure is `last_activity`,
-                // refreshed by every session notification, so a legitimately
-                // streaming long turn is never killed. Skipped while a permission
-                // decision or an elicitation answer is pending (those waits
-                // produce no activity).
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    if self.has_pending_permission_for(session_id).await
-                        || self.has_pending_elicitation_for(session_id).await
-                    {
+                // Opt-in idle watchdog. Disabled by default so a long Grok
+                // think / subagent / terminal wait is not mistaken for a hang.
+                // When enabled, `last_activity` is any inbound ACP traffic.
+                _ = async {
+                    if idle_timeout.is_some() {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {
+                    let Some(idle_timeout) = idle_timeout else {
+                        continue;
+                    };
+                    if prompt_idle_watchdog_blocked(
+                        self.has_pending_permission_for(session_id).await,
+                        self.has_pending_elicitation_for(session_id).await,
+                        self.has_running_terminal_for(session_id).await,
+                    ) {
                         continue;
                     }
-                    if self.last_activity.lock().await.elapsed() < idle_timeout {
+                    let elapsed = self.last_activity.lock().await.elapsed();
+                    if elapsed < idle_timeout {
                         continue;
                     }
                     self.cancel_pending_interactions(session_id).await;
@@ -2866,9 +2881,15 @@ impl AgentConnectionRunner {
                         Some(prompt_id),
                         AgentEvent::Error {
                             error: AgentErrorEvent {
-                                message: "Agent stopped responding (idle timeout). The model may be unreachable — check your network/proxy or re-authenticate the agent.".to_string(),
+                                message: format!(
+                                    "Agent stopped responding (idle timeout after {}s). The model may be unreachable — check your network/proxy or re-authenticate the agent.",
+                                    elapsed.as_secs()
+                                ),
                                 code: Some("idle_timeout".to_string()),
-                                raw: None,
+                                raw: Some(serde_json::json!({
+                                    "elapsed_secs": elapsed.as_secs(),
+                                    "timeout_secs": idle_timeout.as_secs(),
+                                })),
                             },
                         },
                     );
@@ -3058,6 +3079,12 @@ impl AgentConnectionRunner {
             .any(|pending| pending.session_id == session_id)
     }
 
+    async fn has_running_terminal_for(&self, session_id: AgentSessionId) -> bool {
+        agent_terminal_registry()
+            .has_running_for_session(session_id)
+            .await
+    }
+
     async fn cancel_pending_interactions(&self, session_id: AgentSessionId) {
         let pending = {
             let mut pending_permissions = self.pending_permissions.lock().await;
@@ -3169,6 +3196,18 @@ impl AgentConnectionRunner {
         prompt_id: Option<AgentPromptId>,
         event: AgentEvent,
     ) {
+        if let AgentEvent::Error { error } = &event {
+            let session = session_id.map(|id| id.to_string());
+            let prompt = prompt_id.map(|id| id.to_string());
+            tracing::error!(
+                agent_id = %self.snapshot.agent_id.as_str(),
+                session_id = session.as_deref().unwrap_or("-"),
+                prompt_id = prompt.as_deref().unwrap_or("-"),
+                code = error.code.as_deref().unwrap_or("unknown"),
+                "{}",
+                error.message
+            );
+        }
         let _ = self.event_tx.send(AgentConnectionManagerEvent {
             connection_id: self.snapshot.connection_id,
             session_id,
@@ -3364,8 +3403,8 @@ struct AcpClientBridge {
     // Shared with the owning `AgentConnectionRunner` so a turn boundary can reset
     // it; keyed by ACP session id.
     stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
-    // Shared idle-watchdog clock: every session notification refreshes it so the
-    // prompt watchdog only fires on a genuinely silent (hung) agent.
+    // Shared idle-watchdog clock: every inbound ACP request/notification
+    // refreshes it so an opt-in prompt watchdog only fires on true silence.
     last_activity: Arc<Mutex<Instant>>,
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
@@ -3434,10 +3473,15 @@ impl AcpClientBridge {
         }
     }
 
+    async fn note_activity(&self) {
+        *self.last_activity.lock().await = Instant::now();
+    }
+
     async fn handle_agent_request(
         &self,
         request: AgentRequest,
     ) -> Result<ClientResponse, acp::Error> {
+        self.note_activity().await;
         match request {
             AgentRequest::RequestPermissionRequest(args) => Ok(
                 ClientResponse::RequestPermissionResponse(self.request_permission(args).await?),
@@ -3503,6 +3547,7 @@ impl AcpClientBridge {
         &self,
         notification: AgentNotification,
     ) -> Result<(), acp::Error> {
+        self.note_activity().await;
         match notification {
             AgentNotification::SessionNotification(args) => self.session_notification(args).await,
             AgentNotification::ExtNotification(ext) => self.handle_ext_notification(ext).await,
@@ -3772,9 +3817,6 @@ impl AcpClientBridge {
     }
 
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
-        // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
-        // the in-flight prompt alive for the idle watchdog in `run_prompt`.
-        *self.last_activity.lock().await = Instant::now();
         let acp_session_id = args.session_id.0.to_string();
         let session_id = resolve_agent_session_id(
             self.agent_session_for_acp(acp_session_id.clone()).await,
@@ -6233,27 +6275,27 @@ mod tests {
     }
 
     #[test]
-    fn prompt_idle_timeout_uses_default_for_missing_or_invalid_env() {
-        assert_eq!(
-            prompt_idle_timeout_from_env_value(None),
-            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
-        );
-        assert_eq!(
-            prompt_idle_timeout_from_env_value(Some("0")),
-            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
-        );
-        assert_eq!(
-            prompt_idle_timeout_from_env_value(Some("nope")),
-            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
-        );
+    fn prompt_idle_timeout_is_disabled_when_unset_zero_or_invalid() {
+        assert_eq!(prompt_idle_timeout_from_env_value(None), None);
+        assert_eq!(prompt_idle_timeout_from_env_value(Some("0")), None);
+        assert_eq!(prompt_idle_timeout_from_env_value(Some("nope")), None);
+        assert_eq!(prompt_idle_timeout_from_env_value(Some("  ")), None);
     }
 
     #[test]
     fn prompt_idle_timeout_accepts_positive_env_value() {
         assert_eq!(
             prompt_idle_timeout_from_env_value(Some("120")),
-            Duration::from_secs(120)
+            Some(Duration::from_secs(120))
         );
+    }
+
+    #[test]
+    fn prompt_idle_watchdog_skips_permission_elicitation_and_live_terminals() {
+        assert!(!prompt_idle_watchdog_blocked(false, false, false));
+        assert!(prompt_idle_watchdog_blocked(true, false, false));
+        assert!(prompt_idle_watchdog_blocked(false, true, false));
+        assert!(prompt_idle_watchdog_blocked(false, false, true));
     }
 
     #[test]

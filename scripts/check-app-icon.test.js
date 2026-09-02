@@ -232,6 +232,29 @@ test('desktop PNG icons are inset squircles', () => {
   assertSquircleIcon(path.join(iconsDir, '64x64.png'), 64);
 });
 
+function assertCaptionMargin(rgba, width, height, margin, label) {
+  for (let offset = 0; offset < margin; offset += 1) {
+    for (let cursor = 0; cursor < width; cursor += 1) {
+      assert.ok(
+        pixel(rgba, width, cursor, offset)[3] < 8,
+        `${label} top ${offset}`
+      );
+      assert.ok(
+        pixel(rgba, width, cursor, height - 1 - offset)[3] < 8,
+        `${label} bottom ${offset}`
+      );
+      assert.ok(
+        pixel(rgba, width, offset, cursor)[3] < 8,
+        `${label} left ${offset}`
+      );
+      assert.ok(
+        pixel(rgba, width, width - 1 - offset, cursor)[3] < 8,
+        `${label} right ${offset}`
+      );
+    }
+  }
+}
+
 test('Windows ICO frames are the same inset squircle', () => {
   const icoPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico');
   for (const size of [32, 48, 128, 256]) {
@@ -240,6 +263,30 @@ test('Windows ICO frames are the same inset squircle', () => {
       size,
       `icon.ico ${size}x${size}`
     );
+  }
+});
+
+test('Windows caption ICO sizes keep a DWM-safe transparent margin', () => {
+  const icoPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico');
+  for (const [size, margin] of [
+    [16, 2],
+    [20, 2],
+    [24, 2],
+  ]) {
+    const { width, height, rgba } = decodePngRgba(
+      extractIcoPng(icoPath, size),
+      `icon.ico ${size}x${size}`
+    );
+    assert.equal(width, size);
+    assert.equal(height, size);
+    assertCaptionMargin(rgba, width, height, margin, `icon.ico ${size}x${size}`);
+    const center = pixel(
+      rgba,
+      width,
+      Math.floor(width / 2),
+      Math.floor(height / 2)
+    );
+    assert.equal(center[3], 255);
   }
 });
 

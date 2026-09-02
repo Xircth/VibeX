@@ -35,7 +35,7 @@ pub async fn open_settings_window(
     .center();
 
     let builder = builder
-        .icon(crate::load_app_icon().map_err(|e| e.to_string())?)
+        .icon(crate::load_app_icon()?)
         .map_err(|e| e.to_string())?;
 
     builder.build().map_err(|e| e.to_string())?;

@@ -16,6 +16,7 @@ use browser_cef::{
 use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
+mod app_icon;
 mod app_surface;
 pub mod commands;
 pub mod conversation_bundle;
@@ -308,30 +309,32 @@ fn install_rustls_crypto_provider() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
-pub(crate) fn load_app_icon() -> Result<Image<'static>, tauri::Error> {
-    Image::from_bytes(native_app_icon_bytes("default", "light").expect("default app icon exists"))
-        .map(|icon| icon.to_owned())
+pub(crate) fn load_app_icon() -> Result<Image<'static>, String> {
+    app_icon::icon_from_png_bytes(
+        native_app_icon_bytes("default", "light").expect("default app icon exists"),
+    )
 }
 
 pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let icon = load_app_icon().map_err(|error| error.to_string())?;
+    let icon = load_app_icon()?;
     window.set_icon(icon).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 async fn set_app_icon(app: tauri::AppHandle, style: String, theme: String) -> Result<(), String> {
     let bytes = native_app_icon_bytes(&style, &theme)?;
-    let icon = Image::from_bytes(bytes)
+    let window_icon = app_icon::icon_from_png_bytes(bytes)?;
+    let tray_icon = Image::from_bytes(bytes)
         .map(|icon| icon.to_owned())
         .map_err(|error| error.to_string())?;
 
     for window in app.webview_windows().values() {
         window
-            .set_icon(icon.clone())
+            .set_icon(window_icon.clone())
             .map_err(|error| error.to_string())?;
     }
     if let Some(tray) = app.tray_by_id(tray::TRAY_ICON_ID) {
-        tray.set_icon(Some(icon))
+        tray.set_icon(Some(tray_icon))
             .map_err(|error| error.to_string())?;
     }
 

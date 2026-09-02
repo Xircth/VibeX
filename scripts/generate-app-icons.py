@@ -9,6 +9,7 @@ for the platform mask.
 
 from __future__ import annotations
 
+import io
 import struct
 import subprocess
 import sys
@@ -92,31 +93,80 @@ def place_content(source: Image.Image, size: int, scale: float) -> Image.Image:
     return canvas
 
 
-def apply_squircle(image: Image.Image) -> Image.Image:
+def apply_squircle(
+    image: Image.Image, scale: float = SQUIRCLE_SCALE
+) -> Image.Image:
     image = image.convert("RGBA")
-    mask = squircle_mask(image.size[0])
+    mask = squircle_mask(image.size[0], SQUIRCLE_N, scale)
     red, green, blue, alpha = image.split()
     return Image.merge(
         "RGBA", (red, green, blue, ImageChops.multiply(alpha, mask))
     )
 
 
+def scales_for(size: int) -> tuple[float, float]:
+    # Windows caption icons are 16–24px. DWM clips about 1px, and LANCZOS
+    # downscale bleeds another, so small rasters need a larger canvas inset.
+    if size <= 16:
+        squircle = 0.58
+    elif size <= 20:
+        squircle = 0.64
+    elif size <= 24:
+        squircle = 0.70
+    elif size <= 32:
+        squircle = 0.74
+    else:
+        squircle = SQUIRCLE_SCALE
+    content = squircle * (CONTENT_SCALE / SQUIRCLE_SCALE)
+    return squircle, content
+
+
+def render_desktop_icon(source: Image.Image, size: int) -> Image.Image:
+    squircle, content = scales_for(size)
+    square = place_content(source, MASTER_SIZE, content)
+    return resize(apply_squircle(square, squircle), size)
+
+
 def resize(image: Image.Image, size: int) -> Image.Image:
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def write_pngs(master: Image.Image) -> None:
+def write_pngs(source: Image.Image) -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
     for name, size in {**PNG_SIZES, **WINDOWS_STORE_PNGS}.items():
-        resize(master, size).save(ICONS / name, format="PNG")
+        render_desktop_icon(source, size).save(ICONS / name, format="PNG")
 
 
-def write_ico(master: Image.Image) -> None:
-    master.save(
-        ICONS / "icon.ico",
-        format="ICO",
-        sizes=[(size, size) for size in WINDOWS_ICO_SIZES],
-    )
+def write_ico_png_frames(frames: list[Image.Image], path: Path) -> None:
+    encoded: list[tuple[int, bytes]] = []
+    for frame in frames:
+        buffer = io.BytesIO()
+        frame.save(buffer, format="PNG")
+        encoded.append((frame.size[0], buffer.getvalue()))
+    count = len(encoded)
+    directory = bytearray()
+    payload = bytearray()
+    offset = 6 + 16 * count
+    for width, data in encoded:
+        stored = 0 if width >= 256 else width
+        directory += struct.pack(
+            "<BBBBHHII",
+            stored,
+            stored,
+            0,
+            0,
+            1,
+            32,
+            len(data),
+            offset + len(payload),
+        )
+        payload += data
+    path.write_bytes(struct.pack("<HHH", 0, 1, count) + directory + payload)
+
+
+def write_ico(source: Image.Image) -> None:
+    frames = [render_desktop_icon(source, size) for size in WINDOWS_ICO_SIZES]
+    write_ico_png_frames(frames, ICONS / "icon.ico")
 
 
 def write_iconset(master: Image.Image, iconset: Path) -> None:
@@ -198,8 +248,8 @@ def main() -> int:
         master_path = Path(temp) / "app-icon.png"
         square.save(master_path, format="PNG")
         write_ios_android(master_path)
-    write_pngs(desktop)
-    write_ico(desktop)
+    write_pngs(source)
+    write_ico(source)
     write_icns(desktop)
     assert_ico_sizes()
     print(f"wrote app icons to {ICONS}")

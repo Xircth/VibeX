@@ -64,7 +64,7 @@ pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::Webv
     .visible(false);
 
     let builder = builder
-        .icon(crate::load_app_icon().map_err(|error| error.to_string())?)
+        .icon(crate::load_app_icon()?)
         .map_err(|error| error.to_string())?;
 
     let window = builder.build().map_err(|error| error.to_string())?;

@@ -6,7 +6,12 @@ import type { PluginActionCatalog } from '@/lib/api/plugins';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
-import { getSlashCommandPresentation } from '@/lib/slashCommandPresentation';
+import { rankByTextMatch } from '@/lib/textMatch';
+import {
+  commandInvocationName,
+  getSlashCommandPresentation,
+  isDollarInvokedCommand,
+} from '@/lib/slashCommandPresentation';
 import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import type {
@@ -126,38 +131,41 @@ export function agentMentionsToTypeaheadOptions(
     }));
 }
 
+function slashInvocation(
+  command: SlashCommandDescription | ComposerSlashCommand,
+  executor: string | null | undefined
+): { type: '/' | '$'; name: string } {
+  const composerCommand = command as Partial<ComposerSlashCommand>;
+  const sourceKind =
+    composerCommand.sourceKind ??
+    (command.kind === 'SKILL' ? 'skill' : 'native');
+  const name = commandInvocationName(command.name);
+  const isCodexSkill =
+    isDollarInvokedCommand(command.name) ||
+    ((sourceKind === 'skill' || command.kind === 'SKILL') &&
+      executor === 'codex');
+  return { type: isCodexSkill && name ? '$' : '/', name };
+}
+
 export function filterSlashCommands(
   all: SlashCommandDescription[],
   query: string,
   executor: string | null | undefined
 ): SlashCommandDescription[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return all;
-
-  const searchText = (command: SlashCommandDescription) => {
-    const presentation = getSlashCommandPresentation(command, executor);
-    return [
-      command.name,
-      presentation.label,
-      command.description ?? '',
-      presentation.description ?? '',
-    ]
-      .join(' ')
-      .toLowerCase();
-  };
-
-  const startsWith = all.filter((command) => {
-    const presentation = getSlashCommandPresentation(command, executor);
-    return (
-      command.name.toLowerCase().startsWith(q) ||
-      presentation.label.toLowerCase().startsWith(q)
-    );
-  });
-  const includes = all.filter(
-    (command) =>
-      !startsWith.includes(command) && searchText(command).includes(q)
+  return rankByTextMatch(
+    query,
+    all,
+    (command) => {
+      const presentation = getSlashCommandPresentation(command, executor);
+      return `${slashInvocation(command, executor).name} ${presentation.label}`;
+    },
+    (command) => {
+      const presentation = getSlashCommandPresentation(command, executor);
+      return [command.description ?? '', presentation.description ?? '']
+        .filter(Boolean)
+        .join(' ');
+    }
   );
-  return [...startsWith, ...includes];
 }
 
 export function slashCommandsToTypeaheadOptions(
@@ -175,7 +183,7 @@ export function slashCommandsToTypeaheadOptions(
     ...filtered.filter(
       (command) => getSlashCommandPresentation(command, executor).isSkill
     ),
-  ].slice(0, MAX_TYPEAHEAD_OPTIONS);
+  ];
 
   return ordered.map((command) => {
     const composerCommand = command as Partial<ComposerSlashCommand>;
@@ -184,20 +192,21 @@ export function slashCommandsToTypeaheadOptions(
       (command.kind === 'SKILL' ? 'skill' : 'native');
     const sourceId = composerCommand.sourceId ?? command.name;
     const presentation = getSlashCommandPresentation(command, executor);
+    const invocation = slashInvocation(command, executor);
+    const isPlugin = sourceKind === 'plugin';
+    const type = isPlugin ? '/' : invocation.type;
+    const name = invocation.name || command.name;
     return {
       key: `slash-${sourceKind}-${sourceId}-${command.name}`,
-      label: `/${presentation.label}`,
+      label: `${type}${presentation.label}`,
       description: presentation.description ?? command.description ?? undefined,
       sourceKind,
       insertText: formatSessionComposerCommand({
-        type: '/',
-        key: `${sourceKind}:${sourceId}:${command.name}`,
-        value:
-          sourceKind === 'plugin'
-            ? (composerCommand.prompt ?? `/${command.name}`)
-            : sourceKind === 'skill'
-              ? `/skill:${sourceId}:${command.name}`
-              : `/${command.name}`,
+        type,
+        key: type === '$' ? name : `${sourceKind}:${sourceId}:${name}`,
+        value: isPlugin
+          ? (composerCommand.prompt ?? `/${name}`)
+          : `${type}${name}`,
       }),
     };
   });
@@ -207,18 +216,16 @@ export function dollarCommandsToTypeaheadOptions(
   all: DollarCommandDescription[],
   query: string
 ): ComposerTypeaheadOption[] {
-  return filterDollarCommands(all, query)
-    .slice(0, MAX_TYPEAHEAD_OPTIONS)
-    .map((command) => ({
-      key: `dollar-${command.name}`,
-      label: `$${command.name}`,
-      description: command.description,
-      insertText: formatSessionComposerCommand({
-        type: '$',
-        key: command.name,
-        value: `$${command.name}`,
-      }),
-    }));
+  return filterDollarCommands(all, query).map((command) => ({
+    key: `dollar-${command.name}`,
+    label: `$${command.name}`,
+    description: command.description,
+    insertText: formatSessionComposerCommand({
+      type: '$',
+      key: command.name,
+      value: `$${command.name}`,
+    }),
+  }));
 }
 
 function createFileSearchResult(

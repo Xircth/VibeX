@@ -367,6 +367,34 @@ function inferAtTokenKind(key: string, value: string): 'file' | 'element' {
   return 'element';
 }
 
+function lastCommandSegment(value: string): string {
+  return value.split(':').filter(Boolean).at(-1) ?? value;
+}
+
+function slashInvocationValue(
+  key: string,
+  value: string
+): {
+  type: '/' | '$';
+  name: string;
+} {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('$') || trimmed.startsWith('/$')) {
+    return { type: '$', name: trimmed.replace(/^\/?\$/, '') };
+  }
+  if (trimmed.startsWith('/skill:') || key.startsWith('skill:')) {
+    return {
+      type: '/',
+      name: lastCommandSegment(key.startsWith('skill:') ? key : trimmed),
+    };
+  }
+  const displayCommandName = trimmed.match(/^\/([^\s]+)/u)?.[1];
+  return {
+    type: '/',
+    name: displayCommandName || lastCommandSegment(key) || key,
+  };
+}
+
 function createStructuredToken({
   type,
   key,
@@ -379,16 +407,23 @@ function createStructuredToken({
   raw: string;
 }): SessionComposerStructuredToken {
   if (type === '/') {
-    const displayCommandName = value
-      .trim()
-      .match(/^\/(?!skill:)([^\s/]+)/u)?.[1];
-    const commandName = displayCommandName || key.split(':').at(-1) || key;
+    const invocation = slashInvocationValue(key, value);
+    if (invocation.type === '$' && invocation.name) {
+      return {
+        kind: 'dollar',
+        type: '$',
+        key: invocation.name,
+        label: `$${invocation.name}`,
+        value: `$${invocation.name}`,
+        raw,
+      };
+    }
     return {
       kind: 'slash',
       type,
       key,
-      label: `/${commandName}`,
-      value,
+      label: `/${invocation.name}`,
+      value: invocation.name ? `/${invocation.name}` : value,
       raw,
     };
   }

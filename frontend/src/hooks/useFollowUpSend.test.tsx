@@ -202,7 +202,7 @@ describe('useFollowUpSend', () => {
     );
   });
 
-  it('sends a skill token by full path while preserving its structured display text', async () => {
+  it('sends a skill token as the invocation name while preserving its structured display text', async () => {
     sendTurnMock.mockResolvedValue({});
     const queryClient = new QueryClient();
     const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -234,7 +234,7 @@ describe('useFollowUpSend', () => {
 
     expect(sendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: '/skill:/Users/mac/.codex/skills/drawio/drawio:drawio draw the architecture',
+        text: '/drawio draw the architecture',
         displayText: tokenizedMessage,
       })
     );

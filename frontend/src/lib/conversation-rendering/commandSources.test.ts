@@ -9,6 +9,30 @@ import {
 } from './commandSources';
 
 describe('composer command sources', () => {
+  it('keeps Codex ACP skill names that already start with $', () => {
+    expect(
+      agentAvailableCommandsToSlashCommands([
+        { name: '$deploy', description: 'Deploy skill' },
+        { name: '/$imagegen', description: 'Images' },
+      ])
+    ).toEqual([
+      {
+        name: '$deploy',
+        description: 'Deploy skill',
+        kind: 'COMMAND',
+        sourceKind: 'native',
+        sourceId: 'runtime:$deploy',
+      },
+      {
+        name: '$imagegen',
+        description: 'Images',
+        kind: 'COMMAND',
+        sourceKind: 'native',
+        sourceId: 'runtime:$imagegen',
+      },
+    ]);
+  });
+
   it('normalizes runtime available commands for slash typeahead', () => {
     expect(
       agentAvailableCommandsToSlashCommands([

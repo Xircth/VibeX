@@ -393,6 +393,47 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(token).not.toHaveTextContent('/Users/mac');
   });
 
+  it('inserts a Codex ACP $skill from slash search as $name', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        if (command === 'list_agent_skills') {
+          return {
+            supported: true,
+            global_supported: true,
+            project_supported: true,
+            locations: [],
+            skills: [],
+          };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'codex' },
+        transport,
+        availableCommands: [
+          { name: '$deploy', description: 'Deploy the current change' },
+        ],
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/deploy');
+    await user.click(await screen.findByRole('option', { name: /\$deploy/i }));
+
+    const token = editor.querySelector<HTMLElement>('[data-astryx-token]');
+    expect(token).toHaveTextContent('$deploy');
+    expect(token).not.toHaveTextContent('/$deploy');
+  });
+
   it('shows Codex disk skills in dollar search', async () => {
     const user = userEvent.setup();
     const transport: BackendTransport = {

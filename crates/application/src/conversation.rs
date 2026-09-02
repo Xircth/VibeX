@@ -184,6 +184,26 @@ mod slash_commands_from_skills_tests {
     }
 
     #[test]
+    fn maps_codex_dollar_skills_to_dollar_values() {
+        let commands = slash_commands_from_available(&[agents::AgentAvailableCommand {
+            name: "$deploy".into(),
+            description: Some("Deploy skill".into()),
+            input_schema: None,
+        }]);
+        assert_eq!(
+            commands,
+            vec![ConversationSlashCommand {
+                name: "deploy".into(),
+                description: Some("Deploy skill".into()),
+                kind: "command".into(),
+                source_kind: "runtime".into(),
+                source_id: "deploy".into(),
+                value: "$deploy".into(),
+            }]
+        );
+    }
+
+    #[test]
     fn maps_skill_id_and_path_to_desktop_slash_value() {
         let commands = slash_commands_from_skills(&[AgentSkillItem {
             id: "office-xlsx".into(),
@@ -200,7 +220,7 @@ mod slash_commands_from_skills_tests {
                 kind: "skill".into(),
                 source_kind: "skill".into(),
                 source_id: "/Users/mac/.agents/skills/office-xlsx".into(),
-                value: "/skill:/Users/mac/.agents/skills/office-xlsx:office-xlsx".into(),
+                value: "/office-xlsx".into(),
             }]
         );
     }
@@ -327,7 +347,12 @@ fn slash_commands_from_available(
     commands
         .iter()
         .filter_map(|command| {
-            let name = command.name.trim().trim_start_matches('/').to_string();
+            let raw = command.name.trim().trim_start_matches('/');
+            let (name, value) = if let Some(skill) = raw.strip_prefix('$') {
+                (skill.to_string(), format!("${skill}"))
+            } else {
+                (raw.to_string(), format!("/{raw}"))
+            };
             if name.is_empty() {
                 return None;
             }
@@ -341,8 +366,8 @@ fn slash_commands_from_available(
                     .map(str::to_string),
                 kind: "command".into(),
                 source_kind: "runtime".into(),
-                source_id: name.clone(),
-                value: format!("/{name}"),
+                source_id: name,
+                value,
             })
         })
         .collect()
@@ -370,7 +395,7 @@ fn slash_commands_from_skills(
                 kind: "skill".into(),
                 source_kind: "skill".into(),
                 source_id: skill.path.clone(),
-                value: format!("/skill:{}:{}", skill.path, name),
+                value: format!("/{name}"),
             })
         })
         .collect()

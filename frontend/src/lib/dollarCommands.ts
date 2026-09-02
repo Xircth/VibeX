@@ -1,4 +1,5 @@
 import type { AgentLocalSkill } from '@/lib/api';
+import { rankByTextMatch } from '@/lib/textMatch';
 
 export type DollarCommandDescription = {
   name: string;
@@ -68,29 +69,24 @@ export function mergeDollarCommands(
   const seen = new Set<string>();
   const commands: DollarCommandDescription[] = [];
 
-  for (const command of [...staticCommands, ...skillCommands]) {
+  for (const command of [...skillCommands, ...staticCommands]) {
     const name = command.name.trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
     commands.push({ ...command, name });
   }
 
-  return commands.sort((left, right) => left.name.localeCompare(right.name));
+  return commands;
 }
 
 export function filterDollarCommands(
   all: DollarCommandDescription[],
   query: string
 ): DollarCommandDescription[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return all;
-
-  const startsWith = all.filter((command) =>
-    command.name.toLowerCase().startsWith(q)
+  return rankByTextMatch(
+    query,
+    all,
+    (command) => command.name,
+    (command) => command.description
   );
-  const includes = all.filter(
-    (command) =>
-      !startsWith.includes(command) && command.name.toLowerCase().includes(q)
-  );
-  return [...startsWith, ...includes];
 }

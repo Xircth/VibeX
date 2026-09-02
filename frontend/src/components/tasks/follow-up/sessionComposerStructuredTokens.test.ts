@@ -81,12 +81,27 @@ describe('session composer structured commands', () => {
       expect.objectContaining({
         kind: 'slash',
         label: '/grill-me',
-        value: '/skill:/Users/mac/.agents/skills/grill-me:grill-me',
+        value: '/grill-me',
       }),
     ]);
-    expect(serializeSessionComposerBackendMessage(raw)).toBe(
-      '/skill:/Users/mac/.agents/skills/grill-me:grill-me'
-    );
+    expect(serializeSessionComposerBackendMessage(raw)).toBe('/grill-me');
+  });
+
+  it('sends Codex ACP skills as $name when a slash token stored /$name', () => {
+    const raw = formatSessionComposerCommand({
+      type: '/',
+      key: 'native:runtime:$deploy:$deploy',
+      value: '/$deploy',
+    });
+
+    expect(getSessionComposerStructuredTokens(raw)).toEqual([
+      expect.objectContaining({
+        kind: 'dollar',
+        label: '$deploy',
+        value: '$deploy',
+      }),
+    ]);
+    expect(serializeSessionComposerBackendMessage(raw)).toBe('$deploy');
   });
 
   it('splits composer text into Text and Command segments', () => {

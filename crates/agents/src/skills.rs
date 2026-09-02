@@ -570,42 +570,52 @@ fn skill_content_path(skill_path: &Path) -> Option<PathBuf> {
     }
 }
 
+const MAX_SKILL_NESTING: u32 = 4;
+
 async fn list_skills_in_dir(dir: &SkillDir, allow_md: bool) -> Vec<AgentSkillItem> {
     let mut items = Vec::new();
-    let Ok(mut entries) = fs::read_dir(&dir.path).await else {
-        return items;
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if name.starts_with('.') {
+    let mut stack = vec![(dir.path.clone(), 0_u32)];
+    while let Some((path, depth)) = stack.pop() {
+        if depth > MAX_SKILL_NESTING {
             continue;
         }
-        if path.is_dir() {
-            if skill_content_path(&path).is_some() {
+        let Ok(mut entries) = fs::read_dir(&path).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let entry_path = entry.path();
+            let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
+            if entry_path.is_dir() {
+                if skill_content_path(&entry_path).is_some() {
+                    items.push(AgentSkillItem {
+                        id: name.to_string(),
+                        scope: dir.scope,
+                        path: display_path(&entry_path),
+                        description: read_skill_description(&entry_path).await,
+                        read_only: dir.read_only,
+                    });
+                } else {
+                    stack.push((entry_path, depth + 1));
+                }
+            } else if allow_md && entry_path.extension().and_then(|e| e.to_str()) == Some("md") {
+                let id = entry_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(name)
+                    .to_string();
                 items.push(AgentSkillItem {
-                    id: name.to_string(),
+                    id,
                     scope: dir.scope,
-                    path: display_path(&path),
-                    description: read_skill_description(&path).await,
+                    path: display_path(&entry_path),
+                    description: read_skill_description(&entry_path).await,
                     read_only: dir.read_only,
                 });
             }
-        } else if allow_md && path.extension().and_then(|e| e.to_str()) == Some("md") {
-            let id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(name)
-                .to_string();
-            items.push(AgentSkillItem {
-                id,
-                scope: dir.scope,
-                path: display_path(&path),
-                description: read_skill_description(&path).await,
-                read_only: dir.read_only,
-            });
         }
     }
     items
@@ -1933,6 +1943,29 @@ mod tests {
         assert!(validate_skill_id(".hidden").is_err());
         assert!(validate_skill_id("a/b").is_err());
         assert!(validate_skill_id("a b").is_err());
+    }
+
+    #[tokio::test]
+    async fn lists_nested_skill_bundles() {
+        let temp = tempfile::tempdir().unwrap();
+        let nested = temp.path().join("pack").join("nested-skill");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(
+            nested.join("SKILL.md"),
+            "---\ndescription: Nested skill\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(temp.path().join("flat.md"), "---\ndescription: Flat\n---\n").unwrap();
+
+        let dir = SkillDir {
+            scope: AgentSkillScope::Global,
+            path: temp.path().to_path_buf(),
+            read_only: false,
+        };
+        let items = list_skills_in_dir(&dir, true).await;
+        let mut ids: Vec<_> = items.into_iter().map(|item| item.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["flat".to_string(), "nested-skill".to_string()]);
     }
 
     #[test]

@@ -121,9 +121,9 @@ describe('session composer typeahead option derivation', () => {
         value: '/review',
       }),
       formatSessionComposerCommand({
-        type: '/',
-        key: 'skill:review-skill:review-skill',
-        value: '/skill:review-skill:review-skill',
+        type: '$',
+        key: 'review-skill',
+        value: '$review-skill',
       }),
     ]);
     expect(options[0]).toMatchObject({
@@ -132,6 +132,66 @@ describe('session composer typeahead option derivation', () => {
       description: 'Review code with optional instructions',
       sourceKind: 'native',
     });
+  });
+
+  it('inserts Codex ACP $skills as $name, never /$name', () => {
+    const options = slashCommandsToTypeaheadOptions(
+      [
+        {
+          name: '$deploy',
+          description: 'Deploy the current change',
+          kind: 'COMMAND',
+        },
+        {
+          name: 'compact',
+          description: 'Compact context',
+          kind: 'COMMAND',
+        },
+      ],
+      'deploy',
+      'codex'
+    );
+
+    expect(options).toEqual([
+      {
+        key: 'slash-native-$deploy-$deploy',
+        label: '$deploy',
+        description: 'Deploy the current change',
+        sourceKind: 'native',
+        insertText: formatSessionComposerCommand({
+          type: '$',
+          key: 'deploy',
+          value: '$deploy',
+        }),
+      },
+    ]);
+  });
+
+  it('matches slash skills by subsequence and does not drop later commands', () => {
+    const commands: SlashCommandDescription[] = Array.from(
+      { length: 60 },
+      (_, index) => ({
+        name: `cmd-${String(index).padStart(2, '0')}`,
+        description: `Command ${index}`,
+        kind: 'COMMAND' as const,
+      })
+    );
+    commands.push({
+      name: 'bmad-help',
+      description: 'BMAD help',
+      kind: 'COMMAND',
+    });
+
+    const options = slashCommandsToTypeaheadOptions(
+      commands,
+      'bmhp',
+      'claude_code'
+    );
+
+    expect(options.map((option) => option.label)).toEqual(['/bmad-help']);
+    expect(
+      slashCommandsToTypeaheadOptions(commands, '', 'claude_code')
+    ).toHaveLength(61);
   });
 
   it('maps dollar commands through the same menu option shape', () => {

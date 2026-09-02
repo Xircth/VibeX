@@ -14,8 +14,16 @@ export type SlashCommandPresentation = {
   isSkill: boolean;
 };
 
+export function isDollarInvokedCommand(name: string): boolean {
+  return name.trim().replace(/^\/+/, '').startsWith('$');
+}
+
 export function isSlashCommandSkill(command: SlashCommandDescription): boolean {
-  return command.kind === 'SKILL';
+  return command.kind === 'SKILL' || isDollarInvokedCommand(command.name);
+}
+
+export function commandInvocationName(name: string): string {
+  return name.trim().replace(/^\/+/, '').replace(/^\$/, '');
 }
 
 export function getSlashCommandPresentation(
@@ -24,7 +32,7 @@ export function getSlashCommandPresentation(
 ): SlashCommandPresentation {
   const composerCommand = command as Partial<ComposerSlashCommand>;
   const providerCommand =
-    composerCommand.sourceKind === 'plugin' || command.kind === 'SKILL'
+    composerCommand.sourceKind === 'plugin' || isSlashCommandSkill(command)
       ? undefined
       : agentSlashCommandCatalog(executor).find(
           (item) => item.name === command.name
@@ -43,7 +51,7 @@ export function getSlashCommandPresentation(
   }
 
   return {
-    label: composerCommand.displayLabel ?? command.name,
+    label: composerCommand.displayLabel ?? commandInvocationName(command.name),
     description: command.description ?? null,
     iconKey: null,
     isSkill: isSlashCommandSkill(command),

@@ -247,7 +247,7 @@
   border: 1px solid var(--conv-border-subtle);
   border-radius: var(--radius);
   background: var(--conv-surface-card);
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .conv-md-mermaid-status {
@@ -260,14 +260,16 @@
   background: var(--conv-surface-control);
 }
 
-.conv-md-mermaid-image {
+.conv-md-mermaid-svg {
   display: block;
-  width: 100%;
-  max-width: 100%;
-  max-height: 420px;
-  object-fit: contain;
   padding: 12px;
   background: var(--conv-surface-card);
+}
+
+.conv-md-mermaid-svg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 .conv-md-mermaid-error {

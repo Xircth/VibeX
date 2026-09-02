@@ -1,4 +1,5 @@
 import { memo, useEffect, useId, useMemo, useState } from 'react';
+import { sanitizeMermaidSvg } from '@/lib/conversation-rendering/mermaidSvg';
 
 type MermaidDiagramProps = {
   value: string;
@@ -6,7 +7,7 @@ type MermaidDiagramProps = {
 
 type RenderState =
   | { status: 'loading' }
-  | { status: 'ready'; src: string }
+  | { status: 'ready'; svg: string }
   | { status: 'error'; message: string };
 
 function hashString(value: string): string {
@@ -22,10 +23,6 @@ function sanitizeDomId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '') || 'diagram';
 }
 
-function svgToDataUrl(svg: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
 // mermaid.initialize sets global singleton config; only re-run it when the theme
 // actually changes rather than on every diagram value update.
 let lastMermaidTheme: 'default' | 'dark' | null = null;
@@ -36,6 +33,9 @@ async function loadMermaid(theme: 'default' | 'dark') {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
+      // Inline SVG can paint foreignObject HTML labels; the data-URL <img>
+      // path could not. Keep htmlLabels on so node text stays complete.
+      htmlLabels: true,
       theme,
       fontFamily:
         'Noto Sans SC Variable, Source Han Sans SC, Source Han Sans CN, Noto Sans CJK SC, Noto Sans SC, 思源黑体, sans-serif',
@@ -106,9 +106,15 @@ export const MermaidDiagram = memo(function MermaidDiagram({
       try {
         const mermaid = await loadMermaid(theme);
         const { svg } = await mermaid.render(diagramId, value);
+        const sanitized = sanitizeMermaidSvg(svg);
+        if (!sanitized) {
+          throw new Error(
+            '\u56fe\u8868 SVG \u65e0\u6cd5\u5b89\u5168\u6e32\u67d3'
+          );
+        }
 
         if (!cancelled) {
-          setRenderState({ status: 'ready', src: svgToDataUrl(svg) });
+          setRenderState({ status: 'ready', svg: sanitized });
         }
       } catch (error) {
         if (!cancelled) {
@@ -143,11 +149,11 @@ export const MermaidDiagram = memo(function MermaidDiagram({
       ) : null}
 
       {renderState.status === 'ready' ? (
-        <img
-          className="conv-md-mermaid-image"
-          src={renderState.src}
-          alt={'Mermaid \u56fe\u8868'}
-          loading="lazy"
+        <div
+          className="conv-md-mermaid-svg"
+          role="img"
+          aria-label={'Mermaid \u56fe\u8868'}
+          dangerouslySetInnerHTML={{ __html: renderState.svg }}
         />
       ) : null}
 

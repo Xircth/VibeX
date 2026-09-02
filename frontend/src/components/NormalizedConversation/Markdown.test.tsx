@@ -592,8 +592,12 @@ $$`);
     expect(mermaidMock.render).not.toHaveBeenCalled();
   });
 
-  it('renders Mermaid fenced blocks as diagrams instead of code blocks', async () => {
-    renderMarkdown('```mermaid\ngraph TD\nA-->B\n```');
+  it('renders Mermaid fenced blocks as inline SVG diagrams instead of code blocks', async () => {
+    mermaidMock.render.mockResolvedValueOnce({
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"><foreignObject width="100" height="24"><div xmlns="http://www.w3.org/1999/xhtml">节点 A</div></foreignObject></svg>`,
+    });
+
+    const { container } = renderMarkdown('```mermaid\ngraph TD\nA-->B\n```');
 
     await waitFor(() =>
       expect(mermaidMock.render).toHaveBeenCalledWith(
@@ -601,13 +605,37 @@ $$`);
         'graph TD\nA-->B'
       )
     );
-
-    const image = await screen.findByRole('img', { name: /Mermaid/ });
-    expect(image).toHaveAttribute(
-      'src',
-      expect.stringContaining('data:image/svg+xml;charset=utf-8,')
+    expect(mermaidMock.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        securityLevel: 'strict',
+        htmlLabels: true,
+      })
     );
+
+    const diagram = await screen.findByRole('img', { name: /Mermaid/ });
+    expect(diagram.querySelector('svg')).toBeInTheDocument();
+    expect(
+      diagram.querySelector('foreignObject, foreignobject')
+    ).toBeInTheDocument();
+    expect(diagram).toHaveTextContent('节点 A');
+    expect(container.querySelector('img')).not.toBeInTheDocument();
     expect(screen.queryByText('mermaid')).not.toBeInTheDocument();
+    expect(markdownStyles).not.toContain('max-height: 420px');
+  });
+
+  it('does not execute script tags from Mermaid SVG output', async () => {
+    mermaidMock.render.mockResolvedValueOnce({
+      svg: `<svg xmlns="http://www.w3.org/2000/svg"><script>window.__mermaidXss = true</script><text>safe</text></svg>`,
+    });
+
+    const { container } = renderMarkdown('```mermaid\ngraph TD\nA-->B\n```');
+
+    const diagram = await screen.findByRole('img', { name: /Mermaid/ });
+    expect(diagram).toHaveTextContent('safe');
+    expect(container.querySelector('script')).not.toBeInTheDocument();
+    expect(
+      (window as Window & { __mermaidXss?: boolean }).__mermaidXss
+    ).toBeUndefined();
   });
 
   it('keeps Mermaid source inspectable when rendering fails', async () => {

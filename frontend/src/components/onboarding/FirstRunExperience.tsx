@@ -20,6 +20,7 @@ import { backendListen } from '@/lib/backendTransport';
 import { APP_NAME } from '@/lib/branding';
 import { settingsWindowApi, versionControlApi } from '@/lib/api';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { sortAgentsForBar } from '@/pages/settings/agentBarOrder';
 
 import { AgentSetupPicker } from './AgentSetupPicker';
 import {
@@ -736,6 +737,18 @@ export function FirstRunExperience({
             )
           )
       );
+
+      const memberships = await agentManagementApi.bar();
+      const ordered = sortAgentsForBar(
+        memberships.map((agent) => ({
+          ...agent,
+          enabled: enabledAgentIds.has(agent.agent_id),
+        })),
+        defaultAgentId
+      ).map((agent) => agent.agent_id);
+      if (ordered.length > 0) {
+        await agentManagementApi.reorder(ordered);
+      }
 
       await onPersist({
         editor,

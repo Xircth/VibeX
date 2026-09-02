@@ -22,6 +22,7 @@ const managementMock = vi.hoisted(() => ({
   registry: vi.fn(),
   refreshRegistry: vi.fn(),
   setEnabled: vi.fn(),
+  reorder: vi.fn(),
   addAndInstall: vi.fn(),
   preflight: vi.fn(),
 }));
@@ -219,6 +220,7 @@ describe('FirstRunExperience', () => {
       uninstalled: [],
     });
     managementMock.setEnabled.mockResolvedValue(undefined);
+    managementMock.reorder.mockResolvedValue(startupAgents);
     managementMock.addAndInstall.mockResolvedValue({
       operation_id: 'operation-codex',
       agent_id: 'codex',
@@ -1001,6 +1003,10 @@ describe('FirstRunExperience', () => {
 
     await waitFor(() => {
       expect(managementMock.setEnabled).toHaveBeenCalledWith('codex', true);
+      expect(managementMock.reorder).toHaveBeenCalledWith([
+        'codex',
+        'claude_code',
+      ]);
       expect(managementMock.addAndInstall).toHaveBeenCalledWith('codex');
       expect(onPersist).toHaveBeenCalledWith({
         editor: { ...editor, editor_type: EditorType.CURSOR },

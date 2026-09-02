@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
@@ -45,6 +51,17 @@ const api = vi.hoisted(() => ({
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
 const listeners = vi.hoisted(() => new Map<string, (event: unknown) => void>());
+const userSystem = vi.hoisted(() => ({
+  config: {
+    executor_profile: { executor: 'codex', variant: null },
+  },
+  loading: false,
+  updateAndSaveConfig: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => userSystem,
+}));
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: confirmShow },
@@ -90,6 +107,11 @@ describe('AgentSettings', () => {
   beforeEach(() => {
     listeners.clear();
     Object.values(api).forEach((mock) => mock.mockReset());
+    userSystem.config = {
+      executor_profile: { executor: 'codex', variant: null },
+    };
+    userSystem.updateAndSaveConfig.mockReset();
+    userSystem.updateAndSaveConfig.mockResolvedValue(true);
     confirmShow.mockReset();
     confirmShow.mockResolvedValue('cancelled');
     api.bar.mockResolvedValue([
@@ -257,6 +279,73 @@ describe('AgentSettings', () => {
     expect(
       screen.queryByRole('button', { name: 'Codex' })
     ).not.toBeInTheDocument();
+  });
+
+  it('makes the first Agent icon the default Agent after reorder', async () => {
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        description: 'Claude',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: [],
+      },
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 1,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode'],
+      },
+    ]);
+    userSystem.config = {
+      executor_profile: { executor: 'claude_code', variant: null },
+    };
+    api.reorder.mockResolvedValue([]);
+
+    render(<AgentSettings />);
+    const claudeButton = await screen.findByRole('button', {
+      name: 'Claude Code',
+    });
+    expect(claudeButton).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Codex' }), {
+      key: 'ArrowLeft',
+      altKey: true,
+    });
+
+    await waitFor(() => {
+      expect(api.reorder).toHaveBeenCalledWith(['codex', 'claude_code']);
+      expect(userSystem.updateAndSaveConfig).toHaveBeenCalledWith({
+        executor_profile: { executor: 'codex', variant: null },
+      });
+    });
   });
 
   it('shows Codex auth management before native config finishes', async () => {
@@ -1002,9 +1091,7 @@ describe('AgentSettings', () => {
       });
     });
 
-    await waitFor(() =>
-      expect(screen.getAllByText('可更新')).toHaveLength(2)
-    );
+    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(2));
   });
 
   it('refreshes login status after a terminal account flow finishes', async () => {

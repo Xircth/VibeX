@@ -19,6 +19,7 @@ import type {
   UserAgentDefinitionView,
 } from 'shared/types';
 
+import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -29,6 +30,7 @@ import {
 } from '@/features/agent-management';
 
 import { AgentBar } from './AgentBar';
+import { defaultAgentIdFromOrder, sortAgentsForBar } from './agentBarOrder';
 import { AgentSettingsLoading } from './AgentSettingsLoading';
 import {
   AgentConfigPathMeta,
@@ -61,6 +63,7 @@ import {
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const { config: userConfig, updateAndSaveConfig } = useUserSystem();
   const management = useAgentManagement();
   const [registryOpen, setRegistryOpen] = useState(false);
   const [registry, setRegistry] = useState<AgentRegistryView | null>(null);
@@ -652,15 +655,30 @@ export function AgentSettings() {
 
   const reorder = useCallback(
     async (order: string[]) => {
+      const currentDefault = userConfig?.executor_profile.executor ?? null;
+      const nextDefault = defaultAgentIdFromOrder(order, currentDefault);
       try {
         await agentManagementApi.reorder(order);
+        if (nextDefault && nextDefault !== currentDefault) {
+          const moved = management.state.agents.find(
+            (agent) => agent.agent_id === nextDefault
+          );
+          if (moved && !moved.enabled) {
+            management.mergeAgent(
+              await agentManagementApi.setEnabled(nextDefault, true)
+            );
+          }
+          await updateAndSaveConfig({
+            executor_profile: { executor: nextDefault, variant: null },
+          });
+        }
         await management.refresh();
       } catch (error) {
         toast.error(errorMessage(error, t('settings:agents.reorderFailed')));
         await management.refresh().catch(() => undefined);
       }
     },
-    [management, t]
+    [userConfig?.executor_profile.executor, management, t, updateAndSaveConfig]
   );
 
   const queueRepair = useCallback(async () => {
@@ -1109,7 +1127,10 @@ export function AgentSettings() {
     <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
       <div className="flex shrink-0 items-center gap-2">
         <AgentBar
-          agents={management.state.agents}
+          agents={sortAgentsForBar(
+            management.state.agents,
+            userConfig?.executor_profile.executor ?? null
+          )}
           selectedAgentId={management.state.selectedAgentId}
           registryOpen={registryOpen}
           onSelect={(agentId) =>

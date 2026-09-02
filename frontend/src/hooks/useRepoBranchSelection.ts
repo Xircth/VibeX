@@ -1,8 +1,17 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { repoApi } from '@/lib/api';
-import { repoBranchKeys } from './useRepoBranches';
+import {
+  repoBranchKeys,
+  repoBranchesRefetchInterval,
+  repoBranchesStaleTime,
+} from './useRepoBranches';
 import type { GitBranch, Repo } from 'shared/types';
+
+export {
+  repoBranchesRefetchInterval,
+  repoBranchesStaleTime,
+} from './useRepoBranches';
 
 export type RepoBranchConfig = {
   repoId: string;
@@ -20,6 +29,7 @@ type UseRepoBranchSelectionOptions = {
 type UseRepoBranchSelectionReturn = {
   configs: RepoBranchConfig[];
   isLoading: boolean;
+  isGitInitIncomplete: boolean;
   setRepoBranch: (repoId: string, branch: string) => void;
   getWorkspaceRepoInputs: () => Array<{
     repo_id: string;
@@ -27,6 +37,22 @@ type UseRepoBranchSelectionReturn = {
   }>;
   reset: () => void;
 };
+
+export function isGitInitIncomplete({
+  repoCount,
+  configs,
+  isLoading,
+}: {
+  repoCount: number;
+  configs: Array<{ branches: readonly unknown[] }>;
+  isLoading: boolean;
+}): boolean {
+  if (isLoading || repoCount === 0) {
+    return false;
+  }
+
+  return configs.some((config) => config.branches.length === 0);
+}
 
 export function useRepoBranchSelection({
   repos,
@@ -42,7 +68,8 @@ export function useRepoBranchSelection({
       queryKey: repoBranchKeys.byRepo(repo.id),
       queryFn: () => repoApi.getBranches(repo.id),
       enabled,
-      staleTime: 60_000,
+      staleTime: repoBranchesStaleTime,
+      refetchInterval: repoBranchesRefetchInterval,
     })),
   });
 
@@ -100,6 +127,11 @@ export function useRepoBranchSelection({
   return {
     configs,
     isLoading: isLoadingBranches,
+    isGitInitIncomplete: isGitInitIncomplete({
+      repoCount: repos.length,
+      configs,
+      isLoading: isLoadingBranches,
+    }),
     setRepoBranch,
     getWorkspaceRepoInputs,
     reset,

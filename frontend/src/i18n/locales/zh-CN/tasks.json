@@ -56,6 +56,8 @@
     "cancelMonitor": "取消监控"
   },
   "sessionCreation": {
+    "title": "新建会话",
+    "gitInitIncomplete": "Git 初始化暂未完成，请稍后再试",
     "submit": "创建会话",
     "creationMethod": "创建方式",
     "existingWorkspace": "现有工作区",

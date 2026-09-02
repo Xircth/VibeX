@@ -148,7 +148,7 @@ describe('AgentBar', () => {
     expect(onSelect).toHaveBeenCalledWith('vendor.agent');
   });
 
-  it('calibrates brand marks and keeps the outside scrollbar hidden until hover', () => {
+  it('calibrates brand marks and shows only the scrollbar thumb', () => {
     const style = installAgentBarStyles();
     const rendered = render(
       <div className="settings-page">
@@ -240,19 +240,18 @@ describe('AgentBar', () => {
       expect(rail!.contains(scroller)).toBe(false);
       expect(getComputedStyle(rail!).bottom).toBe('8px');
       expect(getComputedStyle(scroller!).height).toBe('60px');
-      expect(getComputedStyle(scroller!).scrollbarWidth).toBe('thin');
-      expect(getComputedStyle(scroller!).scrollbarColor).toBe(
-        'transparent transparent'
-      );
       expect(style.textContent).toContain(
         '.agent-management-bar-scroll::-webkit-scrollbar'
       );
       expect(style.textContent).toContain('height: 4px');
       expect(style.textContent).toMatch(
-        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*transparent;/
+        /agent-management-bar-scroll::-webkit-scrollbar-track\s*{[^}]*background:\s*transparent;/
       );
       expect(style.textContent).toMatch(
-        /agent-management-bar-scroll:hover::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--border-strong\) \/ 0\.55\);/
+        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--border-strong\) \/ 0\.55\);/
+      );
+      expect(style.textContent).not.toMatch(
+        /agent-management-bar-scroll:hover::-webkit-scrollbar-thumb/
       );
     } finally {
       rendered.unmount();

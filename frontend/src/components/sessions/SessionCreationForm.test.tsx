@@ -702,7 +702,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps local Agent history reachable when remote continuation is disabled', async () => {
+  it('hides previous-session continuation until the setting is enabled', async () => {
     capabilityCatalog.mockResolvedValue({
       ...CONTROLS,
       capabilities: {
@@ -711,16 +711,18 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     });
 
     renderForm('antigravity', vi.fn());
-    const user = userEvent.setup();
 
-    const button = await screen.findByRole('button', {
-      name: 'sessionCreation.continuePreviousSession',
-    });
-    expect(button).toBeVisible();
-    await user.click(button);
-    await waitFor(() =>
-      expect(listLocalHistory).toHaveBeenCalledWith('antigravity')
-    );
+    expect(
+      await screen.findByRole('button', {
+        name: 'sessionCreation.submit',
+      })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.continuePreviousSession',
+      })
+    ).not.toBeInTheDocument();
+    expect(listLocalHistory).not.toHaveBeenCalled();
     expect(listRemoteSessions).not.toHaveBeenCalled();
   });
 
@@ -779,6 +781,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
   });
 
   it('imports local history even when the Agent does not advertise session listing', async () => {
+    userSystemConfig.previousSessionContinuationEnabled = true;
     capabilityCatalog.mockResolvedValue({
       ...CONTROLS,
       capabilities: { list_sessions: false, delete_session: false },
@@ -837,5 +840,80 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       queryKey: ['workspaceSessions', 'workspace-1'],
     });
     expect(listRemoteSessions).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionCreationForm git initialization status', () => {
+  it('shows git init incomplete copy below the title', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <SessionCreationForm
+          title="sessionCreation.title"
+          gitInitIncomplete
+          mode="new_workspace"
+          onModeChange={() => {}}
+          workspaceBranchOptions={[]}
+          selectedWorkspaceValue=""
+          onSelectedWorkspaceValueChange={() => {}}
+          sessionName=""
+          onSessionNameChange={() => {}}
+          profiles={{}}
+          selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
+          onSelectedExecutorProfileChange={() => {}}
+          repoBranchConfigs={[]}
+          onRepoBranchChange={() => {}}
+          isLoadingBranches={false}
+          canSubmit={false}
+          isSubmitting={false}
+          onSubmit={() => {}}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('sessionCreation.title')).toBeVisible();
+    const title = screen.getByText('sessionCreation.title');
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('sessionCreation.gitInitIncomplete');
+    expect(title.compareDocumentPosition(status)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
+  it('does not show git init incomplete copy once branches are available', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <SessionCreationForm
+          title="sessionCreation.title"
+          gitInitIncomplete={false}
+          mode="new_workspace"
+          onModeChange={() => {}}
+          workspaceBranchOptions={[]}
+          selectedWorkspaceValue=""
+          onSelectedWorkspaceValueChange={() => {}}
+          sessionName=""
+          onSessionNameChange={() => {}}
+          profiles={{}}
+          selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
+          onSelectedExecutorProfileChange={() => {}}
+          repoBranchConfigs={[]}
+          onRepoBranchChange={() => {}}
+          isLoadingBranches={false}
+          canSubmit={true}
+          isSubmitting={false}
+          onSubmit={() => {}}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('sessionCreation.title')).toBeVisible();
+    expect(
+      screen.queryByText('sessionCreation.gitInitIncomplete')
+    ).not.toBeInTheDocument();
   });
 });

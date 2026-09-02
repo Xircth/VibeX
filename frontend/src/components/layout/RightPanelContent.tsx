@@ -79,6 +79,7 @@ function CreateSessionOverlay({
   repoBranchConfigs,
   setRepoBranch,
   isLoadingRepoBranches,
+  gitInitIncomplete,
   canCreateSession,
   isCreatePending,
   createError,
@@ -99,6 +100,7 @@ function CreateSessionOverlay({
   repoBranchConfigs: ReturnType<typeof useRepoBranchSelection>['configs'];
   setRepoBranch: ReturnType<typeof useRepoBranchSelection>['setRepoBranch'];
   isLoadingRepoBranches: boolean;
+  gitInitIncomplete: boolean;
   canCreateSession: boolean;
   isCreatePending: boolean;
   createError: unknown;
@@ -119,13 +121,9 @@ function CreateSessionOverlay({
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </button>
-        <div className="mb-4 space-y-1">
-          <div className="text-sm font-semibold text-foreground">
-            {t('rightPanelContent.newSession')}
-          </div>
-        </div>
-
         <SessionCreationForm
+          title={t('rightPanelContent.newSession')}
+          gitInitIncomplete={gitInitIncomplete}
           mode={createMode}
           onModeChange={setCreateMode}
           workspaceBranchOptions={workspaceBranchOptions}
@@ -302,6 +300,7 @@ export function RightPanelContent() {
   const {
     configs: repoBranchConfigs,
     isLoading: isLoadingRepoBranches,
+    isGitInitIncomplete,
     setRepoBranch,
     getWorkspaceRepoInputs,
     reset: resetRepoBranchSelection,
@@ -604,6 +603,7 @@ export function RightPanelContent() {
     repoBranchConfigs,
     setRepoBranch,
     isLoadingRepoBranches,
+    gitInitIncomplete: isGitInitIncomplete,
     canCreateSession,
     isCreatePending: createSessionMutation.isPending,
     createError: createSessionMutation.error,

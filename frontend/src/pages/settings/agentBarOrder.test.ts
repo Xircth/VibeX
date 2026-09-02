@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { moveAgentInOrder, nudgeAgentInOrder } from './agentBarOrder';
+import {
+  defaultAgentIdFromOrder,
+  moveAgentInOrder,
+  nudgeAgentInOrder,
+  sortAgentsForBar,
+} from './agentBarOrder';
 
 describe('agentBarOrder', () => {
   it('inserts the dragged agent at the drop target and shifts the rest', () => {
@@ -47,5 +52,33 @@ describe('agentBarOrder', () => {
     expect(
       nudgeAgentInOrder(['claude_code', 'codex', 'pi'], 'claude_code', -1)
     ).toBe(null);
+  });
+});
+
+describe('sortAgentsForBar', () => {
+  const agents = [
+    { agent_id: 'pi', enabled: false },
+    { agent_id: 'codex', enabled: true },
+    { agent_id: 'claude_code', enabled: true },
+    { agent_id: 'grok', enabled: false },
+  ];
+
+  it('puts the default Agent first, then other enabled Agents, then disabled Agents', () => {
+    expect(
+      sortAgentsForBar(agents, 'codex').map((agent) => agent.agent_id)
+    ).toEqual(['codex', 'claude_code', 'pi', 'grok']);
+  });
+
+  it('falls back to the first enabled Agent when the default is missing', () => {
+    expect(
+      sortAgentsForBar(agents, 'missing').map((agent) => agent.agent_id)
+    ).toEqual(['codex', 'claude_code', 'pi', 'grok']);
+  });
+});
+
+describe('defaultAgentIdFromOrder', () => {
+  it('uses the first icon as the default Agent', () => {
+    expect(defaultAgentIdFromOrder(['pi', 'codex'], 'codex')).toBe('pi');
+    expect(defaultAgentIdFromOrder([], 'codex')).toBe('codex');
   });
 });

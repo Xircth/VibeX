@@ -99,6 +99,8 @@ interface SessionCreationFormProps {
   className?: string;
   compact?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  title?: string;
+  gitInitIncomplete?: boolean;
 }
 
 export function SessionCreationForm({
@@ -127,6 +129,8 @@ export function SessionCreationForm({
   dropdownSide = 'bottom',
   onSessionControlsPresetChange,
   onRemoteSessionImported,
+  title,
+  gitInitIncomplete = false,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { config } = useUserSystem();
@@ -282,7 +286,12 @@ export function SessionCreationForm({
       });
       return { sessions, next_cursor: null, meta: null };
     },
-    enabled: Boolean(remoteSessionsOpen && executor && controlsWorkspaceId),
+    enabled: Boolean(
+      previousSessionContinuationEnabled &&
+        remoteSessionsOpen &&
+        executor &&
+        controlsWorkspaceId
+    ),
     staleTime: 0,
     retry: false,
   });
@@ -480,6 +489,21 @@ export function SessionCreationForm({
         onSubmit();
       }}
     >
+      {title || gitInitIncomplete ? (
+        <div className="space-y-1">
+          {title ? (
+            <div className="pr-6 text-sm font-semibold text-foreground">
+              {title}
+            </div>
+          ) : null}
+          {gitInitIncomplete ? (
+            <p className="text-[11px] text-muted-foreground" role="status">
+              {t('sessionCreation.gitInitIncomplete')}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         <Label>{t('sessionCreation.creationMethod')}</Label>
         <div className="grid grid-cols-2 gap-2">
@@ -615,7 +639,7 @@ export function SessionCreationForm({
             {t('sessionCreation.controlsLoading')}
           </p>
         ) : null}
-        {controlsWorkspaceId ? (
+        {previousSessionContinuationEnabled && controlsWorkspaceId ? (
           <div className="space-y-1">
             <Button
               type="button"

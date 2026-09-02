@@ -31,6 +31,8 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { useKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import type { KanbanZone } from '@/lib/layoutArrangement';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import {
@@ -51,6 +53,11 @@ import {
   type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
+import { CanvasCreateSessionPanel } from './canvas/CanvasCreateSessionPanel';
+import {
+  SessionCanvasView,
+  type SessionCanvasApi,
+} from './canvas/SessionCanvasView';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
 import { useKanbanSessionMutations } from './session-hub/useKanbanSessionMutations';
@@ -130,8 +137,12 @@ export function KanbanSessionHub({
 }: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
+  const boardStyle = useKanbanBoardStyle();
+  const canvasListVisible = useKanbanCanvasListVisible();
+  const canvasApiRef = useRef<SessionCanvasApi | null>(null);
+  const [canvasSessionIds, setCanvasSessionIds] = useState<string[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { projectId } = useProject();
+  const { projectId, project } = useProject();
   const { data: repos } = useProjectRepos(projectId);
   const projectRepos = repos ?? [];
   const { activeWorktreeId } = useWorktree();
@@ -595,6 +606,18 @@ export function KanbanSessionHub({
     () => monitorRecords.map((session) => session.placement),
     [monitorRecords]
   );
+  const canvasPlacements = useMemo(
+    () =>
+      canvasSessionIds.map((sessionId) => {
+        const session = sessionsById[sessionId];
+        return session?.placement ?? { sessionId, workspaceId: '' };
+      }),
+    [canvasSessionIds, sessionsById]
+  );
+  const listMonitorPlacements =
+    boardStyle === 'canvas' ? canvasPlacements : monitorPlacements;
+  const listExecutionPlacement =
+    boardStyle === 'canvas' ? null : currentExecutionPlacement;
 
   const selectedSessionIdSet = useMemo(
     () => new Set(selectedSessionIds),
@@ -642,6 +665,39 @@ export function KanbanSessionHub({
     }
   };
 
+  const handleSubmitCreateSession = async () => {
+    if (
+      createMode === 'new_workspace' &&
+      projectId &&
+      !(await confirmWorktreeCreation(projectId, t))
+    ) {
+      return;
+    }
+    createSessionMutation.mutate(
+      {
+        workspaceValue: createWorkspaceValueRef.current,
+        sessionName: createSessionNameRef.current,
+        executorProfile: selectedExecutorProfileRef.current,
+        mode: createMode,
+        sessionControls: sessionControlsPresetRef.current,
+      },
+      {
+        onSuccess: (session) => {
+          if (boardStyle === 'canvas') {
+            canvasApiRef.current?.addSession(session.id);
+          }
+        },
+      }
+    );
+  };
+
+  useEffect(() => {
+    if (!canvasListVisible && isCreatePopoverOpen) {
+      setIsCreatePopoverOpen(false);
+      createSessionMutation.reset();
+    }
+  }, [canvasListVisible, createSessionMutation, isCreatePopoverOpen]);
+
   const handleResetViewState = () => {
     setSortField(null);
     setWorkspaceFilterIds([]);
@@ -687,6 +743,11 @@ export function KanbanSessionHub({
 
     if (isDeleteMode) {
       handleToggleSessionSelection(session.id);
+      return;
+    }
+
+    if (boardStyle === 'canvas') {
+      canvasApiRef.current?.addOrFocus(session);
       return;
     }
 
@@ -983,7 +1044,7 @@ export function KanbanSessionHub({
   const sidebarElement = (
     <SessionHubSidebar
       width={sessionListWidth}
-      fill={listFills}
+      fill={boardStyle === 'canvas' ? true : listFills}
       isLoading={isLoading}
       sessions={activeSessionsWithOptimisticStatus}
       archivedSessions={archivedSessionsWithOptimisticStatus}
@@ -1013,33 +1074,22 @@ export function KanbanSessionHub({
       isCreatePending={createSessionMutation.isPending}
       createError={createSessionMutation.error}
       displayedCount={displayedCount}
-      monitorPlacements={monitorPlacements}
-      currentExecutionPlacement={currentExecutionPlacement}
+      monitorPlacements={listMonitorPlacements}
+      currentExecutionPlacement={listExecutionPlacement}
       openingSessionId={openingSessionId}
       activeWorkspaceId={activeWorktreeId}
       isArchiveView={isArchiveView}
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
       onCreateSessionRequested={() => {
+        if (boardStyle === 'canvas') {
+          handleCreatePopoverOpenChange(!isCreatePopoverOpen);
+          return;
+        }
         requestCreateSessionInExecutionArea(setSearchParams, searchParams);
       }}
       onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
-      onCreateSession={async () => {
-        if (
-          createMode === 'new_workspace' &&
-          projectId &&
-          !(await confirmWorktreeCreation(projectId, t))
-        ) {
-          return;
-        }
-        createSessionMutation.mutate({
-          workspaceValue: createWorkspaceValueRef.current,
-          sessionName: createSessionNameRef.current,
-          executorProfile: selectedExecutorProfileRef.current,
-          mode: createMode,
-          sessionControls: sessionControlsPresetRef.current,
-        });
-      }}
+      onCreateSession={handleSubmitCreateSession}
       onSessionControlsPresetChange={(preset) => {
         sessionControlsPresetRef.current = preset;
       }}
@@ -1074,6 +1124,13 @@ export function KanbanSessionHub({
       onPinSession={(session, pinned) => {
         void handlePinSession(session, pinned);
       }}
+      onDropSessionOnCanvas={
+        boardStyle === 'canvas'
+          ? (session, client) => {
+              canvasApiRef.current?.dropSessionAt(session.id, client);
+            }
+          : undefined
+      }
       onExpandedChange={(status, expanded) => {
         setExpandedSections((current) => ({
           ...current,
@@ -1091,6 +1148,66 @@ export function KanbanSessionHub({
       onCancelMonitor={handleCancelMonitor}
     />
   );
+
+  if (boardStyle === 'canvas') {
+    return (
+      <TooltipProvider delayDuration={120}>
+        <div className="session-hub-shell h-full min-h-0">
+          <SessionCanvasView
+            projectId={projectId ?? ''}
+            sessions={activeSessionsWithOptimisticStatus}
+            sessionsReady={!isLoading}
+            listWidth={sessionListWidth}
+            projectName={project?.name ?? ''}
+            list={sidebarElement}
+            createPanel={
+              isCreatePopoverOpen ? (
+                <CanvasCreateSessionPanel
+                  createMode={createMode}
+                  onCreateModeChange={setCreateMode}
+                  workspaceBranchOptions={workspaceBranchOptions}
+                  createWorkspaceValue={createWorkspaceValue}
+                  onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
+                  createSessionName={createSessionName}
+                  onCreateSessionNameChange={updateCreateSessionName}
+                  profiles={profiles}
+                  selectedExecutorProfile={selectedExecutorProfile}
+                  onSelectedExecutorProfileChange={
+                    updateSelectedExecutorProfile
+                  }
+                  repoBranchConfigs={repoBranchConfigs}
+                  onRepoBranchChange={setRepoBranch}
+                  isLoadingRepoBranches={isLoadingRepoBranches}
+                  canCreateSession={canCreateSession}
+                  isCreatePending={createSessionMutation.isPending}
+                  createError={createSessionMutation.error}
+                  onSubmit={() => {
+                    void handleSubmitCreateSession();
+                  }}
+                  onClose={() => handleCreatePopoverOpenChange(false)}
+                  onSessionControlsPresetChange={(preset) => {
+                    sessionControlsPresetRef.current = preset;
+                  }}
+                />
+              ) : null
+            }
+            onRenameSession={async (session, name) => {
+              await renameSessionMutation.mutateAsync({
+                sessionId: session.id,
+                name,
+                workspaceId: session.workspace.id,
+              });
+            }}
+            onDeleteSession={handleDeleteSession}
+            onApiReady={(api) => {
+              canvasApiRef.current = api;
+            }}
+            onPresentIdsChange={setCanvasSessionIds}
+          />
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={120}>

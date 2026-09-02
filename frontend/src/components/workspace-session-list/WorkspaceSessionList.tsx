@@ -13,6 +13,7 @@ import {
   PointerSensor,
   closestCenter,
   useDndMonitor,
+  useDraggable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -24,7 +25,6 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
   Archive,
   Bot,
@@ -94,6 +94,7 @@ interface WorkspaceSessionListProps {
   selectedSessionIds?: Set<string>;
   onToggleSessionSelection?: (sessionId: string) => void;
   dndContextProvided?: boolean;
+  enableExternalDrag?: boolean;
   monitorPlacements?: Array<{ sessionId: string }>;
   currentExecutionPlacement?: { sessionId: string } | null;
   sortSpecs?: SessionListSortSpec[];
@@ -122,6 +123,7 @@ export function WorkspaceSessionList({
   selectedSessionIds,
   onToggleSessionSelection,
   dndContextProvided = false,
+  enableExternalDrag = false,
   monitorPlacements = [],
   currentExecutionPlacement = null,
   sortSpecs = [],
@@ -213,6 +215,7 @@ export function WorkspaceSessionList({
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
     if (
+      enableExternalDrag ||
       isDeleteMode ||
       sortSpecs.length > 0 ||
       !over ||
@@ -275,6 +278,7 @@ export function WorkspaceSessionList({
             sessions={pinnedSessions}
             expanded={!collapsedIds.has(PINNED_SESSION_GROUP_ID)}
             sortable={false}
+            externalDrag={enableExternalDrag}
             activeSessionId={activeSessionId}
             isDeleteMode={isDeleteMode}
             selectedSessionIds={selectedSessionIds}
@@ -298,7 +302,8 @@ export function WorkspaceSessionList({
             icon="folder"
             sessions={group.sessions}
             expanded={!collapsedIds.has(group.workspaceId)}
-            sortable={!isDeleteMode}
+            sortable={!isDeleteMode && !enableExternalDrag}
+            externalDrag={enableExternalDrag}
             activeSessionId={activeSessionId}
             isDeleteMode={isDeleteMode}
             selectedSessionIds={selectedSessionIds}
@@ -315,14 +320,16 @@ export function WorkspaceSessionList({
           />
         ))}
       </div>
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeSession ? (
-          <WorkspaceSessionRow
-            session={activeSession}
-            isSelected={activeSession.id === activeSessionId}
-            overlay
-            onClick={() => undefined}
-          />
+          <div className="session-list-drag-overlay pointer-events-none">
+            <WorkspaceSessionRow
+              session={activeSession}
+              isSelected={activeSession.id === activeSessionId}
+              overlay
+              onClick={() => undefined}
+            />
+          </div>
         ) : null}
       </DragOverlay>
     </>
@@ -369,6 +376,7 @@ function WorkspaceSessionSection({
   sessions,
   expanded,
   sortable,
+  externalDrag,
   activeSessionId,
   isDeleteMode,
   selectedSessionIds,
@@ -389,6 +397,7 @@ function WorkspaceSessionSection({
   sessions: KanbanProjectSessionRecord[];
   expanded: boolean;
   sortable: boolean;
+  externalDrag?: boolean;
   activeSessionId: string | null;
   isDeleteMode: boolean;
   selectedSessionIds?: Set<string>;
@@ -433,6 +442,7 @@ function WorkspaceSessionSection({
           sortableIdPrefix={sortable ? undefined : `${sectionId}:`}
           sessions={sessions}
           sortable={sortable}
+          externalDrag={externalDrag}
           activeSessionId={activeSessionId}
           isDeleteMode={isDeleteMode}
           selectedSessionIds={selectedSessionIds}
@@ -528,6 +538,7 @@ function WorkspaceSessionGroupList({
   sortableIdPrefix,
   sessions,
   sortable,
+  externalDrag,
   activeSessionId,
   isDeleteMode,
   selectedSessionIds,
@@ -545,6 +556,7 @@ function WorkspaceSessionGroupList({
   sortableIdPrefix?: string;
   sessions: KanbanProjectSessionRecord[];
   sortable: boolean;
+  externalDrag?: boolean;
   activeSessionId: string | null;
   isDeleteMode: boolean;
   selectedSessionIds?: Set<string>;
@@ -584,6 +596,14 @@ function WorkspaceSessionGroupList({
     });
 
     if (!sortable) {
+      if (externalDrag && !isDeleteMode) {
+        return (
+          <DraggableWorkspaceSessionRow
+            key={`${sortableIdPrefix ?? ''}${session.id}`}
+            {...props}
+          />
+        );
+      }
       return (
         <div
           key={`${sortableIdPrefix ?? ''}${session.id}`}
@@ -614,6 +634,58 @@ function WorkspaceSessionGroupList({
   );
 }
 
+function DraggableWorkspaceSessionRow({
+  session,
+  isSelected,
+  isDeleteMode,
+  marker,
+  onClick,
+  onToggleSelect,
+  onPin,
+  onArchive,
+  onRename,
+  onDelete,
+  onRestore,
+}: {
+  session: KanbanProjectSessionRecord;
+  isSelected: boolean;
+  isDeleteMode: boolean;
+  marker: SessionMarker | null;
+  onClick: () => void;
+  onToggleSelect?: () => void;
+  onPin?: (pinned: boolean) => void;
+  onArchive?: () => void;
+  onRename?: (name: string | null) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
+  onRestore?: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: session.id,
+    disabled: isDeleteMode,
+  });
+
+  return (
+    <WorkspaceSessionRow
+      session={session}
+      isSelected={isSelected}
+      isDeleteMode={isDeleteMode}
+      marker={marker}
+      onClick={onClick}
+      onToggleSelect={onToggleSelect}
+      onPin={onPin}
+      onArchive={onArchive}
+      onRename={onRename}
+      onDelete={onDelete}
+      onRestore={onRestore}
+      setNodeRef={setNodeRef}
+      style={{ opacity: isDragging ? 0.4 : undefined }}
+      attributes={isDeleteMode ? undefined : attributes}
+      listeners={isDeleteMode ? undefined : listeners}
+      isDragging={isDragging}
+    />
+  );
+}
+
 function SortableWorkspaceSessionRow({
   session,
   isSelected,
@@ -639,18 +711,12 @@ function SortableWorkspaceSessionRow({
   onDelete?: () => void | Promise<void>;
   onRestore?: () => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: session.id,
-    disabled: isDeleteMode,
-    animateLayoutChanges: () => false,
-  });
+  const { attributes, listeners, setNodeRef, transition, isDragging } =
+    useSortable({
+      id: session.id,
+      disabled: isDeleteMode,
+      animateLayoutChanges: () => false,
+    });
 
   return (
     <WorkspaceSessionRow
@@ -667,7 +733,7 @@ function SortableWorkspaceSessionRow({
       onRestore={onRestore}
       setNodeRef={setNodeRef}
       style={{
-        transform: CSS.Transform.toString(transform),
+        opacity: isDragging ? 0.4 : undefined,
         transition,
       }}
       attributes={isDeleteMode ? undefined : attributes}

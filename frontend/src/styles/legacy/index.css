@@ -3392,6 +3392,10 @@
     background: hsl(var(--background));
   }
 
+  .session-hub-sidebar [data-radix-scroll-area-viewport] {
+    overflow-x: hidden !important;
+  }
+
   .session-hub-sidebar [data-radix-scroll-area-viewport] > div {
     display: block !important;
     min-width: 0 !important;
@@ -3408,7 +3412,7 @@
     min-width: 0;
     max-width: 100%;
     overflow-x: hidden;
-    padding: 0.25rem 0.75rem 0.75rem 0.25rem;
+    padding: 0.25rem 0.75rem 0.75rem;
   }
 
   .session-hub-inset {
@@ -12207,4 +12211,235 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: hsl(var(--primary) / 0.55);
   width: 3px !important;
   margin-left: 3px;
+}
+
+.canvas-surface {
+  --canvas-dot-color: color-mix(in oklab, var(--text-muted) 22%, transparent);
+  --xy-background-color: transparent;
+  --xy-minimap-background-color: var(--surface-card-strong);
+  --xy-minimap-mask-background-color: color-mix(
+    in oklab,
+    var(--text-muted) 12%,
+    transparent
+  );
+  --xy-minimap-node-background-color: color-mix(
+    in oklab,
+    var(--text-muted) 30%,
+    transparent
+  );
+  --xy-selection-background-color: hsl(var(--primary) / 0.08);
+  --xy-selection-border-default: 1px solid hsl(var(--primary) / 0.45);
+  --xy-node-border-radius: 0.75rem;
+  background-color: var(--surface-content);
+}
+
+.canvas-board-units {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.canvas-surface .canvas-dots circle {
+  fill: var(--canvas-dot-color);
+}
+
+.canvas-surface .canvas-minimap {
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  transition: opacity 120ms ease;
+}
+
+.canvas-surface[data-canvas-panning] .canvas-minimap {
+  opacity: 0;
+}
+
+.canvas-surface .react-flow__node {
+  overflow: visible;
+}
+
+.canvas-surface .react-flow__node:focus,
+.canvas-surface .react-flow__node:focus-visible,
+.canvas-surface .react-flow__node.selected {
+  outline: none;
+  box-shadow: none;
+}
+
+.canvas-surface .canvas-session-card .session-hub-card,
+.canvas-surface .canvas-session-card .session-hub-card:hover,
+.canvas-surface .canvas-session-card .session-hub-card.is-selected,
+.canvas-surface
+  .react-flow__node.selected
+  .canvas-session-card
+  .session-hub-card {
+  height: 100%;
+  background: var(--surface-content);
+  border-color: color-mix(
+    in oklab,
+    var(--text-muted) 55%,
+    var(--border-strong)
+  );
+  border-width: 1.5px;
+  box-shadow: none;
+}
+
+.canvas-surface .canvas-session-card .session-hub-card:hover,
+.canvas-surface .canvas-session-card .session-hub-card.is-selected,
+.canvas-surface
+  .react-flow__node.selected
+  .canvas-session-card
+  .session-hub-card {
+  border-width: 2.5px;
+}
+
+.canvas-surface .canvas-session-window {
+  border-width: 1.5px;
+  border-color: color-mix(
+    in oklab,
+    var(--text-muted) 55%,
+    var(--border-strong)
+  );
+}
+
+.canvas-surface .canvas-session-window.is-selected {
+  border-width: 2px;
+  border-color: var(--primary);
+}
+
+.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line {
+  border-color: transparent;
+}
+
+.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.left,
+.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.right {
+  width: 10px;
+}
+
+.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.top,
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.bottom {
+  height: 10px;
+}
+
+.canvas-surface .react-flow__resize-control.handle.canvas-node-resize-handle {
+  width: 6px;
+  height: 6px;
+  border: 0.75px solid var(--border-strong);
+  border-radius: 1px;
+  background: var(--surface-card-strong);
+  z-index: 2;
+}
+
+.canvas-surface
+  .react-flow__resize-control.handle.canvas-node-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+.canvas-surface .canvas-session-link,
+.canvas-surface .react-flow__edge.canvas-session-link .react-flow__edge-path,
+.canvas-surface .react-flow__edge.canvas-session-link path {
+  stroke: color-mix(in oklab, var(--text-muted) 72%, transparent);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.75;
+  fill: none;
+}
+
+.canvas-surface .canvas-edge-anchor {
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  background: transparent;
+}
+
+.canvas-surface .canvas-session-group {
+  border-width: 1.5px;
+  border-color: color-mix(
+    in oklab,
+    var(--text-muted) 55%,
+    var(--border-strong)
+  );
+}
+
+.canvas-surface .canvas-session-group.is-selected,
+.canvas-surface .react-flow__node.selected .canvas-session-group {
+  border-width: 2px;
+  border-color: var(--primary);
+}
+
+.canvas-surface
+  .react-flow__node.canvas-drop-target
+  .canvas-session-card
+  .session-hub-card,
+.canvas-surface .react-flow__node.canvas-drop-target .canvas-session-group {
+  border-width: 2px;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-surface
+    .react-flow__node.canvas-drop-target
+    .canvas-session-card
+    .session-hub-card,
+  .canvas-surface .react-flow__node.canvas-drop-target .canvas-session-group {
+    animation: canvas-drop-pulse 720ms ease-out infinite;
+  }
+}
+
+@keyframes canvas-drop-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 28%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+.canvas-surface .react-flow__pane {
+  user-select: none;
+}
+
+.canvas-surface[data-canvas-marquee],
+.canvas-surface[data-canvas-marquee] * {
+  user-select: none !important;
+}
+
+.canvas-surface[data-canvas-panning],
+.canvas-surface[data-canvas-panning] * {
+  cursor: grabbing !important;
+}
+
+.session-canvas-floating-panel,
+.session-canvas-create-panel {
+  background: color-mix(in oklab, var(--surface-card-strong) 75%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.session-canvas-floating-list .session-hub-resizer {
+  display: none;
+}
+
+.session-canvas-floating-list .session-hub-sidebar {
+  width: 100% !important;
+  background: transparent;
+  border-right: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .session-canvas-floating-panel,
+  .session-canvas-create-panel {
+    background: var(--surface-card-strong);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-surface .canvas-minimap {
+    transition: none;
+  }
 }

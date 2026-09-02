@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  resetKanbanBoardStyle,
+  setKanbanBoardStyle,
+} from '@/lib/kanbanBoardStyle';
+import { resetKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { KanbanLayoutToggles, WorkspaceBranchControls } from './Toolbar';
 
@@ -52,6 +57,8 @@ describe('BranchStatusBadge', () => {
 describe('KanbanLayoutToggles', () => {
   beforeEach(() => {
     useLayoutStore.getState().resetLayout();
+    resetKanbanBoardStyle();
+    resetKanbanCanvasListVisible();
   });
 
   it('toggles session list, monitor, and execution visibility', async () => {
@@ -80,5 +87,64 @@ describe('KanbanLayoutToggles', () => {
     expect(useLayoutStore.getState().isKanbanListVisible).toBe(true);
     expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(true);
     expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
+  });
+
+  it('hides zone toggles in infinite-canvas mode', () => {
+    setKanbanBoardStyle('canvas');
+    render(
+      <TooltipProvider>
+        <KanbanLayoutToggles />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏会话列表' })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceBranchControls canvas list toggle', () => {
+  beforeEach(() => {
+    resetKanbanBoardStyle();
+    resetKanbanCanvasListVisible();
+  });
+
+  it('places the session-list button after the project rail in canvas mode', async () => {
+    const user = userEvent.setup();
+    setKanbanBoardStyle('canvas');
+
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls isWorkspaceTab={false} />
+      </TooltipProvider>
+    );
+
+    const group = screen.getByRole('group', {
+      name: 'Workspace and target branches',
+    });
+    const buttons = group.querySelectorAll('button');
+    expect(buttons[0]).toHaveTextContent('Projects');
+    expect(buttons[1]).toHaveAttribute('aria-label', '隐藏会话列表');
+
+    await user.click(buttons[1]);
+    expect(screen.getByRole('button', { name: '显示会话列表' })).toBe(
+      buttons[1]
+    );
+  });
+
+  it('does not show the canvas list toggle on the workspace tab', () => {
+    setKanbanBoardStyle('canvas');
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls
+          isWorkspaceTab={true}
+          workspaceId="workspace-1"
+        />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '隐藏会话列表' })
+    ).not.toBeInTheDocument();
   });
 });

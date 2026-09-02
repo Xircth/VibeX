@@ -86,6 +86,18 @@ describe('SessionHubListItem', () => {
     );
   });
 
+  it('puts time, workspace, and delete on one row in canvas mode', () => {
+    renderItem({ displayMode: 'canvas' });
+
+    const workspace = screen.getByText('Main');
+    const deleteButton = screen.getByRole('button', { name: '删除会话' });
+    const row = deleteButton.parentElement?.parentElement;
+
+    expect(deleteButton.parentElement).not.toHaveClass('absolute');
+    expect(row).toContainElement(workspace);
+    expect(row).toHaveClass('flex');
+  });
+
   it('reveals the corner actions on hover without reserving layout space', () => {
     const { container } = renderItem();
     const card = container.querySelector('.session-hub-card');

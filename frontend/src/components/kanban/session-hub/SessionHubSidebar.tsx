@@ -8,8 +8,11 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
+  pointerWithin,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
   useDraggable,
@@ -17,7 +20,6 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import {
   AlertCircle,
   Archive,
@@ -67,6 +69,12 @@ import type {
 } from '@/components/sessions/SessionCreationForm';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { SessionHubListItem } from './SessionHubListItem';
+import {
+  SESSION_LIST_DRAG_OVERLAY_CLASS,
+  dragEndClientPoint,
+  hitElementFromPoint,
+  isPointOverCanvasDrop,
+} from './sessionListDrag';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
@@ -162,6 +170,10 @@ interface SessionHubSidebarProps {
   onRestoreArchivedSession: (session: KanbanProjectSessionRecord) => void;
   onExpandedChange: (status: string, expanded: boolean) => void;
   onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
+  onDropSessionOnCanvas?: (
+    session: KanbanProjectSessionRecord,
+    client: { x: number; y: number }
+  ) => void;
 }
 
 const STATUS_DROP_ID_PREFIX = 'session-status-drop:';
@@ -351,12 +363,11 @@ function DraggableSessionCard({
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: session.id,
-      data: { parentStatus: status },
-      disabled: isDeleteMode,
-    });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: session.id,
+    data: { parentStatus: status },
+    disabled: isDeleteMode,
+  });
 
   return (
     <div
@@ -368,8 +379,7 @@ function DraggableSessionCard({
         !isDeleteMode && 'cursor-grab'
       )}
       style={{
-        transform: transform ? CSS.Translate.toString(transform) : undefined,
-        opacity: isDragging ? 0.25 : undefined,
+        opacity: isDragging ? 0.4 : undefined,
       }}
     >
       <SessionHubListItem
@@ -505,6 +515,7 @@ export function SessionHubSidebar({
   onRestoreArchivedSession,
   onExpandedChange,
   onPinSession,
+  onDropSessionOnCanvas,
 }: SessionHubSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const listView = useKanbanSessionListView();
@@ -517,6 +528,7 @@ export function SessionHubSidebar({
     !isWorkspaceListView &&
     (hasActiveFilters || sortField !== null);
   const canDragToArchive = !isArchiveView && !isDeleteMode && !isFlatListMode;
+  const canDropOnCanvas = Boolean(onDropSessionOnCanvas) && !isArchiveView;
   const canDragAcrossSections = canDragToArchive && !isWorkspaceListView;
   const [activeDragSessionId, setActiveDragSessionId] = useState<string | null>(
     null
@@ -575,40 +587,51 @@ export function SessionHubSidebar({
   }, [dismissedNotice, noticeMessage]);
 
   const handleDragStart = (event: DragStartEvent) => {
-    if (!canDragToArchive) return;
+    if (!canDragToArchive && !canDropOnCanvas) return;
     setActiveDragSessionId(String(event.active.id));
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragSessionId(null);
-    if (!event.over) {
-      return;
-    }
-
     const sessionId = String(event.active.id);
     const session = sessionsById[sessionId];
     if (!session) {
       return;
     }
 
-    if (event.over.id === SESSION_ARCHIVE_DROP_ID) {
+    if (event.over?.id === SESSION_ARCHIVE_DROP_ID) {
       if (canDragToArchive) {
         onSessionStatusChange(session, ARCHIVED_SESSION_STATUS);
       }
       return;
     }
 
-    if (!canDragAcrossSections) {
+    if (canDragAcrossSections) {
+      const targetStatus = parseStatusDropId(event.over?.id);
+      if (targetStatus && targetStatus !== session.status) {
+        onSessionStatusChange(session, targetStatus);
+        return;
+      }
+      if (targetStatus) {
+        return;
+      }
+    }
+
+    if (!onDropSessionOnCanvas) {
       return;
     }
 
-    const targetStatus = parseStatusDropId(event.over.id);
-    if (!targetStatus || targetStatus === session.status) {
-      return;
+    const point = dragEndClientPoint(event);
+    if (!point) return;
+    const hit = hitElementFromPoint(point.x, point.y);
+    if (isPointOverCanvasDrop(hit)) {
+      onDropSessionOnCanvas(session, point);
     }
-
-    onSessionStatusChange(session, targetStatus);
   };
+
+  const collisionDetection: CollisionDetection = canDropOnCanvas
+    ? pointerWithin
+    : closestCenter;
 
   const showArchiveDrop = Boolean(activeDragSessionId) && canDragToArchive;
   const insetExpanded = showArchiveDrop || Boolean(visibleNotice);
@@ -952,7 +975,7 @@ export function SessionHubSidebar({
 
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveDragSessionId(null)}
@@ -999,6 +1022,7 @@ export function SessionHubSidebar({
                     onRenameSession={onRenameSession}
                     onDeleteSession={onDeleteSession}
                     dndContextProvided
+                    enableExternalDrag={canDropOnCanvas}
                     monitorPlacements={monitorPlacements}
                     currentExecutionPlacement={currentExecutionPlacement}
                   />
@@ -1104,6 +1128,29 @@ export function SessionHubSidebar({
               </div>
             )}
           </ScrollArea>
+          {isWorkspaceListView ? null : (
+            <DragOverlay dropAnimation={null}>
+              {activeDragSessionId && sessionsById[activeDragSessionId] ? (
+                <div
+                  className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[min(100%,18rem)] cursor-grabbing`}
+                >
+                  <SessionHubListItem
+                    session={sessionsById[activeDragSessionId]}
+                    marker={getSessionMarker(
+                      activeDragSessionId,
+                      monitorPlacements,
+                      currentExecutionPlacement
+                    )}
+                    isDeleteMode={false}
+                    isSelected={false}
+                    onClick={() => undefined}
+                    onToggleSelect={() => undefined}
+                    dragging
+                  />
+                </div>
+              ) : null}
+            </DragOverlay>
+          )}
         </DndContext>
       </aside>
 

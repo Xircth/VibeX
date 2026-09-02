@@ -88,6 +88,10 @@
     "hide": "Hide project rail",
     "show": "Show project rail"
   },
+  "canvasSessionList": {
+    "hide": "Hide session list",
+    "show": "Show session list"
+  },
   "gitStash": {
     "readFailed": "Failed to read stash: {{error}}",
     "operationFailed": "Operation failed: {{error}}",

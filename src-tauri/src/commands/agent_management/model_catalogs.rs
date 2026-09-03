@@ -193,7 +193,6 @@ pub(super) async fn codex_official_document(
 
 pub(super) async fn load_codex_config(
     codex_home: &Path,
-    official_document: Option<&Value>,
 ) -> Result<CodexModelCatalogConfigView, String> {
     let source_path = codex_home.join(CODEX_SOURCE_FILE);
     let generated_catalog_path = codex_home.join(CODEX_CATALOG_FILE);
@@ -204,18 +203,15 @@ pub(super) async fn load_codex_config(
             generated_catalog_path,
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if let Some((catalog_path, catalog, default_model)) =
-                read_external_codex_catalog(codex_home).await?
+            if let Some((catalog_path, _, default_model)) =
+                peek_external_codex_catalog(codex_home).await
             {
-                let official = official_document
-                    .and_then(|document| document.get("models"))
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| {
-                        "检测到外部 Codex model_catalog_json，但当前无法读取官方模型目录以安全导入"
-                            .to_string()
-                    })?;
                 (
-                    import_codex_catalog(&catalog, default_model.as_deref(), official),
+                    CodexModelCatalogConfigRequest {
+                        customs: Vec::new(),
+                        excluded_officials: Vec::new(),
+                        default_model: default_model.or(read_codex_root_model(codex_home).await?),
+                    },
                     catalog_path,
                 )
             } else {
@@ -239,6 +235,35 @@ pub(super) async fn load_codex_config(
         source_path: source_path.display().to_string(),
         active: catalog_path.is_file(),
     })
+}
+
+pub(super) async fn peek_external_codex_catalog(
+    codex_home: &Path,
+) -> Option<(PathBuf, Value, Option<String>)> {
+    match read_external_codex_catalog(codex_home).await {
+        Ok(Some((path, catalog, default_model)))
+            if path.file_name().and_then(|name| name.to_str()) != Some(CODEX_CATALOG_FILE) =>
+        {
+            Some((path, catalog, default_model))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn first_catalog_slug(catalog: &Value) -> Option<String> {
+    catalog
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|model| {
+            model
+                .get("slug")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|slug| !slug.is_empty())
+                .map(str::to_string)
+        })
 }
 
 async fn read_external_codex_catalog(
@@ -1055,22 +1080,50 @@ mod tests {
             "model = \"custom-model\"\nmodel_catalog_json = \"external.json\"\n",
         )
         .unwrap();
-        let official = serde_json::json!({
-            "models": [{
-                "slug": "official-a",
-                "display_name": "Official A",
-                "visibility": "list",
-                "priority": 0
-            }]
-        });
 
-        let loaded = load_codex_config(temp.path(), Some(&official))
-            .await
-            .unwrap();
+        let loaded = load_codex_config(temp.path()).await.unwrap();
 
         assert!(loaded.active);
         assert_eq!(loaded.catalog_path, catalog.display().to_string());
-        assert_eq!(loaded.customs[0].slug, "custom-model");
+        assert!(loaded.customs.is_empty());
+        assert!(loaded.excluded_officials.is_empty());
+        assert_eq!(loaded.default_model.as_deref(), Some("custom-model"));
+        assert!(!temp.path().join(CODEX_SOURCE_FILE).exists());
+        assert_eq!(
+            std::fs::read_to_string(&catalog)
+                .unwrap()
+                .contains("custom-model"),
+            true
+        );
+    }
+
+    #[tokio::test]
+    async fn load_config_keeps_external_catalog_without_official_document() {
+        let temp = tempfile::tempdir().unwrap();
+        let catalog = temp.path().join("external.json");
+        std::fs::write(
+            &catalog,
+            serde_json::to_vec(&serde_json::json!({
+                "models": [{
+                    "slug": "custom-model",
+                    "display_name": "Custom",
+                    "visibility": "list"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "model = \"custom-model\"\nmodel_catalog_json = \"external.json\"\n",
+        )
+        .unwrap();
+
+        let loaded = load_codex_config(temp.path()).await.unwrap();
+
+        assert!(loaded.active);
+        assert_eq!(loaded.catalog_path, catalog.display().to_string());
+        assert!(loaded.customs.is_empty());
         assert_eq!(loaded.default_model.as_deref(), Some("custom-model"));
         assert!(!temp.path().join(CODEX_SOURCE_FILE).exists());
     }

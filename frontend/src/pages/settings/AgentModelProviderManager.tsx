@@ -121,19 +121,18 @@ export function AgentModelProviderManager({
     setLoading(true);
     setError(null);
     try {
-      const [providers, catalog, modelConfig] = await Promise.all([
-        agentManagementApi.modelProviders(agentId),
-        agentId === 'codex'
-          ? agentManagementApi.codexModelCatalog(false)
-          : Promise.resolve(null),
-        agentId === 'codex'
-          ? agentManagementApi.codexModelCatalogConfig()
-          : Promise.resolve(null),
-      ]);
+      const providers = await agentManagementApi.modelProviders(agentId);
       setView(providers);
-      setCodexCatalog(catalog);
-      setCodexConfig(modelConfig);
       setLoaded(true);
+      if (agentId === 'codex') {
+        void Promise.all([
+          agentManagementApi.codexModelCatalog(false).catch(() => null),
+          agentManagementApi.codexModelCatalogConfig().catch(() => null),
+        ]).then(([catalog, modelConfig]) => {
+          setCodexCatalog(catalog);
+          setCodexConfig(modelConfig);
+        });
+      }
     } catch (cause) {
       setError(errorMessage(cause, t('settings:agents.providerActionFailed')));
     } finally {
@@ -779,9 +778,7 @@ function ProviderSecretField({
           variant="ghost"
           className="h-8 w-8 p-0"
           aria-label={
-            revealed
-              ? t('agents.providerHideKey')
-              : t('agents.providerShowKey')
+            revealed ? t('agents.providerHideKey') : t('agents.providerShowKey')
           }
           disabled={disabled || !value}
           onClick={() => setRevealed((current) => !current)}
@@ -1142,19 +1139,17 @@ function GrokProviderModelEditor({
       </label>
       <label>
         <span>{t('agents.grokApiBackend')}</span>
-        <select
-          aria-label={t('agents.grokApiBackend')}
+        <AstryxSelect
+          ariaLabel={t('agents.grokApiBackend')}
           disabled={disabled}
-          name="grok_provider_backend"
           value={parsed.api_backend}
-          onChange={(event) =>
-            patch({ ...parsed, api_backend: event.target.value })
-          }
-        >
-          <option value="responses">OpenAI Responses</option>
-          <option value="chat_completions">OpenAI Chat Completions</option>
-          <option value="messages">Anthropic Messages</option>
-        </select>
+          options={[
+            { value: 'responses', label: 'OpenAI Responses' },
+            { value: 'chat_completions', label: 'OpenAI Chat Completions' },
+            { value: 'messages', label: 'Anthropic Messages' },
+          ]}
+          onChange={(api_backend) => patch({ ...parsed, api_backend })}
+        />
       </label>
       <label>
         <span>{t('agents.grokContextWindow')}</span>
@@ -1212,19 +1207,16 @@ function PiProviderModelEditor({
       </label>
       <label>
         <span>{t('agents.customProviderProtocol')}</span>
-        <select
-          aria-label={t('agents.customProviderProtocol')}
+        <AstryxSelect
+          ariaLabel={t('agents.customProviderProtocol')}
           disabled={disabled}
-          name="pi_provider_protocol"
           value={parsed.api}
-          onChange={(event) => patch({ ...parsed, api: event.target.value })}
-        >
-          {PI_PROTOCOLS.map((protocol) => (
-            <option key={protocol} value={protocol}>
-              {protocol}
-            </option>
-          ))}
-        </select>
+          options={PI_PROTOCOLS.map((protocol) => ({
+            value: protocol,
+            label: protocol,
+          }))}
+          onChange={(api) => patch({ ...parsed, api })}
+        />
       </label>
     </fieldset>
   );

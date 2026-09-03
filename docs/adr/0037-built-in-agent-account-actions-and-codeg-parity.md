@@ -114,10 +114,12 @@ Codex 的审批策略同时支持简单策略与 granular 五项开关；两种�
 选中模型会增量加入该 Provider 的模型数组；三份原生文件中的其它键和其它 Provider 均保留。
 高级 JSON builder 仍可用于修复或批量维护已有自定义 Provider。
 
-当 Codex 的 source sidecar 尚不存在但 `config.toml` 已引用外部 `model_catalog_json` 时，
-VibeX 必须按 Codex 的路径规则解析绝对路径、`~/` 与 `CODEX_HOME` 相对路径，在 8 MiB
-上限内只读导入该目录，并与当前官方目录对比还原自定义模型、排除项与默认模型。打开编辑器
-不得写入或改名外部文件；用户保存后才由 VibeX 生成自己的 catalog 与 sidecar。
+当 Codex 的 `config.toml` 已引用外部 `model_catalog_json` 时，该项属于原生供应商通道：
+VibeX 按 Codex 的路径规则解析绝对路径、`~/` 与 `CODEX_HOME` 相对路径，在 8 MiB
+上限内只读解析该目录以填充列表中的默认模型，不要求官方 bundled catalog，也不把外部
+目录 diff 成 sidecar。启用该原生项即恢复当时的 `config.toml` 与该外部 catalog 文件。
+打开供应商列表或高级 sidecar 编辑器都不得写入或改名外部文件；高级编辑器保存后才由
+VibeX 生成自己的 catalog 与 sidecar。
 
 Pi Runtime 可在 PATH 中的托管 `pi` 与用户指定的可执行文件之间切换；自定义文件必须解析到
 真实可执行文件并通过启动前验证。`PI_CODING_AGENT_DIR` 与
@@ -130,8 +132,10 @@ Pi Runtime 可在 PATH 中的托管 `pi` 与用户指定的可执行文件之间
 
 Claude Code、Codex 与 Gemini 支持 VibeX 本地 Model Provider 预设。预设保存名称、Agent
 类型、端点、模型映射和凭据，绑定时分别投影到三个 Agent 的官方原生配置；Claude 支持
-八项结构化模型映射，Codex 使用正式 `model_provider` / `model_providers` 配置并复用上述
-完整模型清单，Gemini 使用单模型映射。更新已绑定预设会重新投影。首次绑定前由 VibeX
+八项结构化模型映射，Codex 标准预设只替换官方配置里的 provider 字段
+（`model_provider = "vibex"`、`[model_providers.vibex]`、`auth.json` 的
+`OPENAI_API_KEY`、顶层 `model`），不读、不写、不删除 `model_catalog_json` 或外部
+catalog 文件；Gemini 使用单模型映射。更新已绑定预设会重新投影。首次绑定前由 VibeX
 保存其负责字段与 sidecar 的精确备份；切换 Provider 保留同一备份，解除绑定时恢复原值，
 同时保留期间出现的其它原生配置字段。预设不是 Runtime 配置权威，未绑定时不产生运行
 效果。IPC 不回显 API Key，空密钥更新保留已有凭据，包含凭据及备份的预设文件在 Unix

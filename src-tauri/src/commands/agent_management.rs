@@ -4991,6 +4991,12 @@ async fn evaluate_auth_mode_preflight(
     };
     let auth_mode = project_agent_auth_mode(agent_id.clone(), policy, agent_env);
     let needs_credential = policy.credential_modes.contains(&auth_mode.mode.as_str());
+    let provider_ready = auth_mode.mode != "model_provider"
+        || agent_id.as_str() != "pi"
+        || matches!(
+            authentication,
+            AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+        );
     let custom_ready = if agent_id.as_str() == "grok" && auth_mode.mode == "custom" {
         let home = app.path().home_dir().map_err(internal_error)?;
         let provider = NativeConfigProvider::with_environment(
@@ -5015,13 +5021,21 @@ async fn evaluate_auth_mode_preflight(
             authentication,
             AgentAuthenticationStatus::Account | AgentAuthenticationStatus::MultipleUnknown
         );
-    let ready =
-        (!needs_credential || auth_mode.credential_present) && custom_ready && subscription_ready;
+    let ready = (!needs_credential || auth_mode.credential_present)
+        && custom_ready
+        && subscription_ready
+        && provider_ready;
     let detail = if auth_mode.mode == "subscription" {
         format!(
             "订阅登录模式；启动时会清除冲突的 {}。",
             policy.subscription_scrub_env.join("、")
         )
+    } else if auth_mode.mode == "model_provider" && agent_id.as_str() == "pi" {
+        if provider_ready {
+            "已从 Pi 原生配置检测到供应商凭据。".to_string()
+        } else {
+            "尚未检测到已启用的供应商凭据。".to_string()
+        }
     } else if needs_credential && !auth_mode.credential_present {
         format!(
             "{} 模式缺少 {}，请在鉴权模式中保存凭据。",
@@ -9229,22 +9243,6 @@ pub async fn codex_model_catalog_config(
 ) -> Result<CodexModelCatalogConfigView, AgentManagementErrorView> {
     let agent_id = AgentId::parse("codex").expect("built-in id");
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
-    let program = resolve_management_program(
-        &state.deployment.db().pool,
-        &agent_id,
-        "codex",
-        &environment,
-    )
-    .await;
-    let cache_path = app
-        .path()
-        .app_data_dir()
-        .map_err(internal_error)?
-        .join("agent-catalogs")
-        .join("codex-bundled.json");
-    let official = model_catalogs::codex_official_document(program.as_deref(), &cache_path)
-        .await
-        .ok();
     let home = app.path().home_dir().map_err(internal_error)?;
     let codex_home = environment
         .get("CODEX_HOME")
@@ -9256,7 +9254,7 @@ pub async fn codex_model_catalog_config(
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| home.join(".codex"));
-    model_catalogs::load_codex_config(&codex_home, official.as_ref())
+    model_catalogs::load_codex_config(&codex_home)
         .await
         .map_err(internal_error)
 }
@@ -9393,6 +9391,11 @@ pub async fn agent_model_provider_save(
     let result = model_providers::save(&store_path, &home, &environment, request)
         .await
         .map_err(internal_error)?;
+    if result.bound_provider_id.is_some() {
+        let _ =
+            refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false)
+                .await;
+    }
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已更改")
@@ -9456,6 +9459,8 @@ pub async fn agent_model_provider_bind(
         }
         return Err(error);
     }
+    let _ =
+        refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false).await;
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 绑定已更改")

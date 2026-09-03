@@ -268,9 +268,9 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
 - **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
 _Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
-- **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中只读：可复制、可测连，不能启用、编辑或删除；收成预设必须走外部供应商导入。
+- **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中可复制、可测连。Codex 外部 `model_catalog_json` 属于可启用的原生通道：启用即恢复当时的 `config.toml` 与该外部 catalog 文件，不生成 sidecar、不要求官方 bundled catalog。其它 Agent 的原生项不能启用、编辑或删除；收成预设必须走外部供应商导入。
 - **Provider connection probe（供应商连接探测）** — 用已存凭据对该端点做一次模型目录请求，返回成功或失败与耗时；密钥不出前端。
-- **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
+- **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。Codex 外部 catalog 不是导入源，不 diff 进 sidecar。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
 _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。

@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
 import { AgentModelProviderManager } from './AgentModelProviderManager';
+import { pickAstryxOption } from './agentSettingsTestUtils';
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: vi.fn() },
@@ -151,7 +152,8 @@ describe('AgentModelProviderManager', () => {
     );
     await user.type(screen.getByLabelText('Provider API Key'), 'secret');
     await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
-    await user.selectOptions(
+    await pickAstryxOption(
+      user,
       screen.getByLabelText('接入协议'),
       'anthropic-messages'
     );
@@ -193,12 +195,8 @@ describe('AgentModelProviderManager', () => {
     ).toBeVisible();
     expect(await screen.findByText('private')).toBeVisible();
     expect(screen.getByRole('button', { name: '已启用' })).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: '编辑 private' })
-    ).toBeEnabled();
-    expect(
-      screen.getByRole('button', { name: '删除 private' })
-    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: '编辑 private' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '删除 private' })).toBeDisabled();
     expect(screen.queryByText('暂未识别到供应商')).not.toBeInTheDocument();
   });
 
@@ -441,6 +439,32 @@ describe('AgentModelProviderManager', () => {
       await screen.findByRole('button', { name: '已启用' })
     ).toBeDisabled();
     expect(screen.getByRole('button', { name: '删除 Gateway' })).toBeDisabled();
+  });
+
+  it('lists Codex providers when catalog config loading fails', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockRejectedValue(
+      new Error('无法读取官方模型目录')
+    );
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockRejectedValue(
+      new Error('无法读取官方模型目录')
+    );
+
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    expect(await screen.findByRole('button', { name: '启用' })).toBeEnabled();
+    expect(screen.getByText('Gateway')).toBeVisible();
   });
 
   it('imports selectable CC Switch candidates after preview', async () => {

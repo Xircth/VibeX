@@ -48,7 +48,7 @@ pub(super) struct NativeCodexState {
     pub active_provider: Option<String>,
     /// 顶层 `openai_base_url` / `api_base_url`（内置 OpenAI provider 端点）。
     pub base_url: Option<String>,
-    /// 顶层 `model` 键。
+    /// 顶层 `model` 键，或外部 catalog 的默认 / 首个 slug。
     pub model: Option<String>,
     /// `auth.json` 的 `OPENAI_API_KEY` 或当前 Provider 表内的 `api_key`。
     pub credential_present: bool,
@@ -367,9 +367,7 @@ pub(super) async fn save(
     }
     if store.bindings.get(request.agent_id.as_str()) == Some(&id) {
         let rollback = capture_projection(&homes, &request.agent_id).await?;
-        if let Err(error) =
-            apply_provider(&homes, &provider, &codex_catalog_cache(store_path)).await
-        {
+        if let Err(error) = apply_provider(&homes, &provider).await {
             restore_projection(&homes, &request.agent_id, &rollback).await?;
             return Err(error);
         }
@@ -395,6 +393,11 @@ pub(super) async fn bind(
     let mut store = load_store_with_natives(store_path, &agent_id, &homes).await?;
     let current_binding = store.bindings.get(agent_id.as_str()).cloned();
     let rollback = capture_projection(&homes, &agent_id).await?;
+    let native_codex = if agent_id.as_str() == "codex" {
+        Some(read_native_codex_state(&homes.codex).await?)
+    } else {
+        None
+    };
     if let Some(provider_id) = provider_id
         .as_deref()
         .map(str::trim)
@@ -404,26 +407,46 @@ pub(super) async fn bind(
             .providers
             .iter()
             .find(|provider| provider.id == provider_id && provider.agent_id == agent_id)
+            .cloned()
             .ok_or_else(|| "找不到可绑定的 Model Provider".to_string())?;
-        if current_binding.is_none() {
-            store
-                .projection_backups
-                .insert(agent_id.as_str().to_string(), rollback.clone());
-            // Persist the recovery point before touching any Agent-owned file.
-            write_store(store_path, &store).await?;
-        }
-        if let Err(error) = apply_provider(&homes, provider, &codex_catalog_cache(store_path)).await
-        {
-            restore_projection(&homes, &agent_id, &rollback).await?;
+        if is_native_codex_channel(&provider, native_codex.as_ref()) {
+            if native_uses_vibex_projection(native_codex.as_ref()) {
+                let backup = store
+                    .projection_backups
+                    .get(agent_id.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| rollback.clone());
+                if let Err(error) = restore_projection(&homes, &agent_id, &backup).await {
+                    restore_projection(&homes, &agent_id, &rollback).await?;
+                    return Err(error);
+                }
+            }
+            if let Err(error) = activate_native_codex_provider(&homes.codex, &provider.id).await {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                return Err(error);
+            }
+            store.bindings.remove(agent_id.as_str());
+            store.projection_backups.remove(agent_id.as_str());
+        } else {
             if current_binding.is_none() {
-                store.projection_backups.remove(agent_id.as_str());
+                store
+                    .projection_backups
+                    .insert(agent_id.as_str().to_string(), rollback.clone());
+                // Persist the recovery point before touching any Agent-owned file.
                 write_store(store_path, &store).await?;
             }
-            return Err(error);
+            if let Err(error) = apply_provider(&homes, &provider).await {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                if current_binding.is_none() {
+                    store.projection_backups.remove(agent_id.as_str());
+                    write_store(store_path, &store).await?;
+                }
+                return Err(error);
+            }
+            store
+                .bindings
+                .insert(agent_id.as_str().to_string(), provider_id.to_string());
         }
-        store
-            .bindings
-            .insert(agent_id.as_str().to_string(), provider_id.to_string());
     } else {
         if current_binding.is_none() {
             return projected_view(&store, store_path, &homes, agent_id).await;
@@ -1052,9 +1075,25 @@ pub(super) async fn read_native_codex_state(codex_home: &Path) -> Result<NativeC
                     .filter(|value| !value.is_empty())
                     .unwrap_or_default()
                     .to_string(),
-                model: state.model.clone().unwrap_or_default(),
+                model: String::new(),
                 api_key,
             });
+        }
+    }
+    if let Some((_, catalog, catalog_model)) =
+        super::model_catalogs::peek_external_codex_catalog(codex_home).await
+    {
+        let model = state
+            .model
+            .clone()
+            .or(catalog_model)
+            .or_else(|| super::model_catalogs::first_catalog_slug(&catalog));
+        state.model = model;
+    }
+    let shared_model = state.model.clone().unwrap_or_default();
+    for provider in &mut state.providers {
+        if provider.model.is_empty() {
+            provider.model = shared_model.clone();
         }
     }
     let auth = read_json_object_or_empty(&codex_home.join("auth.json"))
@@ -1127,14 +1166,7 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, String> {
                     ""
                 })
                 .to_string();
-            let api_key = auth
-                .get(id)
-                .and_then(|entry| entry.get("key"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|key| !key.is_empty())
-                .unwrap_or_default()
-                .to_string();
+            let api_key = auth.get(id).map(pi_auth_key).unwrap_or_default();
             let credential_present = !api_key.is_empty();
             seen.insert(id.clone());
             providers.push(NativePiProvider {
@@ -1152,13 +1184,7 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, String> {
             if seen.contains(id) {
                 continue;
             }
-            let api_key = entry
-                .get("key")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|key| !key.is_empty())
-                .unwrap_or_default()
-                .to_string();
+            let api_key = pi_auth_key(entry);
             if api_key.is_empty() {
                 continue;
             }
@@ -1226,6 +1252,51 @@ fn reconcile_codex_store_bindings(
 
 fn native_uses_vibex_projection(native: Option<&NativeCodexState>) -> bool {
     native.is_some_and(|state| state.active_provider.as_deref() == Some("vibex"))
+}
+
+fn is_native_codex_channel(provider: &StoredProvider, native: Option<&NativeCodexState>) -> bool {
+    let Some(native) = native else {
+        return false;
+    };
+    if provider.id == "vibex" {
+        return false;
+    }
+    native
+        .providers
+        .iter()
+        .any(|candidate| candidate.id == provider.id)
+        || provider.id == NATIVE_ENDPOINT_PROVIDER_ID
+}
+
+async fn activate_native_codex_provider(
+    codex_home: &Path,
+    provider_id: &str,
+) -> Result<(), String> {
+    let filesystem = TokioNativeFileSystem;
+    let path = codex_home.join("config.toml");
+    let original = filesystem
+        .read(&path)
+        .await
+        .map_err(|error| error.message)?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    if provider_id == NATIVE_ENDPOINT_PROVIDER_ID {
+        table.remove("model_provider");
+    } else {
+        table.insert(
+            "model_provider".to_string(),
+            toml::Value::String(provider_id.to_string()),
+        );
+    }
+    let bytes = toml::to_string_pretty(&table)
+        .map(String::into_bytes)
+        .map_err(|error| format!("序列化 Codex config.toml 失败：{error}"))?;
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(bytes),
+        sensitive: false,
+    }])
+    .await
 }
 
 pub(super) fn native_codex_provider_ready(state: &NativeCodexState) -> bool {
@@ -1842,12 +1913,7 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
             if api_url.is_empty() {
                 return None;
             }
-            let api_key = auth
-                .get(id)
-                .and_then(|entry| entry.get("key"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            let api_key = auth.get(id).map(pi_auth_key).unwrap_or_default();
             let model_id = object
                 .get("models")
                 .and_then(Value::as_array)
@@ -2556,11 +2622,10 @@ fn codex_catalog_cache(store_path: &Path) -> std::path::PathBuf {
 async fn apply_provider(
     homes: &ProviderNativeHomes,
     provider: &StoredProvider,
-    codex_cache_path: &Path,
 ) -> Result<(), String> {
     match provider.agent_id.as_str() {
         "claude_code" => apply_claude(&homes.claude, provider).await,
-        "codex" => apply_codex(&homes.codex, provider, codex_cache_path).await,
+        "codex" => apply_codex(&homes.codex, provider).await,
         "gemini" => apply_gemini(&homes.gemini, provider).await,
         "grok" => apply_grok(&homes.grok, provider).await,
         "kimi_code" => apply_kimi(&homes.kimi, provider).await,
@@ -2635,11 +2700,7 @@ async fn apply_claude(claude_home: &Path, provider: &StoredProvider) -> Result<(
     .await
 }
 
-async fn apply_codex(
-    codex_home: &Path,
-    provider: &StoredProvider,
-    codex_cache_path: &Path,
-) -> Result<(), String> {
+async fn apply_codex(codex_home: &Path, provider: &StoredProvider) -> Result<(), String> {
     let filesystem = TokioNativeFileSystem;
     let auth_path = codex_home.join("auth.json");
     let auth_original = filesystem
@@ -2711,34 +2772,6 @@ async fn apply_codex(
     } else {
         table.insert("model".to_string(), toml::Value::String(default_model));
     }
-    let (catalog_replacement, source_replacement, active) = if let Some(request) = structured {
-        let official = super::model_catalogs::codex_official_document(None, codex_cache_path)
-            .await
-            .map_err(|error| format!("应用 Codex Provider 模型清单失败：{error}"))?;
-        let (active, catalog, source) =
-            super::model_catalogs::build_codex_catalog_files(&official, &request)?;
-        (catalog, source, active)
-    } else {
-        (None, None, false)
-    };
-    if active {
-        table.insert(
-            "model_catalog_json".to_string(),
-            toml::Value::String(CODEX_CATALOG_FILE.to_string()),
-        );
-    } else {
-        table.remove("model_catalog_json");
-    }
-    let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
-    let source_path = codex_home.join(CODEX_SOURCE_FILE);
-    let catalog_original = filesystem
-        .read(&catalog_path)
-        .await
-        .map_err(|error| error.message)?;
-    let source_original = filesystem
-        .read(&source_path)
-        .await
-        .map_err(|error| error.message)?;
     let auth_bytes = serde_json::to_vec_pretty(&auth)
         .map_err(|error| format!("序列化 Codex auth.json 失败：{error}"))?;
     let config_bytes = toml::to_string_pretty(&table)
@@ -2755,18 +2788,6 @@ async fn apply_codex(
             path: config_path,
             expected: config_original,
             replacement: Some(config_bytes),
-            sensitive: false,
-        },
-        NativeFileMutation {
-            path: catalog_path,
-            expected: catalog_original,
-            replacement: catalog_replacement,
-            sensitive: false,
-        },
-        NativeFileMutation {
-            path: source_path,
-            expected: source_original,
-            replacement: source_replacement,
             sensitive: false,
         },
     ])
@@ -3246,8 +3267,18 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), Strin
         &model_id,
     );
     let providers = object_entry(models.as_object_mut().expect("object"), "providers")?;
+    let api_key = provider.api_key.trim();
+    if !api_key.is_empty() {
+        auth.as_object_mut().expect("object").insert(
+            native_id.clone(),
+            serde_json::json!({
+                "type": "api_key",
+                "key": api_key
+            }),
+        );
+    }
     providers.insert(
-        native_id.clone(),
+        native_id,
         serde_json::json!({
             "baseUrl": provider.api_url,
             "api": api,
@@ -3255,13 +3286,6 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), Strin
                 "id": model_id,
                 "name": provider.name
             }]
-        }),
-    );
-    auth.as_object_mut().expect("object").insert(
-        native_id,
-        serde_json::json!({
-            "type": "api_key",
-            "key": provider.api_key
         }),
     );
     apply_projection_mutations(&[
@@ -3389,6 +3413,20 @@ const PI_RESERVED_PROVIDER_IDS: &[&str] = &[
     "opencode",
     "opencode-go",
 ];
+
+fn pi_auth_key(entry: &Value) -> String {
+    ["key", "apiKey", "api_key"]
+        .iter()
+        .find_map(|name| {
+            entry
+                .get(*name)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
 
 fn pi_native_id(provider: &StoredProvider) -> String {
     let mut slug = provider
@@ -3708,6 +3746,264 @@ mod tests {
         assert!(listed.providers[0].credential_present);
     }
 
+    #[tokio::test]
+    async fn lists_native_codex_provider_from_external_catalog_without_official_catalog() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let codex_home = home.join(".codex");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("external.json"),
+            r#"{"models":[{"slug":"gateway/model","display_name":"Gateway Model","visibility":"list"}]}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model_provider = \"custom\"\nmodel_catalog_json = \"external.json\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://api.custom.example/v1\"\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"sk-native"}"#,
+        )
+        .await
+        .unwrap();
+
+        let listed = list_with_native(
+            &store_path,
+            AgentId::parse("codex").unwrap(),
+            Some(&codex_home),
+        )
+        .await
+        .unwrap();
+
+        let custom = listed
+            .providers
+            .iter()
+            .find(|provider| provider.id == "custom")
+            .expect("native provider");
+        assert_eq!(custom.api_url, "https://api.custom.example/v1");
+        assert_eq!(custom.model, "gateway/model");
+        assert_eq!(custom.api_key, "sk-native");
+        assert!(custom.bound);
+        assert_eq!(listed.bound_provider_id.as_deref(), Some("custom"));
+    }
+
+    async fn write_external_codex_provider(codex_home: &Path) {
+        tokio::fs::create_dir_all(codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("external.json"),
+            r#"{"models":[{"slug":"gateway/model","display_name":"Gateway Model","visibility":"list"}]}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model = \"gateway/model\"\nmodel_provider = \"custom\"\nmodel_catalog_json = \"external.json\"\nkeep = true\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://api.custom.example/v1\"\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"sk-native","keep":true}"#,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn standard_codex_preset_bind_replaces_provider_fields_without_touching_external_catalog()
+    {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let codex_home = home.join(".codex");
+        let store_path = temp.path().join("data/providers.json");
+        write_external_codex_provider(&codex_home).await;
+        let agent_id = AgentId::parse("codex").unwrap();
+        let environment = HashMap::new();
+        let created = save(
+            &store_path,
+            &home,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gateway.example/v1".to_string(),
+                api_key: Some("new-secret".to_string()),
+                model: "preset-model".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let preset_id = created
+            .providers
+            .iter()
+            .find(|provider| provider.name == "Gateway")
+            .unwrap()
+            .id
+            .clone();
+
+        bind(&store_path, &home, &environment, agent_id, Some(preset_id))
+            .await
+            .unwrap();
+
+        let config = read_toml_table(&codex_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(
+            config.get("model_provider").and_then(toml::Value::as_str),
+            Some("vibex")
+        );
+        assert_eq!(
+            config.get("model").and_then(toml::Value::as_str),
+            Some("preset-model")
+        );
+        assert_eq!(
+            config
+                .get("model_catalog_json")
+                .and_then(toml::Value::as_str),
+            Some("external.json")
+        );
+        assert_eq!(
+            config.get("keep").and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            config
+                .get("model_providers")
+                .and_then(toml::Value::as_table)
+                .and_then(|providers| providers.get("vibex"))
+                .and_then(toml::Value::as_table)
+                .and_then(|provider| provider.get("base_url"))
+                .and_then(toml::Value::as_str),
+            Some("https://gateway.example/v1")
+        );
+        assert_eq!(
+            config
+                .get("model_providers")
+                .and_then(toml::Value::as_table)
+                .and_then(|providers| providers.get("custom"))
+                .and_then(toml::Value::as_table)
+                .and_then(|provider| provider.get("base_url"))
+                .and_then(toml::Value::as_str),
+            Some("https://api.custom.example/v1")
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(codex_home.join("external.json"))
+                .await
+                .unwrap(),
+            r#"{"models":[{"slug":"gateway/model","display_name":"Gateway Model","visibility":"list"}]}"#
+        );
+        assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
+        let auth: Value =
+            serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
+                .unwrap();
+        assert_eq!(auth["OPENAI_API_KEY"], "new-secret");
+        assert_eq!(auth["keep"], true);
+    }
+
+    #[tokio::test]
+    async fn enabling_native_codex_provider_restores_official_config_and_external_catalog() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let codex_home = home.join(".codex");
+        let store_path = temp.path().join("data/providers.json");
+        write_external_codex_provider(&codex_home).await;
+        let agent_id = AgentId::parse("codex").unwrap();
+        let environment = HashMap::new();
+        let listed = list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
+            .await
+            .unwrap();
+        let native_id = listed
+            .providers
+            .iter()
+            .find(|provider| provider.id == "custom")
+            .unwrap()
+            .id
+            .clone();
+        let created = save(
+            &store_path,
+            &home,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gateway.example/v1".to_string(),
+                api_key: Some("new-secret".to_string()),
+                model: "preset-model".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let preset_id = created
+            .providers
+            .iter()
+            .find(|provider| provider.name == "Gateway")
+            .unwrap()
+            .id
+            .clone();
+        bind(
+            &store_path,
+            &home,
+            &environment,
+            agent_id.clone(),
+            Some(preset_id),
+        )
+        .await
+        .unwrap();
+
+        let rebound = bind(&store_path, &home, &environment, agent_id, Some(native_id))
+            .await
+            .unwrap();
+
+        let config = read_toml_table(&codex_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(
+            config.get("model_provider").and_then(toml::Value::as_str),
+            Some("custom")
+        );
+        assert_eq!(
+            config
+                .get("model_catalog_json")
+                .and_then(toml::Value::as_str),
+            Some("external.json")
+        );
+        assert_eq!(
+            config.get("model").and_then(toml::Value::as_str),
+            Some("gateway/model")
+        );
+        assert!(
+            config
+                .get("model_providers")
+                .and_then(toml::Value::as_table)
+                .is_none_or(|providers| !providers.contains_key("vibex"))
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(codex_home.join("external.json"))
+                .await
+                .unwrap(),
+            r#"{"models":[{"slug":"gateway/model","display_name":"Gateway Model","visibility":"list"}]}"#
+        );
+        assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
+        let custom = rebound
+            .providers
+            .iter()
+            .find(|provider| provider.id == "custom")
+            .unwrap();
+        assert!(custom.bound);
+        assert_eq!(rebound.bound_provider_id.as_deref(), Some("custom"));
+        let auth: Value =
+            serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
+                .unwrap();
+        assert_eq!(auth["OPENAI_API_KEY"], "sk-native");
+    }
+
     #[test]
     fn gemini_cli_home_is_a_parent_directory_for_provider_projection() {
         let home = Path::new("/users/example");
@@ -3745,7 +4041,6 @@ mod tests {
                 api_key: "secret".to_string(),
                 model: r#"{"main":"gateway/sonnet","reasoning":"gateway/opus"}"#.to_string(),
             },
-            &temp.path().join("codex-cache.json"),
         )
         .await
         .unwrap();
@@ -3942,7 +4237,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_first_bind_restores_native_files_and_removes_recovery_record() {
+    async fn structured_codex_preset_model_binds_without_official_catalog() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         let codex_home = home.join(".codex");
@@ -3968,7 +4263,7 @@ mod tests {
             &environment,
             AgentModelProviderSaveRequest {
                 id: None,
-                name: "Broken Catalog Provider".to_string(),
+                name: "Catalog-shaped Provider".to_string(),
                 agent_id: agent_id.clone(),
                 api_url: "https://gateway.example/v1".to_string(),
                 api_key: Some("new-secret".to_string()),
@@ -3978,7 +4273,7 @@ mod tests {
         .await
         .unwrap();
 
-        let error = bind(
+        bind(
             &store_path,
             &home,
             &environment,
@@ -3986,28 +4281,30 @@ mod tests {
             Some(created.providers[0].id.clone()),
         )
         .await
-        .unwrap_err();
+        .unwrap();
 
-        assert!(error.contains("Codex Provider 模型清单"));
         let auth: Value =
             serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
                 .unwrap();
-        assert_eq!(auth["OPENAI_API_KEY"], "original-secret");
+        assert_eq!(auth["OPENAI_API_KEY"], "new-secret");
         assert_eq!(auth["keep"], true);
         let config = read_toml_table(&codex_home.join("config.toml"))
             .await
             .unwrap();
         assert_eq!(
             config.get("model").and_then(toml::Value::as_str),
-            Some("original-model")
+            Some("gateway-a")
         );
+        assert!(config.get("model_catalog_json").is_none());
         assert_eq!(
             config.get("keep").and_then(toml::Value::as_bool),
             Some(true)
         );
+        assert!(!codex_home.join(CODEX_CATALOG_FILE).exists());
+        assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
         let store = read_store(&store_path).await.unwrap();
-        assert!(store.bindings.is_empty());
-        assert!(store.projection_backups.is_empty());
+        assert!(!store.bindings.is_empty());
+        assert!(!store.projection_backups.is_empty());
     }
 
     #[tokio::test]
@@ -4102,14 +4399,18 @@ mod tests {
                 .and_then(toml::Value::as_str),
             Some("https://original.example")
         );
-        let catalog: Value = serde_json::from_slice(
-            &tokio::fs::read(codex_home.join(CODEX_CATALOG_FILE))
+        assert_eq!(
+            bound_config
+                .get("model_catalog_json")
+                .and_then(toml::Value::as_str),
+            Some("vibex-model-catalog.json")
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(codex_home.join(CODEX_CATALOG_FILE))
                 .await
                 .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(catalog["models"][0]["slug"], "gateway-a");
-        assert_eq!(catalog["models"][0]["default_verbosity"], "high");
+            r#"{"models":[{"slug":"old-custom"}]}"#
+        );
 
         let mut externally_changed = read_toml_table(&codex_home.join("config.toml"))
             .await
@@ -4845,6 +5146,44 @@ mod tests {
                 .iter()
                 .all(|provider| provider.id != "anthropic")
         );
+    }
+
+    #[tokio::test]
+    async fn pi_list_reads_api_key_aliases_from_auth_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let agent_dir = home.join(".pi/agent");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"defaultProvider":"gateway","defaultModel":"go"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"gateway":{"baseUrl":"https://opencode.ai/zen/go/v1","api":"openai-completions","models":[{"id":"go"}]}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"gateway":{"type":"api_key","apiKey":"sk-go"}}"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(&store_path, AgentId::parse("pi").unwrap(), Some(&agent_dir))
+            .await
+            .unwrap();
+        let gateway = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == "gateway")
+            .expect("gateway");
+        assert!(gateway.bound);
+        assert!(gateway.credential_present);
+        assert_eq!(gateway.api_key, "sk-go");
     }
 
     #[tokio::test]

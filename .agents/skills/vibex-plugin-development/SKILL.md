@@ -35,6 +35,12 @@ Use only `@vibex/plugin-sdk`, `/worker`, `/app`, `/testing`, `/protocol`, and `/
 
 VibeX v4 executes installed plugin code with the user's trust. There is no permission grant step. Keep package identity, deterministic digest, candidate rollback, revision conflict handling, and lifecycle cleanup intact because they protect correctness and user data. Follow [references/full-trust.md](references/full-trust.md).
 
+## Platform disciplines (ADR-0069)
+
+- **No privileged official plugins.** Official plugins use the same public SDK, contribution points, and toolchain as any third party. Never special-case a plugin ID in Host code, and never reach for a private `host.call`, slot, or lifecycle. CI enforces this (`pnpm run plugin:no-privilege`): official packages import only the public SDK, and Host code carries no official-plugin-ID branches.
+- **Single-layer extension.** A plugin targets Host contribution points only. There is no plugin-on-plugin dependency, cross-plugin service call, or plugin-declared extension point. To build on another plugin, fork its source and republish under a new Publisher + Plugin ID with `derivedFrom` provenance; the derived plugin inherits none of the original's grants or data.
+- **A contribution point ships with its first official consumer.** New contribution kinds enter the stable surface only together with an official plugin consuming them plus the four acceptance items (CLI validate, Host inspect, real UI/Agent consumption, author docs). Build only against contribution points documented as stable; if a needed extension point is missing, stop at that boundary and deepen the public SDK first.
+
 ## Verify the real journey
 
 Run from the plugin root:

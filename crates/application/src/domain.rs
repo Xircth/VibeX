@@ -133,6 +133,7 @@ macro_rules! domain_commands {
 domain_commands! {
     PluginActionCatalog => "plugin_action_catalog" / "plugin.read",
     PluginControlCatalog => "plugin_control_catalog" / "plugin.read",
+    OfficialProductMcpState => "official_product_mcp_state" / "plugin.read",
     PluginProductDetail => "plugin_product_detail" / "plugin.read",
     PluginSaveConfig => "plugin_save_config" / "plugin.write",
     PluginContributionCatalog => "plugin_contribution_catalog" / "plugin.read",

@@ -40,6 +40,17 @@ pub struct OfficialMcpBinding {
     pub token: String,
 }
 
+/// ID-free capability snapshot for host UI consumers. Host code must branch on
+/// these product capabilities, never on official plugin IDs (ADR-0069).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OfficialProductMcpState {
+    pub delegation: bool,
+    pub feedback: bool,
+    pub ask: bool,
+    pub sessions: bool,
+    pub session_control: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct OfficialMcpRuntime {
     bindings: Mutex<Vec<OfficialMcpBinding>>,
@@ -87,6 +98,20 @@ impl OfficialMcpRuntime {
         }
         let bits = self.session_features.load(Ordering::SeqCst);
         if bits == 0 { SESSION_FEAT_ALL } else { bits }
+    }
+
+    /// Snapshot of product capabilities derived from enabled-plugin bindings
+    /// and session feature bits; the only sanctioned way for host UI to learn
+    /// whether delegation mention or session features are available.
+    pub fn capability_state(&self) -> OfficialProductMcpState {
+        let session_bits = self.session_features();
+        OfficialProductMcpState {
+            delegation: self.allow_delegation_mcp(),
+            feedback: session_bits & SESSION_FEAT_FEEDBACK != 0,
+            ask: session_bits & SESSION_FEAT_ASK != 0,
+            sessions: session_bits & SESSION_FEAT_SESSIONS != 0,
+            session_control: session_bits & SESSION_FEAT_SESSION_CONTROL != 0,
+        }
     }
 
     pub fn delegation_token(&self) -> Option<String> {
@@ -341,6 +366,49 @@ mod tests {
     }
 
     #[test]
+    fn capability_state_reflects_products_not_plugin_ids() {
+        let runtime = OfficialMcpRuntime::default();
+        assert_eq!(
+            runtime.capability_state(),
+            OfficialProductMcpState::default()
+        );
+
+        runtime.publish_binding(OfficialMcpBinding {
+            plugin_id: "any.publisher.delegation".to_owned(),
+            binary_id: "vibex-mcp".to_owned(),
+            product: "delegation".to_owned(),
+            features: 0,
+            token: "t".to_owned(),
+        });
+        let state = runtime.capability_state();
+        assert!(state.delegation);
+        assert!(
+            !state.feedback,
+            "session features stay off without a session product"
+        );
+
+        runtime.publish_binding(OfficialMcpBinding {
+            plugin_id: "any.publisher.session".to_owned(),
+            binary_id: "vibex-mcp".to_owned(),
+            product: "session".to_owned(),
+            features: SESSION_FEAT_ASK,
+            token: "t".to_owned(),
+        });
+        let state = runtime.capability_state();
+        assert!(state.ask);
+        assert!(
+            !state.feedback,
+            "config-disabled feedback must not report on"
+        );
+
+        runtime.reset();
+        assert_eq!(
+            runtime.capability_state(),
+            OfficialProductMcpState::default()
+        );
+    }
+
+    #[test]
     fn bindings_come_from_host_family_binary_not_plugin_id_match() {
         let runtime = OfficialMcpRuntime::default();
         runtime.sync_from_plugins(&[plugin(
@@ -439,7 +507,7 @@ mod tests {
             }),
             json!({}),
         );
-        runtime.sync_from_plugins(&[package.clone()]);
+        runtime.sync_from_plugins(std::slice::from_ref(&package));
         let first = runtime.delegation_token().expect("token");
         runtime.sync_from_plugins(&[package]);
         assert_eq!(runtime.delegation_token().as_deref(), Some(first.as_str()));

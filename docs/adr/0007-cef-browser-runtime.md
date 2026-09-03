@@ -1,5 +1,9 @@
 # Web Preview 采用独立 CEF Browser Runtime
 
+> 分发方式已由 [ADR-0069](0069-everything-is-a-plugin-platform.md) 修订：CEF 从随
+> 发行物全量分发改为按需下载的内容寻址 Runtime resource，Web Preview 面板迁为官方
+> 能力等价插件。CEF 技术选型与 `BrowserRuntime` 接口不变。
+
 决定于 2026-07-22。
 
 ## 背景

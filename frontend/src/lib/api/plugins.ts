@@ -144,6 +144,18 @@ export interface PluginControlCatalog {
   runtimes: PluginRuntimeInventoryItem[];
 }
 
+/**
+ * ID-free official product MCP capabilities. Host UI must branch on these
+ * capabilities, never on official plugin IDs (ADR-0069).
+ */
+export interface OfficialProductMcpState {
+  delegation: boolean;
+  feedback: boolean;
+  ask: boolean;
+  sessions: boolean;
+  sessionControl: boolean;
+}
+
 export interface PluginContentDocument {
   path: string;
   kind: string;
@@ -379,6 +391,10 @@ export function createPluginControlApi(transport: BackendTransport) {
       normalizePluginControlCatalog(
         (await transport.call('plugin_control_catalog')) as PluginControlCatalog
       ),
+    officialProductMcpState: () =>
+      transport.call(
+        'official_product_mcp_state'
+      ) as Promise<OfficialProductMcpState>,
     contributionCatalog: () =>
       transport.call(
         'plugin_contribution_catalog'

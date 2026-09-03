@@ -46,7 +46,9 @@
     "test:app-icon": "node --test scripts/check-app-icon.test.js",
     "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js",
     "test:web:e2e": "cd frontend && pnpm run test:e2e:web",
-    "dependency:licenses": "node scripts/check-dependency-licenses.mjs"
+    "dependency:licenses": "node scripts/check-dependency-licenses.mjs",
+    "plugin:no-privilege": "node scripts/check-plugin-no-privilege.mjs",
+    "test:plugin-no-privilege": "node --test scripts/check-plugin-no-privilege.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0"

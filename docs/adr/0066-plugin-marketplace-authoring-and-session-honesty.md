@@ -7,6 +7,12 @@ decision-makers:
 
 # 插件市场、单路作者工具链与会话生效诚实性
 
+> 已由 [ADR-0069](0069-everything-is-a-plugin-platform.md) 修订三处：六个已挂孔
+> UI slot（command / toolbar / status / composer.slash / timeline.card /
+> settings.section）经其 Batch 1 进入稳定面；能力等价插件白名单允许预装并默认启用
+> （两阶段分发），其余包维持「不预装、默认禁用」；`dependencies.kind=plugin` 的
+> 稳定面排除从待定升级为长期决定（单层扩展原则）。
+
 本决定把插件平台从「Host 预装官方包 + 多条半截开发路径」收成一条用户能走完的产品：
 市场发现与安装、诚实的 Full Trust 确认、可运行的作者脚手架、CLI 单路开发测试，以及
 「已有会话不会热挂插件」的页面提示。

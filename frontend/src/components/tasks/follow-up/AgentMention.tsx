@@ -35,12 +35,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function pluginEnabled(catalog: unknown, pluginId: string): boolean {
-  if (!isRecord(catalog) || !Array.isArray(catalog.plugins)) return false;
-  return catalog.plugins.some(
-    (plugin) =>
-      isRecord(plugin) && plugin.id === pluginId && plugin.enabled === true
-  );
+function delegationCapabilityOn(state: unknown): boolean {
+  return isRecord(state) && state.delegation === true;
 }
 
 function readCandidates(value: unknown): AgentMentionCandidate[] {
@@ -67,11 +63,11 @@ function readCandidates(value: unknown): AgentMentionCandidate[] {
 }
 
 export function agentMentionCapabilityFromDetail(
-  pluginOn: boolean,
+  delegationOn: boolean,
   conversationId: string | null | undefined,
   detail: unknown
 ): AgentMentionContextValue['capability'] {
-  if (!pluginOn || !conversationId) return 'unsupported';
+  if (!delegationOn || !conversationId) return 'unsupported';
   if (!isRecord(detail)) return 'unsupported';
   const binding = detail.active_binding;
   if (binding == null) return 'supported';
@@ -115,13 +111,13 @@ export function AgentMentionProvider({
       conversationId
         ? transport.call('conversation_detail', { conversationId })
         : Promise.resolve(null),
-      transport.call('plugin_control_catalog'),
+      transport.call('official_product_mcp_state'),
     ])
-      .then(([detail, catalog]) => {
+      .then(([detail, mcpState]) => {
         if (!active) return;
-        const pluginOn = pluginEnabled(catalog, 'vibex.multi-agent');
+        const delegationOn = delegationCapabilityOn(mcpState);
         setCapability(
-          agentMentionCapabilityFromDetail(pluginOn, conversationId, detail)
+          agentMentionCapabilityFromDetail(delegationOn, conversationId, detail)
         );
       })
       .catch(() => {

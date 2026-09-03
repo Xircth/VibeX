@@ -162,6 +162,14 @@ Workflow 领域与 Automation 的关系见
 - **Agent contribution（Agent 贡献）** — 向 Agent 会话或原生配置提供的 Skill、MCP、Runtime、Hook 或 Workflow；它可以与 App contribution 同包，但只有建立 Agent binding 后才向该 Agent 暴露。
 - **App contribution（App 贡献）** — 向 VibeX 用户界面提供的文件 opener、preview provider、设置、命令、状态或自定义 surface；它不因与 Agent contribution 同包而获得主应用执行权。
 - **Host contribution（Host 贡献）** — 在 VibeX Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
+- **Contribution point（贡献点）** — 宿主声明并文档化的稳定扩展位：一个 UI slot、内容类型或 `host.call` API 面。每类新增宿主行为必须指向一个贡献点；新贡献点必须与其第一个官方插件消费者同批完成验收，否则不进稳定面。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Takeover surface table（接管面总表）** — ADR-0069 维护的插件接管面登记表：每行是一个贡献点或 Provider 缝及其状态与落点批次。它是内核最小化纪律的执行处：新增宿主行为先改表再改码。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Provider seam（Provider 缝）** — 宿主能力的可替换提供者接缝，由服务定义、提供者（内置默认与插件贡献同权）、消费者三部分构成。冲突解析必须确定且可解释：可聚合的聚合，需单选的由用户显式选择，不得按安装顺序静默覆盖。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Triple rendering tracks（渲染三轨）** — 插件 UI 的三种渲染方式，按交互密度选择：宿主渲染 descriptor（状态项、命令、简单区块）、Module Federation 面板（高频交互结构面）、iframe App surface（文档型 / 富媒体 UI）。高频面板不得强制走 iframe。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Dual activation semantics（生效双轨）** — Agent 侧贡献（Skill、MCP、Hook）维持「新建会话后生效」；UI 贡献与 Provider 贡献启用即生效、禁用即原子撤下。产品文案必须区分两者，不得混述。见 [ADR-0066](docs/adr/0066-plugin-marketplace-authoring-and-session-honesty.md) 与 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Capability-parity plugin（能力等价插件）** — 从内置能力迁出、承接同等功能的官方插件。仅这一类插件按 Host 版本固化的白名单自动安装并默认启用（先官方快照、后市场拉取两阶段），用户可禁用、可卸载；白名单不得经市场响应或配置扩充。它是 ADR-0066「不预装、默认禁用」的唯一例外。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Derived plugin（派生插件）** — 复制并修改另一插件源码、以新 Publisher + Plugin ID 打包的完全独立插件，携带 `derivedFrom` 溯源元数据；不继承原插件的授权、设置与数据。它是复用他人插件能力的唯一路径。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
+- **Single-layer extension（单层扩展）** — 插件只能面向宿主贡献点开发：不存在插件依赖插件、跨插件服务调用或插件自声明扩展点。同一贡献点上多个插件的并存与替换由宿主冲突解析处理，不由插件互相协商。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
 - **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与多智能体协同的产品拆分见 ADR-0057。
 - **Session enhancement plugin（会话增强插件）** — 官网市场官方分类中的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；安装后默认禁用，可以卸载。启停与单工具开关属于该插件。见 ADR-0057 与 ADR-0066。

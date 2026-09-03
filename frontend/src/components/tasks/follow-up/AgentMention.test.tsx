@@ -71,10 +71,13 @@ function codexTransport(): BackendTransport {
           },
         };
       }
-      if (command === 'plugin_control_catalog') {
+      if (command === 'official_product_mcp_state') {
         return {
-          plugins: [{ id: 'vibex.multi-agent', enabled: true }],
-          runtimes: [],
+          delegation: true,
+          feedback: false,
+          ask: false,
+          sessions: false,
+          sessionControl: false,
         };
       }
       return null;
@@ -130,10 +133,13 @@ describe('AgentMention', () => {
             },
           };
         }
-        if (command === 'plugin_control_catalog') {
+        if (command === 'official_product_mcp_state') {
           return {
-            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
-            runtimes: [],
+            delegation: true,
+            feedback: false,
+            ask: false,
+            sessions: false,
+            sessionControl: false,
           };
         }
         throw new Error(`Unexpected command: ${command}`);
@@ -231,10 +237,13 @@ describe('AgentMention', () => {
         if (command === 'conversation_detail') {
           return { active_binding: { delegation_mcp_delivered: true } };
         }
-        if (command === 'plugin_control_catalog') {
+        if (command === 'official_product_mcp_state') {
           return {
-            plugins: [{ id: 'vibex.multi-agent', enabled: false }],
-            runtimes: [],
+            delegation: false,
+            feedback: false,
+            ask: false,
+            sessions: false,
+            sessionControl: false,
           };
         }
         return null;
@@ -266,10 +275,13 @@ describe('AgentMention', () => {
         if (command === 'conversation_detail') {
           return { active_binding: null };
         }
-        if (command === 'plugin_control_catalog') {
+        if (command === 'official_product_mcp_state') {
           return {
-            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
-            runtimes: [],
+            delegation: true,
+            feedback: false,
+            ask: false,
+            sessions: false,
+            sessionControl: false,
           };
         }
         return null;
@@ -301,10 +313,13 @@ describe('AgentMention', () => {
         if (command === 'conversation_detail') {
           return { active_binding: { delegation_mcp_delivered: false } };
         }
-        if (command === 'plugin_control_catalog') {
+        if (command === 'official_product_mcp_state') {
           return {
-            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
-            runtimes: [],
+            delegation: true,
+            feedback: false,
+            ask: false,
+            sessions: false,
+            sessionControl: false,
           };
         }
         return null;

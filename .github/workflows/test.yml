@@ -50,6 +50,11 @@ jobs:
       - name: Check dependency licenses
         run: pnpm run dependency:licenses
 
+      - name: Plugin no-privilege check (ADR-0069)
+        run: |
+          pnpm run test:plugin-no-privilege
+          pnpm run plugin:no-privilege
+
       - name: Check Rust advisories
         uses: rustsec/audit-check@v2
         env:

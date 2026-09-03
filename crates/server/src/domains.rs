@@ -116,6 +116,7 @@ impl ServerApplicationDomains {
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
+            DomainCommand::OfficialProductMcpState => self.official_product_mcp_state().await,
             DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
             DomainCommand::PluginSaveConfig => self.plugin_save_config(args).await,
             DomainCommand::PluginContributionCatalog => self.plugin_contribution_catalog().await,
@@ -466,6 +467,18 @@ impl ServerApplicationDomains {
             })
             .collect::<Vec<_>>();
         Ok(json!({ "actions": actions }))
+    }
+
+    async fn official_product_mcp_state(&self) -> Result<Value, ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        let state = control_plane.official_product_mcp_gate().capability_state();
+        Ok(json!({
+            "delegation": state.delegation,
+            "feedback": state.feedback,
+            "ask": state.ask,
+            "sessions": state.sessions,
+            "sessionControl": state.session_control,
+        }))
     }
 
     async fn plugin_control_catalog(&self) -> Result<Value, ApplicationError> {

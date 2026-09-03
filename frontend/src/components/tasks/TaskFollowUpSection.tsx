@@ -242,15 +242,10 @@ export function TaskFollowUpSection({
     []
   );
   const { data: liveFeedbackOn } = useQuery({
-    queryKey: ['session-enhance-feedback'],
+    queryKey: ['official-product-mcp-feedback'],
     queryFn: async () => {
-      const catalog = await pluginApi.catalog();
-      const plugin = catalog.plugins.find(
-        (item) => item.id === 'vibex.session-enhance'
-      );
-      if (!plugin?.enabled) return false;
-      const detail = await pluginApi.productDetail(plugin.id);
-      return detail.config.feedback !== false;
+      const mcpState = await pluginApi.officialProductMcpState();
+      return mcpState.feedback;
     },
     staleTime: 5_000,
   });

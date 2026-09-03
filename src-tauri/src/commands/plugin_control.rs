@@ -25,6 +25,19 @@ pub struct PluginControlCatalogDto {
     pub runtimes: Vec<PluginRuntimeDto>,
 }
 
+/// ID-free official product MCP capabilities (ADR-0069: host UI must branch on
+/// capabilities, never on official plugin IDs).
+#[derive(Clone, Copy, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OfficialProductMcpStateDto {
+    pub delegation: bool,
+    pub feedback: bool,
+    pub ask: bool,
+    pub sessions: bool,
+    pub session_control: bool,
+}
+
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -437,6 +450,23 @@ pub async fn plugin_workflow_catalog(
             "artifactIntent": action.artifact_intent,
         })).collect::<Vec<_>>()
     }))
+}
+
+#[tauri::command]
+pub async fn official_product_mcp_state(
+    state: State<'_, AppState>,
+) -> Result<OfficialProductMcpStateDto, AppError> {
+    let snapshot = state
+        .plugin_control_plane
+        .official_product_mcp_gate()
+        .capability_state();
+    Ok(OfficialProductMcpStateDto {
+        delegation: snapshot.delegation,
+        feedback: snapshot.feedback,
+        ask: snapshot.ask,
+        sessions: snapshot.sessions,
+        session_control: snapshot.session_control,
+    })
 }
 
 #[tauri::command]

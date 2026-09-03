@@ -1844,9 +1844,19 @@ impl ConversationSessionService {
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
-        let external_session_id =
-            known_acp_session_id(latest_binding.as_ref(), Some(&persisted_session), &agent_id)
-                .filter(|id| !id.starts_with("vibex-new-session-"));
+        let can_restore_agent_session = binding_can_restore_agent_session(latest_binding.as_ref());
+        if !can_restore_agent_session
+            && latest_binding
+                .as_ref()
+                .is_some_and(|binding| binding.status == "closed")
+        {
+            return Ok(AgentSessionControlsSnapshot::default());
+        }
+        let external_session_id = resume_external_session_id(
+            known_acp_session_id(latest_binding.as_ref(), Some(&persisted_session), &agent_id),
+            can_restore_agent_session,
+            false,
+        );
 
         let runtime_snapshot = if let Some(external_session_id) = external_session_id {
             self.ctx
@@ -2453,28 +2463,29 @@ impl ConversationSessionService {
             persisted_session.as_ref(),
             &input.agent_id,
         );
-        let acp_session_id = known_acp_session_id
-            .clone()
-            .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
         let session_capabilities_json = serde_json::to_string(&AcpCapabilitySnapshot::default())
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let mcp_servers_json = serde_json::to_string(&self.ctx.host.product_mcp_server_names())
             .unwrap_or_else(|_| "[]".to_string());
 
-        // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
-        // process ended (host restart, or the conversation was closed), the runtime has
-        // no live connection for it. If a real ACP session id was established before, we
-        // reload its context via ACP `session/load` on this send rather than reconnecting
-        // blank. `resume_session` → `load_or_new_acp_session` falls back to a fresh
-        // session when the agent lacks the load capability. We never reconnect eagerly at
-        // startup — only here, on demand.
+        // Lazy reconnect (ADR-0001): reopen after the agent process ended only
+        // reloads a live ACP session when that binding advertised load/resume.
+        // Imported history stores the original tool session id but marks restore
+        // unsupported; sending a follow-up must cold-start (`session/new`) instead
+        // of failing `session/load` or pulling the original transcript into memory.
         let has_live_connection = self
             .runtime_connection_and_turn(input.conversation_id)
             .await
             .is_some();
-        let resume_external_session_id = known_acp_session_id
-            .filter(|id| !id.starts_with("vibex-new-session-"))
-            .filter(|_| !has_live_connection);
+        let can_restore_agent_session = binding_can_restore_agent_session(latest_binding.as_ref());
+        let resume_external_session_id = resume_external_session_id(
+            known_acp_session_id.clone(),
+            can_restore_agent_session,
+            has_live_connection,
+        );
+        let acp_session_id = resume_external_session_id
+            .clone()
+            .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
 
         let binding = ConversationAgentBindingRecord::create(
             pool,
@@ -3430,6 +3441,21 @@ fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
     Uuid::parse_str(value).ok().map(AgentConnectionId)
 }
 
+fn binding_can_restore_agent_session(binding: Option<&ConversationAgentBindingRecord>) -> bool {
+    binding.is_some_and(|binding| binding.resume_supported || binding.load_supported)
+}
+
+fn resume_external_session_id(
+    known_id: Option<String>,
+    can_restore: bool,
+    has_live_connection: bool,
+) -> Option<String> {
+    known_id
+        .filter(|id| !id.starts_with("vibex-new-session-"))
+        .filter(|_| !has_live_connection)
+        .filter(|_| can_restore)
+}
+
 fn known_acp_session_id(
     latest_binding: Option<&ConversationAgentBindingRecord>,
     persisted_session: Option<&Session>,
@@ -3481,10 +3507,11 @@ mod tests {
 
     use super::{
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
-        checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
-        conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
-        ensure_conversation_has_no_in_flight_turn, host_started_at, known_acp_session_id,
-        merge_user_prompt_overrides, turn_predates_this_host,
+        binding_can_restore_agent_session, checkpoint_before_files, checkpoint_file_change_summary,
+        checkpoint_turn_file_changes, conversation_input_blocks_with_display_text,
+        diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
+        host_started_at, known_acp_session_id, merge_user_prompt_overrides,
+        resume_external_session_id, turn_predates_this_host,
     };
 
     async fn migrated_pool() -> SqlitePool {
@@ -3656,6 +3683,23 @@ mod tests {
                 Some(&persisted),
                 &AgentId::parse("claude_code").unwrap()
             ),
+            None
+        );
+    }
+
+    #[test]
+    fn imported_history_follow_up_cold_starts_instead_of_resuming_the_original_session() {
+        assert!(!binding_can_restore_agent_session(None));
+        assert_eq!(
+            resume_external_session_id(Some("claude-original-session".to_string()), false, false,),
+            None
+        );
+        assert_eq!(
+            resume_external_session_id(Some("acp-live-1".to_string()), true, false).as_deref(),
+            Some("acp-live-1")
+        );
+        assert_eq!(
+            resume_external_session_id(Some("acp-live-1".to_string()), true, true),
             None
         );
     }

@@ -16,8 +16,10 @@ use agents::{
     AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
     AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
     ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
-    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportResult,
-    LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
+    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportJobSnapshot,
+    LocalHistoryImportJobStatus, LocalHistoryImportLogEntry, LocalHistoryImportPhase,
+    LocalHistoryImportProgress, LocalHistoryImportResult, LocalHistoryImportSelection,
+    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanProgress,
     LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits, PlanUsageResult,
     PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
@@ -72,9 +74,9 @@ use api_types::{
     OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
     OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
     PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomProviderView,
-    PiRuntimeConfigurationView, PiRuntimeSaveRequest, UserAgentDefinitionRequest,
-    UserAgentDefinitionView, UserAgentDistributionKind, UserAgentDistributionView,
-    UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
+    PiPluginSummaryView, PiPluginView, PiRuntimeConfigurationView, PiRuntimeSaveRequest,
+    UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
+    UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
 use application::{ConversationLiveFeedbackNote, ConversationOutputView};
 use conversations::{
@@ -449,6 +451,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<DshPluginSummaryView>(&mut decls);
     insert_declaration::<GrokPluginView>(&mut decls);
     insert_declaration::<GrokPluginSummaryView>(&mut decls);
+    insert_declaration::<PiPluginView>(&mut decls);
+    insert_declaration::<PiPluginSummaryView>(&mut decls);
     insert_declaration::<AgentAuthModeKind>(&mut decls);
     insert_declaration::<AgentAuthModeOptionView>(&mut decls);
     insert_declaration::<AgentAuthModeView>(&mut decls);
@@ -556,8 +560,14 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<LocalHistoryScanFolder>(&mut decls);
     insert_declaration::<LocalHistoryDestination>(&mut decls);
     insert_declaration::<LocalHistoryScanPage>(&mut decls);
+    insert_declaration::<LocalHistoryScanProgress>(&mut decls);
     insert_declaration::<LocalHistoryImportSelection>(&mut decls);
     insert_declaration::<LocalHistoryImportResult>(&mut decls);
+    insert_declaration::<LocalHistoryImportPhase>(&mut decls);
+    insert_declaration::<LocalHistoryImportProgress>(&mut decls);
+    insert_declaration::<LocalHistoryImportJobStatus>(&mut decls);
+    insert_declaration::<LocalHistoryImportLogEntry>(&mut decls);
+    insert_declaration::<LocalHistoryImportJobSnapshot>(&mut decls);
     insert_declaration::<RuntimeSnapshot>(&mut decls);
     insert_declaration::<TurnRole>(&mut decls);
     insert_declaration::<TurnUsage>(&mut decls);

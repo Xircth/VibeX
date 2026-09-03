@@ -95,9 +95,31 @@ function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   return theme === ThemeMode.DARK ? 'dark' : 'light';
 }
 
+export function normalizeAgentIconKey(
+  agent: string | null | undefined
+): string | null {
+  if (!agent) return null;
+  const key = agent.trim().toLowerCase().replace(/-/g, '_');
+  if (!key) return null;
+  switch (key) {
+    case 'gemini':
+      return 'antigravity';
+    case 'claude':
+      return 'claude_code';
+    case 'kimi':
+      return 'kimi_code';
+    case 'deepseek':
+    case 'dsh':
+      return 'deepseek_harness';
+    default:
+      return key;
+  }
+}
+
 export function getAgentName(agent: string | null | undefined): string {
   if (!agent) return 'Agent';
-  return BUILT_IN_DISPLAY_NAMES[agent] ?? agent;
+  const key = normalizeAgentIconKey(agent);
+  return (key && BUILT_IN_DISPLAY_NAMES[key]) || agent;
 }
 
 export function AgentIcon({
@@ -110,16 +132,17 @@ export function AgentIcon({
   const { theme } = useTheme();
   const suffix = getResolvedTheme(theme) === 'dark' ? '-dark' : '-light';
 
-  if (!agent) {
+  const agentKey = normalizeAgentIconKey(agent);
+  if (!agentKey) {
     return null;
   }
 
-  const paths = BUILT_IN_ICON_PATHS[agent];
+  const paths = BUILT_IN_ICON_PATHS[agentKey];
   if (paths) {
     return (
       <img
         src={suffix === '-dark' ? paths.dark : paths.light}
-        alt={getAgentName(agent)}
+        alt={getAgentName(agentKey)}
         className={cn('block shrink-0 object-contain', className)}
       />
     );
@@ -143,7 +166,7 @@ export function AgentIcon({
       <picture className={cn('block shrink-0', className)}>
         <source media="(prefers-color-scheme: dark)" srcSet={runtimeDark} />
         <img
-          alt={getAgentName(agent)}
+          alt={getAgentName(agentKey)}
           className="block h-full w-full object-contain"
           src={runtimeLight}
         />

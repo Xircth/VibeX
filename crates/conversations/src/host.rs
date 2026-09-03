@@ -5,7 +5,8 @@ use std::{
 
 use agents::{
     AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentLifecycleState,
-    AgentManagementSnapshot, SessionGate, SessionGateInput, SessionLaunchLock,
+    AgentManagementSnapshot, SessionGate, SessionGateError, SessionGateInput, SessionLaunchLock,
+    discover_path_acp_launch_lock, lifecycle_ready_for_path_acp, session_launch_rejection_message,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{repo::Repo, workspace::Workspace};
@@ -15,7 +16,7 @@ use sqlx::{Row, SqlitePool};
 use crate::{AgentRuntimeLaunchSettings, ConversationHost, ConversationServiceError};
 
 /// Product-owned host behavior shared by the desktop and headless composition
-/// roots. All executable paths come from the persisted installation lock.
+/// roots. Launch prefers a PATH-resolved ACP command, then the Installation lock.
 #[derive(Default)]
 pub struct DefaultConversationHost {
     product_mcp_server_names: Option<std::sync::Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
@@ -88,21 +89,97 @@ impl ConversationHost for DefaultConversationHost {
     }
 }
 
+#[derive(Deserialize, Default)]
+struct LockedLaunchPayload {
+    absolute_acp_program: Option<PathBuf>,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    runtime_version: Option<String>,
+    acp_version: Option<String>,
+}
+
+pub async fn session_launch_rejection_from_pool(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    error: SessionGateError,
+) -> String {
+    let output = db::models::agent_management::DiagnosticRepository::new(pool.clone())
+        .latest_error_output(agent_id)
+        .await
+        .ok()
+        .flatten();
+    session_launch_rejection_message(&error, output.as_deref())
+}
+
+async fn session_launch_lock_from_payload(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    lock_id: &str,
+    payload: LockedLaunchPayload,
+) -> Result<SessionLaunchLock, ConversationServiceError> {
+    let acp_component = sqlx::query(
+        r#"SELECT absolute_path, version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('acp', 'acp_adapter', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'acp' THEN 0 WHEN 'acp_adapter' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let runtime_component = sqlx::query(
+        r#"SELECT version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'runtime' THEN 0 WHEN 'agent_runtime' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let absolute_acp_program = match acp_component.as_ref() {
+        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
+        None => payload.absolute_acp_program.ok_or_else(|| {
+            ConversationServiceError::Internal(
+                "Installation lock has no ACP component path".to_string(),
+            )
+        })?,
+    };
+    if !absolute_acp_program.is_absolute() {
+        return Err(ConversationServiceError::Internal(
+            "Installation lock ACP component path is not absolute".to_string(),
+        ));
+    }
+    let acp_version = match acp_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.acp_version.ok_or_else(|| {
+            ConversationServiceError::Internal("Installation lock has no ACP version".to_string())
+        })?,
+    };
+    let runtime_version = match runtime_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.runtime_version.unwrap_or_default(),
+    };
+    Ok(SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program,
+        args: payload.args,
+        env: payload.env,
+        runtime_version,
+        acp_version,
+    })
+}
+
 pub async fn resolve_agent_runtime_launch_settings(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
-    #[derive(Deserialize, Default)]
-    struct LockedLaunchPayload {
-        absolute_acp_program: Option<PathBuf>,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default)]
-        env: BTreeMap<String, String>,
-        runtime_version: Option<String>,
-        acp_version: Option<String>,
-    }
-
     let row = sqlx::query(
         r#"SELECT membership.enabled,
                   COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
@@ -128,94 +205,46 @@ pub async fn resolve_agent_runtime_launch_settings(
         ConversationServiceError::NotFound(format!("Agent `{agent_id}` has not been added"))
     })?;
 
+    let mut lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
+    let resolved_json = row.try_get::<Option<String>, _>("resolved_json")?;
+    let lock_id = row.try_get::<Option<String>, _>("id")?;
+    let mut current_lock = match (resolved_json.as_deref(), lock_id.as_deref()) {
+        (Some(resolved_json), Some(lock_id)) => {
+            let payload: LockedLaunchPayload = serde_json::from_str(resolved_json)?;
+            Some(session_launch_lock_from_payload(pool, agent_id, lock_id, payload).await?)
+        }
+        _ => None,
+    };
+    if current_lock.is_none() {
+        current_lock = discover_path_acp_launch_lock(agent_id).await;
+    }
+    if current_lock.is_some() {
+        lifecycle = lifecycle_ready_for_path_acp(lifecycle);
+    }
     let snapshot = AgentManagementSnapshot {
         agent_id: agent_id.clone(),
         enabled: row.try_get("enabled")?,
-        lifecycle: parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str()),
+        lifecycle,
         authentication: parse_management_authentication(
             row.try_get::<String, _>("authentication")?.as_str(),
         ),
         required_components: Vec::new(),
     };
-    let resolved_json = row
-        .try_get::<Option<String>, _>("resolved_json")?
-        .ok_or_else(|| {
-            ConversationServiceError::BadRequest(
-                "Agent has no current Installation lock".to_string(),
-            )
-        })?;
-    let payload: LockedLaunchPayload = serde_json::from_str(&resolved_json)?;
-    let lock_id = row.try_get::<Option<String>, _>("id")?.ok_or_else(|| {
-        ConversationServiceError::BadRequest("Agent has no current Installation lock".to_string())
-    })?;
-    let acp_component = sqlx::query(
-        r#"SELECT absolute_path, version
-           FROM agent_install_component
-           WHERE lock_id = ?
-             AND component_kind IN ('acp', 'acp_adapter', 'combined_runtime')
-           ORDER BY CASE component_kind
-             WHEN 'acp' THEN 0 WHEN 'acp_adapter' THEN 1 ELSE 2 END
-           LIMIT 1"#,
-    )
-    .bind(&lock_id)
-    .fetch_optional(pool)
-    .await?;
-    let runtime_component = sqlx::query(
-        r#"SELECT version
-           FROM agent_install_component
-           WHERE lock_id = ?
-             AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
-           ORDER BY CASE component_kind
-             WHEN 'runtime' THEN 0 WHEN 'agent_runtime' THEN 1 ELSE 2 END
-           LIMIT 1"#,
-    )
-    .bind(&lock_id)
-    .fetch_optional(pool)
-    .await?;
-    let absolute_acp_program = match acp_component.as_ref() {
-        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
-        None => payload.absolute_acp_program.ok_or_else(|| {
-            ConversationServiceError::Internal(
-                "Installation lock has no ACP component path".to_string(),
-            )
-        })?,
+    let authorization = match SessionGate.authorize(SessionGateInput {
+        snapshot,
+        current_lock,
+        requested_defaults: BTreeMap::new(),
+        advertised_option_ids: Vec::new(),
+        existing_binding: None,
+        explicit_rebind: false,
+    }) {
+        Ok(authorization) => authorization,
+        Err(error) => {
+            return Err(ConversationServiceError::BadRequest(
+                session_launch_rejection_from_pool(pool, agent_id, error).await,
+            ));
+        }
     };
-    if !absolute_acp_program.is_absolute() {
-        return Err(ConversationServiceError::Internal(
-            "Installation lock ACP component path is not absolute".to_string(),
-        ));
-    }
-    let acp_version = match acp_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.acp_version.ok_or_else(|| {
-            ConversationServiceError::Internal("Installation lock has no ACP version".to_string())
-        })?,
-    };
-    let runtime_version = match runtime_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.runtime_version.ok_or_else(|| {
-            ConversationServiceError::Internal(
-                "Installation lock has no local Runtime version".to_string(),
-            )
-        })?,
-    };
-    let authorization = SessionGate
-        .authorize(SessionGateInput {
-            snapshot,
-            current_lock: Some(SessionLaunchLock {
-                agent_id: agent_id.clone(),
-                absolute_acp_program,
-                args: payload.args,
-                env: payload.env,
-                runtime_version,
-                acp_version,
-            }),
-            requested_defaults: BTreeMap::new(),
-            advertised_option_ids: Vec::new(),
-            existing_binding: None,
-            explicit_rebind: false,
-        })
-        .map_err(|error| ConversationServiceError::BadRequest(error.to_string()))?;
 
     let mut env = row
         .try_get::<Option<String>, _>("env_json")?
@@ -228,6 +257,7 @@ pub async fn resolve_agent_runtime_launch_settings(
     agents::apply_built_in_launch_argument_policy(agent_id, &env, &mut args);
     let _ = utils::shell::refresh_process_path().await;
     let mut lock_env = authorization.env;
+    agents::sanitize_runtime_executable_lock_env(agent_id, &mut lock_env);
     if let Ok(process_path) = std::env::var("PATH") {
         let merged = utils::shell::merge_paths(
             process_path,
@@ -242,12 +272,12 @@ pub async fn resolve_agent_runtime_launch_settings(
                 .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default()),
         );
     }
-    // The management lifecycle reflects a probe observation that can go stale.
-    // Verify the persisted program still exists so a removed/relocated binary
-    // fails as an actionable repair request, not a raw ENOENT at spawn.
-    if !agents::launch_program_available(&authorization.absolute_acp_program) {
+    // Prefer PATH over a stale lock path (ADR-0060 / CodeG connect).
+    let absolute_acp_program =
+        agents::prefer_path_launch_program(&authorization.absolute_acp_program);
+    if !agents::launch_program_available(&absolute_acp_program) {
         return Err(ConversationServiceError::BadRequest(
-            agents::missing_launch_program_error(&authorization.absolute_acp_program),
+            agents::missing_launch_program_error(&absolute_acp_program),
         ));
     }
     Ok(AgentRuntimeLaunchSettings {
@@ -255,7 +285,7 @@ pub async fn resolve_agent_runtime_launch_settings(
         env,
         launch_lock: SessionLaunchLock {
             agent_id: authorization.agent_id,
-            absolute_acp_program: authorization.absolute_acp_program,
+            absolute_acp_program,
             args,
             env: lock_env,
             runtime_version: authorization.runtime_version,

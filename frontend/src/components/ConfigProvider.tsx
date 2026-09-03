@@ -26,6 +26,11 @@ import i18n from '@/i18n';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { useKeyBindingOverridesStore } from '@/keyboard/useKeyBindingOverrides';
 import { backendListen } from '@/lib/backendTransport';
+import {
+  WORKSPACE_SESSIONS_CHANGED_EVENT,
+  invalidateWorkspaceSessions,
+  type WorkspaceSessionsChangedPayload,
+} from '@/lib/sessionQueryCache';
 
 interface UserSystemState {
   config: Config | null;
@@ -72,6 +77,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
 
   useEffect(() => {
     let unlisten: () => void = () => undefined;
+    let unlistenSessions: () => void = () => undefined;
     let disposed = false;
     const sync = async () => {
       try {
@@ -106,9 +112,19 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
         else unlisten = stopListening;
       }
     );
+    void backendListen<WorkspaceSessionsChangedPayload>(
+      WORKSPACE_SESSIONS_CHANGED_EVENT,
+      (payload) => {
+        void invalidateWorkspaceSessions(queryClient, payload.workspace_id);
+      }
+    ).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlistenSessions = stopListening;
+    });
     return () => {
       disposed = true;
       unlisten();
+      unlistenSessions();
       window.removeEventListener('focus', sync);
     };
   }, [queryClient]);

@@ -228,6 +228,16 @@ impl DbConversationSummary {
         external_session_id: &str,
         agent_id: &AgentId,
     ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::bind_external_id_on_connection(&mut conn, id, external_session_id, agent_id).await
+    }
+
+    pub async fn bind_external_id_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        external_session_id: &str,
+        agent_id: &AgentId,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE sessions
                SET external_session_id = ?, agent_id = ?, updated_at = datetime('now', 'subsec')
@@ -236,7 +246,7 @@ impl DbConversationSummary {
         .bind(external_session_id)
         .bind(agent_id.as_str())
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }
@@ -244,6 +254,16 @@ impl DbConversationSummary {
     /// Update cached external session metadata (message count + last-seen model).
     pub async fn update_cached_agent_metadata(
         pool: &SqlitePool,
+        id: Uuid,
+        message_count: i64,
+        model: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::update_cached_agent_metadata_on_connection(&mut conn, id, message_count, model).await
+    }
+
+    pub async fn update_cached_agent_metadata_on_connection(
+        conn: &mut SqliteConnection,
         id: Uuid,
         message_count: i64,
         model: Option<&str>,
@@ -257,7 +277,7 @@ impl DbConversationSummary {
         .bind(message_count)
         .bind(model)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }
@@ -312,6 +332,15 @@ impl ConversationRecord {
         id: Uuid,
         input: CreateConversationRecord<'_>,
     ) -> Result<Self, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::create_on_connection(&mut conn, id, input).await
+    }
+
+    pub async fn create_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        input: CreateConversationRecord<'_>,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO sessions (
                    id, workspace_id, task_id, name, initial_prompt, status, executor
@@ -330,7 +359,7 @@ impl ConversationRecord {
         )
         .bind(input.status.unwrap_or_default())
         .bind(input.executor.filter(|value| !value.trim().is_empty()))
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
     }
 
@@ -431,6 +460,25 @@ impl ConversationRecord {
         .await?;
         Ok(())
     }
+
+    pub async fn set_history_times_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE sessions
+               SET created_at = ?, updated_at = ?
+               WHERE id = ?"#,
+        )
+        .bind(created_at)
+        .bind(updated_at)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -514,6 +562,15 @@ impl ConversationAgentBindingRecord {
         id: Uuid,
         input: CreateConversationAgentBinding<'_>,
     ) -> Result<Self, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::create_on_connection(&mut conn, id, input).await
+    }
+
+    pub async fn create_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        input: CreateConversationAgentBinding<'_>,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_agent_bindings (
                    id, conversation_id, agent_type, agent_id, working_dir, acp_session_id,
@@ -550,7 +607,7 @@ impl ConversationAgentBindingRecord {
         .bind(input.config_options_json)
         .bind(input.current_mode)
         .bind(input.status)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
     }
 

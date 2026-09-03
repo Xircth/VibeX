@@ -91,15 +91,9 @@ export function useConversationTimeline(
           return;
         }
         dispatch({ type: 'load_success', conversationId, detail });
-        const controlsMissing =
-          (!detail.session_modes || detail.session_modes.modes.length === 0) &&
-          detail.session_config_options.length === 0;
         const needsAuthoritativeZeroTurnControls =
           detail.summary.message_count === 0n;
-        if (
-          detail.summary.agent_id &&
-          (controlsMissing || needsAuthoritativeZeroTurnControls)
-        ) {
+        if (detail.summary.agent_id && needsAuthoritativeZeroTurnControls) {
           return conversationApi
             .ensureSessionControls(conversationId)
             .then((controls) => {
@@ -160,8 +154,12 @@ export function useConversationTimeline(
     loadDetail();
   }, [loadDetail]);
 
+  const hasDetail = conversationId
+    ? Boolean(state.byConversationId[conversationId]?.detail)
+    : false;
+
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || !hasDetail) return;
     let active = true;
     let unlisten: (() => void) | undefined;
 
@@ -240,7 +238,7 @@ export function useConversationTimeline(
       pendingBatchesRef.current = [];
       unlisten?.();
     };
-  }, [conversationId, loadDetail]);
+  }, [conversationId, hasDetail, loadDetail]);
 
   const entry = conversationId
     ? (state.byConversationId[conversationId] ?? null)

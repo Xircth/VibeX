@@ -251,7 +251,7 @@
     "builtIn": "Built in",
     "recommended": "Recommended",
     "enableAgentAria": "Enable {{agent}}",
-    "loginNotice": "Installation only prepares the Runtime and ACP adapter. Sign in to each Agent or configure its API separately afterward. Session model, permission, and reasoning controls are read when you create a session and are not configured here.",
+    "loginNotice": "Installation only prepares the ACP launch command. Sign in to each Agent or configure its API separately afterward. Session model, permission, and reasoning controls are read when you create a session and are not configured here.",
     "editorTitle": "Choose an external editor",
     "disclaimerAcceptHint": "Continuing means you have read and agree to the",
     "disclaimerLink": "Disclaimer",

@@ -251,7 +251,7 @@
     "builtIn": "内置",
     "recommended": "推荐",
     "enableAgentAria": "启用 {{agent}}",
-    "loginNotice": "安装只负责 Runtime 与 ACP。安装完成后，请自行登录 Agent 账户或配置 API。会话模型、权限和推理选项将在创建会话时读取，不在这里设置。",
+    "loginNotice": "安装只负责 ACP 启动命令。安装完成后，请自行登录 Agent 账户或配置 API。会话模型、权限和推理选项将在创建会话时读取，不在这里设置。",
     "editorTitle": "选择外部编辑器",
     "disclaimerAcceptHint": "继续即表示你已阅读并同意",
     "disclaimerLink": "免责声明",

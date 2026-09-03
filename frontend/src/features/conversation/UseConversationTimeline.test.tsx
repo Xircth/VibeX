@@ -233,6 +233,51 @@ describe('useConversationTimeline', () => {
     expect(result.current.timeline.at(-1)?.phase).toBe('streaming');
   });
 
+  it('does not launch an agent session when opening imported history', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        message_count: 12n,
+        status: 'done',
+        external_session_id: 'imported-claude-1',
+      },
+      session_modes: null,
+      session_config_options: [],
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+  });
+
+  it('backfills from the loaded sequence instead of dumping the full timeline', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: { ...detail().summary, message_count: 8n },
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 80n,
+        truncated_from_start: true,
+        older_cursor: '80',
+        rows: [assistantRow('t80', 'tail', 80n)],
+      },
+    });
+
+    renderHook(() => useConversationTimeline(CONVERSATION_ID));
+
+    await waitFor(() =>
+      expect(eventsSinceMock).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
+        afterSequence: 80,
+        limit: 500,
+      })
+    );
+  });
+
   it('rehydrates controls when an existing Codex conversation has no control events', async () => {
     detailMock.mockResolvedValue(detail());
     ensureSessionControlsMock.mockResolvedValue({

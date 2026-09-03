@@ -1875,11 +1875,9 @@ export type CodexModelCatalogConfigView = { customs: Array<CodexCustomModelReque
 
 export type AgentModelProviderSaveRequest = { id: string | null, name: string, agent_id: AgentId, api_url: string, api_key: string | null, model: string, };
 
-export type AgentModelProviderView = { id: string, name: string, agent_id: AgentId, api_url: string, model: string, credential_present: boolean, bound: boolean,
+export type AgentModelProviderView = { id: string, name: string, agent_id: AgentId, api_url: string, model: string, api_key: string, credential_present: boolean, bound: boolean,
 /**
- * `true` 表示该 Provider 由 VibeX 的预设存储管理；`false` 表示它只存在于
- * Agent 原生配置中（例如 Codex `config.toml` 的 `[model_providers.xxx]`），
- * 只能查看或接管，不能被 VibeX 直接编辑或删除。
+ * `true` 表示该 Provider 由 VibeX 的预设存储管理。
  */
 managed: boolean, };
 
@@ -1911,7 +1909,7 @@ export type PiRuntimeSaveRequest = { mode: string, command: string, config_dir: 
 
 export type AgentNativeConfigFileWriteRequest = { agent_id: AgentId, path: string, base_revision: string, content: string, };
 
-export type AgentSettingsFeature = "authentication_mode" | "model_catalog" | "reusable_model_providers" | "codex_model_catalog" | "pi_configuration" | "open_code_providers" | "open_code_plugins" | "dsh_providers" | "dsh_plugins" | "grok_plugins" | "native_mcp" | "native_skills";
+export type AgentSettingsFeature = "authentication_mode" | "model_catalog" | "reusable_model_providers" | "codex_model_catalog" | "pi_configuration" | "open_code_providers" | "open_code_plugins" | "dsh_providers" | "dsh_plugins" | "grok_plugins" | "pi_plugins" | "native_mcp" | "native_skills";
 
 export type DshProviderKind = "official" | "catalog" | "custom";
 
@@ -2093,3 +2091,19 @@ export type ReachabilityOrigin = { origin: string, kind: string, };
 export type ConversationWorkflowRef = { pluginId: string, workflowId: string, };
 
 export type ConversationLiveFeedbackNote = { id: string, text: string, createdAt: string, status: string, deliveredAt: string | null, };
+
+export type LocalHistoryImportPhase = "loading" | "importing" | "imported" | "skipped" | "failed";
+
+export type LocalHistoryImportProgress = { current: number, total: number, agent_id: AgentId, external_session_id: string, title: string | null, phase: LocalHistoryImportPhase, imported: number, skipped: number, failed: number, conversation_id?: string | null, workspace_id?: string | null, };
+
+export type PiPluginSummaryView = { home: string, plugins: Array<PiPluginView>, };
+
+export type PiPluginView = { source: string, name: string, version: string | null, kind: string, path: string | null, };
+
+export type LocalHistoryImportJobSnapshot = { status: LocalHistoryImportJobStatus, progress: LocalHistoryImportProgress | null, result: LocalHistoryImportResult | null, log: Array<LocalHistoryImportLogEntry>, };
+
+export type LocalHistoryImportJobStatus = "idle" | "running" | "completed" | "failed";
+
+export type LocalHistoryImportLogEntry = { phase: LocalHistoryImportPhase, agent_id: AgentId, external_session_id: string, title: string | null, conversation_id?: string | null, error?: string | null, };
+
+export type LocalHistoryScanProgress = { session_count: number, bytes_scanned: bigint, };

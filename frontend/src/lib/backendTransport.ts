@@ -20,13 +20,25 @@ import {
   getBackendTransport,
 } from './transport/transportRegistry';
 
-export { configureBackendTransport };
+export { configureBackendTransport, getBackendTransport };
 
 export function backendCall<T>(
   command: string,
   args?: Record<string, unknown>
 ): Promise<T> {
   return getBackendTransport().call(command, args) as Promise<T>;
+}
+
+export async function backendStream<T>(
+  command: string,
+  args: Record<string, unknown>,
+  onMessage: (message: unknown) => void
+): Promise<T> {
+  const transport = getBackendTransport();
+  if (!transport.stream) {
+    return transport.call(command, args) as Promise<T>;
+  }
+  return transport.stream(command, args, onMessage);
 }
 
 export async function backendListen<T>(

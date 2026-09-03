@@ -6,6 +6,7 @@ use agents::conversation::{
     ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
     ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
     SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 use db::models::{
     conversation::ConversationAgentBindingRecord,
@@ -89,6 +90,14 @@ impl ConversationEventAppender {
         ConversationStateApplier::apply_record(conn, &record).await?;
         ConversationProjector::refresh_snapshot_on_settle(conn, &record).await?;
         Ok(record)
+    }
+
+    /// Append and apply on the caller's open transaction.
+    pub async fn append_on_connection(
+        conn: &mut SqliteConnection,
+        input: AppendConversationEvent<'_>,
+    ) -> Result<ConversationEventRecord, sqlx::Error> {
+        Self::append_and_apply(conn, input).await
     }
 }
 
@@ -1173,7 +1182,7 @@ impl ProjectionFold {
                                 *kind = tool_call.kind;
                             }
                             if let Some(raw) = tool_call.raw_input {
-                                *input_preview = Some(raw.to_string());
+                                *input_preview = Some(cap_preview_bytes(raw.to_string()));
                             }
                             if tool_call.metadata.is_some() {
                                 *meta = tool_call.metadata.clone();
@@ -1194,7 +1203,7 @@ impl ProjectionFold {
                                 input_preview: tool_call
                                     .raw_input
                                     .as_ref()
-                                    .map(|value| value.to_string()),
+                                    .map(|value| cap_preview_bytes(value.to_string())),
                                 meta: tool_call.metadata.clone(),
                                 images: tool_call.images.clone(),
                             });
@@ -1208,9 +1217,11 @@ impl ProjectionFold {
                         tool_call.status.as_deref(),
                         Some("completed") | Some("failed")
                     );
-                    let output_preview = tool_call.raw_output.map(|output| match output {
-                        serde_json::Value::String(text) => text,
-                        other => other.to_string(),
+                    let output_preview = tool_call.raw_output.map(|output| {
+                        cap_preview_bytes(match output {
+                            serde_json::Value::String(text) => text,
+                            other => other.to_string(),
+                        })
                     });
                     if output_preview.is_some() || terminal {
                         let existing_result =
@@ -1711,14 +1722,16 @@ impl ProjectionFold {
         }
         rows.extend(side_rows);
 
-        ConversationTimeline {
+        let mut timeline = ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
             last_sequence,
             rows,
             truncated_from_start: false,
             older_cursor: None,
-        }
+        };
+        cap_timeline_preview_fields(&mut timeline);
+        timeline
     }
 
     fn changed_rows_since(&self, after_sequence: i64) -> Vec<TimelineRow> {
@@ -1743,6 +1756,9 @@ impl ProjectionFold {
                 .filter(|row| row.revision > after_sequence)
                 .cloned(),
         );
+        for row in &mut rows {
+            cap_timeline_row_preview_fields(row);
+        }
         rows
     }
 

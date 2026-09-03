@@ -105,9 +105,10 @@ pub use conversation::{
     ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
     ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
     ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-    ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn, SessionLoadFailureReason,
-    SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole,
-    TurnUsage,
+    ConversationUsage, ConversationWorkflowRef, ImageData, MAX_TIMELINE_PREVIEW_BYTES, MessageTurn,
+    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
+    TurnBlockedReason, TurnRole, TurnUsage, cap_json_value, cap_preview_bytes,
+    cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 pub use cursor_auth::cursor_account_token;
 pub use delegation_inject::{
@@ -129,14 +130,17 @@ pub use events::{
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
 pub use history::{
-    AgentHistoryError, AgentHistorySource, HistoryPathDestination, ImportedAgentMessage,
-    ImportedAgentMessageMetadata, ImportedAgentMessageRole, ImportedAgentSession,
-    LocalHistoryDestination, LocalHistoryImportResult, LocalHistoryImportSelection,
-    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanSession,
-    LocalHistorySessionStatus, build_local_history_scan_page, configured_history_sources,
-    default_history_sources, history_folder_name, history_paths_overlap, import_history_source,
+    AgentHistoryError, AgentHistorySource, HistoryPathDestination, HistoryScanEntry,
+    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
+    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportJobSnapshot,
+    LocalHistoryImportJobStatus, LocalHistoryImportLogEntry, LocalHistoryImportPhase,
+    LocalHistoryImportProgress, LocalHistoryImportResult, LocalHistoryImportSelection,
+    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanProgress,
+    LocalHistoryScanSession, LocalHistorySessionStatus, build_local_history_scan_page,
+    configured_history_sources, default_history_sources, history_folder_name,
+    history_paths_overlap, import_history_source, load_configured_history_session,
     match_history_destination, merge_history_sources, normalize_history_path,
-    scan_configured_history,
+    scan_configured_history, scan_configured_history_with_progress,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,

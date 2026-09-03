@@ -21,7 +21,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    ConversationRelationControl, CreateConversationRelation,
+    ConversationRelationControl, CreateConversationRelation, workbench_status,
 };
 use db::models::{
     conversation::{
@@ -36,7 +36,7 @@ use db::models::{
 use executors::profile::ExecutorProfileId;
 use plugins::PromptBlock;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -248,6 +248,7 @@ pub async fn conversation_detail_core(
         return Ok(None);
     };
     let mut timeline = ConversationProjector::project(pool, id).await?;
+    agents::conversation::cap_timeline_preview_fields(&mut timeline);
     let session_stats = session_stats_from_turns(&message_turns_from_timeline(&timeline));
     truncate_timeline_for_open(&mut timeline);
     let active_binding = active_binding_for_conversation(pool, id).await?;
@@ -560,7 +561,8 @@ pub async fn conversation_timeline_page_core(
     cursor: Option<String>,
     limit: usize,
 ) -> Result<ConversationTimelinePage, AppError> {
-    let timeline = ConversationProjector::project(pool, conversation_id).await?;
+    let mut timeline = ConversationProjector::project(pool, conversation_id).await?;
+    agents::conversation::cap_timeline_preview_fields(&mut timeline);
     let start = cursor
         .as_deref()
         .and_then(|value| value.parse::<usize>().ok())
@@ -1280,6 +1282,28 @@ pub async fn import_agent_session_to_conversation_events(
     workspace_id: Uuid,
     session: &ImportedAgentSession,
 ) -> Result<Uuid, AppError> {
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    match import_agent_session_on_connection(&mut conn, workspace_id, session).await {
+        Ok(conversation_id) => {
+            sqlx::query("COMMIT").execute(&mut *conn).await?;
+            Ok(conversation_id)
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(error)
+        }
+    }
+}
+
+async fn import_agent_session_on_connection(
+    conn: &mut SqliteConnection,
+    workspace_id: Uuid,
+    session: &ImportedAgentSession,
+) -> Result<Uuid, AppError> {
+    let mut session = session.clone();
+    session.cap_payloads();
+    let session = &session;
     let conversation_id = Uuid::new_v4();
     let title = session
         .title
@@ -1292,8 +1316,14 @@ pub async fn import_agent_session_to_conversation_events(
             .filter(|value| !value.is_empty())
     });
 
-    ConversationRecord::create(
-        pool,
+    let agent_id = agents::AgentId::parse(session.source_agent.as_str()).map_err(|error| {
+        AppError::BadRequest(format!(
+            "imported Agent `{}` is not a valid Agent id: {error}",
+            session.source_agent.as_str()
+        ))
+    })?;
+    ConversationRecord::create_on_connection(
+        conn,
         conversation_id,
         CreateConversationRecord {
             workspace_id,
@@ -1301,22 +1331,19 @@ pub async fn import_agent_session_to_conversation_events(
             title,
             initial_prompt,
             status: Some(SessionStatus::Done),
-            executor: Some("agent"),
+            executor: Some(agent_id.as_str()),
         },
     )
     .await?;
-
-    let agent_id = agents::AgentId::parse(session.source_agent.as_str())
-        .expect("imported AgentKind values are valid AgentIds");
-    DbConversationSummary::bind_external_id(
-        pool,
+    DbConversationSummary::bind_external_id_on_connection(
+        conn,
         conversation_id,
         &session.external_session_id,
         &agent_id,
     )
     .await?;
-    DbConversationSummary::update_cached_agent_metadata(
-        pool,
+    DbConversationSummary::update_cached_agent_metadata_on_connection(
+        conn,
         conversation_id,
         session.messages.len() as i64,
         None,
@@ -1328,8 +1355,8 @@ pub async fn import_agent_session_to_conversation_events(
         .as_ref()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_default();
-    let binding = ConversationAgentBindingRecord::create(
-        pool,
+    let binding = ConversationAgentBindingRecord::create_on_connection(
+        conn,
         Uuid::new_v4(),
         CreateConversationAgentBinding {
             conversation_id,
@@ -1357,7 +1384,7 @@ pub async fn import_agent_session_to_conversation_events(
     .await?;
 
     append_import_event(
-        pool,
+        conn,
         conversation_id,
         None,
         Some(binding.id),
@@ -1370,13 +1397,12 @@ pub async fn import_agent_session_to_conversation_events(
     )
     .await?;
     append_import_event(
-        pool,
+        conn,
         conversation_id,
         None,
         Some(binding.id),
         ConversationEvent::AgentBindingStarted {
-            agent_id: agents::AgentId::parse(session.source_agent.as_str())
-                .expect("imported AgentKind values are valid AgentIds"),
+            agent_id: agent_id.clone(),
             working_dir: working_dir.clone(),
         },
         session,
@@ -1385,7 +1411,7 @@ pub async fn import_agent_session_to_conversation_events(
     )
     .await?;
     append_import_event(
-        pool,
+        conn,
         conversation_id,
         None,
         Some(binding.id),
@@ -1403,7 +1429,7 @@ pub async fn import_agent_session_to_conversation_events(
         match message.role {
             ImportedAgentMessageRole::User => {
                 if let Some(turn_id) = current_turn_id.take() {
-                    append_turn_completed(pool, conversation_id, turn_id, binding.id, session)
+                    append_turn_completed(conn, conversation_id, turn_id, binding.id, session)
                         .await?;
                 }
                 let blocks = vec![ConversationInputBlock::Text {
@@ -1411,8 +1437,8 @@ pub async fn import_agent_session_to_conversation_events(
                 }];
                 let input_blocks_json = serde_json::to_string(&blocks)?;
                 let text_preview = preview_text(&message.content);
-                let turn = ConversationTurnRecord::create_pending(
-                    pool,
+                let turn = ConversationTurnRecord::create_pending_on_connection(
+                    conn,
                     Uuid::new_v4(),
                     CreateConversationTurn {
                         conversation_id,
@@ -1423,7 +1449,7 @@ pub async fn import_agent_session_to_conversation_events(
                 )
                 .await?;
                 append_import_event(
-                    pool,
+                    conn,
                     conversation_id,
                     Some(turn.id),
                     Some(binding.id),
@@ -1433,11 +1459,11 @@ pub async fn import_agent_session_to_conversation_events(
                     },
                     session,
                     &format!("message-{index}-user-created"),
-                    Some(serde_json::to_value(message)?),
+                    None,
                 )
                 .await?;
                 append_import_event(
-                    pool,
+                    conn,
                     conversation_id,
                     Some(turn.id),
                     Some(binding.id),
@@ -1451,7 +1477,7 @@ pub async fn import_agent_session_to_conversation_events(
             }
             ImportedAgentMessageRole::Assistant => {
                 let turn_id = ensure_import_turn(
-                    pool,
+                    conn,
                     conversation_id,
                     current_turn_id,
                     "Imported assistant message",
@@ -1473,20 +1499,20 @@ pub async fn import_agent_session_to_conversation_events(
                     }
                 };
                 append_import_event(
-                    pool,
+                    conn,
                     conversation_id,
                     Some(turn_id),
                     Some(binding.id),
                     event,
                     session,
                     &format!("message-{index}-assistant"),
-                    Some(serde_json::to_value(message)?),
+                    None,
                 )
                 .await?;
             }
             ImportedAgentMessageRole::Tool => {
                 let turn_id = ensure_import_turn(
-                    pool,
+                    conn,
                     conversation_id,
                     current_turn_id,
                     "Imported tool output",
@@ -1494,7 +1520,7 @@ pub async fn import_agent_session_to_conversation_events(
                 .await?;
                 current_turn_id = Some(turn_id);
                 append_import_event(
-                    pool,
+                    conn,
                     conversation_id,
                     Some(turn_id),
                     Some(binding.id),
@@ -1515,23 +1541,18 @@ pub async fn import_agent_session_to_conversation_events(
                                 .kind
                                 .clone()
                                 .or_else(|| Some("imported".to_string())),
-                            status: message.metadata.tool_status.clone().or_else(|| {
-                                Some(
-                                    if message.metadata.kind.as_deref() == Some("tool_call") {
-                                        "pending"
-                                    } else {
-                                        "completed"
-                                    }
-                                    .to_string(),
-                                )
-                            }),
+                            status: message
+                                .metadata
+                                .tool_status
+                                .clone()
+                                .or_else(|| Some("completed".to_string())),
                             raw_input: message.metadata.raw_input.clone(),
                             raw_output: message.metadata.raw_output.clone().or_else(|| {
                                 (message.metadata.kind.as_deref() != Some("tool_call"))
                                     .then(|| serde_json::Value::String(message.content.clone()))
                             }),
                             raw_output_append: None,
-                            content: Some(serde_json::json!({ "text": message.content.clone() })),
+                            content: None,
                             locations: None,
                             metadata: Some(serde_json::json!({
                                 "source": "agent_transcript",
@@ -1547,13 +1568,13 @@ pub async fn import_agent_session_to_conversation_events(
                     },
                     session,
                     &format!("message-{index}-tool"),
-                    Some(serde_json::to_value(message)?),
+                    None,
                 )
                 .await?;
             }
             ImportedAgentMessageRole::System | ImportedAgentMessageRole::Unknown => {
                 let turn_id = ensure_import_turn(
-                    pool,
+                    conn,
                     conversation_id,
                     current_turn_id,
                     "Imported system message",
@@ -1561,7 +1582,7 @@ pub async fn import_agent_session_to_conversation_events(
                 .await?;
                 current_turn_id = Some(turn_id);
                 append_import_event(
-                    pool,
+                    conn,
                     conversation_id,
                     Some(turn_id),
                     Some(binding.id),
@@ -1571,7 +1592,7 @@ pub async fn import_agent_session_to_conversation_events(
                     },
                     session,
                     &format!("message-{index}-system"),
-                    Some(serde_json::to_value(message)?),
+                    None,
                 )
                 .await?;
             }
@@ -1579,14 +1600,27 @@ pub async fn import_agent_session_to_conversation_events(
     }
 
     if let Some(turn_id) = current_turn_id {
-        append_turn_completed(pool, conversation_id, turn_id, binding.id, session).await?;
+        append_turn_completed(conn, conversation_id, turn_id, binding.id, session).await?;
+    }
+
+    workbench_status::mark_latest_turn_viewed_on_connection(conn, conversation_id).await?;
+    workbench_status::reconcile_on_connection(conn, conversation_id).await?;
+    ConversationRecord::update_active_turn_on_connection(conn, conversation_id, None).await?;
+    if let Some((created_at, updated_at)) = session.activity_times() {
+        ConversationRecord::set_history_times_on_connection(
+            conn,
+            conversation_id,
+            created_at,
+            updated_at,
+        )
+        .await?;
     }
 
     Ok(conversation_id)
 }
 
 async fn ensure_import_turn(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     current_turn_id: Option<Uuid>,
     text_preview: &str,
@@ -1596,8 +1630,8 @@ async fn ensure_import_turn(
     }
     let blocks: Vec<ConversationInputBlock> = Vec::new();
     let input_blocks_json = serde_json::to_string(&blocks)?;
-    let turn = ConversationTurnRecord::create_pending(
-        pool,
+    let turn = ConversationTurnRecord::create_pending_on_connection(
+        conn,
         Uuid::new_v4(),
         CreateConversationTurn {
             conversation_id,
@@ -1611,14 +1645,14 @@ async fn ensure_import_turn(
 }
 
 async fn append_turn_completed(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     turn_id: Uuid,
     binding_id: Uuid,
     session: &ImportedAgentSession,
 ) -> Result<(), AppError> {
     append_import_event(
-        pool,
+        conn,
         conversation_id,
         Some(turn_id),
         Some(binding_id),
@@ -1635,7 +1669,7 @@ async fn append_turn_completed(
 
 #[allow(clippy::too_many_arguments)]
 async fn append_import_event(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     turn_id: Option<Uuid>,
     binding_id: Option<Uuid>,
@@ -1649,8 +1683,8 @@ async fn append_import_event(
     let normalized_json = serde_json::to_string(&event)?;
     let raw_json = raw_json.map(|value| value.to_string());
     let idempotency_key = format!("agent-transcript:{}:{}", session.external_session_id, key);
-    ConversationEventAppender::append(
-        pool,
+    ConversationEventAppender::append_on_connection(
+        conn,
         AppendConversationEvent {
             id: Uuid::new_v4(),
             conversation_id,
@@ -1692,14 +1726,17 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentKind, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
+        AgentKind, ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
+        ImportedAgentSession,
         conversation::{ContentBlock, ConversationEvent, ConversationInputBlock},
     };
+    use chrono::{TimeZone, Utc};
     use conversations::ConversationEventAppender;
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_event::AppendConversationEvent,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::Session,
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
@@ -1858,6 +1895,8 @@ mod tests {
     #[tokio::test]
     async fn history_import_to_conversation_events() {
         let pool = migrated_pool().await;
+        let started_at = Utc.with_ymd_and_hms(2026, 6, 11, 0, 0, 0).unwrap();
+        let finished_at = Utc.with_ymd_and_hms(2026, 6, 11, 0, 12, 0).unwrap();
         let session = ImportedAgentSession {
             source_agent: AgentKind::Codex,
             external_session_id: "external-import-1".to_string(),
@@ -1867,13 +1906,13 @@ mod tests {
                 ImportedAgentMessage {
                     role: ImportedAgentMessageRole::User,
                     content: "hello from history".to_string(),
-                    created_at: None,
+                    created_at: Some(started_at),
                     metadata: Default::default(),
                 },
                 ImportedAgentMessage {
                     role: ImportedAgentMessageRole::Assistant,
                     content: "imported reply".to_string(),
-                    created_at: None,
+                    created_at: Some(finished_at),
                     metadata: Default::default(),
                 },
             ],
@@ -1893,18 +1932,37 @@ mod tests {
             detail.summary.external_session_id.as_deref(),
             Some("external-import-1")
         );
+        assert_eq!(
+            detail.summary.agent_id.as_ref().map(AgentId::as_str),
+            Some("codex")
+        );
+        assert_eq!(detail.summary.status, SessionStatus::Done);
+        assert_eq!(detail.summary.updated_at, finished_at);
+        assert_eq!(detail.in_flight_user_turn_id, None);
         assert!(
             detail.timeline.rows.iter().any(|row| match &row.row {
-                agents::conversation::ConversationTimelineRow::MessageTurn { turn, .. } => {
+                agents::conversation::ConversationTimelineRow::MessageTurn { turn, phase, .. } => {
                     matches!(turn.role, agents::conversation::TurnRole::Assistant)
+                        && phase != "streaming"
                         && turn.blocks.iter().any(|block| {
                             matches!(block, ContentBlock::Text { text } if text.contains("imported reply"))
                         })
                 }
                 _ => false,
             }),
-            "imported assistant text should be renderable from the event log"
+            "imported assistant text should be settled and renderable"
         );
+
+        let conversation = ConversationRecord::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load conversation")
+            .expect("conversation");
+        assert!(conversation.active_turn_id.is_none());
+        let session_row = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(session_row.executor.as_deref(), Some("codex"));
 
         let events = ConversationEventRecord::events_since(&pool, conversation_id, 0, 100)
             .await
@@ -1915,5 +1973,90 @@ mod tests {
                 .iter()
                 .any(|event| event.event_kind == "assistant_text_delta")
         );
+    }
+
+    #[tokio::test]
+    async fn imported_conversation_open_caps_huge_tool_payloads() {
+        let pool = migrated_pool().await;
+        let huge = "x".repeat(agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 32 * 1024);
+        let session = ImportedAgentSession {
+            source_agent: AgentKind::ClaudeCode,
+            external_session_id: "external-huge-tool".to_string(),
+            title: Some("Huge import".to_string()),
+            workspace_path: None,
+            messages: vec![
+                ImportedAgentMessage {
+                    role: ImportedAgentMessageRole::User,
+                    content: "read the file".to_string(),
+                    created_at: None,
+                    metadata: Default::default(),
+                },
+                ImportedAgentMessage {
+                    role: ImportedAgentMessageRole::Tool,
+                    content: huge.clone(),
+                    created_at: None,
+                    metadata: ImportedAgentMessageMetadata {
+                        kind: Some("tool_result".to_string()),
+                        tool_call_id: Some("tool-1".to_string()),
+                        tool_name: Some("Read".to_string()),
+                        tool_status: Some("completed".to_string()),
+                        raw_output: Some(serde_json::Value::String(huge.clone())),
+                        ..Default::default()
+                    },
+                },
+            ],
+            raw_source_path: None,
+        };
+
+        let conversation_id =
+            import_agent_session_to_conversation_events(&pool, Uuid::new_v4(), &session)
+                .await
+                .expect("import session");
+        let detail = conversation_detail_core(&pool, conversation_id)
+            .await
+            .expect("detail")
+            .expect("conversation");
+
+        let serialized = serde_json::to_string(&detail.timeline).expect("timeline json");
+        assert!(
+            !serialized.contains(&huge),
+            "open path must not ship the unbounded imported tool payload"
+        );
+        for row in &detail.timeline.rows {
+            if let agents::conversation::ConversationTimelineRow::MessageTurn { turn, .. } =
+                &row.row
+            {
+                for block in &turn.blocks {
+                    match block {
+                        ContentBlock::ToolResult { output_preview, .. } => {
+                            let preview = output_preview.as_deref().unwrap_or("");
+                            assert!(
+                                preview.len()
+                                    <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4
+                            );
+                        }
+                        ContentBlock::ToolUse { input_preview, .. } => {
+                            let preview = input_preview.as_deref().unwrap_or("");
+                            assert!(
+                                preview.len()
+                                    <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let events = ConversationEventRecord::events_since(&pool, conversation_id, 0, 100)
+            .await
+            .expect("events");
+        assert!(events.iter().all(|event| {
+            event.normalized_json.len() < huge.len()
+                && event
+                    .raw_json
+                    .as_ref()
+                    .is_none_or(|raw| raw.len() < huge.len())
+        }));
     }
 }

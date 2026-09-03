@@ -50,6 +50,17 @@ describe('AgentIcon', () => {
     );
   });
 
+  it.each([
+    ['claude-code', 'Claude Code', '/agents/claude-light.svg'],
+    ['kimi-code', 'Kimi Code', '/agents/kimi.svg'],
+    ['deepseek-harness', 'DeepSeek Harness', '/agents/deepseek-harness-light.svg'],
+    ['gemini', 'Google Antigravity', '/agents/antigravity.svg'],
+  ])('normalizes %s to built-in artwork', (agent, name, src) => {
+    render(<AgentIcon agent={agent} />);
+
+    expect(screen.getByRole('img', { name })).toHaveAttribute('src', src);
+  });
+
   it('shows the runtime inline svg for registry-only agents (Workbuddy)', () => {
     const { container } = render(
       <AgentIcon agent="workbuddy" iconSvg="<svg data-mark='wb'></svg>" />

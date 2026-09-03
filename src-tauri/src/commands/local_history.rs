@@ -1,9 +1,15 @@
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    future::Future,
+    time::{Duration, Instant},
+};
 
 use agents::{
-    HistoryPathDestination, ImportedAgentSession, LocalHistoryDestination,
+    HistoryPathDestination, HistoryScanEntry, ImportedAgentSession, LocalHistoryDestination,
+    LocalHistoryImportJobSnapshot, LocalHistoryImportPhase, LocalHistoryImportProgress,
     LocalHistoryImportResult, LocalHistoryImportSelection, LocalHistoryScanPage,
-    build_local_history_scan_page, scan_configured_history,
+    LocalHistoryScanProgress, build_local_history_scan_page, load_configured_history_session,
+    scan_configured_history_with_progress,
 };
 use api_types::{AgentId, AgentKind};
 use db::models::{
@@ -12,8 +18,25 @@ use db::models::{
 };
 use serde::Deserialize;
 use sqlx::SqlitePool;
+use tauri::{Emitter, ipc::Channel};
+use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
+
+pub const WORKSPACE_SESSIONS_CHANGED_EVENT: &str = "workspace-sessions-changed";
+pub const LOCAL_HISTORY_IMPORT_PROGRESS_EVENT: &str = "local-history-import-progress";
+
+#[derive(Default)]
+pub struct LocalHistoryImportRuntime {
+    pub running: bool,
+    pub snapshot: LocalHistoryImportJobSnapshot,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct WorkspaceSessionsChanged {
+    pub workspace_id: Uuid,
+    pub conversation_id: Uuid,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct AgentImportLocalHistoryBatchRequest {
@@ -24,32 +47,206 @@ pub struct AgentImportLocalHistoryBatchRequest {
 pub async fn agent_scan_local_history(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
+    on_event: Channel<LocalHistoryScanProgress>,
 ) -> Result<LocalHistoryScanPage, AppError> {
     let pool = &state.deployment.db().pool;
-    let sessions = scan_local_history_for_agent(pool, &agent_id).await?;
+    let sessions = scan_local_history_for_agent(pool, &agent_id, move |progress| {
+        let _ = on_event.send(progress);
+    })
+    .await?;
     assemble_local_history_scan_page(pool, sessions).await
 }
 
 #[tauri::command]
 pub async fn agent_import_local_history_batch(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: AgentImportLocalHistoryBatchRequest,
-) -> Result<LocalHistoryImportResult, AppError> {
-    let pool = &state.deployment.db().pool;
-    let mut sessions = Vec::new();
-    let mut seen = BTreeSet::new();
-    for selection in &request.selections {
-        if !seen.insert(selection.agent_id.clone()) {
-            continue;
-        }
-        sessions.extend(scan_local_history_for_agent(pool, &selection.agent_id).await?);
+) -> Result<LocalHistoryImportJobSnapshot, AppError> {
+    if request.selections.is_empty() {
+        return Err(AppError::BadRequest(
+            "Select at least one local conversation to import".to_string(),
+        ));
     }
-    import_selected_local_history(pool, &sessions, &request.selections).await
+    let snapshot = {
+        let mut job = state
+            .local_history_import
+            .lock()
+            .expect("local history import lock");
+        if job.running {
+            return Err(AppError::Conflict(
+                "A local conversation import is already running".to_string(),
+            ));
+        }
+        job.running = true;
+        job.snapshot = LocalHistoryImportJobSnapshot::begin_running();
+        job.snapshot.clone()
+    };
+    let pool = state.deployment.db().pool.clone();
+    let job = state.local_history_import.clone();
+    let selections = request.selections;
+    tauri::async_runtime::spawn(async move {
+        let outcome = import_local_history_batch(
+            &pool,
+            &selections,
+            |selection| {
+                let pool = pool.clone();
+                let selection = selection.clone();
+                async move { load_selected_history_session(&pool, &selection).await }
+            },
+            |progress| {
+                if progress.phase == LocalHistoryImportPhase::Imported
+                    && let (Some(workspace_id), Some(conversation_id)) =
+                        (progress.workspace_id, progress.conversation_id)
+                {
+                    let _ = app.emit(
+                        WORKSPACE_SESSIONS_CHANGED_EVENT,
+                        WorkspaceSessionsChanged {
+                            workspace_id,
+                            conversation_id,
+                        },
+                    );
+                }
+                let snapshot = {
+                    let mut runtime = job.lock().expect("local history import lock");
+                    runtime.snapshot.apply_progress(progress);
+                    runtime.snapshot.clone()
+                };
+                let _ = app.emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+            },
+        )
+        .await;
+        let snapshot = {
+            let mut runtime = job.lock().expect("local history import lock");
+            runtime.running = false;
+            match outcome {
+                Ok(result) => runtime.snapshot.finish(result),
+                Err(error) => runtime.snapshot.fail_to_start(error.to_string()),
+            }
+            runtime.snapshot.clone()
+        };
+        let _ = app.emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+    });
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub async fn agent_local_history_import_snapshot(
+    state: tauri::State<'_, AppState>,
+) -> Result<LocalHistoryImportJobSnapshot, AppError> {
+    Ok(state
+        .local_history_import
+        .lock()
+        .expect("local history import lock")
+        .snapshot
+        .clone())
+}
+
+pub(crate) async fn import_local_history_batch<L, Fut, F>(
+    pool: &SqlitePool,
+    selections: &[LocalHistoryImportSelection],
+    mut load_session: L,
+    mut on_progress: F,
+) -> Result<LocalHistoryImportResult, AppError>
+where
+    L: FnMut(&LocalHistoryImportSelection) -> Fut,
+    Fut: Future<Output = Result<ImportedAgentSession, AppError>>,
+    F: FnMut(LocalHistoryImportProgress),
+{
+    let total = selections.len() as u32;
+    let mut result = LocalHistoryImportResult {
+        imported: 0,
+        skipped: 0,
+        failed: 0,
+        conversation_ids: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    for (index, selection) in selections.iter().enumerate() {
+        let current = index as u32 + 1;
+        on_progress(LocalHistoryImportProgress::for_selection(
+            current,
+            total,
+            selection,
+            None,
+            LocalHistoryImportPhase::Loading,
+            &result,
+        ));
+
+        let session = match load_session(selection).await {
+            Ok(session) => session,
+            Err(error) => {
+                tracing::warn!(
+                    agent_id = %selection.agent_id,
+                    session = %selection.external_session_id,
+                    %error,
+                    "failed to load selected local history session"
+                );
+                result.failed += 1;
+                result.errors.push(format!(
+                    "Local session {} was not found",
+                    selection.external_session_id
+                ));
+                on_progress(LocalHistoryImportProgress::for_selection(
+                    current,
+                    total,
+                    selection,
+                    None,
+                    LocalHistoryImportPhase::Failed,
+                    &result,
+                ));
+                continue;
+            }
+        };
+
+        on_progress(LocalHistoryImportProgress::for_selection(
+            current,
+            total,
+            selection,
+            session.title.clone(),
+            LocalHistoryImportPhase::Importing,
+            &result,
+        ));
+
+        let one = import_selected_local_history(
+            pool,
+            std::slice::from_ref(&session),
+            std::slice::from_ref(selection),
+        )
+        .await?;
+        result.imported += one.imported;
+        result.skipped += one.skipped;
+        result.failed += one.failed;
+        result.errors.extend(one.errors);
+        let conversation_id = one.conversation_ids.last().copied();
+        result.conversation_ids.extend(one.conversation_ids);
+        let phase = if one.imported > 0 {
+            LocalHistoryImportPhase::Imported
+        } else if one.skipped > 0 {
+            LocalHistoryImportPhase::Skipped
+        } else {
+            LocalHistoryImportPhase::Failed
+        };
+        let mut progress = LocalHistoryImportProgress::for_selection(
+            current,
+            total,
+            selection,
+            session.title,
+            phase,
+            &result,
+        );
+        if let Some(conversation_id) = conversation_id {
+            progress = progress.with_conversation(conversation_id, selection.workspace_id);
+        }
+        on_progress(progress);
+    }
+
+    Ok(result)
 }
 
 pub(crate) async fn assemble_local_history_scan_page(
     pool: &SqlitePool,
-    sessions: Vec<ImportedAgentSession>,
+    sessions: Vec<HistoryScanEntry>,
 ) -> Result<LocalHistoryScanPage, AppError> {
     let imported = load_imported_history_keys(pool).await?;
     let (destinations, project_destinations) = load_history_destinations(pool).await?;
@@ -204,14 +401,31 @@ async fn load_history_destinations(
     Ok((destinations, project_destinations))
 }
 
-pub(crate) async fn scan_local_history_for_agent(
+pub(crate) async fn load_selected_history_session(
+    pool: &SqlitePool,
+    selection: &LocalHistoryImportSelection,
+) -> Result<ImportedAgentSession, AppError> {
+    let agent_kind = AgentKind::from_lenient(selection.agent_id.as_str()).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "Agent {} has no local history parser",
+            selection.agent_id
+        ))
+    })?;
+    let configured_env = load_agent_history_env(pool, &selection.agent_id).await?;
+    let external_session_id = selection.external_session_id.clone();
+    tokio::task::spawn_blocking(move || {
+        load_configured_history_session(agent_kind, &configured_env, &external_session_id)
+            .map_err(|error| AppError::Internal(error.to_string()))
+    })
+    .await
+    .map_err(|error| AppError::Internal(format!("local history load failed: {error}")))?
+}
+
+async fn load_agent_history_env(
     pool: &SqlitePool,
     agent_id: &AgentId,
-) -> Result<Vec<ImportedAgentSession>, AppError> {
-    let agent_kind = AgentKind::from_lenient(agent_id.as_str()).ok_or_else(|| {
-        AppError::BadRequest(format!("Agent {agent_id} has no local history parser"))
-    })?;
-    let configured_env = sqlx::query_scalar::<_, Option<String>>(
+) -> Result<HashMap<String, String>, AppError> {
+    Ok(sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = ?",
     )
     .bind(agent_id.as_str())
@@ -219,10 +433,32 @@ pub(crate) async fn scan_local_history_for_agent(
     .await?
     .flatten()
     .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
-    .unwrap_or_default();
+    .unwrap_or_default())
+}
+
+pub(crate) async fn scan_local_history_for_agent(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    mut on_progress: impl FnMut(LocalHistoryScanProgress) + Send + 'static,
+) -> Result<Vec<HistoryScanEntry>, AppError> {
+    let agent_kind = AgentKind::from_lenient(agent_id.as_str()).ok_or_else(|| {
+        AppError::BadRequest(format!("Agent {agent_id} has no local history parser"))
+    })?;
+    let configured_env = load_agent_history_env(pool, agent_id).await?;
     tokio::task::spawn_blocking(move || {
-        scan_configured_history(agent_kind, &configured_env)
-            .map_err(|error| AppError::Internal(error.to_string()))
+        let mut last_sent: Option<Instant> = None;
+        let mut latest = LocalHistoryScanProgress::default();
+        let sessions =
+            scan_configured_history_with_progress(agent_kind, &configured_env, |progress| {
+                latest = progress;
+                if last_sent.is_none_or(|sent| sent.elapsed() >= Duration::from_millis(50)) {
+                    last_sent = Some(Instant::now());
+                    on_progress(progress);
+                }
+            })
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        on_progress(latest);
+        Ok(sessions)
     })
     .await
     .map_err(|error| AppError::Internal(format!("local history scan failed: {error}")))?
@@ -234,7 +470,7 @@ mod tests {
 
     use agents::{
         AgentKind, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
-        LocalHistoryImportSelection,
+        LocalHistoryImportPhase, LocalHistoryImportSelection,
     };
     use api_types::AgentId;
     use db::models::{
@@ -392,14 +628,158 @@ mod tests {
             .await
             .expect("bind external id");
 
-        let page = assemble_local_history_scan_page(&pool, vec![imported_session("codex-1")])
-            .await
-            .expect("scan page");
+        let page = assemble_local_history_scan_page(
+            &pool,
+            vec![agents::HistoryScanEntry::from(&imported_session("codex-1"))],
+        )
+        .await
+        .expect("scan page");
         assert_eq!(page.total_sessions, 1);
         assert_eq!(page.importable_count, 0);
         assert_eq!(
             page.folders[0].sessions[0].status,
             agents::LocalHistorySessionStatus::Imported
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_import_reports_progress_for_each_session() {
+        let pool = migrated_pool().await;
+        let workspace_id = Uuid::new_v4();
+        insert_workspace(&pool, workspace_id).await;
+        let agent_id = AgentId::parse("codex").expect("codex id");
+        let sessions = vec![imported_session("codex-1"), imported_session("codex-2")];
+        let selections = [
+            LocalHistoryImportSelection {
+                agent_id: agent_id.clone(),
+                external_session_id: "codex-1".into(),
+                workspace_id,
+            },
+            LocalHistoryImportSelection {
+                agent_id,
+                external_session_id: "codex-2".into(),
+                workspace_id,
+            },
+        ];
+        let mut events = Vec::new();
+
+        let result = import_local_history_batch(
+            &pool,
+            &selections,
+            |selection| {
+                let session = sessions
+                    .iter()
+                    .find(|session| session.external_session_id == selection.external_session_id)
+                    .cloned()
+                    .expect("session");
+                async move { Ok(session) }
+            },
+            |progress| events.push(progress),
+        )
+        .await
+        .expect("import with progress");
+
+        assert_eq!(result.imported, 2);
+        assert_eq!(result.failed, 0);
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.current, event.phase, event.title.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, LocalHistoryImportPhase::Loading, None),
+                (
+                    1,
+                    LocalHistoryImportPhase::Importing,
+                    Some("Imported Codex".into())
+                ),
+                (
+                    1,
+                    LocalHistoryImportPhase::Imported,
+                    Some("Imported Codex".into())
+                ),
+                (2, LocalHistoryImportPhase::Loading, None),
+                (
+                    2,
+                    LocalHistoryImportPhase::Importing,
+                    Some("Imported Codex".into())
+                ),
+                (
+                    2,
+                    LocalHistoryImportPhase::Imported,
+                    Some("Imported Codex".into())
+                ),
+            ]
+        );
+        assert_eq!(events.last().map(|event| event.total), Some(2));
+        assert_eq!(events.last().map(|event| event.imported), Some(2));
+        let imported = events
+            .iter()
+            .filter(|event| event.phase == LocalHistoryImportPhase::Imported)
+            .collect::<Vec<_>>();
+        assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0].workspace_id, Some(workspace_id));
+        assert_eq!(imported[1].workspace_id, Some(workspace_id));
+        assert_eq!(
+            imported
+                .iter()
+                .filter_map(|event| event.conversation_id)
+                .collect::<Vec<_>>(),
+            result.conversation_ids
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_import_counts_load_failures_and_keeps_going() {
+        let pool = migrated_pool().await;
+        let workspace_id = Uuid::new_v4();
+        insert_workspace(&pool, workspace_id).await;
+        let agent_id = AgentId::parse("codex").expect("codex id");
+        let session = imported_session("codex-ok");
+        let selections = [
+            LocalHistoryImportSelection {
+                agent_id: agent_id.clone(),
+                external_session_id: "missing".into(),
+                workspace_id,
+            },
+            LocalHistoryImportSelection {
+                agent_id,
+                external_session_id: "codex-ok".into(),
+                workspace_id,
+            },
+        ];
+        let mut events = Vec::new();
+
+        let result = import_local_history_batch(
+            &pool,
+            &selections,
+            |selection| {
+                let missing = selection.external_session_id == "missing";
+                let session = session.clone();
+                async move {
+                    if missing {
+                        Err(AppError::Internal("missing session file".into()))
+                    } else {
+                        Ok(session)
+                    }
+                }
+            },
+            |progress| events.push(progress),
+        )
+        .await
+        .expect("partial import");
+
+        assert_eq!(result.imported, 1);
+        assert_eq!(result.failed, 1);
+        assert_eq!(
+            events.iter().map(|event| event.phase).collect::<Vec<_>>(),
+            vec![
+                LocalHistoryImportPhase::Loading,
+                LocalHistoryImportPhase::Failed,
+                LocalHistoryImportPhase::Loading,
+                LocalHistoryImportPhase::Importing,
+                LocalHistoryImportPhase::Imported,
+            ]
         );
     }
 }

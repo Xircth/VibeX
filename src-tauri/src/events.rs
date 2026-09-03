@@ -195,6 +195,39 @@ pub async fn emit_conversation_row_ops_after(
     if settled {
         map.remove(&conversation_id);
     }
+    drop(map);
+
+    let workbench_changed = new_records.iter().any(|record| {
+        matches!(
+            record.event_kind.as_str(),
+            "user_turn_queued"
+                | "user_turn_started"
+                | "turn_blocked"
+                | "turn_completed"
+                | "turn_failed"
+                | "turn_cancelled"
+                | "turn_interrupted"
+                | "conversation_input"
+                | "user_turn_created"
+        )
+    });
+    if workbench_changed {
+        if let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await {
+            let _ = app.emit(
+                "workspace-sessions-changed",
+                WorkspaceSessionsChangedPayload {
+                    workspace_id: session.workspace_id,
+                    conversation_id,
+                },
+            );
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct WorkspaceSessionsChangedPayload {
+    workspace_id: Uuid,
+    conversation_id: Uuid,
 }
 
 /// Persist coalesced streaming deltas on this interval. Overlay text still

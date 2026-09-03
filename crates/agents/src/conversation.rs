@@ -1273,9 +1273,139 @@ pub struct ConversationBundlePayload {
     pub checkpoints_json: serde_json::Value,
 }
 
+/// Same bound as live ACP tool previews (ADR-0061). Imported history and open-path
+/// projections must not ship larger payloads into the WebView.
+pub const MAX_TIMELINE_PREVIEW_BYTES: usize = 16 * 1024;
+const MAX_TIMELINE_PREVIEW_IMAGES: usize = 4;
+
+pub fn cap_preview_bytes(value: String) -> String {
+    if value.len() <= MAX_TIMELINE_PREVIEW_BYTES {
+        return value;
+    }
+    let mut end = MAX_TIMELINE_PREVIEW_BYTES;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = value[..end].to_string();
+    truncated.push('…');
+    truncated
+}
+
+pub fn cap_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => serde_json::Value::String(cap_preview_bytes(text)),
+        other => {
+            let serialized = other.to_string();
+            if serialized.len() <= MAX_TIMELINE_PREVIEW_BYTES {
+                other
+            } else {
+                serde_json::Value::String(cap_preview_bytes(serialized))
+            }
+        }
+    }
+}
+
+pub fn cap_timeline_preview_fields(timeline: &mut ConversationTimeline) {
+    for row in &mut timeline.rows {
+        cap_timeline_row_preview_fields(row);
+    }
+}
+
+pub fn cap_timeline_row_preview_fields(row: &mut TimelineRow) {
+    cap_timeline_row_kind(&mut row.row);
+}
+
+fn cap_timeline_row_kind(row: &mut ConversationTimelineRow) {
+    let ConversationTimelineRow::MessageTurn { turn, .. } = row else {
+        return;
+    };
+    for block in &mut turn.blocks {
+        cap_tool_preview_fields(block);
+    }
+}
+
+fn cap_tool_preview_fields(block: &mut ContentBlock) {
+    match block {
+        ContentBlock::ToolUse {
+            input_preview,
+            meta,
+            images,
+            ..
+        } => {
+            if let Some(preview) = input_preview {
+                *preview = cap_preview_bytes(std::mem::take(preview));
+            }
+            if let Some(value) = meta.take() {
+                *meta = Some(cap_json_value(value));
+            }
+            images.truncate(MAX_TIMELINE_PREVIEW_IMAGES);
+        }
+        ContentBlock::ToolResult { output_preview, .. } => {
+            if let Some(preview) = output_preview {
+                *preview = cap_preview_bytes(std::mem::take(preview));
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod event_sourced_tests {
     use super::*;
+
+    #[test]
+    fn cap_json_value_truncates_oversized_tool_payloads() {
+        let huge = "x".repeat(MAX_TIMELINE_PREVIEW_BYTES + 64);
+        let capped = cap_json_value(serde_json::json!({ "output": huge }));
+        let serde_json::Value::String(text) = capped else {
+            panic!("oversized JSON must collapse to a truncated string preview");
+        };
+        assert!(text.len() <= MAX_TIMELINE_PREVIEW_BYTES + 4);
+        assert!(text.ends_with('…'));
+    }
+
+    #[test]
+    fn cap_timeline_preview_fields_keeps_small_tool_output() {
+        let mut timeline = ConversationTimeline {
+            conversation_id: Uuid::nil(),
+            projection_version: 1,
+            last_sequence: 1,
+            rows: vec![TimelineRow {
+                row_id: "row-1".into(),
+                revision: 1,
+                row: ConversationTimelineRow::MessageTurn {
+                    turn: MessageTurn {
+                        id: "t1".into(),
+                        role: TurnRole::Assistant,
+                        blocks: vec![ContentBlock::ToolResult {
+                            tool_use_id: Some("tool-1".into()),
+                            output_preview: Some("all green".into()),
+                            is_error: false,
+                            agent_stats: None,
+                        }],
+                        timestamp: Utc::now(),
+                        usage: None,
+                        duration_ms: None,
+                        model: None,
+                        completed_at: None,
+                    },
+                    phase: "settled".into(),
+                },
+            }],
+            truncated_from_start: false,
+            older_cursor: None,
+        };
+        cap_timeline_preview_fields(&mut timeline);
+        match &timeline.rows[0].row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => match &turn.blocks[0] {
+                ContentBlock::ToolResult { output_preview, .. } => {
+                    assert_eq!(output_preview.as_deref(), Some("all green"));
+                }
+                other => panic!("unexpected block: {other:?}"),
+            },
+            other => panic!("unexpected row: {other:?}"),
+        }
+    }
 
     #[test]
     fn capability_snapshot_defaults_are_degraded() {

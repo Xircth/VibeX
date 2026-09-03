@@ -1,6 +1,9 @@
 import { QueryClient } from '@tanstack/react-query';
-import { describe, expect, it } from 'vitest';
-import { removeSessionsFromWorkspaceCaches } from './sessionQueryCache';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  invalidateWorkspaceSessions,
+  removeSessionsFromWorkspaceCaches,
+} from './sessionQueryCache';
 
 describe('removeSessionsFromWorkspaceCaches', () => {
   it('evicts deleted sessions from workspace and active-attempt caches', () => {
@@ -56,5 +59,16 @@ describe('removeSessionsFromWorkspaceCaches', () => {
     expect(
       queryClient.getQueryData(['session', 'deleted-session'])
     ).toBeUndefined();
+  });
+
+  it('invalidates the workspace session list for a live import', async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await invalidateWorkspaceSessions(queryClient, 'workspace-1');
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['workspaceSessions', 'workspace-1'],
+    });
   });
 });

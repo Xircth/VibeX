@@ -4,20 +4,25 @@ use std::{
 };
 
 use api_types::AgentKind;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
+mod cursor;
+mod jsonl;
 mod scan;
 mod sqlite;
 
 pub use scan::{
-    HistoryPathDestination, LocalHistoryDestination, LocalHistoryImportResult,
+    HistoryPathDestination, HistoryScanEntry, LocalHistoryDestination,
+    LocalHistoryImportJobSnapshot, LocalHistoryImportJobStatus, LocalHistoryImportLogEntry,
+    LocalHistoryImportPhase, LocalHistoryImportProgress, LocalHistoryImportResult,
     LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
-    LocalHistoryScanSession, LocalHistorySessionStatus, build_local_history_scan_page,
-    history_folder_name, history_paths_overlap, match_history_destination, merge_history_sources,
-    normalize_history_path, scan_configured_history,
+    LocalHistoryScanProgress, LocalHistoryScanSession, LocalHistorySessionStatus,
+    build_local_history_scan_page, history_folder_name, history_paths_overlap,
+    load_configured_history_session, match_history_destination, merge_history_sources,
+    normalize_history_path, scan_configured_history, scan_configured_history_with_progress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -93,6 +98,56 @@ pub struct ImportedAgentSession {
     pub raw_source_path: Option<PathBuf>,
 }
 
+impl ImportedAgentSession {
+    pub fn cap_payloads(&mut self) {
+        if self.messages.len() > jsonl::MAX_HISTORY_MESSAGES {
+            self.messages.truncate(jsonl::MAX_HISTORY_MESSAGES);
+        }
+        for message in &mut self.messages {
+            message.content = match message.role {
+                ImportedAgentMessageRole::Tool => {
+                    crate::conversation::cap_preview_bytes(std::mem::take(&mut message.content))
+                }
+                _ => jsonl::cap_history_text(std::mem::take(&mut message.content)),
+            };
+            message.metadata.raw_input = message
+                .metadata
+                .raw_input
+                .take()
+                .map(crate::conversation::cap_json_value);
+            message.metadata.raw_output = message
+                .metadata
+                .raw_output
+                .take()
+                .map(crate::conversation::cap_json_value);
+        }
+    }
+
+    pub fn activity_times(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+        let mut earliest = None;
+        let mut latest = None;
+        for timestamp in self
+            .messages
+            .iter()
+            .filter_map(|message| message.created_at)
+        {
+            earliest =
+                Some(earliest.map_or(timestamp, |current: DateTime<Utc>| current.min(timestamp)));
+            latest =
+                Some(latest.map_or(timestamp, |current: DateTime<Utc>| current.max(timestamp)));
+        }
+        match (earliest, latest) {
+            (Some(created_at), Some(updated_at)) => Some((created_at, updated_at)),
+            _ => source_file_mtime(self.raw_source_path.as_deref()).map(|time| (time, time)),
+        }
+    }
+}
+
+fn source_file_mtime(path: Option<&Path>) -> Option<DateTime<Utc>> {
+    let modified = path?.metadata().ok()?.modified().ok()?;
+    Some(DateTime::<Utc>::from(modified))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentHistorySource {
@@ -121,10 +176,7 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
             .collect(),
         AgentKind::Codex => env_or_home_sources(agent_type, "CODEX_HOME", ".codex")
             .into_iter()
-            .map(|source| AgentHistorySource {
-                path: source.path.join("sessions"),
-                ..source
-            })
+            .flat_map(|source| codex_history_roots(source.path, agent_type))
             .collect(),
         AgentKind::Opencode => xdg_data_or_home_sources(agent_type, "opencode")
             .into_iter()
@@ -185,7 +237,7 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
-        AgentKind::Cursor => env_or_home_sources(agent_type, "CURSOR_CONFIG_DIR", ".cursor"),
+        AgentKind::Cursor => cursor_history_sources(agent_type),
         AgentKind::DeepseekHarness => env_or_home_sources(agent_type, "DSH_HOME", ".dsh")
             .into_iter()
             .map(|source| AgentHistorySource {
@@ -209,9 +261,7 @@ pub fn configured_history_sources(
         AgentKind::ClaudeCode => {
             configured_root(configured_env, "CLAUDE_CONFIG_DIR").map(|path| path.join("projects"))
         }
-        AgentKind::Codex => {
-            configured_root(configured_env, "CODEX_HOME").map(|path| path.join("sessions"))
-        }
+        AgentKind::Codex => None,
         AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
             .map(|path| path.join("opencode").join("opencode.db")),
         AgentKind::Antigravity => configured_root(configured_env, "GEMINI_HOME")
@@ -249,12 +299,35 @@ pub fn configured_history_sources(
     .into_iter()
     .collect::<Vec<_>>();
 
+    let configured = if agent_type == AgentKind::Codex {
+        configured_root(configured_env, "CODEX_HOME")
+            .map(|path| {
+                codex_history_roots(path, agent_type)
+                    .into_iter()
+                    .map(|source| source.path)
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        configured
+    };
+
     let mut seen = BTreeSet::new();
     configured
         .into_iter()
         .map(|path| AgentHistorySource { agent_type, path })
         .chain(default_history_sources(agent_type))
         .filter(|source| seen.insert(source.path.clone()))
+        .collect()
+}
+
+fn codex_history_roots(home: PathBuf, agent_type: AgentKind) -> Vec<AgentHistorySource> {
+    ["sessions", "archived_sessions"]
+        .into_iter()
+        .map(|folder| AgentHistorySource {
+            agent_type,
+            path: home.join(folder),
+        })
         .collect()
 }
 
@@ -287,39 +360,118 @@ fn expand_configured_history_path(path: PathBuf, home: Option<&Path>) -> PathBuf
 pub fn import_history_source(
     source: &AgentHistorySource,
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    let mut sessions = Vec::new();
+    visit_imported_sessions(source, |session| {
+        sessions.push(session);
+        true
+    })?;
+    Ok(sessions)
+}
+
+/// Yield one imported session at a time so scan/load never retain the whole
+/// transcript tree. Database-backed agents still materialize their store once.
+pub(super) fn visit_imported_sessions(
+    source: &AgentHistorySource,
+    mut on_session: impl FnMut(ImportedAgentSession) -> bool,
+) -> Result<(), AgentHistoryError> {
     if !source.path.exists() {
         return Err(AgentHistoryError::MissingSource(source.path.clone()));
     }
 
-    if matches!(source.agent_type, AgentKind::Opencode | AgentKind::Hermes) && source.path.is_file()
-    {
-        return sqlite::import_agent_database(source.agent_type, &source.path);
-    }
-    if source.agent_type == AgentKind::Cursor {
-        return sqlite::import_cursor_stores(&source.path);
-    }
-    if source.agent_type == AgentKind::Antigravity {
-        return sqlite::import_antigravity_conversations(&source.path);
+    if is_database_history_source(source) {
+        for session in import_database_history(source)? {
+            if !on_session(session) {
+                break;
+            }
+        }
+        return Ok(());
     }
 
-    let files = history_files(source.agent_type, &source.path)?;
-    let mut grouped: BTreeMap<(String, PathBuf), ImportedAgentSession> = BTreeMap::new();
-    for file in files {
-        let records = parse_history_file(source.agent_type, &file)?;
-        for record in records {
-            let key = (record.external_session_id.clone(), file.clone());
+    let mut post = SessionPostProcess::new(source);
+    for file in history_files(source.agent_type, &source.path)? {
+        let mut grouped: BTreeMap<String, ImportedAgentSession> = BTreeMap::new();
+        for record in parse_history_file(source.agent_type, &file)? {
             grouped
-                .entry(key)
+                .entry(record.external_session_id.clone())
                 .and_modify(|session| session.messages.extend(record.messages.clone()))
                 .or_insert(record);
         }
+        for session in grouped.into_values() {
+            let Some(session) = post.finalize(session) else {
+                continue;
+            };
+            if !on_session(session) {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_database_history_source(source: &AgentHistorySource) -> bool {
+    (matches!(source.agent_type, AgentKind::Opencode | AgentKind::Hermes) && source.path.is_file())
+        || source.agent_type == AgentKind::Cursor
+        || source.agent_type == AgentKind::Antigravity
+}
+
+fn import_database_history(
+    source: &AgentHistorySource,
+) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    let sessions = if matches!(source.agent_type, AgentKind::Opencode | AgentKind::Hermes)
+        && source.path.is_file()
+    {
+        sqlite::import_agent_database(source.agent_type, &source.path)?
+    } else if source.agent_type == AgentKind::Cursor {
+        cursor::import_cursor_stores(&source.path)?
+    } else {
+        sqlite::import_antigravity_conversations(&source.path)?
+    };
+    Ok(cap_imported_sessions(sessions))
+}
+
+struct SessionPostProcess {
+    agent_type: AgentKind,
+    source_path: PathBuf,
+    kimi_workspaces: Option<BTreeMap<String, PathBuf>>,
+    codex_titles: BTreeMap<PathBuf, BTreeMap<String, String>>,
+}
+
+impl SessionPostProcess {
+    fn new(source: &AgentHistorySource) -> Self {
+        Self {
+            agent_type: source.agent_type,
+            source_path: source.path.clone(),
+            kimi_workspaces: None,
+            codex_titles: BTreeMap::new(),
+        }
     }
 
-    let mut sessions = grouped.into_values().collect::<Vec<_>>();
-    if source.agent_type == AgentKind::KimiCode {
-        apply_kimi_workspaces(&source.path, &mut sessions);
+    fn finalize(&mut self, mut session: ImportedAgentSession) -> Option<ImportedAgentSession> {
+        session.cap_payloads();
+        match self.agent_type {
+            AgentKind::KimiCode => {
+                apply_kimi_workspace(&self.source_path, &mut session, &mut self.kimi_workspaces)
+            }
+            AgentKind::Grok => {
+                if !apply_grok_summary(&mut session) {
+                    return None;
+                }
+                apply_grok_ask_answers(&mut session);
+            }
+            AgentKind::Codex => {
+                apply_codex_session_index_title(&mut session, &mut self.codex_titles)
+            }
+            _ => {}
+        }
+        Some(session)
     }
-    Ok(sessions)
+}
+
+fn cap_imported_sessions(mut sessions: Vec<ImportedAgentSession>) -> Vec<ImportedAgentSession> {
+    for session in &mut sessions {
+        session.cap_payloads();
+    }
+    sessions
 }
 
 fn env_or_home_sources(
@@ -382,6 +534,30 @@ fn pi_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource> {
         .collect()
 }
 
+fn cursor_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource> {
+    let mut sources = Vec::new();
+    if let Ok(value) = std::env::var("CURSOR_CONFIG_DIR")
+        && !value.trim().is_empty()
+    {
+        sources.push(AgentHistorySource {
+            agent_type,
+            path: expand_configured_history_path(PathBuf::from(value), dirs::home_dir().as_deref()),
+        });
+    }
+    if let Ok(value) = std::env::var("XDG_CONFIG_HOME")
+        && !value.trim().is_empty()
+    {
+        sources.push(AgentHistorySource {
+            agent_type,
+            path: PathBuf::from(value).join("cursor"),
+        });
+    }
+    if let Some(source) = home_source(agent_type, ".cursor") {
+        sources.push(source);
+    }
+    sources
+}
+
 fn home_source(agent_type: AgentKind, home_relative: &str) -> Option<AgentHistorySource> {
     dirs::home_dir().map(|home| AgentHistorySource {
         agent_type,
@@ -389,7 +565,10 @@ fn home_source(agent_type: AgentKind, home_relative: &str) -> Option<AgentHistor
     })
 }
 
-fn history_files(agent_type: AgentKind, path: &Path) -> Result<Vec<PathBuf>, AgentHistoryError> {
+pub(super) fn history_files(
+    agent_type: AgentKind,
+    path: &Path,
+) -> Result<Vec<PathBuf>, AgentHistoryError> {
     if path.is_file() {
         return Ok(is_direct_text_history_file(agent_type, path)
             .then(|| path.to_path_buf())
@@ -468,6 +647,9 @@ fn is_text_history_file(agent_type: AgentKind, path: &Path) -> bool {
     if agent_type == AgentKind::Grok {
         return name == Some("updates.jsonl");
     }
+    if agent_type == AgentKind::DeepseekHarness {
+        return name == Some("session.jsonl") || name == Some("session.jsonl.zstd");
+    }
     if agent_type == AgentKind::Antigravity {
         return name.is_some_and(|name| name.starts_with("session-"))
             && matches!(
@@ -486,10 +668,21 @@ fn is_text_history_file(agent_type: AgentKind, path: &Path) -> bool {
     )
 }
 
-fn parse_history_file(
+pub(super) fn parse_history_file(
     agent_type: AgentKind,
     path: &Path,
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    if agent_type == AgentKind::Codex
+        && path.extension().and_then(|extension| extension.to_str()) == Some("jsonl")
+    {
+        return parse_codex_rollout(path);
+    }
+    if agent_type == AgentKind::DeepseekHarness
+        && path.file_name().and_then(|name| name.to_str()) == Some("session.jsonl.zstd")
+    {
+        let raw = read_zstd_jsonl(path)?;
+        return parse_jsonl_history(agent_type, path, &raw);
+    }
     let raw = std::fs::read_to_string(path).map_err(|error| AgentHistoryError::Read {
         path: path.to_path_buf(),
         error: error.to_string(),
@@ -498,7 +691,6 @@ fn parse_history_file(
         agent_type,
         path.extension().and_then(|extension| extension.to_str()),
     ) {
-        (AgentKind::Codex, Some("jsonl")) => parse_codex_rollout(path, &raw),
         (AgentKind::Pi, Some("jsonl")) => parse_pi_session(path, &raw),
         (AgentKind::ClaudeCode | AgentKind::Openclaw | AgentKind::Codebuddy, Some("jsonl")) => {
             parse_structured_jsonl(agent_type, path, &raw)
@@ -511,51 +703,86 @@ fn parse_history_file(
     }
 }
 
-fn parse_codex_rollout(
-    path: &Path,
-    raw: &str,
-) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
-    let values = parse_jsonl_values(path, raw)?;
-    let metadata = values.iter().find_map(|value| {
-        (value.get("type").and_then(serde_json::Value::as_str) == Some("session_meta"))
-            .then(|| value.get("payload"))
-            .flatten()
-    });
-    let session_id = metadata
-        .and_then(|value| string_at_any(value, &["id", "session_id"]))
-        .unwrap_or_else(|| history_file_session_id(path));
-    let workspace_path = metadata
-        .and_then(|value| string_at_any(value, &["cwd", "workspace_path"]))
-        .map(PathBuf::from);
+fn parse_codex_rollout(path: &Path) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
+    let mut session_id = None;
+    let mut workspace_path = None;
+    let mut session_timestamp = None;
     let mut messages = Vec::new();
-    for value in &values {
+    jsonl::for_each_jsonl_value(path, |value| {
         let envelope = value.get("type").and_then(serde_json::Value::as_str);
+        if envelope == Some("session_meta")
+            && let Some(payload) = value.get("payload")
+        {
+            if session_id.is_none() {
+                session_id = string_at_any(payload, &["id", "session_id"]);
+            }
+            if workspace_path.is_none() {
+                workspace_path =
+                    string_at_any(payload, &["cwd", "workspace_path"]).map(PathBuf::from);
+            }
+            if session_timestamp.is_none() {
+                session_timestamp = timestamp_from_value(AgentKind::Codex, payload)
+                    .or_else(|| timestamp_from_value(AgentKind::Codex, &value));
+            }
+        }
         let Some(payload) = value.get("payload") else {
-            continue;
+            return Ok(());
         };
         let parsed = match envelope {
             Some("response_item") => codex_response_item(payload),
-            Some("event_msg") => codex_event_message(payload),
+            Some("event_msg") => {
+                let parsed = codex_event_message(payload);
+                match &parsed {
+                    Some((role, content))
+                        if is_codex_display_event(payload)
+                            && messages.iter().any(|message: &ImportedAgentMessage| {
+                                message.role == *role
+                                    && message.content.trim() == content.as_str().trim()
+                            }) =>
+                    {
+                        None
+                    }
+                    _ => parsed,
+                }
+            }
             _ => None,
         };
         if let Some((role, content)) = parsed {
             if role == ImportedAgentMessageRole::User && is_codex_injected_context(&content) {
-                continue;
+                return Ok(());
             }
-            messages.push(ImportedAgentMessage {
-                role,
-                content,
-                created_at: timestamp_from_value(AgentKind::Codex, value),
-                metadata: message_metadata(AgentKind::Codex, payload),
-            });
+            if messages.len() < jsonl::MAX_HISTORY_MESSAGES {
+                messages.push(ImportedAgentMessage {
+                    role,
+                    content: jsonl::cap_history_text(content),
+                    created_at: timestamp_from_value(AgentKind::Codex, &value)
+                        .or_else(|| timestamp_from_value(AgentKind::Codex, payload)),
+                    metadata: message_metadata(AgentKind::Codex, payload),
+                });
+            }
         }
-    }
+        Ok(())
+    })?;
     if messages.is_empty() {
-        return parse_jsonl_history(AgentKind::Codex, path, raw);
+        let mut sessions = Vec::new();
+        jsonl::for_each_jsonl_value(path, |value| {
+            if let Some(record) = imported_session_from_value(AgentKind::Codex, path, &value) {
+                sessions.push(record);
+            }
+            Ok(())
+        })?;
+        return Ok(sessions);
+    }
+    if messages.iter().all(|message| message.created_at.is_none())
+        && let Some(timestamp) = session_timestamp
+    {
+        for message in &mut messages {
+            message.created_at = Some(timestamp);
+        }
     }
     Ok(vec![ImportedAgentSession {
         source_agent: AgentKind::Codex,
-        external_session_id: session_id,
+        external_session_id: session_id.unwrap_or_else(|| history_file_session_id(path)),
         title: messages
             .iter()
             .find(|message| message.role == ImportedAgentMessageRole::User)
@@ -564,6 +791,13 @@ fn parse_codex_rollout(
         messages,
         raw_source_path: Some(path.to_path_buf()),
     }])
+}
+
+fn is_codex_display_event(payload: &serde_json::Value) -> bool {
+    matches!(
+        payload.get("type").and_then(serde_json::Value::as_str),
+        Some("user_message" | "agent_message")
+    )
 }
 
 fn is_codex_injected_context(content: &str) -> bool {
@@ -650,20 +884,30 @@ fn parse_pi_session(
     let workspace_path = header
         .and_then(|value| string_at_any(value, &["cwd", "workspace_path"]))
         .map(PathBuf::from);
-    let messages = values
-        .iter()
-        .filter(|value| value.get("type").and_then(serde_json::Value::as_str) == Some("message"))
-        .filter_map(|value| {
-            let message = value.get("message")?;
-            Some(ImportedAgentMessage {
-                role: role_from_value(message),
-                content: content_from_value(message)?,
-                created_at: timestamp_from_value(AgentKind::Pi, value)
-                    .or_else(|| timestamp_from_value(AgentKind::Pi, message)),
-                metadata: message_metadata(AgentKind::Pi, message),
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut messages = Vec::new();
+    for (index, value) in values.iter().enumerate() {
+        match value.get("type").and_then(serde_json::Value::as_str) {
+            Some("message") => {
+                let Some(message) = value.get("message") else {
+                    continue;
+                };
+                let Some(content) = content_from_value(message) else {
+                    continue;
+                };
+                messages.push(ImportedAgentMessage {
+                    role: role_from_value(message),
+                    content,
+                    created_at: timestamp_from_value(AgentKind::Pi, value)
+                        .or_else(|| timestamp_from_value(AgentKind::Pi, message)),
+                    metadata: message_metadata(AgentKind::Pi, message),
+                });
+            }
+            Some("bash_execution") => {
+                messages.extend(pi_bash_execution_messages(value, index));
+            }
+            _ => {}
+        }
+    }
     Ok((!messages.is_empty())
         .then(|| ImportedAgentSession {
             source_agent: AgentKind::Pi,
@@ -813,7 +1057,25 @@ fn parse_structured_jsonl(
     let workspace_path = values
         .iter()
         .find_map(|value| string_at_any(value, &["cwd", "workspace", "workspace_path"]))
-        .map(PathBuf::from);
+        .map(PathBuf::from)
+        .or_else(|| {
+            (agent_type == AgentKind::Openclaw)
+                .then(|| {
+                    values.iter().find_map(|value| {
+                        value
+                            .pointer("/message/content")
+                            .and_then(content_value_text)
+                            .or_else(|| {
+                                value
+                                    .pointer("/message/content")
+                                    .and_then(serde_json::Value::as_str)
+                                    .map(str::to_string)
+                            })
+                            .and_then(|text| openclaw_working_dir(&text))
+                    })
+                })
+                .flatten()
+        });
     let mut messages = Vec::new();
     for value in &values {
         messages.extend(match agent_type {
@@ -846,6 +1108,13 @@ fn parse_structured_jsonl(
 }
 
 fn claude_code_messages(value: &serde_json::Value) -> Vec<ImportedAgentMessage> {
+    if value
+        .get("isSidechain")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        return Vec::new();
+    }
     let envelope_type = value.get("type").and_then(serde_json::Value::as_str);
     if !matches!(envelope_type, Some("user" | "assistant" | "message")) {
         return Vec::new();
@@ -916,9 +1185,14 @@ fn structured_content_messages(
         return Vec::new();
     };
     if let Some(text) = content.as_str() {
+        let text = if openclaw && default_role == ImportedAgentMessageRole::User {
+            strip_openclaw_user_text(text)
+        } else {
+            text.to_string()
+        };
         return nonempty_message(
             default_role,
-            text.to_string(),
+            text,
             created_at,
             message_metadata(agent_type, message),
         )
@@ -943,6 +1217,9 @@ fn structured_content_messages(
                             .strip_prefix("[[reply_to_current]] ")
                             .unwrap_or(&text)
                             .to_string();
+                        if default_role == ImportedAgentMessageRole::User {
+                            text = strip_openclaw_user_text(&text);
+                        }
                     }
                     nonempty_message(
                         default_role.clone(),
@@ -957,6 +1234,15 @@ fn structured_content_messages(
                     created_at,
                     ImportedAgentMessageMetadata {
                         kind: Some("reasoning".to_string()),
+                        ..message_metadata(agent_type, message)
+                    },
+                ),
+                "image" | "image_url" => nonempty_message(
+                    default_role.clone(),
+                    image_placeholder(block),
+                    created_at,
+                    ImportedAgentMessageMetadata {
+                        kind: Some("image".to_string()),
                         ..message_metadata(agent_type, message)
                     },
                 ),
@@ -1156,11 +1442,16 @@ fn nonempty_message(
     created_at: Option<DateTime<Utc>>,
     metadata: ImportedAgentMessageMetadata,
 ) -> Option<ImportedAgentMessage> {
+    let content = jsonl::cap_history_text(content);
     (!content.trim().is_empty()).then_some(ImportedAgentMessage {
         role,
         content,
         created_at,
-        metadata,
+        metadata: ImportedAgentMessageMetadata {
+            raw_input: metadata.raw_input.map(crate::conversation::cap_json_value),
+            raw_output: metadata.raw_output.map(crate::conversation::cap_json_value),
+            ..metadata
+        },
     })
 }
 
@@ -1529,7 +1820,7 @@ fn session_id_from_value(agent_type: AgentKind, path: &Path, value: &serde_json:
                 .and_then(Path::file_name)
                 .and_then(|name| name.to_str())
                 .map(str::to_string),
-            AgentKind::Grok => path
+            AgentKind::Grok | AgentKind::DeepseekHarness => path
                 .parent()
                 .and_then(Path::file_name)
                 .and_then(|name| name.to_str())
@@ -1546,22 +1837,49 @@ fn session_id_from_value(agent_type: AgentKind, path: &Path, value: &serde_json:
 
 fn timestamp_from_value(agent_type: AgentKind, value: &serde_json::Value) -> Option<DateTime<Utc>> {
     if let Some(timestamp) = string_at_any(value, &["timestamp", "created_at", "createdAt"])
-        .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
+        .and_then(|raw| parse_timestamp_string(&raw))
     {
-        return Some(timestamp.with_timezone(&Utc));
+        return Some(timestamp);
     }
     let numeric = match agent_type {
-        AgentKind::KimiCode => value.get("time").and_then(serde_json::Value::as_i64),
-        AgentKind::Grok => value
-            .get("timestamp")
-            .and_then(serde_json::Value::as_i64)
-            .and_then(|seconds| seconds.checked_mul(1_000)),
-        _ => value.get("timestamp").and_then(serde_json::Value::as_i64),
+        AgentKind::KimiCode => numeric_timestamp(value.get("time")),
+        AgentKind::Grok | AgentKind::Codex => numeric_timestamp(value.get("timestamp")),
+        _ => numeric_timestamp(value.get("timestamp")),
     }?;
-    DateTime::from_timestamp_millis(numeric)
+    datetime_from_epoch(numeric)
 }
 
-fn title_from_content(content: &str) -> String {
+fn parse_timestamp_string(raw: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(raw)
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f")
+                .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S"))
+                .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f"))
+                .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S"))
+                .ok()
+                .map(|timestamp| timestamp.and_utc())
+        })
+}
+
+fn numeric_timestamp(value: Option<&serde_json::Value>) -> Option<i64> {
+    let value = value?;
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+        .or_else(|| value.as_f64().map(|number| number as i64))
+}
+
+fn datetime_from_epoch(numeric: i64) -> Option<DateTime<Utc>> {
+    if numeric.abs() >= 1_000_000_000_000 {
+        DateTime::from_timestamp_millis(numeric)
+    } else {
+        DateTime::from_timestamp(numeric, 0)
+    }
+}
+
+pub(super) fn title_from_content(content: &str) -> String {
     let line = content.lines().next().unwrap_or(content).trim();
     let mut chars = line.chars();
     let title = chars.by_ref().take(80).collect::<String>();
@@ -1572,26 +1890,390 @@ fn title_from_content(content: &str) -> String {
     }
 }
 
-fn apply_kimi_workspaces(root: &Path, sessions: &mut [ImportedAgentSession]) {
-    let Some(home) = root.parent() else {
-        return;
+fn read_zstd_jsonl(path: &Path) -> Result<String, AgentHistoryError> {
+    let bytes = std::fs::read(path).map_err(|error| AgentHistoryError::Read {
+        path: path.to_path_buf(),
+        error: error.to_string(),
+    })?;
+    let decoded = zstd::decode_all(bytes.as_slice()).map_err(|error| AgentHistoryError::Parse {
+        path: path.to_path_buf(),
+        error: error.to_string(),
+    })?;
+    Ok(String::from_utf8_lossy(&decoded).into_owned())
+}
+
+fn apply_grok_summary(session: &mut ImportedAgentSession) -> bool {
+    let Some(session_dir) = session
+        .raw_source_path
+        .as_ref()
+        .and_then(|path| path.parent())
+    else {
+        return true;
     };
-    let Ok(raw) = std::fs::read_to_string(home.join("session_index.jsonl")) else {
-        return;
+    let Ok(raw) = std::fs::read_to_string(session_dir.join("summary.json")) else {
+        return true;
     };
-    let workspaces = raw
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter_map(|value| {
-            let id = value.get("sessionId")?.as_str()?.to_string();
-            let work_dir = value.get("workDir")?.as_str()?.trim().to_string();
-            (!work_dir.is_empty()).then_some((id, PathBuf::from(work_dir)))
-        })
-        .collect::<BTreeMap<_, _>>();
-    for session in sessions {
-        if let Some(workspace) = workspaces.get(&session.external_session_id) {
-            session.workspace_path = Some(workspace.clone());
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return true;
+    };
+    if value
+        .get("session_kind")
+        .and_then(serde_json::Value::as_str)
+        == Some("subagent")
+    {
+        return false;
+    }
+    if session.workspace_path.is_none() {
+        session.workspace_path = value
+            .pointer("/info/cwd")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+    }
+    if let Some(title) = string_at_any(&value, &["generated_title", "session_summary"]) {
+        session.title = Some(title);
+    }
+    if session
+        .messages
+        .iter()
+        .all(|message| message.created_at.is_none())
+    {
+        let created = value
+            .get("created_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse_timestamp_string);
+        let updated = value
+            .get("updated_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse_timestamp_string);
+        if let Some(timestamp) = updated.or(created) {
+            for message in &mut session.messages {
+                message.created_at = Some(timestamp);
+            }
         }
+    }
+    true
+}
+
+fn apply_grok_ask_answers(session: &mut ImportedAgentSession) {
+    let Some(session_dir) = session
+        .raw_source_path
+        .as_ref()
+        .and_then(|path| path.parent())
+    else {
+        return;
+    };
+    let ask_ids = session
+        .messages
+        .iter()
+        .filter(|message| {
+            message.metadata.kind.as_deref() == Some("tool_call")
+                && message.metadata.tool_name.as_deref() == Some("ask_user_question")
+        })
+        .filter_map(|message| message.metadata.tool_call_id.clone())
+        .collect::<BTreeSet<_>>();
+    if ask_ids.is_empty() {
+        return;
+    }
+    let answers = read_grok_ask_answers(&session_dir.join("chat_history.jsonl"), &ask_ids);
+    if answers.is_empty() {
+        return;
+    }
+    let mut filled = BTreeSet::new();
+    for message in &mut session.messages {
+        if message.metadata.kind.as_deref() != Some("tool_result") {
+            continue;
+        }
+        let Some(id) = message.metadata.tool_call_id.as_deref() else {
+            continue;
+        };
+        let Some(envelope) = answers.get(id) else {
+            continue;
+        };
+        message.content = envelope.clone();
+        message.metadata.tool_status = Some("completed".to_string());
+        message.metadata.raw_output = serde_json::from_str(envelope).ok();
+        filled.insert(id.to_string());
+    }
+    let mut extras = Vec::new();
+    for (index, message) in session.messages.iter().enumerate() {
+        if message.metadata.kind.as_deref() != Some("tool_call") {
+            continue;
+        }
+        let Some(id) = message.metadata.tool_call_id.clone() else {
+            continue;
+        };
+        if filled.contains(&id) {
+            continue;
+        }
+        let Some(envelope) = answers.get(&id) else {
+            continue;
+        };
+        extras.push((
+            index + 1,
+            ImportedAgentMessage {
+                role: ImportedAgentMessageRole::Tool,
+                content: envelope.clone(),
+                created_at: message.created_at,
+                metadata: ImportedAgentMessageMetadata {
+                    kind: Some("tool_result".to_string()),
+                    tool_call_id: Some(id),
+                    tool_name: message.metadata.tool_name.clone(),
+                    tool_status: Some("completed".to_string()),
+                    raw_output: serde_json::from_str(envelope).ok(),
+                    ..Default::default()
+                },
+            },
+        ));
+    }
+    for (offset, (index, extra)) in extras.into_iter().enumerate() {
+        session.messages.insert(index + offset, extra);
+    }
+}
+
+fn read_grok_ask_answers(path: &Path, ask_ids: &BTreeSet<String>) -> BTreeMap<String, String> {
+    let mut answers = BTreeMap::new();
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return answers;
+    };
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        if value.get("type").and_then(serde_json::Value::as_str) != Some("tool_result") {
+            continue;
+        }
+        let Some(id) = value
+            .get("tool_call_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if !ask_ids.contains(id) {
+            continue;
+        }
+        let content = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if let Some(envelope) = grok_history_answer_to_envelope(content) {
+            answers.insert(id.to_string(), envelope.to_string());
+        }
+    }
+    answers
+}
+
+fn grok_history_answer_to_envelope(content: &str) -> Option<serde_json::Value> {
+    let content = content.trim();
+    if content.starts_with("The user has indicated they have provided enough answers")
+        || content.contains("(No answer provided)")
+    {
+        return Some(serde_json::json!({ "answers": [], "declined": true }));
+    }
+    if !content.starts_with("User has answered your questions:") {
+        return None;
+    }
+    let tokens: Vec<&str> = content.split('"').collect();
+    let mut answers = Vec::new();
+    let mut index = 1;
+    while index + 2 < tokens.len() {
+        if tokens[index + 1] != "=" {
+            break;
+        }
+        let selected = tokens[index + 2]
+            .split(", ")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        answers.push(serde_json::json!({
+            "header": "",
+            "question": tokens[index],
+            "selected": selected,
+        }));
+        index += 4;
+    }
+    (!answers.is_empty()).then(|| serde_json::json!({ "answers": answers, "declined": false }))
+}
+
+fn apply_codex_session_index_title(
+    session: &mut ImportedAgentSession,
+    titles: &mut BTreeMap<PathBuf, BTreeMap<String, String>>,
+) {
+    let Some(index_path) = session
+        .raw_source_path
+        .as_ref()
+        .and_then(|path| codex_session_index_path(path))
+    else {
+        return;
+    };
+    let index = titles
+        .entry(index_path.clone())
+        .or_insert_with(|| load_codex_session_index(&index_path));
+    if let Some(title) = index.get(&session.external_session_id) {
+        session.title = Some(title.clone());
+    }
+}
+
+fn codex_session_index_path(rollout: &Path) -> Option<PathBuf> {
+    for ancestor in rollout.ancestors() {
+        let name = ancestor.file_name()?.to_str()?;
+        if name == "sessions" || name == "archived_sessions" {
+            return Some(ancestor.parent()?.join("session_index.jsonl"));
+        }
+    }
+    None
+}
+
+fn load_codex_session_index(path: &Path) -> BTreeMap<String, String> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return BTreeMap::new();
+    };
+    let mut titles = BTreeMap::new();
+    for line in raw.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(id) = value.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(title) = value
+            .get("thread_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        else {
+            continue;
+        };
+        titles.insert(id.to_string(), title.to_string());
+    }
+    titles
+}
+
+fn strip_openclaw_user_text(text: &str) -> String {
+    let mut text = text.trim_start();
+    if let Some(rest) = text.strip_prefix("Sender (untrusted metadata):")
+        && let Some(after_open) = rest.find("```").map(|index| &rest[index + 3..])
+        && let Some(after_close) = after_open.find("```").map(|index| &after_open[index + 3..])
+    {
+        text = after_close.trim_start();
+    }
+    while let Some(inner) = text.strip_prefix('[').and_then(|rest| {
+        rest.find(']')
+            .map(|end| (&rest[..end], rest[end + 1..].trim_start()))
+    }) {
+        let (label, rest) = inner;
+        if label.starts_with("Working directory:")
+            || label.chars().any(|ch| ch.is_ascii_digit()) && label.contains(':')
+        {
+            text = rest;
+            continue;
+        }
+        break;
+    }
+    text.to_string()
+}
+
+fn openclaw_working_dir(text: &str) -> Option<PathBuf> {
+    let start = text.find("[Working directory:")?;
+    let rest = &text[start + "[Working directory:".len()..];
+    let end = rest.find(']')?;
+    let path = rest[..end].trim();
+    (!path.is_empty()).then(|| {
+        if path.starts_with('~') {
+            expand_configured_history_path(PathBuf::from(path), dirs::home_dir().as_deref())
+        } else {
+            PathBuf::from(path)
+        }
+    })
+}
+
+fn pi_bash_execution_messages(
+    value: &serde_json::Value,
+    index: usize,
+) -> Vec<ImportedAgentMessage> {
+    let command = value
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let output = value
+        .get("output")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let exit_code = value
+        .get("exitCode")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    let created_at = timestamp_from_value(AgentKind::Pi, value);
+    let tool_call_id = value
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(|id| format!("bash-{id}"))
+        .unwrap_or_else(|| format!("bash-{index}"));
+    vec![
+        ImportedAgentMessage {
+            role: ImportedAgentMessageRole::Tool,
+            content: format!("[tool: bash]\ninput: {command}"),
+            created_at,
+            metadata: ImportedAgentMessageMetadata {
+                kind: Some("tool_call".to_string()),
+                tool_call_id: Some(tool_call_id.clone()),
+                tool_name: Some("bash".to_string()),
+                raw_input: Some(serde_json::json!({ "command": command })),
+                ..Default::default()
+            },
+        },
+        ImportedAgentMessage {
+            role: ImportedAgentMessageRole::Tool,
+            content: output.to_string(),
+            created_at,
+            metadata: ImportedAgentMessageMetadata {
+                kind: Some("tool_result".to_string()),
+                tool_call_id: Some(tool_call_id),
+                tool_name: Some("bash".to_string()),
+                tool_status: Some(
+                    if exit_code == 0 {
+                        "completed"
+                    } else {
+                        "failed"
+                    }
+                    .to_string(),
+                ),
+                raw_output: Some(serde_json::Value::String(output.to_string())),
+                ..Default::default()
+            },
+        },
+    ]
+}
+
+fn apply_kimi_workspace(
+    root: &Path,
+    session: &mut ImportedAgentSession,
+    cache: &mut Option<BTreeMap<String, PathBuf>>,
+) {
+    let workspaces = cache.get_or_insert_with(|| {
+        let Some(home) = root.parent() else {
+            return BTreeMap::new();
+        };
+        let Ok(raw) = std::fs::read_to_string(home.join("session_index.jsonl")) else {
+            return BTreeMap::new();
+        };
+        raw.lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter_map(|value| {
+                let id = value.get("sessionId")?.as_str()?.to_string();
+                let work_dir = value.get("workDir")?.as_str()?.trim().to_string();
+                (!work_dir.is_empty()).then_some((id, PathBuf::from(work_dir)))
+            })
+            .collect()
+    });
+    if let Some(workspace) = workspaces.get(&session.external_session_id) {
+        session.workspace_path = Some(workspace.clone());
     }
 }
 
@@ -1650,9 +2332,29 @@ fn content_from_blocks(value: &serde_json::Value) -> Option<String> {
     let parts = value
         .as_array()?
         .iter()
-        .filter_map(|item| string_at_any(item, &["text", "content"]))
+        .filter_map(block_text)
         .collect::<Vec<_>>();
     (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
+fn block_text(item: &serde_json::Value) -> Option<String> {
+    if let Some(text) =
+        string_at_any(item, &["text", "content"]).filter(|text| !text.trim().is_empty())
+    {
+        return Some(text);
+    }
+    match item.get("type").and_then(serde_json::Value::as_str) {
+        Some("image") | Some("image_url") => Some(image_placeholder(item)),
+        _ => None,
+    }
+}
+
+fn image_placeholder(item: &serde_json::Value) -> String {
+    let attachment = item.get("attachment").unwrap_or(item);
+    let label = string_at_any(attachment, &["name", "mediaType", "mime_type", "mime"])
+        .or_else(|| string_at_any(item, &["name", "mediaType", "mime_type", "filename"]))
+        .unwrap_or_else(|| "image".to_string());
+    format!("[image: {label}]")
 }
 
 fn string_at_any(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
@@ -1887,6 +2589,100 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].external_session_id, "codex-session-1");
         assert_eq!(sessions[0].messages[0].content, "Inspect the repo");
+        assert_eq!(
+            sessions[0].messages[0].created_at,
+            Some(
+                DateTime::parse_from_rfc3339("2026-06-11T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[test]
+    fn parse_codex_rollout_keeps_envelope_and_unix_timestamps() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"timestamp":"2026-04-02T08:00:00Z","type":"session_meta","payload":{"id":"codex-rollout","cwd":"/tmp/codex"}}"#,
+                "\n",
+                r#"{"timestamp":1712044800,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}],"timestamp":"2026-04-02T08:01:00Z"}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path,
+        })
+        .unwrap();
+        let times = sessions[0].activity_times().expect("activity times");
+        assert_eq!(times.0, DateTime::from_timestamp(1_712_044_800, 0).unwrap());
+        assert_eq!(
+            times.1,
+            DateTime::parse_from_rfc3339("2026-04-02T08:01:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    #[test]
+    fn load_configured_history_session_reads_only_the_requested_rollout() {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions_dir = temp.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        std::fs::write(
+            sessions_dir.join("keep.jsonl"),
+            concat!(
+                r#"{"type":"session_meta","payload":{"id":"keep-me","cwd":"/keep"}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep"}]}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(sessions_dir.join("zz-skip.jsonl"), "not-json").unwrap();
+        let env = HashMap::from([(
+            "CODEX_HOME".to_string(),
+            temp.path().to_string_lossy().into_owned(),
+        )]);
+
+        let session =
+            crate::load_configured_history_session(AgentKind::Codex, &env, "keep-me").unwrap();
+        assert_eq!(session.external_session_id, "keep-me");
+        assert_eq!(session.messages[0].content, "keep");
+        assert!(crate::load_configured_history_session(AgentKind::Codex, &env, "missing").is_err());
+    }
+
+    #[test]
+    fn skips_oversized_codex_jsonl_lines_without_dropping_the_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout-huge.jsonl");
+        let huge = "x".repeat(jsonl::MAX_HISTORY_LINE_BYTES + 8);
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{huge}\n{}\n",
+                r#"{"timestamp":"2026-08-01T00:00:00Z","type":"session_meta","payload":{"id":"codex-huge-1","cwd":"/workspace/codex"}}"#,
+                r#"{"timestamp":"2026-08-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Keep me"}]}}"#,
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path,
+        })
+        .unwrap();
+
+        assert_eq!(sessions[0].external_session_id, "codex-huge-1");
+        assert_eq!(sessions[0].messages.len(), 1);
+        assert_eq!(sessions[0].messages[0].content, "Keep me");
     }
 
     #[test]
@@ -2275,6 +3071,317 @@ mod tests {
     }
 
     #[test]
+    fn grok_summary_json_supplies_cwd_and_skips_subagents() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp
+            .path()
+            .join("sessions")
+            .join("encoded-cwd")
+            .join("parent-session");
+        let child = temp
+            .path()
+            .join("sessions")
+            .join("encoded-cwd")
+            .join("child-session");
+        std::fs::create_dir_all(&parent).unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::write(
+            parent.join("updates.jsonl"),
+            r#"{"method":"session/update","params":{"sessionId":"parent-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Parent prompt"}}},"timestamp":1783584019}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            parent.join("summary.json"),
+            r#"{"session_kind":"primary","generated_title":"Parent work","info":{"cwd":"/Users/mac/Projects/VibeX"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            child.join("updates.jsonl"),
+            r#"{"method":"session/update","params":{"sessionId":"child-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Child prompt"}}},"timestamp":1783584019}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            child.join("summary.json"),
+            r#"{"session_kind":"subagent","generated_title":"Child"}"#,
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Grok,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].external_session_id, "parent-session");
+        assert_eq!(sessions[0].title.as_deref(), Some("Parent work"));
+        assert_eq!(
+            sessions[0].workspace_path,
+            Some(PathBuf::from("/Users/mac/Projects/VibeX"))
+        );
+    }
+
+    #[test]
+    fn grok_injects_ask_user_answers_from_chat_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_dir = temp.path().join("sessions").join("encoded").join("ask-1");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(
+            session_dir.join("updates.jsonl"),
+            concat!(
+                r#"{"method":"session/update","params":{"sessionId":"grok-ask","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Pick one"}}},"timestamp":1784334520}"#,
+                "\n",
+                r#"{"method":"session/update","params":{"sessionId":"grok-ask","update":{"sessionUpdate":"tool_call","toolCallId":"call-ask-0","title":"ask_user_question","rawInput":{"questions":[{"question":"How?"}]},"_meta":{"x.ai/tool":{"name":"ask_user_question","kind":"ask_user"}}}},"timestamp":1784334521}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            session_dir.join("chat_history.jsonl"),
+            concat!(
+                r#"{"type":"assistant","content":"demo","tool_calls":[{"id":"call-ask-0","name":"ask_user_question","arguments":"{}"}]}"#,
+                "\n",
+                r#"{"type":"tool_result","tool_call_id":"call-ask-0","content":"User has answered your questions: \"How?\"=\"Live demo\". You can now continue."}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Grok,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        let result = sessions[0]
+            .messages
+            .iter()
+            .find(|message| message.metadata.kind.as_deref() == Some("tool_result"))
+            .expect("ask result");
+        assert_eq!(result.metadata.tool_call_id.as_deref(), Some("call-ask-0"));
+        assert!(result.content.contains("Live demo"));
+        assert_eq!(
+            result
+                .metadata
+                .raw_output
+                .as_ref()
+                .and_then(|value| value["declined"].as_bool()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn codex_ignores_duplicate_event_msg_and_prefers_session_index_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions_dir = temp
+            .path()
+            .join("sessions")
+            .join("2026")
+            .join("04")
+            .join("02");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        std::fs::write(
+            temp.path().join("session_index.jsonl"),
+            r#"{"id":"codex-titled","thread_name":"Indexed Codex title"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("rollout-codex-titled.jsonl"),
+            concat!(
+                r#"{"timestamp":"2026-04-02T08:00:00Z","type":"session_meta","payload":{"id":"codex-titled","cwd":"/repo"}}"#,
+                "\n",
+                r#"{"timestamp":"2026-04-02T08:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}}"#,
+                "\n",
+                r#"{"timestamp":"2026-04-02T08:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"Hello"}}"#,
+                "\n",
+                r#"{"timestamp":"2026-04-02T08:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hi"}]}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title.as_deref(), Some("Indexed Codex title"));
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].content, "Hello");
+        assert_eq!(sessions[0].messages[1].content, "Hi");
+    }
+
+    #[test]
+    fn claude_sidechain_records_are_not_imported_as_user_turns() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("claude-sidechain.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","sessionId":"claude-main","cwd":"/repo","message":{"role":"user","content":"Main prompt"}}"#,
+                "\n",
+                r#"{"type":"user","isSidechain":true,"sessionId":"claude-main","message":{"role":"user","content":"Sidechain prompt"}}"#,
+                "\n",
+                r#"{"type":"assistant","sessionId":"claude-main","message":{"role":"assistant","content":"Main reply"}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::ClaudeCode,
+            path,
+        })
+        .unwrap();
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].content, "Main prompt");
+        assert_eq!(sessions[0].messages[1].content, "Main reply");
+    }
+
+    #[test]
+    fn openclaw_strips_sender_metadata_and_reads_working_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("openclaw-meta.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Sender (untrusted metadata):\n```\nfrom: alice\n```\n[Working directory: /Users/mac/Projects/VibeX]\n[12:01]\nShip it"}]}}"#,
+                "\n",
+                r#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Shipped"}]}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Openclaw,
+            path,
+        })
+        .unwrap();
+        assert_eq!(sessions[0].messages[0].content, "Ship it");
+        assert_eq!(
+            sessions[0].workspace_path,
+            Some(PathBuf::from("/Users/mac/Projects/VibeX"))
+        );
+    }
+
+    #[test]
+    fn pi_bash_execution_becomes_a_tool_pair() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pi-bash.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"session","id":"pi-bash","cwd":"/repo"}"#,
+                "\n",
+                r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Run it"}]}}"#,
+                "\n",
+                r#"{"type":"bash_execution","id":"1","command":"ls","output":"src","exitCode":0}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Pi,
+            path,
+        })
+        .unwrap();
+        assert_eq!(sessions[0].messages.len(), 3);
+        assert_eq!(
+            sessions[0].messages[1].metadata.kind.as_deref(),
+            Some("tool_call")
+        );
+        assert_eq!(
+            sessions[0].messages[2].metadata.kind.as_deref(),
+            Some("tool_result")
+        );
+        assert_eq!(sessions[0].messages[2].content, "src");
+    }
+
+    #[test]
+    fn deepseek_reads_zstd_session_logs() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_dir = temp.path().join("sessions").join("demo").join("ds-1");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let raw = concat!(
+            r#"{"role":"user","content":"Read the file"}"#,
+            "\n",
+            r#"{"role":"assistant","content":"Done"}"#,
+            "\n"
+        );
+        let compressed = zstd::encode_all(raw.as_bytes(), 0).unwrap();
+        std::fs::write(session_dir.join("session.jsonl.zstd"), compressed).unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::DeepseekHarness,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].external_session_id, "ds-1");
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].content, "Read the file");
+    }
+
+    #[test]
+    fn deepseek_image_blocks_become_placeholders() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_dir = temp.path().join("sessions").join("demo").join("ds-img");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(
+            session_dir.join("session.jsonl"),
+            concat!(
+                r#"{"role":"user","content":[{"type":"text","text":"What is this?"},{"type":"image","attachment":{"name":"shot.png","mediaType":"image/png"}}]}"#,
+                "\n",
+                r#"{"role":"assistant","content":[{"type":"text","text":"A screenshot."}]}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::DeepseekHarness,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].external_session_id, "ds-img");
+        assert!(sessions[0].messages[0].content.contains("What is this?"));
+        assert!(
+            sessions[0].messages[0]
+                .content
+                .contains("[image: shot.png]")
+        );
+    }
+
+    #[test]
+    fn caps_huge_claude_tool_result_payloads() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("claude-huge.jsonl");
+        let huge = "x".repeat(crate::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4096);
+        let line = format!(
+            r#"{{"type":"user","sessionId":"claude-huge","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"tool-1","content":"{huge}"}}]}}}}"#
+        );
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::ClaudeCode,
+            path,
+        })
+        .unwrap();
+
+        let output = match sessions[0].messages[0].metadata.raw_output.as_ref() {
+            Some(serde_json::Value::String(text)) => text.clone(),
+            other => other.map(ToString::to_string).unwrap_or_default(),
+        };
+        assert!(output.len() <= crate::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4);
+        assert!(output.ends_with('…'));
+        assert!(
+            sessions[0].messages[0].content.len()
+                <= crate::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4
+        );
+    }
+
+    #[test]
     fn imports_opencode_sqlite_history() {
         let temp = tempfile::tempdir().unwrap();
         let database = temp.path().join("opencode.db");
@@ -2441,16 +3548,53 @@ mod tests {
         );
     }
 
-    #[test]
-    fn imports_cursor_store_metadata_and_text() {
-        let temp = tempfile::tempdir().unwrap();
-        let session_dir = temp.path().join("chats").join("cursor-session");
+    fn write_cursor_proto_store(root: &Path, session_id: &str, subagent: bool) {
+        use cursor::proto::{field_bytes, field_str, field_varint};
+
+        let session_dir = root.join("chats").join("cwdhash").join(session_id);
         std::fs::create_dir_all(&session_dir).unwrap();
         std::fs::write(
             session_dir.join("meta.json"),
             r#"{"title":"Cursor session","cwd":"/workspace/cursor"}"#,
         )
         .unwrap();
+
+        let user = field_str(1, "Hello from Cursor");
+        let thinking = field_bytes(3, &field_str(1, "Planning the reply"));
+        let assistant = field_bytes(1, &field_str(1, "All set."));
+        let shell_args = [field_str(1, "ls"), field_str(2, "/workspace/cursor")].concat();
+        let shell_success = [field_str(5, "README.md"), field_varint(3, 0)].concat();
+        let shell_result = field_bytes(1, &shell_success);
+        let shell_call = [field_bytes(1, &shell_args), field_bytes(2, &shell_result)].concat();
+        let tool_call = [field_bytes(1, &shell_call), field_str(57, "call-shell")].concat();
+        let tool_step = field_bytes(2, &tool_call);
+        let agent_turn = [
+            field_bytes(1, &[0x03]),
+            field_bytes(2, &[0x04]),
+            field_bytes(2, &[0x05]),
+            field_bytes(2, &[0x06]),
+        ]
+        .concat();
+        let turn = field_bytes(1, &agent_turn);
+        let timing = [field_varint(1, 1_200), field_varint(2, 1_700_000_123_000)].concat();
+        let repo = [field_str(1, "/workspace/cursor"), field_str(2, "main")].concat();
+        let state = [
+            field_bytes(8, &[0x02]),
+            field_bytes(14, &timing),
+            field_bytes(21, &repo),
+        ]
+        .concat();
+
+        let mut meta = serde_json::json!({
+            "name": "Cursor metadata",
+            "latestRootBlobId": "01",
+            "createdAt": 1_700_000_123_000u64,
+            "lastUsedModel": "gpt-5"
+        });
+        if subagent {
+            meta["subagentInfo"] = serde_json::json!({ "parentChatId": "parent" });
+        }
+
         let database = session_dir.join("store.db");
         let connection = Connection::open(&database).unwrap();
         connection
@@ -2460,18 +3604,29 @@ mod tests {
             )
             .unwrap();
         connection
-            .execute(
-                "INSERT INTO meta VALUES ('0', ?1)",
-                [r#"{"name":"Cursor metadata"}"#],
-            )
+            .execute("INSERT INTO meta VALUES ('0', ?1)", [meta.to_string()])
             .unwrap();
-        connection
-            .execute(
-                "INSERT INTO blobs VALUES ('1', ?1)",
-                [b"This is a recoverable Cursor conversation message".as_slice()],
-            )
-            .unwrap();
-        drop(connection);
+        for (id, data) in [
+            ("01", state.as_slice()),
+            ("02", turn.as_slice()),
+            ("03", user.as_slice()),
+            ("04", thinking.as_slice()),
+            ("05", tool_step.as_slice()),
+            ("06", assistant.as_slice()),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO blobs VALUES (?1, ?2)",
+                    rusqlite::params![id, data],
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn imports_cursor_protobuf_dag_with_roles_tools_and_timestamps() {
+        let temp = tempfile::tempdir().unwrap();
+        write_cursor_proto_store(temp.path(), "cursor-session", false);
 
         let sessions = import_history_source(&AgentHistorySource {
             agent_type: AgentKind::Cursor,
@@ -2482,7 +3637,90 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].external_session_id, "cursor-session");
         assert_eq!(sessions[0].title.as_deref(), Some("Cursor session"));
-        assert!(sessions[0].messages[0].content.contains("recoverable"));
+        assert_eq!(
+            sessions[0].workspace_path.as_deref(),
+            Some(Path::new("/workspace/cursor"))
+        );
+        assert_eq!(sessions[0].messages[0].role, ImportedAgentMessageRole::User);
+        assert_eq!(sessions[0].messages[0].content, "Hello from Cursor");
+        assert_eq!(
+            sessions[0].messages[1].metadata.kind.as_deref(),
+            Some("reasoning")
+        );
+        assert_eq!(sessions[0].messages[2].role, ImportedAgentMessageRole::Tool);
+        assert_eq!(
+            sessions[0].messages[2].metadata.kind.as_deref(),
+            Some("tool_call")
+        );
+        assert_eq!(
+            sessions[0].messages[2].metadata.tool_name.as_deref(),
+            Some("shell")
+        );
+        assert_eq!(
+            sessions[0].messages[3].metadata.kind.as_deref(),
+            Some("tool_result")
+        );
+        assert_eq!(sessions[0].messages[3].content, "README.md");
+        assert_eq!(
+            sessions[0].messages[4].role,
+            ImportedAgentMessageRole::Assistant
+        );
+        assert_eq!(sessions[0].messages[4].content, "All set.");
+        assert_eq!(
+            sessions[0].messages[4].metadata.model.as_deref(),
+            Some("gpt-5")
+        );
+        assert!(sessions[0].messages[0].created_at.is_some());
+    }
+
+    #[test]
+    fn cursor_subagent_and_empty_stores_are_not_listed() {
+        let temp = tempfile::tempdir().unwrap();
+        write_cursor_proto_store(temp.path(), "cursor-child", true);
+        let empty_dir = temp.path().join("acp-sessions").join("cursor-empty");
+        std::fs::create_dir_all(&empty_dir).unwrap();
+        let database = empty_dir.join("store.db");
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE meta (key TEXT, value TEXT);\
+                 CREATE TABLE blobs (id TEXT, data BLOB);",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO meta VALUES ('0', ?1)",
+                [r#"{"name":"Empty","latestRootBlobId":"aa"}"#],
+            )
+            .unwrap();
+        drop(connection);
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Cursor,
+            path: temp.path().to_path_buf(),
+        })
+        .unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn scan_lists_cursor_sqlite_stores() {
+        let temp = tempfile::tempdir().unwrap();
+        write_cursor_proto_store(temp.path(), "cursor-scan", false);
+        let entries = scan_configured_history(
+            AgentKind::Cursor,
+            &HashMap::from([(
+                "CURSOR_CONFIG_DIR".to_string(),
+                temp.path().to_string_lossy().into_owned(),
+            )]),
+        )
+        .unwrap();
+        let scanned = entries
+            .iter()
+            .find(|entry| entry.external_session_id == "cursor-scan")
+            .expect("configured Cursor root is scanned");
+        assert_eq!(scanned.title.as_deref(), Some("Cursor session"));
+        assert!(scanned.updated_at.is_some());
     }
 
     #[cfg(unix)]

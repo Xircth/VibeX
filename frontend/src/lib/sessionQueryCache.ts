@@ -3,6 +3,22 @@ import type { Session } from 'shared/types';
 import type { SessionSummary } from '@/lib/api';
 import type { WorkspaceWithSession } from '@/types/attempt';
 
+export const WORKSPACE_SESSIONS_CHANGED_EVENT = 'workspace-sessions-changed';
+
+export type WorkspaceSessionsChangedPayload = {
+  workspace_id: string;
+  conversation_id: string;
+};
+
+export function invalidateWorkspaceSessions(
+  queryClient: QueryClient,
+  workspaceId: string
+) {
+  return queryClient.invalidateQueries({
+    queryKey: ['workspaceSessions', workspaceId],
+  });
+}
+
 type SessionListCacheEntry = Pick<Session, 'id'> | Pick<SessionSummary, 'id'>;
 
 export function removeSessionsFromWorkspaceCaches(

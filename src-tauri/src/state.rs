@@ -12,6 +12,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
     desktop_toast::DesktopToastPayload,
+    local_history::LocalHistoryImportRuntime,
     local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
 };
 
@@ -35,6 +36,7 @@ pub struct AgentManagementRuntimeState {
     local_runtime_discovery_progress: Mutex<LocalRuntimeDiscoveryProgress>,
     built_in_probes: Mutex<HashSet<AgentId>>,
     local_runtimes: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
+    acp_adapters: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +96,7 @@ impl AgentManagementRuntimeState {
         *self.local_runtime_discovery_progress.lock().await = Default::default();
         self.built_in_probes.lock().await.clear();
         self.local_runtimes.lock().await.clear();
+        self.acp_adapters.lock().await.clear();
     }
 
     pub async fn begin_local_runtime_discovery(&self, total: u32) {
@@ -154,6 +157,26 @@ impl AgentManagementRuntimeState {
     pub async fn local_runtimes(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
         self.local_runtimes.lock().await.clone()
     }
+
+    pub async fn replace_acp_adapter(
+        &self,
+        agent_id: AgentId,
+        evidence: Option<LocalRuntimeEvidence>,
+    ) {
+        let mut acp_adapters = self.acp_adapters.lock().await;
+        match evidence {
+            Some(evidence) => {
+                acp_adapters.insert(agent_id, evidence);
+            }
+            None => {
+                acp_adapters.remove(&agent_id);
+            }
+        }
+    }
+
+    pub async fn acp_adapters(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
+        self.acp_adapters.lock().await.clone()
+    }
 }
 
 pub struct AppState {
@@ -188,6 +211,7 @@ pub struct AppState {
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
     pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
+    pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
 }
 
 impl AppState {
@@ -361,6 +385,7 @@ impl AppState {
             plugin_capability_broker,
             plugin_app_surfaces,
             remote_desktop,
+            local_history_import: Arc::new(StdMutex::new(LocalHistoryImportRuntime::default())),
         })
     }
 
@@ -486,10 +511,21 @@ mod tests {
             )
             .await;
         assert!(runtime.local_runtime(&claude).await.is_some());
+        runtime
+            .replace_acp_adapter(
+                claude.clone(),
+                Some(LocalRuntimeEvidence {
+                    path: r"C:\Users\developer\AppData\Roaming\npm\claude-agent-acp.cmd".into(),
+                    version: Some("0.69.0".to_string()),
+                }),
+            )
+            .await;
+        assert!(!runtime.acp_adapters().await.is_empty());
 
         runtime.reset().await;
 
         assert!(runtime.should_probe_built_in(&claude, false).await);
         assert!(runtime.local_runtime(&claude).await.is_none());
+        assert!(runtime.acp_adapters().await.is_empty());
     }
 }

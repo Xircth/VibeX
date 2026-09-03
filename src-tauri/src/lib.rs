@@ -1065,6 +1065,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::agents::agent_import_local_history,
         commands::local_history::agent_scan_local_history,
         commands::local_history::agent_import_local_history_batch,
+        commands::local_history::agent_local_history_import_snapshot,
         commands::agents::agent_list_remote_sessions,
         commands::agents::agent_delete_remote_session,
         commands::agents::agent_import_remote_session,

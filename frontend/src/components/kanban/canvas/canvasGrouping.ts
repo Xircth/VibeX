@@ -1191,16 +1191,20 @@ export function dropHintsEqual(
   right: CanvasDropHint | null
 ): boolean {
   if (left === right) return true;
-  if (!left || !right || left.type !== right.type) return false;
+  if (!left || !right) return false;
   switch (left.type) {
     case 'canvas':
       return right.type === 'canvas';
     case 'group':
     case 'same':
+<<<<<<< HEAD
       return (
         (right.type === 'group' || right.type === 'same') &&
         left.groupId === right.groupId
       );
+=======
+      return right.type === left.type && left.groupId === right.groupId;
+>>>>>>> dd80ca23 (fix(kanban): restore canvas type checking for drop hints and group resize)
     case 'merge':
       return (
         right.type === 'merge' &&

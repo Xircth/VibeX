@@ -53,6 +53,8 @@ export function describeWindowLabel(
       return { key: 'windowCursorModels' };
     case 'other_models':
       return { key: 'windowOtherModels' };
+    case 'weekly':
+      return { key: 'windowWeekly' };
     case 'monthly':
       return { key: 'windowMonthly' };
     default: {

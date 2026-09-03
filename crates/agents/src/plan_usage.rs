@@ -30,7 +30,10 @@ const CLAUDE_OAUTH_BETA_HEADER: &str = "oauth-2025-04-20";
 const CLAUDE_USAGE_USER_AGENT: &str = "claude-code/2.1.2";
 const CLAUDE_USAGE_TIMEOUT_SECS: u64 = 15;
 const GROK_SETTINGS_URL: &str = "https://cli-chat-proxy.grok.com/v1/settings";
-const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing";
+/// `format=credits` is the shape the Grok CLI itself reads. The unparameterized
+/// response only describes pay-as-you-go monthly billing, so subscription
+/// accounts get `monthlyLimit: 0` and no usable window.
+const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const GROK_USAGE_USER_AGENT: &str = "grok-cli";
 const GROK_USAGE_TIMEOUT_SECS: u64 = 15;
 const GROK_OIDC_DISCOVERY_URL: &str = "https://auth.x.ai/.well-known/openid-configuration";
@@ -47,8 +50,8 @@ const CURSOR_USAGE_TIMEOUT_SECS: u64 = 15;
 pub struct PlanUsageWindow {
     /// Stable window identifier the frontend maps to a localized label.
     /// Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
-    /// `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `monthly`.
-    /// Cursor: `cursor_models` / `other_models`.
+    /// `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
+    /// `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
     pub id: String,
     pub used_percent: Option<f64>,
     #[ts(type = "number | null")]
@@ -853,6 +856,38 @@ async fn grok_authorized_json(
         .map_err(|error| PlanUsageResult::error(error.to_string()))
 }
 
+fn grok_window_id(period_type: Option<&str>) -> &'static str {
+    match period_type {
+        Some("USAGE_PERIOD_TYPE_WEEKLY") => "weekly",
+        Some("USAGE_PERIOD_TYPE_MONTHLY") => "monthly",
+        _ => "plan_period",
+    }
+}
+
+/// Remaining pay-as-you-go allowance: prepaid credits first, then whatever is
+/// left under the on-demand spending cap.
+fn grok_credits(config: &Value) -> Option<PlanCredits> {
+    let amount = config
+        .get("prepaidBalance")
+        .and_then(wrapped_number)
+        .filter(|balance| *balance > 0.0)
+        .or_else(|| {
+            let cap = config
+                .get("onDemandCap")
+                .and_then(wrapped_number)
+                .filter(|cap| *cap > 0.0)?;
+            let used = config
+                .get("onDemandUsed")
+                .and_then(wrapped_number)
+                .unwrap_or(0.0);
+            Some((cap - used).max(0.0))
+        })?;
+    Some(PlanCredits {
+        balance: Some(format!("{amount:.2}")),
+        unlimited: false,
+    })
+}
+
 fn map_grok_plan_usage(settings: &Value, billing: &Value) -> AgentPlanUsage {
     let plan_type = settings
         .get("subscription_tier_display")
@@ -861,37 +896,41 @@ fn map_grok_plan_usage(settings: &Value, billing: &Value) -> AgentPlanUsage {
         .map(str::to_string);
 
     let config = billing.get("config").unwrap_or(billing);
-    let used = config.get("used").and_then(wrapped_number);
-    let limit = config.get("monthlyLimit").and_then(wrapped_number);
-    let period_start = config.get("billingPeriodStart").and_then(parse_rfc3339_ms);
-    let period_end = config.get("billingPeriodEnd").and_then(parse_rfc3339_ms);
+    let period = config.get("currentPeriod");
+    let period_bound = |period_key: &str, config_key: &str| {
+        period
+            .and_then(|period| period.get(period_key))
+            .and_then(parse_rfc3339_ms)
+            .or_else(|| config.get(config_key).and_then(parse_rfc3339_ms))
+    };
+    let period_start = period_bound("start", "billingPeriodStart");
+    let period_end = period_bound("end", "billingPeriodEnd");
     let window_minutes = match (period_start, period_end) {
         (Some(start), Some(end)) if end > start => Some((end - start) / 60_000),
         _ => None,
     };
 
-    let mut windows = Vec::new();
-    if let Some(limit) = limit
-        && limit > 0.0
-    {
-        windows.push(PlanUsageWindow {
-            id: "monthly".to_string(),
-            used_percent: used.map(|used| (used / limit) * 100.0),
+    let windows = config
+        .get("creditUsagePercent")
+        .and_then(wrapped_number)
+        .map(|used_percent| PlanUsageWindow {
+            id: grok_window_id(
+                period
+                    .and_then(|period| period.get("type"))
+                    .and_then(Value::as_str),
+            )
+            .to_string(),
+            used_percent: Some(used_percent),
             window_minutes,
             resets_at_ms: period_end,
-        });
-    }
-
-    let on_demand = config.get("onDemandCap").and_then(wrapped_number);
-    let credits = on_demand.filter(|cap| *cap > 0.0).map(|cap| PlanCredits {
-        balance: Some(cap.to_string()),
-        unlimited: false,
-    });
+        })
+        .into_iter()
+        .collect();
 
     AgentPlanUsage {
         plan_type,
         windows,
-        credits,
+        credits: grok_credits(config),
     }
 }
 
@@ -1217,33 +1256,46 @@ mod tests {
     }
 
     #[test]
-    fn grok_usage_maps_plan_and_skips_zero_limit() {
+    fn grok_usage_maps_weekly_subscription_period() {
         let settings = json!({ "subscription_tier_display": "SuperGrok Heavy" });
         let billing = json!({
             "config": {
-                "monthlyLimit": { "val": 0 },
-                "used": { "val": 0 },
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-08-28T13:59:50.639993+00:00",
+                    "end": "2026-09-04T13:59:50.639993+00:00"
+                },
+                "creditUsagePercent": 100.0,
                 "onDemandCap": { "val": 0 },
-                "billingPeriodStart": "2026-08-01T00:00:00+00:00",
-                "billingPeriodEnd": "2026-09-01T00:00:00+00:00"
+                "onDemandUsed": { "val": 0 },
+                "prepaidBalance": { "val": 0 },
+                "billingPeriodStart": "2026-08-28T13:59:50.639993+00:00",
+                "billingPeriodEnd": "2026-09-04T13:59:50.639993+00:00"
             }
         });
         let usage = map_grok_plan_usage(&settings, &billing);
         assert_eq!(usage.plan_type.as_deref(), Some("SuperGrok Heavy"));
-        assert!(usage.windows.is_empty());
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "weekly");
+        assert_eq!(usage.windows[0].used_percent, Some(100.0));
+        assert_eq!(usage.windows[0].window_minutes, Some(10_080));
+        assert!(usage.windows[0].resets_at_ms.is_some());
         assert!(usage.credits.is_none());
     }
 
     #[test]
-    fn grok_usage_maps_monthly_window_from_wrapped_amounts() {
+    fn grok_usage_maps_monthly_period_and_on_demand_remainder() {
         let settings = json!({ "subscription_tier_display": "SuperGrok" });
         let billing = json!({
             "config": {
-                "monthlyLimit": { "val": 200 },
-                "used": { "val": 50 },
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_MONTHLY",
+                    "start": "2026-08-01T00:00:00Z",
+                    "end": "2026-09-01T00:00:00Z"
+                },
+                "creditUsagePercent": 25.0,
                 "onDemandCap": { "val": 25 },
-                "billingPeriodStart": "2026-08-01T00:00:00Z",
-                "billingPeriodEnd": "2026-09-01T00:00:00Z"
+                "onDemandUsed": { "val": 10 }
             }
         });
         let usage = map_grok_plan_usage(&settings, &billing);
@@ -1251,8 +1303,25 @@ mod tests {
         assert_eq!(usage.windows[0].id, "monthly");
         assert_eq!(usage.windows[0].used_percent, Some(25.0));
         assert_eq!(usage.windows[0].window_minutes, Some(44_640));
-        assert!(usage.windows[0].resets_at_ms.is_some());
-        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("25"));
+        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("15.00"));
+    }
+
+    #[test]
+    fn grok_usage_prefers_prepaid_balance_and_falls_back_to_duration_label() {
+        let settings = json!({});
+        let billing = json!({
+            "config": {
+                "creditUsagePercent": 12.5,
+                "prepaidBalance": { "val": 40 },
+                "onDemandCap": { "val": 25 },
+                "onDemandUsed": { "val": 10 }
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert!(usage.plan_type.is_none());
+        assert_eq!(usage.windows[0].id, "plan_period");
+        assert_eq!(usage.windows[0].window_minutes, None);
+        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("40.00"));
     }
 
     #[test]

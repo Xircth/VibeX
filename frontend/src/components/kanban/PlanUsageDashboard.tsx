@@ -1,22 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CreditCard, RefreshCw } from 'lucide-react';
 import type {
   AgentId,
+  AgentAuthModeView,
   AgentManagementView,
   AgentPlanUsage,
   PlanUsageWindow,
 } from 'shared/types';
 import { PlanUsageUnavailableReason } from 'shared/types';
-import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { toast } from '@/components/ui/toast';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import {
   agentManagementApi,
   agentManagementErrorMessage,
@@ -32,7 +26,6 @@ import {
 
 // The Claude usage endpoint is rate limited; keep probes to one per 3 minutes.
 const PLAN_USAGE_STALE_TIME_MS = 180_000;
-const SELECTED_AGENT_STORAGE_KEY = 'vibex.plan-usage.selected-agent';
 
 const PLAN_CAPABLE_AGENT_IDS = [
   'claude_code',
@@ -42,6 +35,13 @@ const PLAN_CAPABLE_AGENT_IDS = [
 ] as const;
 
 type PlanCapableAgentId = (typeof PLAN_CAPABLE_AGENT_IDS)[number];
+
+const SUBSCRIPTION_MODES: Record<PlanCapableAgentId, string> = {
+  claude_code: 'official_subscription',
+  codex: 'chatgpt_subscription',
+  grok: 'subscription',
+  cursor: 'subscription',
+};
 
 const UNAVAILABLE_REASON_KEYS: Record<PlanUsageUnavailableReason, string> = {
   [PlanUsageUnavailableReason.UNSUPPORTED_AGENT]: 'reasonUnsupported',
@@ -62,21 +62,16 @@ function isPlanCapableAgentId(agentId: string): agentId is PlanCapableAgentId {
   return (PLAN_CAPABLE_AGENT_IDS as readonly string[]).includes(agentId);
 }
 
-function readStoredAgentId(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredAgentId(agentId: string) {
-  try {
-    window.localStorage.setItem(SELECTED_AGENT_STORAGE_KEY, agentId);
-  } catch {
-    // Ignore quota / private-mode failures; selection still lives in state.
-  }
+function isSignedInSubscription(
+  agent: AgentManagementView,
+  authMode: AgentAuthModeView | undefined
+) {
+  return (
+    agent.enabled &&
+    agent.authentication === 'account' &&
+    isPlanCapableAgentId(agent.agent_id) &&
+    authMode?.mode === SUBSCRIPTION_MODES[agent.agent_id]
+  );
 }
 
 function usePlanKey() {
@@ -287,115 +282,70 @@ function AgentPlanSection({
   );
 }
 
-function PlanUsageAgentBar({
-  agents,
-  selectedAgentId,
-  onSelect,
-}: {
-  agents: AgentManagementView[];
-  selectedAgentId: string | null;
-  onSelect: (agentId: string) => void;
-}) {
-  const pt = usePlanKey();
-
-  return (
-    <TooltipProvider delayDuration={180}>
-      <nav aria-label={pt('agentBarAria')} className="agent-management-bar">
-        <span aria-hidden="true" className="agent-management-bar-surface" />
-        <div className="agent-management-bar-scroll">
-          {agents.map((agent) => {
-            const selected = selectedAgentId === agent.agent_id;
-            return (
-              <Tooltip key={agent.agent_id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-current={selected ? 'true' : undefined}
-                    aria-label={agent.display_name}
-                    className={cn(
-                      'agent-management-bar-item',
-                      selected && 'is-selected'
-                    )}
-                    onClick={() => onSelect(agent.agent_id)}
-                  >
-                    <AgentManagementIcon agent={agent} className="h-6 w-6" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{agent.display_name}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
-      </nav>
-    </TooltipProvider>
-  );
-}
-
 export function PlanUsageDashboard() {
   const pt = usePlanKey();
   const management = useAgentManagement();
-  const enabledPlanAgents = useMemo(
+  const candidatePlanAgents = useMemo(
     () =>
       management.state.agents.filter(
-        (agent) => agent.enabled && isPlanCapableAgentId(agent.agent_id)
+        (agent) =>
+          agent.enabled &&
+          agent.authentication === 'account' &&
+          isPlanCapableAgentId(agent.agent_id)
       ),
     [management.state.agents]
   );
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    readStoredAgentId
+  const authQueries = useQueries({
+    queries: candidatePlanAgents.map((agent) => ({
+      queryKey: ['agent-auth-mode', agent.agent_id],
+      queryFn: () => agentManagementApi.authMode(agent.agent_id),
+      staleTime: PLAN_USAGE_STALE_TIME_MS,
+      refetchOnWindowFocus: false,
+    })),
+  });
+  const subscribedPlanAgents = useMemo(
+    () =>
+      candidatePlanAgents.filter((agent, index) =>
+        isSignedInSubscription(agent, authQueries[index]?.data)
+      ),
+    [authQueries, candidatePlanAgents]
+  );
+  const authLoading = authQueries.some(
+    (query) => query.isLoading || query.isPending
   );
 
-  useEffect(() => {
-    if (enabledPlanAgents.length === 0) {
-      if (selectedAgentId !== null) setSelectedAgentId(null);
-      return;
-    }
-    const stillVisible = enabledPlanAgents.some(
-      (agent) => agent.agent_id === selectedAgentId
-    );
-    if (stillVisible) return;
-    setSelectedAgentId(enabledPlanAgents[0].agent_id);
-  }, [enabledPlanAgents, selectedAgentId]);
-
-  useEffect(() => {
-    if (selectedAgentId) writeStoredAgentId(selectedAgentId);
-  }, [selectedAgentId]);
-
-  const selectedAgent =
-    enabledPlanAgents.find((agent) => agent.agent_id === selectedAgentId) ??
-    null;
-  const copy =
-    selectedAgent && isPlanCapableAgentId(selectedAgent.agent_id)
-      ? PLAN_COPY[selectedAgent.agent_id]
-      : null;
-
   return (
-    <div className="plan-usage-page mx-auto flex w-full max-w-4xl flex-col gap-6">
-      {management.loading && enabledPlanAgents.length === 0 ? (
+    <div className="plan-usage-page mx-auto flex w-full max-w-4xl flex-col gap-4">
+      {management.loading || authLoading ? (
         <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
           {pt('loading')}
         </div>
-      ) : enabledPlanAgents.length === 0 ? (
+      ) : subscribedPlanAgents.length === 0 ? (
         <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
-          {pt('emptyEnabled')}
+          {pt('emptySignedIn')}
         </div>
       ) : (
-        <>
-          <PlanUsageAgentBar
-            agents={enabledPlanAgents}
-            selectedAgentId={selectedAgent?.agent_id ?? null}
-            onSelect={setSelectedAgentId}
-          />
-          {selectedAgent && copy ? (
-            <AgentPlanSection
-              agentId={selectedAgent.agent_id}
-              title={pt(copy.title)}
-              sourceNote={pt(copy.source)}
-            />
-          ) : null}
-        </>
+        <div className="flex flex-col gap-4">
+          {subscribedPlanAgents.map((agent) => {
+            const copy = PLAN_COPY[agent.agent_id as PlanCapableAgentId];
+            return (
+              <div
+                key={agent.agent_id}
+                className="rounded-xl border border-border bg-card p-4"
+              >
+                <AgentPlanSection
+                  agentId={agent.agent_id}
+                  title={pt(copy.title)}
+                  sourceNote={pt(copy.source)}
+                />
+              </div>
+            );
+          })}
+        </div>
       )}
-      <p className="text-xs text-muted-foreground">{pt('hint')}</p>
+      {!authLoading && subscribedPlanAgents.length > 0 ? (
+        <p className="text-xs text-muted-foreground">{pt('hint')}</p>
+      ) : null}
     </div>
   );
 }

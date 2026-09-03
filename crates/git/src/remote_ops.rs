@@ -288,39 +288,12 @@ impl GitService {
         target_path: &Path,
         token: Option<&str>,
     ) -> Result<Repository, GitServiceError> {
-        use git2::{Cred, FetchOptions, RemoteCallbacks};
-
+        GitService::new();
         if let Some(parent) = target_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut callbacks = RemoteCallbacks::new();
-        if let Some(token) = token {
-            callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                Cred::userpass_plaintext(username_from_url.unwrap_or("git"), token)
-            });
-        } else {
-            callbacks.credentials(|_url, username_from_url, _| {
-                if let Some(username) = username_from_url
-                    && let Ok(cred) = Cred::ssh_key_from_agent(username)
-                {
-                    return Ok(cred);
-                }
-
-                let home = dirs::home_dir()
-                    .ok_or_else(|| git2::Error::from_str("Could not find home directory"))?;
-                let key_path = home.join(".ssh").join("id_rsa");
-                Cred::ssh_key(username_from_url.unwrap_or("git"), None, &key_path, None)
-            });
-        }
-
-        let mut fetch_opts = FetchOptions::new();
-        fetch_opts.remote_callbacks(callbacks);
-
-        let mut builder = git2::build::RepoBuilder::new();
-        builder.fetch_options(fetch_opts);
-
-        let repo = builder.clone(clone_url, target_path)?;
+        GitCli::new().clone_repository(clone_url, target_path, token)?;
 
         tracing::info!(
             "Successfully cloned repository from {} to {}",
@@ -328,6 +301,6 @@ impl GitService {
             target_path.display()
         );
 
-        Ok(repo)
+        Ok(Repository::open(target_path)?)
     }
 }

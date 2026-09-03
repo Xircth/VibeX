@@ -87,6 +87,7 @@ pub struct StatusDiffOptions {
 
 impl GitCli {
     const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+    const CLONE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
     pub fn new() -> Self {
         Self {}
@@ -1121,6 +1122,34 @@ impl GitCli {
         self.git(worktree_path, ["branch", branch_name, sha])?;
         Ok(())
     }
+
+    /// Clone into `target_path` with the system Git TLS stack.
+    pub fn clone_repository(
+        &self,
+        clone_url: &str,
+        target_path: &Path,
+        token: Option<&str>,
+    ) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        let url = authenticated_https_url(clone_url, token);
+        let parent = target_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        self.git_impl_timed(
+            parent,
+            [
+                OsString::from("clone"),
+                OsString::from("--"),
+                OsString::from(url),
+                target_path.as_os_str().to_os_string(),
+            ],
+            None,
+            None,
+            Self::CLONE_TIMEOUT,
+        )?;
+        Ok(())
+    }
 }
 
 // Private methods
@@ -1187,6 +1216,21 @@ impl GitCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        self.git_impl_timed(repo_path, args, envs, stdin, Self::DEFAULT_COMMAND_TIMEOUT)
+    }
+
+    fn git_impl_timed<I, S>(
+        &self,
+        repo_path: &Path,
+        args: I,
+        envs: Option<&[(OsString, OsString)]>,
+        stdin: Option<&[u8]>,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, GitCliError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         let git = self.git_executable()?;
         let mut cmd = new_hidden_std_command(git, std::iter::empty::<&OsStr>());
         cmd.arg("-c")
@@ -1242,7 +1286,7 @@ impl GitCli {
             .take()
             .ok_or_else(|| GitCliError::CommandFailed("git stderr pipe missing".to_string()))?;
         let status = match child
-            .wait_timeout(Self::DEFAULT_COMMAND_TIMEOUT)
+            .wait_timeout(timeout)
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?
         {
             Some(status) => status,
@@ -1251,7 +1295,7 @@ impl GitCli {
                 let _ = child.wait();
                 return Err(GitCliError::CommandFailed(format!(
                     "git command timed out after {}s",
-                    Self::DEFAULT_COMMAND_TIMEOUT.as_secs()
+                    timeout.as_secs()
                 )));
             }
         };
@@ -1374,6 +1418,41 @@ impl GitCli {
             .collect()
     }
 }
+
+fn authenticated_https_url(clone_url: &str, token: Option<&str>) -> String {
+    let Some(token) = token.map(str::trim).filter(|value| !value.is_empty()) else {
+        return clone_url.to_string();
+    };
+    let Some(rest) = clone_url.strip_prefix("https://") else {
+        return clone_url.to_string();
+    };
+    if rest.contains('@') {
+        return clone_url.to_string();
+    }
+    format!("https://x-access-token:{token}@{rest}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::authenticated_https_url;
+
+    #[test]
+    fn https_clone_url_embeds_a_token() {
+        assert_eq!(
+            authenticated_https_url("https://github.com/org/repo.git", Some(" secret ")),
+            "https://x-access-token:secret@github.com/org/repo.git"
+        );
+        assert_eq!(
+            authenticated_https_url("https://user@github.com/org/repo.git", Some("secret")),
+            "https://user@github.com/org/repo.git"
+        );
+        assert_eq!(
+            authenticated_https_url("git@github.com:org/repo.git", Some("secret")),
+            "git@github.com:org/repo.git"
+        );
+    }
+}
+
 /// Parsed entry from `git status --porcelain`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusEntry {

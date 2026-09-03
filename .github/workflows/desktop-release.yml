@@ -258,11 +258,11 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Setup sccache
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.artifact_name != 'macos-x64'
         uses: BloopAI/sccache-action@main
 
-      - name: Disable sccache on Windows
-        if: runner.os == 'Windows'
+      - name: Disable sccache on Windows and Intel macOS
+        if: runner.os == 'Windows' || matrix.artifact_name == 'macos-x64'
         shell: bash
         run: |
           echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"

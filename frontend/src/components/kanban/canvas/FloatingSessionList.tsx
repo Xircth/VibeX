@@ -25,7 +25,7 @@ export function FloatingSessionList({
       )}
       style={{ width }}
     >
-      <div className="session-canvas-floating-list flex min-h-0 min-w-0 flex-1">
+      <div className="session-canvas-floating-list relative flex min-h-0 min-w-0 flex-1">
         {children}
       </div>
     </div>

@@ -8,6 +8,7 @@ import { useSessionCanvasView } from './CanvasViewContext';
 export interface SessionCanvasDetailData {
   sessionId: string;
   instanceId?: string;
+  slotIndex?: number | null;
   [key: string]: unknown;
 }
 
@@ -56,6 +57,7 @@ export const SessionCanvasDetailNode = memo(
           session={session}
           variant="canvas"
           selected={selected}
+          slotIndex={typeof data.slotIndex === 'number' ? data.slotIndex : null}
           onZoom={() => resetCardSize(instanceId)}
           onClose={() => collapseCard(instanceId)}
         />
@@ -65,5 +67,6 @@ export const SessionCanvasDetailNode = memo(
   (previous, next) =>
     previous.data.sessionId === next.data.sessionId &&
     previous.data.instanceId === next.data.instanceId &&
+    previous.data.slotIndex === next.data.slotIndex &&
     previous.selected === next.selected
 );

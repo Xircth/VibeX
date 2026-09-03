@@ -1,9 +1,40 @@
-import type { DragEndEvent } from '@dnd-kit/core';
+import type { DragEndEvent, Modifier } from '@dnd-kit/core';
 
 export const CANVAS_DROP_IGNORE_SELECTOR =
   '.session-hub-sidebar, .session-canvas-floating-panel, .session-canvas-create-panel';
 
 export const SESSION_LIST_DRAG_OVERLAY_CLASS = 'session-list-drag-overlay';
+
+export const snapDragOverlayToCursor: Modifier = ({
+  activatorEvent,
+  draggingNodeRect,
+  transform,
+}) => {
+  if (
+    !draggingNodeRect ||
+    !activatorEvent ||
+    !('clientX' in activatorEvent) ||
+    !('clientY' in activatorEvent) ||
+    typeof activatorEvent.clientX !== 'number' ||
+    typeof activatorEvent.clientY !== 'number'
+  ) {
+    return transform;
+  }
+
+  return {
+    ...transform,
+    x:
+      transform.x +
+      activatorEvent.clientX -
+      draggingNodeRect.left -
+      draggingNodeRect.width / 2,
+    y:
+      transform.y +
+      activatorEvent.clientY -
+      draggingNodeRect.top -
+      draggingNodeRect.height / 2,
+  };
+};
 
 export function dragEndClientPoint(
   event: Pick<DragEndEvent, 'active' | 'delta' | 'activatorEvent'>

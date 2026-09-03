@@ -16,6 +16,7 @@ const STORAGE_KEYS = {
   'vibex:kanban-session-list-view': 'kanban_session_list_view',
   'vibex:kanban-board-style': 'kanban_board_style',
   'vibex:kanban-canvas-list-visible': 'kanban_canvas_list_visible',
+  'vibex:kanban-canvas': 'kanban_canvas',
   'vibex:activity-rail-order': 'activity_rail_order',
   'editor-settings': 'editor_settings',
   'vibex:key-overrides': 'key_overrides',

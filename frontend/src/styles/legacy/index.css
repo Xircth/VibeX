@@ -258,8 +258,32 @@
     --status-failed-foreground: var(--destructive-foreground);
     --status-paused: var(--warning);
     --status-paused-foreground: var(--warning-foreground);
-    /* Kanban 会话监控区 Slot 2（紫）专用色；Slot 1/3/4 复用 primary/success/warning。 */
+    /* Kanban 会话色条：必须是 HSL 分量，供 hsl(var(--session-slot-N)) 使用。 */
     --session-slot-purple: 265 60% 60%;
+    --session-slot-1: var(--_primary);
+    --session-slot-2: var(--session-slot-purple);
+    --session-slot-3: var(--_success);
+    --session-slot-4: var(--_warning);
+    --session-slot-5: 200 70% 48%;
+    --session-slot-6: 185 65% 42%;
+    --session-slot-7: 170 60% 40%;
+    --session-slot-8: 145 55% 42%;
+    --session-slot-9: 90 55% 42%;
+    --session-slot-10: 55 70% 48%;
+    --session-slot-11: 35 80% 52%;
+    --session-slot-12: 15 75% 52%;
+    --session-slot-13: 350 65% 52%;
+    --session-slot-14: 330 60% 52%;
+    --session-slot-15: 310 55% 52%;
+    --session-slot-16: 290 55% 52%;
+    --session-slot-17: 250 55% 55%;
+    --session-slot-18: 230 60% 52%;
+    --session-slot-19: 215 70% 48%;
+    --session-slot-20: 80 40% 40%;
+    --session-slot-21: 25 45% 45%;
+    --session-slot-22: 275 40% 45%;
+    --session-slot-23: 195 45% 38%;
+    --session-slot-24: 0 55% 48%;
     /* Usage 统计卡片彩色毛玻璃底色（低饱和粉/蓝/绿/红）。 */
     --usage-pink: hsl(345 45% 94% / 0.72);
     --usage-pink-border: hsl(345 40% 60% / 0.26);
@@ -408,9 +432,15 @@
 
   html.desktop-toast-shell,
   html.desktop-toast-shell body,
-  html.desktop-toast-shell #root {
+  html.desktop-toast-shell #root,
+  html.desktop-toast-shell .legacy-design,
+  html.desktop-toast-shell .legacy-design-shell {
     background: transparent !important;
     overflow: hidden;
+  }
+
+  html.desktop-toast-shell .legacy-design {
+    color-scheme: unset;
   }
 
   html,
@@ -3512,6 +3542,7 @@
     min-height: 2.25rem;
     overflow: hidden;
     padding-right: 0.25rem;
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     color: var(--text-primary);
   }
@@ -3861,6 +3892,12 @@
     color: hsl(var(--success));
   }
 
+  .session-status-inreview-pill {
+    border: 1px solid hsl(var(--warning) / 0.38);
+    background: hsl(var(--warning) / 0.12);
+    color: hsl(var(--warning));
+  }
+
   .session-status-todo-text {
     color: hsl(var(--destructive));
   }
@@ -3924,19 +3961,19 @@
   }
 
   .session-marker-slot-1 {
-    background: hsl(var(--primary));
+    background: hsl(var(--session-slot-1));
   }
 
   .session-marker-slot-2 {
-    background: hsl(var(--session-slot-purple));
+    background: hsl(var(--session-slot-2));
   }
 
   .session-marker-slot-3 {
-    background: hsl(var(--success));
+    background: hsl(var(--session-slot-3));
   }
 
   .session-marker-slot-4 {
-    background: hsl(var(--warning));
+    background: hsl(var(--session-slot-4));
   }
 
   /* 监控区卡片：按 Slot 着色边框 + 浅色背景，使各监控位可被直观区分。 */
@@ -3949,23 +3986,189 @@
   }
 
   .session-monitor-slot-1 {
-    border-color: hsl(var(--primary) / 0.5);
-    background: hsl(var(--primary) / 0.06);
+    border-color: hsl(var(--session-slot-1) / 0.5);
+    background: hsl(var(--session-slot-1) / 0.06);
   }
 
   .session-monitor-slot-2 {
-    border-color: hsl(var(--session-slot-purple) / 0.5);
-    background: hsl(var(--session-slot-purple) / 0.06);
+    border-color: hsl(var(--session-slot-2) / 0.5);
+    background: hsl(var(--session-slot-2) / 0.06);
   }
 
   .session-monitor-slot-3 {
-    border-color: hsl(var(--success) / 0.5);
-    background: hsl(var(--success) / 0.06);
+    border-color: hsl(var(--session-slot-3) / 0.5);
+    background: hsl(var(--session-slot-3) / 0.06);
   }
 
   .session-monitor-slot-4 {
-    border-color: hsl(var(--warning) / 0.5);
-    background: hsl(var(--warning) / 0.06);
+    border-color: hsl(var(--session-slot-4) / 0.5);
+    background: hsl(var(--session-slot-4) / 0.06);
+  }
+
+  .session-marker-slot-5 {
+    background: hsl(var(--session-slot-5));
+  }
+  .session-marker-slot-6 {
+    background: hsl(var(--session-slot-6));
+  }
+  .session-marker-slot-7 {
+    background: hsl(var(--session-slot-7));
+  }
+  .session-marker-slot-8 {
+    background: hsl(var(--session-slot-8));
+  }
+  .session-marker-slot-9 {
+    background: hsl(var(--session-slot-9));
+  }
+  .session-marker-slot-10 {
+    background: hsl(var(--session-slot-10));
+  }
+  .session-marker-slot-11 {
+    background: hsl(var(--session-slot-11));
+  }
+  .session-marker-slot-12 {
+    background: hsl(var(--session-slot-12));
+  }
+  .session-marker-slot-13 {
+    background: hsl(var(--session-slot-13));
+  }
+  .session-marker-slot-14 {
+    background: hsl(var(--session-slot-14));
+  }
+  .session-marker-slot-15 {
+    background: hsl(var(--session-slot-15));
+  }
+  .session-marker-slot-16 {
+    background: hsl(var(--session-slot-16));
+  }
+  .session-marker-slot-17 {
+    background: hsl(var(--session-slot-17));
+  }
+  .session-marker-slot-18 {
+    background: hsl(var(--session-slot-18));
+  }
+  .session-marker-slot-19 {
+    background: hsl(var(--session-slot-19));
+  }
+  .session-marker-slot-20 {
+    background: hsl(var(--session-slot-20));
+  }
+  .session-marker-slot-21 {
+    background: hsl(var(--session-slot-21));
+  }
+  .session-marker-slot-22 {
+    background: hsl(var(--session-slot-22));
+  }
+  .session-marker-slot-23 {
+    background: hsl(var(--session-slot-23));
+  }
+  .session-marker-slot-24 {
+    background: hsl(var(--session-slot-24));
+  }
+
+  .session-monitor-slot-5,
+  .session-monitor-slot-6,
+  .session-monitor-slot-7,
+  .session-monitor-slot-8,
+  .session-monitor-slot-9,
+  .session-monitor-slot-10,
+  .session-monitor-slot-11,
+  .session-monitor-slot-12,
+  .session-monitor-slot-13,
+  .session-monitor-slot-14,
+  .session-monitor-slot-15,
+  .session-monitor-slot-16,
+  .session-monitor-slot-17,
+  .session-monitor-slot-18,
+  .session-monitor-slot-19,
+  .session-monitor-slot-20,
+  .session-monitor-slot-21,
+  .session-monitor-slot-22,
+  .session-monitor-slot-23,
+  .session-monitor-slot-24 {
+    border-radius: var(--radius);
+    box-shadow: none;
+  }
+
+  .session-monitor-slot-5 {
+    border-color: hsl(var(--session-slot-5) / 0.5);
+    background: hsl(var(--session-slot-5) / 0.06);
+  }
+  .session-monitor-slot-6 {
+    border-color: hsl(var(--session-slot-6) / 0.5);
+    background: hsl(var(--session-slot-6) / 0.06);
+  }
+  .session-monitor-slot-7 {
+    border-color: hsl(var(--session-slot-7) / 0.5);
+    background: hsl(var(--session-slot-7) / 0.06);
+  }
+  .session-monitor-slot-8 {
+    border-color: hsl(var(--session-slot-8) / 0.5);
+    background: hsl(var(--session-slot-8) / 0.06);
+  }
+  .session-monitor-slot-9 {
+    border-color: hsl(var(--session-slot-9) / 0.5);
+    background: hsl(var(--session-slot-9) / 0.06);
+  }
+  .session-monitor-slot-10 {
+    border-color: hsl(var(--session-slot-10) / 0.5);
+    background: hsl(var(--session-slot-10) / 0.06);
+  }
+  .session-monitor-slot-11 {
+    border-color: hsl(var(--session-slot-11) / 0.5);
+    background: hsl(var(--session-slot-11) / 0.06);
+  }
+  .session-monitor-slot-12 {
+    border-color: hsl(var(--session-slot-12) / 0.5);
+    background: hsl(var(--session-slot-12) / 0.06);
+  }
+  .session-monitor-slot-13 {
+    border-color: hsl(var(--session-slot-13) / 0.5);
+    background: hsl(var(--session-slot-13) / 0.06);
+  }
+  .session-monitor-slot-14 {
+    border-color: hsl(var(--session-slot-14) / 0.5);
+    background: hsl(var(--session-slot-14) / 0.06);
+  }
+  .session-monitor-slot-15 {
+    border-color: hsl(var(--session-slot-15) / 0.5);
+    background: hsl(var(--session-slot-15) / 0.06);
+  }
+  .session-monitor-slot-16 {
+    border-color: hsl(var(--session-slot-16) / 0.5);
+    background: hsl(var(--session-slot-16) / 0.06);
+  }
+  .session-monitor-slot-17 {
+    border-color: hsl(var(--session-slot-17) / 0.5);
+    background: hsl(var(--session-slot-17) / 0.06);
+  }
+  .session-monitor-slot-18 {
+    border-color: hsl(var(--session-slot-18) / 0.5);
+    background: hsl(var(--session-slot-18) / 0.06);
+  }
+  .session-monitor-slot-19 {
+    border-color: hsl(var(--session-slot-19) / 0.5);
+    background: hsl(var(--session-slot-19) / 0.06);
+  }
+  .session-monitor-slot-20 {
+    border-color: hsl(var(--session-slot-20) / 0.5);
+    background: hsl(var(--session-slot-20) / 0.06);
+  }
+  .session-monitor-slot-21 {
+    border-color: hsl(var(--session-slot-21) / 0.5);
+    background: hsl(var(--session-slot-21) / 0.06);
+  }
+  .session-monitor-slot-22 {
+    border-color: hsl(var(--session-slot-22) / 0.5);
+    background: hsl(var(--session-slot-22) / 0.06);
+  }
+  .session-monitor-slot-23 {
+    border-color: hsl(var(--session-slot-23) / 0.5);
+    background: hsl(var(--session-slot-23) / 0.06);
+  }
+  .session-monitor-slot-24 {
+    border-color: hsl(var(--session-slot-24) / 0.5);
+    background: hsl(var(--session-slot-24) / 0.06);
   }
 
   /* 监控卡片错误态：会话报错时覆盖 Slot 配色，红色描边 + 浅红底，配合「失败」角标。 */
@@ -4854,6 +5057,262 @@
     box-shadow: var(--shadow-popover);
   }
 
+  .import-local-filters {
+    display: grid;
+    flex: 1 1 18rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .import-local-filters__search-btn {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .import-local-filters__fields,
+  .import-local-filters__overlay {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .import-local-filters__fields {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .import-local-filters__fields[data-covered] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .import-local-filters__time {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.33;
+    white-space: nowrap;
+  }
+
+  .import-local-filters__time input[type='number'] {
+    appearance: none;
+    -webkit-appearance: none;
+    border-width: 1px;
+    box-shadow: none;
+  }
+
+  .import-local-filters__time input[type='number']:focus,
+  .import-local-filters__time input[type='number']:focus-visible {
+    border-color: hsl(var(--primary) / 0.45);
+    box-shadow: none;
+    outline: none;
+  }
+
+  .import-local-filters__time input[type='number']::-webkit-inner-spin-button,
+  .import-local-filters__time input[type='number']::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  .import-local-filters__overlay {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-dialog);
+  }
+
+  .import-local-scan {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 100%;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .import-local-scan__spinner {
+    flex-shrink: 0;
+  }
+
+  .import-local-scan__title {
+    margin: 0;
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.43;
+    letter-spacing: -0.01em;
+  }
+
+  .import-local-scan__stats {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.33;
+  }
+
+  .import-local-progress {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 20px;
+    height: 100%;
+    padding: 0 24px 16px;
+  }
+
+  .import-local-progress--embedded {
+    justify-content: flex-start;
+    height: auto;
+    gap: 12px;
+    padding: 12px 16px 16px;
+    border-top: 1px solid var(--border-subtle, hsl(var(--border)));
+  }
+
+  .import-local-progress__log {
+    margin: 0;
+    max-height: 8.5rem;
+    overflow: auto;
+    padding: 0;
+    list-style: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
+  .import-local-progress__log li + li {
+    margin-top: 4px;
+  }
+
+  .import-local-progress__copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .import-local-progress__copy h3 {
+    margin: 0;
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.43;
+    letter-spacing: -0.01em;
+  }
+
+  .import-local-progress__copy p {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.33;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .import-local-progress__session {
+    animation: import-local-progress-title 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .import-local-progress__meter {
+    display: grid;
+    gap: 10px;
+  }
+
+  .import-local-progress__track {
+    position: relative;
+    height: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--surface-control);
+  }
+
+  .import-local-progress__track > div {
+    background: hsl(var(--primary));
+    transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .import-local-progress__indeterminate {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 34%;
+    border-radius: inherit;
+    background: hsl(var(--primary));
+    animation: import-local-progress-slide 1.15s
+      cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  }
+
+  .import-local-progress__meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .import-local-progress__count {
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    line-height: 1.43;
+  }
+
+  .import-local-progress__stats {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.33;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @keyframes import-local-progress-title {
+    from {
+      opacity: 0;
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+
+  @keyframes import-local-progress-slide {
+    0% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(360%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .import-local-progress__session {
+      animation: none;
+    }
+
+    .import-local-progress__track > div {
+      transition: none;
+    }
+
+    .import-local-progress__indeterminate {
+      left: 0;
+      width: 40%;
+      animation: none;
+    }
+  }
+
   /* Astryx Dialog owns its background through this component token. Keep the
      override on native modal elements so other Astryx surfaces stay themed. */
   .legacy-design dialog[aria-modal='true'] {
@@ -5134,10 +5593,18 @@
 .settings-page .agent-model-provider-empty {
   display: flex;
   min-height: 72px;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   border: 1px dashed var(--border-subtle);
   border-radius: var(--radius);
+}
+
+.settings-page .agent-model-provider-empty p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .settings-page .agent-model-provider-card-actions {
@@ -5271,8 +5738,28 @@
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
 }
 
+.settings-page .agent-model-provider-secret {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.settings-page .agent-model-provider-secret input:not([type='checkbox']) {
+  width: auto;
+  flex: 1;
+}
+
+.settings-page .agent-model-provider-secret > button {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
 .settings-page .agent-model-provider-list {
   display: grid;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
 }
@@ -5518,27 +6005,6 @@
   background: var(--surface-content);
 }
 
-.settings-page .pi-configuration-panel > summary {
-  display: flex;
-  min-height: 44px;
-  cursor: pointer;
-  list-style: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-}
-
-.settings-page .pi-configuration-panel > summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-page .pi-configuration-panel > summary:focus-visible {
-  outline: 2px solid hsl(var(--primary) / 0.55);
-  outline-offset: 2px;
-}
-
-.settings-page .pi-configuration-panel > summary span,
 .settings-page .pi-configuration-heading span,
 .settings-page .pi-runtime-modes label span,
 .settings-page .pi-workspace-trust span {
@@ -5547,7 +6013,6 @@
   gap: 2px;
 }
 
-.settings-page .pi-configuration-panel > summary strong,
 .settings-page .pi-configuration-heading strong,
 .settings-page .pi-runtime-modes strong,
 .settings-page .pi-workspace-trust strong {
@@ -5556,7 +6021,6 @@
   font-weight: 600;
 }
 
-.settings-page .pi-configuration-panel > summary small,
 .settings-page .pi-configuration-heading small,
 .settings-page .pi-runtime-modes small,
 .settings-page .pi-workspace-trust small {
@@ -5566,20 +6030,9 @@
   line-height: 1.45;
 }
 
-.settings-page .pi-configuration-panel > summary > svg {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  transition: transform 150ms ease;
-}
-
-.settings-page .pi-configuration-panel[open] > summary > svg {
-  transform: rotate(180deg);
-}
-
 .settings-page .pi-configuration-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-page .pi-configuration-body > section {
@@ -5588,10 +6041,6 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-}
-
-.settings-page .pi-configuration-body > section + section {
-  border-left: 1px solid var(--border-subtle);
 }
 
 .settings-page .pi-configuration-heading {
@@ -5764,20 +6213,8 @@
 }
 
 .settings-page .pi-configuration-body > .pi-configuration-error {
-  grid-column: 1 / -1;
   margin: 0;
-  padding-top: 0;
-}
-
-@media (max-width: 900px) {
-  .settings-page .pi-configuration-body {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-page .pi-configuration-body > section + section {
-    border-top: 1px solid var(--border-subtle);
-    border-left: 0;
-  }
+  padding: 0 12px 12px;
 }
 
 @media (max-width: 560px) {
@@ -5791,12 +6228,6 @@
   .settings-page .pi-runtime-command > span {
     align-items: stretch;
     flex-direction: column;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .settings-page .pi-configuration-panel > summary > svg {
-    transition: none;
   }
 }
 
@@ -5988,10 +6419,48 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   scroll-padding-top: 44px;
 }
 
+.settings-page [data-settings-content] {
+  padding-inline-end: 1.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+
+.settings-page .agent-settings-scroll {
+  padding-inline-end: 0.75rem;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+
+.settings-page [data-settings-content]::-webkit-scrollbar,
+.settings-page .agent-settings-scroll::-webkit-scrollbar {
+  width: 14px;
+}
+
+.settings-page [data-settings-content]::-webkit-scrollbar-track,
+.settings-page .agent-settings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-page [data-settings-content]::-webkit-scrollbar-thumb,
+.settings-page .agent-settings-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-left-width: 8px;
+  border-right-width: 2px;
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.28);
+  background-clip: padding-box;
+}
+
+.settings-page [data-settings-content]::-webkit-scrollbar-thumb:hover,
+.settings-page .agent-settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.42);
+  background-clip: padding-box;
+}
+
 :is(.settings-page, .plan-usage-page) .agent-management-bar {
   position: relative;
   display: flex;
-  height: 60px;
+  height: 66px;
   min-width: 0;
   flex: 1;
   align-items: flex-start;
@@ -6002,7 +6471,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 8px;
+  bottom: 14px;
   left: 0;
   border: 1px solid var(--border-content);
   border-radius: var(--radius);
@@ -6014,7 +6483,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: relative;
   z-index: 1;
   display: flex;
-  height: 60px;
+  height: 66px;
   min-width: 0;
   flex: 1;
   align-items: flex-start;
@@ -6034,8 +6503,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 14px;
+  height: 14px;
   background: transparent;
 }
 
@@ -6048,13 +6517,18 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-top-width: 10px;
+  border-bottom-width: 2px;
   border-radius: 999px;
   background: hsl(var(--border-strong) / 0.55);
+  background-clip: padding-box;
 }
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--border-strong) / 0.8);
+  background-clip: padding-box;
 }
 
 :is(.settings-page, .plan-usage-page)
@@ -6536,7 +7010,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-preflight-layout {
   display: grid;
   grid-template-areas: 'identity information controls';
-  grid-template-columns: 160px minmax(320px, 1fr) auto;
+  /* Middle track is the version↔status spacer: it must shrink before the
+     version row wraps. A 320px floor forced wrapping at default settings width. */
+  grid-template-columns: 160px minmax(0, 1fr) auto;
   width: 100%;
   min-width: 0;
   min-height: 52px;
@@ -7073,11 +7549,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-auth-mode-panel {
   min-width: 0;
-  padding-top: 14px;
-}
-
-.settings-page .agent-auth-mode-panel.agent-auth-mode-panel-config {
-  padding-top: 0;
 }
 
 .settings-page .agent-auth-mode-panel[hidden] {
@@ -9191,7 +9662,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin: 0 12px 12px;
 }
 
-@container agent-preflight (max-width: 760px) {
+/* Default settings chrome leaves this container at ~750px; the legal window
+   range stays above ~450px. Wrap only after the version↔status spacer is gone. */
+@container agent-preflight (max-width: 400px) {
   .settings-page .agent-preflight-layout {
     grid-template-areas:
       'identity controls'
@@ -11597,7 +12070,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: flex;
   flex-direction: column;
   width: min(100%, 1040px);
-  min-height: 100%;
+  min-height: 0;
 }
 
 .settings-page .product-plugin-detail-body {
@@ -11605,6 +12078,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-page .product-plugin-detail-body[hidden] {
@@ -11729,14 +12203,21 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-readme {
+  flex: 1 1 auto;
+  min-height: 0;
   max-width: 72ch;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 24px 0 48px;
 }
 
 .settings-page .product-plugin-contents {
   display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
   padding: 12px 0 48px;
 }
 
@@ -12257,6 +12738,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   overflow: visible;
 }
 
+.canvas-surface .react-flow__node.canvas-group-flow-node {
+  overflow: visible;
+}
+
 .canvas-surface .react-flow__node:focus,
 .canvas-surface .react-flow__node:focus-visible,
 .canvas-surface .react-flow__node.selected {
@@ -12264,13 +12749,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: none;
 }
 
-.canvas-surface .canvas-session-card .session-hub-card,
-.canvas-surface .canvas-session-card .session-hub-card:hover,
-.canvas-surface .canvas-session-card .session-hub-card.is-selected,
-.canvas-surface
-  .react-flow__node.selected
-  .canvas-session-card
-  .session-hub-card {
+.canvas-surface .canvas-session-card .session-hub-card {
   height: 100%;
   background: var(--surface-content);
   border-color: color-mix(
@@ -12282,15 +12761,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: none;
 }
 
-.canvas-surface .canvas-session-card .session-hub-card:hover,
-.canvas-surface .canvas-session-card .session-hub-card.is-selected,
-.canvas-surface
-  .react-flow__node.selected
-  .canvas-session-card
-  .session-hub-card {
-  border-width: 2.5px;
-}
-
 .canvas-surface .canvas-session-window {
   border-width: 1.5px;
   border-color: color-mix(
@@ -12300,24 +12770,115 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   );
 }
 
+.canvas-surface .canvas-session-window.canvas-window-slotted {
+  background: hsl(var(--canvas-window-slot) / 0.14);
+}
+
+.canvas-surface
+  .canvas-session-window.canvas-window-slotted:not(.is-selected):not(
+    .is-running
+  ):not(.is-reviewing) {
+  border-color: hsl(var(--canvas-window-slot) / 0.7);
+}
+
+.canvas-surface .canvas-session-card.is-running .session-hub-card,
+.canvas-surface .canvas-session-group.is-running,
+.canvas-surface .canvas-session-window.is-running {
+  box-sizing: border-box;
+  border-width: 1.5px;
+  border-color: hsl(var(--success) / 0.7);
+  box-shadow: 0 0 0 0 hsl(var(--success) / 0.45);
+}
+
+.canvas-surface .canvas-session-card.is-reviewing .session-hub-card,
+.canvas-surface .canvas-session-group.is-reviewing,
+.canvas-surface .canvas-session-window.is-reviewing {
+  box-sizing: border-box;
+  border-width: 1.5px;
+  border-color: hsl(var(--warning) / 0.78);
+  box-shadow: 0 0 0 0 hsl(var(--warning) / 0.5);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-surface .canvas-session-group.is-running,
+  .canvas-surface .canvas-session-window.is-running {
+    animation: canvas-running-breathe 1.5s ease-in-out infinite;
+  }
+
+  .canvas-surface .canvas-session-group.is-reviewing,
+  .canvas-surface .canvas-session-window.is-reviewing {
+    animation: canvas-reviewing-breathe 1.5s ease-in-out infinite;
+  }
+
+  .canvas-surface .canvas-session-card.is-running .session-hub-card {
+    animation: canvas-card-running-breathe 1.35s ease-in-out infinite;
+  }
+
+  .canvas-surface .canvas-session-card.is-reviewing .session-hub-card {
+    animation: canvas-card-reviewing-breathe 1.35s ease-in-out infinite;
+  }
+}
+
+.canvas-surface .canvas-session-card.is-selected .session-hub-card,
+.canvas-surface
+  .react-flow__node.selected
+  .canvas-session-card
+  .session-hub-card,
+.canvas-surface .canvas-session-group.is-selected,
+.canvas-surface .react-flow__node.selected .canvas-session-group,
 .canvas-surface .canvas-session-window.is-selected {
   border-width: 2px;
-  border-color: var(--primary);
+  border-color: var(--text-strong);
+  animation: none;
+  box-shadow: none;
 }
 
 .canvas-surface .react-flow__resize-control.line.canvas-node-resize-line {
   border-color: transparent;
+  z-index: 6;
 }
 
-.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.left,
-.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.right {
-  width: 10px;
+.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line::after {
+  content: '';
+  position: absolute;
 }
 
-.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line.top,
 .canvas-surface
-  .react-flow__resize-control.line.canvas-node-resize-line.bottom {
-  height: 10px;
+  .react-flow__resize-control.line.canvas-node-resize-line.left::after,
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.right::after {
+  top: 0;
+  bottom: 0;
+  width: 16px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.left::after {
+  left: -13px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.right::after {
+  left: -3px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.top::after,
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.bottom::after {
+  left: 0;
+  right: 0;
+  height: 16px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.top::after {
+  top: -13px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line.bottom::after {
+  top: -3px;
 }
 
 .canvas-surface .react-flow__resize-control.handle.canvas-node-resize-handle {
@@ -12326,14 +12887,49 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border: 0.75px solid var(--border-strong);
   border-radius: 1px;
   background: var(--surface-card-strong);
-  z-index: 2;
+  z-index: 7;
 }
 
 .canvas-surface
   .react-flow__resize-control.handle.canvas-node-resize-handle::after {
   content: '';
   position: absolute;
-  inset: -2px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.handle.canvas-node-resize-handle.left::after {
+  top: -8px;
+  right: -2px;
+  bottom: -8px;
+  left: -12px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.handle.canvas-node-resize-handle.right::after {
+  top: -8px;
+  right: -12px;
+  bottom: -8px;
+  left: -2px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.handle.canvas-node-resize-handle.top::after {
+  top: -12px;
+  right: -8px;
+  bottom: -2px;
+  left: -8px;
+}
+
+.canvas-surface
+  .react-flow__resize-control.handle.canvas-node-resize-handle.bottom::after {
+  top: -2px;
+  right: -8px;
+  bottom: -12px;
+  left: -8px;
+}
+
+.canvas-surface .react-flow__edges {
+  z-index: 1;
 }
 
 .canvas-surface .canvas-session-link,
@@ -12343,6 +12939,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   stroke-dasharray: 6 4;
   stroke-width: 1.75;
   fill: none;
+  pointer-events: none;
 }
 
 .canvas-surface .canvas-edge-anchor {
@@ -12363,12 +12960,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     var(--text-muted) 55%,
     var(--border-strong)
   );
-}
-
-.canvas-surface .canvas-session-group.is-selected,
-.canvas-surface .react-flow__node.selected .canvas-session-group {
-  border-width: 2px;
-  border-color: var(--primary);
 }
 
 .canvas-surface
@@ -12400,8 +12991,65 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 }
 
+@keyframes canvas-running-breathe {
+  0%,
+  100% {
+    border-color: hsl(var(--success) / 0.55);
+    box-shadow: 0 0 0 0 hsl(var(--success) / 0.35);
+  }
+  50% {
+    border-color: hsl(var(--success));
+    box-shadow: 0 0 0 2px hsl(var(--success) / 0.55);
+  }
+}
+
+@keyframes canvas-reviewing-breathe {
+  0%,
+  100% {
+    border-color: hsl(var(--warning) / 0.6);
+    box-shadow: 0 0 0 0 hsl(var(--warning) / 0.35);
+  }
+  50% {
+    border-color: hsl(var(--warning));
+    box-shadow: 0 0 0 2px hsl(var(--warning) / 0.6);
+  }
+}
+
+@keyframes canvas-card-running-breathe {
+  0%,
+  100% {
+    border-color: hsl(var(--success) / 0.7);
+    box-shadow:
+      0 0 0 0 hsl(var(--success) / 0.55),
+      0 0 0 0 hsl(var(--success) / 0.28);
+  }
+  50% {
+    border-color: hsl(var(--success));
+    box-shadow:
+      0 0 0 3px hsl(var(--success) / 0.7),
+      0 0 16px 2px hsl(var(--success) / 0.45);
+  }
+}
+
+@keyframes canvas-card-reviewing-breathe {
+  0%,
+  100% {
+    border-color: hsl(var(--warning) / 0.75);
+    box-shadow:
+      0 0 0 0 hsl(var(--warning) / 0.55),
+      0 0 0 0 hsl(var(--warning) / 0.28);
+  }
+  50% {
+    border-color: hsl(var(--warning));
+    box-shadow:
+      0 0 0 3px hsl(var(--warning) / 0.75),
+      0 0 16px 2px hsl(var(--warning) / 0.5);
+  }
+}
+
 .canvas-surface .react-flow__pane {
   user-select: none;
+  cursor: default;
 }
 
 .canvas-surface[data-canvas-marquee],
@@ -12420,8 +13068,18 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   backdrop-filter: blur(18px) saturate(1.2);
 }
 
+.session-canvas-floating-list {
+  position: relative;
+}
+
 .session-canvas-floating-list .session-hub-resizer {
-  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 8px;
+  margin: 0;
 }
 
 .session-canvas-floating-list .session-hub-sidebar {

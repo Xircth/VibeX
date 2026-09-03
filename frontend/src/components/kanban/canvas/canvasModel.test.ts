@@ -15,12 +15,16 @@ import {
   layoutImportedSessions,
   packLayout,
   parseCanvasNodeId,
+  displayedCanvasNodes,
+  preferLiveKanbanSessions,
   pruneMissingSessions,
   resetNodeSize,
   resizeNode,
   reuseUnchangedFlowNode,
   sameSessionLinks,
   canvasNodeId,
+  openWindowSessionIds,
+  canvasWindowSlotIndex,
   type SessionCanvasNode,
 } from './canvasModel';
 
@@ -97,6 +101,24 @@ describe('reuseUnchangedFlowNode', () => {
     expect(
       reuseUnchangedFlowNode(previous, { ...previous, selected: true })
     ).not.toBe(previous);
+  });
+
+  it('does not keep stale group data when only the member count changes', () => {
+    const previous = {
+      id: 'session-group-1',
+      type: 'sessionGroup',
+      selected: false,
+      width: 400,
+      height: 160,
+      position: { x: 10, y: 20 },
+      data: { instanceId: 'group-1', count: 0, name: '分组' },
+    };
+    const next = reuseUnchangedFlowNode(previous, {
+      ...previous,
+      data: { instanceId: 'group-1', count: 2, name: '分组' },
+    });
+    expect(next.data.count).toBe(2);
+    expect(next).not.toBe(previous);
   });
 });
 
@@ -177,17 +199,107 @@ describe('expand and collapse', () => {
 
 describe('sameSessionLinks', () => {
   it('draws a dashed pair between two copies of the same session', () => {
-    const first = { ...node('sess', 0, 0), id: 'copy-a' };
-    const second = { ...node('sess', 120, 0), id: 'copy-b' };
+    const first = { ...node('sess', 0, 0), id: 'copy-a', createdAt: 1 };
+    const second = { ...node('sess', 120, 0), id: 'copy-b', createdAt: 2 };
     const other = node('other', 400, 0);
     expect(sameSessionLinks([first, second, other])).toEqual([
       {
         id: 'same-copy-a-copy-b',
-        source: canvasNodeId('copy-a'),
-        target: canvasNodeId('copy-b'),
+        sourceId: 'copy-a',
+        targetId: 'copy-b',
       },
     ]);
     expect(sameSessionLinks([first, other])).toEqual([]);
+  });
+
+  it('chains extra copies in the order they were dropped, not as a complete graph', () => {
+    const first = { ...node('sess', 0, 0), id: 'copy-a', createdAt: 1 };
+    const second = { ...node('sess', 120, 0), id: 'copy-b', createdAt: 2 };
+    const third = { ...node('sess', 240, 0), id: 'copy-c', createdAt: 3 };
+    expect(sameSessionLinks([third, first, second])).toEqual([
+      {
+        id: 'same-copy-a-copy-b',
+        sourceId: 'copy-a',
+        targetId: 'copy-b',
+      },
+      {
+        id: 'same-copy-b-copy-c',
+        sourceId: 'copy-b',
+        targetId: 'copy-c',
+      },
+    ]);
+  });
+
+  it('stars remaining cards on an in-place expanded window', () => {
+    const first = {
+      ...node('sess', 0, 0, true),
+      id: 'copy-a',
+      createdAt: 1,
+    };
+    const second = { ...node('sess', 120, 0), id: 'copy-b', createdAt: 2 };
+    const third = { ...node('sess', 240, 0), id: 'copy-c', createdAt: 3 };
+    expect(sameSessionLinks([third, first, second])).toEqual([
+      {
+        id: 'same-copy-b-copy-a',
+        sourceId: 'copy-b',
+        targetId: 'copy-a',
+      },
+      {
+        id: 'same-copy-c-copy-a',
+        sourceId: 'copy-c',
+        targetId: 'copy-a',
+      },
+    ]);
+  });
+
+  it('stars every card onto a detached window, including the grouped source', () => {
+    const first = { ...node('sess', 0, 0), id: 'copy-a', createdAt: 1 };
+    const second = { ...node('sess', 120, 0), id: 'copy-b', createdAt: 2 };
+    const third = { ...node('sess', 240, 0), id: 'copy-c', createdAt: 3 };
+    const windowNode = {
+      ...node('sess', 400, 0, true),
+      id: 'copy-a-window',
+      createdAt: 4,
+      openedFromId: 'copy-a',
+    };
+    expect(sameSessionLinks([windowNode, third, first, second])).toEqual([
+      {
+        id: 'same-copy-a-copy-a-window',
+        sourceId: 'copy-a',
+        targetId: 'copy-a-window',
+      },
+      {
+        id: 'same-copy-b-copy-a-window',
+        sourceId: 'copy-b',
+        targetId: 'copy-a-window',
+      },
+      {
+        id: 'same-copy-c-copy-a-window',
+        sourceId: 'copy-c',
+        targetId: 'copy-a-window',
+      },
+    ]);
+  });
+});
+
+describe('open window color slots', () => {
+  it('assigns slots in the order windows were opened and ignores collapsed cards', () => {
+    const card = { ...node('sess-a', 0, 0), id: 'card', createdAt: 1 };
+    const first = {
+      ...node('sess-a', 40, 0, true),
+      id: 'win-a',
+      createdAt: 2,
+    };
+    const second = {
+      ...node('sess-b', 80, 0, true),
+      id: 'win-b',
+      createdAt: 3,
+    };
+    const ids = openWindowSessionIds([second, card, first]);
+    expect(ids).toEqual(['sess-a', 'sess-b']);
+    expect(canvasWindowSlotIndex('sess-a', ids)).toBe(0);
+    expect(canvasWindowSlotIndex('sess-b', ids)).toBe(1);
+    expect(canvasWindowSlotIndex('sess-c', ids)).toBeNull();
   });
 });
 
@@ -313,5 +425,25 @@ describe('pruneMissingSessions', () => {
     expect(
       pruneMissingSessions([group, node('gone', 10, 10)], new Set())
     ).toEqual([group]);
+  });
+
+  it('does not drop stored cards while no live sessions have loaded', () => {
+    const stored = [node('live', 0, 0), node('gone', 10, 10)];
+    expect(displayedCanvasNodes(stored, new Set(), false)).toEqual(stored);
+    expect(displayedCanvasNodes(stored, new Set(), true)).toEqual(stored);
+    expect(
+      displayedCanvasNodes(stored, new Set(['live']), true).map(
+        (item) => item.sessionId
+      )
+    ).toEqual(['live']);
+  });
+
+  it('keeps the previous live session records across an empty snapshot', () => {
+    const previous = [node('live', 0, 0)];
+    expect(preferLiveKanbanSessions([], previous)).toEqual(previous);
+    expect(preferLiveKanbanSessions([], [])).toEqual([]);
+    expect(preferLiveKanbanSessions([node('next', 1, 1)], previous)).toEqual([
+      node('next', 1, 1),
+    ]);
   });
 });

@@ -1,3 +1,4 @@
+import { type CSSProperties } from 'react';
 import { AlertCircle, ArrowRight, Scaling, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +12,12 @@ import { KanbanSessionConversationView } from '@/components/kanban/KanbanSession
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
 import { DRAG_HANDLE_CLASS } from '@/components/kanban/canvas/canvasModel';
-import { MONITOR_SLOT_STYLES, formatTimeAgo } from './utils';
+import {
+  MONITOR_SLOT_STYLES,
+  formatTimeAgo,
+  sessionAttentionKind,
+  sessionSlotHue,
+} from './utils';
 
 export type SessionMonitorCardVariant = 'monitor' | 'canvas';
 
@@ -19,7 +25,7 @@ interface SessionMonitorCardProps {
   session: KanbanProjectSessionRecord;
   variant?: SessionMonitorCardVariant;
   selected?: boolean;
-  slotIndex?: number;
+  slotIndex?: number | null;
   canUseRightPanelForSessions?: boolean;
   onMoveToExecution?: (session: KanbanProjectSessionRecord) => void;
   onZoom?: (session: KanbanProjectSessionRecord) => void;
@@ -30,7 +36,7 @@ export function SessionMonitorCard({
   session,
   variant = 'monitor',
   selected = false,
-  slotIndex = 0,
+  slotIndex,
   canUseRightPanelForSessions = false,
   onMoveToExecution,
   onZoom,
@@ -38,6 +44,11 @@ export function SessionMonitorCard({
 }: SessionMonitorCardProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isCanvas = variant === 'canvas';
+  const attention = sessionAttentionKind(session);
+  const canvasSlotHue =
+    isCanvas && typeof slotIndex === 'number'
+      ? sessionSlotHue(slotIndex)
+      : null;
   const primaryAction = isCanvas ? onZoom : onMoveToExecution;
   const primaryLabel = isCanvas
     ? t('hubCanvas.resetCardSize')
@@ -51,16 +62,31 @@ export function SessionMonitorCard({
   return (
     <div
       className={cn(
-        'flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-[var(--surface-card-strong)] transition-colors',
+        'flex h-full min-h-0 w-full flex-col overflow-hidden border bg-[var(--surface-card-strong)] transition-colors',
         isCanvas
-          ? cn('canvas-session-window', selected && 'is-selected')
+          ? cn(
+              'canvas-session-window rounded-xl',
+              selected && 'is-selected',
+              attention === 'running' && 'is-running',
+              attention === 'review' && 'is-reviewing',
+              canvasSlotHue && 'canvas-window-slotted'
+            )
           : session.isErrored
-            ? 'session-monitor-slot-error hover:bg-[var(--surface-control-hover)]'
+            ? 'session-monitor-slot-error rounded-lg hover:bg-[var(--surface-control-hover)]'
             : cn(
-                MONITOR_SLOT_STYLES[slotIndex]?.shell,
+                'rounded-lg',
+                MONITOR_SLOT_STYLES[slotIndex ?? 0]?.shell,
                 'hover:bg-[var(--surface-control-hover)]'
               )
       )}
+      style={
+        canvasSlotHue
+          ? ({
+              '--canvas-window-slot': canvasSlotHue,
+              backgroundColor: `hsl(${canvasSlotHue} / 0.14)`,
+            } as CSSProperties)
+          : undefined
+      }
     >
       <div
         className={cn(
@@ -148,11 +174,17 @@ export function SessionMonitorCard({
         </div>
       </div>
 
-      <div className="nowheel nopan min-h-0 flex-1 overflow-hidden rounded-xl bg-background">
+      <div
+        className={cn(
+          'nowheel nopan min-h-0 flex-1 overflow-hidden bg-background',
+          isCanvas ? 'canvas-session-thread w-full rounded-t-xl' : 'rounded-xl'
+        )}
+      >
         <KanbanSessionConversationView
           workspaceId={session.workspace.id}
           sessionId={session.id}
           interactive={isCanvas}
+          markViewed={!isCanvas || selected}
           className="h-full"
         />
       </div>

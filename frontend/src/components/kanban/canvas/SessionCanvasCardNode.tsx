@@ -3,13 +3,20 @@ import type { Node, NodeProps } from '@xyflow/react';
 import { Unlink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
+import {
+  sessionAttentionKind,
+  sessionSlotClasses,
+  sessionSlotHue,
+} from '@/components/kanban/session-hub/utils';
 import { CanvasNodeAnchors } from './CanvasNodeAnchors';
 import { useSessionCanvasView } from './CanvasViewContext';
+import { cn } from '@/lib/utils';
 
 export interface SessionCanvasCardData {
   sessionId: string;
   instanceId?: string;
   unresolved?: boolean;
+  slotIndex?: number | null;
   [key: string]: unknown;
 }
 
@@ -55,24 +62,45 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
     );
   }
 
+  const slotIndex = typeof data.slotIndex === 'number' ? data.slotIndex : null;
+  const attention = sessionAttentionKind(session);
+
   return (
-    <div className="canvas-board-units canvas-session-card h-full w-full overflow-hidden rounded-lg">
+    <div className="relative h-full w-full">
       <CanvasNodeAnchors />
-      <SessionHubListItem
-        session={session}
-        marker={null}
-        isDeleteMode={false}
-        isSelected={selected}
-        displayMode="canvas"
-        onClick={() => undefined}
-        onToggleSelect={() => undefined}
-        onRenameSession={
-          onRenameSession ? (name) => onRenameSession(session, name) : undefined
-        }
-        onDeleteSession={
-          onDeleteSession ? () => onDeleteSession(session) : undefined
-        }
-      />
+      <div
+        className={cn(
+          'canvas-board-units canvas-session-card h-full w-full overflow-hidden rounded-lg',
+          selected && 'is-selected',
+          attention === 'running' && 'is-running',
+          attention === 'review' && 'is-reviewing'
+        )}
+      >
+        <SessionHubListItem
+          session={session}
+          marker={
+            slotIndex == null
+              ? null
+              : {
+                  bar: sessionSlotClasses(slotIndex).bar,
+                  hue: sessionSlotHue(slotIndex),
+                }
+          }
+          isDeleteMode={false}
+          isSelected={selected}
+          displayMode="canvas"
+          onClick={() => undefined}
+          onToggleSelect={() => undefined}
+          onRenameSession={
+            onRenameSession
+              ? (name) => onRenameSession(session, name)
+              : undefined
+          }
+          onDeleteSession={
+            onDeleteSession ? () => onDeleteSession(session) : undefined
+          }
+        />
+      </div>
     </div>
   );
 });

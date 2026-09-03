@@ -32,7 +32,10 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
-import { useKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
+import {
+  setKanbanCanvasListVisible,
+  useKanbanCanvasListVisible,
+} from '@/lib/kanbanCanvasListVisible';
 import type { KanbanZone } from '@/lib/layoutArrangement';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import {
@@ -69,7 +72,6 @@ import {
   SESSION_LIST_WIDTH_STORAGE_KEY,
   getBulkDeleteSessionSummary,
   getCanCreateKanbanSession,
-  getDisplayedSessionCount,
   getExecutorFilterOptions,
   filterKanbanSessions,
   groupKanbanSessionsByStatus,
@@ -140,7 +142,9 @@ export function KanbanSessionHub({
   const boardStyle = useKanbanBoardStyle();
   const canvasListVisible = useKanbanCanvasListVisible();
   const canvasApiRef = useRef<SessionCanvasApi | null>(null);
-  const [canvasSessionIds, setCanvasSessionIds] = useState<string[]>([]);
+  const [canvasWindowSessionIds, setCanvasWindowSessionIds] = useState<
+    string[]
+  >([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
   const { data: repos } = useProjectRepos(projectId);
@@ -606,16 +610,16 @@ export function KanbanSessionHub({
     () => monitorRecords.map((session) => session.placement),
     [monitorRecords]
   );
-  const canvasPlacements = useMemo(
+  const canvasWindowPlacements = useMemo(
     () =>
-      canvasSessionIds.map((sessionId) => {
+      canvasWindowSessionIds.map((sessionId) => {
         const session = sessionsById[sessionId];
         return session?.placement ?? { sessionId, workspaceId: '' };
       }),
-    [canvasSessionIds, sessionsById]
+    [canvasWindowSessionIds, sessionsById]
   );
   const listMonitorPlacements =
-    boardStyle === 'canvas' ? canvasPlacements : monitorPlacements;
+    boardStyle === 'canvas' ? canvasWindowPlacements : monitorPlacements;
   const listExecutionPlacement =
     boardStyle === 'canvas' ? null : currentExecutionPlacement;
 
@@ -636,14 +640,6 @@ export function KanbanSessionHub({
     selectedWorkspaceOption,
     projectRepoCount: projectRepos.length,
     repoBranchConfigs,
-  });
-
-  const displayedCount = getDisplayedSessionCount({
-    workspaceFilterIds,
-    executorFilterValues,
-    sortField,
-    filteredCount: flatSessions.length,
-    activeCount: activeSessionsWithOptimisticStatus.length,
   });
 
   const handleCreatePopoverOpenChange = (open: boolean) => {
@@ -1073,7 +1069,6 @@ export function KanbanSessionHub({
       canCreateSession={canCreateSession}
       isCreatePending={createSessionMutation.isPending}
       createError={createSessionMutation.error}
-      displayedCount={displayedCount}
       monitorPlacements={listMonitorPlacements}
       currentExecutionPlacement={listExecutionPlacement}
       openingSessionId={openingSessionId}
@@ -1202,7 +1197,11 @@ export function KanbanSessionHub({
             onApiReady={(api) => {
               canvasApiRef.current = api;
             }}
-            onPresentIdsChange={setCanvasSessionIds}
+            onWindowSessionIdsChange={setCanvasWindowSessionIds}
+            onCreateSession={() => {
+              setKanbanCanvasListVisible(true);
+              handleCreatePopoverOpenChange(true);
+            }}
           />
         </div>
       </TooltipProvider>

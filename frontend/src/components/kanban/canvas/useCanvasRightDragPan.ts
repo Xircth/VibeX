@@ -1,82 +1,60 @@
 import { useEffect, type RefObject } from 'react';
-import { useReactFlow } from '@xyflow/react';
 
-const PAN_EXEMPT_SELECTOR = '.react-flow__panel, .react-flow__minimap';
+const MIDDLE_BUTTON = 1;
+const MIDDLE_CLICK_SLOP_PX = 6;
 
-function isPanButton(button: number): boolean {
-  return button === 1 || button === 2;
-}
-
+/**
+ * Right-button pan is handled by React Flow (`panOnDrag={[2]}`).
+ * Block the browser menu so that pan is not interrupted on mouseup.
+ *
+ * Middle-click must be claimed in capture: `preventDefault` on mousedown
+ * suppresses `auxclick`, and d3-zoom treats middle-mousedown on
+ * `.react-flow__nodesselection` as a pan even when `panOnDrag` is right-only.
+ */
 export function useCanvasRightDragPan(
-  surfaceRef: RefObject<HTMLElement | null>
+  surfaceRef: RefObject<HTMLElement | null>,
+  onMiddleClick?: (event: MouseEvent) => void
 ): void {
-  const { getViewport, setViewport } = useReactFlow();
-
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
 
-    let origin: {
-      clientX: number;
-      clientY: number;
-      x: number;
-      y: number;
-      zoom: number;
-    } | null = null;
+    let middleDown = false;
+    let startX = 0;
+    let startY = 0;
 
-    const stop = () => {
-      if (!origin) return;
-      origin = null;
-      surface.removeAttribute('data-canvas-panning');
-      window.removeEventListener('mousemove', onMouseMove, true);
-      window.removeEventListener('mouseup', onMouseUp, true);
-      window.removeEventListener('blur', stop);
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
     };
-
-    const PAN_BUTTONS_MASK = 6;
-
-    const onMouseMove = (event: MouseEvent) => {
-      if (!origin) return;
-      if ((event.buttons & PAN_BUTTONS_MASK) === 0) {
-        stop();
-        return;
-      }
-      setViewport({
-        x: origin.x + (event.clientX - origin.clientX),
-        y: origin.y + (event.clientY - origin.clientY),
-        zoom: origin.zoom,
-      });
-    };
-
-    const onMouseUp = (event: MouseEvent) => {
-      if (!origin || !isPanButton(event.button)) return;
-      stop();
-    };
-
     const onMouseDown = (event: MouseEvent) => {
-      if (!isPanButton(event.button)) return;
-      if (!(event.target instanceof Element)) return;
-      if (event.target.closest(PAN_EXEMPT_SELECTOR)) return;
+      if (event.button !== MIDDLE_BUTTON) return;
       event.preventDefault();
       event.stopPropagation();
-      const viewport = getViewport();
-      origin = {
-        clientX: event.clientX,
-        clientY: event.clientY,
-        x: viewport.x,
-        y: viewport.y,
-        zoom: viewport.zoom,
-      };
-      surface.setAttribute('data-canvas-panning', '');
-      window.addEventListener('mousemove', onMouseMove, true);
-      window.addEventListener('mouseup', onMouseUp, true);
-      window.addEventListener('blur', stop);
+      middleDown = true;
+      startX = event.clientX;
+      startY = event.clientY;
+    };
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button !== MIDDLE_BUTTON || !middleDown) return;
+      middleDown = false;
+      event.preventDefault();
+      event.stopPropagation();
+      if (
+        Math.hypot(event.clientX - startX, event.clientY - startY) >
+        MIDDLE_CLICK_SLOP_PX
+      ) {
+        return;
+      }
+      onMiddleClick?.(event);
     };
 
+    surface.addEventListener('contextmenu', onContextMenu);
     surface.addEventListener('mousedown', onMouseDown, true);
+    window.addEventListener('mouseup', onMouseUp, true);
     return () => {
+      surface.removeEventListener('contextmenu', onContextMenu);
       surface.removeEventListener('mousedown', onMouseDown, true);
-      stop();
+      window.removeEventListener('mouseup', onMouseUp, true);
     };
-  }, [getViewport, setViewport, surfaceRef]);
+  }, [onMiddleClick, surfaceRef]);
 }

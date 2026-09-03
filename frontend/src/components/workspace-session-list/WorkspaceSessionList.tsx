@@ -8,7 +8,6 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
-  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -57,6 +56,8 @@ import {
   sessionListAgentKey,
   type SessionMarker,
 } from '@/components/kanban/session-hub/utils';
+import { SESSION_LIST_DRAG_OVERLAY_CLASS } from '@/components/kanban/session-hub/sessionListDrag';
+import { SessionListDragOverlay } from '@/components/kanban/session-hub/SessionListDragOverlay';
 import {
   PINNED_SESSION_GROUP_ID,
   formatCompactSessionAge,
@@ -320,9 +321,11 @@ export function WorkspaceSessionList({
           />
         ))}
       </div>
-      <DragOverlay dropAnimation={null}>
+      <SessionListDragOverlay>
         {activeSession ? (
-          <div className="session-list-drag-overlay pointer-events-none">
+          <div
+            className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[18rem] max-w-[18rem]`}
+          >
             <WorkspaceSessionRow
               session={activeSession}
               isSelected={activeSession.id === activeSessionId}
@@ -331,7 +334,7 @@ export function WorkspaceSessionList({
             />
           </div>
         ) : null}
-      </DragOverlay>
+      </SessionListDragOverlay>
     </>
   );
 
@@ -678,7 +681,7 @@ function DraggableWorkspaceSessionRow({
       onDelete={onDelete}
       onRestore={onRestore}
       setNodeRef={setNodeRef}
-      style={{ opacity: isDragging ? 0.4 : undefined }}
+      style={{ opacity: isDragging ? 0 : undefined }}
       attributes={isDeleteMode ? undefined : attributes}
       listeners={isDeleteMode ? undefined : listeners}
       isDragging={isDragging}
@@ -861,8 +864,11 @@ function WorkspaceSessionRow({
         <span
           className={cn(
             'workspace-session-row-marker',
-            marker?.bar ?? 'bg-muted-foreground/35'
+            marker?.hue ? marker.bar : (marker?.bar ?? 'bg-muted-foreground/35')
           )}
+          style={
+            marker?.hue ? { backgroundColor: `hsl(${marker.hue})` } : undefined
+          }
           aria-hidden="true"
         />
         {isDeleteMode ? (

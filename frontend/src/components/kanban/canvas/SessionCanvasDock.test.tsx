@@ -8,28 +8,45 @@ vi.mock('@xyflow/react', () => ({
   Panel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-describe('SessionCanvasDock', () => {
-  it('creates a group from plus and shows icons on import options', async () => {
-    const user = userEvent.setup();
-    const onCreateGroup = vi.fn();
-    render(
-      <SessionCanvasDock
-        selectedCount={0}
-        selectedExpanded={false}
-        onCreateGroup={onCreateGroup}
-        onImportByProject={vi.fn()}
-        onImportByRecent={vi.fn()}
-        onImportByAgent={vi.fn()}
-        onFitView={vi.fn()}
-        onAutoArrange={vi.fn()}
-        onExpandSelection={vi.fn()}
-        onCollapseSelection={vi.fn()}
-        onDeleteSelection={vi.fn()}
-      />
-    );
+function renderDock({
+  onCreateGroup = vi.fn(),
+  onCreateSession = vi.fn(),
+}: {
+  onCreateGroup?: ReturnType<typeof vi.fn>;
+  onCreateSession?: ReturnType<typeof vi.fn>;
+} = {}) {
+  render(
+    <SessionCanvasDock
+      selectedCount={0}
+      selectedExpanded={false}
+      onCreateGroup={onCreateGroup}
+      onCreateSession={onCreateSession}
+      onImportByProject={vi.fn()}
+      onImportByRecent={vi.fn()}
+      onImportByAgent={vi.fn()}
+      onFitView={vi.fn()}
+      onAutoArrange={vi.fn()}
+      onExpandSelection={vi.fn()}
+      onCollapseSelection={vi.fn()}
+      onDeleteSelection={vi.fn()}
+    />
+  );
+  return { onCreateGroup, onCreateSession };
+}
 
-    await user.click(screen.getByRole('button', { name: '创建分组' }));
+describe('SessionCanvasDock', () => {
+  it('opens create options from plus and keeps icons on import options', async () => {
+    const user = userEvent.setup();
+    const { onCreateGroup, onCreateSession } = renderDock();
+
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
     expect(onCreateGroup).toHaveBeenCalledTimes(1);
+    expect(onCreateSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    await user.click(await screen.findByRole('menuitem', { name: '新建会话' }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: '导入会话' }));
     const project = await screen.findByRole('menuitem', { name: '项目导入' });

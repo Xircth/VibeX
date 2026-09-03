@@ -12,6 +12,7 @@ import {
   getExecutorFilterOptions,
   getSessionMarker,
   groupKanbanSessionsByStatus,
+  sessionAttentionKind,
 } from './utils';
 
 function session(
@@ -378,7 +379,67 @@ describe('session hub data helpers', () => {
         [{ sessionId: 'monitor-1' }, { sessionId: 'monitor-2' }],
         null
       )
-    ).toEqual({ bar: 'session-marker-slot-2' });
+    ).toEqual({
+      bar: 'session-marker-slot-2',
+      hue: 'var(--session-slot-2)',
+    });
     expect(getSessionMarker('idle', [], null)).toBeNull();
+    expect(
+      getSessionMarker(
+        'slot-3',
+        [
+          { sessionId: 'a' },
+          { sessionId: 'b' },
+          { sessionId: 'slot-3' },
+          { sessionId: 'd' },
+        ],
+        null
+      )
+    ).toEqual({
+      bar: 'session-marker-slot-3',
+      hue: 'var(--session-slot-3)',
+    });
+    expect(
+      getSessionMarker(
+        'slot-5',
+        [
+          { sessionId: 'a' },
+          { sessionId: 'b' },
+          { sessionId: 'c' },
+          { sessionId: 'd' },
+          { sessionId: 'slot-5' },
+        ],
+        null
+      )
+    ).toEqual({
+      bar: 'session-marker-slot-5',
+      hue: 'var(--session-slot-5)',
+    });
+  });
+});
+
+describe('sessionAttentionKind', () => {
+  it('treats a live turn as running even if status has not caught up', () => {
+    expect(
+      sessionAttentionKind({ isRunning: true, status: 'inprogress' })
+    ).toBe('running');
+    expect(sessionAttentionKind({ isRunning: true, status: 'inreview' })).toBe(
+      'running'
+    );
+  });
+
+  it('marks an unviewed finished turn as review', () => {
+    expect(sessionAttentionKind({ isRunning: false, status: 'inreview' })).toBe(
+      'review'
+    );
+  });
+
+  it('has no attention chrome once the finished turn has been viewed', () => {
+    expect(sessionAttentionKind({ isRunning: false, status: 'done' })).toBe(
+      null
+    );
+    expect(
+      sessionAttentionKind({ isRunning: false, status: 'inprogress' })
+    ).toBe(null);
   });
 });

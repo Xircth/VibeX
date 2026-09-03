@@ -46,6 +46,7 @@ export interface SessionCanvasNode {
   width: number;
   height: number;
   expanded: boolean;
+  openedFromId?: string | null;
 }
 
 export interface CanvasRect {
@@ -129,35 +130,89 @@ export function createCanvasNode(
   };
 }
 
+export interface SessionCanvasLink {
+  id: string;
+  sourceId: string;
+  targetId: string;
+}
+
+function pushLink(links: SessionCanvasLink[], fromId: string, toId: string) {
+  if (fromId === toId) return;
+  links.push({
+    id: `same-${fromId}-${toId}`,
+    sourceId: fromId,
+    targetId: toId,
+  });
+}
+
+function sortByDropOrder(left: SessionCanvasNode, right: SessionCanvasNode) {
+  return left.createdAt - right.createdAt || left.id.localeCompare(right.id);
+}
+
 export function sameSessionLinks(
   nodes: readonly SessionCanvasNode[]
-): Array<{ id: string; source: string; target: string }> {
-  const groups = new Map<string, SessionCanvasNode[]>();
+): SessionCanvasLink[] {
+  const copies = new Map<string, SessionCanvasNode[]>();
+  const links: SessionCanvasLink[] = [];
+
   for (const node of nodes) {
-    if (!node.sessionId) continue;
-    const group = groups.get(node.sessionId);
+    if (!node.sessionId || node.kind === 'group') continue;
+    const group = copies.get(node.sessionId);
     if (group) group.push(node);
-    else groups.set(node.sessionId, [node]);
+    else copies.set(node.sessionId, [node]);
   }
 
-  const links: Array<{ id: string; source: string; target: string }> = [];
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    const sorted = [...group].sort((a, b) => a.id.localeCompare(b.id));
-    for (let i = 0; i < sorted.length; i += 1) {
-      for (let j = i + 1; j < sorted.length; j += 1) {
-        const from = sorted[i];
-        const to = sorted[j];
-        if (!from || !to) continue;
-        links.push({
-          id: `same-${from.id}-${to.id}`,
-          source: canvasNodeId(from.id),
-          target: canvasNodeId(to.id),
-        });
+  for (const group of copies.values()) {
+    const windows = group.filter((node) => node.expanded).sort(sortByDropOrder);
+    const cards = group.filter((node) => !node.expanded).sort(sortByDropOrder);
+    const windowNode = windows[0];
+    if (windowNode) {
+      for (const card of cards) {
+        pushLink(links, card.id, windowNode.id);
       }
+      continue;
+    }
+    for (let index = 1; index < cards.length; index += 1) {
+      const from = cards[index - 1];
+      const to = cards[index];
+      if (!from || !to) continue;
+      pushLink(links, from.id, to.id);
     }
   }
   return links;
+}
+
+export const CANVAS_WINDOW_SLOT_COUNT = 24;
+
+export function openWindowSessionIds(
+  nodes: readonly SessionCanvasNode[]
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const windows = nodes
+    .filter(
+      (node) =>
+        node.kind !== 'group' && node.expanded && node.sessionId.length > 0
+    )
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    );
+  for (const node of windows) {
+    if (seen.has(node.sessionId)) continue;
+    seen.add(node.sessionId);
+    ids.push(node.sessionId);
+  }
+  return ids;
+}
+
+export function canvasWindowSlotIndex(
+  sessionId: string,
+  windowSessionIds: readonly string[]
+): number | null {
+  const index = windowSessionIds.indexOf(sessionId);
+  if (index < 0) return null;
+  return index % CANVAS_WINDOW_SLOT_COUNT;
 }
 
 export function sizeForNode(node: SessionCanvasNode): CanvasSize {
@@ -425,6 +480,26 @@ export function pruneMissingSessions(
   );
 }
 
+export function displayedCanvasNodes(
+  nodes: readonly SessionCanvasNode[],
+  liveIds: ReadonlySet<string>,
+  sessionsReady: boolean
+): SessionCanvasNode[] {
+  if (!sessionsReady) return [...nodes];
+  const hasStoredSessions = nodes.some(
+    (node) => node.kind !== 'group' && node.sessionId.length > 0
+  );
+  if (liveIds.size === 0 && hasStoredSessions) return [...nodes];
+  return pruneMissingSessions(nodes, liveIds);
+}
+
+export function preferLiveKanbanSessions<T>(
+  live: readonly T[],
+  previous: readonly T[]
+): readonly T[] {
+  return live.length > 0 ? live : previous.length > 0 ? previous : live;
+}
+
 export function upsertCanvasNode(
   nodes: readonly SessionCanvasNode[],
   next: SessionCanvasNode
@@ -469,12 +544,22 @@ export interface ReusableFlowNode {
   data: Record<string, unknown>;
 }
 
+export function sameFlowNodeData(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>
+): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
 export function reuseUnchangedFlowNode<T extends ReusableFlowNode>(
   previous: T | undefined,
   next: T
 ): T {
+  if (!previous) return next;
+  const dataUnchanged = sameFlowNodeData(previous.data, next.data);
   if (
-    previous &&
     previous.type === next.type &&
     previous.selected === next.selected &&
     previous.dragHandle === next.dragHandle &&
@@ -486,16 +571,9 @@ export function reuseUnchangedFlowNode<T extends ReusableFlowNode>(
     previous.height === next.height &&
     previous.position.x === next.position.x &&
     previous.position.y === next.position.y &&
-    previous.data.sessionId === next.data.sessionId
+    dataUnchanged
   ) {
     return previous;
   }
-  if (!previous) return next;
-  return {
-    ...next,
-    data:
-      previous.data.sessionId === next.data.sessionId
-        ? previous.data
-        : next.data,
-  };
+  return dataUnchanged ? { ...next, data: previous.data } : next;
 }

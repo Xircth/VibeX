@@ -1,3 +1,5 @@
+import type { JsonValue } from 'shared/types';
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import {
   CANVAS_MAX_ZOOM,
   CANVAS_MIN_ZOOM,
@@ -27,11 +29,12 @@ export const DEFAULT_CANVAS_DOCUMENT: SessionCanvasDocument = {
   nodes: [],
   viewport: null,
   listCollapsed: false,
-  minimapVisible: false,
+  minimapVisible: true,
   relativeChildren: true,
 };
 
 const DOCUMENT_KEY_PREFIX = 'vibex:kanban-canvas:';
+export const CANVAS_BUNDLE_KEY = 'vibex:kanban-canvas' as const;
 const MINIMAP_KEY = 'vibex:kanban-canvas-minimap';
 
 function documentKey(projectId: string): string {
@@ -103,6 +106,10 @@ function parseNode(value: unknown): SessionCanvasNode | null {
     width: Math.max(width, expanded ? DETAIL_MIN_WIDTH : 1),
     height: Math.max(height, expanded ? DETAIL_MIN_HEIGHT : 1),
     expanded,
+    openedFromId:
+      typeof record.openedFromId === 'string' && record.openedFromId.length > 0
+        ? record.openedFromId
+        : null,
   };
 }
 
@@ -123,13 +130,33 @@ function parseViewport(value: unknown): SessionCanvasViewport | null {
   };
 }
 
-export function loadCanvasDocument(projectId: string): SessionCanvasDocument {
-  if (!projectId) return { ...DEFAULT_CANVAS_DOCUMENT };
-  const parsed = readJson(documentKey(projectId));
-  if (!parsed || typeof parsed !== 'object') {
+function readCanvasBundle(): Record<string, unknown> {
+  const bundled = readJson(CANVAS_BUNDLE_KEY);
+  const result: Record<string, unknown> =
+    bundled && typeof bundled === 'object' && !Array.isArray(bundled)
+      ? { ...(bundled as Record<string, unknown>) }
+      : {};
+  if (typeof window === 'undefined') return result;
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith(DOCUMENT_KEY_PREFIX)) continue;
+      const projectId = key.slice(DOCUMENT_KEY_PREFIX.length);
+      if (!projectId || projectId in result) continue;
+      const parsed = readJson(key);
+      if (parsed) result[projectId] = parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return result;
+}
+
+function parseDocument(value: unknown): SessionCanvasDocument {
+  if (!value || typeof value !== 'object') {
     return { ...DEFAULT_CANVAS_DOCUMENT, minimapVisible: loadMinimapVisible() };
   }
-  const record = parsed as Record<string, unknown>;
+  const record = value as Record<string, unknown>;
   const parsedNodes = Array.isArray(record.nodes)
     ? record.nodes
         .map(parseNode)
@@ -140,12 +167,16 @@ export function loadCanvasDocument(projectId: string): SessionCanvasDocument {
     nodes: relativeChildren ? parsedNodes : toRelativeChildCoords(parsedNodes),
     viewport: parseViewport(record.viewport),
     listCollapsed: record.listCollapsed === true,
-    minimapVisible:
-      typeof record.minimapVisible === 'boolean'
-        ? record.minimapVisible
-        : loadMinimapVisible(),
+    minimapVisible: loadMinimapVisible(),
     relativeChildren: true,
   };
+}
+
+export function loadCanvasDocument(projectId: string): SessionCanvasDocument {
+  if (!projectId) return { ...DEFAULT_CANVAS_DOCUMENT };
+  const bundle = readCanvasBundle();
+  const parsed = bundle[projectId] ?? readJson(documentKey(projectId));
+  return parseDocument(parsed);
 }
 
 export function saveCanvasDocument(
@@ -153,11 +184,17 @@ export function saveCanvasDocument(
   document: SessionCanvasDocument
 ): void {
   if (!projectId) return;
-  writeJson(documentKey(projectId), { ...document, relativeChildren: true });
+  const stored = { ...document, relativeChildren: true };
+  writeJson(documentKey(projectId), stored);
+  const bundle = readCanvasBundle();
+  bundle[projectId] = stored;
+  writeJson(CANVAS_BUNDLE_KEY, bundle);
+  persistFrontendPreference(CANVAS_BUNDLE_KEY, bundle as JsonValue);
 }
 
 export function loadMinimapVisible(): boolean {
   const parsed = readJson(MINIMAP_KEY);
+  if (parsed === null) return true;
   return parsed === true;
 }
 

@@ -8,7 +8,6 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
-  DragOverlay,
   PointerSensor,
   closestCenter,
   pointerWithin,
@@ -75,6 +74,7 @@ import {
   hitElementFromPoint,
   isPointOverCanvasDrop,
 } from './sessionListDrag';
+import { SessionListDragOverlay } from './SessionListDragOverlay';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
@@ -128,7 +128,6 @@ interface SessionHubSidebarProps {
   canCreateSession: boolean;
   isCreatePending: boolean;
   createError: unknown;
-  displayedCount: number;
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
   openingSessionId?: string | null;
@@ -379,7 +378,7 @@ function DraggableSessionCard({
         !isDeleteMode && 'cursor-grab'
       )}
       style={{
-        opacity: isDragging ? 0.4 : undefined,
+        opacity: isDragging ? 0 : undefined,
       }}
     >
       <SessionHubListItem
@@ -427,11 +426,11 @@ function renderSessionList(
   return (
     <div className="w-full max-w-full min-w-0 space-y-1.5">
       {sessions.map((session) =>
-        enableDrag && status ? (
+        enableDrag ? (
           <DraggableSessionCard
             key={session.id}
             session={session}
-            status={status}
+            status={status ?? (session.status as ActiveSessionStatus)}
             isDeleteMode={isDeleteMode}
             isSelected={selectedSessionIdSet.has(session.id)}
             monitorPlacements={monitorPlacements}
@@ -491,7 +490,6 @@ export function SessionHubSidebar({
   deleteErrorMessage,
   deleteSuccessMessage,
   isDeletingSessions,
-  displayedCount,
   monitorPlacements,
   currentExecutionPlacement,
   openingSessionId = null,
@@ -528,7 +526,8 @@ export function SessionHubSidebar({
     !isWorkspaceListView &&
     (hasActiveFilters || sortField !== null);
   const canDragToArchive = !isArchiveView && !isDeleteMode && !isFlatListMode;
-  const canDropOnCanvas = Boolean(onDropSessionOnCanvas) && !isArchiveView;
+  const canDropOnCanvas =
+    Boolean(onDropSessionOnCanvas) && !isArchiveView && !isDeleteMode;
   const canDragAcrossSections = canDragToArchive && !isWorkspaceListView;
   const [activeDragSessionId, setActiveDragSessionId] = useState<string | null>(
     null
@@ -636,9 +635,6 @@ export function SessionHubSidebar({
   const showArchiveDrop = Boolean(activeDragSessionId) && canDragToArchive;
   const insetExpanded = showArchiveDrop || Boolean(visibleNotice);
 
-  const visibleCount = isArchiveView ? archivedSessions.length : displayedCount;
-  const totalCount = isArchiveView ? archivedSessions.length : sessions.length;
-
   return (
     <>
       <aside
@@ -649,256 +645,232 @@ export function SessionHubSidebar({
         style={{ width: fill ? '100%' : `${width}px` }}
       >
         <div className="space-y-2 px-2.5 pb-1 pt-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="min-w-0 cursor-default truncate text-sm font-semibold text-foreground">
-                    {isArchiveView
-                      ? t('hubSidebar.archiveArea')
-                      : t('hubSidebar.sessionList')}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {visibleCount} / {totalCount}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+          <div className="flex w-full items-center justify-start gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className={SESSION_LIST_ACTION_BUTTON_CLASS}
+                  aria-label={t('hubSidebar.newSession')}
+                  onClick={onCreateSessionRequested}
+                >
+                  <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
+            </Tooltip>
 
-            <div className="flex shrink-0 items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
+            {isWorkspaceListView ? null : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className={SESSION_LIST_ACTION_BUTTON_CLASS}
-                    aria-label={t('hubSidebar.newSession')}
-                    onClick={onCreateSessionRequested}
+                    className={cn(
+                      SESSION_LIST_ACTION_BUTTON_CLASS,
+                      sortField && 'text-foreground'
+                    )}
+                    aria-label={t('hubSidebar.sort')}
                   >
-                    <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
+                    <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuRadioGroup
+                    value={sortField ?? 'default'}
+                    onValueChange={(value) =>
+                      onSortFieldChange(
+                        value === 'default' ? null : (value as SortField)
+                      )
+                    }
+                  >
+                    <DropdownMenuRadioItem value="default">
+                      {t('hubSidebar.sortDefault')}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="name">
+                      {t('hubSidebar.sortName')}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="time">
+                      {t('hubSidebar.sortTime')}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="status">
+                      {t('hubSidebar.sortStatus')}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
 
-              {isWorkspaceListView ? null : (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
                       className={cn(
                         SESSION_LIST_ACTION_BUTTON_CLASS,
-                        sortField && 'text-foreground'
+                        hasActiveFilters && 'text-foreground'
                       )}
-                      aria-label={t('hubSidebar.sort')}
+                      aria-label={t('hubSidebar.filter')}
                     >
-                      <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
+                      <ListFilter className={SESSION_LIST_ACTION_ICON_CLASS} />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuRadioGroup
-                      value={sortField ?? 'default'}
-                      onValueChange={(value) =>
-                        onSortFieldChange(
-                          value === 'default' ? null : (value as SortField)
-                        )
-                      }
-                    >
-                      <DropdownMenuRadioItem value="default">
-                        {t('hubSidebar.sortDefault')}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="name">
-                        {t('hubSidebar.sortName')}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="time">
-                        {t('hubSidebar.sortTime')}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="status">
-                        {t('hubSidebar.sortStatus')}
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t('hubSidebar.filter')}</TooltipContent>
+              </Tooltip>
 
-              <Popover>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className={cn(
-                          SESSION_LIST_ACTION_BUTTON_CLASS,
-                          hasActiveFilters && 'text-foreground'
-                        )}
-                        aria-label={t('hubSidebar.filter')}
-                      >
-                        <ListFilter
-                          className={SESSION_LIST_ACTION_ICON_CLASS}
-                        />
-                      </Button>
-                    </PopoverTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('hubSidebar.filter')}</TooltipContent>
-                </Tooltip>
+              <PopoverContent align="start" className="w-[280px] space-y-3 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('hubSidebar.filterConditions')}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => {
+                      onWorkspaceFilterIdsChange([]);
+                      onExecutorFilterValuesChange([]);
+                    }}
+                  >
+                    {t('hubSidebar.clear')}
+                  </Button>
+                </div>
 
-                <PopoverContent
-                  align="start"
-                  className="w-[280px] space-y-3 p-3"
+                <div className="space-y-2">
+                  <div className="text-[11px] font-medium text-muted-foreground">
+                    {t('hubSidebar.workspace')}
+                  </div>
+                  <ScrollArea className="max-h-32">
+                    <div className="space-y-2 pr-3">
+                      {workspaces.map((workspace) => (
+                        <label
+                          key={workspace.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={workspaceFilterIds.includes(workspace.id)}
+                            onCheckedChange={() =>
+                              onWorkspaceFilterIdsChange(
+                                toggleStringValue(
+                                  workspaceFilterIds,
+                                  workspace.id
+                                )
+                              )
+                            }
+                          />
+                          <span
+                            className="truncate"
+                            title={`${workspace.name ?? workspace.branch} · ${workspace.branch}`}
+                          >
+                            {workspace.name ?? workspace.branch} ·{' '}
+                            {workspace.branch}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[11px] font-medium text-muted-foreground">
+                    {t('hubSidebar.codingAgent')}
+                  </div>
+                  <ScrollArea className="max-h-32">
+                    <div className="space-y-2 pr-3">
+                      {executorFilterOptions.map((executorOption) => (
+                        <label
+                          key={executorOption.value}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={executorFilterValues.includes(
+                              executorOption.value
+                            )}
+                            onCheckedChange={() =>
+                              onExecutorFilterValuesChange(
+                                toggleStringValue(
+                                  executorFilterValues,
+                                  executorOption.value
+                                )
+                              )
+                            }
+                          />
+                          <span className="truncate">
+                            {executorOption.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className={cn(
+                    SESSION_LIST_ACTION_BUTTON_CLASS,
+                    'order-2',
+                    isArchiveView && 'text-foreground'
+                  )}
+                  aria-label={
+                    isArchiveView
+                      ? t('hubSidebar.backToSessionList')
+                      : t('hubSidebar.openArchive')
+                  }
+                  onClick={() => onArchiveViewChange(!isArchiveView)}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium text-foreground">
-                      {t('hubSidebar.filterConditions')}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={() => {
-                        onWorkspaceFilterIdsChange([]);
-                        onExecutorFilterValuesChange([]);
-                      }}
-                    >
-                      {t('hubSidebar.clear')}
-                    </Button>
-                  </div>
+                  <Archive className={SESSION_LIST_ACTION_ICON_CLASS} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isArchiveView
+                  ? t('hubSidebar.backToSessionList')
+                  : t('hubSidebar.openArchive')}
+              </TooltipContent>
+            </Tooltip>
 
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {t('hubSidebar.workspace')}
-                    </div>
-                    <ScrollArea className="max-h-32">
-                      <div className="space-y-2 pr-3">
-                        {workspaces.map((workspace) => (
-                          <label
-                            key={workspace.id}
-                            className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-muted/40"
-                          >
-                            <Checkbox
-                              checked={workspaceFilterIds.includes(
-                                workspace.id
-                              )}
-                              onCheckedChange={() =>
-                                onWorkspaceFilterIdsChange(
-                                  toggleStringValue(
-                                    workspaceFilterIds,
-                                    workspace.id
-                                  )
-                                )
-                              }
-                            />
-                            <span
-                              className="truncate"
-                              title={`${workspace.name ?? workspace.branch} · ${workspace.branch}`}
-                            >
-                              {workspace.name ?? workspace.branch} ·{' '}
-                              {workspace.branch}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {t('hubSidebar.codingAgent')}
-                    </div>
-                    <ScrollArea className="max-h-32">
-                      <div className="space-y-2 pr-3">
-                        {executorFilterOptions.map((executorOption) => (
-                          <label
-                            key={executorOption.value}
-                            className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-muted/40"
-                          >
-                            <Checkbox
-                              checked={executorFilterValues.includes(
-                                executorOption.value
-                              )}
-                              onCheckedChange={() =>
-                                onExecutorFilterValuesChange(
-                                  toggleStringValue(
-                                    executorFilterValues,
-                                    executorOption.value
-                                  )
-                                )
-                              }
-                            />
-                            <span className="truncate">
-                              {executorOption.label}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={cn(
-                      SESSION_LIST_ACTION_BUTTON_CLASS,
-                      'order-2 border border-border/60',
-                      isArchiveView && 'text-foreground'
-                    )}
-                    aria-label={
-                      isArchiveView
-                        ? t('hubSidebar.backToSessionList')
-                        : t('hubSidebar.openArchive')
-                    }
-                    onClick={() => onArchiveViewChange(!isArchiveView)}
-                  >
-                    <Archive className={SESSION_LIST_ACTION_ICON_CLASS} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isArchiveView
-                    ? t('hubSidebar.backToSessionList')
-                    : t('hubSidebar.openArchive')}
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={cn(
-                      SESSION_LIST_ACTION_BUTTON_CLASS,
-                      'order-1',
-                      isDeleteMode
-                        ? 'text-destructive hover:text-destructive'
-                        : undefined
-                    )}
-                    aria-label={
-                      isDeleteMode
-                        ? t('hubSidebar.exitDeleteMode')
-                        : t('hubSidebar.bulkDelete')
-                    }
-                    onClick={onToggleDeleteMode}
-                  >
-                    <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isDeleteMode
-                    ? t('hubSidebar.exitDeleteMode')
-                    : t('hubSidebar.bulkDelete')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className={cn(
+                    SESSION_LIST_ACTION_BUTTON_CLASS,
+                    'order-1',
+                    isDeleteMode
+                      ? 'text-destructive hover:text-destructive'
+                      : undefined
+                  )}
+                  aria-label={
+                    isDeleteMode
+                      ? t('hubSidebar.exitDeleteMode')
+                      : t('hubSidebar.bulkDelete')
+                  }
+                  onClick={onToggleDeleteMode}
+                >
+                  <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isDeleteMode
+                  ? t('hubSidebar.exitDeleteMode')
+                  : t('hubSidebar.bulkDelete')}
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           {isFlatListMode || (isWorkspaceListView && hasActiveFilters) ? (
@@ -1069,7 +1041,7 @@ export function SessionHubSidebar({
                     renderSessionList(
                       flatSessions,
                       null,
-                      false,
+                      canDropOnCanvas,
                       isDeleteMode,
                       selectedSessionIdSet,
                       monitorPlacements,
@@ -1108,7 +1080,7 @@ export function SessionHubSidebar({
                             ? renderSessionList(
                                 sectionSessions,
                                 status,
-                                canDragAcrossSections,
+                                canDragAcrossSections || canDropOnCanvas,
                                 isDeleteMode,
                                 selectedSessionIdSet,
                                 monitorPlacements,
@@ -1129,10 +1101,10 @@ export function SessionHubSidebar({
             )}
           </ScrollArea>
           {isWorkspaceListView ? null : (
-            <DragOverlay dropAnimation={null}>
+            <SessionListDragOverlay>
               {activeDragSessionId && sessionsById[activeDragSessionId] ? (
                 <div
-                  className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[min(100%,18rem)] cursor-grabbing`}
+                  className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[18rem] max-w-[18rem] cursor-grabbing`}
                 >
                   <SessionHubListItem
                     session={sessionsById[activeDragSessionId]}
@@ -1149,7 +1121,7 @@ export function SessionHubSidebar({
                   />
                 </div>
               ) : null}
-            </DragOverlay>
+            </SessionListDragOverlay>
           )}
         </DndContext>
       </aside>
@@ -1157,7 +1129,9 @@ export function SessionHubSidebar({
       <div
         role="separator"
         aria-orientation="vertical"
-        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-[width,background-color] before:duration-150 hover:before:w-[3px]"
+        aria-label={t('hubSidebar.resizeList')}
+        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize touch-none transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-[width,background-color] before:duration-150 hover:before:w-[3px]"
+        onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={onResizeMouseDown}
       />
     </>

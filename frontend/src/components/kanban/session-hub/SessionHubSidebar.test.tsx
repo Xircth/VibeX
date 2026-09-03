@@ -124,6 +124,7 @@ function Harness({
   onArchiveViewChange = vi.fn(),
   onRestoreArchivedSession = vi.fn(),
   onCreateSessionRequested = vi.fn(),
+  onResizeMouseDown = vi.fn(),
 }: {
   sessions?: SidebarProps['sessions'];
   archivedSessions?: SidebarProps['archivedSessions'];
@@ -133,6 +134,7 @@ function Harness({
   onArchiveViewChange?: SidebarProps['onArchiveViewChange'];
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
   onCreateSessionRequested?: SidebarProps['onCreateSessionRequested'];
+  onResizeMouseDown?: SidebarProps['onResizeMouseDown'];
 }) {
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [queryClient] = useState(
@@ -213,11 +215,10 @@ function Harness({
         canCreateSession={true}
         isCreatePending={false}
         createError={null}
-        displayedCount={0}
         monitorPlacements={[]}
         currentExecutionPlacement={null}
         isArchiveView={isArchiveView}
-        onResizeMouseDown={vi.fn()}
+        onResizeMouseDown={onResizeMouseDown}
         onArchiveViewChange={onArchiveViewChange}
         onCreateSessionRequested={onCreateSessionRequested}
         onCreatePopoverOpenChange={setIsCreatePopoverOpen}
@@ -266,7 +267,7 @@ describe('SessionHubSidebar', () => {
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps delete available in archive view and styles the archive toggle distinctly', () => {
+  it('keeps delete available in archive view without a title or archive border', () => {
     const { container } = render(<Harness isArchiveView={true} />);
 
     const archiveButton = container
@@ -276,10 +277,23 @@ describe('SessionHubSidebar', () => {
       .querySelector('svg.lucide-trash-2')
       ?.closest('button');
 
+    expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
+    expect(screen.queryByText('归档区')).not.toBeInTheDocument();
     expect(deleteButton).not.toBeNull();
     expect(deleteButton).toHaveClass('order-1');
     expect(archiveButton).not.toBeNull();
-    expect(archiveButton).toHaveClass('order-2', 'border', 'border-border/60');
+    expect(archiveButton).toHaveClass('order-2');
+    expect(archiveButton).not.toHaveClass('border-border/60');
+  });
+
+  it('exposes a right-edge handle that starts a list resize', () => {
+    const onResizeMouseDown = vi.fn();
+    render(<Harness onResizeMouseDown={onResizeMouseDown} />);
+
+    const handle = screen.getByRole('separator');
+    expect(handle).toHaveClass('session-hub-resizer');
+    fireEvent.mouseDown(handle);
+    expect(onResizeMouseDown).toHaveBeenCalledTimes(1);
   });
 
   it('restores archived sessions from the archive context menu', async () => {

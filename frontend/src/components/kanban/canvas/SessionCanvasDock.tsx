@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { Panel } from '@xyflow/react';
 import {
   Bot,
   Clock,
@@ -8,8 +7,10 @@ import {
   Folder,
   LayoutGrid,
   Maximize2,
+  MessageSquarePlus,
   Minimize2,
   Plus,
+  SquareDashed,
   Trash2,
 } from 'lucide-react';
 import {
@@ -68,6 +69,7 @@ export function SessionCanvasDock({
   selectedGroupCollapsed = false,
   onToggleGroupCollapse,
   onCreateGroup,
+  onCreateSession,
   onImportByProject,
   onImportByRecent,
   onImportByAgent,
@@ -83,6 +85,7 @@ export function SessionCanvasDock({
   selectedGroupCollapsed?: boolean;
   onToggleGroupCollapse?: () => void;
   onCreateGroup: () => void;
+  onCreateSession: () => void;
   onImportByProject: () => void;
   onImportByRecent: () => void;
   onImportByAgent: () => void;
@@ -95,95 +98,110 @@ export function SessionCanvasDock({
   const { t } = useTranslation(['tasks']);
 
   return (
-    <Panel position="bottom-center" data-canvas-export-skip="">
-      <div
-        className={cn(
-          'flex items-center gap-0.5 rounded-full border border-border',
-          'bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]'
-        )}
-        role="toolbar"
-        aria-label={t('hubCanvas.dock')}
-        onPointerDown={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <DockButton label={t('hubCanvas.createGroup')} onClick={onCreateGroup}>
-          <Plus className="size-4" />
-        </DockButton>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={DOCK_BUTTON}
-              aria-label={t('hubCanvas.importMenu')}
-              title={t('hubCanvas.importMenu')}
-            >
-              <Download className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="center" side="top">
-            <DropdownMenuItem onSelect={onImportByProject}>
-              <Folder className="size-4 text-muted-foreground" />
-              {t('hubCanvas.importByProject')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onImportByRecent}>
-              <Clock className="size-4 text-muted-foreground" />
-              {t('hubCanvas.importByRecent')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onImportByAgent}>
-              <Bot className="size-4 text-muted-foreground" />
-              {t('hubCanvas.importByAgent')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DockButton label={t('hubCanvas.fitView')} onClick={onFitView}>
-          <Maximize2 className="size-4" />
-        </DockButton>
-        <DockButton label={t('hubCanvas.autoArrange')} onClick={onAutoArrange}>
-          <LayoutGrid className="size-4" />
-        </DockButton>
-        {selectedCount > 0 ? (
-          <>
-            <DockDivider />
-            {selectedIsGroup ? (
-              <DockButton
-                label={
-                  selectedGroupCollapsed
-                    ? t('hubCanvas.expandGroupFrame')
-                    : t('hubCanvas.collapseGroupFrame')
-                }
-                onClick={() => onToggleGroupCollapse?.()}
-              >
-                {selectedGroupCollapsed ? (
-                  <Expand className="size-4" />
-                ) : (
-                  <Minimize2 className="size-4" />
-                )}
-              </DockButton>
-            ) : selectedExpanded ? (
-              <DockButton
-                label={t('hubCanvas.collapseCard')}
-                onClick={onCollapseSelection}
-              >
-                <Minimize2 className="size-4" />
-              </DockButton>
-            ) : (
-              <DockButton
-                label={t('hubCanvas.expandCard')}
-                onClick={onExpandSelection}
-              >
-                <Expand className="size-4" />
-              </DockButton>
-            )}
+    <div
+      className={cn(
+        'flex items-center gap-0.5 rounded-full border border-border',
+        'bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]'
+      )}
+      role="toolbar"
+      aria-label={t('hubCanvas.dock')}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={DOCK_BUTTON}
+            aria-label={t('hubCanvas.createMenu')}
+            title={t('hubCanvas.createMenu')}
+          >
+            <Plus className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center" side="top">
+          <DropdownMenuItem onSelect={onCreateGroup}>
+            <SquareDashed className="size-4 text-muted-foreground" />
+            {t('hubCanvas.createEmptyGroup')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onCreateSession}>
+            <MessageSquarePlus className="size-4 text-muted-foreground" />
+            {t('hubCanvas.createSession')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={DOCK_BUTTON}
+            aria-label={t('hubCanvas.importMenu')}
+            title={t('hubCanvas.importMenu')}
+          >
+            <Download className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center" side="top">
+          <DropdownMenuItem onSelect={onImportByProject}>
+            <Folder className="size-4 text-muted-foreground" />
+            {t('hubCanvas.importByProject')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onImportByRecent}>
+            <Clock className="size-4 text-muted-foreground" />
+            {t('hubCanvas.importByRecent')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onImportByAgent}>
+            <Bot className="size-4 text-muted-foreground" />
+            {t('hubCanvas.importByAgent')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DockButton label={t('hubCanvas.fitView')} onClick={onFitView}>
+        <Maximize2 className="size-4" />
+      </DockButton>
+      <DockButton label={t('hubCanvas.autoArrange')} onClick={onAutoArrange}>
+        <LayoutGrid className="size-4" />
+      </DockButton>
+      {selectedCount > 0 ? (
+        <>
+          <DockDivider />
+          {selectedIsGroup ? (
             <DockButton
-              label={t('hubCanvas.removeCard')}
-              danger
-              onClick={onDeleteSelection}
+              label={
+                selectedGroupCollapsed
+                  ? t('hubCanvas.expandGroupFrame')
+                  : t('hubCanvas.collapseGroupFrame')
+              }
+              onClick={() => onToggleGroupCollapse?.()}
             >
-              <Trash2 className="size-4" />
+              {selectedGroupCollapsed ? (
+                <Expand className="size-4" />
+              ) : (
+                <Minimize2 className="size-4" />
+              )}
             </DockButton>
-          </>
-        ) : null}
-      </div>
-    </Panel>
+          ) : selectedExpanded ? (
+            <DockButton
+              label={t('hubCanvas.collapseCard')}
+              onClick={onCollapseSelection}
+            >
+              <Minimize2 className="size-4" />
+            </DockButton>
+          ) : (
+            <DockButton
+              label={t('hubCanvas.expandCard')}
+              onClick={onExpandSelection}
+            >
+              <Expand className="size-4" />
+            </DockButton>
+          )}
+          <DockButton
+            label={t('hubCanvas.removeCard')}
+            danger
+            onClick={onDeleteSelection}
+          >
+            <Trash2 className="size-4" />
+          </DockButton>
+        </>
+      ) : null}
+    </div>
   );
 }

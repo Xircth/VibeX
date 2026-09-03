@@ -5,6 +5,7 @@ import {
   DETAIL_CARD_HEIGHT,
   DETAIL_CARD_WIDTH,
   collapseNode,
+  expandNode,
   createCanvasInstanceId,
   createCanvasNode,
   parseCanvasNodeId,
@@ -14,14 +15,15 @@ import {
 
 export const GROUP_COLUMNS = 3;
 export const GROUP_VISIBLE_LIMIT = 15;
-export const GROUP_HEADER_HEIGHT = 44;
+export const GROUP_HEADER_HEIGHT = 32;
 export const GROUP_FOOTER_HEIGHT = 32;
 export const GROUP_PAD = 12;
 export const GROUP_GAP = 12;
 export const GROUP_COLLAPSED_HEIGHT = GROUP_HEADER_HEIGHT;
 export const DEFAULT_GROUP_COLUMNS = 2;
+export const EMPTY_GROUP_COLUMNS = DEFAULT_GROUP_COLUMNS;
+export const EMPTY_GROUP_ROWS = 2;
 export const MAX_GROUP_DEPTH = 2;
-export const DETACHED_WINDOW_OFFSET = 28;
 
 export function groupWidthForColumns(columns: number): number {
   const count = Math.max(1, Math.round(columns));
@@ -99,6 +101,17 @@ export function isGroupNode(node: SessionCanvasNode): boolean {
   return node.kind === 'group';
 }
 
+export function orderCanvasNodes(
+  nodes: readonly SessionCanvasNode[]
+): SessionCanvasNode[] {
+  return [...nodes].sort((left, right) => {
+    const depthDelta = groupDepth(nodes, left.id) - groupDepth(nodes, right.id);
+    if (depthDelta !== 0) return depthDelta;
+    if (isGroupNode(left) === isGroupNode(right)) return 0;
+    return isGroupNode(left) ? -1 : 1;
+  });
+}
+
 export function isSessionNode(node: SessionCanvasNode): boolean {
   return node.kind !== 'group';
 }
@@ -164,6 +177,34 @@ export function groupDepth(
   return depth;
 }
 
+export function groupHasRunningSession(
+  nodes: readonly SessionCanvasNode[],
+  groupId: string,
+  runningSessionIds: ReadonlySet<string>
+): boolean {
+  if (runningSessionIds.size === 0) return false;
+  return nodes.some(
+    (node) =>
+      isSessionNode(node) &&
+      runningSessionIds.has(node.sessionId) &&
+      (node.parentId === groupId || belongsToAncestor(nodes, node, groupId))
+  );
+}
+
+export function selectedSessionIdsForViewed(
+  nodes: readonly SessionCanvasNode[],
+  selectedIds: ReadonlySet<string>
+): string[] {
+  const ids: string[] = [];
+  for (const id of selectedIds) {
+    const node = nodeById(nodes, id);
+    if (node && isSessionNode(node) && node.sessionId) {
+      ids.push(node.sessionId);
+    }
+  }
+  return ids;
+}
+
 export function groupSessionCount(
   nodes: readonly SessionCanvasNode[],
   groupId: string
@@ -199,21 +240,115 @@ export function expandSelectionToGroups(
   const next = new Set(selectedIds);
   for (const id of selectedIds) {
     const node = nodeById(nodes, id);
+    if (node && isDetachedSessionWindow(node) && node.openedFromId) {
+      next.add(node.openedFromId);
+    }
+  }
+  for (const id of [...next]) {
+    const node = nodeById(nodes, id);
+    if (!node || isGroupNode(node)) continue;
+    if (node.parentId) next.add(node.parentId);
+  }
+  return next;
+}
+
+export function excludeSelectedGroupChildren(
+  nodes: readonly SessionCanvasNode[],
+  selectedIds: ReadonlySet<string>
+): Set<string> {
+  const next = new Set<string>();
+  for (const id of selectedIds) {
+    const node = nodeById(nodes, id);
     if (!node) continue;
-    if (isSessionNode(node) && node.expanded) continue;
-    const groupId = isGroupNode(node) ? node.id : node.parentId;
-    if (!groupId) continue;
-    next.add(groupId);
+    let ancestor = node.parentId ? nodeById(nodes, node.parentId) : undefined;
+    let covered = false;
+    const seen = new Set<string>();
+    while (ancestor && !seen.has(ancestor.id)) {
+      seen.add(ancestor.id);
+      if (selectedIds.has(ancestor.id)) {
+        covered = true;
+        break;
+      }
+      ancestor = ancestor.parentId
+        ? nodeById(nodes, ancestor.parentId)
+        : undefined;
+    }
+    if (!covered) next.add(id);
+  }
+  return next;
+}
+
+export function collectSelectionForRemoval(
+  nodes: readonly SessionCanvasNode[],
+  selectedIds: ReadonlySet<string>
+): Set<string> {
+  const next = new Set(selectedIds);
+  for (const id of selectedIds) {
+    const node = nodeById(nodes, id);
+    if (!node || !isGroupNode(node)) continue;
     for (const child of nodes) {
-      if (
-        child.parentId === groupId ||
-        belongsToAncestor(nodes, child, groupId)
-      ) {
+      if (child.parentId === id || belongsToAncestor(nodes, child, id)) {
         next.add(child.id);
       }
     }
   }
   return next;
+}
+
+export function emptyGroupFootprint(): { width: number; height: number } {
+  return {
+    width: groupWidthForColumns(EMPTY_GROUP_COLUMNS),
+    height: groupHeightForRows(EMPTY_GROUP_ROWS),
+  };
+}
+
+function rectsConflict(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  gap = CARD_GAP
+): boolean {
+  return (
+    a.x < b.x + b.width + gap &&
+    a.x + a.width + gap > b.x &&
+    a.y < b.y + b.height + gap &&
+    a.y + a.height + gap > b.y
+  );
+}
+
+export function findEmptyCanvasPlacement(
+  nodes: readonly SessionCanvasNode[],
+  size: { width: number; height: number },
+  preferred: { x: number; y: number }
+): { x: number; y: number } {
+  const occupied = nodes
+    .filter((node) => !node.parentId)
+    .map((node) => worldRect(nodes, node));
+
+  const fits = (x: number, y: number) =>
+    occupied.every(
+      (rect) =>
+        !rectsConflict({ x, y, width: size.width, height: size.height }, rect)
+    );
+
+  if (fits(preferred.x, preferred.y)) return preferred;
+
+  const stepX = size.width + CARD_GAP;
+  const stepY = size.height + CARD_GAP;
+  for (let ring = 1; ring <= 16; ring += 1) {
+    for (let dx = -ring; dx <= ring; dx += 1) {
+      for (let dy = -ring; dy <= ring; dy += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const x = preferred.x + dx * stepX;
+        const y = preferred.y + dy * stepY;
+        if (fits(x, y)) return { x, y };
+      }
+    }
+  }
+
+  if (occupied.length === 0) return preferred;
+  const maxRight = Math.max(...occupied.map((rect) => rect.x + rect.width));
+  const minY = Math.min(...occupied.map((rect) => rect.y));
+  return { x: maxRight + CARD_GAP, y: minY };
 }
 
 export function groupGridSize(
@@ -246,7 +381,8 @@ function replaceNodes(
 
 export function relayoutGroup(
   nodes: readonly SessionCanvasNode[],
-  groupId: string
+  groupId: string,
+  options?: { lockFrame?: boolean }
 ): SessionCanvasNode[] {
   const group = nodeById(nodes, groupId);
   if (!group || !isGroupNode(group)) return [...nodes];
@@ -299,9 +435,10 @@ export function relayoutGroup(
   const declaredRows = rowsForGroupHeight(
     Math.max(group.height, groupHeightForRows(1))
   );
-  const cap = group.showAll
-    ? sessions.length
-    : Math.min(sessions.length, declaredRows * columns);
+  const cap =
+    options?.lockFrame || group.showAll
+      ? sessions.length
+      : Math.min(sessions.length, declaredRows * columns);
   const shown = group.showAll ? sessions.length : cap;
   const overflow = sessions.length > shown;
 
@@ -330,11 +467,16 @@ export function relayoutGroup(
     groupWidthForColumns(columns),
     GROUP_PAD * 2 + innerWidth
   );
-  updates.set(group.id, {
-    ...group,
-    width,
-    height: Math.max(contentHeight, groupHeightForRows(declaredRows, overflow)),
-  });
+  if (!options?.lockFrame) {
+    updates.set(group.id, {
+      ...group,
+      width,
+      height: Math.max(
+        contentHeight,
+        groupHeightForRows(declaredRows, overflow)
+      ),
+    });
+  }
 
   return replaceNodes(nodes, updates);
 }
@@ -359,6 +501,7 @@ export function createEmptyGroup(
   position: { x: number; y: number },
   name = '分组'
 ): SessionCanvasNode[] {
+  const size = emptyGroupFootprint();
   const group: SessionCanvasNode = {
     id: createCanvasInstanceId(),
     kind: 'group',
@@ -369,8 +512,8 @@ export function createEmptyGroup(
     showAll: false,
     x: position.x,
     y: position.y,
-    width: groupWidthForColumns(DEFAULT_GROUP_COLUMNS),
-    height: groupHeightForRows(1),
+    width: size.width,
+    height: size.height,
     expanded: false,
   };
   return relayoutGroup([...nodes, group], group.id);
@@ -417,9 +560,27 @@ function selectedRoots(
   return nodes.filter((node) => {
     if (!expanded.has(node.id)) return false;
     if (node.parentId && expanded.has(node.parentId)) return false;
-    if (isSessionNode(node) && node.expanded) return false;
+    if (isDetachedSessionWindow(node)) return false;
     return true;
   });
+}
+
+export function canGroupSelection(
+  nodes: readonly SessionCanvasNode[],
+  selectedIds: ReadonlySet<string>
+): boolean {
+  const roots = selectedRoots(nodes, selectedIds);
+  if (roots.length < 2) return false;
+  if (roots.some((node) => groupDepth(nodes, node.id) > 0)) return false;
+  if (
+    roots.some(
+      (node) =>
+        isGroupNode(node) && directChildren(nodes, node.id).some(isGroupNode)
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function groupSelection(
@@ -464,12 +625,13 @@ export function groupSelection(
     height: groupHeightForRows(Math.max(1, Math.ceil(sessionCount / columns))),
     expanded: false,
   };
-  const next = nodes.map((node) =>
-    roots.some((root) => root.id === node.id)
-      ? { ...node, parentId: group.id }
-      : node
-  );
-  return relayoutGroup([...next, group], group.id);
+  const next = nodes.map((node) => {
+    if (!roots.some((root) => root.id === node.id)) return node;
+    const collapsed =
+      isSessionNode(node) && node.expanded ? collapseNode(node) : node;
+    return { ...collapsed, parentId: group.id };
+  });
+  return relayoutGroup([group, ...next], group.id);
 }
 
 export function dissolveGroup(
@@ -673,6 +835,31 @@ export function applyDropHint(
   }
 }
 
+export function previewGroupFrame(
+  nodes: readonly SessionCanvasNode[],
+  groupId: string,
+  geometry: { x: number; y: number; width: number; height: number }
+): SessionCanvasNode[] {
+  const group = nodeById(nodes, groupId);
+  if (!group || !isGroupNode(group) || group.collapsed) return [...nodes];
+  const width = Math.max(geometry.width, groupWidthForColumns(1));
+  const height = Math.max(geometry.height, groupHeightForRows(1));
+  if (
+    group.x === geometry.x &&
+    group.y === geometry.y &&
+    group.width === width &&
+    group.height === height
+  ) {
+    return [...nodes];
+  }
+  const next = nodes.map((node) =>
+    node.id === groupId
+      ? { ...node, x: geometry.x, y: geometry.y, width, height }
+      : node
+  );
+  return relayoutGroup(next, groupId, { lockFrame: true });
+}
+
 export function resizeGroupFrame(
   nodes: readonly SessionCanvasNode[],
   groupId: string,
@@ -785,6 +972,12 @@ export function applyFlowGeometryChanges(
     if (!current) continue;
 
     if (change.type === 'position' && change.dragging === false) continue;
+    if (
+      isGroupNode(current) &&
+      (change.type === 'dimensions' || change.dragging !== true)
+    ) {
+      continue;
+    }
 
     if (change.type === 'position' && change.position) {
       const ancestorMoving = [...moving].some(
@@ -802,24 +995,6 @@ export function applyFlowGeometryChanges(
     }
 
     if (change.type === 'dimensions' && change.dimensions) {
-      if (isGroupNode(current)) {
-        const width = groupWidthForColumns(
-          columnsForGroupWidth(change.dimensions.width)
-        );
-        const height = groupHeightForRows(
-          rowsForGroupHeight(change.dimensions.height)
-        );
-        if (current.width === width && current.height === height) continue;
-        write(
-          relayoutGroup(
-            next.map((node) =>
-              node.id === instanceId ? { ...node, width, height } : node
-            ),
-            instanceId
-          )
-        );
-        continue;
-      }
       const width = change.dimensions.width;
       const height = change.dimensions.height;
       if (current.width === width && current.height === height) continue;
@@ -841,30 +1016,103 @@ export function placeDetachedWindow(
   const source = nodeById(nodes, sourceId);
   if (!source || !isSessionNode(source) || !source.sessionId) return [...nodes];
   const parent = source.parentId ? nodeById(nodes, source.parentId) : undefined;
-  const detached = nodes.filter(
-    (node) =>
-      isSessionNode(node) &&
-      node.expanded &&
-      node.sessionId === source.sessionId &&
-      !node.parentId
-  );
   const parentWorld = parent ? worldPosition(nodes, parent) : null;
   const originX =
     parent && parentWorld
       ? parentWorld.x + parent.width + CARD_GAP
       : source.x + CARD_WIDTH + CARD_GAP;
   const originY = parentWorld ? parentWorld.y : source.y;
-  const offset = detached.length * DETACHED_WINDOW_OFFSET;
   const windowNode: SessionCanvasNode = {
     ...createCanvasNode(source.sessionId, {
-      x: originX + offset,
-      y: originY + offset,
+      x: originX,
+      y: originY,
     }),
     expanded: true,
+    openedFromId: source.id,
     width: DETAIL_CARD_WIDTH,
     height: DETAIL_CARD_HEIGHT,
   };
   return [...nodes, windowNode];
+}
+
+function withoutSessionWindows(
+  nodes: readonly SessionCanvasNode[],
+  sessionId: string,
+  keepId?: string
+): SessionCanvasNode[] {
+  return nodes
+    .filter((node) => {
+      if (node.id === keepId) return true;
+      if (
+        !isSessionNode(node) ||
+        node.sessionId !== sessionId ||
+        !node.expanded
+      ) {
+        return true;
+      }
+      return !node.openedFromId;
+    })
+    .map((node) =>
+      node.id !== keepId &&
+      isSessionNode(node) &&
+      node.sessionId === sessionId &&
+      node.expanded
+        ? collapseNode(node)
+        : node
+    );
+}
+
+export function openSessionWindow(
+  nodes: readonly SessionCanvasNode[],
+  cardId: string
+): SessionCanvasNode[] {
+  const card = nodeById(nodes, cardId);
+  if (!card || !isSessionNode(card) || !card.sessionId) return [...nodes];
+  if (card.expanded) return [...nodes];
+
+  const existingDetached = nodes.find(
+    (node) =>
+      isSessionNode(node) &&
+      node.expanded &&
+      node.sessionId === card.sessionId &&
+      Boolean(node.openedFromId)
+  );
+  if (card.parentId) {
+    if (existingDetached) return [...nodes];
+    return placeDetachedWindow(
+      withoutSessionWindows(nodes, card.sessionId),
+      cardId
+    );
+  }
+
+  return withoutSessionWindows(nodes, card.sessionId, cardId).map((node) =>
+    node.id === cardId ? expandNode(node) : node
+  );
+}
+
+export function isDetachedSessionWindow(node: SessionCanvasNode): boolean {
+  return (
+    isSessionNode(node) &&
+    node.expanded &&
+    typeof node.openedFromId === 'string' &&
+    node.openedFromId.length > 0
+  );
+}
+
+export function closeSessionWindow(
+  nodes: readonly SessionCanvasNode[],
+  instanceId: string
+): SessionCanvasNode[] {
+  const current = nodeById(nodes, instanceId);
+  if (!current || !isSessionNode(current) || !current.expanded) {
+    return [...nodes];
+  }
+  if (isDetachedSessionWindow(current)) {
+    return nodes.filter((node) => node.id !== instanceId);
+  }
+  return nodes.map((node) =>
+    node.id === instanceId ? collapseNode(node) : node
+  );
 }
 
 export function toggleGroupShowAll(

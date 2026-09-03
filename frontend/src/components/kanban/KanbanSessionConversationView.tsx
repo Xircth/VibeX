@@ -61,6 +61,8 @@ interface KanbanSessionConversationViewProps {
   className?: string;
   imagePreviewPresentation?: ImagePreviewPresentation;
   conversationWidthMode?: 'bounded' | 'workspace';
+  /** When false, opening the conversation does not count as viewing. */
+  markViewed?: boolean;
 }
 
 interface KanbanSessionConversationSurfaceProps
@@ -83,6 +85,10 @@ type ConversationPlacementContextValue = {
     target: HTMLElement,
     props: KanbanSessionConversationSurfaceProps
   ) => () => void;
+  updateSlotProps: (
+    key: string,
+    props: KanbanSessionConversationSurfaceProps
+  ) => void;
 };
 
 const ConversationPlacementContext =
@@ -151,18 +157,26 @@ export function KanbanSessionConversationPlacementProvider({
       }
 
       const propsChanged = record.props !== props;
-      const slotChanged =
-        record.slots.get(slotId) !== target || record.activeSlotId !== slotId;
+      const isNewSlot = !record.slots.has(slotId);
+      const slotTargetChanged = record.slots.get(slotId) !== target;
       record.props = props;
       record.slots.set(slotId, target);
-      record.activeSlotId = slotId;
-      if (record.container.parentElement !== target) {
+      // A newly registered view (canvas window opening, monitor → right panel)
+      // takes the portal. Prop-only updates must not steal it back to an
+      // already-mounted sibling such as the right panel.
+      if (record.activeSlotId === null || isNewSlot) {
+        record.activeSlotId = slotId;
+      }
+      if (
+        record.activeSlotId === slotId &&
+        record.container.parentElement !== target
+      ) {
         target.appendChild(record.container);
       }
       // The portal needs a render for new records, changed props, or a slot
       // relocation. Avoiding redundant bumps keeps layout-effect registration
       // idempotent when an ancestor re-renders with equivalent values.
-      if (recordCreated || propsChanged || slotChanged) {
+      if (recordCreated || propsChanged || isNewSlot || slotTargetChanged) {
         bumpVersion();
       }
 
@@ -204,6 +218,21 @@ export function KanbanSessionConversationPlacementProvider({
     [bumpVersion]
   );
 
+  const updateSlotProps = useCallback<
+    ConversationPlacementContextValue['updateSlotProps']
+  >(
+    (key, props) => {
+      const record = recordsRef.current.get(key);
+      if (!record || record.props === props) {
+        return;
+      }
+
+      record.props = props;
+      bumpVersion();
+    },
+    [bumpVersion]
+  );
+
   useEffect(
     () => () => {
       for (const timer of removalTimersRef.current.values()) {
@@ -221,8 +250,9 @@ export function KanbanSessionConversationPlacementProvider({
   const contextValue = useMemo(
     () => ({
       mountSlot,
+      updateSlotProps,
     }),
-    [mountSlot]
+    [mountSlot, updateSlotProps]
   );
   const records = Array.from(recordsRef.current.values());
 
@@ -297,9 +327,12 @@ function KanbanSessionConversationContent({
     setSearchParams,
   ]);
 
-  const activeSession = interactive
+  const resolvedActiveSession = interactive
     ? resolveActiveSession(attempt.session, sessionState)
     : attempt.session;
+  const activeSession =
+    resolvedActiveSession ??
+    (sessionState.isNewSessionMode ? undefined : attempt.session);
 
   const activeAttempt = useMemo(
     () => createWorkspaceWithSession(attempt, activeSession),
@@ -386,12 +419,13 @@ function KanbanSessionConversationContent({
 
 function useMarkSessionViewed(
   sessionId: string | undefined,
-  isRunning: boolean
+  isRunning: boolean,
+  enabled: boolean
 ) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !enabled) return;
 
     let cancelled = false;
     void sessionsApi
@@ -407,7 +441,7 @@ function useMarkSessionViewed(
     return () => {
       cancelled = true;
     };
-  }, [isRunning, queryClient, sessionId]);
+  }, [enabled, isRunning, queryClient, sessionId]);
 }
 
 function KanbanSessionConversationSurface({
@@ -422,12 +456,13 @@ function KanbanSessionConversationSurface({
   className,
   imagePreviewPresentation = 'dialog',
   conversationWidthMode,
+  markViewed = true,
 }: KanbanSessionConversationSurfaceProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isRunning =
     sessionState.sessions.find((session) => session.id === sessionId)
       ?.isRunning ?? false;
-  useMarkSessionViewed(sessionId, isRunning);
+  useMarkSessionViewed(sessionId, isRunning, markViewed);
   const { data: workspace, isLoading: isWorkspaceLoading } =
     useQuery<Workspace>({
       queryKey: ['taskAttempt', workspaceId],
@@ -440,7 +475,7 @@ function KanbanSessionConversationSurface({
   const {
     data: session,
     isError: isSessionError,
-    isFetching: isSessionFetching,
+    isPending: isSessionPending,
   } = useQuery<SessionRecord>({
     queryKey: sessionDetailQuery.queryKey,
     queryFn: () => {
@@ -459,7 +494,7 @@ function KanbanSessionConversationSurface({
 
   const isBootstrappingWorkspace = !workspace && isWorkspaceLoading;
   const isBootstrappingSession =
-    !!sessionId && !session && isSessionFetching && !isSessionError;
+    !!sessionId && !session && isSessionPending && !isSessionError;
 
   if (isBootstrappingWorkspace || isBootstrappingSession || !workspace) {
     return (
@@ -522,6 +557,7 @@ export function KanbanSessionConversationView(
     className,
     imagePreviewPresentation,
     conversationWidthMode,
+    markViewed,
   } = props;
   const sessionState = useWorkspaceSessions(props.workspaceId, {
     initialSessionId: sessionId,
@@ -540,6 +576,7 @@ export function KanbanSessionConversationView(
       className,
       imagePreviewPresentation,
       conversationWidthMode,
+      markViewed,
       sessionState,
     }),
     [
@@ -547,6 +584,7 @@ export function KanbanSessionConversationView(
       conversationWidthMode,
       interactive,
       imagePreviewPresentation,
+      markViewed,
       onCreateSessionRequested,
       onSessionCreated,
       onSessionSelected,
@@ -560,7 +598,13 @@ export function KanbanSessionConversationView(
     workspaceId,
     getPlacementSessionId(sessionId, interactive, sessionState)
   );
+  const surfacePropsRef = useRef(surfaceProps);
+  surfacePropsRef.current = surfaceProps;
 
+  // Register the slot independently of live session props. Re-running
+  // mountSlot on every sessionState identity change unregisters siblings in
+  // tree order and the last one (usually the right panel) steals the portal
+  // out of an open canvas window after the first send.
   useLayoutEffect(() => {
     if (!placement || !slotRef.current) {
       return;
@@ -570,9 +614,17 @@ export function KanbanSessionConversationView(
       placementKey,
       slotId,
       slotRef.current,
-      surfaceProps
+      surfacePropsRef.current
     );
-  }, [placement, placementKey, slotId, surfaceProps]);
+  }, [placement, placementKey, slotId]);
+
+  useLayoutEffect(() => {
+    if (!placement) {
+      return;
+    }
+
+    placement.updateSlotProps(placementKey, surfaceProps);
+  }, [placement, placementKey, surfaceProps]);
 
   if (!placement) {
     return <KanbanSessionConversationSurface {...surfaceProps} />;

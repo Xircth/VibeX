@@ -75,6 +75,13 @@ describe('SessionMonitorCard', () => {
     expect(reset).toHaveClass('raised-control');
     expect(reset).not.toHaveClass('text-[var(--primary-control-foreground)]');
     expect(container.firstElementChild).toHaveClass('canvas-session-window');
+    expect(container.querySelector('.nowheel')).toHaveClass(
+      'canvas-session-thread',
+      'w-full',
+      'rounded-t-xl'
+    );
+    expect(container.querySelector('.nowheel')).not.toHaveClass('mb-2');
+    expect(container.querySelector('.nowheel')).not.toHaveClass('mx-2');
     expect(container.firstElementChild).not.toHaveClass('is-selected');
     expect(container.firstElementChild).not.toHaveClass('ring-2');
     expect(container.firstElementChild).not.toHaveClass('border-transparent');
@@ -100,6 +107,59 @@ describe('SessionMonitorCard', () => {
       </TooltipProvider>
     );
     expect(container.firstElementChild).toHaveClass('is-selected');
+  });
+
+  it('marks a running canvas window for the breathing border', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={{ ...createSession(), isRunning: true }}
+          variant="canvas"
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+    expect(container.firstElementChild).toHaveClass('is-running');
+  });
+
+  it('marks an unviewed finished canvas window for review breathing', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={{
+            ...createSession(),
+            isRunning: false,
+            status: 'inreview',
+          }}
+          variant="canvas"
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+    expect(container.firstElementChild).toHaveClass('is-reviewing');
+    expect(container.firstElementChild).not.toHaveClass('is-running');
+  });
+
+  it('applies the canvas window slot color to the shell', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={createSession()}
+          variant="canvas"
+          slotIndex={1}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+    expect(container.firstElementChild).toHaveClass('canvas-window-slotted');
+    expect(container.firstElementChild).toHaveAttribute(
+      'style',
+      expect.stringContaining('--canvas-window-slot: var(--session-slot-2)')
+    );
+    expect(container.firstElementChild).toHaveAttribute(
+      'style',
+      expect.stringContaining('background-color')
+    );
   });
 
   it('collapses from a double-click on the canvas title bar', () => {

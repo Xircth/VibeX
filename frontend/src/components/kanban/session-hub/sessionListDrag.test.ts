@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { dragEndClientPoint, isPointOverCanvasDrop } from './sessionListDrag';
+import {
+  dragEndClientPoint,
+  isPointOverCanvasDrop,
+  snapDragOverlayToCursor,
+} from './sessionListDrag';
 
 describe('dragEndClientPoint', () => {
   it('uses the translated overlay rect when present', () => {
@@ -26,6 +30,40 @@ describe('dragEndClientPoint', () => {
         activatorEvent: { clientX: 100, clientY: 40 },
       } as never)
     ).toEqual({ x: 112, y: 48 });
+  });
+});
+
+describe('snapDragOverlayToCursor', () => {
+  it('centers the overlay on the pointer', () => {
+    expect(
+      snapDragOverlayToCursor({
+        activatorEvent: { clientX: 120, clientY: 80 } as MouseEvent,
+        active: null,
+        activeNodeRect: {
+          left: 10,
+          top: 20,
+          width: 40,
+          height: 20,
+          right: 50,
+          bottom: 40,
+        },
+        draggingNodeRect: {
+          left: 40,
+          top: 30,
+          width: 40,
+          height: 20,
+          right: 80,
+          bottom: 50,
+        },
+        containerNodeRect: null,
+        overlayNodeRect: null,
+        over: null,
+        scrollableAncestors: [],
+        scrollableAncestorRects: [],
+        transform: { x: 30, y: 10, scaleX: 1, scaleY: 1 },
+        windowRect: null,
+      })
+    ).toEqual({ x: 90, y: 50, scaleX: 1, scaleY: 1 });
   });
 });
 

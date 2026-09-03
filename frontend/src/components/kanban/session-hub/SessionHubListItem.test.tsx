@@ -47,6 +47,13 @@ function renderItem(
 }
 
 describe('SessionHubListItem', () => {
+  it('shows a review pill for an unviewed finished session', () => {
+    renderItem({
+      session: { ...session(), isRunning: false, status: 'inreview' },
+    });
+    expect(screen.getByText('待检查')).toBeInTheDocument();
+  });
+
   it('shows the session name without the first-message preview', () => {
     renderItem();
 

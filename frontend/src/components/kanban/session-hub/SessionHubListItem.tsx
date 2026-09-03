@@ -31,6 +31,7 @@ import {
   INFO_TEXT_CLASS,
   formatTimeAgo,
   getExecutorDisplayName,
+  sessionAttentionKind,
   sessionListAgentKey,
   type SessionMarker,
 } from './utils';
@@ -81,6 +82,7 @@ export function SessionHubListItem({
     x: number;
     y: number;
   } | null>(null);
+  const attention = sessionAttentionKind(session);
   const showCardActions =
     !isEditing && (Boolean(onDeleteSession) || showRenameControls);
 
@@ -189,6 +191,7 @@ export function SessionHubListItem({
       aria-busy={isOpening || undefined}
       onClick={onClick}
       onContextMenu={(event) => {
+        if (isCanvasMode) return;
         event.preventDefault();
         event.stopPropagation();
         setContextMenu({ x: event.clientX, y: event.clientY });
@@ -210,8 +213,11 @@ export function SessionHubListItem({
       <div
         className={cn(
           'absolute inset-y-2 left-0 w-1 rounded-r-full',
-          marker?.bar ?? 'bg-muted-foreground/35'
+          marker?.hue ? marker.bar : (marker?.bar ?? 'bg-muted-foreground/35')
         )}
+        style={
+          marker?.hue ? { backgroundColor: `hsl(${marker.hue})` } : undefined
+        }
       />
 
       {isDeleteMode ? (
@@ -332,9 +338,13 @@ export function SessionHubListItem({
                 {isCanvasMode ? workspaceLabel : session.branch}
               </span>
             </span>
-            {session.isRunning ? (
+            {attention === 'running' ? (
               <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
                 {t('hubListItem.running')}
+              </span>
+            ) : attention === 'review' ? (
+              <span className="session-status-inreview-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
+                {t('hubListItem.reviewing')}
               </span>
             ) : null}
             {isCanvasMode && showCardActions ? actionButtons : null}

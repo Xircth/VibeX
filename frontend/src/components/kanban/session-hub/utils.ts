@@ -10,14 +10,33 @@ import {
 } from '@/lib/workspaceBranchOptions';
 import { dateTimestamp, formatRelativeTime } from '@/utils/date';
 import i18n from '@/i18n';
+import { CANVAS_WINDOW_SLOT_COUNT } from '@/components/kanban/canvas/canvasModel';
+
+export { CANVAS_WINDOW_SLOT_COUNT };
+
+export function sessionSlotClasses(index: number): {
+  shell: string;
+  bar: string;
+} {
+  const slot = (Math.max(0, index) % CANVAS_WINDOW_SLOT_COUNT) + 1;
+  return {
+    shell: `session-monitor-slot-${slot}`,
+    bar: `session-marker-slot-${slot}`,
+  };
+}
+
+export function sessionSlotHue(index: number): string {
+  const slot = (Math.max(0, index) % CANVAS_WINDOW_SLOT_COUNT) + 1;
+  return `var(--session-slot-${slot})`;
+}
 
 // 监控区 Slot 配色（见 Kanban 会话看板升级设计）：Slot 1 蓝 / 2 紫 / 3 绿 / 4 橙。
 // `shell` 为监控卡片的着色边框 + 浅色背景，`bar` 为左侧会话列表卡片的色条。
 export const MONITOR_SLOT_STYLES = [
-  { shell: 'session-monitor-slot-1', bar: 'session-marker-slot-1' },
-  { shell: 'session-monitor-slot-2', bar: 'session-marker-slot-2' },
-  { shell: 'session-monitor-slot-3', bar: 'session-marker-slot-3' },
-  { shell: 'session-monitor-slot-4', bar: 'session-marker-slot-4' },
+  sessionSlotClasses(0),
+  sessionSlotClasses(1),
+  sessionSlotClasses(2),
+  sessionSlotClasses(3),
 ] as const;
 
 // 执行区（右侧栏）会话在列表中使用浅红色条标记。
@@ -34,6 +53,17 @@ export const SESSION_LIST_WIDTH_STORAGE_KEY = 'vibex-kanban-session-list-width';
 export const DEFAULT_SESSION_LIST_WIDTH = 280;
 export const MIN_SESSION_LIST_WIDTH = 220;
 export const MAX_SESSION_LIST_WIDTH = 560;
+export type SessionAttentionKind = 'running' | 'review';
+
+export function sessionAttentionKind(session: {
+  isRunning?: boolean;
+  status?: SessionStatus | string | null;
+}): SessionAttentionKind | null {
+  if (session.isRunning) return 'running';
+  if (session.status === 'inreview') return 'review';
+  return null;
+}
+
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
 export const ARCHIVED_SESSION_STATUS: SessionStatus = 'archived';
 export const SESSION_ARCHIVE_DROP_ID = 'session-archive-drop';
@@ -88,6 +118,7 @@ export type KanbanSessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 export interface SessionMarker {
   bar: string;
+  hue?: string;
   badge?: string;
   label?: string;
 }
@@ -459,5 +490,8 @@ export function getSessionMarker(
     return null;
   }
 
-  return { bar: MONITOR_SLOT_STYLES[index].bar };
+  return {
+    bar: sessionSlotClasses(index).bar,
+    hue: sessionSlotHue(index),
+  };
 }

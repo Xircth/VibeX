@@ -10,10 +10,15 @@ import {
   KanbanSessionConversationView,
 } from './KanbanSessionConversationView';
 
-const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
-  vi.hoisted(() => ({
+const {
+  attemptsGetMock,
+  sessionsGetByIdMock,
+  sessionsMarkViewedMock,
+  useWorkspaceSessionsMock,
+} = vi.hoisted(() => ({
     attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
     sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
+    sessionsMarkViewedMock: vi.fn().mockResolvedValue({}),
     useWorkspaceSessionsMock: vi.fn(() => ({
       sessions: [] as Array<Record<string, unknown>>,
       selectedSession: undefined as Session | undefined,
@@ -121,7 +126,7 @@ vi.mock('@/lib/api', () => ({
   },
   sessionsApi: {
     getById: sessionsGetByIdMock,
-    markViewed: vi.fn().mockResolvedValue({}),
+    markViewed: sessionsMarkViewedMock,
   },
 }));
 
@@ -566,6 +571,52 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
   });
 
+  it('does not mark an unselected canvas conversation as viewed', async () => {
+    sessionsMarkViewedMock.mockClear();
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            interactive={true}
+            markViewed={false}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
+    expect(sessionsMarkViewedMock).not.toHaveBeenCalled();
+  });
+
   it('shows the loader instead of fabricating a conversation before detail queries resolve', () => {
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
@@ -771,6 +822,84 @@ describe('KanbanSessionConversationView', () => {
     );
   });
 
+  it('keeps the conversation in the canvas slot after a live session update', () => {
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+
+    const sessionState = (isRunning: boolean) => ({
+      sessions: [{ ...session, isRunning }],
+      selectedSession: { ...session, isRunning },
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+    useWorkspaceSessionsMock.mockReturnValue(sessionState(false));
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({ showCanvas }: { showCanvas: boolean }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              {showCanvas ? (
+                <div data-testid="canvas-slot">
+                  <KanbanSessionConversationView
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                    interactive={true}
+                  />
+                </div>
+              ) : null}
+              <div data-testid="right-slot">
+                <KanbanSessionConversationView
+                  workspaceId={workspace.id}
+                  sessionId={session.id}
+                  interactive={true}
+                  showSessionSelector={true}
+                />
+              </div>
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<PlacementHarness showCanvas={false} />);
+    expect(screen.getByTestId('right-slot')).toContainElement(
+      screen.getByTestId('virtualized-list')
+    );
+
+    rerender(<PlacementHarness showCanvas={true} />);
+    const conversation = screen.getByTestId('virtualized-list');
+    expect(screen.getByTestId('canvas-slot')).toContainElement(conversation);
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+
+    useWorkspaceSessionsMock.mockReturnValue(sessionState(true));
+    rerender(<PlacementHarness showCanvas={true} />);
+
+    expect(screen.getByTestId('virtualized-list')).toBe(conversation);
+    expect(screen.getByTestId('canvas-slot')).toContainElement(
+      screen.getByTestId('virtualized-list')
+    );
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+  });
+
   it('reuses the same conversation tree when a workspace-route session moves into monitor placement', () => {
     const workspace = createWorkspace('workspace-1');
     const session = createSession('session-1', workspace.id);
@@ -846,5 +975,59 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('monitor-slot')).toContainElement(
       originalConversationNode
     );
+  });
+
+  it('keeps the conversation tree while session details refetch', async () => {
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+    sessionsGetByIdMock.mockImplementation(() => new Promise(() => {}));
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            interactive={true}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    const conversation = screen.getByTestId('virtualized-list');
+    expect(conversation).toHaveTextContent('workspace-1:session-1');
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+
+    void queryClient.invalidateQueries({
+      queryKey: ['session', session.id],
+      refetchType: 'none',
+    });
+
+    expect(screen.getByTestId('virtualized-list')).toBe(conversation);
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
   });
 });

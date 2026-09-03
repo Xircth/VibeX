@@ -3,6 +3,7 @@ import '@xyflow/react/dist/style.css';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,12 +13,12 @@ import {
   Background,
   BackgroundVariant,
   ConnectionMode,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
   ViewportPortal,
   useReactFlow,
-  type Edge,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -26,7 +27,11 @@ import {
 import { Map as MapIcon, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { useQueryClient } from '@tanstack/react-query';
+import { sessionsApi } from '@/lib/api';
 import { useKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
+import { invalidateWorkspaceSessions } from '@/lib/sessionQueryCache';
+import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
 import { cn } from '@/lib/utils';
 import { FloatingSessionList } from './FloatingSessionList';
 import { ImportRecentSessionsDialog } from './ImportRecentSessionsDialog';
@@ -35,12 +40,17 @@ import { SessionCanvasDetailNode } from './SessionCanvasDetailNode';
 import { SessionCanvasDock } from './SessionCanvasDock';
 import { SessionCanvasGroupNode } from './SessionCanvasGroupNode';
 import {
-  applyDescendantDelta,
   applyFlowGeometryChanges,
   applyDropHint,
   computeDropHint,
+  canGroupSelection,
+  collectSelectionForRemoval,
+  excludeSelectedGroupChildren,
   expandSelectionToGroups,
-  groupGridSize,
+  emptyGroupFootprint,
+  findEmptyCanvasPlacement,
+  groupHasRunningSession,
+  selectedSessionIdsForViewed,
   groupNumber,
   groupSelection,
   groupSessionCount,
@@ -49,17 +59,26 @@ import {
   isOverflowHidden,
   isSessionNode,
   nodeById,
-  placeDetachedWindow,
-  dissolveGroup as dissolveCanvasGroup,
+  orderCanvasNodes,
+  openSessionWindow,
+  closeSessionWindow,
   createEmptyGroup,
+  previewGroupFrame,
   renameGroup as renameCanvasGroup,
   toggleGroupShowAll as toggleCanvasGroupShowAll,
   GROUP_VISIBLE_LIMIT,
   resizeGroupFrame,
   toggleGroupCollapsed,
   worldPosition,
+  worldRect,
   type CanvasDropHint,
 } from './canvasGrouping';
+import {
+  canvasNodesMatch,
+  CANVAS_HISTORY_LIMIT,
+  snapshotCanvasNodes,
+} from './canvasHistory';
+import { SessionCanvasHistoryDock } from './SessionCanvasHistoryDock';
 import { SessionCanvasViewportPanel } from './SessionCanvasViewportPanel';
 import {
   BOARD_DOT_GAP,
@@ -70,14 +89,15 @@ import {
   DRAG_HANDLE_SELECTOR,
   applyMoves,
   canvasNodeId,
-  collapseNode,
   computeAlignment,
   createCanvasNode,
-  expandNode,
   nextDropPoint,
   packLayout,
   parseCanvasNodeId,
-  pruneMissingSessions,
+  canvasWindowSlotIndex,
+  displayedCanvasNodes,
+  openWindowSessionIds,
+  preferLiveKanbanSessions,
   removeCanvasNode,
   resetNodeSize,
   resizeNode,
@@ -89,6 +109,8 @@ import {
   type SessionCanvasNode,
 } from './canvasModel';
 import {
+  CANVAS_BUNDLE_KEY,
+  canvasDocumentStorageKey,
   loadCanvasDocument,
   saveCanvasDocument,
   type SessionCanvasDocument,
@@ -134,13 +156,19 @@ interface SessionCanvasViewProps {
   ) => void | Promise<void>;
   onApiReady?: (api: SessionCanvasApi) => void;
   onPresentIdsChange?: (sessionIds: string[]) => void;
+  onWindowSessionIdsChange?: (sessionIds: string[]) => void;
+  onCreateSession?: () => void;
 }
 
 function toFlowNode(
   node: SessionCanvasNode,
   nodes: readonly SessionCanvasNode[],
   selectedIds: ReadonlySet<string>,
-  dropHint: CanvasDropHint | null
+  dropHint: CanvasDropHint | null,
+  windowSessionIds: readonly string[],
+  draggedId: string | null,
+  runningSessionIds: ReadonlySet<string>,
+  reviewSessionIds: ReadonlySet<string>
 ): Node {
   const size = sizeForNode(node);
   const parent =
@@ -150,6 +178,7 @@ function toFlowNode(
   const position = { x: node.x, y: node.y };
   const isDropTarget =
     dropHint?.type === 'group' && dropHint.groupId === node.id;
+  const isDragging = draggedId === node.id;
   if (isGroupNode(node)) {
     const count = groupSessionCount(nodes, node.id);
     return {
@@ -161,8 +190,11 @@ function toFlowNode(
       selected: selectedIds.has(node.id),
       parentId: parent ? canvasNodeId(parent.id) : undefined,
       dragHandle: DRAG_HANDLE_SELECTOR,
-      className: isDropTarget ? 'canvas-drop-target' : undefined,
-      zIndex: isDropTarget ? 3 : 0,
+      className: cn(
+        'canvas-group-flow-node',
+        isDropTarget && 'canvas-drop-target'
+      ),
+      zIndex: isDragging ? 8 : 0,
       data: {
         instanceId: node.id,
         name: node.name,
@@ -171,9 +203,12 @@ function toFlowNode(
         overflow: Math.max(0, count - GROUP_VISIBLE_LIMIT),
         showAll: node.showAll,
         collapsed: node.collapsed === true,
+        isRunning: groupHasRunningSession(nodes, node.id, runningSessionIds),
+        isReviewing: groupHasRunningSession(nodes, node.id, reviewSessionIds),
       },
     };
   }
+  const slotIndex = canvasWindowSlotIndex(node.sessionId, windowSessionIds);
   return {
     id: canvasNodeId(node.id),
     type: node.expanded ? 'sessionDetail' : 'sessionCard',
@@ -185,23 +220,26 @@ function toFlowNode(
     hidden: isOverflowHidden(nodes, node),
     dragHandle: node.expanded ? DRAG_HANDLE_SELECTOR : undefined,
     className: isDropTarget ? 'canvas-drop-target' : undefined,
-    zIndex: node.expanded ? 4 : isDropTarget ? 3 : 2,
-    data: { sessionId: node.sessionId, instanceId: node.id },
+    zIndex: isDragging ? 8 : node.expanded ? 4 : 2,
+    data: {
+      sessionId: node.sessionId,
+      instanceId: node.id,
+      slotIndex,
+      isRunning: runningSessionIds.has(node.sessionId),
+    },
   };
 }
 
-const SAME_SESSION_EDGE_OPTIONS = {
-  type: 'straight' as const,
-  selectable: false,
-  focusable: false,
-  interactionWidth: 0,
-  className: 'canvas-session-link',
-  style: {
-    stroke: 'color-mix(in oklab, var(--text-muted) 72%, transparent)',
-    strokeDasharray: '6 4',
-    strokeWidth: 1.75,
-  },
-};
+function linkAnchor(
+  nodes: readonly SessionCanvasNode[],
+  node: SessionCanvasNode
+): { x: number; y: number } {
+  const rect = worldRect(nodes, node);
+  if (node.expanded) {
+    return { x: rect.x + rect.width / 2, y: rect.y + CARD_HEIGHT / 2 };
+  }
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
 
 function SessionCanvasFlow({
   projectId,
@@ -215,12 +253,19 @@ function SessionCanvasFlow({
   onDeleteSession,
   onApiReady,
   onPresentIdsChange,
+  onWindowSessionIdsChange,
+  onCreateSession,
 }: SessionCanvasViewProps) {
   const { t } = useTranslation(['tasks']);
+  const queryClient = useQueryClient();
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition } = useReactFlow();
   const surfaceRef = useRef<HTMLDivElement>(null);
-  useCanvasRightDragPan(surfaceRef);
+  const onMiddleClickRef = useRef<(event: MouseEvent) => void>(() => {});
+  const onMiddleClick = useCallback((event: MouseEvent) => {
+    onMiddleClickRef.current(event);
+  }, []);
+  useCanvasRightDragPan(surfaceRef, onMiddleClick);
   useCanvasMarqueeTextGuard(surfaceRef);
 
   const [documentState, setDocumentState] = useState<SessionCanvasDocument>(
@@ -228,7 +273,20 @@ function SessionCanvasFlow({
   );
 
   useEffect(() => {
-    setDocumentState(loadCanvasDocument(projectId));
+    const reload = (event?: StorageEvent) => {
+      if (
+        event &&
+        event.key !== null &&
+        event.key !== canvasDocumentStorageKey(projectId) &&
+        event.key !== CANVAS_BUNDLE_KEY
+      ) {
+        return;
+      }
+      setDocumentState(loadCanvasDocument(projectId));
+    };
+    reload();
+    window.addEventListener('storage', reload);
+    return () => window.removeEventListener('storage', reload);
   }, [projectId]);
   const [importMode, setImportMode] = useState<
     'recent' | 'project' | 'agent' | null
@@ -241,7 +299,26 @@ function SessionCanvasFlow({
     () => new Set()
   );
   const [dropHint, setDropHint] = useState<CanvasDropHint | null>(null);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
   const [alignGuides, setAlignGuides] = useState<AlignmentGuide[]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const historyRef = useRef<{
+    past: SessionCanvasNode[][];
+    future: SessionCanvasNode[][];
+  }>({ past: [], future: [] });
+  const skipHistoryRef = useRef(false);
+  const marqueeSelectingRef = useRef(false);
+  useLayoutEffect(() => {
+    onMiddleClickRef.current = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (selectedIds.size === 0) {
+        setSelectionMenu(null);
+        return;
+      }
+      setSelectionMenu({ x: event.clientX, y: event.clientY });
+    };
+  }, [selectedIds]);
   const alignmentDeltaRef = useRef({ dx: 0, dy: 0 });
   const flowNodeCacheRef = useRef(new Map<string, Node>());
   const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
@@ -250,13 +327,21 @@ function SessionCanvasFlow({
   const documentRef = useRef(documentState);
   documentRef.current = documentState;
 
+  const previousLiveSessionsRef = useRef(sessions);
+  const displaySessions = preferLiveKanbanSessions(
+    sessions,
+    previousLiveSessionsRef.current
+  );
+  if (displaySessions !== previousLiveSessionsRef.current) {
+    previousLiveSessionsRef.current = displaySessions;
+  }
   const liveIds = useMemo(
-    () => new Set(sessions.map((session) => session.id)),
-    [sessions]
+    () => new Set(displaySessions.map((session) => session.id)),
+    [displaySessions]
   );
   const sessionsById = useMemo(
-    () => new Map(sessions.map((session) => [session.id, session])),
-    [sessions]
+    () => new Map(displaySessions.map((session) => [session.id, session])),
+    [displaySessions]
   );
 
   const writeDocument = useCallback(
@@ -276,12 +361,46 @@ function SessionCanvasFlow({
   );
 
   const nodes = useMemo(
-    () =>
-      sessionsReady
-        ? pruneMissingSessions(documentState.nodes, liveIds)
-        : documentState.nodes,
+    () => displayedCanvasNodes(documentState.nodes, liveIds, sessionsReady),
     [documentState.nodes, liveIds, sessionsReady]
   );
+  const windowSessionIds = useMemo(() => openWindowSessionIds(nodes), [nodes]);
+  const runningSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const session of sessionsById.values()) {
+      if (sessionAttentionKind(session) === 'running') ids.add(session.id);
+    }
+    return ids;
+  }, [sessionsById]);
+  const reviewSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const session of sessionsById.values()) {
+      if (sessionAttentionKind(session) === 'review') ids.add(session.id);
+    }
+    return ids;
+  }, [sessionsById]);
+
+  useEffect(() => {
+    const sessionIds = selectedSessionIdsForViewed(
+      documentRef.current.nodes,
+      selectedIds
+    );
+    if (sessionIds.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      sessionIds.map(async (sessionId) => {
+        const session = sessionsById.get(sessionId);
+        if (!session) return;
+        await sessionsApi.markViewed(sessionId);
+        if (!cancelled) {
+          await invalidateWorkspaceSessions(queryClient, session.workspace.id);
+        }
+      })
+    ).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [queryClient, selectedIds, sessionsById, runningSessionIds]);
 
   useEffect(() => {
     if (nodes.length === documentState.nodes.length) return;
@@ -294,35 +413,90 @@ function SessionCanvasFlow({
       persistToDisk = true
     ) => {
       const current = documentRef.current;
-      writeDocument(
-        { ...current, nodes: mutate(current.nodes) },
-        persistToDisk
-      );
+      const nextNodes = mutate(current.nodes);
+      if (
+        persistToDisk &&
+        !skipHistoryRef.current &&
+        !canvasNodesMatch(current.nodes, nextNodes)
+      ) {
+        const history = historyRef.current;
+        history.past = [
+          ...history.past,
+          snapshotCanvasNodes(current.nodes),
+        ].slice(-CANVAS_HISTORY_LIMIT);
+        history.future = [];
+        setHistoryVersion((value) => value + 1);
+      }
+      writeDocument({ ...current, nodes: nextNodes }, persistToDisk);
     },
     [writeDocument]
   );
 
+  const undoCanvas = useCallback(() => {
+    const history = historyRef.current;
+    const previous = history.past.pop();
+    if (!previous) return;
+    history.future = [
+      snapshotCanvasNodes(documentRef.current.nodes),
+      ...history.future,
+    ].slice(0, CANVAS_HISTORY_LIMIT);
+    skipHistoryRef.current = true;
+    writeDocument({ ...documentRef.current, nodes: previous }, true);
+    skipHistoryRef.current = false;
+    setSelectedIds(new Set());
+    setSelectionMenu(null);
+    setHistoryVersion((value) => value + 1);
+  }, [writeDocument]);
+
+  const redoCanvas = useCallback(() => {
+    const history = historyRef.current;
+    const next = history.future.shift();
+    if (!next) return;
+    history.past = [
+      ...history.past,
+      snapshotCanvasNodes(documentRef.current.nodes),
+    ].slice(-CANVAS_HISTORY_LIMIT);
+    skipHistoryRef.current = true;
+    writeDocument({ ...documentRef.current, nodes: next }, true);
+    skipHistoryRef.current = false;
+    setSelectedIds(new Set());
+    setSelectionMenu(null);
+    setHistoryVersion((value) => value + 1);
+  }, [writeDocument]);
+
   const rfNodes = useMemo(() => {
     const cache = flowNodeCacheRef.current;
     const nextCache = new Map<string, Node>();
-    const result = nodes.map((node) => {
-      const built = toFlowNode(node, nodes, selectedIds, dropHint);
+    const result = orderCanvasNodes(nodes).map((node) => {
+      const built = toFlowNode(
+        node,
+        nodes,
+        selectedIds,
+        dropHint,
+        windowSessionIds,
+        draggedId,
+        runningSessionIds,
+        reviewSessionIds
+      );
       const reused = reuseUnchangedFlowNode(cache.get(built.id), built);
       nextCache.set(reused.id, reused);
       return reused;
     });
     flowNodeCacheRef.current = nextCache;
     return result;
-  }, [dropHint, nodes, selectedIds]);
+  }, [
+    draggedId,
+    dropHint,
+    nodes,
+    reviewSessionIds,
+    runningSessionIds,
+    selectedIds,
+    windowSessionIds,
+  ]);
 
-  const rfEdges = useMemo<Edge[]>(
+  const sessionLinks = useMemo(
     () =>
-      sameSessionLinks(
-        nodes.filter((node) => !isOverflowHidden(nodes, node))
-      ).map((link) => ({
-        ...link,
-        ...SAME_SESSION_EDGE_OPTIONS,
-      })),
+      sameSessionLinks(nodes.filter((node) => !isOverflowHidden(nodes, node))),
     [nodes]
   );
 
@@ -393,22 +567,20 @@ function SessionCanvasFlow({
     onPresentIdsChange?.([...new Set(nodes.map((node) => node.sessionId))]);
   }, [nodes, onPresentIdsChange]);
 
+  useEffect(() => {
+    onWindowSessionIdsChange?.(windowSessionIds);
+  }, [onWindowSessionIdsChange, windowSessionIds]);
+
   const expandCard = useCallback(
     (instanceId: string) => {
-      updateNodes((items) =>
-        items.map((node) => (node.id === instanceId ? expandNode(node) : node))
-      );
+      updateNodes((items) => openSessionWindow(items, instanceId));
     },
     [updateNodes]
   );
 
   const collapseCard = useCallback(
     (instanceId: string) => {
-      updateNodes((items) =>
-        items.map((node) =>
-          node.id === instanceId ? collapseNode(node) : node
-        )
-      );
+      updateNodes((items) => closeSessionWindow(items, instanceId));
     },
     [updateNodes]
   );
@@ -489,7 +661,10 @@ function SessionCanvasFlow({
 
   const previewGroupResize = useCallback(
     (groupId: string, geometry: CanvasNodeGeometry) => {
-      updateNodes((items) => resizeGroupFrame(items, groupId, geometry), false);
+      updateNodes(
+        (items) => previewGroupFrame(items, groupId, geometry),
+        false
+      );
     },
     [updateNodes]
   );
@@ -590,7 +765,17 @@ function SessionCanvasFlow({
             changed = true;
           }
         }
-        return changed ? next : current;
+        if (!changed) return current;
+        const resolved = marqueeSelectingRef.current
+          ? expandSelectionToGroups(documentRef.current.nodes, next)
+          : excludeSelectedGroupChildren(documentRef.current.nodes, next);
+        if (
+          resolved.size === current.size &&
+          [...resolved].every((id) => current.has(id))
+        ) {
+          return current;
+        }
+        return resolved;
       });
     },
     [writeDocument]
@@ -599,6 +784,7 @@ function SessionCanvasFlow({
   const handleNodeDragStart = useCallback((_event: unknown, dragged: Node) => {
     const instanceId = parseCanvasNodeId(dragged.id);
     if (!instanceId) return;
+    setDraggedId(instanceId);
     const model = nodeById(documentRef.current.nodes, instanceId);
     setSelectedIds((current) => {
       if (model && (isGroupNode(model) || model.parentId) && current.size > 0) {
@@ -676,11 +862,12 @@ function SessionCanvasFlow({
       alignmentDeltaRef.current = { dx: 0, dy: 0 };
       setAlignGuides([]);
       setDropHint(null);
+      setDraggedId(null);
       if (!instanceId) return;
       updateNodes((items) => {
         const current = nodeById(items, instanceId);
         if (!current) return items;
-        if (isGroupNode(current)) {
+        if (isGroupNode(current) || current.expanded) {
           return items.map((node) =>
             node.id === instanceId
               ? {
@@ -723,14 +910,10 @@ function SessionCanvasFlow({
         (item) => item.id === instanceId
       );
       if (!current || isGroupNode(current)) return;
-      if (current.parentId && !current.expanded) {
-        updateNodes((items) => placeDetachedWindow(items, instanceId));
-        return;
-      }
       if (current.expanded) return;
       expandCard(instanceId);
     },
-    [expandCard, updateNodes]
+    [expandCard]
   );
 
   const autoArrange = useCallback(() => {
@@ -770,13 +953,14 @@ function SessionCanvasFlow({
 
   const createGroupAtView = useCallback(() => {
     const center = flowOriginAtCanvasCenter();
-    const footprint = groupGridSize(0, false);
-    const origin = {
+    const footprint = emptyGroupFootprint();
+    const preferred = {
       x: center.x - footprint.width / 2,
       y: center.y - footprint.height / 2,
     };
     let createdId: string | null = null;
     updateNodes((items) => {
+      const origin = findEmptyCanvasPlacement(items, footprint, preferred);
       const next = createEmptyGroup(items, origin);
       createdId =
         next.find(
@@ -800,7 +984,7 @@ function SessionCanvasFlow({
   const deleteSelection = useCallback(() => {
     if (selectedIds.size === 0) return;
     updateNodes((items) => {
-      const ids = expandSelectionToGroups(items, selectedIds);
+      const ids = collectSelectionForRemoval(items, selectedIds);
       return items.filter((node) => !ids.has(node.id));
     });
     setSelectedIds(new Set());
@@ -812,20 +996,20 @@ function SessionCanvasFlow({
       for (const id of selectedIds) {
         const node = nodeById(next, id);
         if (!node || isGroupNode(node) || node.expanded) continue;
-        next = node.parentId
-          ? placeDetachedWindow(next, id)
-          : next.map((item) => (item.id === id ? expandNode(item) : item));
+        next = openSessionWindow(next, id);
       }
       return next;
     });
   }, [selectedIds, updateNodes]);
 
   const collapseSelection = useCallback(() => {
-    updateNodes((items) =>
-      items.map((node) =>
-        selectedIds.has(node.id) ? collapseNode(node) : node
-      )
-    );
+    updateNodes((items) => {
+      let next = items;
+      for (const id of selectedIds) {
+        next = closeSessionWindow(next, id);
+      }
+      return next;
+    });
   }, [selectedIds, updateNodes]);
 
   useEffect(() => {
@@ -844,20 +1028,38 @@ function SessionCanvasFlow({
         event.preventDefault();
         deleteSelection();
       }
+      const withMeta = event.metaKey || event.ctrlKey;
+      if (withMeta && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undoCanvas();
+      }
+      if (
+        withMeta &&
+        (event.key.toLowerCase() === 'y' ||
+          (event.key.toLowerCase() === 'z' && event.shiftKey))
+      ) {
+        event.preventDefault();
+        redoCanvas();
+      }
       if (event.key === 'Enter' && selectedIds.size === 1) {
         const instanceId = [...selectedIds][0];
         const current = documentRef.current.nodes.find(
           (node) => node.id === instanceId
         );
         if (current?.expanded && instanceId) collapseCard(instanceId);
-        else if (instanceId && current?.parentId) {
-          updateNodes((items) => placeDetachedWindow(items, instanceId));
-        } else if (instanceId) expandCard(instanceId);
+        else if (instanceId) expandCard(instanceId);
       }
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [collapseCard, deleteSelection, expandCard, selectedIds, updateNodes]);
+  }, [
+    collapseCard,
+    deleteSelection,
+    expandCard,
+    redoCanvas,
+    selectedIds,
+    undoCanvas,
+  ]);
 
   const handleMove = useCallback((_event: unknown, viewport: Viewport) => {
     zoomRef.current = viewport.zoom;
@@ -881,12 +1083,10 @@ function SessionCanvasFlow({
   useEffect(
     () => () => {
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-      if (pendingViewport.current) {
-        saveCanvasDocument(projectId, {
-          ...documentRef.current,
-          viewport: pendingViewport.current,
-        });
-      }
+      saveCanvasDocument(projectId, {
+        ...documentRef.current,
+        viewport: pendingViewport.current ?? documentRef.current.viewport,
+      });
     },
     [projectId]
   );
@@ -896,6 +1096,9 @@ function SessionCanvasFlow({
   const selectedExpanded =
     selectedNodes.filter(isSessionNode).length > 0 &&
     selectedNodes.filter(isSessionNode).every((node) => node.expanded);
+  const canUndo = historyVersion >= 0 && historyRef.current.past.length > 0;
+  const canRedo = historyVersion >= 0 && historyRef.current.future.length > 0;
+  const canGroup = canGroupSelection(nodes, selectedIds);
 
   return (
     <SessionCanvasViewProvider value={viewContext}>
@@ -905,28 +1108,41 @@ function SessionCanvasFlow({
         onClick={() => setSelectionMenu(null)}
         onContextMenu={(event) => {
           event.preventDefault();
-          event.stopPropagation();
-          if (selectedIds.size === 0) {
-            setSelectionMenu(null);
-            return;
-          }
-          setSelectionMenu({ x: event.clientX, y: event.clientY });
         }}
       >
         <ReactFlow
           nodes={rfNodes}
-          edges={rfEdges}
+          edges={[]}
           nodeTypes={NODE_TYPES}
           nodesConnectable={false}
           edgesReconnectable={false}
           edgesFocusable={false}
           connectionMode={ConnectionMode.Loose}
-          defaultEdgeOptions={SAME_SESSION_EDGE_OPTIONS}
           onNodesChange={handleNodesChange}
           onNodeDragStart={handleNodeDragStart}
           onNodeDrag={handleNodeDrag}
           onNodeDragStop={handleNodeDragStop}
           onNodeDoubleClick={handleNodeDoubleClick}
+          onSelectionStart={() => {
+            marqueeSelectingRef.current = true;
+          }}
+          onSelectionEnd={() => {
+            setSelectedIds((current) =>
+              expandSelectionToGroups(documentRef.current.nodes, current)
+            );
+            window.setTimeout(() => {
+              marqueeSelectingRef.current = false;
+            }, 0);
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+          }}
+          onNodeContextMenu={(event) => {
+            event.preventDefault();
+          }}
+          onSelectionContextMenu={(event) => {
+            event.preventDefault();
+          }}
           onMove={handleMove}
           onMoveEnd={handleMoveEnd}
           fitView={documentState.viewport == null}
@@ -934,9 +1150,8 @@ function SessionCanvasFlow({
           defaultViewport={documentState.viewport ?? undefined}
           minZoom={CANVAS_MIN_ZOOM}
           maxZoom={CANVAS_MAX_ZOOM}
-          onlyRenderVisibleElements
           elevateNodesOnSelect={false}
-          panOnDrag={[]}
+          panOnDrag={[2]}
           selectionOnDrag
           selectionMode={SelectionMode.Partial}
           panOnScroll
@@ -978,6 +1193,35 @@ function SessionCanvasFlow({
               })}
             </ViewportPortal>
           ) : null}
+          {sessionLinks.length > 0 ? (
+            <ViewportPortal>
+              <svg
+                className="pointer-events-none absolute overflow-visible"
+                width={1}
+                height={1}
+              >
+                {sessionLinks.map((link) => {
+                  const from = nodeById(nodes, link.sourceId);
+                  const to = nodeById(nodes, link.targetId);
+                  if (!from || !to) return null;
+                  const start = linkAnchor(nodes, from);
+                  const end = linkAnchor(nodes, to);
+                  return (
+                    <line
+                      key={link.id}
+                      className="canvas-session-link"
+                      x1={start.x}
+                      y1={start.y}
+                      x2={end.x}
+                      y2={end.y}
+                      strokeDasharray="6 4"
+                      strokeWidth={1.75}
+                    />
+                  );
+                })}
+              </svg>
+            </ViewportPortal>
+          ) : null}
           {dropHint?.type === 'merge' ? (
             <ViewportPortal>
               <div
@@ -994,31 +1238,46 @@ function SessionCanvasFlow({
               </div>
             </ViewportPortal>
           ) : null}
-          <SessionCanvasDock
-            selectedCount={selectedIds.size}
-            selectedExpanded={selectedExpanded}
-            selectedGroupCollapsed={
-              selectedNodes.length === 1 &&
-              isGroupNode(selectedNodes[0]) &&
-              selectedNodes[0].collapsed === true
-            }
-            selectedIsGroup={
-              selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
-            }
-            onToggleGroupCollapse={() => {
-              const group = selectedNodes.find(isGroupNode);
-              if (group) collapseGroup(group.id);
-            }}
-            onCreateGroup={createGroupAtView}
-            onImportByProject={() => setImportMode('project')}
-            onImportByRecent={() => setImportMode('recent')}
-            onImportByAgent={() => setImportMode('agent')}
-            onFitView={() => void fitView({ padding: 0.2, duration: 300 })}
-            onAutoArrange={autoArrange}
-            onExpandSelection={expandSelection}
-            onCollapseSelection={collapseSelection}
-            onDeleteSelection={deleteSelection}
-          />
+          <Panel position="bottom-center" data-canvas-export-skip="">
+            <div
+              className="flex items-center gap-2"
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <SessionCanvasHistoryDock
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={undoCanvas}
+                onRedo={redoCanvas}
+              />
+              <SessionCanvasDock
+                selectedCount={selectedIds.size}
+                selectedExpanded={selectedExpanded}
+                selectedGroupCollapsed={
+                  selectedNodes.length === 1 &&
+                  isGroupNode(selectedNodes[0]) &&
+                  selectedNodes[0].collapsed === true
+                }
+                selectedIsGroup={
+                  selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
+                }
+                onToggleGroupCollapse={() => {
+                  const group = selectedNodes.find(isGroupNode);
+                  if (group) collapseGroup(group.id);
+                }}
+                onCreateGroup={createGroupAtView}
+                onCreateSession={() => onCreateSession?.()}
+                onImportByProject={() => setImportMode('project')}
+                onImportByRecent={() => setImportMode('recent')}
+                onImportByAgent={() => setImportMode('agent')}
+                onFitView={() => void fitView({ padding: 0.2, duration: 300 })}
+                onAutoArrange={autoArrange}
+                onExpandSelection={expandSelection}
+                onCollapseSelection={collapseSelection}
+                onDeleteSelection={deleteSelection}
+              />
+            </div>
+          </Panel>
           <SessionCanvasViewportPanel
             mapVisible={documentState.minimapVisible}
             onMapVisibleChange={(visible) =>
@@ -1077,12 +1336,17 @@ function SessionCanvasFlow({
         />
         {selectionMenu ? (
           <div
-            className="fixed z-50 min-w-36 rounded-xl border border-border bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]"
+            role="menu"
+            className="tahoe-popover fixed z-50 min-w-36 rounded-md p-1 text-popover-foreground"
             style={{ left: selectionMenu.x, top: selectionMenu.y }}
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <button
               type="button"
-              className="flex w-full rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
+              role="menuitem"
+              disabled={!canGroup}
+              className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)] disabled:pointer-events-none disabled:opacity-40"
               onClick={() => {
                 updateNodes((items) => groupSelection(items, selectedIds));
                 setSelectionMenu(null);
@@ -1092,57 +1356,15 @@ function SessionCanvasFlow({
             </button>
             <button
               type="button"
-              className="flex w-full rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
+              role="menuitem"
+              className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
               onClick={() => {
-                updateNodes((items) => {
-                  const expanded = expandSelectionToGroups(items, selectedIds);
-                  const roots = items.filter(
-                    (node) =>
-                      expanded.has(node.id) &&
-                      (!node.parentId || !expanded.has(node.parentId))
-                  );
-                  const moves = packLayout(roots);
-                  let next = items;
-                  for (const move of moves) {
-                    const node = nodeById(next, move.id);
-                    if (!node) continue;
-                    const dx = move.x - node.x;
-                    const dy = move.y - node.y;
-                    next = isGroupNode(node)
-                      ? applyDescendantDelta(next, node.id, dx, dy)
-                      : next.map((item) =>
-                          item.id === node.id
-                            ? { ...item, x: move.x, y: move.y }
-                            : item
-                        );
-                  }
-                  return next;
-                });
+                deleteSelection();
                 setSelectionMenu(null);
               }}
             >
-              {t('hubCanvas.arrangeSelection')}
+              {t('hubCanvas.removeNodes')}
             </button>
-            {selectedNodes.some(isGroupNode) ? (
-              <button
-                type="button"
-                className="flex w-full rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
-                onClick={() => {
-                  updateNodes((items) => {
-                    let next = items;
-                    for (const node of items.filter(
-                      (item) => selectedIds.has(item.id) && isGroupNode(item)
-                    )) {
-                      next = dissolveCanvasGroup(next, node.id);
-                    }
-                    return next;
-                  });
-                  setSelectionMenu(null);
-                }}
-              >
-                {t('hubCanvas.dissolveGroup')}
-              </button>
-            ) : null}
           </div>
         ) : null}
       </div>

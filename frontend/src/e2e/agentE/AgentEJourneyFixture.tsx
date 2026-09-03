@@ -79,10 +79,13 @@ export class FakeMcpDelegationTransport implements BackendTransport {
         },
       };
     }
-    if (command === 'plugin_control_catalog') {
+    if (command === 'official_product_mcp_state') {
       return {
-        plugins: [{ id: 'vibex.multi-agent', enabled: true }],
-        runtimes: [],
+        delegation: true,
+        feedback: false,
+        ask: false,
+        sessions: false,
+        sessionControl: false,
       };
     }
     if (command === 'fixture_projection') {

@@ -125,6 +125,7 @@ function Harness({
   onRestoreArchivedSession = vi.fn(),
   onCreateSessionRequested = vi.fn(),
   onResizeMouseDown = vi.fn(),
+  compactHeader = false,
 }: {
   sessions?: SidebarProps['sessions'];
   archivedSessions?: SidebarProps['archivedSessions'];
@@ -135,6 +136,7 @@ function Harness({
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
   onCreateSessionRequested?: SidebarProps['onCreateSessionRequested'];
   onResizeMouseDown?: SidebarProps['onResizeMouseDown'];
+  compactHeader?: boolean;
 }) {
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [queryClient] = useState(
@@ -145,6 +147,7 @@ function Harness({
     <QueryClientProvider client={queryClient}>
       <SessionHubSidebar
         width={320}
+        compactHeader={compactHeader}
         isLoading={false}
         sessions={sessions}
         archivedSessions={archivedSessions}
@@ -251,11 +254,14 @@ describe('SessionHubSidebar', () => {
     listView.current = 'status';
   });
 
-  it('requests a new session in the execution area', async () => {
+  it('requests a new session from the canvas compact header', async () => {
     const user = userEvent.setup();
     const onCreateSessionRequested = vi.fn();
     const { container } = render(
-      <Harness onCreateSessionRequested={onCreateSessionRequested} />
+      <Harness
+        compactHeader
+        onCreateSessionRequested={onCreateSessionRequested}
+      />
     );
 
     const openButton = container
@@ -267,8 +273,23 @@ describe('SessionHubSidebar', () => {
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the session list title and opens create in the hub header', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Harness />);
+
+    expect(screen.getByText('会话列表')).toBeInTheDocument();
+    expect(screen.getByText('会话列表').className).not.toMatch(/truncate/);
+    expect(
+      container.querySelector('.flex.items-center.justify-between')
+    ).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: '新增会话' }));
+    expect(screen.getByText('新建会话')).toBeInTheDocument();
+  });
+
   it('keeps delete available in archive view without a title or archive border', () => {
-    const { container } = render(<Harness isArchiveView={true} />);
+    const { container } = render(
+      <Harness compactHeader isArchiveView={true} />
+    );
 
     const archiveButton = container
       .querySelector('svg.lucide-archive')

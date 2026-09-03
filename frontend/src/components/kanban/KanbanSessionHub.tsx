@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
-import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+
 import { type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -1041,6 +1041,7 @@ export function KanbanSessionHub({
     <SessionHubSidebar
       width={sessionListWidth}
       fill={boardStyle === 'canvas' ? true : listFills}
+      compactHeader={boardStyle === 'canvas'}
       isLoading={isLoading}
       sessions={activeSessionsWithOptimisticStatus}
       archivedSessions={archivedSessionsWithOptimisticStatus}
@@ -1077,11 +1078,7 @@ export function KanbanSessionHub({
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
       onCreateSessionRequested={() => {
-        if (boardStyle === 'canvas') {
-          handleCreatePopoverOpenChange(!isCreatePopoverOpen);
-          return;
-        }
-        requestCreateSessionInExecutionArea(setSearchParams, searchParams);
+        handleCreatePopoverOpenChange(!isCreatePopoverOpen);
       }}
       onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
       onCreateSession={handleSubmitCreateSession}

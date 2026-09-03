@@ -1,8 +1,9 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
-#[cfg(windows)]
-use std::path::PathBuf;
-use std::{ffi::OsStr, path::Path};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
 #[cfg(unix)]
@@ -44,12 +45,31 @@ pub fn configure_tokio_command_no_window(
     command
 }
 
-#[cfg(windows)]
-fn is_windows_batch_script(path: &Path) -> bool {
+/// npm global shims on Windows are `.cmd` / `.bat`. Node's `spawn` without
+/// `shell: true` rejects those extensions (EINVAL after CVE-2024-27980).
+pub fn is_windows_batch_script(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
-        .unwrap_or(false)
+        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
+}
+
+/// Prefer a same-stem `.exe` next to a Windows batch shim. VibeX can still
+/// launch `.cmd` via `cmd.exe`; ACP adapters spawned by Node cannot.
+pub fn prefer_direct_spawn_executable(path: impl AsRef<Path>) -> PathBuf {
+    let path = crate::path::normalize_windows_extended_path_prefix(path);
+    if !is_windows_batch_script(&path) {
+        return path;
+    }
+    let exe = path.with_extension("exe");
+    if exe.is_file() { exe } else { path }
+}
+
+/// Path an ACP adapter can pass to Node `child_process.spawn` without shell.
+/// Batch shims are omitted so the adapter can fall back to its bundled native
+/// binary instead of crashing with EINVAL / EPIPE.
+pub fn node_spawnable_runtime_path(path: impl AsRef<Path>) -> Option<PathBuf> {
+    let preferred = prefer_direct_spawn_executable(path);
+    (!is_windows_batch_script(&preferred)).then_some(preferred)
 }
 
 /// Resolve a bare program name (e.g. `npx`, `codex-acp`) to a concrete file on
@@ -97,14 +117,15 @@ pub fn new_hidden_tokio_command(
         // `std::fs::canonicalize` returns verbatim (`\\?\`) paths on Windows.
         // `CreateProcess` accepts those paths, but cmd.exe does not reliably
         // resolve them when invoking npm's .cmd/.bat shims.
-        let program = dunce::simplified(program);
-        if is_windows_batch_script(program) {
+        let program = prefer_direct_spawn_executable(dunce::simplified(program));
+        if is_windows_batch_script(&program) {
             let mut command = tokio::process::Command::new("cmd.exe");
             configure_tokio_command_no_window(&mut command);
-            command.arg("/d").arg("/c").arg(program).args(args);
+            command.arg("/d").arg("/c").arg(&program).args(args);
             return command;
         }
-        if let Some(resolved) = resolve_windows_program(program) {
+        if let Some(resolved) = resolve_windows_program(&program) {
+            let resolved = prefer_direct_spawn_executable(resolved);
             if is_windows_batch_script(&resolved) {
                 let mut command = tokio::process::Command::new("cmd.exe");
                 configure_tokio_command_no_window(&mut command);
@@ -116,6 +137,10 @@ pub fn new_hidden_tokio_command(
             command.args(args);
             return command;
         }
+        let mut command = tokio::process::Command::new(&program);
+        configure_tokio_command_no_window(&mut command);
+        command.args(args);
+        return command;
     }
 
     let mut command = tokio::process::Command::new(program);
@@ -134,14 +159,15 @@ pub fn new_hidden_std_command(
 
     #[cfg(windows)]
     {
-        let program = dunce::simplified(program);
-        if is_windows_batch_script(program) {
+        let program = prefer_direct_spawn_executable(dunce::simplified(program));
+        if is_windows_batch_script(&program) {
             let mut command = std::process::Command::new("cmd.exe");
             configure_std_command_no_window(&mut command);
-            command.arg("/d").arg("/c").arg(program).args(args);
+            command.arg("/d").arg("/c").arg(&program).args(args);
             return command;
         }
-        if let Some(resolved) = resolve_windows_program(program) {
+        if let Some(resolved) = resolve_windows_program(&program) {
+            let resolved = prefer_direct_spawn_executable(resolved);
             if is_windows_batch_script(&resolved) {
                 let mut command = std::process::Command::new("cmd.exe");
                 configure_std_command_no_window(&mut command);
@@ -153,6 +179,10 @@ pub fn new_hidden_std_command(
             command.args(args);
             return command;
         }
+        let mut command = std::process::Command::new(&program);
+        configure_std_command_no_window(&mut command);
+        command.args(args);
+        return command;
     }
 
     let mut command = std::process::Command::new(program);
@@ -263,6 +293,88 @@ mod command_output_detail_tests {
         let output = output(b"  \n", b"\t\n");
 
         assert_eq!(command_output_detail(&output), None);
+    }
+}
+
+#[cfg(test)]
+mod spawnable_runtime_path_tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    use super::{
+        is_windows_batch_script, node_spawnable_runtime_path, prefer_direct_spawn_executable,
+    };
+
+    fn write_empty(path: &Path) {
+        fs::write(path, b"").expect("write test file");
+    }
+
+    #[test]
+    fn batch_extensions_are_detected_on_every_host() {
+        assert!(is_windows_batch_script(Path::new("codex.cmd")));
+        assert!(is_windows_batch_script(Path::new("claude.CMD")));
+        assert!(is_windows_batch_script(Path::new("tool.bat")));
+        assert!(!is_windows_batch_script(Path::new("codex.exe")));
+        assert!(!is_windows_batch_script(Path::new("codex")));
+    }
+
+    #[test]
+    fn prefers_a_sibling_exe_over_a_cmd_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("claude.cmd");
+        let exe = dir.path().join("claude.exe");
+        write_empty(&cmd);
+        write_empty(&exe);
+
+        assert_eq!(prefer_direct_spawn_executable(&cmd), exe);
+        assert_eq!(
+            node_spawnable_runtime_path(&cmd).as_deref(),
+            Some(exe.as_path())
+        );
+    }
+
+    #[test]
+    fn keeps_cmd_when_no_sibling_exe_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("codex.cmd");
+        write_empty(&cmd);
+
+        assert_eq!(prefer_direct_spawn_executable(&cmd), cmd);
+        assert_eq!(node_spawnable_runtime_path(&cmd), None);
+    }
+
+    #[test]
+    fn native_executables_stay_spawnable() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("codex.exe");
+        write_empty(&exe);
+
+        assert_eq!(prefer_direct_spawn_executable(&exe), exe);
+        assert_eq!(
+            node_spawnable_runtime_path(&exe).as_deref(),
+            Some(exe.as_path())
+        );
+    }
+
+    #[test]
+    fn strips_verbatim_prefixes_before_returning_a_path() {
+        let normalized = prefer_direct_spawn_executable(PathBuf::from(
+            r"\\?\C:\Users\developer\AppData\Roaming\npm\codex.exe",
+        ));
+        assert_eq!(
+            normalized,
+            PathBuf::from(r"C:\Users\developer\AppData\Roaming\npm\codex.exe")
+        );
+        assert_eq!(
+            node_spawnable_runtime_path(PathBuf::from(
+                r"\\?\C:\Users\developer\AppData\Roaming\npm\codex.exe"
+            )),
+            Some(PathBuf::from(
+                r"C:\Users\developer\AppData\Roaming\npm\codex.exe"
+            ))
+        );
     }
 }
 

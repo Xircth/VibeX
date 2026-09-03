@@ -84,22 +84,112 @@ pub struct SessionLaunchAuthorization {
     pub rebind_event_boundary_sequence: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionGateError {
-    #[error("Agent is disabled")]
     Disabled,
-    #[error("retired Agent cannot start a session")]
     Retired,
-    #[error("Agent is not ready: {0:?}")]
     NotReady(AgentLifecycleState),
-    #[error("Agent has no current Installation lock")]
     MissingLock,
-    #[error("Installation lock belongs to another Agent")]
     LockAgentMismatch,
-    #[error("Installation lock does not contain an absolute ACP program")]
     InvalidLaunchPath,
-    #[error("changing the Agent binding requires an explicit rebind")]
     ExplicitRebindRequired,
+}
+
+impl std::fmt::Display for SessionGateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.user_message())
+    }
+}
+
+impl std::error::Error for SessionGateError {}
+
+impl SessionGateError {
+    pub fn user_message(&self) -> &'static str {
+        user_message_for(self)
+    }
+}
+
+fn user_message_for(error: &SessionGateError) -> &'static str {
+    match error {
+        SessionGateError::Disabled => "This Agent is disabled.",
+        SessionGateError::Retired => "This retired Agent cannot start a session.",
+        SessionGateError::NotReady(AgentLifecycleState::NeedsAuth) => {
+            "This Agent is not signed in."
+        }
+        SessionGateError::NotReady(AgentLifecycleState::NeedsConfig) => {
+            "This Agent is missing required configuration."
+        }
+        SessionGateError::NotReady(AgentLifecycleState::PlatformUnsupported) => {
+            "This Agent is not available on this system."
+        }
+        SessionGateError::NotReady(
+            AgentLifecycleState::Queued
+            | AgentLifecycleState::Installing
+            | AgentLifecycleState::Updating
+            | AgentLifecycleState::Repairing,
+        ) => "This Agent is still installing or updating.",
+        SessionGateError::NotReady(
+            AgentLifecycleState::NeedsRepair | AgentLifecycleState::Uninstalled,
+        )
+        | SessionGateError::MissingLock => {
+            "This Agent is not installed successfully. Repair or reinstall it in Settings."
+        }
+        SessionGateError::NotReady(AgentLifecycleState::Ready | AgentLifecycleState::Retired) => {
+            "This Agent is not ready."
+        }
+        SessionGateError::LockAgentMismatch | SessionGateError::InvalidLaunchPath => {
+            "This Agent's installation is invalid. Repair or reinstall it in Settings."
+        }
+        SessionGateError::ExplicitRebindRequired => {
+            "changing the Agent binding requires an explicit rebind"
+        }
+    }
+}
+
+/// Attach the stored diagnostic output to a session-launch rejection so the
+/// caller sees the install/repair root cause instead of leftover lock state.
+pub fn session_launch_rejection_message(
+    error: &SessionGateError,
+    diagnostic_output: Option<&str>,
+) -> String {
+    let message = error.user_message();
+    match diagnostic_output.and_then(diagnostic_output_excerpt) {
+        Some(excerpt) => format!("{message}\n\n{excerpt}"),
+        None => message.to_string(),
+    }
+}
+
+pub fn diagnostic_output_excerpt(output: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if is_stack_frame_line(line) {
+            continue;
+        }
+        lines.push(line);
+        if lines.len() == 8 {
+            break;
+        }
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    let mut excerpt = lines.join("\n");
+    if excerpt.len() > 800 {
+        excerpt.truncate(800);
+    }
+    Some(excerpt)
+}
+
+fn is_stack_frame_line(line: &str) -> bool {
+    let trimmed = line
+        .strip_prefix("npm error")
+        .map(str::trim)
+        .unwrap_or(line);
+    trimmed.starts_with("at ")
 }
 
 pub struct SessionGate;

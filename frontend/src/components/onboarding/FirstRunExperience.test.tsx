@@ -405,13 +405,14 @@ describe('FirstRunExperience', () => {
     expect(screen.queryByText('正在加载 Agent 列表')).not.toBeInTheDocument();
   });
 
-  it('selects and prioritizes only locally detected Agents on first entry', async () => {
+  it('selects and prioritizes Agents that have an ACP adapter', async () => {
     const user = userEvent.setup();
     managementMock.bar.mockResolvedValue([
       agent({
         agent_id: 'claude_code',
         display_name: 'Claude Code',
         enabled: true,
+        acp_version: '0.69.0',
       }),
       agent({
         agent_id: 'codex',
@@ -426,6 +427,7 @@ describe('FirstRunExperience', () => {
         agent_id: 'opencode',
         display_name: 'OpenCode',
         enabled: false,
+        acp_version: '1.18.2',
         local_runtime: {
           path: '/home/developer/.local/bin/opencode',
           version: '1.18.2',
@@ -452,18 +454,20 @@ describe('FirstRunExperience', () => {
       rows.map((row) =>
         within(row).getByRole('checkbox').getAttribute('aria-label')
       )
-    ).toEqual(['启用 Codex', '启用 OpenCode', '启用 Claude Code', '启用 Pi']);
-    expect(screen.getByRole('checkbox', { name: '启用 Codex' })).toBeChecked();
+    ).toEqual(['启用 Claude Code', '启用 OpenCode', '启用 Codex', '启用 Pi']);
+    expect(
+      screen.getByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: '启用 Codex' })
+    ).not.toBeChecked();
     expect(
       screen.getByRole('checkbox', { name: '启用 OpenCode' })
     ).toBeChecked();
-    expect(
-      screen.getByRole('checkbox', { name: '启用 Claude Code' })
-    ).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: '启用 Pi' })).not.toBeChecked();
     expect(
       screen.getByRole('combobox', { name: '默认 Agent' })
-    ).toHaveTextContent('Codex');
+    ).toHaveTextContent('Claude Code');
   });
 
   it('skips the entire first-run flow through the public persistence boundary', async () => {
@@ -787,10 +791,7 @@ describe('FirstRunExperience', () => {
       agent({
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        local_runtime: {
-          path: '/usr/local/bin/claude',
-          version: '2.1.220',
-        },
+        acp_version: '0.69.0',
       }),
       agent({ agent_id: 'codex', display_name: 'Codex' }),
     ]);

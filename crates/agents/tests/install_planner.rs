@@ -51,7 +51,8 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
                 .unwrap();
 
             assert_eq!(plan.platform, platform);
-            assert_eq!(plan.components.len(), 2);
+            assert_eq!(plan.components.len(), 1, "{agent}");
+            assert_eq!(plan.components[0].component_id, "acp_adapter");
             assert!(plan.components.iter().all(|component| {
                 component.distribution_kind == PlannedDistributionKind::Npx
                     && component.resolved_source.contains('@')
@@ -369,7 +370,7 @@ fn planner_locks_distribution_version_platform_and_trust() {
             },
         })
         .unwrap();
-    assert_eq!(profile_plan.components.len(), 2);
+    assert_eq!(profile_plan.components.len(), 1);
     assert!(profile_plan.components.iter().all(|component| {
         component.distribution_kind == PlannedDistributionKind::Npx
             && !component.resolved_source.contains("latest")
@@ -428,14 +429,12 @@ fn built_in_update_target_pins_profile_locked_versions() {
         })
         .unwrap();
 
-    assert_eq!(plan.version, "0.146.0");
-    let runtime = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "agent_runtime")
-        .expect("codex declares an agent_runtime component");
-    assert_eq!(runtime.resolved_source, "@openai/codex@0.146.0");
-    assert_eq!(runtime.version, "0.146.0");
+    assert_eq!(plan.version, "1.7.0");
+    assert!(
+        plan.components
+            .iter()
+            .all(|component| component.component_id != "agent_runtime")
+    );
     let adapter = plan
         .components
         .iter()
@@ -449,10 +448,10 @@ fn built_in_update_target_pins_profile_locked_versions() {
 }
 
 #[test]
-fn paired_versions_update_runtime_and_acp_independently() {
+fn adapter_backed_install_plans_are_acp_only() {
     let mut plan = InstallPlanner::bundled()
         .plan(InstallPlanningInput {
-            agent_id: AgentId::parse("codex").unwrap(),
+            agent_id: AgentId::parse("pi").unwrap(),
             source: InstallCandidateSource::BuiltInProfile,
             platform: "darwin-aarch64".to_string(),
             environment: InstallEnvironment {
@@ -461,22 +460,10 @@ fn paired_versions_update_runtime_and_acp_independently() {
             },
         })
         .unwrap();
-    agents::apply_component_versions(&mut plan, Some("0.148.0"), Some("1.7.0")).unwrap();
-    let runtime = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "agent_runtime")
-        .unwrap();
-    let adapter = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "acp_adapter")
-        .unwrap();
-    assert_eq!(runtime.resolved_source, "@openai/codex@0.148.0");
-    assert_eq!(
-        adapter.resolved_source,
-        "@agentclientprotocol/codex-acp@1.7.0"
-    );
+    assert_eq!(plan.components.len(), 1);
+    assert_eq!(plan.components[0].component_id, "acp_adapter");
+    agents::apply_component_versions(&mut plan, None, Some("0.0.34")).unwrap();
+    assert_eq!(plan.components[0].resolved_source, "pi-acp@0.0.34");
 }
 
 #[test]
@@ -542,18 +529,16 @@ fn registry_package_integrity_sets_ecosystem_trust() {
 
 #[test]
 fn built_in_update_with_registry_replaces_only_the_acp_adapter() {
-    // ADR-0038 方向 A:AdapterBacked 内置 Agent(codex)更新时,Registry 条目
-    // 只替换 acp_adapter;agent_runtime 保持 Profile 锁版本。
     let planner = InstallPlanner::bundled();
     let target = RegistryAddTarget {
         snapshot_id: Uuid::new_v4(),
-        agent_id: AgentId::parse("codex").unwrap(),
-        registry_id: "codex-acp".to_string(),
-        version: "1.2.0".to_string(),
+        agent_id: AgentId::parse("pi").unwrap(),
+        registry_id: "pi-acp".to_string(),
+        version: "0.1.0".to_string(),
         distributions: RegistryDistributions {
             binary: None,
             npx: Some(RegistryPackageDistribution {
-                package: "@agentclientprotocol/codex-acp@1.2.0".to_string(),
+                package: "pi-acp@0.1.0".to_string(),
                 args: Vec::new(),
                 env: BTreeMap::new(),
                 integrity: Some("sha512-1.2.0".to_string()),
@@ -573,29 +558,25 @@ fn built_in_update_with_registry_replaces_only_the_acp_adapter() {
         })
         .unwrap();
 
-    assert_eq!(plan.agent_id.as_str(), "codex");
-    assert_eq!(plan.version, "0.146.0");
-    assert_eq!(plan.registry_bound_version(), "1.2.0");
+    assert_eq!(plan.agent_id.as_str(), "pi");
+    assert_eq!(plan.version, "0.1.0");
+    assert_eq!(plan.registry_bound_version(), "0.1.0");
     assert!(matches!(
         plan.source,
         LockedInstallSource::BuiltInProfileWithRegistry { .. }
     ));
-    let runtime = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "agent_runtime")
-        .expect("runtime component");
-    assert_eq!(runtime.resolved_source, "@openai/codex@0.146.0");
+    assert!(
+        plan.components
+            .iter()
+            .all(|component| component.component_id != "agent_runtime")
+    );
     let adapter = plan
         .components
         .iter()
         .find(|component| component.component_id == "acp_adapter")
         .expect("acp_adapter component");
-    assert_eq!(
-        adapter.resolved_source,
-        "@agentclientprotocol/codex-acp@1.2.0"
-    );
-    assert_eq!(adapter.version, "1.2.0");
+    assert_eq!(adapter.resolved_source, "pi-acp@0.1.0");
+    assert_eq!(adapter.version, "0.1.0");
     assert!(matches!(
         adapter.trust,
         ArtifactTrust::EcosystemIntegrity { ref integrity } if integrity == "sha512-1.2.0"
@@ -801,10 +782,10 @@ fn adapter_backed_identity_version_is_not_the_registry_lock_version() {
             Some("acp_adapter"),
             "{agent_id}"
         );
-        assert_ne!(
+        assert_eq!(
             plan.version,
             plan.registry_bound_version(),
-            "{agent_id} would reintroduce mixed-version update checks if identity were persisted as registry_version"
+            "{agent_id} identity is the ACP adapter"
         );
     }
 }
@@ -866,26 +847,15 @@ fn bundled_registry_updates_follow_each_profile_topology() {
             .collect::<Vec<_>>();
         match profile.topology {
             ProfileTopology::AdapterBacked => {
-                let runtime_pin = current
-                    .iter()
-                    .find(|component| component.component_id == "agent_runtime")
-                    .and_then(|component| component.version.as_deref())
-                    .unwrap_or_else(|| panic!("{} missing runtime pin", profile.agent_id));
-                assert_eq!(plan.version, runtime_pin, "{}", profile.agent_id);
-                assert_ne!(
-                    plan.version,
-                    plan.registry_bound_version(),
-                    "{} identity version must not be the Registry update target",
-                    profile.agent_id
-                );
+                assert_eq!(plan.version, newer, "{}", profile.agent_id);
+                assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
                 assert_eq!(item_ids, ["acp"], "{}", profile.agent_id);
                 assert_eq!(updates[0].available_version, newer, "{}", profile.agent_id);
-                assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
             }
             ProfileTopology::NativeAcp => {
                 assert_eq!(plan.version, newer, "{}", profile.agent_id);
                 assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
-                assert_eq!(item_ids, ["runtime", "acp"], "{}", profile.agent_id);
+                assert_eq!(item_ids, ["acp"], "{}", profile.agent_id);
                 assert!(
                     updates
                         .iter()

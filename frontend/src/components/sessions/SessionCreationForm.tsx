@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
@@ -19,6 +20,12 @@ import {
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
+import { openAgentDiagnostics } from '@/features/agent-management/agentSettingsFocus';
+import {
+  invokeErrorText,
+  isAgentInstallLaunchError,
+  splitLaunchError,
+} from '@/features/agents/sessionControlsError';
 import {
   loadAgentSessionControlsCatalog,
   sessionControlsQueryKey,
@@ -432,10 +439,7 @@ export function SessionCreationForm({
       ));
   const controlsPending = Boolean(executor) && controlsQuery.isPending;
   const preparationError = controlsQuery.error
-    ? t('sessionCreation.controlsPrepareFailed', {
-        agent: executor,
-        error: String(controlsQuery.error),
-      })
+    ? formatSessionControlsError(t, executor, controlsQuery.error)
     : null;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
@@ -780,9 +784,29 @@ export function SessionCreationForm({
       </div>
 
       {errorMessage || preparationError ? (
-        <p className="text-sm text-destructive">
-          {errorMessage ?? preparationError}
-        </p>
+        <div className="space-y-2 text-sm text-destructive">
+          <p className="whitespace-pre-wrap">
+            {errorMessage ?? preparationError?.title}
+          </p>
+          {preparationError?.detail && !errorMessage ? (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px] text-foreground">
+              {preparationError.detail}
+            </pre>
+          ) : null}
+          {preparationError?.showDiagnosticsLink &&
+          executor &&
+          !errorMessage ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => openAgentDiagnostics(executor)}
+            >
+              {t('sessionCreation.viewDiagnostics')}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex items-center justify-end gap-2">
@@ -807,4 +831,32 @@ export function SessionCreationForm({
       </div>
     </form>
   );
+}
+
+function formatSessionControlsError(
+  t: TFunction,
+  agent: string | null,
+  error: unknown
+): {
+  title: string;
+  detail: string | null;
+  showDiagnosticsLink: boolean;
+} {
+  const raw = invokeErrorText(error);
+  if (isAgentInstallLaunchError(raw)) {
+    const { detail } = splitLaunchError(raw);
+    return {
+      title: t('sessionCreation.agentNotInstalled'),
+      detail,
+      showDiagnosticsLink: true,
+    };
+  }
+  return {
+    title: t('sessionCreation.controlsPrepareFailed', {
+      agent,
+      error: raw,
+    }),
+    detail: null,
+    showDiagnosticsLink: false,
+  };
 }

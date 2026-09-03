@@ -1,4 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 /// Directory name for storing images in worktrees
 pub const VIBE_IMAGES_DIR: &str = ".vibe-images";
@@ -118,24 +122,21 @@ pub fn normalize_macos_private_alias<P: AsRef<Path>>(p: P) -> PathBuf {
 }
 
 /// Strip Windows verbatim path prefixes (for example `\\?\C:\...`) so paths
-/// remain readable in the UI while keeping the same filesystem target.
+/// remain readable in the UI and spawnable by `cmd.exe` / Node while keeping
+/// the same filesystem target. Applied on every host so stored Windows paths
+/// can be normalized in tests and at launch.
 pub fn normalize_windows_extended_path_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
     let path = path.as_ref();
-
-    #[cfg(windows)]
-    {
-        let raw = path.to_string_lossy();
-        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = raw.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
-        }
-        if let Some(rest) = raw.strip_prefix(r"\?\") {
-            return PathBuf::from(rest);
-        }
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
     }
-
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    if let Some(rest) = raw.strip_prefix(r"\?\") {
+        return PathBuf::from(rest);
+    }
     path.to_path_buf()
 }
 
@@ -174,6 +175,37 @@ fn directory_is_writable(path: &Path) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Windows ERROR_SHARING_VIOLATION: a live process, indexer, or antivirus still
+/// holds a handle. Unix equivalents are retried too so cleanup is uniform.
+pub fn is_retryable_remove_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::DirectoryNotEmpty
+    ) || error.raw_os_error() == Some(32)
+        || error.raw_os_error() == Some(5)
+}
+
+/// Remove a directory tree, retrying transient sharing/lock failures.
+///
+/// `NotFound` is success. Exhausted retries return the last error so callers
+/// can log it; capability probes must not treat that as a catalog load failure.
+pub async fn remove_dir_all_retrying(path: &Path) -> io::Result<()> {
+    const ATTEMPTS: u32 = 8;
+    let mut last_error = None;
+    for attempt in 0..ATTEMPTS {
+        match tokio::fs::remove_dir_all(path).await {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if is_retryable_remove_error(&error) && attempt + 1 < ATTEMPTS => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("directory remove retries exhausted")))
 }
 
 /// Expand leading `~`, `~/`, or `~\` to the user's home directory.
@@ -267,10 +299,7 @@ mod tests {
     fn normalize_windows_extended_path_prefix_strips_drive_prefix() {
         let normalized =
             normalize_windows_extended_path_prefix(PathBuf::from(r"\\?\C:\Users\Admin"));
-        #[cfg(windows)]
         assert_eq!(normalized, PathBuf::from(r"C:\Users\Admin"));
-        #[cfg(not(windows))]
-        assert_eq!(normalized, PathBuf::from(r"\\?\C:\Users\Admin"));
     }
 
     #[test]
@@ -278,10 +307,7 @@ mod tests {
         let normalized = normalize_windows_extended_path_prefix(PathBuf::from(
             r"\\?\UNC\server\share\workspace",
         ));
-        #[cfg(windows)]
         assert_eq!(normalized, PathBuf::from(r"\\server\share\workspace"));
-        #[cfg(not(windows))]
-        assert_eq!(normalized, PathBuf::from(r"\\?\UNC\server\share\workspace"));
     }
 
     #[test]
@@ -322,5 +348,36 @@ mod tests {
             "linux temp dir should use /var/tmp or the process temp dir, got {}",
             path.display()
         );
+    }
+
+    #[test]
+    fn sharing_violation_is_retryable_for_probe_cleanup() {
+        assert!(is_retryable_remove_error(
+            &std::io::Error::from_raw_os_error(32)
+        ));
+        assert!(is_retryable_remove_error(
+            &std::io::Error::from_raw_os_error(5)
+        ));
+        assert!(is_retryable_remove_error(&std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "locked"
+        )));
+        assert!(!is_retryable_remove_error(&std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "bad path"
+        )));
+    }
+
+    #[tokio::test]
+    async fn remove_dir_all_retrying_treats_missing_and_present_dirs_as_success() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("already-gone");
+        remove_dir_all_retrying(&missing).await.unwrap();
+
+        let present = root.path().join("probe");
+        std::fs::create_dir_all(present.join("nested")).unwrap();
+        std::fs::write(present.join("nested/file.txt"), b"ok").unwrap();
+        remove_dir_all_retrying(&present).await.unwrap();
+        assert!(!present.exists());
     }
 }

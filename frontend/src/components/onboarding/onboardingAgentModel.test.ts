@@ -62,7 +62,7 @@ describe('onboarding Agent model', () => {
         managed({
           agent_id: 'codex',
           display_name: 'Codex',
-          runtime_version: '0.146.0',
+          acp_version: '1.7.0',
           lifecycle: 'needs_repair',
         }),
         managed({
@@ -94,7 +94,7 @@ describe('onboarding Agent model', () => {
     expect(options[0]).toMatchObject({
       recommended: true,
       runtimeInstalled: true,
-      needsInstallation: true,
+      needsInstallation: false,
       builtIn: true,
     });
     expect(options.slice(0, 3).every((option) => option.runtimeInstalled)).toBe(
@@ -105,7 +105,36 @@ describe('onboarding Agent model', () => {
     );
   });
 
-  it('selects a discovered local Runtime even when ACP installation is still required', () => {
+  it('treats an ACP adapter as installed even without a vendor CLI', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'claude_code',
+          display_name: 'Claude Code',
+          acp_version: '0.69.0',
+        }),
+        managed({ agent_id: 'codex', display_name: 'Codex' }),
+      ],
+      []
+    );
+
+    expect(options.map((option) => option.agentId)).toEqual([
+      'claude_code',
+      'codex',
+    ]);
+    expect(options[0]).toMatchObject({
+      agentId: 'claude_code',
+      runtimeInstalled: true,
+      needsInstallation: false,
+    });
+    expect(options[1]).toMatchObject({
+      agentId: 'codex',
+      runtimeInstalled: false,
+      needsInstallation: true,
+    });
+  });
+
+  it('does not treat a vendor CLI as installed without an ACP adapter', () => {
     const options = buildOnboardingAgentOptions(
       [
         managed({
@@ -121,14 +150,37 @@ describe('onboarding Agent model', () => {
       []
     );
 
+    expect(options.map((option) => option.agentId)).toEqual([
+      'claude_code',
+      'codex',
+    ]);
     expect(options[0]).toMatchObject({
       agentId: 'claude_code',
-      runtimeInstalled: true,
+      runtimeInstalled: false,
       needsInstallation: true,
     });
     expect(options[1]).toMatchObject({
       agentId: 'codex',
       runtimeInstalled: false,
+      needsInstallation: true,
+    });
+  });
+
+  it('skips another install when an ACP adapter is already present', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'claude_code',
+          display_name: 'Claude Code',
+          acp_version: '0.69.0',
+        }),
+      ],
+      []
+    );
+
+    expect(options[0]).toMatchObject({
+      runtimeInstalled: true,
+      needsInstallation: false,
     });
   });
 
@@ -165,6 +217,9 @@ describe('onboarding Agent model', () => {
     expect(classifyOnboardingInstallResult('succeeded', ['pass', 'fail'])).toBe(
       'needs_attention'
     );
+    expect(
+      classifyOnboardingInstallResult('succeeded', ['pass', 'warning'])
+    ).toBe('verified');
     expect(classifyOnboardingInstallResult('failed', [])).toBe('failed');
   });
 });

@@ -20,6 +20,7 @@ const importRemoteSession = vi.fn();
 const listLocalHistory = vi.fn();
 const importLocalHistory = vi.fn();
 const agentManagementBar = vi.fn();
+const openAgentDiagnostics = vi.hoisted(() => vi.fn());
 const userSystemConfig = vi.hoisted(() => ({
   previousSessionContinuationEnabled: false,
 }));
@@ -46,6 +47,9 @@ vi.mock('@/features/agent-management', () => ({
   agentManagementApi: {
     bar: (...args: unknown[]) => agentManagementBar(...args),
   },
+}));
+vi.mock('@/features/agent-management/agentSettingsFocus', () => ({
+  openAgentDiagnostics: (...args: unknown[]) => openAgentDiagnostics(...args),
 }));
 vi.mock('@/features/agents/api', () => ({
   agentsApi: {
@@ -202,6 +206,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     listLocalHistory.mockReset();
     importLocalHistory.mockReset();
     agentManagementBar.mockReset();
+    openAgentDiagnostics.mockReset();
     userSystemConfig.previousSessionContinuationEnabled = false;
     capabilityCatalog.mockResolvedValue(CONTROLS);
     capabilityCatalogFresh.mockResolvedValue(true);
@@ -694,12 +699,37 @@ describe('SessionCreationForm agent capability catalog controls', () => {
 
     expect(
       await screen.findByText(
-        'sessionCreation.controlsPrepareFailed: Error: Agent session controls discovery failed'
+        'sessionCreation.controlsPrepareFailed: Agent session controls discovery failed'
       )
     ).toBeInTheDocument();
     expect(
       screen.queryByText('sessionCreation.controlsUnavailable')
     ).not.toBeInTheDocument();
+  });
+
+  it('shows the stored install diagnostic and a settings jump', async () => {
+    capabilityCatalog.mockResolvedValue(null);
+    refreshCapabilityCatalog.mockRejectedValue(
+      new Error(
+        'Bad request: This Agent is not installed successfully. Repair or reinstall it in Settings.\n\nnpm view dist.integrity failed: npm error code ECONNREFUSED'
+      )
+    );
+    renderForm('claude_code', vi.fn(), 'new_workspace');
+
+    expect(
+      await screen.findByText('sessionCreation.agentNotInstalled')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'npm view dist.integrity failed: npm error code ECONNREFUSED'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Installation lock/i)).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'sessionCreation.viewDiagnostics' })
+    );
+    expect(openAgentDiagnostics).toHaveBeenCalledWith('claude_code');
   });
 
   it('hides previous-session continuation until the setting is enabled', async () => {

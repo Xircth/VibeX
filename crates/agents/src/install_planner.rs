@@ -6,8 +6,8 @@ use sha2::{Digest, Sha256, Sha512};
 use uuid::Uuid;
 
 use crate::{
-    ProfileComponent, ProfileInstallSource, RegistryAddTarget, RegistryBinaryTarget,
-    RegistryPackageDistribution, RegistrySnapshot, UserAgentDistributionKind,
+    ProfileComponent, ProfileInstallSource, ProfileTopology, RegistryAddTarget,
+    RegistryBinaryTarget, RegistryPackageDistribution, RegistrySnapshot, UserAgentDistributionKind,
     UserAgentInstallTarget, profiles::BuiltInProfileCatalog,
 };
 
@@ -272,6 +272,14 @@ impl InstallPlanner {
         }
         let mut components = Vec::with_capacity(profile.install_sources.len());
         for source in &profile.install_sources {
+            if matches!(profile.topology, ProfileTopology::AdapterBacked)
+                && matches!(
+                    profile_source_component(source),
+                    ProfileComponent::AgentRuntime
+                )
+            {
+                continue;
+            }
             components.push(plan_profile_component(source, &input)?);
         }
         let version = components
@@ -665,6 +673,14 @@ fn component_id(component: ProfileComponent) -> &'static str {
         ProfileComponent::AgentRuntime => "agent_runtime",
         ProfileComponent::AcpAdapter => "acp_adapter",
         ProfileComponent::CombinedRuntime => "combined_runtime",
+    }
+}
+
+fn profile_source_component(source: &ProfileInstallSource) -> ProfileComponent {
+    match source {
+        ProfileInstallSource::Npx { component, .. }
+        | ProfileInstallSource::Uvx { component, .. }
+        | ProfileInstallSource::Binary { component, .. } => *component,
     }
 }
 

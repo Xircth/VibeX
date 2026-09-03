@@ -154,8 +154,10 @@ pub use install_planner::{
     registry_target_for_built_in_update, verify_artifact_bytes, verify_version_evidence,
 };
 pub use launch_gate::{
-    LaunchComponentEvidence, LaunchGate, LaunchGateError, launch_program_available,
-    missing_launch_program_error, prefer_path_launch_program,
+    LaunchComponentEvidence, LaunchGate, LaunchGateError, bind_runtime_executable_env,
+    discover_path_acp_launch_lock, launch_program_available, lifecycle_ready_for_path_acp,
+    missing_launch_program_error, prefer_path_launch_program, runtime_executable_env_key,
+    sanitize_runtime_executable_env, sanitize_runtime_executable_lock_env,
 };
 pub use lifecycle::{
     BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
@@ -206,7 +208,8 @@ pub use profiles::{
     NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
     ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
+    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, adapter_bundles_runtime,
+    bundled_adapter_runtime_env_keys,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,
@@ -224,7 +227,8 @@ pub use runtime::{
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{
     SessionBinding, SessionDefaultValidation, SessionGate, SessionGateError, SessionGateInput,
-    SessionLaunchAuthorization, SessionLaunchLock, validate_session_defaults,
+    SessionLaunchAuthorization, SessionLaunchLock, session_launch_rejection_message,
+    validate_session_defaults,
 };
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{

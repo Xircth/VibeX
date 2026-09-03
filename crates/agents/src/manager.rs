@@ -1513,10 +1513,26 @@ impl AgentConnectionRunner {
             .stderr(std::process::Stdio::piped())
             .current_dir(&self.snapshot.working_dir);
 
-        for (key, value) in merged_agent_env(&self.snapshot.env) {
-            command.env(key, value);
-        }
+        let mut launch_env = merged_agent_env(&self.snapshot.env);
         for (key, value) in &launch_lock.env {
+            launch_env.insert(key.clone(), value.clone());
+        }
+        crate::sanitize_runtime_executable_env(&self.snapshot.agent_id, &mut launch_env);
+        for key in crate::bundled_adapter_runtime_env_keys(&self.snapshot.agent_id) {
+            command.env_remove(*key);
+            launch_env.remove(*key);
+        }
+        let runtime_env_key = crate::runtime_executable_env_key(&self.snapshot.agent_id);
+        let drop_inherited_runtime_path = runtime_env_key.is_some_and(|key| {
+            self.snapshot.env.contains_key(key) || launch_lock.env.contains_key(key)
+        });
+        if drop_inherited_runtime_path
+            && let Some(key) = runtime_env_key
+            && !launch_env.contains_key(key)
+        {
+            command.env_remove(key);
+        }
+        for (key, value) in launch_env {
             command.env(key, value);
         }
         // Pi runtime preferences are mutable user settings. They must win over
@@ -2583,14 +2599,7 @@ impl AgentConnectionRunner {
                 .await?;
             self.store_vendor_config_selection(session_id, &selection)
                 .await;
-            self.emit(
-                Some(session_id),
-                None,
-                AgentEvent::ConfigChanged {
-                    key: selection.config_id,
-                    value: selection.event_value,
-                },
-            );
+            self.publish_applied_config(session_id, &selection).await;
             return Ok(());
         }
         if vendor_config == Some(VendorConfigWire::XaiSessionConfig)
@@ -2607,14 +2616,7 @@ impl AgentConnectionRunner {
             .await?;
             self.store_vendor_config_selection(session_id, &selection)
                 .await;
-            self.emit(
-                Some(session_id),
-                None,
-                AgentEvent::ConfigChanged {
-                    key: selection.config_id,
-                    value: selection.event_value,
-                },
-            );
+            self.publish_applied_config(session_id, &selection).await;
             return Ok(());
         }
         if self
@@ -2657,28 +2659,33 @@ impl AgentConnectionRunner {
             ))
             .block_task()
             .await?;
-        let mapped_options = agent_session_config_options_from_acp(response.config_options.clone());
         {
             let mut controls = self.session_controls.write().await;
             let stored = controls.entry(session_id).or_default();
             stored.config_options = response.config_options;
         }
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::SessionConfigOptions {
-                options: mapped_options,
-            },
-        );
+        // Codex advertises mode as a config option. The composer still reads
+        // Mode from `sessionModes`, so a config-option response that only
+        // republishes `SessionConfigOptions` leaves the summary on the old
+        // mode. Republish both control surfaces from the stored snapshot.
+        self.publish_applied_config(session_id, &selection).await;
+        Ok(())
+    }
+
+    async fn publish_applied_config(
+        &self,
+        session_id: AgentSessionId,
+        selection: &ConfigOverrideSelection,
+    ) {
+        self.emit_derived_session_controls(session_id).await;
         self.emit(
             Some(session_id),
             None,
             AgentEvent::ConfigChanged {
-                key: selection.config_id,
-                value: selection.event_value,
+                key: selection.config_id.clone(),
+                value: selection.event_value.clone(),
             },
         );
-        Ok(())
     }
 
     async fn store_vendor_config_selection(
@@ -6115,6 +6122,34 @@ mod tests {
             serde_json::json!("agent-full-access")
         );
         assert!(!selection.already_selected);
+    }
+
+    #[test]
+    fn derived_session_modes_follow_a_mode_config_option_current_value() {
+        let mut options = vec![
+            AcpSessionConfigOption::select(
+                "mode",
+                "Mode",
+                "agent",
+                vec![
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "agent", "Agent",
+                    ),
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "agent-full-access",
+                        "Agent (full access)",
+                    ),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::Mode)),
+        ];
+        let (modes, current) = session_modes_from_config_options(&options);
+        assert_eq!(current.as_deref(), Some("agent"));
+        assert!(modes.iter().any(|mode| mode.id == "agent-full-access"));
+
+        apply_current_mode_to_config_options(&mut options, "agent-full-access");
+        let (_, current) = session_modes_from_config_options(&options);
+        assert_eq!(current.as_deref(), Some("agent-full-access"));
     }
 
     #[test]

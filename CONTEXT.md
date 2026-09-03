@@ -274,7 +274,7 @@ _Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
 _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
-- **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
+- **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由 vendor CLI 提供的 agent。预检查与会话只验证 ACP 启动命令（Claude/Codex 为适配器包，Pi 为 `pi-acp`）。PATH 上的 vendor CLI 不是健康项，也不是启动门；原生 ACP 的 Runtime 与 ACP 是同一安装物，预检查只保留一条启动入口。见 [ADR-0010](docs/adr/0010-agent-runtime-topology.md)。
 - **User-environment agent installation（用户环境 Agent 安装）** — 本地 Runtime 与 ACP 只存在于用户环境（PATH、npm 全局前缀、uv tools、用户 bin）。平台安装也写入该环境，再按 PATH 探测接入；Installation lock 只记录这次观察，不是另一份托管产物。见 [ADR-0060](docs/adr/0060-agent-installs-use-user-environment.md)。
 - **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：VibeX 绑定并校验用户环境中的 CLI，不再维护独立托管树。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。

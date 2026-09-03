@@ -297,8 +297,8 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
     assert_eq!(
         runtime_bindings,
         [
-            ("claude_code", Some("CLAUDE_CODE_EXECUTABLE")),
-            ("codex", Some("CODEX_PATH")),
+            ("claude_code", None),
+            ("codex", None),
             ("antigravity", None),
             ("openclaw", None),
             ("opencode", None),
@@ -311,6 +311,24 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("cursor", None),
             ("deepseek_harness", None),
         ]
+    );
+    assert!(
+        catalog
+            .profile(&AgentId::parse("claude_code").unwrap())
+            .unwrap()
+            .adapter_bundles_runtime()
+    );
+    assert!(
+        catalog
+            .profile(&AgentId::parse("codex").unwrap())
+            .unwrap()
+            .adapter_bundles_runtime()
+    );
+    assert!(
+        !catalog
+            .profile(&AgentId::parse("pi").unwrap())
+            .unwrap()
+            .adapter_bundles_runtime()
     );
 }
 
@@ -549,6 +567,16 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         profile("grok")
             .settings_features
             .contains(&AgentSettingsFeature::GrokPlugins)
+    );
+    assert!(
+        profile("pi")
+            .settings_features
+            .contains(&AgentSettingsFeature::PiPlugins)
+    );
+    assert!(
+        profile("pi")
+            .settings_features
+            .contains(&AgentSettingsFeature::ReusableModelProviders)
     );
 
     for id in [

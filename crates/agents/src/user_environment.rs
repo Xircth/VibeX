@@ -125,7 +125,8 @@ fn npm_bin_dir(prefix: &Path) -> PathBuf {
     }
 }
 
-/// Windows npm global shims are `.cmd` first, then `.exe`, then a bare name.
+/// Windows npm global shims: prefer `.exe` (Node can spawn it), then `.cmd`
+/// for VibeX-side `cmd.exe` probes, then a bare name.
 pub fn npm_shim_candidates(bin_dir: &Path, command: &str) -> Vec<PathBuf> {
     let name = Path::new(command)
         .file_name()
@@ -133,8 +134,8 @@ pub fn npm_shim_candidates(bin_dir: &Path, command: &str) -> Vec<PathBuf> {
         .unwrap_or(command);
     if cfg!(windows) {
         vec![
-            bin_dir.join(format!("{name}.cmd")),
             bin_dir.join(format!("{name}.exe")),
+            bin_dir.join(format!("{name}.cmd")),
             bin_dir.join(name),
         ]
     } else {
@@ -324,9 +325,9 @@ pub struct PlannedPreflightUpdate {
 
 fn preflight_item_ids_for_component(component_id: &str) -> &'static [&'static str] {
     match component_id {
-        "agent_runtime" => &["runtime"],
+        "agent_runtime" => &[],
         "acp_adapter" => &["acp"],
-        "combined_runtime" => &["runtime", "acp"],
+        "combined_runtime" => &["acp"],
         _ => &[],
     }
 }
@@ -448,15 +449,15 @@ mod tests {
     }
 
     #[test]
-    fn windows_npm_shims_prefer_cmd_then_exe() {
+    fn windows_npm_shims_prefer_exe_then_cmd() {
         let bin = PathBuf::from(r"C:\Users\developer\AppData\Roaming\npm");
         let candidates = npm_shim_candidates(&bin, "claude-agent-acp");
         if cfg!(windows) {
             assert_eq!(
                 candidates,
                 vec![
-                    bin.join("claude-agent-acp.cmd"),
                     bin.join("claude-agent-acp.exe"),
+                    bin.join("claude-agent-acp.cmd"),
                     bin.join("claude-agent-acp"),
                 ]
             );
@@ -688,23 +689,16 @@ mod tests {
     }
 
     #[test]
-    fn planned_updates_mark_combined_runtime_on_both_preflight_items() {
+    fn planned_updates_mark_combined_runtime_on_the_acp_item() {
         let planned = vec![planned("combined_runtime", "1.19.0")];
         let current = vec![observed("combined_runtime", Some("1.10.0"))];
         assert_eq!(
             planned_preflight_updates(&planned, &current),
-            vec![
-                PlannedPreflightUpdate {
-                    item_id: "runtime",
-                    current_version: "1.10.0".into(),
-                    available_version: "1.19.0".into(),
-                },
-                PlannedPreflightUpdate {
-                    item_id: "acp",
-                    current_version: "1.10.0".into(),
-                    available_version: "1.19.0".into(),
-                },
-            ]
+            vec![PlannedPreflightUpdate {
+                item_id: "acp",
+                current_version: "1.10.0".into(),
+                available_version: "1.19.0".into(),
+            }]
         );
     }
 
@@ -778,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_native_acp_profiles_flag_runtime_and_acp_together() {
+    fn bundled_native_acp_profiles_flag_acp_only() {
         for profile in BuiltInProfileCatalog::bundled()
             .profiles()
             .iter()
@@ -793,7 +787,7 @@ mod tests {
                     .iter()
                     .map(|update| update.item_id)
                     .collect::<Vec<_>>(),
-                ["runtime", "acp"],
+                ["acp"],
                 "{}",
                 profile.agent_id
             );

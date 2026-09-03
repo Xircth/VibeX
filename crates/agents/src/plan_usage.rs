@@ -128,8 +128,8 @@ fn npm_codex_candidates() -> Vec<PathBuf> {
 
     if let Some(app_data) = env::var_os("APPDATA") {
         let npm_dir = PathBuf::from(app_data).join("npm");
-        candidates.push(npm_dir.join("codex.cmd"));
         candidates.push(npm_dir.join("codex.exe"));
+        candidates.push(npm_dir.join("codex.cmd"));
         candidates.push(npm_dir.join("codex"));
     }
 
@@ -138,8 +138,8 @@ fn npm_codex_candidates() -> Vec<PathBuf> {
             .join("AppData")
             .join("Roaming")
             .join("npm");
-        candidates.push(npm_dir.join("codex.cmd"));
         candidates.push(npm_dir.join("codex.exe"));
+        candidates.push(npm_dir.join("codex.cmd"));
         candidates.push(npm_dir.join("codex"));
     }
 

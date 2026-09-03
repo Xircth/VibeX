@@ -120,6 +120,46 @@ fn session_gate_rejects_disabled_not_ready_and_retired_agents() {
 }
 
 #[test]
+fn session_gate_rejects_needs_repair_even_without_an_installation_lock() {
+    let error = SessionGate
+        .authorize(SessionGateInput {
+            snapshot: snapshot("claude_code", AgentLifecycleState::NeedsRepair, true),
+            current_lock: None,
+            requested_defaults: BTreeMap::new(),
+            advertised_option_ids: Vec::new(),
+            existing_binding: None,
+            explicit_rebind: false,
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        SessionGateError::NotReady(AgentLifecycleState::NeedsRepair)
+    );
+    assert!(!error.to_string().contains("Installation lock"));
+    assert!(error.to_string().contains("Repair or reinstall"));
+}
+
+#[test]
+fn session_launch_rejection_includes_the_stored_diagnostic_excerpt() {
+    let output = concat!(
+        "npm view dist.integrity failed: npm error code ECONNREFUSED\n",
+        "npm error syscall connect\n",
+        "npm error     at ClientRequest.<anonymous> (minipass-fetch/lib/index.js:130:14)\n",
+        "npm error If you are behind a proxy, please make sure that the\n",
+        "npm error 'proxy' config is set properly.  See: 'npm help config'\n",
+    );
+    let message = agents::session_launch_rejection_message(
+        &SessionGateError::NotReady(AgentLifecycleState::NeedsRepair),
+        Some(output),
+    );
+    assert!(message.contains("Repair or reinstall it in Settings."));
+    assert!(message.contains("ECONNREFUSED"));
+    assert!(message.contains("proxy"));
+    assert!(!message.contains("minipass-fetch"));
+    assert!(!message.contains("Installation lock"));
+}
+
+#[test]
 fn session_defaults_keep_only_current_raw_acp_values() {
     let defaults = BTreeMap::from([
         ("model".to_string(), serde_json::json!("removed-model")),

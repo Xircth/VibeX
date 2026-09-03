@@ -446,7 +446,8 @@ async fn try_adopt(
             }
             return Ok(None);
         };
-        let path = tokio::fs::canonicalize(&path).await?;
+        let path =
+            utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(&path).await?);
         let version = probe_version(&path).await.unwrap_or_default();
         if version.is_empty() {
             if candidate.component == ProfileComponent::AgentRuntime {
@@ -571,15 +572,8 @@ fn build_installed_plan(
             .to_string_lossy()
             .into_owned(),
     );
-    if let Some(runtime) = runtime
-        && let Some(variable) = BuiltInProfileCatalog::bundled()
-            .profile(agent_id)
-            .and_then(|profile| profile.runtime_executable_env)
-    {
-        env.insert(
-            variable.to_string(),
-            runtime.absolute_path.display().to_string(),
-        );
+    if let Some(runtime) = runtime {
+        agents::bind_runtime_executable_env(agent_id, &runtime.absolute_path, &mut env);
     }
     Ok(InstalledPlan {
         launch_lock: SessionLaunchLock {
@@ -602,7 +596,8 @@ async fn existing_component(component: &PlannedInstallComponent) -> Option<(Path
         return None;
     }
     let path = utils::shell::resolve_executable_path(command).await?;
-    let path = tokio::fs::canonicalize(path).await.ok()?;
+    let path =
+        utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(path).await.ok()?);
     let version = probe_version(&path).await?;
     existing_path_satisfies_component(&component.component_id, &version, &component.version)
         .then_some((path, version))
@@ -662,7 +657,9 @@ async fn install_npm(
             user_env.npm_bin.display()
         )
     })?;
-    Ok(tokio::fs::canonicalize(bin).await?)
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(bin).await?,
+    ))
 }
 
 fn command_is_placeholder(command: &str) -> bool {
@@ -729,7 +726,9 @@ async fn install_uv(
     if tokio::fs::metadata(&bin).await.is_err() {
         anyhow::bail!("uv tool install did not produce `{}`", bin.display());
     }
-    Ok(tokio::fs::canonicalize(bin).await?)
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(bin).await?,
+    ))
 }
 
 async fn install_binary(
@@ -784,7 +783,9 @@ async fn install_binary(
         permissions.set_mode(0o755);
         tokio::fs::set_permissions(&destination, permissions).await?;
     }
-    Ok(tokio::fs::canonicalize(destination).await?)
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(destination).await?,
+    ))
 }
 
 fn user_bin_destination(user_bin: &Path, command: &str, staged: &Path) -> PathBuf {
@@ -987,6 +988,16 @@ async fn persist_lock(
     )
     .bind(plan.agent_id.as_str())
     .bind(lock_id.to_string())
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"UPDATE agent_diagnostic
+           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE agent_id = ?
+             AND severity = 'error'
+             AND read_at IS NULL"#,
+    )
+    .bind(plan.agent_id.as_str())
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;

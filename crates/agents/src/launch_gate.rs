@@ -1,10 +1,17 @@
 //! Launch-time authorization derived from current on-disk component evidence.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+};
 
 use sha2::{Digest, Sha256};
+use workspace_utils::process::{node_spawnable_runtime_path, prefer_direct_spawn_executable};
 
-use crate::SessionLaunchLock;
+use crate::{
+    AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent, ProfileInstallSource,
+    SessionLaunchLock,
+};
 
 /// Whether the persisted launch program currently exists on disk. Follows
 /// symlinks, so a broken link (the file a shim points at was deleted or
@@ -14,15 +21,155 @@ pub fn launch_program_available(program: &Path) -> bool {
     program.is_absolute() && program.is_file()
 }
 
+/// CodeG `verify_agent_installed`: Uninstalled or a stale NeedsRepair does not
+/// block launch when the ACP command is resolvable. Auth, platform, and busy
+/// states stay as-is.
+pub fn lifecycle_ready_for_path_acp(lifecycle: AgentLifecycleState) -> AgentLifecycleState {
+    match lifecycle {
+        AgentLifecycleState::Uninstalled | AgentLifecycleState::NeedsRepair => {
+            AgentLifecycleState::Ready
+        }
+        other => other,
+    }
+}
+
+/// Resolve the Built-in Profile ACP launch command the same way CodeG's
+/// connect gate uses `is_cmd_available` / `resolve_npx_command`: PATH (plus
+/// user npm prefix / login-shell repair), never a vendor CLI.
+pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<SessionLaunchLock> {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let profile = catalog.profile(agent_id)?;
+    let candidate = profile.external_candidates.iter().find(|candidate| {
+        matches!(
+            candidate.component,
+            ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+        )
+    })?;
+    let executable = workspace_utils::shell::resolve_executable_path(candidate.executable).await?;
+    let executable = prefer_direct_spawn_executable(executable);
+    if !launch_program_available(&executable) {
+        return None;
+    }
+    let args = profile
+        .install_sources
+        .iter()
+        .find_map(|source| match source {
+            ProfileInstallSource::Npx {
+                component, args, ..
+            }
+            | ProfileInstallSource::Uvx {
+                component, args, ..
+            }
+            | ProfileInstallSource::Binary {
+                component, args, ..
+            } if *component == candidate.component => Some(
+                args.iter()
+                    .map(|argument| (*argument).to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default();
+    Some(SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program: executable,
+        args,
+        env: BTreeMap::new(),
+        runtime_version: String::new(),
+        acp_version: String::new(),
+    })
+}
+
 /// Prefer a same-named command on PATH over a stale Installation lock path.
+/// Windows npm shims resolve `.exe` before `.cmd` so the launch program is
+/// directly spawnable when both exist.
 pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
-    let Some(name) = launch_command_name(locked) else {
-        return locked.to_path_buf();
+    let locked = prefer_direct_spawn_executable(locked);
+    let Some(name) = launch_command_name(&locked) else {
+        return locked;
     };
     which::which(name)
         .ok()
         .filter(|path| path.is_file())
-        .unwrap_or_else(|| locked.to_path_buf())
+        .map(|path| prefer_direct_spawn_executable(path))
+        .unwrap_or(locked)
+}
+
+/// Environment variable an adapter-backed Agent uses to locate its local Runtime.
+pub fn runtime_executable_env_key(agent_id: &AgentId) -> Option<&'static str> {
+    BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .and_then(|profile| profile.runtime_executable_env)
+}
+
+/// Bind a Runtime path for ACP adapters. Adapters that ship their own vendor
+/// CLI never receive this binding. `.cmd` / `.bat` shims are omitted so Node
+/// can fall back to a bundled native binary; a sibling `.exe` is preferred.
+pub fn bind_runtime_executable_env(
+    agent_id: &AgentId,
+    runtime_path: &Path,
+    env: &mut BTreeMap<String, String>,
+) {
+    for key in crate::bundled_adapter_runtime_env_keys(agent_id) {
+        env.remove(*key);
+    }
+    if crate::adapter_bundles_runtime(agent_id) {
+        return;
+    }
+    let Some(variable) = runtime_executable_env_key(agent_id) else {
+        return;
+    };
+    match node_spawnable_runtime_path(runtime_path) {
+        Some(path) => {
+            env.insert(variable.to_string(), path.display().to_string());
+        }
+        None => {
+            env.remove(variable);
+        }
+    }
+}
+
+/// Drop a bundled-adapter Runtime binding, or rewrite a Node-spawnable path.
+pub fn sanitize_runtime_executable_env(agent_id: &AgentId, env: &mut HashMap<String, String>) {
+    for key in crate::bundled_adapter_runtime_env_keys(agent_id) {
+        env.remove(*key);
+    }
+    if crate::adapter_bundles_runtime(agent_id) {
+        return;
+    }
+    let Some(variable) = runtime_executable_env_key(agent_id) else {
+        return;
+    };
+    let Some(current) = env.get(variable).cloned() else {
+        return;
+    };
+    match node_spawnable_runtime_path(Path::new(&current)) {
+        Some(path) => {
+            env.insert(variable.to_string(), path.display().to_string());
+        }
+        None => {
+            env.remove(variable);
+        }
+    }
+}
+
+/// Same as [`sanitize_runtime_executable_env`] for Installation lock env maps.
+pub fn sanitize_runtime_executable_lock_env(
+    agent_id: &AgentId,
+    env: &mut BTreeMap<String, String>,
+) {
+    for key in crate::bundled_adapter_runtime_env_keys(agent_id) {
+        env.remove(*key);
+    }
+    if crate::adapter_bundles_runtime(agent_id) {
+        return;
+    }
+    let Some(current) = runtime_executable_env_key(agent_id)
+        .and_then(|variable| env.get(variable).map(PathBuf::from))
+    else {
+        return;
+    };
+    bind_runtime_executable_env(agent_id, &current, env);
 }
 
 fn launch_command_name(program: &Path) -> Option<&str> {
@@ -140,12 +287,18 @@ impl LaunchGate {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use super::{
-        launch_command_name, launch_program_available, missing_launch_program_error,
-        prefer_path_launch_program,
+        bind_runtime_executable_env, launch_command_name, launch_program_available,
+        lifecycle_ready_for_path_acp, missing_launch_program_error, prefer_path_launch_program,
+        sanitize_runtime_executable_env, sanitize_runtime_executable_lock_env,
     };
+    use crate::{AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent};
 
     #[test]
     fn path_launch_uses_the_command_stem_and_falls_back_to_the_lock() {
@@ -187,5 +340,100 @@ mod tests {
         let message = missing_launch_program_error(&PathBuf::from("/stale/vibex-acp"));
         assert!(message.contains("/stale/vibex-acp"), "{message}");
         assert!(message.contains("reinstall"), "{message}");
+    }
+
+    #[test]
+    fn bundled_adapter_runtime_env_is_never_injected() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("codex.exe");
+        fs::write(&exe, b"").unwrap();
+
+        let mut env = BTreeMap::new();
+        bind_runtime_executable_env(&AgentId::parse("codex").unwrap(), &exe, &mut env);
+        assert!(env.get("CODEX_PATH").is_none());
+    }
+
+    #[test]
+    fn adapter_runtime_env_omits_cmd_shims_without_an_exe() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("claude.cmd");
+        fs::write(&cmd, b"").unwrap();
+
+        let mut env = BTreeMap::new();
+        bind_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
+        assert!(env.get("CLAUDE_CODE_EXECUTABLE").is_none());
+    }
+
+    #[test]
+    fn sanitizing_launch_env_drops_stale_cmd_bindings() {
+        let mut env = HashMap::from([(
+            "CODEX_PATH".to_string(),
+            r"C:\Users\developer\AppData\Roaming\npm\codex.cmd".to_string(),
+        )]);
+        sanitize_runtime_executable_env(&AgentId::parse("codex").unwrap(), &mut env);
+        assert!(!env.contains_key("CODEX_PATH"));
+
+        let mut lock_env = BTreeMap::from([(
+            "CLAUDE_CODE_EXECUTABLE".to_string(),
+            r"\\?\C:\Users\developer\AppData\Roaming\npm\claude.cmd".to_string(),
+        )]);
+        sanitize_runtime_executable_lock_env(
+            &AgentId::parse("claude_code").unwrap(),
+            &mut lock_env,
+        );
+        assert!(!lock_env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+    }
+
+    #[test]
+    fn sanitizing_launch_env_drops_bundled_adapter_exe_bindings() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("claude.exe");
+        fs::write(&exe, b"").unwrap();
+        let mut env = HashMap::from([(
+            "CLAUDE_CODE_EXECUTABLE".to_string(),
+            exe.display().to_string(),
+        )]);
+        sanitize_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &mut env);
+        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+    }
+
+    #[test]
+    fn path_acp_promotes_uninstalled_and_needs_repair_to_ready() {
+        assert_eq!(
+            lifecycle_ready_for_path_acp(AgentLifecycleState::Uninstalled),
+            AgentLifecycleState::Ready
+        );
+        assert_eq!(
+            lifecycle_ready_for_path_acp(AgentLifecycleState::NeedsRepair),
+            AgentLifecycleState::Ready
+        );
+        assert_eq!(
+            lifecycle_ready_for_path_acp(AgentLifecycleState::NeedsAuth),
+            AgentLifecycleState::NeedsAuth
+        );
+    }
+
+    #[test]
+    fn bundled_adapter_profiles_launch_the_acp_command_not_the_vendor_cli() {
+        let catalog = BuiltInProfileCatalog::bundled();
+        for (agent_id, adapter, vendor) in [
+            ("claude_code", "claude-agent-acp", "claude"),
+            ("codex", "codex-acp", "codex"),
+            ("pi", "pi-acp", "pi"),
+        ] {
+            let profile = catalog.profile(&AgentId::parse(agent_id).unwrap()).unwrap();
+            let acp = profile
+                .external_candidates
+                .iter()
+                .find(|candidate| candidate.component == ProfileComponent::AcpAdapter)
+                .unwrap();
+            assert_eq!(acp.executable, adapter);
+            assert!(
+                profile
+                    .external_candidates
+                    .iter()
+                    .any(|candidate| candidate.executable == vendor)
+            );
+        }
     }
 }

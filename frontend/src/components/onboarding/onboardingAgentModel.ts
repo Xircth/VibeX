@@ -60,11 +60,13 @@ export function buildOnboardingAgentOptions(
       const managed = managedById.get(agentId);
       const registry = registryById.get(agentId);
       const lifecycle = managed?.lifecycle ?? 'uninstalled';
+      const sessionInstalled =
+        Boolean(registry?.installed) ||
+        COMPLETE_INSTALLATION_STATES.has(lifecycle);
+      // Availability matches CodeG: the ACP launch command is present
+      // (`acp_version` or a completed install). A vendor CLI alone is not.
       const runtimeInstalled = Boolean(
-        managed?.local_runtime ||
-          managed?.runtime_version ||
-          registry?.installed ||
-          COMPLETE_INSTALLATION_STATES.has(lifecycle)
+        managed?.acp_version || sessionInstalled
       );
 
       return {
@@ -81,8 +83,7 @@ export function buildOnboardingAgentOptions(
         platformSupported: registry?.platform_supported ?? true,
         runtimeInstalled,
         lifecycle,
-        needsInstallation:
-          !registry?.installed && !COMPLETE_INSTALLATION_STATES.has(lifecycle),
+        needsInstallation: !runtimeInstalled,
       };
     })
     .filter((agent) => agent.platformSupported)
@@ -150,7 +151,7 @@ export function classifyOnboardingInstallResult(
   preflightStatuses: string[]
 ): OnboardingInstallResult {
   if (status !== 'succeeded') return 'failed';
-  return preflightStatuses.every((item) => item === 'pass')
-    ? 'verified'
-    : 'needs_attention';
+  return preflightStatuses.some((item) => item === 'fail')
+    ? 'needs_attention'
+    : 'verified';
 }

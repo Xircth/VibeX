@@ -252,7 +252,8 @@ pub struct BuiltInProfile {
     pub management_actions: &'static [ProfileManagementAction],
     /// Adapter-specific environment variable that must point to the separately
     /// installed local Runtime. `None` means the ACP executable is the Runtime,
-    /// or the adapter contract resolves the Runtime from the lock-owned PATH.
+    /// the adapter resolves it from PATH / a profile-owned command, or the
+    /// adapter ships the vendor CLI used at session start.
     pub runtime_executable_env: Option<&'static str>,
     pub native_config: &'static [NativeConfigBinding],
     pub settings_features: &'static [AgentSettingsFeature],
@@ -277,6 +278,25 @@ impl BuiltInProfile {
             })
             .unwrap_or(&[])
     }
+
+    /// Claude Code and Codex adapters ship a usable vendor CLI. Session launch
+    /// must not require or inject a separately installed `claude` / `codex`.
+    pub fn adapter_bundles_runtime(&self) -> bool {
+        adapter_bundles_runtime(&self.agent_id)
+    }
+}
+
+/// Env keys that must not reach an ACP adapter which bundles its own vendor CLI.
+pub fn bundled_adapter_runtime_env_keys(agent_id: &AgentId) -> &'static [&'static str] {
+    match agent_id.as_str() {
+        "claude_code" => &["CLAUDE_CODE_EXECUTABLE"],
+        "codex" => &["CODEX_PATH"],
+        _ => &[],
+    }
+}
+
+pub fn adapter_bundles_runtime(agent_id: &AgentId) -> bool {
+    !bundled_adapter_runtime_env_keys(agent_id).is_empty()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2172,7 +2192,9 @@ const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
 ];
 const PI_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
     AgentSettingsFeature::PiConfiguration,
+    AgentSettingsFeature::PiPlugins,
     AgentSettingsFeature::NativeSkills,
 ];
 const CURSOR_SETTINGS: &[AgentSettingsFeature] = &[
@@ -2222,7 +2244,7 @@ fn claude_code_profile() -> BuiltInProfile {
         external_candidates: CLAUDE_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,
         management_actions: CLAUDE_ACTIONS,
-        runtime_executable_env: Some("CLAUDE_CODE_EXECUTABLE"),
+        runtime_executable_env: None,
         native_config: CLAUDE_CONFIG,
         settings_features: CLAUDE_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::ApiKeyThenAccount,
@@ -2272,7 +2294,7 @@ fn codex_profile() -> BuiltInProfile {
         external_candidates: CODEX_CANDIDATES,
         dependencies: NODE_20_DEPENDENCIES,
         management_actions: CODEX_ACTIONS,
-        runtime_executable_env: Some("CODEX_PATH"),
+        runtime_executable_env: None,
         native_config: CODEX_CONFIG,
         settings_features: CODEX_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,

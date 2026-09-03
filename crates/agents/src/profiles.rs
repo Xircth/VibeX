@@ -965,7 +965,7 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
     boolean_field(
         "codex_responses_websockets",
         "关闭 WebSocket 连接",
-        "关闭 Responses API 的 WebSocket 传输",
+        "关闭 Responses API 的 WebSocket 传输，写入活跃 model_providers 提供商的 supports_websockets；Codex 内置提供商不支持由此开关改变",
         &["features", "responses_websockets_v2"],
     ),
     boolean_field(

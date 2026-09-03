@@ -499,6 +499,55 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
 }
 
 #[tokio::test]
+async fn pi_custom_provider_api_key_counts_as_authenticated() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let pi = AgentId::parse("pi").unwrap();
+    let path = PathBuf::from("/home/user/.pi/agent/auth.json");
+
+    assert_eq!(
+        provider.read(&pi, false).await.unwrap().authentication,
+        AgentAuthenticationStatus::NotLoggedIn
+    );
+
+    filesystem.files.lock().unwrap().insert(
+        path.clone(),
+        br#"{"cc-switch-open-code-go":{"type":"api_key","key":"sk-go"}}"#.to_vec(),
+    );
+    assert_eq!(
+        provider.read(&pi, false).await.unwrap().authentication,
+        AgentAuthenticationStatus::ApiKey
+    );
+
+    filesystem.files.lock().unwrap().insert(
+        path.clone(),
+        br#"{"gateway":{"apiKey":"sk-alias"}}"#.to_vec(),
+    );
+    assert_eq!(
+        provider.read(&pi, false).await.unwrap().authentication,
+        AgentAuthenticationStatus::ApiKey
+    );
+
+    filesystem.files.lock().unwrap().insert(
+        path.clone(),
+        br#"{"cc-switch-open-code-go":{"type":"api_key","key":"sk-go"}}"#.to_vec(),
+    );
+    assert_eq!(
+        provider.read(&pi, true).await.unwrap().authentication,
+        AgentAuthenticationStatus::MultipleUnknown
+    );
+
+    filesystem.files.lock().unwrap().insert(
+        path,
+        br#"{"cc-switch-open-code-go":{"type":"api_key","key":"   "}}"#.to_vec(),
+    );
+    assert_eq!(
+        provider.read(&pi, false).await.unwrap().authentication,
+        AgentAuthenticationStatus::NotLoggedIn
+    );
+}
+
+#[tokio::test]
 async fn bundled_profiles_manage_runtime_settings_across_all_declared_files() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
     let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
@@ -715,6 +764,312 @@ wire_api = "responses"
     );
     assert!(config.get("openai_base_url").is_none());
     assert!(config.get("api_base_url").is_none());
+}
+
+#[tokio::test]
+async fn codex_websockets_reads_custom_provider_default_false() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol"
+model_provider = "vibex"
+
+[model_providers.vibex]
+name = "vibex"
+base_url = "https://beeapi.ai/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#
+        .to_vec(),
+    );
+
+    let snapshot = provider.read(&codex, false).await.unwrap();
+    let websockets = snapshot
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    // 自定义 provider 未声明 supports_websockets → Codex 按 serde 默认 false
+    //（关闭 WebSocket），开关应显示为开启。
+    assert_eq!(websockets.value.as_deref(), Some("false"));
+    assert!(websockets.present);
+}
+
+#[tokio::test]
+async fn codex_websockets_reads_effective_support_by_provider_kind() {
+    let codex = AgentId::parse("codex").unwrap();
+
+    // 未指定 provider → 默认 openai，支持 WebSocket（开关关闭）。
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol""#.to_vec(),
+    );
+    let snapshot = provider.read(&codex, false).await.unwrap();
+    let websockets = snapshot
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("true"));
+
+    // openai 内置硬编码支持 WebSocket，配置表无法覆盖。
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol"
+model_provider = "openai"
+
+[model_providers.openai]
+name = "OpenAI Override"
+supports_websockets = false
+"#
+        .to_vec(),
+    );
+    let snapshot = provider.read(&codex, false).await.unwrap();
+    let websockets = snapshot
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("true"));
+
+    // ollama 内置不支持 WebSocket → 开关显示为开启。
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol"
+model_provider = "ollama"
+"#
+        .to_vec(),
+    );
+    let snapshot = provider.read(&codex, false).await.unwrap();
+    let websockets = snapshot
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("false"));
+}
+
+#[tokio::test]
+async fn codex_websockets_writes_active_custom_provider_and_legacy_features() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol"
+model_provider = "vibex"
+
+[model_providers.vibex]
+name = "vibex"
+base_url = "https://beeapi.ai/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#
+        .to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let websockets = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("false"));
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_responses_websockets".to_string(),
+                    Some("true".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // 开启 WebSocket：写进活跃自定义 provider 表，并同步 legacy features 键。
+    assert_eq!(
+        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        config["features"]["responses_websockets_v2"].as_bool(),
+        Some(true)
+    );
+
+    // 基于写入后的快照再次保存 false，验证冲突检测与新的来源节点一致。
+    let after_enable = provider.read(&codex, false).await.unwrap();
+    let websockets = after_enable
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("true"));
+    let revisions = after_enable
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_responses_websockets".to_string(),
+                    Some("false".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        config["features"]["responses_websockets_v2"].as_bool(),
+        Some(false)
+    );
+
+    // 清空开关：同时移除 provider 表与 legacy features 键。
+    let after_disable = provider.read(&codex, false).await.unwrap();
+    let revisions = after_disable
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([("codex_responses_websockets".to_string(), None)]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        config["model_providers"]["vibex"]
+            .get("supports_websockets")
+            .is_none()
+    );
+    assert!(
+        config
+            .get("features")
+            .and_then(|features| features.get("responses_websockets_v2"))
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn codex_websockets_write_to_reserved_provider_is_ignored() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol"
+model_provider = "ollama"
+
+[model_providers.ollama]
+name = "Local OSS"
+"#
+        .to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let websockets = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("false"));
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_responses_websockets".to_string(),
+                    Some("false".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // 内置 provider 的表由 Codex 引擎管理：写入只落到 legacy features 键，
+    // 不会给 reserved 表凭空增加 supports_websockets。
+    assert_eq!(
+        config["features"]["responses_websockets_v2"].as_bool(),
+        Some(false)
+    );
+    assert!(
+        config["model_providers"]["ollama"]
+            .get("supports_websockets")
+            .is_none()
+    );
 }
 
 #[tokio::test]

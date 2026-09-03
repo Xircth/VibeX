@@ -139,6 +139,7 @@ impl NativeConfigProvider {
         let mut fields = Vec::new();
         let mut files = Vec::with_capacity(profile.native_config.len());
         let mut exists = false;
+        let mut vault_api_key_present = false;
 
         for binding in profile.native_config {
             let path = self.binding_path(binding);
@@ -156,6 +157,9 @@ impl NativeConfigProvider {
                     .map_err(|error| NativeConfigError::Invalid(error.to_string()))?,
                 None => empty_document_preview(binding.format).to_string(),
             };
+            if binding_is_secret_vault(binding) && provider_api_key_present(&document) {
+                vault_api_key_present = true;
+            }
             fields.extend(
                 binding
                     .fields
@@ -173,7 +177,8 @@ impl NativeConfigProvider {
             paths.push(path);
         }
 
-        let api_key_present = fields.iter().any(|field| field.secret && field.present);
+        let api_key_present =
+            vault_api_key_present || fields.iter().any(|field| field.secret && field.present);
         Ok(NativeConfigSnapshot {
             agent_id: agent_id.clone(),
             path: paths.first().cloned().unwrap_or_else(|| self.home.clone()),
@@ -239,6 +244,8 @@ impl NativeConfigProvider {
             {
                 let current_revision = if field.field_id == "codex_openai_base_url" {
                     field_revision(codex_base_url_value(document))
+                } else if field.field_id == "codex_responses_websockets" {
+                    field_revision(codex_websockets_source(document))
                 } else if field.field_id == "anthropic_api_key" {
                     field_revision(claude_credential_value(document))
                 } else {
@@ -518,6 +525,15 @@ fn field_snapshot(
         // 同一个 `API URL` 字段展示，让用户看到正在使用的端点。
         let effective = codex_base_url_value(document);
         (scalar_string(effective), effective)
+    } else if field.field_id == "codex_responses_websockets" {
+        // Codex 传输层仅由活跃 provider 的 `supports_websockets` 决定（legacy
+        // `features.responses_websockets_v2` 已随引擎版本移除）。把生效值投影到
+        // 该开关：false → 关闭 WebSocket（开关显示为开启）。
+        let effective = codex_websockets_source(document);
+        (
+            Some(codex_websockets_supported(document).to_string()),
+            effective,
+        )
     } else if field.field_id == "anthropic_api_key" {
         // Claude Code 的凭据可能位于 `env.ANTHROPIC_AUTH_TOKEN`（优先）或
         // `env.ANTHROPIC_API_KEY`；secret 字段不返回明文，但 present 与
@@ -556,6 +572,17 @@ fn field_snapshot(
     }
 }
 
+/// Codex 内置 provider 标识：其 `[model_providers.*]` 配置块会被引擎忽略或限制，
+/// 不能当作“配置自定义”的表处理（openai 硬编码支持 WS 且配置块被忽略；
+/// amazon-bedrock* 只允许覆盖端点/鉴权字段；ollama/lmstudio 不支持 WS 且块被忽略）。
+const CODEX_RESERVED_PROVIDER_IDS: &[&str] = &[
+    "openai",
+    "amazon-bedrock",
+    "amazon-bedrock-runtime",
+    "ollama",
+    "lmstudio",
+];
+
 /// Codex 当前活跃的 `model_provider` 标识（顶层 `model_provider` 键）。
 fn codex_active_provider(document: &Value) -> Option<&str> {
     document
@@ -585,6 +612,40 @@ fn codex_base_url_value(document: &Value) -> Option<&Value> {
     }
     value_at_path(document, &["openai_base_url"])
         .or_else(|| value_at_path(document, &["api_base_url"]))
+}
+
+/// Codex WebSocket 开关的有效来源：自定义 provider 表的 `supports_websockets` 节点。
+/// 内置 provider（reserved）无法通过配置表覆盖，返回 None 表示由引擎内置值决定。
+fn codex_websockets_source(document: &Value) -> Option<&Value> {
+    let provider = codex_active_provider(document)?;
+    if CODEX_RESERVED_PROVIDER_IDS.contains(&provider) {
+        return None;
+    }
+    document
+        .get("model_providers")
+        .and_then(|table| table.get(provider))
+        .and_then(|entry| entry.get("supports_websockets"))
+}
+
+/// 活跃 provider 实际是否走 Responses WebSocket 传输（用于开关显示）：
+/// 未指定 provider → 默认 openai（支持）；openai → 支持；其余内置 → 不支持；
+/// 自定义 provider → 表内 `supports_websockets`，缺省为 false（与 Codex serde 默认一致）。
+fn codex_websockets_supported(document: &Value) -> bool {
+    let Some(provider) = codex_active_provider(document) else {
+        return true;
+    };
+    if provider == "openai" {
+        return true;
+    }
+    if CODEX_RESERVED_PROVIDER_IDS.contains(&provider) {
+        return false;
+    }
+    document
+        .get("model_providers")
+        .and_then(|table| table.get(provider))
+        .and_then(|entry| entry.get("supports_websockets"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn prepare_special_native_shape(
@@ -686,6 +747,35 @@ fn finalize_codex_shape(
                 "openai_base_url"
             };
             set_value_at_path(document, &[target], Value::String(value))?;
+        }
+    }
+    if patch.values.contains_key("codex_responses_websockets") {
+        // 通用写循环已把开关值同步到 legacy `features.responses_websockets_v2`。
+        // 这里把同一布尔写进活跃 provider 的 `supports_websockets` —— 这才是真正
+        // 控制 Codex Responses 传输层的位置。内置 provider（reserved）的配置块会被
+        // 引擎忽略或限制，且没有现成表时不应凭空创建，因此仅在自定义表已存在时写入。
+        if let Some(provider) = codex_active_provider(document).map(str::to_owned) {
+            let provider_name = provider.as_str();
+            let provider_exists = document
+                .get("model_providers")
+                .is_some_and(|table| table.get(provider_name).is_some());
+            if !CODEX_RESERVED_PROVIDER_IDS.contains(&provider_name) && provider_exists {
+                let path = ["model_providers", provider_name, "supports_websockets"];
+                match patch
+                    .values
+                    .get("codex_responses_websockets")
+                    .cloned()
+                    .flatten()
+                {
+                    Some(value) => {
+                        let enabled = value.parse::<bool>().map_err(|_| {
+                            NativeConfigError::Invalid(format!("`{value}` is not a boolean"))
+                        })?;
+                        set_value_at_path(document, &path, Value::Bool(enabled))?;
+                    }
+                    None => remove_value_at_path(document, &path),
+                }
+            }
         }
     }
     Ok(())
@@ -1301,6 +1391,30 @@ fn remove_value_at_path(document: &mut Value, path: &[&str]) {
     if let Some(object) = current.as_object_mut() {
         object.remove(*last);
     }
+}
+
+fn provider_api_key_present(document: &Value) -> bool {
+    let Some(object) = document.as_object() else {
+        return false;
+    };
+    object.values().any(|entry| {
+        let Some(entry) = entry.as_object() else {
+            return false;
+        };
+        let kind = entry
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("api_key");
+        if !matches!(kind, "api" | "api_key") {
+            return false;
+        }
+        ["key", "apiKey", "api_key"].iter().any(|name| {
+            entry
+                .get(*name)
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+    })
 }
 
 fn authentication_status(

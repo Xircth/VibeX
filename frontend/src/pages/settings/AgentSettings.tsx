@@ -22,6 +22,7 @@ import type {
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import { AgentUpdateConfirmDialog } from '@/components/dialogs/settings/AgentUpdateConfirmDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import {
   agentManagementApi,
@@ -58,7 +59,6 @@ import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
 import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection';
 import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
-import { AgentUpdateConfirmDialog } from './AgentUpdateConfirmDialog';
 import {
   readPreflightSnapshot,
   writePreflightSnapshot,
@@ -542,8 +542,7 @@ export function AgentSettings() {
             : 'settings:agents.runtimeAcpUpdateComplete'
       )
     );
-    void management
-      .refresh()
+    void refreshManagement()
       .then((agents) => {
         const agent = agents.find((item) => item.agent_id === selectedAgentId);
         if (!agent) return;
@@ -558,7 +557,7 @@ export function AgentSettings() {
       .catch(() => undefined);
   }, [
     liveOperation?.kind,
-    management,
+    refreshManagement,
     operationActive,
     registryOpen,
     selectedAgent?.lifecycle,

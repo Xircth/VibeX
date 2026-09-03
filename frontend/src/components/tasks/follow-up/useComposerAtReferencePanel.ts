@@ -23,8 +23,9 @@ import {
   AT_REFERENCE_TAB_ORDER,
   buildAtReferenceGroups,
   cycleAtReferenceTab,
-  firstNonEmptyTab,
+  isAtReferenceNavigationKey,
   matchAtReferenceTrigger,
+  mergeAtReferenceSearch,
   type AtReferenceGroup,
   type AtReferenceItem,
   type AtReferenceTab,
@@ -223,6 +224,7 @@ export function useComposerAtReferencePanel({
   const [panel, setPanel] = useState<PanelState | null>(null);
   const triggerStartRef = useRef(-1);
   const requestRef = useRef(0);
+  const searchedQueryRef = useRef<string | null>(null);
   const pinnedTabRef = useRef<AtReferenceTab | null>(null);
   const panelRef = useRef<PanelState | null>(null);
   panelRef.current = panel;
@@ -230,6 +232,7 @@ export function useComposerAtReferencePanel({
   const close = useCallback(() => {
     pinnedTabRef.current = null;
     triggerStartRef.current = -1;
+    searchedQueryRef.current = null;
     setPanel(null);
   }, []);
 
@@ -246,7 +249,7 @@ export function useComposerAtReferencePanel({
         loadCommits(ctx).catch(() => []),
         loadInstructions(query).catch(async () => {
           try {
-            return await tagsApi.list();
+            return (await tagsApi.list()) ?? [];
           } catch {
             return [];
           }
@@ -261,15 +264,23 @@ export function useComposerAtReferencePanel({
         instructions,
         currentConversationId: ctx.sessionId,
       });
+      searchedQueryRef.current = query;
       setPanel((current) => {
         if (!current) return current;
-        const activeTab = firstNonEmptyTab(groups, pinnedTabRef.current);
+        const next = mergeAtReferenceSearch({
+          query,
+          groups,
+          currentQuery: current.query,
+          currentTab: current.activeTab,
+          currentSelectedIndex: current.selectedIndex,
+          pinnedTab: pinnedTabRef.current,
+        });
         return {
           ...current,
           query,
           groups,
-          activeTab,
-          selectedIndex: 0,
+          activeTab: next.activeTab,
+          selectedIndex: next.selectedIndex,
           loading: false,
         };
       });
@@ -279,16 +290,23 @@ export function useComposerAtReferencePanel({
 
   const openOrUpdate = useCallback(
     (query: string, triggerStart: number, editable: HTMLElement) => {
+      triggerStartRef.current = triggerStart;
+      if (
+        panelRef.current &&
+        searchedQueryRef.current === query &&
+        panelRef.current.query === query
+      ) {
+        return;
+      }
       const rect = editable.getBoundingClientRect();
       const width =
         composerRootRef.current?.getBoundingClientRect().width ?? rect.width;
-      triggerStartRef.current = triggerStart;
       setPanel((current) => ({
         query,
         groups: current?.groups ?? EMPTY_GROUPS,
         activeTab: current?.activeTab ?? 'file',
         selectedIndex: current?.query === query ? current.selectedIndex : 0,
-        loading: true,
+        loading: searchedQueryRef.current !== query,
         pinnedTab: pinnedTabRef.current,
         left:
           composerRootRef.current?.getBoundingClientRect().left ?? rect.left,
@@ -328,12 +346,18 @@ export function useComposerAtReferencePanel({
     const editor = getEditor(root);
     if (!editor) return undefined;
     const onInput = () => detect();
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (panelRef.current && isAtReferenceNavigationKey(event.key)) {
+        return;
+      }
+      detect();
+    };
     editor.addEventListener('input', onInput);
-    editor.addEventListener('keyup', onInput);
+    editor.addEventListener('keyup', onKeyUp);
     editor.addEventListener('click', onInput);
     return () => {
       editor.removeEventListener('input', onInput);
-      editor.removeEventListener('keyup', onInput);
+      editor.removeEventListener('keyup', onKeyUp);
       editor.removeEventListener('click', onInput);
     };
   }, [detect, composerRootRef]);
@@ -395,8 +419,7 @@ export function useComposerAtReferencePanel({
         case 'Tab': {
           event.preventDefault();
           const dir =
-            event.key === 'ArrowLeft' ||
-            (event.key === 'Tab' && event.shiftKey)
+            event.key === 'ArrowLeft' || (event.key === 'Tab' && event.shiftKey)
               ? -1
               : 1;
           const next = cycleAtReferenceTab(current.activeTab, dir);

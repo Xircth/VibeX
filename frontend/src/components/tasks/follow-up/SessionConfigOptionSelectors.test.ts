@@ -4,6 +4,8 @@ import {
   configOptionDisplayState,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
+  reconcilePendingConfigValues,
+  reconcilePendingMode,
   sanitizeDependentConfigValues,
   selectConfigOptionValue,
   visibleSessionConfigOptions,
@@ -135,6 +137,63 @@ describe('Agent-advertised choice presentation', () => {
       ],
       presentedActiveValue: 'agent-full-access',
     });
+  });
+
+  it('keeps a pending config selection until the live snapshot matches it', () => {
+    const options: AgentSessionConfigOption[] = [
+      {
+        key: 'model',
+        label: 'Model',
+        category: 'model',
+        value: 'gpt-5.4',
+        choices: [
+          { value: 'gpt-5.4', label: 'GPT-5.4' },
+          { value: 'gpt-5.6-luna', label: 'gpt-5.6-luna' },
+        ],
+      },
+      {
+        key: 'reasoning_effort',
+        label: 'Reasoning effort',
+        category: 'thought_level',
+        value: 'low',
+        choices: [
+          { value: 'low', label: '低' },
+          { value: 'medium', label: '中' },
+        ],
+      },
+    ];
+
+    expect(
+      reconcilePendingConfigValues(options, {
+        model: 'gpt-5.6-luna',
+        reasoning_effort: 'medium',
+      })
+    ).toEqual({
+      model: 'gpt-5.6-luna',
+      reasoning_effort: 'medium',
+    });
+
+    expect(
+      reconcilePendingConfigValues(
+        [
+          { ...options[0], value: 'gpt-5.6-luna' },
+          { ...options[1], value: 'medium' },
+        ],
+        {
+          model: 'gpt-5.6-luna',
+          reasoning_effort: 'medium',
+        }
+      )
+    ).toEqual({});
+  });
+
+  it('keeps a pending mode until the live session mode catches up', () => {
+    expect(reconcilePendingMode('agent', 'agent-full-access')).toBe(
+      'agent-full-access'
+    );
+    expect(reconcilePendingMode('agent-full-access', 'agent-full-access')).toBe(
+      null
+    );
   });
 
   it('hides Codex collaboration mode while preserving the runtime snapshot', () => {

@@ -6,7 +6,9 @@ import {
   conversationReferenceUri,
   cycleAtReferenceTab,
   firstNonEmptyTab,
+  isAtReferenceNavigationKey,
   matchAtReferenceTrigger,
+  mergeAtReferenceSearch,
   parseCommitReferenceUri,
   parseConversationReferenceUri,
   shortCommitSha,
@@ -149,5 +151,57 @@ describe('composer @ references', () => {
     expect(cycleAtReferenceTab('instruction', 1)).toBe('file');
     expect(cycleAtReferenceTab('file', -1)).toBe('instruction');
     expect(cycleAtReferenceTab('conversation', -1)).toBe('file');
+  });
+
+  it('keeps the highlighted row when the same query refreshes', () => {
+    const groups = buildAtReferenceGroups('', {
+      files: [
+        { path: 'a.ts', name: 'a.ts' },
+        { path: 'b.ts', name: 'b.ts' },
+      ],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+    });
+    expect(
+      mergeAtReferenceSearch({
+        query: '',
+        groups,
+        currentQuery: '',
+        currentTab: 'file',
+        currentSelectedIndex: 1,
+        pinnedTab: 'file',
+      })
+    ).toEqual({ activeTab: 'file', selectedIndex: 1 });
+  });
+
+  it('resets the highlight when the query changes', () => {
+    const groups = buildAtReferenceGroups('b', {
+      files: [
+        { path: 'a.ts', name: 'a.ts' },
+        { path: 'b.ts', name: 'b.ts' },
+      ],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+    });
+    expect(
+      mergeAtReferenceSearch({
+        query: 'b',
+        groups,
+        currentQuery: '',
+        currentTab: 'file',
+        currentSelectedIndex: 1,
+        pinnedTab: 'file',
+      }).selectedIndex
+    ).toBe(0);
+  });
+
+  it('treats arrow keys as panel navigation', () => {
+    expect(isAtReferenceNavigationKey('ArrowDown')).toBe(true);
+    expect(isAtReferenceNavigationKey('ArrowLeft')).toBe(true);
+    expect(isAtReferenceNavigationKey('a')).toBe(false);
   });
 });

@@ -110,6 +110,22 @@ export function conversationThreadMaxWidthClass(
     : 'max-w-6xl';
 }
 
+const LOAD_OLDER_SCROLL_TOP_PX = 64;
+
+export function shouldLoadOlderTimelinePage(input: {
+  hasEarlier: boolean;
+  isAtBottom: boolean;
+  scrollTop: number;
+  firstVirtualIndex: number | undefined;
+}): boolean {
+  return (
+    input.hasEarlier &&
+    !input.isAtBottom &&
+    input.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
+    input.firstVirtualIndex === 0
+  );
+}
+
 interface AgentTimelineConversationProps {
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
@@ -684,11 +700,17 @@ const AgentTimelineConversation = forwardRef<
   const totalSize = rowVirtualizer.getTotalSize();
 
   useEffect(() => {
-    if (!conversation.hasEarlier) return;
-    const first = virtualRows[0];
-    if (first && first.index === 0) {
-      void conversation.loadOlder();
+    if (
+      !shouldLoadOlderTimelinePage({
+        hasEarlier: conversation.hasEarlier,
+        isAtBottom: isAtBottomRef.current,
+        scrollTop: containerRef.current?.scrollTop ?? 0,
+        firstVirtualIndex: virtualRows[0]?.index,
+      })
+    ) {
+      return;
     }
+    void conversation.loadOlder();
   }, [conversation, virtualRows]);
 
   const panelRef = useRef<HTMLDivElement | null>(null);

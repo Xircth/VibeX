@@ -21,6 +21,7 @@ import '@/i18n';
 // Import modal type definitions
 import './types/modals';
 import { isTauriRuntime, WebTransportBootstrap } from './WebTransportBootstrap';
+import { getAppRouteMode } from './appRouteMode';
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -65,6 +66,9 @@ initAccentColor();
 initMonoFont();
 initResolvedTheme();
 warmDefaultSettingsSurface();
+if (getAppRouteMode(window.location.pathname) === 'desktop-toast') {
+  document.documentElement.classList.add('desktop-toast-shell');
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

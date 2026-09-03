@@ -41,7 +41,7 @@ export function ComposerAtReferenceMenu({
   const { t } = useTranslation('tasks');
   const groupByTab = new Map(groups.map((group) => [group.tab, group]));
   const activeGroup = groupByTab.get(activeTab);
-  const items = loading ? [] : (activeGroup?.items ?? []);
+  const items = activeGroup?.items ?? [];
 
   return (
     <div
@@ -55,7 +55,7 @@ export function ComposerAtReferenceMenu({
         className="flex shrink-0 gap-0.5 overflow-x-auto p-1"
       >
         {AT_REFERENCE_TAB_ORDER.map((tab) => {
-          const count = loading ? 0 : (groupByTab.get(tab)?.items.length ?? 0);
+          const count = groupByTab.get(tab)?.items.length ?? 0;
           const selected = tab === activeTab;
           return (
             <button
@@ -84,7 +84,7 @@ export function ComposerAtReferenceMenu({
         })}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
-        {loading ? (
+        {items.length === 0 && loading ? (
           <div className="px-2 py-3 text-xs text-muted-foreground">
             {t('composer.atReference.loading')}
           </div>

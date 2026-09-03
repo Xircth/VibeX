@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -202,7 +208,7 @@ export function DesktopToastWindow() {
     };
   }, [scheduleRemoval]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.getElementById('root');
     document.documentElement.classList.add('desktop-toast-shell');
     document.documentElement.style.background = 'transparent';

@@ -248,7 +248,7 @@ function DesktopToastAppContent() {
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
-      <LegacyDesignScope className="!bg-transparent">
+      <LegacyDesignScope>
         <DesktopToastWindow />
       </LegacyDesignScope>
     </ThemeProvider>

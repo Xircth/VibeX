@@ -37,9 +37,11 @@ import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import {
   areConfigValuesEqual,
+  reconcilePendingConfigValues,
+  reconcilePendingMode,
   sanitizeDependentConfigValues,
-  visibleSessionConfigOptions,
   selectConfigOptionValue,
+  visibleSessionConfigOptions,
 } from './follow-up/SessionConfigOptionSelectors';
 import {
   SessionComposerAttachmentDrawer,
@@ -466,21 +468,26 @@ export function TaskFollowUpSection({
   // Live ACP session state is the sole source for composer controls. A global
   // agent catalog cannot account for workspace/provider/account differences.
   const displaySessionModes = sessionModes;
+  const liveModeId = displaySessionModes.current;
   const displaySessionConfigOptions = useMemo(
     () => visibleSessionConfigOptions(sessionConfigOptions),
     [sessionConfigOptions]
   );
   // A live `config_option_update` can replace an effort's choice set after a
-  // model change. Keep pending next-turn values aligned with that update.
+  // model change. Keep pending next-turn values aligned with that update, and
+  // only drop a selection once the live snapshot actually carries it.
   useEffect(() => {
     setSelectedConfigValues((previous) => {
-      const next = sanitizeDependentConfigValues(
+      const next = reconcilePendingConfigValues(
         displaySessionConfigOptions,
         previous
       );
       return areConfigValuesEqual(previous, next) ? previous : next;
     });
   }, [displaySessionConfigOptions]);
+  useEffect(() => {
+    setSelectedMode((previous) => reconcilePendingMode(liveModeId, previous));
+  }, [liveModeId]);
   // Selecting a mode applies immediately via ACP `session/set_mode` when the
   // session is idle; while a turn is streaming (or before the session exists)
   // the backend rejects and the choice stays pending as a next-turn override.
@@ -490,7 +497,6 @@ export function TaskFollowUpSection({
       if (!sessionId) return;
       void conversationApi
         .setSessionMode({ conversationId: sessionId, modeId })
-        .then(() => setSelectedMode(null))
         .catch(() => {
           // Keep the pending selection; it is sent as modeOverride next turn.
         });
@@ -524,14 +530,6 @@ export function TaskFollowUpSection({
       if (!sessionId) return;
       void conversationApi
         .setSessionConfigOption({ conversationId: sessionId, key, value })
-        .then(() =>
-          setSelectedConfigValues((prev) => {
-            if (!(key in prev)) return prev;
-            const next = { ...prev };
-            delete next[key];
-            return next;
-          })
-        )
         .catch(() => {
           // Keep the pending selection; it is sent as a configOverride next turn.
         });

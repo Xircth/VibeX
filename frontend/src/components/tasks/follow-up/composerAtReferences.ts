@@ -165,11 +165,11 @@ export function buildAtReferenceGroups(
   const q = query.trim().toLowerCase();
   const currentId = sources.currentConversationId ?? null;
 
-  const files = sources.files
+  const files = (sources.files ?? [])
     .filter((file) => matchesQuery(q, file.name, file.path))
     .map(fileToAtReference);
 
-  const conversations = sources.conversations
+  const conversations = (sources.conversations ?? [])
     .filter((conversation) => conversation.id !== currentId)
     .filter((conversation) =>
       matchesQuery(
@@ -183,7 +183,7 @@ export function buildAtReferenceGroups(
     .map(conversationToAtReference);
 
   const commits = sources.repoId
-    ? sources.commits
+    ? (sources.commits ?? [])
         .filter((entry) =>
           matchesQuery(
             q,
@@ -196,7 +196,7 @@ export function buildAtReferenceGroups(
         .map((entry) => commitToAtReference(entry, sources.repoId as string))
     : [];
 
-  const instructions = sources.instructions
+  const instructions = (sources.instructions ?? [])
     .filter((tag) => matchesQuery(q, tag.tag_name, tag.content))
     .map(instructionToAtReference);
 
@@ -231,6 +231,45 @@ export function cycleAtReferenceTab(
     (index + direction + AT_REFERENCE_TAB_ORDER.length) %
       AT_REFERENCE_TAB_ORDER.length
   ];
+}
+
+export function isAtReferenceNavigationKey(key: string): boolean {
+  return (
+    key === 'ArrowDown' ||
+    key === 'ArrowUp' ||
+    key === 'ArrowLeft' ||
+    key === 'ArrowRight' ||
+    key === 'Tab' ||
+    key === 'Enter' ||
+    key === 'Escape'
+  );
+}
+
+export function mergeAtReferenceSearch({
+  query,
+  groups,
+  currentQuery,
+  currentTab,
+  currentSelectedIndex,
+  pinnedTab,
+}: {
+  query: string;
+  groups: AtReferenceGroup[];
+  currentQuery: string;
+  currentTab: AtReferenceTab;
+  currentSelectedIndex: number;
+  pinnedTab: AtReferenceTab | null;
+}): { activeTab: AtReferenceTab; selectedIndex: number } {
+  const activeTab = firstNonEmptyTab(groups, pinnedTab);
+  const count =
+    groups.find((group) => group.tab === activeTab)?.items.length ?? 0;
+  const keepSelection = currentQuery === query && currentTab === activeTab;
+  return {
+    activeTab,
+    selectedIndex: keepSelection
+      ? Math.min(Math.max(currentSelectedIndex, 0), Math.max(count - 1, 0))
+      : 0,
+  };
 }
 
 export function matchAtReferenceTrigger(text: string) {

@@ -7,6 +7,7 @@ import {
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
+  shouldLoadOlderTimelinePage,
 } from './AgentTimelineConversation';
 
 function row(
@@ -26,6 +27,38 @@ function row(
     },
   };
 }
+
+describe('shouldLoadOlderTimelinePage', () => {
+  it('does not page older history while the open path is pinned to the bottom', () => {
+    expect(
+      shouldLoadOlderTimelinePage({
+        hasEarlier: true,
+        isAtBottom: true,
+        scrollTop: 0,
+        firstVirtualIndex: 0,
+      })
+    ).toBe(false);
+  });
+
+  it('pages older history only after the user scrolls to the top', () => {
+    expect(
+      shouldLoadOlderTimelinePage({
+        hasEarlier: true,
+        isAtBottom: false,
+        scrollTop: 8,
+        firstVirtualIndex: 0,
+      })
+    ).toBe(true);
+    expect(
+      shouldLoadOlderTimelinePage({
+        hasEarlier: true,
+        isAtBottom: false,
+        scrollTop: 240,
+        firstVirtualIndex: 0,
+      })
+    ).toBe(false);
+  });
+});
 
 describe('AgentTimelineConversation edit policy', () => {
   it('keeps the last user message editable while the assistant is streaming', () => {

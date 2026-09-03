@@ -521,6 +521,66 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(selectedTab()).toBe(before);
   });
 
+  it('moves the highlighted @ reference with arrow keys', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(tagsApi, 'list').mockResolvedValue([
+      {
+        id: 'tag-a',
+        tag_name: 'alpha',
+        content: 'first',
+        created_at: '',
+        updated_at: '',
+      },
+      {
+        id: 'tag-b',
+        tag_name: 'beta',
+        content: 'second',
+        created_at: '',
+        updated_at: '',
+      },
+      {
+        id: 'tag-c',
+        tag_name: 'gamma',
+        content: 'third',
+        created_at: '',
+        updated_at: '',
+      },
+    ]);
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '@');
+    const options = await screen.findAllByRole('option');
+    expect(options.length).toBeGreaterThan(1);
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{ArrowDown}');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getAllByRole('option')[1]).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('does not flash a loading state when switching @ tabs with the keyboard', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '@');
+    await screen.findByTestId('composer-at-reference-menu');
+    await screen.findAllByRole('option');
+
+    await user.keyboard('{ArrowRight}');
+    expect(screen.queryByText('正在搜索…')).not.toBeInTheDocument();
+    expect(screen.getByTestId('composer-at-reference-menu')).toBeVisible();
+  });
+
   it('renders a selected instruction token from the @ reference panel', async () => {
     const user = userEvent.setup();
     vi.spyOn(tagsApi, 'list').mockResolvedValue([]);

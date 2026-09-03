@@ -22,6 +22,8 @@ import {
 
 import { PluginSettingsSections } from '@/components/plugins/PluginSettingsSections';
 import { ImportLocalSessionsDialog } from '@/components/sessions/ImportLocalSessionsDialog';
+import { LocalHistoryImportStatus } from '@/features/history-import/LocalHistoryImportStatus';
+import { useLocalHistoryImportJob } from '@/features/history-import/useLocalHistoryImportJob';
 import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -87,6 +89,7 @@ export function GeneralSettings() {
   );
 
   const [importOpen, setImportOpen] = useState(false);
+  const importJob = useLocalHistoryImportJob();
 
   useEffect(() => {
     if (config && !dirty) {
@@ -343,6 +346,7 @@ export function GeneralSettings() {
               {t('general.importLocalSessionsAction')}
             </Button>
           </div>
+          <LocalHistoryImportStatus job={importJob} />
         </SettingsSection>
 
         <SettingsSection

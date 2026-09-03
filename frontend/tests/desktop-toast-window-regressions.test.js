@@ -115,7 +115,26 @@ test('desktop toast window keeps a dedicated route, window, and ready handshake'
     /set_background_color\(Some\(Color\(0, 0, 0, 0\)\)\)/
   );
   assert.match(desktopToastSource, /desktop-toast-shell/);
+  assert.match(desktopToastSource, /useLayoutEffect\(/);
   assert.match(capabilitySource, /"desktop-toast"/);
+  const mainSource = readFrontendFile('src/main.tsx');
+  assert.match(
+    mainSource,
+    /getAppRouteMode\(window\.location\.pathname\) === 'desktop-toast'/
+  );
+  assert.match(mainSource, /desktop-toast-shell/);
+
+  const styleSource = readFrontendFile('src/styles/legacy/index.css');
+  const toastShellRule =
+    styleSource.match(
+      /html\.desktop-toast-shell[\s\S]*?html\.desktop-toast-shell \.legacy-design-shell[\s\S]*?\{[\s\S]*?\}/
+    )?.[0] ?? '';
+  assert.match(toastShellRule, /html\.desktop-toast-shell \.legacy-design,/);
+  assert.match(
+    toastShellRule,
+    /html\.desktop-toast-shell \.legacy-design-shell/
+  );
+  assert.match(toastShellRule, /background:\s*transparent\s*!important/);
 });
 
 test('opening a desktop notification swaps its session into the execution area', () => {

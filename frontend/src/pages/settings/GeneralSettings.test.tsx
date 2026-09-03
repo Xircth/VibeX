@@ -46,6 +46,15 @@ vi.mock('@/components/sessions/ImportLocalSessionsDialog', () => ({
     open ? <div>import-dialog</div> : null,
 }));
 
+vi.mock('@/features/history-import/useLocalHistoryImportJob', () => ({
+  useLocalHistoryImportJob: () => ({
+    status: 'idle',
+    progress: null,
+    result: null,
+    log: [],
+  }),
+}));
+
 function promptEnhancementConfig(model: string): Config {
   return {
     editor: {

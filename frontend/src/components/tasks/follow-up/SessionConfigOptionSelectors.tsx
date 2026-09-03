@@ -192,6 +192,35 @@ export function selectConfigOptionValue(
   return sanitizeDependentConfigValues(options, { ...values, [key]: value });
 }
 
+/**
+ * Keep a successful selection visible until the live ACP snapshot actually
+ * carries it. Clearing pending on RPC success races the event log and makes
+ * Codex mode/model/effort appear to snap back to the previous value.
+ */
+export function reconcilePendingConfigValues(
+  options: AgentSessionConfigOption[],
+  values: Record<string, string>
+): Record<string, string> {
+  const sanitized = sanitizeDependentConfigValues(options, values);
+  let next = sanitized;
+  for (const [key, value] of Object.entries(sanitized)) {
+    const live = options.find((option) => option.key === key);
+    if (live && jsonValueToString(live.value ?? null) === value) {
+      if (next === sanitized) next = { ...sanitized };
+      delete next[key];
+    }
+  }
+  return next;
+}
+
+export function reconcilePendingMode(
+  current: string | null | undefined,
+  pending: string | null
+): string | null {
+  if (pending && pending === current) return null;
+  return pending;
+}
+
 export function areConfigValuesEqual(
   left: Record<string, string>,
   right: Record<string, string>

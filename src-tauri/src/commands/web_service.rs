@@ -165,6 +165,7 @@ fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn reachability_from_addresses(addresses: &[String]) -> Vec<remote_protocol::ReachabilityOrigin> {
     crate::commands::host_tunnel::merge_host_reachability(addresses, Vec::new())
 }

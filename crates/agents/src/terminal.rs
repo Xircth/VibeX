@@ -521,6 +521,7 @@ fn default_platform_shell() -> String {
 ///
 /// `System32\bash.exe` is the WSL stub and is skipped. Interactive Terminal
 /// panels keep their own PowerShell default.
+#[cfg(any(windows, test))]
 fn resolve_windows_agent_shell(
     git_bash: impl IntoIterator<Item = PathBuf>,
     cmd: impl IntoIterator<Item = PathBuf>,
@@ -535,6 +536,7 @@ fn resolve_windows_agent_shell(
         .unwrap_or_else(|| "cmd.exe".to_string())
 }
 
+#[cfg(any(windows, test))]
 fn is_wsl_bash(path: &Path) -> bool {
     let normalized = path
         .to_string_lossy()

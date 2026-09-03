@@ -11,6 +11,7 @@
   "terminalPanel": {
     "openExternalTerminalFailed": "无法打开外部终端",
     "confirmWarpInstalled": "请确认 Warp 已安装。",
+    "shellType": "Shell 类型",
     "resizeListAria": "调整终端列表宽度",
     "resizeListValue": "{{width}} 像素"
   },
@@ -178,6 +179,7 @@
   },
   "workspaceSessionList": {
     "title": "会话列表",
+    "archiveTitle": "归档区",
     "loading": "正在加载会话…",
     "empty": "暂无会话",
     "statusRunning": "进行中",
@@ -229,7 +231,8 @@
   },
   "terminalHeader": {
     "openExternalFailed": "无法打开外部终端",
-    "confirmWarpInstalled": "请确认 Warp 已安装。"
+    "confirmWarpInstalled": "请确认 Warp 已安装。",
+    "shellType": "Shell 类型"
   },
   "workspaceActivity": {
     "title": "执行进程",

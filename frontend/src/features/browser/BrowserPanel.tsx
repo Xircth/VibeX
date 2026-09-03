@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
@@ -892,39 +893,36 @@ export function BrowserPanel({
           />
         </form>
 
-        <select
-          aria-label="Zoom"
-          title="Zoom"
+        <AstryxSelect
+          ariaLabel="Zoom"
           value={String(zoomPercentForLevel(tab?.zoomLevel ?? 0))}
           disabled={!tab}
-          onChange={(event) =>
+          options={ZOOM_PERCENTAGES.map((percent) => ({
+            value: String(percent),
+            label: `${percent}%`,
+          }))}
+          onChange={(value) =>
             applyIntent({
               type: 'setZoom',
-              level: zoomLevelForPercent(Number(event.target.value)),
+              level: zoomLevelForPercent(Number(value)),
             })
           }
-          className="raised-control h-7 w-[4.25rem] px-1 text-[11px] text-foreground outline-none"
-        >
-          {ZOOM_PERCENTAGES.map((percent) => (
-            <option key={percent} value={percent}>
-              {percent}%
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Device"
-          title="Device emulation"
+          size="compact"
+          className="w-20 shrink-0"
+        />
+        <AstryxSelect
+          ariaLabel="Device emulation"
           value={devicePreset}
           disabled={!tab}
-          onChange={(event) =>
-            changeDevicePreset(event.target.value as DevicePresetId)
-          }
-          className="raised-control h-7 w-[4.75rem] px-1 text-[11px] text-foreground outline-none"
-        >
-          <option value="desktop">Desktop</option>
-          <option value="tablet">Tablet</option>
-          <option value="mobile">Mobile</option>
-        </select>
+          options={[
+            { value: 'desktop', label: 'Desktop' },
+            { value: 'tablet', label: 'Tablet' },
+            { value: 'mobile', label: 'Mobile' },
+          ]}
+          onChange={(value) => changeDevicePreset(value as DevicePresetId)}
+          size="compact"
+          className="w-24 shrink-0"
+        />
         <Button
           aria-label="Find in Page"
           title="Find in Page"

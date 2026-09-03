@@ -11,6 +11,7 @@
   "terminalPanel": {
     "openExternalTerminalFailed": "Failed to open external terminal",
     "confirmWarpInstalled": "Please make sure Warp is installed.",
+    "shellType": "Shell type",
     "resizeListAria": "Resize terminal list",
     "resizeListValue": "{{width}} pixels"
   },
@@ -178,6 +179,7 @@
   },
   "workspaceSessionList": {
     "title": "Sessions",
+    "archiveTitle": "Archive",
     "loading": "Loading sessions…",
     "empty": "No sessions yet",
     "statusRunning": "Running",
@@ -229,7 +231,8 @@
   },
   "terminalHeader": {
     "openExternalFailed": "Failed to open external terminal",
-    "confirmWarpInstalled": "Please make sure Warp is installed."
+    "confirmWarpInstalled": "Please make sure Warp is installed.",
+    "shellType": "Shell type"
   },
   "workspaceActivity": {
     "title": "Processes",

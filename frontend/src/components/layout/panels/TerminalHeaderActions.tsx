@@ -4,6 +4,8 @@ import { Plus } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
+
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   useTerminalStore,
@@ -78,21 +80,23 @@ function TerminalHeaderActionsInner() {
 
   return (
     <div className="flex items-center gap-0.5 h-full px-1">
-      <select
-        value={selectedShell}
-        onChange={(e) => setSelectedShell(e.target.value as TerminalShellValue)}
+      <span
         onMouseDown={stopPropagation}
         onPointerDown={stopPropagation}
         onClick={stopPropagation}
-        className="raised-control h-6 cursor-pointer px-1 text-[11px] text-muted-foreground hover:text-foreground focus:outline-none"
-        title="Shell type"
       >
-        {terminalShellOptions.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        <AstryxSelect
+          value={selectedShell}
+          options={terminalShellOptions.map((opt) => ({
+            value: opt.value,
+            label: opt.label,
+          }))}
+          onChange={(value) => setSelectedShell(value as TerminalShellValue)}
+          ariaLabel={t('terminalHeader.shellType')}
+          size="compact"
+          className="w-28"
+        />
+      </span>
       <button
         onMouseDown={stopPropagation}
         onPointerDown={stopPropagation}

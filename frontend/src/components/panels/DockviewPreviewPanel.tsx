@@ -8,6 +8,7 @@ import {
   useState,
   type ComponentType,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
@@ -43,6 +44,12 @@ import {
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
+import { toast } from '@/components/ui/toast';
+import { fileTreeApi } from '@/lib/api';
+import { fileToBase64 } from '@/lib/api/misc';
+import { fileTreeKeys } from '@/hooks/useFileTree';
+import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
+import { insertPastedImagesAsMarkdown } from '@/utils/markdownImagePaste';
 import { FilePreviewLoading } from './FilePreviewLoading';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PluginFilePreview } from '@/components/previews/PluginFilePreview';
@@ -119,6 +126,14 @@ function getPathSegments(filePath: string): string[] {
     .replace(/\\/g, '/')
     .split('/')
     .filter((segment) => segment.length > 0);
+}
+
+/** Directory containing `filePath` (forward slashes; `C:/` for drive roots). */
+function dirnamePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  if (index <= 0) return normalized;
+  return normalized.slice(0, index);
 }
 
 function PreviewPlaceholder({
@@ -231,6 +246,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const readRangeDecorationRef = useRef<string[]>([]);
+  const markdownPasteCleanupRef = useRef<(() => void) | null>(null);
+  const markdownBasePathRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
   const resolvedDisplayPath = useMemo(() => {
     if (!filePath) {
@@ -246,6 +264,14 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [displayPath, filePath, resolvedFilePath, rootPath]);
 
   const isMd = filePath ? isMarkdownFile(filePath) : false;
+  // Relative image / link destinations inside a markdown file resolve against
+  // the file's own directory (like GitHub), not the workspace root.
+  const markdownBasePath = isMd
+    ? resolvedFilePath
+      ? dirnamePath(resolvedFilePath)
+      : rootPath
+    : null;
+  markdownBasePathRef.current = markdownBasePath;
   const isDiffMode = mode === 'diff';
   const contentErrorMessage = useMemo(() => {
     if (!contentError) {
@@ -369,18 +395,78 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         setIsDirty(true);
       });
 
+      if (isMd) {
+        markdownPasteCleanupRef.current?.();
+        markdownPasteCleanupRef.current = null;
+
+        const domNode = editor.getDomNode();
+        if (domNode) {
+          const handlePaste = (event: ClipboardEvent) => {
+            const files = extractImageFilesFromClipboardData(event.clipboardData);
+            if (files.length === 0) return;
+            // Only handled in the markdown source editor for the current file.
+            const assetDir = markdownBasePathRef.current;
+            const targetPath = resolvedFilePath;
+            if (!assetDir || !targetPath) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            void (async () => {
+              try {
+                const inserted = await insertPastedImagesAsMarkdown({
+                  editor,
+                  files,
+                  assetDir,
+                  readBase64: fileToBase64,
+                  writeAsset: fileTreeApi.writePastedImageAsset,
+                });
+                if (inserted > 0) {
+                  // Refresh the file tree so the new assets/ sibling appears.
+                  queryClient.invalidateQueries({ queryKey: fileTreeKeys.all });
+                }
+              } catch (error) {
+                console.error('Failed to paste image into markdown', error);
+                toast.error(t('preview.pasteImageError'));
+              }
+            })();
+          };
+
+          domNode.addEventListener('paste', handlePaste, true);
+          markdownPasteCleanupRef.current = () => {
+            domNode.removeEventListener('paste', handlePaste, true);
+          };
+        }
+      }
+
       if (location) {
         applyReadRange(editor);
         editor.focus();
       }
     },
-    [applyReadRange, location, resolvedFilePath, saveFile]
+    [
+      applyReadRange,
+      isMd,
+      location,
+      queryClient,
+      resolvedFilePath,
+      saveFile,
+      t,
+    ]
   );
 
   useEffect(() => {
     if (!editorRef.current) return;
     applyReadRange(editorRef.current);
   }, [applyReadRange, filePath]);
+
+  // Tear down the markdown paste listener when the panel unmounts.
+  useEffect(() => {
+    return () => {
+      markdownPasteCleanupRef.current?.();
+      markdownPasteCleanupRef.current = null;
+    };
+  }, []);
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
@@ -701,7 +787,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             }
           >
             <div className="h-full overflow-auto px-6 py-4">
-              <LazyMarkdown value={content ?? ''} />
+              <LazyMarkdown
+                value={content ?? ''}
+                workspacePath={markdownBasePath}
+              />
             </div>
           </Suspense>
         ) : (

@@ -5,6 +5,7 @@ import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
 import { toast } from '@/components/ui/toast';
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
 import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { detectDevserverUrl } from '@/hooks/useDevserverUrl';
@@ -424,20 +425,19 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
             <div className="flex h-full min-h-0 flex-col">
               <div className="shrink-0 border-b border-border p-1.5">
                 <div className="flex items-center gap-1">
-                  <select
+                  <AstryxSelect
                     value={selectedShell}
-                    onChange={(event) =>
-                      setSelectedShell(event.target.value as TerminalShellValue)
+                    options={terminalShellOptions.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    }))}
+                    onChange={(value) =>
+                      setSelectedShell(value as TerminalShellValue)
                     }
-                    className="raised-control h-6 min-w-0 flex-1 px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                    title="Shell type"
-                  >
-                    {terminalShellOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel={t('terminalPanel.shellType')}
+                    size="compact"
+                    className="min-w-0 flex-1"
+                  />
                   <button
                     type="button"
                     onClick={() => void handleCreateTab()}

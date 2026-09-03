@@ -23,6 +23,28 @@ function declarationsFor(selector: string) {
   return declarations;
 }
 
+describe('workspace session group layout', () => {
+  it('wraps workspace chrome in the header hover and indents session rows', () => {
+    const header = declarationsFor('.workspace-session-group-header');
+    const rail = declarationsFor('.workspace-session-rail');
+    const railLine = declarationsFor('.workspace-session-rail::before');
+
+    expect(header.get('padding')).toBe('0.25rem 0.5rem');
+    expect(header.get('overflow')).toBeUndefined();
+    expect(rail.get('padding-left')).toBe('0.75rem');
+    expect(rail.get('padding-right')).toBe('0.5rem');
+    expect(railLine.size).toBe(0);
+  });
+
+  it('keeps the first workspace group tight against the header actions', () => {
+    const listBody = declarationsFor('.session-hub-list-body');
+    const inset = declarationsFor('.session-hub-inset');
+
+    expect(listBody.get('padding')).toBe('0 0.75rem 0.75rem');
+    expect(inset.get('min-height')).toBe('0');
+  });
+});
+
 describe('workspace session row surface', () => {
   it('keeps a 1px hairline at rest so rows stay distinct from the list', () => {
     const row = declarationsFor('.workspace-session-row');

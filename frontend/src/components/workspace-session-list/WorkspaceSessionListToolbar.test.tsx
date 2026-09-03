@@ -36,6 +36,7 @@ describe('WorkspaceSessionListToolbar', () => {
     renderToolbar();
 
     expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
+    expect(screen.queryByText('归档区')).not.toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: '新建会话' })
     ).toBeInTheDocument();

@@ -866,32 +866,16 @@ describe('BrowserPanel', () => {
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
 
-    const zoom = screen.getByRole('combobox', {
-      name: 'Zoom',
-    }) as HTMLSelectElement;
-    expect(Array.from(zoom.options, (option) => option.textContent)).toEqual([
-      '50%',
-      '80%',
-      '90%',
-      '100%',
-      '110%',
-      '125%',
-      '150%',
-    ]);
-    expect(Array.from(zoom.options, (option) => option.value)).toEqual([
-      '50',
-      '80',
-      '90',
-      '100',
-      '110',
-      '125',
-      '150',
-    ]);
-    expect(zoom).toHaveValue('100');
+    const zoom = screen.getByRole('combobox', { name: 'Zoom' });
+    expect(zoom).toHaveTextContent('100%');
+
+    fireEvent.click(zoom);
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent)
+    ).toEqual(['50%', '80%', '90%', '100%', '110%', '125%', '150%']);
+
     const level80 = Math.log(0.8) / Math.log(1.2);
-    fireEvent.change(zoom, {
-      target: { value: '80' },
-    });
+    fireEvent.click(screen.getByRole('option', { name: '80%' }));
     expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
       type: 'setZoom',
       level: level80,
@@ -903,7 +887,7 @@ describe('BrowserPanel', () => {
         tab: tab({ zoomLevel: -1 }),
       });
     });
-    expect(zoom).toHaveValue('80');
+    expect(zoom).toHaveTextContent('80%');
 
     fireEvent.click(screen.getByRole('button', { name: 'Find in Page' }));
     const findInput = screen.getByRole('textbox', { name: 'Find in Page' });

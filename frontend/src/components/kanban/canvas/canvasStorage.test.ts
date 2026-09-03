@@ -10,6 +10,7 @@ import { CARD_HEIGHT, CARD_WIDTH } from './canvasModel';
 import {
   CANVAS_BUNDLE_KEY,
   canvasDocumentStorageKey,
+  flushCanvasDocumentPersist,
   loadCanvasDocument,
   saveCanvasDocument,
   saveMinimapVisible,
@@ -19,6 +20,7 @@ describe('canvasStorage', () => {
   const projectId = 'project-1';
 
   beforeEach(() => {
+    flushCanvasDocumentPersist();
     localStorage.clear();
     persistFrontendPreference.mockReset();
   });
@@ -102,6 +104,8 @@ describe('canvasStorage', () => {
       listCollapsed: false,
       minimapVisible: false,
     });
+    expect(persistFrontendPreference).not.toHaveBeenCalled();
+    flushCanvasDocumentPersist();
 
     expect(persistFrontendPreference).toHaveBeenCalledWith(
       CANVAS_BUNDLE_KEY,
@@ -158,5 +162,30 @@ describe('canvasStorage', () => {
       })
     );
     expect(loadCanvasDocument(projectId).viewport?.zoom).toBe(2);
+  });
+
+  it('flushes rapid board saves into a single preference write', () => {
+    saveCanvasDocument(projectId, {
+      nodes: [],
+      viewport: { x: 1, y: 1, zoom: 1 },
+      listCollapsed: false,
+      minimapVisible: true,
+    });
+    saveCanvasDocument(projectId, {
+      nodes: [],
+      viewport: { x: 2, y: 2, zoom: 1 },
+      listCollapsed: false,
+      minimapVisible: true,
+    });
+    flushCanvasDocumentPersist();
+    expect(persistFrontendPreference).toHaveBeenCalledTimes(1);
+    expect(persistFrontendPreference).toHaveBeenCalledWith(
+      CANVAS_BUNDLE_KEY,
+      expect.objectContaining({
+        [projectId]: expect.objectContaining({
+          viewport: { x: 2, y: 2, zoom: 1 },
+        }),
+      })
+    );
   });
 });

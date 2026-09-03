@@ -231,7 +231,7 @@ describe('SessionCanvasView', () => {
     container.querySelector('.canvas-surface')!.appendChild(overlay);
     fireEvent(
       overlay,
-      new MouseEvent('mousedown', {
+      new PointerEvent('pointerdown', {
         bubbles: true,
         cancelable: true,
         button: 1,
@@ -241,7 +241,7 @@ describe('SessionCanvasView', () => {
     );
     fireEvent(
       overlay,
-      new MouseEvent('mouseup', {
+      new PointerEvent('pointerup', {
         bubbles: true,
         cancelable: true,
         button: 1,

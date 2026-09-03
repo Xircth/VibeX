@@ -13,4 +13,9 @@ describe('canvasHistory', () => {
       true
     );
   });
+
+  it('treats a showAll toggle as a history change', () => {
+    const node = createCanvasNode('sess-a', { x: 1, y: 2 }, 'a');
+    expect(canvasNodesMatch([node], [{ ...node, showAll: true }])).toBe(false);
+  });
 });

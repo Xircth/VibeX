@@ -71,6 +71,37 @@ describe('useCanvasRightDragPan', () => {
     surface.remove();
   });
 
+  it('claims the selection overlay pointer so React Flow cannot pan it', () => {
+    const { surface, overlay, ref } = mountSurface();
+    const onMiddleClick = vi.fn();
+    const seenOnOverlay = vi.fn();
+    overlay.addEventListener('pointerdown', seenOnOverlay);
+    renderHook(() => useCanvasRightDragPan(ref, onMiddleClick));
+
+    const down = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+      clientX: 40,
+      clientY: 40,
+    });
+    overlay.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(seenOnOverlay).not.toHaveBeenCalled();
+
+    overlay.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+        clientX: 41,
+        clientY: 40,
+      })
+    );
+    expect(onMiddleClick).toHaveBeenCalledTimes(1);
+    surface.remove();
+  });
+
   it('does not open the menu when the middle button dragged', () => {
     const { surface, overlay, ref } = mountSurface();
     const onMiddleClick = vi.fn();
@@ -95,6 +126,33 @@ describe('useCanvasRightDragPan', () => {
       })
     );
     expect(onMiddleClick).not.toHaveBeenCalled();
+    surface.remove();
+  });
+
+  it('opens the menu from auxclick when pointerup is missing', () => {
+    const { surface, overlay, ref } = mountSurface();
+    const onMiddleClick = vi.fn();
+    renderHook(() => useCanvasRightDragPan(ref, onMiddleClick));
+
+    overlay.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+        clientX: 40,
+        clientY: 40,
+      })
+    );
+    overlay.dispatchEvent(
+      new MouseEvent('auxclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+        clientX: 41,
+        clientY: 40,
+      })
+    );
+    expect(onMiddleClick).toHaveBeenCalledTimes(1);
     surface.remove();
   });
 });

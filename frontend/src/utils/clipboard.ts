@@ -22,7 +22,7 @@ export function extractImageFilesFromClipboardData(
     .filter((file): file is File => file !== null);
 }
 
-function imageExtensionForMime(type: string): string {
+export function imageExtensionForMime(type: string): string {
   switch (type.toLowerCase()) {
     case 'image/jpeg':
       return 'jpg';

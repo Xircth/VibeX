@@ -254,7 +254,8 @@
   },
   "preview": {
     "switchToFileView": "切换文件视图",
-    "switchToDiffView": "切换差异视图"
+    "switchToDiffView": "切换差异视图",
+    "pasteImageError": "无法粘贴图片到 Markdown 文件"
   },
   "fileTool": {
     "openPreview": "打开预览",

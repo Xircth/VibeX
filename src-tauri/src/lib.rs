@@ -1104,6 +1104,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::file_tree::read_file_content,
         commands::file_tree::read_binary_asset,
         commands::file_tree::save_file_content,
+        commands::file_tree::write_pasted_image_asset,
         commands::file_tree::delete_file,
         commands::file_tree::get_file_at_head,
         commands::file_tree::get_claude_settings_path,

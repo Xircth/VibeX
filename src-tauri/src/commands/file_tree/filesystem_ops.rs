@@ -183,3 +183,54 @@ pub(super) fn create_directory_at_path(path: &str) -> Result<(), AppError> {
     std::fs::create_dir_all(&dir_path)
         .map_err(|e| AppError::Internal(format!("Failed to create directory {}: {}", path, e)))
 }
+
+/// Write binary content into `<directory>/<subdir>` with a unique name
+/// (`{stem}.{extension}`, then `{stem}-2.{extension}`, …).
+///
+/// `subdir` is deliberately locked to `assets` so pasted markdown images land
+/// in a predictable sibling folder and callers cannot write anywhere else.
+pub(super) fn write_unique_binary_in_subdir(
+    directory: &str,
+    subdir: &str,
+    stem: &str,
+    extension: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, AppError> {
+    if subdir != "assets" {
+        return Err(AppError::BadRequest(
+            "Only the 'assets' subdirectory is supported".to_string(),
+        ));
+    }
+
+    let dir_path = sanitize_directory_creation_path(directory)?;
+    let assets_dir = dir_path.join(subdir);
+    std::fs::create_dir_all(&assets_dir).map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to create directory {}: {}",
+            assets_dir.display(),
+            e
+        ))
+    })?;
+
+    let mut counter = 0u32;
+    loop {
+        let file_name = if counter == 0 {
+            format!("{stem}.{extension}")
+        } else {
+            format!("{stem}-{}.{extension}", counter + 1)
+        };
+        let dest = assets_dir.join(&file_name);
+        if !dest.exists() {
+            std::fs::write(&dest, bytes).map_err(|e| {
+                AppError::Internal(format!("Failed to write {}: {}", dest.display(), e))
+            })?;
+            return Ok(dest);
+        }
+        counter += 1;
+        if counter > 1000 {
+            return Err(AppError::Internal(
+                "Too many pasted-image files exist".to_string(),
+            ));
+        }
+    }
+}

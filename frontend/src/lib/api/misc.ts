@@ -57,7 +57,7 @@ export type LogRecord = {
 const LOG_APPENDED_EVENT = 'logs://appended';
 const LOG_SETTINGS_CHANGED_EVENT = 'log-settings://changed';
 
-async function fileToBase64(file: File): Promise<string> {
+export async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -126,6 +126,12 @@ export interface BinaryAssetResponse {
   mime_type: string;
 }
 
+export interface WritePastedImageAssetResponse {
+  absolute_path: string;
+  file_name: string;
+  markdown_path: string;
+}
+
 export interface TextSearchMatch {
   line: number;
   column: number;
@@ -172,6 +178,17 @@ export const fileTreeApi = {
 
   saveFile: async (path: string, content: string): Promise<void> => {
     return backendCall<void>('save_file_content', { path, content });
+  },
+
+  writePastedImageAsset: async (
+    directory: string,
+    base64Content: string,
+    extension: string
+  ): Promise<WritePastedImageAssetResponse> => {
+    return backendCall<WritePastedImageAssetResponse>(
+      'write_pasted_image_asset',
+      { directory, base64Content, extension }
+    );
   },
 
   deleteFile: async (path: string): Promise<void> => {

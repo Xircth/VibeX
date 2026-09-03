@@ -3,6 +3,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::Serialize;
 
 use crate::error::AppError;
@@ -16,6 +17,7 @@ mod search;
 use filesystem_ops::{
     copy_item_path, create_directory_at_path, delete_file_or_directory, move_item_path,
     read_file_content_at_path, resolve_existing_file_path, save_file_content_at_path,
+    write_unique_binary_in_subdir,
 };
 use git_head::get_file_at_head_content;
 pub use listing::{DirectoryChildrenResponse, FileTreeEntry};
@@ -244,6 +246,9 @@ pub struct ReadFileResponse {
 
 const MAX_READ_FILE_BYTES: usize = 512 * 1024;
 
+const PASTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpeg", "jpg", "gif", "webp", "bmp"];
+const MAX_PASTED_IMAGE_BYTES: usize = 15 * 1024 * 1024;
+
 // Tauri commands
 
 #[tauri::command]
@@ -288,6 +293,75 @@ pub async fn read_binary_asset(path: String) -> Result<BinaryAssetResponse, AppE
 #[tauri::command]
 pub async fn save_file_content(path: String, content: String) -> Result<(), AppError> {
     save_file_content_at_path(&path, &content)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WritePastedImageAssetResponse {
+    pub absolute_path: String,
+    pub file_name: String,
+    pub markdown_path: String,
+}
+
+/// Persist a pasted screenshot next to a markdown document, in an `assets/`
+/// subdirectory, and return the relative markdown reference to insert.
+///
+/// The image bytes arrive base64-encoded (optionally as a full `data:` URL).
+/// Only raster formats are accepted — notably not SVG, which could carry
+/// scripts.
+#[tauri::command]
+pub async fn write_pasted_image_asset(
+    directory: String,
+    base64_content: String,
+    extension: String,
+) -> Result<WritePastedImageAssetResponse, AppError> {
+    let ext = extension.trim().to_ascii_lowercase();
+    if !PASTED_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Unsupported image extension: {}",
+            extension
+        )));
+    }
+
+    // Accept either a bare base64 body or a `data:image/…;base64,…` payload;
+    // base64 has no commas so taking the last segment is safe.
+    let payload = base64_content
+        .trim()
+        .rsplit_once(',')
+        .map_or(base64_content.trim(), |(_, body)| body.trim());
+    if payload.is_empty() {
+        return Err(AppError::BadRequest(
+            "Pasted image content is empty".to_string(),
+        ));
+    }
+
+    let bytes = BASE64
+        .decode(payload)
+        .map_err(|_| AppError::BadRequest("Invalid base64 image payload".to_string()))?;
+    if bytes.is_empty() {
+        return Err(AppError::BadRequest(
+            "Pasted image content is empty".to_string(),
+        ));
+    }
+    if bytes.len() > MAX_PASTED_IMAGE_BYTES {
+        return Err(AppError::BadRequest(
+            "Pasted image exceeds the 15 MB limit".to_string(),
+        ));
+    }
+
+    let absolute_path =
+        write_unique_binary_in_subdir(&directory, "assets", "pasted-image", &ext, &bytes)?;
+    let file_name = absolute_path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| format!("pasted-image.{ext}"));
+    let markdown_path = format!("assets/{file_name}");
+
+    Ok(WritePastedImageAssetResponse {
+        absolute_path: absolute_path.to_string_lossy().to_string(),
+        file_name,
+        markdown_path,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -525,10 +599,13 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
     use super::{
         copy_item_path, create_directory_at_path, delete_file_or_directory,
         expand_workflow_source_home, move_item_path, read_file_content_at_path,
         read_utf8_text_file, sanitize_file_path, save_file_content_at_path,
+        write_pasted_image_asset,
     };
     use crate::error::AppError;
 
@@ -769,5 +846,85 @@ mod tests {
                 .to_string()
                 .contains("Binary file cannot be opened as text")
         );
+    }
+
+    #[tokio::test]
+    async fn write_pasted_image_asset_writes_into_assets_subdirectory() {
+        let root = create_temp_dir("pasted-image");
+        let directory = path_string(&root);
+        let payload = BASE64.encode(b"\x89PNG fake bytes");
+
+        let response = write_pasted_image_asset(directory, payload, "png".to_string())
+            .await
+            .unwrap();
+        let absolute = PathBuf::from(&response.absolute_path);
+        let saved = fs::read(&absolute).unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(response.file_name, "pasted-image.png");
+        assert_eq!(response.markdown_path, "assets/pasted-image.png");
+        assert_eq!(saved, b"\x89PNG fake bytes");
+    }
+
+    #[tokio::test]
+    async fn write_pasted_image_asset_picks_unique_name_when_file_exists() {
+        let root = create_temp_dir("pasted-image-unique");
+        let directory = path_string(&root);
+        fs::create_dir_all(root.join("assets")).unwrap();
+        fs::write(root.join("assets").join("pasted-image.png"), b"existing").unwrap();
+
+        let response =
+            write_pasted_image_asset(directory, BASE64.encode(b"new"), "png".to_string())
+                .await
+                .unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(response.file_name, "pasted-image-2.png");
+        assert_eq!(response.markdown_path, "assets/pasted-image-2.png");
+    }
+
+    #[tokio::test]
+    async fn write_pasted_image_asset_accepts_data_url_payloads() {
+        let root = create_temp_dir("pasted-image-dataurl");
+        let directory = path_string(&root);
+        let payload = format!("data:image/png;base64,{}", BASE64.encode(b"img"));
+
+        let response = write_pasted_image_asset(directory, payload, "png".to_string())
+            .await
+            .unwrap();
+        let absolute = PathBuf::from(&response.absolute_path);
+        let saved = fs::read(&absolute).unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(saved, b"img");
+    }
+
+    #[tokio::test]
+    async fn write_pasted_image_asset_rejects_unsupported_extensions_and_traversal() {
+        let root = create_temp_dir("pasted-image-reject");
+        let directory = path_string(&root);
+        let payload = BASE64.encode(b"x");
+
+        let bad_ext =
+            write_pasted_image_asset(directory.clone(), payload.clone(), "svg".to_string())
+                .await
+                .unwrap_err();
+        assert!(matches!(bad_ext, AppError::BadRequest(_)));
+        assert!(bad_ext.to_string().contains("Unsupported image extension"));
+
+        let traversal_dir = path_string(&root.join("..").join("escape"));
+        let traversal = write_pasted_image_asset(traversal_dir, payload.clone(), "png".to_string())
+            .await
+            .unwrap_err();
+        assert!(matches!(traversal, AppError::BadRequest(_)));
+        assert!(traversal.to_string().contains("Path traversal"));
+
+        let empty = write_pasted_image_asset(directory, "   ".to_string(), "png".to_string())
+            .await
+            .unwrap_err();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(matches!(empty, AppError::BadRequest(_)));
+        assert!(empty.to_string().contains("empty"));
     }
 }

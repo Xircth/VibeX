@@ -254,7 +254,8 @@
   },
   "preview": {
     "switchToFileView": "Switch to file view",
-    "switchToDiffView": "Switch to diff view"
+    "switchToDiffView": "Switch to diff view",
+    "pasteImageError": "Failed to paste image into the markdown file"
   },
   "fileTool": {
     "openPreview": "Open preview",

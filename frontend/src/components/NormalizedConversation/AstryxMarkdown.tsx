@@ -28,11 +28,16 @@ import { MermaidDiagram } from './MermaidDiagram';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
-  isAbsoluteLocalPath,
-  MarkdownResourceLink,
-  resolveMarkdownInlineResource,
-  trimFilePathCandidate,
-} from './MarkdownResourceLink';
+  HTML_PLACEHOLDER_PATTERN,
+  protectRawHtml,
+} from '@/lib/conversation-rendering/rawHtml';
+import { RawHtmlElement } from './RawHtmlElement';
+import { MarkdownResourceLink, resolveMarkdownInlineResource } from './MarkdownResourceLink';
+import {
+  isMarkdownImagePath,
+  isRenderableRemoteImage,
+  resolveLocalMarkdownImagePath,
+} from './localImagePaths';
 
 export type AstryxMarkdownProps = {
   /** Markdown string to render. */
@@ -44,6 +49,11 @@ export type AstryxMarkdownProps = {
   softBreaks?: boolean;
   /** Opt-in streaming fade-in (Astryx incremental parse + animation). */
   isStreaming?: boolean;
+  /**
+   * Render allowlisted raw HTML (sanitized through DOMPurify). Defaults to
+   * `true`; pass `false` on surfaces that must keep `<` literal.
+   */
+  rawHtml?: boolean;
 };
 
 function flattenNodeText(node: ReactNode): string {
@@ -56,39 +66,6 @@ function flattenNodeText(node: ReactNode): string {
     );
   }
   return '';
-}
-
-function isRenderableRemoteImage(src: string): boolean {
-  return (
-    src.startsWith('http://') ||
-    src.startsWith('https://') ||
-    src.startsWith('data:image/') ||
-    src.startsWith('blob:')
-  );
-}
-
-function isMarkdownImagePath(value: string): boolean {
-  const candidate = trimFilePathCandidate(value);
-  return /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i.test(candidate);
-}
-
-function resolveLocalMarkdownImagePath(
-  src: string,
-  workspacePath?: string | null
-): string | null {
-  if (!src) return null;
-  if (src.startsWith('file://')) {
-    return src.replace(/^file:\/\//i, '');
-  }
-  if (isAbsoluteLocalPath(src)) {
-    return src;
-  }
-  if (!workspacePath || src.includes('://') || src.startsWith('#')) {
-    return null;
-  }
-
-  const normalizedRelative = src.replace(/^\.?[\\/]/, '');
-  return `${workspacePath.replace(/[\\/]+$/, '')}/${normalizedRelative}`;
 }
 
 function MarkdownImage({
@@ -365,7 +342,8 @@ function arePropsEqual(prev: AstryxMarkdownProps, next: AstryxMarkdownProps) {
     prev.taskId === next.taskId &&
     prev.workspacePath === next.workspacePath &&
     prev.softBreaks === next.softBreaks &&
-    prev.isStreaming === next.isStreaming
+    prev.isStreaming === next.isStreaming &&
+    prev.rawHtml === next.rawHtml
   );
 }
 
@@ -377,6 +355,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   workspacePath,
   softBreaks,
   isStreaming,
+  rawHtml,
 }: AstryxMarkdownProps) {
   const normalizedValue = useMemo(() => {
     const prepared = prepareConversationMarkdown(value, { softBreaks });
@@ -384,8 +363,20 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
     // rewrite empty targets to `#` — the link component then resolves the
     // workspace path from the link text (non-path text stays inert).
     const withLinks = prepared.replace(/\[([^\]\n]+)\]\(\)/g, '[$1](#)');
-    return protectMathSegments(withLinks);
-  }, [softBreaks, value]);
+    // Raw HTML is protected before math so `$…$` inside an HTML region stays
+    // literal (HTML blocks are opaque). With `rawHtml={false}`, an empty
+    // allowlist means nothing is captured and `<` stays literal.
+    const protectedHtml =
+      rawHtml !== false
+        ? protectRawHtml(withLinks)
+        : { text: withLinks, html: [] };
+    const withMath = protectMathSegments(protectedHtml.text);
+    return {
+      text: withMath.text,
+      math: withMath.math,
+      html: protectedHtml.html,
+    };
+  }, [rawHtml, softBreaks, value]);
 
   const inlinePlugins = useMemo(
     () => [
@@ -398,8 +389,24 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
           return <KatexMath key={key} tex={math.tex} display={math.display} />;
         },
       },
+      {
+        pattern: HTML_PLACEHOLDER_PATTERN,
+        render: (match: RegExpMatchArray, key: string) => {
+          const index = Number(match[1]);
+          const entry = normalizedValue.html[index];
+          if (!entry) return null;
+          return (
+            <RawHtmlElement
+              key={key}
+              html={entry.html}
+              block={entry.block}
+              workspacePath={workspacePath}
+            />
+          );
+        },
+      },
     ],
-    [normalizedValue.math]
+    [normalizedValue.html, normalizedValue.math, workspacePath]
   );
 
   const components = useMemo<MarkdownProps['components']>(

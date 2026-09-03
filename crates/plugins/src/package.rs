@@ -642,9 +642,8 @@ impl PluginPackage {
             })?;
             let preserved = incoming
                 .adopt_installed_config(&previous)
-                .map_err(|error| {
+                .inspect_err(|_| {
                     let _ = remove_snapshot_path(&staging);
-                    error
                 })?;
             fs::write(
                 staging.join("config.json"),

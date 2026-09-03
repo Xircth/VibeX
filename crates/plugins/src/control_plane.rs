@@ -1976,14 +1976,13 @@ impl PluginControlPlane {
                 Ok(_) => {
                     if plugin.activation == PluginActivation::Enabled
                         && plugin.entrypoints.worker.is_none()
+                        && let Err(error) = self.set_enabled(plugin.id(), true).await
                     {
-                        if let Err(error) = self.set_enabled(plugin.id(), true).await {
-                            tracing::warn!(
-                                plugin_id = %plugin.id(),
-                                error = %error,
-                                "linked Plugin was updated but could not be re-enabled"
-                            );
-                        }
+                        tracing::warn!(
+                            plugin_id = %plugin.id(),
+                            error = %error,
+                            "linked Plugin was updated but could not be re-enabled"
+                        );
                     }
                     changed.push(plugin.id().to_owned());
                 }
@@ -2192,11 +2191,11 @@ impl PluginControlPlane {
             let drain = self.activations.commit(candidate).await;
             self.retire_after_drain(plugin_id.clone(), drain);
         }
-        if let Some(lease) = self.activations.lease(&plugin_id).await {
-            if let Ok(Some(installed)) = self.registry.plugin(&plugin_id).await {
-                self.host_services
-                    .start(&plugin_id, lease, &installed.package);
-            }
+        if let Some(lease) = self.activations.lease(&plugin_id).await
+            && let Ok(Some(installed)) = self.registry.plugin(&plugin_id).await
+        {
+            self.host_services
+                .start(&plugin_id, lease, &installed.package);
         }
         let plugin = self
             .registry
@@ -2555,11 +2554,11 @@ impl PluginControlPlane {
                 continue;
             }
             let path = runtime.executable_path.clone();
-            if let Ok(canonical) = path.canonicalize() {
-                if canonical.starts_with(&root) {
-                    let dir = canonical.parent().unwrap_or(canonical.as_path());
-                    let _ = std::fs::remove_dir_all(dir);
-                }
+            if let Ok(canonical) = path.canonicalize()
+                && canonical.starts_with(&root)
+            {
+                let dir = canonical.parent().unwrap_or(canonical.as_path());
+                let _ = std::fs::remove_dir_all(dir);
             }
             reclaimed.push(format!(
                 "{}@{} ({})",

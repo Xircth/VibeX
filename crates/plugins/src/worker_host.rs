@@ -564,6 +564,13 @@ async fn resolve_python_executable(node_executable: &Path) -> Result<PathBuf, Wo
         .map_err(|error| WorkerHostError::new("worker_runtime_missing", error.to_string()))
 }
 
+type SpawnedWorkerIo = (
+    HostedChild,
+    Box<dyn AsyncWrite + Unpin + Send>,
+    Box<dyn AsyncRead + Unpin + Send>,
+    Option<tokio::process::ChildStderr>,
+);
+
 fn spawn_hosted_worker(
     program: &Path,
     package_root: &Path,
@@ -571,15 +578,7 @@ fn spawn_hosted_worker(
     runtime: &str,
     isolated: bool,
     grants: &[CapabilityGrant],
-) -> Result<
-    (
-        HostedChild,
-        Box<dyn AsyncWrite + Unpin + Send>,
-        Box<dyn AsyncRead + Unpin + Send>,
-        Option<tokio::process::ChildStderr>,
-    ),
-    WorkerHostError,
-> {
+) -> Result<SpawnedWorkerIo, WorkerHostError> {
     #[cfg(windows)]
     if isolated {
         let launched = crate::isolated::spawn_windows_appcontainer(

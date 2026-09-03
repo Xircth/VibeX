@@ -19,7 +19,7 @@ export function useLocalHistoryImportJob(): LocalHistoryImportJobSnapshot {
 
   useEffect(() => {
     let disposed = false;
-    let unlisten = () => undefined;
+    let unlisten: () => void = () => undefined;
     void agentsApi.localHistoryImportSnapshot().then((next) => {
       if (!disposed) setSnapshot(next);
     });

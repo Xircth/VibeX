@@ -327,7 +327,8 @@ function SessionCanvasFlow({
   const documentRef = useRef(documentState);
   documentRef.current = documentState;
 
-  const previousLiveSessionsRef = useRef(sessions);
+  const previousLiveSessionsRef =
+    useRef<readonly KanbanProjectSessionRecord[]>(sessions);
   const displaySessions = preferLiveKanbanSessions(
     sessions,
     previousLiveSessionsRef.current

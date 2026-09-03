@@ -525,11 +525,8 @@ describe('AgentDetail', () => {
           current_version: '1.5.0',
           available_version: '1.7.0',
           update_available: true,
-          runtime_current: null,
-          runtime_available: null,
           acp_current: '1.5.0',
           acp_available: '1.7.0',
-          compatibility_warning: null,
           snapshot_id: null,
           fetched_at: null,
           fresh: true,
@@ -597,9 +594,7 @@ describe('AgentDetail', () => {
         />
       );
 
-      expect(
-        screen.getByText('Installing ACP…')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Installing ACP…')).toBeInTheDocument();
       expect(
         screen.queryByText(
           'Node.js is optional; related capabilities may be unavailable until it is configured.'
@@ -618,9 +613,7 @@ describe('AgentDetail', () => {
       expect(
         screen.getByText('Resolving the locked installation plan')
       ).toBeInTheDocument();
-      expect(
-        screen.getByText('Installing ACP')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Installing ACP')).toBeInTheDocument();
       expect(screen.queryByText(/正在安装|当前版本/u)).not.toBeInTheDocument();
     } finally {
       rendered?.unmount();

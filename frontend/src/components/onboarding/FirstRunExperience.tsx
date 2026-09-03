@@ -944,9 +944,6 @@ export function FirstRunExperience({
                 <h2 className="onboarding-config-section-title">
                   {t('dialogs:onboarding.versionControlTitle')}
                 </h2>
-                <p className="onboarding-version-control-copy">
-                  {t('dialogs:onboarding.versionControlDescription')}
-                </p>
                 <VersionControlSetup
                   userName={gitUserName}
                   userEmail={gitUserEmail}

@@ -114,21 +114,63 @@ describe('settings page alignment', () => {
     expect(notes.get('overflow')).toBe('auto');
   });
 
-  it('keeps the page scrollbar off the settings cards', () => {
+  it('keeps setting labels and descriptions on the same type scale', () => {
+    const description = declarationsFor(
+      '.settings-page .settings-row__description'
+    );
+    const label = declarationsFor(
+      '.settings-page .settings-row :where(label, .settings-row__label)'
+    );
+
+    expect(description.get('font-size')).toBe('0.875rem');
+    expect(label.get('font-size')).toBe('0.875rem');
+
+    const pairingDescription = declarationsFor(
+      '.settings-page .settings-pairing-devices__row .settings-row__description'
+    );
+    expect(pairingDescription.get('font-size')).toBe('0.875rem');
+  });
+
+  it('centers project names in the worktree list items', () => {
+    const item = declarationsFor(
+      '.settings-page .settings-worktree-board__item'
+    );
+
+    expect(item.get('display')).toBe('flex');
+    expect(item.get('align-items')).toBe('center');
+    expect(item.get('min-height')).toBe('2.5rem');
+  });
+
+  it('keeps the Windows save bar centered inside its stage', () => {
+    const glass = declarationsFor(
+      'html.host-windows .settings-page .settings-action-bar__glass'
+    );
+
+    expect(glass.get('transform')).toBe('translate(-50%, -50%)');
+  });
+
+  it('keeps the page scrollbar as a thumb without a track', () => {
     const pane = declarationsFor('.settings-page [data-settings-content]');
-    const agentScroll = declarationsFor('.settings-page .agent-settings-scroll');
+    const agentScroll = declarationsFor(
+      '.settings-page .agent-settings-scroll'
+    );
     const gutter = declarationsMatching(
       '[data-settings-content]::-webkit-scrollbar'
     );
     const paneThumb = declarationsMatching(
       '[data-settings-content]::-webkit-scrollbar-thumb'
     );
+    const paneTrack = declarationsMatching(
+      '[data-settings-content]::-webkit-scrollbar-track'
+    );
 
     expect(pane.get('padding-inline-end')).toBe('1.5rem');
+    expect(pane.get('scrollbar-gutter')).toBe('auto');
     expect(agentScroll.get('padding-inline-end')).toBe('0.75rem');
-    expect(gutter.get('width')).toBe('14px');
-    expect(paneThumb.get('border-left-width')).toBe('8px');
-    expect(paneThumb.get('background-clip')).toBe('padding-box');
+    expect(gutter.get('width')).toBe('6px');
+    expect(gutter.get('background')).toBe('transparent');
+    expect(paneThumb.get('border')).toBe('none');
+    expect(paneTrack.get('background')).toBe('transparent');
   });
 
   it('clips model provider rows to the list radius', () => {

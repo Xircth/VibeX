@@ -36,6 +36,8 @@ interface AstryxSelectProps {
   hasClear?: boolean;
   /** Renders a trailing action (for example edit/delete) inside each option. */
   renderOptionAction?: (option: AstryxSelectOption) => React.ReactNode;
+  /** `compact` shrinks the trigger to fit dense toolbar and tab-bar chrome. */
+  size?: 'default' | 'compact';
   className?: string;
 }
 
@@ -78,6 +80,7 @@ export function AstryxSelect({
   disabled = false,
   hasClear = false,
   renderOptionAction,
+  size = 'default',
   className,
 }: AstryxSelectProps) {
   const container = usePortalContainer();
@@ -248,11 +251,18 @@ export function AstryxSelect({
   };
 
   return (
-    <span ref={rootRef} className={cn('astryx-select', className)}>
+    <span
+      ref={rootRef}
+      className={cn(
+        'astryx-select',
+        size === 'compact' && 'astryx-select--compact',
+        className
+      )}
+    >
       <div
         ref={triggerRef}
         id={id}
-        role="button"
+        role="combobox"
         tabIndex={disabled ? -1 : 0}
         aria-label={ariaLabel}
         aria-haspopup="listbox"

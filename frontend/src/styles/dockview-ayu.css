@@ -486,11 +486,17 @@
   .dv-scrollable
   > .dv-tabs-container::-webkit-scrollbar {
   height: 4px;
+  background: transparent;
 }
 [class*='dockview-theme-ayu']
   .dv-scrollable
-  > .dv-tabs-container::-webkit-scrollbar-track {
+  > .dv-tabs-container::-webkit-scrollbar-track,
+[class*='dockview-theme-ayu']
+  .dv-scrollable
+  > .dv-tabs-container::-webkit-scrollbar-track-piece {
   background: transparent;
+  border: none;
+  box-shadow: none;
 }
 [class*='dockview-theme-ayu']
   .dv-scrollable
@@ -500,8 +506,7 @@
     rgba(0, 0, 0, 0.2)
   );
   border-radius: 9999px;
-  border: 1px solid transparent;
-  background-clip: padding-box;
+  border: none;
 }
 [class*='dockview-theme-ayu']
   .dv-scrollable

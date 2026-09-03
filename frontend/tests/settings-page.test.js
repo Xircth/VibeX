@@ -60,10 +60,11 @@ test('AgentSettings 选中项使用蓝底白字样式', () => {
   assert.match(source, /\? 'bg-accent text-accent-foreground'/);
 });
 
-test('SettingsLayout 为设置页滚动容器预留稳定滚动条宽度', () => {
+test('SettingsLayout 不为设置页滚动容器预留滚动条滑轨', () => {
   const source = readFile('src/pages/settings/SettingsLayout.tsx');
 
-  assert.match(source, /\[scrollbar-gutter:stable\]/);
+  assert.doesNotMatch(source, /scrollbar-gutter:stable/);
+  assert.doesNotMatch(source, /scrollbarGutter/);
 });
 
 test('主题 token 使用按钮前景色作为 primary 前景色', () => {

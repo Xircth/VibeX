@@ -200,7 +200,7 @@ export function SettingsLayout() {
   return (
     <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">
       <div className="flex min-h-0 flex-1">
-        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5 [scrollbar-gutter:stable]">
+        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5">
           <SettingsSearch
             query={searchQuery}
             onQueryChange={setSearchQuery}
@@ -247,12 +247,11 @@ export function SettingsLayout() {
         <section
           data-settings-content
           className={cn(
-            'min-h-0 min-w-0 flex-1 p-4 [scrollbar-gutter:stable]',
+            'min-h-0 min-w-0 flex-1 p-4',
             location.pathname === '/plugins'
               ? 'flex flex-col overflow-hidden'
               : 'overflow-y-auto'
           )}
-          style={{ scrollbarGutter: 'stable' }}
         >
           <Suspense fallback={<SettingsContentFallback />}>
             <Outlet />

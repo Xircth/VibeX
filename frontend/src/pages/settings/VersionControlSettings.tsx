@@ -18,6 +18,7 @@ import { DEFAULT_PR_DESCRIPTION_PROMPT, type Config } from 'shared/types';
 
 import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,10 +30,7 @@ import {
   type VersionControlCliSettings,
   versionControlApi,
 } from '@/lib/api';
-import {
-  SettingsActionBar,
-  SettingsSection,
-} from './SettingsUi';
+import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 function cloneConfig(config: Config): Config {
@@ -501,26 +499,28 @@ export function VersionControlSettings() {
                   {t('versionControl.commitReminderModeDescription')}
                 </p>
               </div>
-              <select
+              <AstryxSelect
                 id="commit-reminder-mode"
-                aria-label={t('versionControl.commitReminderModeLabel')}
-                className="raised-control h-8 min-w-32 rounded-lg px-3 text-sm"
+                ariaLabel={t('versionControl.commitReminderModeLabel')}
                 value={draft.commit_reminder_mode ?? 'smart'}
-                onChange={(event) =>
+                className="min-w-32"
+                options={[
+                  {
+                    value: 'separate_turn',
+                    label: t('versionControl.commitReminderModeSeparate'),
+                  },
+                  {
+                    value: 'smart',
+                    label: t('versionControl.commitReminderModeSmart'),
+                  },
+                ]}
+                onChange={(value) =>
                   updateDraft({
-                    commit_reminder_mode: event.target.value as
-                      | 'separate_turn'
-                      | 'smart',
+                    commit_reminder_mode: value as 'separate_turn' | 'smart',
                   })
                 }
-              >
-                <option value="separate_turn">
-                  {t('versionControl.commitReminderModeSeparate')}
-                </option>
-                <option value="smart">
-                  {t('versionControl.commitReminderModeSmart')}
-                </option>
-              </select>
+                disabled={!draft.commit_reminder_enabled}
+              />
             </div>
             <div className="settings-row">
               <div className="settings-row__copy">

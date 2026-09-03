@@ -312,8 +312,7 @@
         "body": "To the maximum extent permitted by applicable law, {{appName}} and its developers and contributors are not liable for: data loss or corruption; destruction of code, repositories, or production systems; security incidents, credential leaks, or unauthorized access; third-party outages, changes, or breaches; unintended effects of automations, delegation, remote access, or chat channels; the quality, legality, intellectual property, or fitness of generated code; or lost profits, goodwill, or other indirect, incidental, special, or consequential damages. Back up important work and supervise every Agent and plugin. This disclaimer is a condition of use. If one clause cannot be enforced, the rest remain in effect."
       }
     },
-    "versionControlTitle": "Version control setup",
-    "versionControlDescription": "Git is not installed. Enter the name and email used for commits, then install Git and GitHub CLI.",
+    "versionControlTitle": "Configure version control",
     "gitUserNameLabel": "Name",
     "gitUserNamePlaceholder": "Your name",
     "gitUserEmailLabel": "Email",

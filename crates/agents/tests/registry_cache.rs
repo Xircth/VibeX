@@ -332,6 +332,39 @@ async fn registry_package_integrity_is_preserved_across_parse_and_persist() {
 }
 
 #[tokio::test]
+async fn official_registry_accepts_additive_agent_metadata() {
+    let registry_url = RegistrySnapshotClient::OFFICIAL_REGISTRY_URL;
+    let with_license_url = r#"{
+      "version": "1.0.0",
+      "agents": [{
+        "id": "vendor-agent",
+        "name": "Vendor Agent",
+        "version": "1.2.3",
+        "description": "A generic ACP Agent",
+        "license": "MIT",
+        "license_url": "https://example.test/vendor-agent/LICENSE",
+        "distribution": {
+          "npx": { "package": "vendor-agent@1.2.3" }
+        }
+      }],
+      "extensions": []
+    }"#;
+    let fetcher = Arc::new(ScriptedFetcher::new([(
+        registry_url,
+        vec![response(with_license_url, "v1")],
+    )]));
+    let clock = Arc::new(MutableClock(Mutex::new(
+        Utc.with_ymd_and_hms(2026, 7, 29, 0, 0, 0).unwrap(),
+    )));
+    let client = RegistrySnapshotClient::new(fetcher, clock);
+    let mut cache = RegistryCache::default();
+    let opened = client.open(&mut cache).await;
+    assert_eq!(opened.refresh_error, None);
+    assert_eq!(opened.entries[0].registry_id, "vendor-agent");
+    assert_eq!(opened.entries[0].license.as_deref(), Some("MIT"));
+}
+
+#[tokio::test]
 async fn registry_refresh_keeps_a_valid_catalog_when_icons_never_return() {
     let catalog = registry_with_agents(&["alpha-agent", "beta-agent"]);
     let fetcher = Arc::new(HungIconFetcher {

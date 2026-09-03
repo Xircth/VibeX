@@ -491,8 +491,10 @@ struct RawRegistryDocument {
     _extensions: Vec<serde_json::Value>,
 }
 
+/// Official Agent display metadata. The catalog may add fields such as
+/// `license_url`; those must not invalidate an otherwise valid snapshot.
+/// Distribution payloads stay `deny_unknown_fields` because they are executed.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct RawRegistryAgent {
     id: String,
     name: String,

@@ -394,7 +394,9 @@ pub(super) fn resolve_command(command: &str) -> Option<PathBuf> {
     std::fs::canonicalize(&resolved).ok().or(Some(resolved))
 }
 
-async fn read_pi_env(pool: &sqlx::SqlitePool) -> Result<HashMap<String, String>, String> {
+pub(super) async fn read_pi_env(
+    pool: &sqlx::SqlitePool,
+) -> Result<HashMap<String, String>, String> {
     let raw = sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = 'pi'",
     )
@@ -410,7 +412,7 @@ async fn read_pi_env(pool: &sqlx::SqlitePool) -> Result<HashMap<String, String>,
         .map(Option::unwrap_or_default)
 }
 
-fn pi_agent_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+pub(super) fn pi_agent_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
     env.get(PI_CONFIG_DIR_ENV)
         .map(String::as_str)
         .map(str::trim)

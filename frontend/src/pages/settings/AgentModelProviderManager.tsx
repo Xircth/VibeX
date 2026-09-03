@@ -2,6 +2,8 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Eye,
+  EyeOff,
   Loader2,
   Pencil,
   Plus,
@@ -162,7 +164,7 @@ export function AgentModelProviderManager({
     setId(provider.id);
     setName(provider.name);
     setApiUrl(provider.api_url);
-    setApiKey('');
+    setApiKey(provider.api_key);
     setModel(provider.model);
     setDetectedCatalog(null);
     setDetectionError(null);
@@ -245,6 +247,12 @@ export function AgentModelProviderManager({
       }
       draft.default_model = detected.id;
       setModel(serializeCodexModel(draft));
+      return;
+    }
+    if (agentId === 'pi') {
+      const next = parsePiModel(model);
+      next.id = detected.id;
+      setModel(JSON.stringify(next));
       return;
     }
     setModel(detected.id);
@@ -493,32 +501,22 @@ export function AgentModelProviderManager({
             }}
           />
         </label>
-        <label>
-          <span>API Key</span>
-          <input
-            aria-label="Provider API Key"
-            autoComplete="new-password"
-            disabled={busy}
-            name={`${agentId}_model_provider_api_key`}
-            placeholder={
-              id
-                ? t('settings:agents.providerKeyKeepPlaceholder')
-                : t('settings:agents.providerKeyPlaceholder')
-            }
-            type="password"
-            value={apiKey}
-            onChange={(event) => {
-              setApiKey(event.target.value);
-              setDetectedCatalog(null);
-              setDetectionError(null);
-            }}
-          />
-        </label>
+        <ProviderSecretField
+          key={id ?? 'create'}
+          agentId={agentId}
+          disabled={busy}
+          value={apiKey}
+          onChange={(value) => {
+            setApiKey(value);
+            setDetectedCatalog(null);
+            setDetectionError(null);
+          }}
+        />
         <ProviderModelDetection
           agentId={agentId}
           catalog={detectedCatalog}
           claudeMappingTarget={claudeMappingTarget}
-          disabled={busy || !apiUrl.trim() || (!id && !apiKey.trim())}
+          disabled={busy || !apiUrl.trim() || !apiKey.trim()}
           error={detectionError}
           loading={detectingModels}
           onDetect={() => void detectModels()}
@@ -533,6 +531,12 @@ export function AgentModelProviderManager({
           />
         ) : agentId === 'grok' ? (
           <GrokProviderModelEditor
+            disabled={busy}
+            value={model}
+            onChange={setModel}
+          />
+        ) : agentId === 'pi' ? (
+          <PiProviderModelEditor
             disabled={busy}
             value={model}
             onChange={setModel}
@@ -659,6 +663,7 @@ export function AgentModelProviderManager({
         </p>
       ) : providers.length === 0 ? (
         <div className="agent-model-provider-empty">
+          <p>{t('settings:agents.providerNoneDetected')}</p>
           <Button
             size="sm"
             className="h-8"
@@ -673,9 +678,10 @@ export function AgentModelProviderManager({
         <ul className="agent-model-provider-list">
           {providers.map((provider) => (
             <ProviderCard
-              key={`${provider.managed ? 'managed' : 'native'}-${provider.id}`}
+              key={provider.id}
               provider={provider}
               busy={busy}
+              canDelete={!provider.bound && providers.length > 1}
               probe={probes[provider.id]}
               onEnable={() => void bind(provider.id)}
               onEdit={() => openEdit(provider)}
@@ -730,9 +736,82 @@ export function AgentModelProviderManager({
   );
 }
 
+function ProviderSecretField({
+  agentId,
+  value,
+  disabled,
+  onChange,
+}: {
+  agentId: AgentId;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const [revealed, setRevealed] = useState(false);
+  const copyKey = async () => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(t('agents.providerKeyCopied'));
+    } catch {
+      toast.error(t('agents.providerCopyFailed'));
+    }
+  };
+  return (
+    <label>
+      <span>API Key</span>
+      <div className="agent-model-provider-secret">
+        <input
+          aria-label="Provider API Key"
+          autoComplete="new-password"
+          disabled={disabled}
+          name={`${agentId}_model_provider_api_key`}
+          placeholder={t('settings:agents.providerKeyPlaceholder')}
+          spellCheck={false}
+          type={revealed ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <Button
+          size="sm"
+          type="button"
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          aria-label={
+            revealed
+              ? t('agents.providerHideKey')
+              : t('agents.providerShowKey')
+          }
+          disabled={disabled || !value}
+          onClick={() => setRevealed((current) => !current)}
+        >
+          {revealed ? (
+            <EyeOff aria-hidden="true" className="h-3.5 w-3.5" />
+          ) : (
+            <Eye aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        <Button
+          size="sm"
+          type="button"
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          aria-label={t('agents.providerCopyKey')}
+          disabled={disabled || !value}
+          onClick={() => void copyKey()}
+        >
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </label>
+  );
+}
+
 function ProviderCard({
   provider,
   busy,
+  canDelete,
   probe,
   onEnable,
   onEdit,
@@ -742,6 +821,7 @@ function ProviderCard({
 }: {
   provider: AgentModelProviderView;
   busy: boolean;
+  canDelete: boolean;
   probe: AgentModelProviderProbeView | 'loading' | undefined;
   onEnable: () => void;
   onEdit: () => void;
@@ -750,11 +830,10 @@ function ProviderCard({
   onDelete: () => void;
 }) {
   const { t } = useTranslation('settings');
-  const managed = provider.managed;
   const latency =
     probe && probe !== 'loading' ? `${probe.latency_ms} ms` : null;
   return (
-    <li data-bound={provider.bound} data-managed={managed}>
+    <li data-bound={provider.bound}>
       <div>
         <strong>{provider.name}</strong>
         <p>{provider.api_url || t('agents.providerNativeBadge')}</p>
@@ -770,37 +849,33 @@ function ProviderCard({
             {latency}
           </span>
         ) : null}
-        {managed ? (
-          <Button
-            size="sm"
-            variant={provider.bound ? 'outline' : 'default'}
-            className={cn(
-              'agent-model-provider-enable h-7',
-              provider.bound && 'is-enabled'
-            )}
-            disabled={busy || provider.bound}
-            onClick={onEnable}
-          >
-            {provider.bound ? (
-              <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-            ) : null}
-            {provider.bound
-              ? t('agents.providerEnabled')
-              : t('agents.providerEnable')}
-          </Button>
-        ) : null}
-        {managed ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            aria-label={t('agents.providerEditAria', { name: provider.name })}
-            disabled={busy}
-            onClick={onEdit}
-          >
-            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-        ) : null}
+        <Button
+          size="sm"
+          variant={provider.bound ? 'outline' : 'default'}
+          className={cn(
+            'agent-model-provider-enable h-7',
+            provider.bound && 'is-enabled'
+          )}
+          disabled={busy || provider.bound}
+          onClick={onEnable}
+        >
+          {provider.bound ? (
+            <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+          ) : null}
+          {provider.bound
+            ? t('agents.providerEnabled')
+            : t('agents.providerEnable')}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          aria-label={t('agents.providerEditAria', { name: provider.name })}
+          disabled={busy}
+          onClick={onEdit}
+        >
+          <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -825,18 +900,16 @@ function ProviderCard({
         >
           <Copy aria-hidden="true" className="h-3.5 w-3.5" />
         </Button>
-        {managed ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            aria-label={t('agents.providerDeleteAria', { name: provider.name })}
-            disabled={busy || provider.bound}
-            onClick={onDelete}
-          >
-            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-        ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          aria-label={t('agents.providerDeleteAria', { name: provider.name })}
+          disabled={busy || !canDelete}
+          onClick={onDelete}
+        >
+          <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </li>
   );
@@ -1099,6 +1172,81 @@ function GrokProviderModelEditor({
       </label>
     </fieldset>
   );
+}
+
+const PI_PROTOCOLS = [
+  'openai-responses',
+  'openai-completions',
+  'anthropic-messages',
+  'google-generative-ai',
+] as const;
+
+function PiProviderModelEditor({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const parsed = parsePiModel(value);
+  const patch = (next: typeof parsed) => {
+    onChange(JSON.stringify({ id: next.id, api: next.api }));
+  };
+  return (
+    <fieldset className="agent-model-provider-claude">
+      <legend>{t('agents.model')}</legend>
+      <label>
+        <span>{t('agents.model')}</span>
+        <input
+          aria-label={t('agents.providerModelAria')}
+          autoComplete="off"
+          disabled={disabled}
+          name="pi_provider_model"
+          spellCheck={false}
+          value={parsed.id}
+          onChange={(event) => patch({ ...parsed, id: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>{t('agents.customProviderProtocol')}</span>
+        <select
+          aria-label={t('agents.customProviderProtocol')}
+          disabled={disabled}
+          name="pi_provider_protocol"
+          value={parsed.api}
+          onChange={(event) => patch({ ...parsed, api: event.target.value })}
+        >
+          {PI_PROTOCOLS.map((protocol) => (
+            <option key={protocol} value={protocol}>
+              {protocol}
+            </option>
+          ))}
+        </select>
+      </label>
+    </fieldset>
+  );
+}
+
+function parsePiModel(value: string): { id: string; api: string } {
+  try {
+    const parsed = JSON.parse(value) as { id?: unknown; api?: unknown };
+    if (parsed && typeof parsed === 'object') {
+      return {
+        id: typeof parsed.id === 'string' ? parsed.id : '',
+        api:
+          typeof parsed.api === 'string' &&
+          PI_PROTOCOLS.includes(parsed.api as (typeof PI_PROTOCOLS)[number])
+            ? parsed.api
+            : 'openai-responses',
+      };
+    }
+  } catch {
+    /* plain model id */
+  }
+  return { id: value, api: 'openai-responses' };
 }
 
 function parseGrokModel(value: string): {

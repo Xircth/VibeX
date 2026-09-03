@@ -33,6 +33,7 @@ pub(super) fn cc_switch_app_type(agent_id: &AgentId) -> Option<&'static str> {
         "opencode" => Some("opencode"),
         "openclaw" => Some("openclaw"),
         "hermes" => Some("hermes"),
+        "pi" => Some("pi"),
         id if AgentKind::Antigravity.matches_id(id) => Some("gemini"),
         _ => None,
     }
@@ -132,6 +133,7 @@ fn extract_cc_switch_row(agent_id: &AgentId, row: CcSwitchRow) -> ImportDraft {
         "opencode" => fill_opencode_settings(&row.settings_config, &mut draft),
         "openclaw" => fill_openclaw_settings(&row.settings_config, &mut draft),
         "hermes" => fill_hermes_settings(&row.settings_config, &mut draft),
+        "pi" => fill_pi_settings(&row.settings_config, &mut draft),
         _ => fill_gemini_settings(&row.settings_config, &mut draft),
     }
     if draft.skip_reason.is_none() && (draft.api_url.is_empty() || draft.api_key.is_empty()) {
@@ -319,6 +321,45 @@ fn fill_openclaw_settings(settings: &Value, draft: &mut ImportDraft) {
     }
 }
 
+fn fill_pi_settings(settings: &Value, draft: &mut ImportDraft) {
+    if let Some((id, provider)) = settings
+        .get("providers")
+        .and_then(Value::as_object)
+        .and_then(|providers| providers.iter().next())
+    {
+        fill_pi_provider(id, provider, settings, draft);
+        return;
+    }
+    let id = json_string(settings, &["id", "name"]);
+    fill_pi_provider(
+        if id.is_empty() { "pi" } else { &id },
+        settings,
+        settings,
+        draft,
+    );
+}
+
+fn fill_pi_provider(id: &str, provider: &Value, root: &Value, draft: &mut ImportDraft) {
+    draft.api_url = json_string(provider, &["baseUrl", "base_url"]);
+    draft.api_key = json_string(provider, &["apiKey", "api_key"]).if_empty_then(|| {
+        json_string(root, &["apiKey", "api_key"]).if_empty_then(|| {
+            root.get("auth")
+                .and_then(Value::as_object)
+                .and_then(|auth| auth.get(id))
+                .map(|entry| json_string(entry, &["key", "apiKey", "api_key"]))
+                .unwrap_or_default()
+        })
+    });
+    let api = json_string(provider, &["api"]).if_empty_then(|| "openai-responses".to_string());
+    let model = provider
+        .get("models")
+        .and_then(Value::as_array)
+        .and_then(|models| models.first())
+        .map(|entry| json_string(entry, &["id"]))
+        .unwrap_or_else(|| json_string(provider, &["model", "defaultModel"]));
+    draft.model = serde_json::json!({ "id": model, "api": api }).to_string();
+}
+
 fn fill_hermes_settings(settings: &Value, draft: &mut ImportDraft) {
     draft.api_url = json_string(settings, &["base_url", "baseUrl"]);
     draft.api_key = json_string(settings, &["api_key", "apiKey"]);
@@ -492,5 +533,32 @@ mod tests {
         assert_eq!(draft.api_url, "https://gateway.example/v1");
         assert_eq!(draft.api_key, "sk-codex");
         assert!(draft.model.contains("gpt-5.4"));
+    }
+
+    #[test]
+    fn extracts_pi_provider_entries() {
+        let draft = extract_cc_switch_row(
+            &AgentId::parse("pi").unwrap(),
+            CcSwitchRow {
+                id: "gw".into(),
+                name: "Gateway".into(),
+                settings_config: serde_json::json!({
+                    "providers": {
+                        "private": {
+                            "baseUrl": "https://private.example/v1",
+                            "api": "openai-responses",
+                            "models": [{ "id": "private-model" }]
+                        }
+                    },
+                    "auth": { "private": { "type": "api_key", "key": "sk-pi" } }
+                }),
+                meta: serde_json::json!({}),
+            },
+        );
+        assert!(draft.skip_reason.is_none());
+        assert_eq!(draft.api_url, "https://private.example/v1");
+        assert_eq!(draft.api_key, "sk-pi");
+        assert!(draft.model.contains("private-model"));
+        assert!(draft.model.contains("openai-responses"));
     }
 }

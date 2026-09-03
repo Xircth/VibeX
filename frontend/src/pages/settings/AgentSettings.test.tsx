@@ -12,6 +12,7 @@ import type { AgentNativeConfigFieldView } from 'shared/types';
 import { toast } from '@/components/ui/toast';
 
 import { pickAuthModeTab } from './agentSettingsTestUtils';
+import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
 import { AgentSettings } from './AgentSettings';
 
 const api = vi.hoisted(() => ({
@@ -47,6 +48,10 @@ const api = vi.hoisted(() => ({
   dshProviders: vi.fn(),
   dshPlugins: vi.fn(),
   grokPlugins: vi.fn(),
+  piPlugins: vi.fn(),
+  piConfiguration: vi.fn(),
+  validatePiCommand: vi.fn(),
+  modelProviders: vi.fn(),
   clearDiagnostics: vi.fn(),
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
@@ -222,6 +227,43 @@ describe('AgentSettings', () => {
           marketplace: null,
         },
       ],
+    });
+    api.piPlugins.mockResolvedValue({
+      home: '/tmp/.pi/agent',
+      plugins: [
+        {
+          source: 'npm:pi-package-manager',
+          name: 'pi-package-manager',
+          version: null,
+          kind: 'npm',
+          path: null,
+        },
+      ],
+    });
+    api.piConfiguration.mockResolvedValue({
+      default_provider: 'anthropic',
+      default_model: 'claude-sonnet-4',
+      thinking_level: 'medium',
+      credential_present: true,
+      auth_providers: ['anthropic'],
+      custom_providers: [],
+      runtime: {
+        mode: 'default',
+        command: '',
+        config_dir: '',
+        session_dir: '',
+        trust_workspace: true,
+      },
+    });
+    api.validatePiCommand.mockResolvedValue({
+      found: true,
+      resolved_path: '/usr/bin/pi',
+      version: 'pi 0.1',
+    });
+    api.modelProviders.mockResolvedValue({
+      agent_id: 'codex',
+      providers: [],
+      bound_provider_id: null,
     });
     api.authMode.mockResolvedValue({
       agent_id: 'codex',
@@ -632,6 +674,132 @@ describe('AgentSettings', () => {
     ).toBeVisible();
   });
 
+  it('places Pi plugins in a collapsed section and Provider form in authentication', async () => {
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'pi',
+        display_name: 'Pi',
+        description: 'Pi coding agent',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'api_key',
+        runtime_version: null,
+        acp_version: '0.0.33',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: [
+          'authentication_mode',
+          'reusable_model_providers',
+          'pi_configuration',
+          'pi_plugins',
+        ],
+      },
+    ]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'pi',
+      available: true,
+      settings_features: [
+        'authentication_mode',
+        'reusable_model_providers',
+        'pi_configuration',
+        'pi_plugins',
+      ],
+      path: '/tmp/.pi/agent/settings.json',
+      paths: ['/tmp/.pi/agent/settings.json'],
+      fields: [
+        {
+          id: 'pi_custom_providers',
+          label: '自定义 Provider',
+          description: 'Pi models.json 的 providers 对象',
+          kind: 'json',
+          options: [],
+          secret: false,
+          path: '/tmp/.pi/agent/models.json',
+          present: true,
+          value: '{}',
+          masked_value: null,
+          revision: 'rev',
+          surface: 'configuration',
+        },
+        {
+          id: 'pi_theme',
+          label: '终端主题',
+          description: 'Pi 内置终端主题',
+          kind: 'select',
+          options: [
+            { value: 'dark', label: '深色' },
+            { value: 'light', label: '浅色' },
+          ],
+          secret: false,
+          path: '/tmp/.pi/agent/settings.json',
+          present: true,
+          value: 'dark',
+          masked_value: null,
+          revision: 'rev',
+          surface: 'configuration',
+        },
+      ],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.modelProviders.mockResolvedValue({
+      agent_id: 'pi',
+      providers: [],
+      bound_provider_id: null,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'pi',
+      mode: 'model_provider',
+      modes: ['model_provider'],
+      options: [
+        {
+          value: 'model_provider',
+          kind: 'provider',
+          label_key: 'agents.authModeProvider',
+          description_key: 'agents.authDescPiProvider',
+          credential_env: null,
+          credential_required: false,
+          native_config_field_id: null,
+          official_api_url: null,
+        },
+      ],
+      credential_env: 'PI_API_KEY',
+      credential_present: true,
+    });
+    const user = userEvent.setup();
+    render(<AgentSettings />);
+
+    const auth = await screen.findByRole('region', { name: '鉴权管理' });
+    const providerHeading = await screen.findByRole('heading', {
+      name: '模型供应商',
+    });
+    expect(providerHeading).toBeVisible();
+    expect(await screen.findByText('暂未识别到供应商')).toBeVisible();
+    expect(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '从外部导入' })).toBeVisible();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(auth).toContainElement(providerHeading);
+
+    const configuration = screen.getByRole('region', { name: '配置管理' });
+    expect(configuration).toHaveTextContent('Pi Runtime');
+
+    const plugins = screen.getByRole('button', { name: '插件' });
+    expect(plugins).toHaveAttribute('aria-expanded', 'false');
+    await user.click(plugins);
+    expect(
+      await screen.findByRole('button', { name: 'pi-package-manager' })
+    ).toBeVisible();
+  });
+
   it('places Codex native plugins in a collapsed section below configuration', async () => {
     const user = userEvent.setup();
     render(<AgentSettings />);
@@ -832,9 +1000,7 @@ describe('AgentSettings', () => {
     await screen.findByRole('button', { name: 'Kimi CLI' });
     await user.click(screen.getByRole('button', { name: '立即检查' }));
 
-    await user.click(
-      await screen.findByRole('button', { name: '安装 Runtime 与 ACP' })
-    );
+    await user.click(await screen.findByRole('button', { name: '安装 ACP' }));
     expect(api.addAndInstall).toHaveBeenCalledWith('kimi');
   });
 
@@ -949,6 +1115,75 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument()
     );
+  });
+
+  it('selects the Agent requested from a session-creation diagnostic jump', async () => {
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode'],
+      },
+      {
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        description: 'Claude Code ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 1,
+        lifecycle: 'needs_repair',
+        authentication: 'not_logged_in',
+        runtime_version: null,
+        acp_version: null,
+        active_operation: null,
+        rollback_available: false,
+        settings_features: [],
+      },
+    ]);
+    api.diagnostics.mockResolvedValue([
+      {
+        id: 'd1',
+        agent_id: 'claude_code',
+        operation_kind: 'install',
+        severity: 'error',
+        message: 'Agent 安装或验证失败',
+        redacted_output: 'npm error code ECONNREFUSED',
+        created_at: '2026-09-02T03:11:46Z',
+        read: false,
+      },
+    ]);
+    localStorage.setItem(
+      AGENT_SETTINGS_FOCUS_KEY,
+      JSON.stringify({ agentId: 'claude_code', focusDiagnostics: true })
+    );
+
+    render(<AgentSettings />);
+
+    expect(await screen.findByText('Claude Code ACP')).toBeVisible();
+    await waitFor(() =>
+      expect(api.diagnostics).toHaveBeenCalledWith('claude_code')
+    );
+    expect(screen.getByText('npm error code ECONNREFUSED')).toBeVisible();
   });
 
   it('runs a local preflight for the selected Agent immediately', async () => {
@@ -1206,24 +1441,11 @@ describe('AgentSettings', () => {
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 
-  it('updates Runtime and ACP preflight items and toasts when an update finishes', async () => {
+  it('updates ACP preflight items and toasts when an update finishes', async () => {
     api.preflight.mockResolvedValue({
       agent_id: 'codex',
       checked_at: '2026-08-21T00:00:00Z',
       items: [
-        {
-          id: 'runtime',
-          label: '本地 Runtime',
-          status: 'pass',
-          detail: '',
-          version: '1.0.0',
-          path: '/opt/codex',
-          source: null,
-          repairable: false,
-          update_available: true,
-          available_version: '0.148.0',
-          update_group: 'runtime-acp',
-        },
         {
           id: 'acp',
           label: 'ACP 适配器',
@@ -1245,8 +1467,7 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(listeners.has('agent-management-event')).toBe(true)
     );
-    expect(await screen.findByTitle('1.0.0')).toBeInTheDocument();
-    expect(screen.getByTitle('1.1.0')).toBeInTheDocument();
+    expect(await screen.findByTitle('1.1.0')).toBeInTheDocument();
     api.preflight.mockClear();
     api.bar.mockResolvedValue([
       {
@@ -1279,7 +1500,7 @@ describe('AgentSettings', () => {
         kind: 'update',
         status: 'running',
         progress_percent: 20,
-        message: '正在安装本地 Runtime 与 ACP',
+        message: '正在安装 ACP',
       });
     });
     await act(async () => {
@@ -1295,13 +1516,11 @@ describe('AgentSettings', () => {
     });
 
     await waitFor(() =>
-      expect(success).toHaveBeenCalledWith('已完成 Runtime 与 ACP 更新')
+      expect(success).toHaveBeenCalledWith('已完成 ACP 更新')
     );
     expect(api.preflight).not.toHaveBeenCalledWith('codex');
-    await waitFor(() =>
-      expect(screen.getByTitle('0.148.0')).toBeInTheDocument()
-    );
-    expect(screen.getByTitle('1.7.0')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTitle('1.7.0')).toBeInTheDocument());
+    expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
     expect(screen.queryByText('可更新')).not.toBeInTheDocument();
   });
 });

@@ -35,19 +35,6 @@ const preflight: AgentPreflightView = {
   checked_at: '2026-07-29T12:00:00Z',
   items: [
     {
-      id: 'runtime',
-      label: '本地 Runtime',
-      status: 'pass',
-      detail: '',
-      version: '1.0.0',
-      path: '/opt/vibex/bin/codex',
-      source: null,
-      repairable: false,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    },
-    {
       id: 'acp',
       label: 'ACP 适配器',
       status: 'pass',
@@ -122,7 +109,6 @@ describe('AgentDetail', () => {
           onInstall={vi.fn()}
           onRepair={vi.fn()}
           onCheckUpdate={vi.fn()}
-
           onRollback={vi.fn()}
           onCancelOperation={vi.fn()}
           onUninstall={vi.fn()}
@@ -134,7 +120,7 @@ describe('AgentDetail', () => {
 
     try {
       const runtimeResult = screen.getByRole('listitem', {
-        name: '本地 Runtime 检查结果',
+        name: 'ACP 适配器 检查结果',
       });
       const runtimeToggle = runtimeResult.querySelector(
         '.agent-preflight-trigger'
@@ -146,21 +132,21 @@ describe('AgentDetail', () => {
       expect(getComputedStyle(layout!).alignItems).toBe('center');
       expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('center');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
-        '160px minmax(320px, 1fr) auto'
+        '160px minmax(0, 1fr) auto'
       );
       expect(
         getComputedStyle(screen.getByRole('button', { name: '检查更新' }))
           .minHeight
       ).toBe('2rem');
       expect(
-        getComputedStyle(screen.getByText('本地 Runtime')).overflowWrap
+        getComputedStyle(screen.getByText('ACP 适配器')).overflowWrap
       ).toBe('anywhere');
       expect(
-        getComputedStyle(within(runtimeResult).getByTitle('1.0.0')).whiteSpace
+        getComputedStyle(within(runtimeResult).getByTitle('1.1.0')).whiteSpace
       ).toBe('normal');
 
       const informationStack = within(runtimeResult).getByRole('group', {
-        name: '本地 Runtime 完整检查信息',
+        name: 'ACP 适配器 完整检查信息',
       });
       const versionToken = within(informationStack).getByText('版本');
       const versionRow = versionToken.parentElement!;
@@ -173,17 +159,17 @@ describe('AgentDetail', () => {
       );
 
       await userEvent.click(
-        screen.getByRole('button', { name: '展开 本地 Runtime 的检查详情' })
+        screen.getByRole('button', { name: '展开 ACP 适配器 的检查详情' })
       );
       expect(getComputedStyle(layout!).alignItems).toBe('start');
       expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('start');
       expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
-        '160px minmax(320px, 1fr) auto'
+        '160px minmax(0, 1fr) auto'
       );
       expect(within(runtimeResult).getByText('版本')).toBe(versionToken);
       expect(
         getComputedStyle(
-          within(runtimeResult).getByText('本地 Runtime').parentElement!
+          within(runtimeResult).getByText('ACP 适配器').parentElement!
         ).alignSelf
       ).toBe('stretch');
 
@@ -205,7 +191,7 @@ describe('AgentDetail', () => {
     }
   });
 
-  it('shows a discovered CLI Runtime as available before ACP is installed', async () => {
+  it('does not treat a vendor CLI as a preflight health item', () => {
     render(
       <AgentDetail
         agent={{
@@ -227,7 +213,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -236,39 +221,51 @@ describe('AgentDetail', () => {
       />
     );
 
-    expect(screen.queryByRole('button', { name: '向前移动' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '向后移动' })).toBeNull();
     expect(
-      screen.getByRole('listitem', { name: '运行入口 检查结果' })
+      screen.queryByRole('listitem', { name: '本地 Runtime 检查结果' })
+    ).toBeNull();
+    expect(
+      within(
+        screen.getByRole('listitem', { name: 'ACP 适配器 检查结果' })
+      ).getByText('需处理')
     ).toBeInTheDocument();
-    expect(screen.queryByText('agents.runtimeEntry')).not.toBeInTheDocument();
-    const runtimeResult = screen.getByRole('listitem', {
-      name: '本地 Runtime 检查结果',
-    });
-    expect(within(runtimeResult).getByText('可用')).toBeInTheDocument();
-    expect(
-      within(runtimeResult).getByTitle('codex-cli 0.138.0')
-    ).toBeInTheDocument();
-    expect(
-      within(runtimeResult).queryByTitle(
-        'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd'
-      )
-    ).not.toBeInTheDocument();
-    await userEvent.click(
-      within(runtimeResult).getByRole('button', {
-        name: '展开 本地 Runtime 的检查详情',
-      })
-    );
-    expect(
-      within(runtimeResult).getByTitle(
-        'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd'
-      )
-    ).toBeInTheDocument();
+  });
 
-    const acpResult = screen.getByRole('listitem', {
-      name: 'ACP 适配器 检查结果',
-    });
-    expect(within(acpResult).getByText('需处理')).toBeInTheDocument();
+  it('does not show a local Runtime row when only the ACP adapter is present', () => {
+    render(
+      <AgentDetail
+        agent={{
+          ...agent,
+          runtime_version: null,
+          acp_version: '1.7.0',
+          local_runtime: undefined,
+        }}
+        operation={null}
+        preflight={null}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.queryByRole('listitem', { name: '本地 Runtime 检查结果' })
+    ).toBeNull();
+    expect(
+      within(
+        screen.getByRole('listitem', { name: 'ACP 适配器 检查结果' })
+      ).getByText('可用')
+    ).toBeInTheDocument();
   });
 
   it('renders state-driven repair and preflight actions without a detail banner', async () => {
@@ -288,7 +285,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={onRepair}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -299,45 +295,37 @@ describe('AgentDetail', () => {
     );
 
     expect(screen.getByText('已通过 API Key 登录')).toBeInTheDocument();
-    expect(screen.getByText('本地 Runtime')).toBeInTheDocument();
+    expect(screen.queryByText('本地 Runtime')).not.toBeInTheDocument();
     expect(screen.getByText('ACP 适配器')).toBeInTheDocument();
     expect(screen.getByText('Node.js')).toBeInTheDocument();
     const nodeResult = screen.getByRole('listitem', {
       name: 'Node.js 检查结果',
     });
     expect(within(nodeResult).getByText('可选提醒')).toBeInTheDocument();
-    const runtimeResult = screen.getByRole('listitem', {
-      name: '本地 Runtime 检查结果',
-    });
-    expect(within(runtimeResult).getByTitle('1.0.0')).toHaveClass(
-      'agent-preflight-evidence-value'
-    );
-    expect(
-      within(runtimeResult).queryByTitle('/opt/vibex/bin/codex')
-    ).not.toBeInTheDocument();
     expect(within(nodeResult).queryByText('来源')).not.toBeInTheDocument();
     expect(
       within(nodeResult).queryByText('当前版本不满足 >=22。')
     ).not.toBeInTheDocument();
 
-    const runtimeToggle = within(runtimeResult).getByRole('button', {
-      name: '展开 本地 Runtime 的检查详情',
-    });
-    expect(runtimeToggle).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(runtimeToggle);
-    expect(runtimeToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(within(runtimeResult).getByText('位置')).toBeInTheDocument();
-    expect(
-      within(runtimeResult).getByTitle('/opt/vibex/bin/codex')
-    ).toHaveClass('agent-preflight-evidence-value');
-
     const acpResult = screen.getByRole('listitem', {
       name: 'ACP 适配器 检查结果',
     });
-    expect(within(acpResult).getByTitle('1.1.0')).toBeInTheDocument();
+    expect(within(acpResult).getByTitle('1.1.0')).toHaveClass(
+      'agent-preflight-evidence-value'
+    );
     expect(
       within(acpResult).queryByTitle('/opt/vibex/bin/codex-acp')
     ).not.toBeInTheDocument();
+    const acpToggle = within(acpResult).getByRole('button', {
+      name: '展开 ACP 适配器 的检查详情',
+    });
+    expect(acpToggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(acpToggle);
+    expect(acpToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(acpResult).getByText('位置')).toBeInTheDocument();
+    expect(
+      within(acpResult).getByTitle('/opt/vibex/bin/codex-acp')
+    ).toHaveClass('agent-preflight-evidence-value');
 
     await userEvent.click(
       within(nodeResult).getByRole('button', {
@@ -375,7 +363,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -418,7 +405,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -446,7 +432,7 @@ describe('AgentDetail', () => {
           kind: 'install',
           status: 'running',
           progressPercent: 25,
-          message: '正在安装本地 Runtime 与 ACP',
+          message: '正在安装 ACP',
           logs: [
             '正在解析已锁定的安装方案',
             '$ npm install -g @openai/codex@1.0.0',
@@ -461,7 +447,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={onCancelOperation}
         onUninstall={vi.fn()}
@@ -471,7 +456,7 @@ describe('AgentDetail', () => {
     );
 
     const progress = screen.getByRole('progressbar', {
-      name: '正在安装本地 Runtime 与 ACP',
+      name: '正在安装 ACP',
     });
     expect(progress).toHaveAttribute('aria-valuenow', '25');
     expect(progress).toHaveAttribute('aria-valuetext', '安装 · 25%');
@@ -502,7 +487,6 @@ describe('AgentDetail', () => {
         onInstallVersion={onInstallVersion}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -512,28 +496,23 @@ describe('AgentDetail', () => {
     );
 
     await userEvent.click(screen.getByText('指定版本安装'));
-    const runtimeInput = screen.getByLabelText('Runtime 版本');
-    const acpInput = screen.getByLabelText('ACP 版本');
+    const versionInput = screen.getByLabelText('版本');
     const submit = screen.getByRole('button', { name: '安装此版本' });
-    await userEvent.type(acpInput, 'latest');
+    await userEvent.type(versionInput, 'latest');
     expect(submit).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('具体的点分版本号');
-    await userEvent.clear(acpInput);
-    await userEvent.type(runtimeInput, '0.148.0');
-    await userEvent.type(acpInput, 'v1.7.0');
+    await userEvent.clear(versionInput);
+    await userEvent.type(versionInput, 'v1.7.0');
     await userEvent.click(submit);
 
     expect(onInstallVersion).toHaveBeenCalledWith({
-      runtimeVersion: '0.148.0',
       acpVersion: 'v1.7.0',
     });
   });
 
-  it('warns about a Runtime/ACP mismatch without blocking the specified install', async () => {
+  it('previews a specified ACP version without requiring a vendor CLI pin', async () => {
     const onInstallVersion = vi.fn();
-    const onPreviewVersions = vi.fn().mockResolvedValue(
-      '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0'
-    );
+    const onPreviewVersions = vi.fn().mockResolvedValue(null);
     render(
       <AgentDetail
         agent={agent}
@@ -546,12 +525,11 @@ describe('AgentDetail', () => {
           current_version: '1.5.0',
           available_version: '1.7.0',
           update_available: true,
-          runtime_current: '0.146.0',
-          runtime_available: '0.148.0',
+          runtime_current: null,
+          runtime_available: null,
           acp_current: '1.5.0',
           acp_available: '1.7.0',
-          compatibility_warning:
-            '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0',
+          compatibility_warning: null,
           snapshot_id: null,
           fetched_at: null,
           fresh: true,
@@ -563,7 +541,6 @@ describe('AgentDetail', () => {
         onPreviewVersions={onPreviewVersions}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -573,24 +550,16 @@ describe('AgentDetail', () => {
     );
 
     await userEvent.click(screen.getByText('指定版本安装'));
-    await userEvent.type(screen.getByLabelText('Runtime 版本'), '0.146.0');
-    await userEvent.type(screen.getByLabelText('ACP 版本'), '1.7.0');
+    await userEvent.type(screen.getByLabelText('版本'), '1.7.0');
     const submit = screen.getByRole('button', { name: '安装此版本' });
     expect(submit).toBeEnabled();
     await waitFor(() =>
       expect(onPreviewVersions).toHaveBeenCalledWith({
-        runtimeVersion: '0.146.0',
         acpVersion: '1.7.0',
       })
     );
-    expect(
-      screen.getAllByText(
-        '@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0'
-      ).length
-    ).toBeGreaterThan(0);
     await userEvent.click(submit);
     expect(onInstallVersion).toHaveBeenCalledWith({
-      runtimeVersion: '0.146.0',
       acpVersion: '1.7.0',
     });
   });
@@ -608,8 +577,8 @@ describe('AgentDetail', () => {
             kind: 'install',
             status: 'running',
             progressPercent: 25,
-            message: '正在安装本地 Runtime 与 ACP',
-            logs: ['正在解析已锁定的安装方案', '正在安装本地 Runtime 与 ACP'],
+            message: '正在安装 ACP',
+            logs: ['正在解析已锁定的安装方案', '正在安装 ACP'],
           }}
           preflight={preflight}
           checking={false}
@@ -620,7 +589,6 @@ describe('AgentDetail', () => {
           onInstall={vi.fn()}
           onRepair={vi.fn()}
           onCheckUpdate={vi.fn()}
-
           onRollback={vi.fn()}
           onCancelOperation={vi.fn()}
           onUninstall={vi.fn()}
@@ -630,7 +598,7 @@ describe('AgentDetail', () => {
       );
 
       expect(
-        screen.getByText('Installing the Agent runtime and ACP adapter…')
+        screen.getByText('Installing ACP…')
       ).toBeInTheDocument();
       expect(
         screen.queryByText(
@@ -651,7 +619,7 @@ describe('AgentDetail', () => {
         screen.getByText('Resolving the locked installation plan')
       ).toBeInTheDocument();
       expect(
-        screen.getByText('Installing the local runtime and ACP adapter')
+        screen.getByText('Installing ACP')
       ).toBeInTheDocument();
       expect(screen.queryByText(/正在安装|当前版本/u)).not.toBeInTheDocument();
     } finally {
@@ -682,7 +650,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={onUninstall}
@@ -808,7 +775,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onUpdatePreflightItem={onUpdatePreflightItem}
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
@@ -863,7 +829,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -883,6 +848,46 @@ describe('AgentDetail', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '全部已读' }));
     expect(onMarkAllDiagnosticsRead).toHaveBeenCalledOnce();
+  });
+
+  it('opens operation diagnostics when arriving from a session-creation jump', () => {
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        diagnostics={[
+          {
+            id: 'diag-1',
+            agent_id: 'codex',
+            operation_kind: 'install',
+            severity: 'error',
+            message: 'Agent 安装或验证失败',
+            redacted_output: 'npm error code ECONNREFUSED',
+            created_at: '2026-09-02T03:11:46Z',
+            read: false,
+          },
+        ]}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+        focusDiagnostics
+      />
+    );
+
+    const panel = screen.getByText('操作诊断 · 1').closest('details');
+    expect(panel).toHaveAttribute('open');
+    expect(screen.getByText('npm error code ECONNREFUSED')).toBeVisible();
   });
 
   it('hides the diagnostic list when operation diagnostics are disabled', async () => {
@@ -912,7 +917,6 @@ describe('AgentDetail', () => {
         onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
-
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}

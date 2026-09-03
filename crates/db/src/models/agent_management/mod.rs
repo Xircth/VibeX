@@ -924,6 +924,18 @@ impl InstallationRepository {
         .bind(&lock.created_at)
         .execute(&mut *transaction)
         .await?;
+        if lifecycle == "ready" {
+            sqlx::query(
+                r#"UPDATE agent_diagnostic
+                   SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+                   WHERE agent_id = ?
+                     AND severity = 'error'
+                     AND read_at IS NULL"#,
+            )
+            .bind(lock.agent_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         Ok(())
     }
@@ -983,6 +995,42 @@ impl DiagnosticRepository {
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
+        Ok(())
+    }
+
+    pub async fn latest_error_output(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<String>, AgentManagementRepositoryError> {
+        let output = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT redacted_output
+               FROM agent_diagnostic
+               WHERE agent_id = ?
+                 AND severity = 'error'
+               ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END,
+                        created_at DESC, id DESC
+               LIMIT 1"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(output.flatten().filter(|value| !value.trim().is_empty()))
+    }
+
+    pub async fn mark_error_diagnostics_read(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<(), AgentManagementRepositoryError> {
+        sqlx::query(
+            r#"UPDATE agent_diagnostic
+               SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+               WHERE agent_id = ?
+                 AND severity = 'error'
+                 AND read_at IS NULL"#,
+        )
+        .bind(agent_id.as_str())
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

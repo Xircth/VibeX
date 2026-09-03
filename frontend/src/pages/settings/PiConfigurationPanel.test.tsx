@@ -44,9 +44,6 @@ describe('PiConfigurationPanel', () => {
     vi.mocked(agentManagementApi.piConfiguration).mockResolvedValue(
       configuration
     );
-    vi.mocked(agentManagementApi.savePiCredentials).mockResolvedValue(
-      configuration
-    );
     vi.mocked(agentManagementApi.savePiRuntime).mockResolvedValue(undefined);
     vi.mocked(agentManagementApi.validatePiCommand).mockImplementation(
       async (command) => ({
@@ -57,36 +54,9 @@ describe('PiConfigurationPanel', () => {
     );
   });
 
-  it('loads lazily and saves a dynamic custom provider credential', async () => {
-    render(<PiConfigurationPanel disabled={false} />);
-
-    expect(agentManagementApi.piConfiguration).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByText('Pi 专属配置'));
-    expect(
-      await screen.findByDisplayValue('private-model')
-    ).toBeInTheDocument();
-    expect(screen.getByText('当前 Provider 已保存凭据')).toBeInTheDocument();
-
-    await userEvent.clear(screen.getByLabelText('API Key'));
-    await userEvent.type(screen.getByLabelText('API Key'), 'new-secret');
-    await userEvent.click(
-      screen.getByRole('button', { name: '保存 Provider' })
-    );
-
-    expect(agentManagementApi.savePiCredentials).toHaveBeenCalledWith({
-      provider: 'private',
-      model: 'private-model',
-      thinking_level: 'high',
-      api_key: 'new-secret',
-      custom_base_url: 'https://private.example/v1',
-      custom_api: 'openai-responses',
-    });
-  });
-
   it('validates and saves a bring-your-own Pi runtime', async () => {
     render(<PiConfigurationPanel disabled={false} />);
-    await userEvent.click(screen.getByText('Pi 专属配置'));
-    await screen.findByDisplayValue('private-model');
+    expect(await screen.findByText('Pi Runtime')).toBeInTheDocument();
     await userEvent.click(screen.getByText('自定义 pi'));
     await userEvent.type(
       screen.getByLabelText('可执行文件'),

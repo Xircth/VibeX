@@ -283,7 +283,7 @@ export function AgentAuthModeControl({
         </h3>
         <div className="agent-auth-mode-heading-tools">
           {panel === 'configuration' ? headingExtra : null}
-          {view ? (
+          {view && kindTabs.length > 1 ? (
             <div
               className="agent-auth-mode-tabs"
               role="tablist"
@@ -360,7 +360,7 @@ export function AgentAuthModeControl({
           <div
             id={`${agentId}-auth-mode-panel`}
             className="agent-auth-mode-body"
-            role="tabpanel"
+            role={kindTabs.length > 1 ? 'tabpanel' : undefined}
           >
             {kindOptions.length > 1 && panel !== 'account' ? (
               <div className="agent-auth-mode-submodes">

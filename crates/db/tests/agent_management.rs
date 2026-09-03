@@ -571,6 +571,76 @@ async fn management_repositories_keep_atomic_snapshot_lock_and_retention_invaria
 }
 
 #[tokio::test]
+async fn latest_error_output_prefers_unread_install_failures() {
+    let pool = migrated_pool().await;
+    let memberships = AgentMembershipRepository::new(pool.clone());
+    let agent_id = AgentId::parse("fixture.binary").unwrap();
+    memberships
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+
+    let diagnostics = DiagnosticRepository::new(pool.clone());
+    diagnostics
+        .append_bounded(&DiagnosticRecord {
+            id: uuid::Uuid::new_v4(),
+            agent_id: agent_id.clone(),
+            operation_kind: "install".to_string(),
+            severity: "error".to_string(),
+            message: "Agent 安装或验证失败".to_string(),
+            redacted_output: Some(
+                "npm view dist.integrity failed: npm error code ECONNREFUSED".to_string(),
+            ),
+            created_at: "2026-09-02T03:11:46Z".to_string(),
+        })
+        .await
+        .unwrap();
+    diagnostics
+        .append_bounded(&DiagnosticRecord {
+            id: uuid::Uuid::new_v4(),
+            agent_id: agent_id.clone(),
+            operation_kind: "check".to_string(),
+            severity: "info".to_string(),
+            message: "预检查完成".to_string(),
+            redacted_output: Some("ok".to_string()),
+            created_at: "2026-09-02T03:12:00Z".to_string(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        diagnostics.latest_error_output(&agent_id).await.unwrap(),
+        Some("npm view dist.integrity failed: npm error code ECONNREFUSED".to_string())
+    );
+
+    diagnostics
+        .mark_error_diagnostics_read(&agent_id)
+        .await
+        .unwrap();
+    let unread: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_diagnostic WHERE agent_id = ? AND severity = 'error' AND read_at IS NULL",
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unread, 0);
+    assert_eq!(
+        diagnostics.latest_error_output(&agent_id).await.unwrap(),
+        Some("npm view dist.integrity failed: npm error code ECONNREFUSED".to_string())
+    );
+}
+
+#[tokio::test]
 async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
     let pool = migrated_pool().await;
     seed_legacy_settings(&pool).await;

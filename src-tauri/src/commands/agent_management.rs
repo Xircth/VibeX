@@ -12,9 +12,10 @@ mod tests {
 
     use agents::{ProfileComponent, ProfileExternalCandidate};
     use api_types::{
-        AgentId, AgentLocalRuntimeView, AgentManagementErrorCode, AgentManagementErrorView,
+        AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentLocalRuntimeView,
+        AgentManagementErrorCode, AgentManagementErrorView, AgentManagementView,
         AgentNativeConfigPatchRequest, AgentOperationEvent, AgentOperationKind,
-        AgentOperationStatus, AgentPreflightItemView, OpenCodeProviderConnectRequest,
+        AgentOperationStatus, AgentPreflightItemView, AgentSource, OpenCodeProviderConnectRequest,
         OpenCodeProviderModelRequest,
     };
     use sha2::Digest;
@@ -33,10 +34,10 @@ mod tests {
         managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
-        opencode_provider_paths, operation_event, pi_runtime_lock_env,
-        preflight_component_is_healthy, probe_local_runtime_candidate, probe_system_node_runtime,
-        profile_component_distribution_kind, project_agent_environment, project_auth_mode_options,
-        project_codex_auth_mode, project_opencode_provider_connections,
+        opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
+        pi_runtime_lock_env, preflight_component_is_healthy, probe_local_runtime_candidate,
+        probe_system_node_runtime, profile_component_distribution_kind, project_agent_environment,
+        project_auth_mode_options, project_codex_auth_mode, project_opencode_provider_connections,
         read_agent_environment_record, read_agent_management_snapshot,
         reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
         redact_operation_output, relocate_managed_path, remove_opencode_provider_state,
@@ -142,6 +143,84 @@ mod tests {
 
         release_discovery.add_permits(1);
         discovery.await.unwrap();
+    }
+
+    fn empty_management_view(agent_id: &str) -> AgentManagementView {
+        AgentManagementView {
+            agent_id: AgentId::parse(agent_id).unwrap(),
+            display_name: agent_id.to_string(),
+            description: String::new(),
+            icon_light: None,
+            icon_dark: None,
+            icon_svg: None,
+            source: AgentSource::BuiltInProfile,
+            built_in: true,
+            retired: false,
+            enabled: true,
+            position: 0,
+            lifecycle: AgentLifecycleState::Uninstalled,
+            authentication: AgentAuthenticationStatus::NotLoggedIn,
+            runtime_version: None,
+            acp_version: None,
+            local_runtime: None,
+            active_operation: None,
+            rollback_available: false,
+            settings_features: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn overlay_fills_acp_version_from_discovered_adapter_not_vendor_cli() {
+        let runtime = AgentManagementRuntimeState::default();
+        let claude = AgentId::parse("claude_code").unwrap();
+        runtime
+            .replace_local_runtime(
+                claude.clone(),
+                Some(crate::state::LocalRuntimeEvidence {
+                    path: "/usr/local/bin/claude".into(),
+                    version: Some("2.1.220".into()),
+                }),
+            )
+            .await;
+        runtime
+            .replace_acp_adapter(
+                claude,
+                Some(crate::state::LocalRuntimeEvidence {
+                    path: "/usr/local/bin/claude-agent-acp".into(),
+                    version: Some("0.69.0".into()),
+                }),
+            )
+            .await;
+
+        let mut views = vec![empty_management_view("claude_code")];
+        overlay_local_runtime_evidence(&runtime, &mut views).await;
+        assert_eq!(
+            views[0]
+                .local_runtime
+                .as_ref()
+                .map(|runtime| runtime.path.as_str()),
+            Some("/usr/local/bin/claude")
+        );
+        assert_eq!(views[0].acp_version.as_deref(), Some("0.69.0"));
+    }
+
+    #[tokio::test]
+    async fn overlay_does_not_treat_vendor_cli_as_an_acp_adapter() {
+        let runtime = AgentManagementRuntimeState::default();
+        runtime
+            .replace_local_runtime(
+                AgentId::parse("codex").unwrap(),
+                Some(crate::state::LocalRuntimeEvidence {
+                    path: "/usr/local/bin/codex".into(),
+                    version: Some("0.145.0".into()),
+                }),
+            )
+            .await;
+
+        let mut views = vec![empty_management_view("codex")];
+        overlay_local_runtime_evidence(&runtime, &mut views).await;
+        assert!(views[0].local_runtime.is_some());
+        assert!(views[0].acp_version.is_none());
     }
 
     #[tokio::test]
@@ -263,7 +342,10 @@ mod tests {
         .await
         .expect("the runnable CLI is independent Runtime evidence");
 
-        assert_eq!(evidence.path, std::fs::canonicalize(script).unwrap());
+        assert_eq!(
+            evidence.path,
+            utils::process::prefer_direct_spawn_executable(std::fs::canonicalize(script).unwrap())
+        );
         assert_eq!(evidence.version.as_deref(), Some("runtime-1.2.3"));
     }
 
@@ -678,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_provider_preflight_requires_the_complete_native_projection() {
+    fn vibex_managed_slot_shape_still_requires_openai_auth() {
         let complete: toml::Table = toml::from_str(
             r#"
 model_provider = "vibex"
@@ -1249,20 +1331,14 @@ wire_api = "responses"
 
     #[test]
     fn adapter_launch_env_binds_the_separate_local_runtime() {
-        for (agent, expected_key) in [
-            ("claude_code", "CLAUDE_CODE_EXECUTABLE"),
-            ("codex", "CODEX_PATH"),
-        ] {
+        for agent in ["claude_code", "codex"] {
             let mut env = BTreeMap::new();
             bind_profile_runtime_executable(
                 &AgentId::parse(agent).unwrap(),
                 Path::new("/managed/runtime"),
                 &mut env,
             );
-            assert_eq!(
-                env.get(expected_key).map(String::as_str),
-                Some("/managed/runtime")
-            );
+            assert!(env.is_empty(), "{agent}");
         }
 
         let mut generic_env = BTreeMap::new();
@@ -1272,6 +1348,23 @@ wire_api = "responses"
             &mut generic_env,
         );
         assert!(generic_env.is_empty());
+    }
+
+    #[test]
+    fn adapter_launch_env_omits_windows_cmd_shims_without_an_exe() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("claude.cmd");
+        std::fs::write(&cmd, b"").unwrap();
+
+        let mut env = BTreeMap::new();
+        bind_profile_runtime_executable(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
+        assert!(env.get("CLAUDE_CODE_EXECUTABLE").is_none());
+
+        let exe = dir.path().join("codex.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let mut env = BTreeMap::new();
+        bind_profile_runtime_executable(&AgentId::parse("codex").unwrap(), &exe, &mut env);
+        assert!(env.get("CODEX_PATH").is_none());
     }
 
     #[test]
@@ -2256,6 +2349,8 @@ mod opencode_catalog;
 mod opencode_plugins;
 #[path = "agent_management/pi_configuration.rs"]
 mod pi_configuration;
+#[path = "agent_management/pi_plugins.rs"]
+mod pi_plugins;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -2280,12 +2375,13 @@ use agents::{
     RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
     ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
     UserEnvironmentLayout, apply_component_versions, apply_npx_component_version,
-    decide_user_environment_adopt, ensure_user_cli_path, existing_path_satisfies_component,
-    fetch_npm_latest, fetch_npm_package_requirements, npm_global_install_args,
-    npm_install_permission_denied, npm_shim_candidates, observed_satisfies_profile,
-    plan_required_components, planned_preflight_updates, publish_managed_runtime_cli,
-    remove_managed_runtime_cli, resolve_npm_shim, runtime_acp_compatibility_warning,
-    switch_managed_runtime_cli, uv_distribution_name, verify_artifact_bytes,
+    bind_runtime_executable_env, decide_user_environment_adopt, ensure_user_cli_path,
+    existing_path_satisfies_component, fetch_npm_latest, fetch_npm_package_requirements,
+    npm_global_install_args, npm_install_permission_denied, npm_shim_candidates,
+    observed_satisfies_profile, plan_required_components, planned_preflight_updates,
+    publish_managed_runtime_cli, remove_managed_runtime_cli, resolve_npm_shim,
+    runtime_acp_compatibility_warning, switch_managed_runtime_cli, uv_distribution_name,
+    verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -2310,8 +2406,8 @@ use api_types::{
     OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodeProviderCatalogView,
     OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
     OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
-    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiRuntimeSaveRequest,
-    UserAgentDefinitionRequest, UserAgentDefinitionView,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView,
+    PiRuntimeSaveRequest, UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
 use db::models::{
@@ -2962,7 +3058,11 @@ async fn discover_built_in_local_runtimes(
 ) {
     let _ = utils::shell::refresh_process_path().await;
     if let Some(home) = dirs::home_dir() {
-        for directory in UserEnvironmentLayout::for_current_user(home).path_entries() {
+        let mut user_env = UserEnvironmentLayout::for_current_user(home);
+        if let Some(prefix) = live_npm_global_prefix(None).await {
+            user_env = user_env.with_npm_prefix(prefix);
+        }
+        for directory in user_env.path_entries() {
             utils::shell::expose_user_bin_to_process_path(&directory);
         }
     }
@@ -2988,13 +3088,32 @@ async fn discover_built_in_local_runtimes(
                         None
                     }
                 };
+                let acp_adapter = match profile.topology {
+                    ProfileTopology::NativeAcp => local_runtime.clone(),
+                    ProfileTopology::AdapterBacked => {
+                        match discover_profile_acp_adapter(&profile).await {
+                            Ok(evidence) => Some(evidence),
+                            Err(error) => {
+                                tracing::debug!(
+                                    agent_id = %profile.agent_id,
+                                    %error,
+                                    "built-in ACP adapter candidate was not discovered"
+                                );
+                                None
+                            }
+                        }
+                    }
+                };
                 runtime
                     .replace_local_runtime(profile.agent_id.clone(), local_runtime.clone())
                     .await;
                 runtime
+                    .replace_acp_adapter(profile.agent_id.clone(), acp_adapter.clone())
+                    .await;
+                runtime
                     .record_local_runtime_discovery(
                         profile.agent_id.clone(),
-                        local_runtime.is_some(),
+                        acp_adapter.is_some() || local_runtime.is_some(),
                     )
                     .await;
                 emit_local_runtime_discovery_progress(&app, runtime).await;
@@ -3118,8 +3237,15 @@ async fn refresh_current_agent_evidence(
     let runtime = app.state::<AppState>().agent_management_runtime.clone();
     if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id).cloned() {
         let local_runtime = discover_profile_local_runtime(pool, &profile).await.ok();
+        let acp_adapter = match profile.topology {
+            ProfileTopology::NativeAcp => local_runtime.clone(),
+            ProfileTopology::AdapterBacked => discover_profile_acp_adapter(&profile).await.ok(),
+        };
         runtime
             .replace_local_runtime(profile.agent_id.clone(), local_runtime.clone())
+            .await;
+        runtime
+            .replace_acp_adapter(profile.agent_id.clone(), acp_adapter)
             .await;
         let installed = sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS(
@@ -3468,7 +3594,8 @@ async fn probe_resolved_local_runtime_candidate(
     candidate: &agents::ProfileExternalCandidate,
     executable: PathBuf,
 ) -> anyhow::Result<LocalRuntimeEvidence> {
-    let executable = tokio::fs::canonicalize(executable).await?;
+    let executable =
+        utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(executable).await?);
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
         anyhow::bail!("external Runtime candidate is not an absolute executable file");
     }
@@ -3497,6 +3624,25 @@ async fn probe_resolved_local_runtime_candidate(
     })
 }
 
+async fn discover_profile_acp_adapter(
+    profile: &agents::BuiltInProfile,
+) -> anyhow::Result<LocalRuntimeEvidence> {
+    let candidate = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == ProfileComponent::AcpAdapter)
+        .ok_or_else(|| anyhow::anyhow!("Profile does not declare an ACP adapter candidate"))?;
+    let executable = utils::shell::resolve_executable_path(candidate.executable)
+        .await
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "external ACP adapter candidate `{}` was not found",
+                candidate.executable
+            )
+        })?;
+    probe_resolved_local_runtime_candidate(candidate, executable).await
+}
+
 async fn discover_profile_acp_launch(
     profile: &agents::BuiltInProfile,
 ) -> anyhow::Result<SessionLaunchLock> {
@@ -3518,7 +3664,8 @@ async fn discover_profile_acp_launch(
                 candidate.executable
             )
         })?;
-    let executable = tokio::fs::canonicalize(executable).await?;
+    let executable =
+        utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(executable).await?);
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
         anyhow::bail!("external ACP candidate is not an absolute executable file");
     }
@@ -3665,7 +3812,9 @@ async fn probe_one_built_in_external_installation(
             };
             (path, String::new())
         };
-        let executable = tokio::fs::canonicalize(executable).await?;
+        let executable = utils::process::prefer_direct_spawn_executable(
+            tokio::fs::canonicalize(executable).await?,
+        );
         if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
             anyhow::bail!("external candidate is not an absolute executable file");
         }
@@ -3863,12 +4012,7 @@ fn bind_profile_runtime_executable(
     runtime_path: &Path,
     env: &mut BTreeMap<String, String>,
 ) {
-    if let Some(variable) = BuiltInProfileCatalog::bundled()
-        .profile(agent_id)
-        .and_then(|profile| profile.runtime_executable_env)
-    {
-        env.insert(variable.to_string(), runtime_path.display().to_string());
-    }
+    bind_runtime_executable_env(agent_id, runtime_path, env);
 }
 
 fn pi_runtime_lock_env(configured_env: &HashMap<String, String>) -> BTreeMap<String, String> {
@@ -3952,6 +4096,7 @@ async fn overlay_local_runtime_evidence(
     views: &mut [AgentManagementView],
 ) {
     let local_runtimes = runtime.local_runtimes().await;
+    let acp_adapters = runtime.acp_adapters().await;
     for view in views {
         view.local_runtime =
             local_runtimes
@@ -3960,6 +4105,17 @@ async fn overlay_local_runtime_evidence(
                     path: evidence.path.display().to_string(),
                     version: evidence.version.clone(),
                 });
+        if view
+            .acp_version
+            .as_deref()
+            .is_none_or(|version| version.is_empty())
+            && let Some(version) = acp_adapters
+                .get(&view.agent_id)
+                .and_then(|evidence| evidence.version.clone())
+                .filter(|version| !version.is_empty())
+        {
+            view.acp_version = Some(version);
+        }
     }
 }
 
@@ -4367,7 +4523,7 @@ pub async fn agent_management_preflight(
         runtime.map(|(_, path, version, healthy)| (path.as_path(), version.as_str(), *healthy)),
         discovered_runtime.as_ref(),
     );
-    let mut runtime_ok = runtime_facts.available;
+    let runtime_ok = runtime_facts.available;
     let healthy_acp = find_healthy_component(&["acp_adapter", "combined_runtime"]);
     let mut acp_ok = healthy_acp.is_some();
     let mut acp_error = None;
@@ -4441,32 +4597,10 @@ pub async fn agent_management_preflight(
         } else {
             (Vec::new(), true)
         };
-    let pi_runtime_validation = if agent_id.as_str() == "pi" {
-        agent_env
-            .get("PI_ACP_PI_COMMAND")
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|command| !command.is_empty())
-            .map(|command| async move {
-                (
-                    command.to_string(),
-                    pi_configuration::validate_command(command).await,
-                )
-            })
-    } else {
-        None
-    };
-    let pi_runtime_validation = match pi_runtime_validation {
-        Some(validation) => Some(validation.await),
-        None => None,
-    };
-    if let Some((_, validation)) = &pi_runtime_validation {
-        runtime_ok = validation.found;
-    }
     let (auth_mode_item, auth_mode_ready, auth_mode_satisfies_authentication) =
         evaluate_auth_mode_preflight(&app, pool, agent_id.clone(), &agent_env, authentication)
             .await?;
-    let lifecycle = if !runtime_ok || !acp_ok || !required_dependencies_ok {
+    let lifecycle = if !acp_ok || !required_dependencies_ok {
         AgentLifecycleState::NeedsRepair
     } else if !auth_mode_ready
         || (authentication_required
@@ -4510,43 +4644,6 @@ pub async fn agent_management_preflight(
             update_group: None,
         },
         AgentPreflightItemView {
-            id: "runtime".to_string(),
-            label: if pi_runtime_validation.is_some() {
-                "实际 Runtime（自定义 pi）".to_string()
-            } else {
-                "本地 Runtime".to_string()
-            },
-            status: status(runtime_ok),
-            detail: if let Some((command, validation)) = &pi_runtime_validation {
-                if validation.found {
-                    format!("自定义命令 `{command}` 已解析并通过可执行性检查。")
-                } else {
-                    format!("自定义命令 `{command}` 无法解析为可执行文件。")
-                }
-            } else if runtime.is_none() && discovered_runtime.is_none() {
-                "未发现有效的当前安装锁。".to_string()
-            } else if runtime.is_some_and(|(_, _, _, healthy)| !healthy)
-                && discovered_runtime.is_some()
-            {
-                "当前安装锁中的 Runtime 异常，但检测到可执行的本地 CLI Runtime。".to_string()
-            } else {
-                String::new()
-            },
-            version: pi_runtime_validation
-                .as_ref()
-                .and_then(|(_, validation)| validation.version.clone())
-                .or_else(|| runtime_facts.version.clone()),
-            path: pi_runtime_validation
-                .as_ref()
-                .and_then(|(_, validation)| validation.resolved_path.clone())
-                .or_else(|| runtime_facts.path.clone()),
-            source: None,
-            repairable: true,
-            update_available: false,
-            available_version: None,
-            update_group: None,
-        },
-        AgentPreflightItemView {
             id: "acp".to_string(),
             label: "ACP 适配器".to_string(),
             status: status(acp_ok),
@@ -4555,7 +4652,7 @@ pub async fn agent_management_preflight(
             } else if let Some(error) = acp_error.as_ref() {
                 error.clone()
             } else if acp.is_none() {
-                "未发现 ACP 安装组件。请先安装官方 CLI，或使用「安装 Runtime 和 ACP」。".to_string()
+                "未发现 ACP 安装组件。".to_string()
             } else {
                 "已记录安装路径，但找不到 ACP 可执行文件。".to_string()
             },
@@ -4718,15 +4815,15 @@ async fn evaluate_auth_mode_preflight(
                         resolve_agent_home_directory(&home, agent_env, "CODEX_HOME", ".codex")
                     })
                     .map_err(internal_error)?;
-                let provider_projection_ready = if auth_mode.mode == "model_provider" {
-                    codex_provider_projection_ready(&codex_home).await
+                let provider_ready = if auth_mode.mode == "model_provider" {
+                    model_providers::native_codex_provider_ready_at(&codex_home).await
                         && auth_mode.credential_present
                 } else {
                     true
                 };
                 let ready = match auth_mode.mode.as_str() {
                     "api_key" => auth_mode.credential_present,
-                    "model_provider" => provider_projection_ready,
+                    "model_provider" => provider_ready,
                     "chatgpt_subscription" => matches!(
                         authentication,
                         AgentAuthenticationStatus::Account
@@ -4742,11 +4839,10 @@ async fn evaluate_auth_mode_preflight(
                         "api_key 模式缺少 OPENAI_API_KEY，请在鉴权模式中保存凭据。".to_string()
                     }
                     "model_provider" if ready => {
-                        "Model Provider 绑定、Codex 原生配置与凭据投影已对齐。".to_string()
+                        "已从 Codex 原生配置检测到当前 Provider。".to_string()
                     }
                     "model_provider" => {
-                        "Model Provider 绑定与 Codex auth.json/config.toml 投影不一致，请重新绑定。"
-                            .to_string()
+                        "Codex 原生 Provider 不完整，请检查 config.toml 与 auth.json。".to_string()
                     }
                     "chatgpt_subscription" if ready => {
                         "ChatGPT 订阅模式已检测到有效账号会话。".to_string()
@@ -4756,6 +4852,11 @@ async fn evaluate_auth_mode_preflight(
                     }
                     _ => format!("无法验证鉴权模式 `{}`。", auth_mode.mode),
                 };
+                let auth_path = if auth_mode.mode == "model_provider" {
+                    codex_home.join("config.toml")
+                } else {
+                    codex_home.join("auth.json")
+                };
                 (
                     Some(AgentPreflightItemView {
                         id: "auth.mode".to_string(),
@@ -4763,7 +4864,7 @@ async fn evaluate_auth_mode_preflight(
                         status: status(ready),
                         detail,
                         version: Some(auth_mode.mode),
-                        path: Some(codex_home.join("auth.json").display().to_string()),
+                        path: Some(auth_path.display().to_string()),
                         source: None,
                         repairable: !ready,
                         update_available: false,
@@ -4964,14 +5065,7 @@ fn relocate_managed_path(path: &Path, from: &Path, to: &Path) -> PathBuf {
         .unwrap_or_else(|_| path.to_path_buf())
 }
 
-async fn codex_provider_projection_ready(codex_home: &Path) -> bool {
-    let Ok(source) = tokio::fs::read_to_string(codex_home.join("config.toml")).await else {
-        return false;
-    };
-    toml::from_str::<toml::Table>(&source)
-        .is_ok_and(|table| codex_provider_config_is_projected(&table))
-}
-
+#[cfg(test)]
 fn codex_provider_config_is_projected(table: &toml::Table) -> bool {
     table.get("model_provider").and_then(toml::Value::as_str) == Some("vibex")
         && table
@@ -5932,7 +6026,7 @@ async fn run_install_operation(
             kind,
             AgentOperationStatus::Running,
             Some(20),
-            Some("正在安装本地 Runtime 与 ACP".to_string()),
+            Some("正在安装 ACP".to_string()),
         );
         let custom_builtin_binary = matches!(
             plan.source,
@@ -6276,6 +6370,37 @@ fn resolve_agent_home_directory(
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| home.join(fallback))
+}
+
+fn resolve_model_provider_native_home(
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: &AgentId,
+) -> PathBuf {
+    match agent_id.as_str() {
+        "pi" => resolve_agent_home_directory(home, environment, "PI_CODING_AGENT_DIR", ".pi/agent"),
+        "claude_code" => {
+            resolve_agent_home_directory(home, environment, "CLAUDE_CONFIG_DIR", ".claude")
+        }
+        "grok" => resolve_agent_home_directory(home, environment, "GROK_HOME", ".grok"),
+        "kimi_code" => {
+            resolve_agent_home_directory(home, environment, "KIMI_CODE_HOME", ".kimi-code")
+        }
+        "hermes" => resolve_agent_home_directory(home, environment, "HERMES_HOME", ".hermes"),
+        "openclaw" => resolve_agent_home_directory(home, environment, "OPENCLAW_HOME", ".openclaw"),
+        "cline" => resolve_agent_home_directory(home, environment, "CLINE_DIR", ".cline/data"),
+        "gemini" | "antigravity" => {
+            if let Some(value) = environment
+                .get("GEMINI_HOME")
+                .filter(|value| !value.trim().is_empty())
+            {
+                expand_agent_home_path(home, value)
+            } else {
+                home.join(".gemini")
+            }
+        }
+        _ => resolve_agent_home_directory(home, environment, "CODEX_HOME", ".codex"),
+    }
 }
 
 async fn resolve_install_plan(
@@ -7036,7 +7161,9 @@ async fn existing_user_environment_component(
         return None;
     }
     let executable = utils::shell::resolve_executable_path(command).await?;
-    let executable = tokio::fs::canonicalize(&executable).await.ok()?;
+    let executable = utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(&executable).await.ok()?,
+    );
     if command.ends_with(".par") {
         return Some((executable, component.version.clone()));
     }
@@ -7312,10 +7439,12 @@ async fn install_locked_plan(
                 absolute_path.display()
             );
         }
-        if sha256.is_none() {
-            let bytes = tokio::fs::read(&absolute_path).await?;
+        let recorded = utils::process::prefer_direct_spawn_executable(&absolute_path);
+        if sha256.is_none() || recorded != absolute_path {
+            let bytes = tokio::fs::read(&recorded).await?;
             sha256 = Some(format!("{:x}", Sha256::digest(bytes)));
         }
+        let absolute_path = recorded;
         components.push(InstalledComponent {
             kind: component.component_id.clone(),
             absolute_path,
@@ -7330,16 +7459,17 @@ async fn install_locked_plan(
         .iter()
         .find(|component| component.kind == "acp_adapter" || component.kind == "combined_runtime")
         .ok_or_else(|| anyhow::anyhow!("安装方案没有 ACP 可执行组件"))?;
-    let runtime = components
-        .iter()
-        .find(|component| component.kind == "agent_runtime" || component.kind == "combined_runtime")
-        .ok_or_else(|| anyhow::anyhow!("安装方案没有本地 Runtime 组件"))?;
+    let runtime = components.iter().find(|component| {
+        component.kind == "agent_runtime" || component.kind == "combined_runtime"
+    });
     let mut env = build_launch_environment(
         &plan.components,
         &path_entries,
         std::env::var_os("PATH").unwrap_or_default(),
     )?;
-    bind_profile_runtime_executable(&plan.agent_id, &runtime.absolute_path, &mut env);
+    if let Some(runtime) = runtime {
+        bind_profile_runtime_executable(&plan.agent_id, &runtime.absolute_path, &mut env);
+    }
     Ok(InstalledPlan {
         launch_lock: SessionLaunchLock {
             agent_id: plan.agent_id.clone(),
@@ -7351,7 +7481,9 @@ async fn install_locked_plan(
                 .map(|component| component.args.clone())
                 .unwrap_or_default(),
             env,
-            runtime_version: runtime.version.clone(),
+            runtime_version: runtime
+                .map(|component| component.version.clone())
+                .unwrap_or_default(),
             acp_version: acp.version.clone(),
         },
         components,
@@ -7421,9 +7553,11 @@ async fn publish_user_bin_executable(
             if error.kind() == std::io::ErrorKind::PermissionDenied
                 && tokio::fs::try_exists(&destination).await.unwrap_or(false) =>
         {
-            return Ok(tokio::fs::canonicalize(&destination)
-                .await
-                .unwrap_or(destination));
+            return Ok(utils::process::prefer_direct_spawn_executable(
+                tokio::fs::canonicalize(&destination)
+                    .await
+                    .unwrap_or(destination),
+            ));
         }
         Err(error) => return Err(error.into()),
     }
@@ -7436,9 +7570,11 @@ async fn publish_user_bin_executable(
     }
     #[cfg(target_os = "macos")]
     prepare_macos_binary_for_launch(&destination)?;
-    Ok(tokio::fs::canonicalize(&destination)
-        .await
-        .unwrap_or(destination))
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(&destination)
+            .await
+            .unwrap_or(destination),
+    ))
 }
 
 async fn publish_required_binary_siblings(
@@ -7979,7 +8115,7 @@ async fn resolve_npm_package_executable(
                 .unwrap_or_else(|| command.clone())
         )
     })?;
-    Ok(executable)
+    Ok(utils::process::prefer_direct_spawn_executable(executable))
 }
 
 fn npm_package_name(package_spec: &str) -> anyhow::Result<&str> {
@@ -8381,6 +8517,16 @@ async fn persist_installed_lock(
     .bind(plan.agent_id.as_str())
     .bind(installation_ownership)
     .bind(lock_id.to_string())
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"UPDATE agent_diagnostic
+           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE agent_id = ?
+             AND severity = 'error'
+             AND read_at IS NULL"#,
+    )
+    .bind(plan.agent_id.as_str())
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
@@ -9168,8 +9314,8 @@ pub async fn agent_model_providers(
         .join("agent-model-providers.json");
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
     let home = app.path().home_dir().map_err(internal_error)?;
-    let codex_home = resolve_agent_home_directory(&home, &environment, "CODEX_HOME", ".codex");
-    model_providers::list_with_native(&store_path, agent_id, Some(&codex_home))
+    let native_home = resolve_model_provider_native_home(&home, &environment, &agent_id);
+    model_providers::list_with_native(&store_path, agent_id, Some(&native_home))
         .await
         .map_err(internal_error)
 }
@@ -9177,6 +9323,7 @@ pub async fn agent_model_providers(
 #[tauri::command]
 pub async fn agent_model_provider_catalog(
     app: AppHandle,
+    state: tauri::State<'_, AppState>,
     agent_id: AgentId,
     provider_id: Option<String>,
     api_url: String,
@@ -9187,11 +9334,15 @@ pub async fn agent_model_provider_catalog(
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    let api_key = model_providers::resolve_probe_api_key(
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let api_key = model_providers::resolve_probe_api_key_from(
         &store_path,
         &agent_id,
         provider_id.as_deref(),
         api_key.as_deref(),
+        Some(&home),
+        Some(&environment),
     )
     .await
     .map_err(|message| {
@@ -9226,11 +9377,13 @@ pub async fn agent_model_provider_save(
     let home = app.path().home_dir().map_err(internal_error)?;
     let agent_id = request.agent_id.clone();
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
-    let has_binding = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?
-        .bound_provider_id
-        .is_some();
+    let native_home = resolve_model_provider_native_home(&home, &environment, &agent_id);
+    let has_binding =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(internal_error)?
+            .bound_provider_id
+            .is_some();
     if has_binding {
         // Keep the database overlay valid before changing any native Agent file.
         // A failed save therefore leaves both the previous binding and its auth
@@ -9261,10 +9414,12 @@ pub async fn agent_model_provider_bind(
         .join("agent-model-providers.json");
     let home = app.path().home_dir().map_err(internal_error)?;
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
-    let previous_binding = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?
-        .bound_provider_id;
+    let native_home = resolve_model_provider_native_home(&home, &environment, &agent_id);
+    let previous_binding =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(internal_error)?
+            .bound_provider_id;
     let result = model_providers::bind(
         &store_path,
         &home,
@@ -9362,12 +9517,14 @@ pub async fn agent_model_provider_delete(
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
     // 删除当前绑定的 Provider 会在模型层先解绑并恢复原生投影，默认回到其它
     // Provider 或官方订阅登录；删除未绑定的 Provider 不影响鉴权模式。
-    let was_bound = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?
-        .bound_provider_id
-        .as_deref()
-        == Some(provider_id.as_str());
+    let native_home = resolve_model_provider_native_home(&home, &environment, &agent_id);
+    let was_bound =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(internal_error)?
+            .bound_provider_id
+            .as_deref()
+            == Some(provider_id.as_str());
     let result = model_providers::delete(
         &store_path,
         &home,
@@ -9728,6 +9885,69 @@ pub async fn dsh_plugin_remove(
 
 fn grok_agent_id() -> AgentId {
     AgentId::parse("grok").expect("built-in id")
+}
+
+fn pi_agent_id() -> AgentId {
+    AgentId::parse("pi").expect("built-in id")
+}
+
+#[tauri::command]
+pub async fn pi_plugins(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<PiPluginSummaryView, AgentManagementErrorView> {
+    let home = app.path().home_dir().map_err(internal_error)?;
+    pi_plugins::list_plugins(&state.deployment.db().pool, &home)
+        .await
+        .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn pi_plugin_add(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    spec: String,
+) -> Result<PiPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = pi_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let result = pi_plugins::add_plugin(&state.deployment.db().pool, &home, &spec)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "Pi 插件已更改")
+        .await;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn pi_plugin_remove(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    spec: String,
+) -> Result<PiPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = pi_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let result = pi_plugins::remove_plugin(&state.deployment.db().pool, &home, &spec)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "Pi 插件已更改")
+        .await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -10155,9 +10375,11 @@ async fn read_profile_auth_mode_view(
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    let providers = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?;
+    let native_home = resolve_model_provider_native_home(&home, &environment, &agent_id);
+    let providers =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(internal_error)?;
     let account_logged_in = resolve_native_account_login(&home, &agent_id, &environment).await;
     let snapshot = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
@@ -10172,7 +10394,9 @@ async fn read_profile_auth_mode_view(
         .filter(|mode| policy.modes.contains(&mode.as_str()))
         .filter(|mode| mode.as_str() != "model_provider")
         .cloned();
-    let mode = if providers.bound_provider_id.is_some() {
+    let mode = if providers.bound_provider_id.is_some()
+        || native_uses_custom_endpoint(&agent_id, &snapshot)
+    {
         "model_provider".to_string()
     } else if let Some(mode) = configured_mode {
         mode
@@ -10369,6 +10593,29 @@ async fn provider_json_projection_ready(path: &Path, agent_id: &str) -> bool {
         }
         _ => false,
     }
+}
+
+fn native_uses_custom_endpoint(
+    agent_id: &AgentId,
+    snapshot: &agents::NativeConfigSnapshot,
+) -> bool {
+    let Some(url) = (match agent_id.as_str() {
+        "claude_code" => native_field_text(snapshot, "anthropic_base_url"),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let normalized = url.trim().trim_end_matches('/').to_ascii_lowercase();
+    let official = agents::official_api_url(agent_id, "official_api")
+        .or_else(|| agents::official_api_url(agent_id, "custom"))
+        .or_else(|| agents::official_api_url(agent_id, "api_key"))
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    !normalized.is_empty()
+        && (official.is_empty()
+            || (normalized != official
+                && normalized.strip_suffix("/v1").unwrap_or(&normalized) != official.as_str()))
 }
 
 fn native_field_present(snapshot: &agents::NativeConfigSnapshot, field_id: &str) -> bool {
@@ -10717,11 +10964,11 @@ async fn read_codex_auth_mode_view(
         model_providers::list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
             .await
             .map_err(internal_error)?;
-    Ok(project_codex_auth_mode(
-        agent_id,
-        &auth,
-        providers.bound_provider_id.is_some(),
-    ))
+    let mut view = project_codex_auth_mode(agent_id, &auth, providers.bound_provider_id.is_some());
+    if let Some(bound) = providers.providers.iter().find(|provider| provider.bound) {
+        view.credential_present = view.credential_present || bound.credential_present;
+    }
+    Ok(view)
 }
 
 async fn set_codex_auth_mode(
@@ -10762,14 +11009,16 @@ async fn set_codex_auth_mode(
         return read_codex_auth_mode_view(app, &state.deployment.db().pool).await;
     }
 
-    // 解除绑定只针对 VibeX 预设的绑定；原生 config.toml 中的自定义 Provider
-    // 属于 Agent 原生配置，切换模式不触碰它们。
-    let previous_binding = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?
-        .bound_provider_id;
+    // Drop the VibeX store binding without rewriting native files. Switching
+    // to subscription/API Key writes auth.json and clears `model_provider`;
+    // handwritten `[model_providers.*]` tables stay as unbound native entries.
+    let previous_binding = providers
+        .providers
+        .iter()
+        .find(|provider| provider.bound && provider.managed)
+        .map(|provider| provider.id.clone());
     if previous_binding.is_some() {
-        model_providers::bind(&store_path, &home, &environment, agent_id.clone(), None)
+        model_providers::forget_binding(&store_path, agent_id.clone())
             .await
             .map_err(internal_error)?;
     }
@@ -10819,7 +11068,7 @@ async fn prepare_codex_auth_mode_mutations(
         true,
     )?];
 
-    if mode == "chatgpt_subscription" {
+    if mode == "chatgpt_subscription" || mode == "api_key" {
         let config_path = codex_home.join("config.toml");
         let config_original = match tokio::fs::read(&config_path).await {
             Ok(bytes) => Some(bytes),
@@ -10834,12 +11083,10 @@ async fn prepare_codex_auth_mode_mutations(
                 toml::from_str::<toml::Table>(text).map_err(internal_error)?
             };
             let mut changed = false;
-            // 只移除 VibeX 投影写入的 `model_provider = "vibex"`；用户在原生
-            // config.toml 中手写的自定义 Provider 属于 Agent 原生配置，切换
-            // 订阅模式不删除它。
-            if table.get("model_provider").and_then(toml::Value::as_str) == Some("vibex") {
-                changed |= table.remove("model_provider").is_some();
-            }
+            // Native config is the auth-mode source of truth: leaving
+            // `model_provider` set would keep the next read in Provider mode.
+            // Handwritten provider tables stay; only the VibeX-owned slot is removed.
+            changed |= table.remove("model_provider").is_some();
             if let Some(providers) = table
                 .get_mut("model_providers")
                 .and_then(toml::Value::as_table_mut)

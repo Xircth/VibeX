@@ -35,6 +35,7 @@ import type {
   OpenCodeProviderConnectionsView,
   DshPluginSummaryView,
   GrokPluginSummaryView,
+  PiPluginSummaryView,
   DshProviderDiscoverRequest,
   DshProviderModelView,
   DshProviderSaveRequest,
@@ -310,6 +311,14 @@ export const agentManagementApi = {
 
   removeGrokPlugin: (name: string): Promise<GrokPluginSummaryView> =>
     backendCall('grok_plugin_remove', { name }),
+
+  piPlugins: (): Promise<PiPluginSummaryView> => backendCall('pi_plugins'),
+
+  addPiPlugin: (spec: string): Promise<PiPluginSummaryView> =>
+    backendCall('pi_plugin_add', { spec }),
+
+  removePiPlugin: (spec: string): Promise<PiPluginSummaryView> =>
+    backendCall('pi_plugin_remove', { spec }),
 
   repair: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     backendCall('agent_management_repair', { agentId }),

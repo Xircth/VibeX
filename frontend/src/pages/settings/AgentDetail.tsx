@@ -62,6 +62,7 @@ type AgentDetailProps = {
   onMarkAllDiagnosticsRead?: () => void;
   onEnvironmentDiagnostics?: () => void;
   onUpdatePreflightItem?: (itemId: string) => void;
+  focusDiagnostics?: boolean;
 };
 
 const operationStages: Record<
@@ -113,10 +114,16 @@ export function AgentDetail({
   onMarkAllDiagnosticsRead,
   onEnvironmentDiagnostics,
   onUpdatePreflightItem,
+  focusDiagnostics = false,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
-    useState(() => localStorage.getItem(OPERATION_DIAGNOSTICS_KEY) !== 'off');
+    useState(
+      () =>
+        focusDiagnostics ||
+        localStorage.getItem(OPERATION_DIAGNOSTICS_KEY) !== 'off'
+    );
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(focusDiagnostics);
   const toggleOperationDiagnostics = (enabled: boolean) => {
     setOperationDiagnosticsEnabled(enabled);
     localStorage.setItem(OPERATION_DIAGNOSTICS_KEY, enabled ? 'on' : 'off');
@@ -148,25 +155,18 @@ export function AgentDetail({
     ? operationMessage(t, i18n.resolvedLanguage, operation)
     : null;
   const [customVersion, setCustomVersion] = useState('');
-  const [customRuntimeVersion, setCustomRuntimeVersion] = useState('');
-  const [customAcpVersion, setCustomAcpVersion] = useState('');
   const [specifiedCompatibilityWarning, setSpecifiedCompatibilityWarning] =
     useState<string | null>(null);
   useEffect(() => {
     setCustomVersion('');
-    setCustomRuntimeVersion('');
-    setCustomAcpVersion('');
     setSpecifiedCompatibilityWarning(null);
   }, [agent.agent_id]);
-  const adapterBacked =
-    agent.agent_id === 'claude_code' ||
-    agent.agent_id === 'codex' ||
-    agent.agent_id === 'pi';
-  const customVersionValid = adapterBacked
-    ? (!customRuntimeVersion || isValidCustomVersion(customRuntimeVersion)) &&
-      (!customAcpVersion || isValidCustomVersion(customAcpVersion)) &&
-      Boolean(customRuntimeVersion || customAcpVersion)
-    : isValidCustomVersion(customVersion);
+  useEffect(() => {
+    if (!focusDiagnostics) return;
+    setDiagnosticsOpen(true);
+    setOperationDiagnosticsEnabled(true);
+  }, [focusDiagnostics]);
+  const customVersionValid = isValidCustomVersion(customVersion);
   const supportsCustomVersion =
     agent.built_in && agent.agent_id !== 'hermes' && onInstallVersion != null;
   useEffect(() => {
@@ -176,14 +176,9 @@ export function AgentDetail({
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void onPreviewVersions(
-        adapterBacked
-          ? {
-              runtimeVersion: customRuntimeVersion.trim() || undefined,
-              acpVersion: customAcpVersion.trim() || undefined,
-            }
-          : { acpVersion: customVersion.trim() || undefined }
-      ).then((warning) => {
+      void onPreviewVersions({
+        acpVersion: customVersion.trim() || undefined,
+      }).then((warning) => {
         if (!cancelled) {
           setSpecifiedCompatibilityWarning(warning);
         }
@@ -194,9 +189,6 @@ export function AgentDetail({
       window.clearTimeout(timer);
     };
   }, [
-    adapterBacked,
-    customAcpVersion,
-    customRuntimeVersion,
     customVersion,
     customVersionValid,
     onPreviewVersions,
@@ -364,91 +356,44 @@ export function AgentDetail({
               <details className="agent-custom-version">
                 <summary>{t('agents.customVersionInstall')}</summary>
                 <div className="agent-custom-version-body">
-                  {adapterBacked ? (
-                    <>
-                      <label>
-                        <span>{t('agents.customRuntimeVersionLabel')}</span>
-                        <input
-                          aria-label={t('agents.customRuntimeVersionLabel')}
-                          autoComplete="off"
-                          disabled={busy || agent.retired}
-                          placeholder={
-                            updateCheck?.runtime_available ??
-                            agent.runtime_version ??
-                            t('agents.customVersionPlaceholder')
-                          }
-                          spellCheck={false}
-                          value={customRuntimeVersion}
-                          onChange={(event) =>
-                            setCustomRuntimeVersion(event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>{t('agents.customAcpVersionLabel')}</span>
-                        <input
-                          aria-label={t('agents.customAcpVersionLabel')}
-                          autoComplete="off"
-                          disabled={busy || agent.retired}
-                          placeholder={
-                            updateCheck?.acp_available ??
-                            agent.acp_version ??
-                            t('agents.customVersionPlaceholder')
-                          }
-                          spellCheck={false}
-                          value={customAcpVersion}
-                          onChange={(event) =>
-                            setCustomAcpVersion(event.target.value)
-                          }
-                        />
-                      </label>
-                    </>
-                  ) : (
-                    <label>
-                      <span>{t('agents.customVersionLabel')}</span>
-                      <input
-                        aria-label={t('agents.customVersionLabel')}
-                        aria-invalid={Boolean(
-                          customVersion && !customVersionValid
-                        )}
-                        autoComplete="off"
-                        disabled={busy || agent.retired}
-                        placeholder={
-                          updateCheck?.available_version ??
-                          agent.runtime_version ??
-                          t('agents.customVersionPlaceholder')
-                        }
-                        spellCheck={false}
-                        value={customVersion}
-                        onChange={(event) =>
-                          setCustomVersion(event.target.value)
-                        }
-                      />
-                    </label>
-                  )}
+                  <label>
+                    <span>{t('agents.customVersionLabel')}</span>
+                    <input
+                      aria-label={t('agents.customVersionLabel')}
+                      aria-invalid={Boolean(
+                        customVersion && !customVersionValid
+                      )}
+                      autoComplete="off"
+                      disabled={busy || agent.retired}
+                      placeholder={
+                        updateCheck?.acp_available ??
+                        updateCheck?.available_version ??
+                        agent.acp_version ??
+                        t('agents.customVersionPlaceholder')
+                      }
+                      spellCheck={false}
+                      value={customVersion}
+                      onChange={(event) =>
+                        setCustomVersion(event.target.value)
+                      }
+                    />
+                  </label>
                   <Button
                     className="h-8 shrink-0"
                     disabled={busy || agent.retired || !customVersionValid}
                     size="sm"
                     variant="outline"
                     onClick={() =>
-                      onInstallVersion?.(
-                        adapterBacked
-                          ? {
-                              runtimeVersion: customRuntimeVersion.trim(),
-                              acpVersion: customAcpVersion.trim(),
-                            }
-                          : { version: customVersion.trim() }
-                      )
+                      onInstallVersion?.({
+                        acpVersion: customVersion.trim(),
+                      })
                     }
                   >
                     <Download aria-hidden="true" className="h-3.5 w-3.5" />
                     {t('agents.installSpecifiedVersion')}
                   </Button>
                 </div>
-                {customVersionValid ? null : customVersion ||
-                  customRuntimeVersion ||
-                  customAcpVersion ? (
+                {customVersionValid ? null : customVersion ? (
                   <p role="alert">{t('agents.customVersionInvalid')}</p>
                 ) : null}
                 {specifiedCompatibilityWarning ? (
@@ -581,7 +526,11 @@ export function AgentDetail({
       </section>
 
       {diagnostics.length > 0 ? (
-        <details className="settings-surface">
+        <details
+          className="settings-surface"
+          open={diagnosticsOpen}
+          onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
+        >
           <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-medium">
             <span className="flex items-center gap-2">
               {t('agents.diagnosticsTitle')} · {diagnostics.length}
@@ -784,7 +733,7 @@ function localizedOperationLogLine(
   if (!language?.startsWith('en')) return line;
   const key = {
     正在解析已锁定的安装方案: 'resolvePlan',
-    '正在安装本地 Runtime 与 ACP': 'installRuntime',
+    '正在安装 ACP': 'installRuntime',
     '正在验证 ACP 握手': 'verifyAcp',
     正在绑定用户环境命令: 'publishCommand',
     正在发布本地终端命令: 'publishCommand',
@@ -842,9 +791,6 @@ function fallbackPreflight(
   t: TFunction<'settings'>,
   agent: AgentManagementView
 ): AgentPreflightItemView[] {
-  const runtimeAvailable = Boolean(
-    agent.runtime_version || agent.local_runtime
-  );
   return [
     {
       id: 'membership',
@@ -857,19 +803,6 @@ function fallbackPreflight(
       path: null,
       source: null,
       repairable: false,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    },
-    {
-      id: 'runtime',
-      label: t('agents.localRuntime'),
-      status: runtimeAvailable ? 'pass' : 'fail',
-      detail: runtimeAvailable ? '' : t('agents.localRuntimeMissing'),
-      version: agent.runtime_version ?? agent.local_runtime?.version ?? null,
-      path: agent.local_runtime?.path ?? null,
-      source: null,
-      repairable: true,
       update_available: false,
       available_version: null,
       update_group: null,

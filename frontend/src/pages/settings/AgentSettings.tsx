@@ -28,6 +28,7 @@ import {
   agentManagementErrorMessage as errorMessage,
   useAgentManagement,
 } from '@/features/agent-management';
+import { consumeAgentSettingsFocus } from '@/features/agent-management/agentSettingsFocus';
 
 import { AgentBar } from './AgentBar';
 import { defaultAgentIdFromOrder, sortAgentsForBar } from './agentBarOrder';
@@ -50,6 +51,7 @@ import { OpenCodePluginHealth } from './OpenCodePluginHealth';
 import { DshAuthPanel } from './DshAuthPanel';
 import { DshPluginManager } from './DshPluginManager';
 import { GrokPluginManager } from './GrokPluginManager';
+import { PiPluginManager } from './PiPluginManager';
 import { DshSessionDefaults } from './DshSessionDefaults';
 import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
 import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection';
@@ -65,6 +67,7 @@ export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config: userConfig, updateAndSaveConfig } = useUserSystem();
   const management = useAgentManagement();
+  const [focusDiagnostics, setFocusDiagnostics] = useState(false);
   const [registryOpen, setRegistryOpen] = useState(false);
   const [registry, setRegistry] = useState<AgentRegistryView | null>(null);
   const [registryLoading, setRegistryLoading] = useState(false);
@@ -144,6 +147,19 @@ export function AgentSettings() {
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
+  const selectAgent = management.select;
+  useEffect(() => {
+    const applyFocus = () => {
+      const focus = consumeAgentSettingsFocus();
+      if (!focus) return;
+      selectAgent(focus.agentId);
+      setFocusDiagnostics(focus.focusDiagnostics);
+      setRegistryOpen(false);
+    };
+    applyFocus();
+    window.addEventListener('focus', applyFocus);
+    return () => window.removeEventListener('focus', applyFocus);
+  }, [selectAgent]);
   useEffect(() => {
     setPluginCount(0);
     setNativePluginsExpanded(false);
@@ -1185,6 +1201,7 @@ export function AgentSettings() {
               preflight={preflight}
               authentication={authenticationPanel}
               diagnostics={diagnostics}
+              focusDiagnostics={focusDiagnostics}
               onMarkAllDiagnosticsRead={markAllDiagnosticsRead}
               checking={checking}
               checkingUpdate={checkingUpdate}
@@ -1320,6 +1337,19 @@ export function AgentSettings() {
                 onCount={setPluginCount}
               />
             </CollapsibleSettingsSection>
+          ) : selectedAgent.agent_id === 'pi' ? (
+            <CollapsibleSettingsSection
+              id={`${selectedAgent.agent_id}-native-plugins`}
+              title={t('settings:agents.pluginsTab')}
+              expanded={nativePluginsExpanded}
+              onToggle={() => setNativePluginsExpanded((current) => !current)}
+              summary={t('settings:agents.pluginCount', { count: pluginCount })}
+            >
+              <PiPluginManager
+                onChanged={runPreflight}
+                onCount={setPluginCount}
+              />
+            </CollapsibleSettingsSection>
           ) : nativePluginEcosystem ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
@@ -1386,23 +1416,20 @@ function applyInstallationToPreflight(
   current: AgentPreflightView | null,
   agent: AgentManagementView
 ): AgentPreflightView {
-  const items = [...(current?.items ?? [])];
-  const patch = (
-    id: 'runtime' | 'acp',
-    version: string | null,
-    path: string | null
-  ) => {
-    const index = items.findIndex((item) => item.id === id);
+  const items = [...(current?.items ?? [])].filter(
+    (item) => item.id !== 'runtime'
+  );
+  const patch = (version: string | null) => {
+    const index = items.findIndex((item) => item.id === 'acp');
     const previous = index >= 0 ? items[index] : null;
     const available = Boolean(version);
     const next: AgentPreflightItemView = {
-      id,
-      label:
-        previous?.label ?? (id === 'runtime' ? '本地 Runtime' : 'ACP 适配器'),
+      id: 'acp',
+      label: previous?.label ?? 'ACP 适配器',
       status: available ? 'pass' : (previous?.status ?? 'fail'),
       detail: available ? '' : (previous?.detail ?? ''),
       version,
-      path: path ?? previous?.path ?? null,
+      path: previous?.path ?? null,
       source: previous?.source ?? null,
       repairable: !available,
       update_available: false,
@@ -1415,12 +1442,7 @@ function applyInstallationToPreflight(
       items.push(next);
     }
   };
-  patch(
-    'runtime',
-    agent.runtime_version ?? agent.local_runtime?.version ?? null,
-    agent.local_runtime?.path ?? null
-  );
-  patch('acp', agent.acp_version, null);
+  patch(agent.acp_version);
   return {
     agent_id: agent.agent_id,
     checked_at: new Date().toISOString(),

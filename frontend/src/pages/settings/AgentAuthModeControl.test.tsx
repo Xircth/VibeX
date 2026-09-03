@@ -675,6 +675,36 @@ describe('AgentAuthModeControl', () => {
       expect(save).toHaveBeenCalledWith('antigravity', 'gemini-api-key', null)
     );
   });
+
+  it('does not render auth-kind tabs when the Agent only has Provider mode', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'pi',
+      mode: 'model_provider',
+      credential_env: 'PI_API_KEY',
+      credential_present: true,
+      modes: ['model_provider'],
+      options: [
+        authOption(
+          'model_provider',
+          'provider',
+          'authModeProvider',
+          'authDescPiProvider'
+        ),
+      ],
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="pi"
+        modelProvider={<input aria-label="Pi Provider" />}
+      />
+    );
+
+    expect(await screen.findByLabelText('Pi Provider')).toBeVisible();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+  });
 });
 
 function authOption(

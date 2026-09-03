@@ -595,11 +595,10 @@ pub struct AgentModelProviderView {
     pub agent_id: AgentId,
     pub api_url: String,
     pub model: String,
+    pub api_key: String,
     pub credential_present: bool,
     pub bound: bool,
-    /// `true` 表示该 Provider 由 VibeX 的预设存储管理；`false` 表示它只存在于
-    /// Agent 原生配置中（例如 Codex `config.toml` 的 `[model_providers.xxx]`），
-    /// 只能查看或接管，不能被 VibeX 直接编辑或删除。
+    /// `true` 表示该 Provider 由 VibeX 的预设存储管理。
     pub managed: bool,
 }
 
@@ -834,6 +833,23 @@ pub struct GrokPluginSummaryView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct PiPluginView {
+    pub source: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub kind: String,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiPluginSummaryView {
+    pub home: String,
+    pub plugins: Vec<PiPluginView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentModelProviderSaveRequest {
     pub id: Option<String>,
     pub name: String,
@@ -990,6 +1006,7 @@ pub enum AgentSettingsFeature {
     DshProviders,
     DshPlugins,
     GrokPlugins,
+    PiPlugins,
     NativeMcp,
     NativeSkills,
 }

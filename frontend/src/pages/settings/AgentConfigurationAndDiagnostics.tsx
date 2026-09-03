@@ -724,7 +724,7 @@ const PI_STRUCTURED_CONFIGURATION_FIELDS = new Set([
   'pi_opencode_api_key',
   'pi_default_provider',
   'pi_default_model',
-  'pi_thinking_level',
+  'pi_custom_providers',
 ]);
 
 function fieldSurfaceOf(

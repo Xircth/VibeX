@@ -184,6 +184,7 @@ async fn run_agent_fixture_gate(
             external_session_id: format!("{agent_id}-resume-session"),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
+            preferences: Default::default(),
         })
         .await
         .unwrap();

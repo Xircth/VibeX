@@ -151,7 +151,7 @@ async fn session_authentication_required_is_a_semantic_runtime_error() {
     ready.await.unwrap().unwrap();
 
     let error = manager
-        .prepare_session(connection_id, AgentSessionId::new())
+        .prepare_session(connection_id, AgentSessionId::new(), Default::default())
         .await
         .unwrap_err();
 
@@ -285,7 +285,7 @@ async fn http_mcp_follows_advertised_capability() {
             .await;
         ready.await.unwrap().unwrap();
         manager
-            .prepare_session(connection_id, AgentSessionId::new())
+            .prepare_session(connection_id, AgentSessionId::new(), Default::default())
             .await
             .unwrap();
         manager.disconnect(connection_id).await.unwrap();
@@ -298,7 +298,7 @@ async fn session_additional_directories_follow_advertised_capability() {
         let (manager, connection_id, _temp) =
             fixture_additional_directories_manager(advertised).await;
         manager
-            .prepare_session(connection_id, AgentSessionId::new())
+            .prepare_session(connection_id, AgentSessionId::new(), Default::default())
             .await
             .unwrap();
         manager.disconnect(connection_id).await.unwrap();

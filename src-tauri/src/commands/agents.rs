@@ -11,9 +11,9 @@ use agents::{
     AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput, ConnectAgentInput,
     LaunchComponentEvidence, LaunchGate, LaunchGateError, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, SessionAuthenticationEvidence,
-    SessionGate, SessionGateInput, SessionLaunchLock, discover_path_acp_launch_lock,
-    lifecycle_ready_for_path_acp, resolve_session_authentication_evidence,
-    terminal::agent_terminal_registry,
+    SessionControlPreferences, SessionGate, SessionGateInput, SessionLaunchLock,
+    discover_path_acp_launch_lock, lifecycle_ready_for_path_acp,
+    resolve_session_authentication_evidence, terminal::agent_terminal_registry,
 };
 use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
 use db::models::{
@@ -489,6 +489,7 @@ async fn refresh_capability_catalog_for_agent(
                 acp_session_id: format!("vibex-capability-probe-{}", session_id),
                 auto_approve_mode: launch.auto_approve_mode,
                 env: launch.env,
+                preferences: Default::default(),
             })
             .await,
     )
@@ -1421,6 +1422,20 @@ pub async fn agent_prepare_session(
     )
     .await?;
 
+    let defaults = SessionDefaultRepository::new(state.deployment.db().pool.clone())
+        .list_for_agent(&request.agent_id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut requested_defaults = BTreeMap::new();
+    let mut stale = Vec::new();
+    for default in defaults {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&default.value_json) else {
+            stale.push(default.option_id);
+            continue;
+        };
+        requested_defaults.insert(default.option_id, value);
+    }
+    let preferences = SessionControlPreferences::from_option_values(&requested_defaults);
     let mut prepared = settle_session_authentication(
         &state.deployment.db().pool,
         &request.agent_id,
@@ -1436,34 +1451,17 @@ pub async fn agent_prepare_session(
                 acp_session_id: format!("pending-{session_id}"),
                 auto_approve_mode: launch_settings.auto_approve_mode,
                 env: launch_settings.env,
+                preferences,
             })
             .await,
     )
     .await?;
-    let defaults = SessionDefaultRepository::new(state.deployment.db().pool.clone())
-        .list_for_agent(&request.agent_id)
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    let mut requested_defaults = BTreeMap::new();
-    let mut stale = Vec::new();
-    for default in defaults {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&default.value_json) else {
-            stale.push(default.option_id);
-            continue;
-        };
-        requested_defaults.insert(default.option_id, value);
-    }
     let validation =
         agents::validate_session_defaults(requested_defaults, &prepared.controls.config_options);
     stale.extend(validation.stale_ids);
     for (option_id, value) in validation.valid {
-        match state
-            .agent_runtime
-            .set_session_config_option(session_id, option_id.clone(), value)
-            .await
-        {
-            Ok(controls) => prepared.controls = controls,
-            Err(_) => stale.push(option_id),
+        if !session_control_matches(&prepared.controls, &option_id, &value) {
+            stale.push(option_id);
         }
     }
     if !stale.is_empty() {
@@ -1471,6 +1469,23 @@ pub async fn agent_prepare_session(
         prepared.stale_default_ids = Some(stale);
     }
     Ok(prepared)
+}
+
+fn session_control_matches(
+    controls: &AgentSessionControlsSnapshot,
+    option_id: &str,
+    value: &Value,
+) -> bool {
+    if option_id == "mode" {
+        return controls
+            .current_mode
+            .as_deref()
+            .is_some_and(|mode| Some(mode) == value.as_str() || mode == value.to_string());
+    }
+    controls
+        .config_options
+        .iter()
+        .any(|option| option.key == option_id && option.value.as_ref() == Some(value))
 }
 
 #[tauri::command]
@@ -1591,6 +1606,7 @@ pub async fn agent_resume_session(
                 external_session_id: request.external_session_id,
                 auto_approve_mode: launch_settings.auto_approve_mode,
                 env: launch_settings.env,
+                preferences: Default::default(),
             })
             .await,
     )

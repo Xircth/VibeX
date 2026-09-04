@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
@@ -11,21 +11,20 @@ use agents::{
     AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
     CancelAgentPromptInput, ConversationInputPayload, EnsureAgentSessionInput,
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
-    SendAgentPromptInput, SessionLaunchLock, SteerAgentPromptInput,
+    SendAgentPromptInput, SessionControlPreferences, SessionLaunchLock, SteerAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
         ConversationQuestionResponse, ConversationWorkflowRef,
     },
-    validate_session_defaults,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
     agent_management::SessionDefaultRepository,
     conversation::{
-        ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
-        CreateConversationRecord,
+        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
+        CreateConversationAgentBinding, CreateConversationRecord,
     },
     conversation_event::AppendConversationEvent,
     conversation_side_effects::ConversationPermissionRecord,
@@ -701,7 +700,7 @@ pub struct ConversationContext {
     pub runtime_states: Arc<Mutex<HashMap<Uuid, ConversationRuntimeState>>>,
     /// Per-conversation live incremental row projectors, dropped when a conversation
     /// closes (`forget_conversation_runtime`). Owned by the shell's `AppState`.
-    pub row_projectors: Arc<Mutex<HashMap<Uuid, crate::IncrementalRowProjector>>>,
+    pub row_projectors: crate::ConversationRowProjectors,
     pub host: Arc<dyn ConversationHost>,
     pub event_publisher: Arc<dyn ConversationEventPublisher>,
 }
@@ -1738,8 +1737,10 @@ impl ConversationSessionService {
     ) -> Result<(), ConversationServiceError> {
         self.ctx
             .agent_runtime
-            .set_session_mode(AgentSessionId(conversation_id), mode_id)
+            .set_session_mode(AgentSessionId(conversation_id), mode_id.clone())
             .await?;
+        self.remember_session_controls_selection(conversation_id, Some(&mode_id), &[])
+            .await;
         Ok(())
     }
 
@@ -1754,9 +1755,188 @@ impl ConversationSessionService {
     ) -> Result<(), ConversationServiceError> {
         self.ctx
             .agent_runtime
-            .set_session_config_option(AgentSessionId(conversation_id), key, value)
+            .set_session_config_option(AgentSessionId(conversation_id), key.clone(), value.clone())
             .await?;
+        // Prompt-time overrides are string-valued (`session/set_config_option` accepts
+        // either form for boolean options), so remember the selection in that domain.
+        let value = value
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string());
+        self.remember_session_controls_selection(
+            conversation_id,
+            None,
+            &[AgentSessionConfigOverride { key, value }],
+        )
+        .await;
         Ok(())
+    }
+
+    /// Record the conversation's effective session-control selection on its binding so
+    /// a later cold `session/new` can replay it. Best-effort: failing to remember a
+    /// selection must not fail the turn or the control change that already succeeded.
+    async fn remember_session_controls_selection(
+        &self,
+        conversation_id: Uuid,
+        mode: Option<&str>,
+        config_overrides: &[AgentSessionConfigOverride],
+    ) {
+        let config_selection_json = (!config_overrides.is_empty())
+            .then(|| {
+                serde_json::to_string(
+                    &config_overrides
+                        .iter()
+                        .map(|ovr| {
+                            (
+                                ovr.key.clone(),
+                                serde_json::Value::String(ovr.value.clone()),
+                            )
+                        })
+                        .collect::<serde_json::Map<_, _>>(),
+                )
+                .ok()
+            })
+            .flatten();
+        if mode.is_none() && config_selection_json.is_none() {
+            return;
+        }
+        let pool = &self.ctx.deployment.db().pool;
+        if let Err(error) = ConversationAgentBindingRecord::update_session_controls_selection(
+            pool,
+            conversation_id,
+            mode,
+            config_selection_json.as_deref(),
+        )
+        .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "failed to remember the conversation's session-control selection"
+            );
+        }
+        // Last-used per Agent, same store new sessions already read (CodeG
+        // `selector-prefs` per agentType). A rejected upsert must not fail the pick.
+        if let Ok(Some(binding)) =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+        {
+            let repo = SessionDefaultRepository::new(pool.clone());
+            if let Some(mode) = mode.filter(|mode| !mode.is_empty())
+                && let Err(error) = repo
+                    .upsert(
+                        &binding.agent_id,
+                        "mode",
+                        &serde_json::Value::String(mode.to_string()).to_string(),
+                    )
+                    .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    agent_id = %binding.agent_id,
+                    %error,
+                    "failed to remember the agent's last-used session mode"
+                );
+            }
+            for override_item in config_overrides {
+                let value_json = serde_json::Value::String(override_item.value.clone()).to_string();
+                if let Err(error) = repo
+                    .upsert(&binding.agent_id, &override_item.key, &value_json)
+                    .await
+                {
+                    tracing::warn!(
+                        %conversation_id,
+                        agent_id = %binding.agent_id,
+                        option_id = %override_item.key,
+                        %error,
+                        "failed to remember the agent's last-used session config"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn resolved_session_control_preferences(
+        &self,
+        pool: &SqlitePool,
+        agent_id: &AgentId,
+        binding: Option<&ConversationAgentBindingRecord>,
+    ) -> SessionControlPreferences {
+        let agent_defaults = SessionDefaultRepository::new(pool.clone())
+            .list_for_agent(agent_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|record| {
+                serde_json::from_str(&record.value_json)
+                    .ok()
+                    .map(|value| (record.option_id, value))
+            })
+            .collect::<Vec<_>>();
+        session_control_preferences(binding, &agent_defaults)
+    }
+
+    /// Belt-and-suspenders after establish: preferred controls are already applied
+    /// before the first broadcast (ADR-0071 §4). This only sends genuine diffs
+    /// (in-memory driver, rejected remembered values).
+    ///
+    /// Best-effort and skip-if-current. A remembered value the agent no longer
+    /// advertises is logged and dropped rather than failing session setup. This
+    /// is not a new user choice, so it must not rewrite the binding.
+    async fn replay_remembered_session_controls(
+        &self,
+        conversation_id: Uuid,
+        runtime_session_id: AgentSessionId,
+        binding: Option<&ConversationAgentBindingRecord>,
+    ) {
+        let remembered_mode = binding_mode_selection(binding);
+        let remembered_config = binding_config_selection(binding);
+        if remembered_mode.is_none() && remembered_config.is_empty() {
+            return;
+        }
+        let Ok(current) = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(runtime_session_id)
+            .await
+        else {
+            return;
+        };
+        let plan = session_control_replay_plan(remembered_mode, remembered_config, &current);
+
+        if let Some(mode) = plan.mode
+            && let Err(error) = self
+                .ctx
+                .agent_runtime
+                .set_session_mode(runtime_session_id, mode.clone())
+                .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %mode,
+                %error,
+                "remembered session mode was rejected by the re-established session"
+            );
+        }
+
+        for selection in plan.config_overrides {
+            if let Err(error) = self
+                .ctx
+                .agent_runtime
+                .set_session_config_option(
+                    runtime_session_id,
+                    selection.key.clone(),
+                    serde_json::Value::String(selection.value.clone()),
+                )
+                .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    option_id = %selection.key,
+                    %error,
+                    "remembered session config option was rejected by the re-established session"
+                );
+            }
+        }
     }
 
     /// Ensure an existing conversation has a concrete ACP session and return
@@ -1844,6 +2024,9 @@ impl ConversationSessionService {
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
+        let preferences = self
+            .resolved_session_control_preferences(pool, &agent_id, latest_binding.as_ref())
+            .await;
         let can_restore_agent_session = binding_can_restore_agent_session(latest_binding.as_ref());
         if !can_restore_agent_session
             && latest_binding
@@ -1871,10 +2054,11 @@ impl ConversationSessionService {
                     external_session_id,
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env.clone(),
+                    preferences: preferences.clone(),
                 })
                 .await?
         } else {
-            let mut prepared = self
+            let prepared = self
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
@@ -1887,55 +2071,9 @@ impl ConversationSessionService {
                     acp_session_id: format!("vibex-new-session-{conversation_id}"),
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env,
+                    preferences,
                 })
                 .await?;
-            let mut requested_defaults = BTreeMap::new();
-            let mut stale_default_ids = Vec::new();
-            for default in SessionDefaultRepository::new(pool.clone())
-                .list_for_agent(&agent_id)
-                .await
-                .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
-            {
-                match serde_json::from_str(&default.value_json) {
-                    Ok(value) => {
-                        requested_defaults.insert(default.option_id, value);
-                    }
-                    Err(_) => stale_default_ids.push(default.option_id),
-                }
-            }
-            let validation =
-                validate_session_defaults(requested_defaults, &prepared.controls.config_options);
-            stale_default_ids.extend(validation.stale_ids);
-            for (key, value) in validation.valid {
-                match self
-                    .ctx
-                    .agent_runtime
-                    .set_session_config_option(runtime_session_id, key.clone(), value)
-                    .await
-                {
-                    Ok(controls) => prepared.controls = controls,
-                    Err(error) => {
-                        tracing::warn!(
-                            %conversation_id,
-                            agent_id = %agent_id,
-                            option_id = %key,
-                            %error,
-                            "saved Agent session default was rejected by the prepared session"
-                        );
-                        stale_default_ids.push(key);
-                    }
-                }
-            }
-            if !stale_default_ids.is_empty() {
-                stale_default_ids.sort();
-                stale_default_ids.dedup();
-                tracing::warn!(
-                    %conversation_id,
-                    agent_id = %agent_id,
-                    stale_default_ids = ?stale_default_ids,
-                    "saved Agent session defaults were stale and were not sent"
-                );
-            }
             Session::update_agent_metadata(
                 pool,
                 conversation_id,
@@ -1945,6 +2083,16 @@ impl ConversationSessionService {
             .await?;
             prepared.session
         };
+
+        // Preferred controls are applied before the first broadcast. Replay is
+        // skip-if-current, so it only fires when that apply was rejected or the
+        // in-memory driver never ran it.
+        self.replay_remembered_session_controls(
+            conversation_id,
+            runtime_session_id,
+            latest_binding.as_ref(),
+        )
+        .await;
 
         let controls = self
             .ctx
@@ -2080,6 +2228,14 @@ impl ConversationSessionService {
         let _turn_guard = turn_lock.lock().await;
 
         let pool = &self.ctx.deployment.db().pool;
+        // Detach the Agent session *before* deleting anything. The truncated prefix
+        // must never be re-sent, and the old ACP session still holds it: if the
+        // detach fails after the delete, the event log is short while the binding
+        // still points at the full context, and the next send replays the deleted
+        // messages through `session/load`. The `AgentBindingRecovered` event is
+        // appended after the cut, since truncation drops every later sequence.
+        self.detach_agent_session(conversation_id).await?;
+
         // `user_ordinal` is the 0-based user-message index (same basis as the checkpoint
         // ordinal / `reset_agent_session_to_checkpoint`). `conversation_turns.ordinal`
         // is 1-based (created via `MAX(ordinal)+1`), so the turn to reset *from* is
@@ -2105,10 +2261,9 @@ impl ConversationSessionService {
             state.pending_user_message = None;
         })
         .await;
-        self.invalidate_agent_session(
+        self.record_agent_binding_recovered(
             conversation_id,
             agents::SessionRecoveryStrategy::Rebound,
-            "已从该消息处截断。下次发送将建立新的 Agent 会话，此前 Agent 隐藏上下文不会恢复。",
         )
         .await?;
 
@@ -2122,20 +2277,22 @@ impl ConversationSessionService {
         let turn_lock = self.turn_lock(conversation_id).await;
         let _turn_guard = turn_lock.lock().await;
         self.interrupt_orphaned_turn(conversation_id).await?;
-        self.invalidate_agent_session(
+        self.detach_agent_session(conversation_id).await?;
+        self.record_agent_binding_recovered(
             conversation_id,
             agents::SessionRecoveryStrategy::Rebound,
-            "已确认重新绑定。可见历史仍在，但 Agent 隐藏上下文已丢失。",
         )
         .await?;
         self.ensure_session_controls_locked(conversation_id).await
     }
 
-    async fn invalidate_agent_session(
+    /// Drop the live Agent connection and point the binding at a fresh placeholder
+    /// ACP session, so the next send cold-starts instead of loading the old context.
+    /// Records no event — callers append `AgentBindingRecovered` once the surrounding
+    /// mutation (if any) has settled.
+    async fn detach_agent_session(
         &self,
         conversation_id: Uuid,
-        strategy: agents::SessionRecoveryStrategy,
-        _notice: &str,
     ) -> Result<(), ConversationServiceError> {
         let snapshot = self.runtime_snapshot(conversation_id).await;
         if let Some(connection_id) = snapshot
@@ -2162,7 +2319,7 @@ impl ConversationSessionService {
                 binding.id,
                 &placeholder,
                 None,
-                "rebind_required",
+                BindingStatus::Recovering,
             )
             .await?;
         }
@@ -2176,12 +2333,23 @@ impl ConversationSessionService {
         .bind(conversation_id)
         .execute(pool)
         .await?;
+        Ok(())
+    }
+
+    /// Each rebind is a distinct fact, so this carries no idempotency key — a
+    /// per-conversation key silently swallowed every rebind after the first, and the
+    /// operation is already serialized under the conversation's turn lock.
+    async fn record_agent_binding_recovered(
+        &self,
+        conversation_id: Uuid,
+        strategy: agents::SessionRecoveryStrategy,
+    ) -> Result<(), ConversationServiceError> {
         self.append_event(
             conversation_id,
             None,
             "runtime",
             ConversationEvent::AgentBindingRecovered { strategy },
-            Some(format!("binding:{conversation_id}:rebound")),
+            None,
         )
         .await?;
         Ok(())
@@ -2403,8 +2571,14 @@ impl ConversationSessionService {
 
     /// Remove a conversation's entries from the in-memory coordination maps (turn
     /// locks, runtime state, and the cached incremental row projector).
+    ///
+    /// The turn lock is only pruned when nobody still holds a clone of it. Removing
+    /// a referenced lock lets a concurrent `start_turn` / `dispatch_next_queued_input`
+    /// `or_insert` a *second* mutex for the same conversation, after which both tasks
+    /// believe they hold exclusive access — the very double in-flight Turn the lock
+    /// exists to prevent (ADR-0061 §4.2, CONTEXT.md "In-flight turn").
     async fn forget_conversation_runtime(&self, conversation_id: Uuid) {
-        self.ctx.turn_locks.lock().await.remove(&conversation_id);
+        self.prune_turn_lock(conversation_id).await;
         self.ctx
             .runtime_states
             .lock()
@@ -2415,6 +2589,10 @@ impl ConversationSessionService {
             .lock()
             .await
             .remove(&conversation_id);
+    }
+
+    async fn prune_turn_lock(&self, conversation_id: Uuid) {
+        prune_unreferenced_turn_lock(&mut *self.ctx.turn_locks.lock().await, conversation_id);
     }
 
     async fn ensure_conversation(
@@ -2457,6 +2635,9 @@ impl ConversationSessionService {
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
                 .await?;
+        let preferences = self
+            .resolved_session_control_preferences(pool, &agent_id, latest_binding.as_ref())
+            .await;
         let persisted_session = Session::find_by_id(pool, input.conversation_id).await?;
         let known_acp_session_id = known_acp_session_id(
             latest_binding.as_ref(),
@@ -2511,7 +2692,8 @@ impl ConversationSessionService {
                 modes_json: "[]",
                 config_options_json: "[]",
                 current_mode: None,
-                status: "connecting",
+                config_selection_json: "{}",
+                status: BindingStatus::Connecting,
             },
         )
         .await?;
@@ -2540,6 +2722,7 @@ impl ConversationSessionService {
                     external_session_id,
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env.clone(),
+                    preferences: preferences.clone(),
                 })
                 .await?
         } else {
@@ -2555,6 +2738,7 @@ impl ConversationSessionService {
                     acp_session_id: acp_session_id.clone(),
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env.clone(),
+                    preferences,
                 })
                 .await?
                 .session
@@ -2565,7 +2749,7 @@ impl ConversationSessionService {
             binding.id,
             &session.acp_session_id,
             None,
-            "ready",
+            BindingStatus::Ready,
         )
         .await?;
         let negotiated_capabilities = self
@@ -2618,6 +2802,17 @@ impl ConversationSessionService {
             &input.agent_id,
             input.executor_profile_id.as_ref(),
         );
+        // The conversation's remembered selection outranks profile/slash defaults but
+        // yields to an explicit pick on this turn. Replaying it matters most when the
+        // session was just cold-started (rebind, crash, lost connection): the agent
+        // reverts to *its* default mode, and the composer clears its pending override
+        // after each turn, so without this the conversation silently drops from full
+        // access back to per-action approval.
+        merge_user_prompt_overrides(
+            &mut prompt_overrides,
+            binding_mode_selection(latest_binding.as_ref()),
+            binding_config_selection(latest_binding.as_ref()),
+        );
         // The composer's explicit mode/config selection wins over profile/slash
         // defaults so the user-picked, agent-advertised mode actually takes effect.
         merge_user_prompt_overrides(
@@ -2625,6 +2820,12 @@ impl ConversationSessionService {
             input.mode_override.clone(),
             input.config_overrides.clone(),
         );
+        self.remember_session_controls_selection(
+            input.conversation_id,
+            prompt_overrides.mode_override.as_deref(),
+            &prompt_overrides.config_overrides,
+        )
+        .await;
         let prompt = self
             .ctx
             .agent_runtime
@@ -3361,6 +3562,20 @@ fn unused_prompt_snapshot(conversation_id: Uuid) -> AgentPromptSnapshot {
     }
 }
 
+/// Drop a conversation's turn mutex only when the map holds its last reference.
+///
+/// The map itself owns one strong reference; anything above that is a live guard
+/// holder. Evicting a referenced mutex lets the next `or_insert` mint a second one
+/// for the same conversation, so two tasks can hold "the" turn lock at once.
+fn prune_unreferenced_turn_lock(locks: &mut HashMap<Uuid, Arc<Mutex<()>>>, conversation_id: Uuid) {
+    if locks
+        .get(&conversation_id)
+        .is_some_and(|lock| Arc::strong_count(lock) == 1)
+    {
+        locks.remove(&conversation_id);
+    }
+}
+
 fn conversation_input_blocks_with_display_text(
     blocks: &[AgentContentBlock],
     display_text: &str,
@@ -3388,6 +3603,114 @@ fn conversation_input_blocks_with_display_text(
         }),
     }));
     visible
+}
+
+/// What a freshly established session still needs in order to match the
+/// conversation's remembered selection.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SessionControlReplayPlan {
+    mode: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
+}
+
+/// Diff the remembered selection against what the session currently advertises.
+///
+/// Only genuine differences are replayed. Re-sending a value the session already
+/// holds is not free: some agents rebuild dependent config options on every
+/// `session/set_config_option`, so a redundant replay on each session establishment
+/// would churn the very controls it is meant to preserve.
+fn session_control_replay_plan(
+    remembered_mode: Option<String>,
+    remembered_config: Vec<AgentSessionConfigOverride>,
+    current: &AgentSessionControlsSnapshot,
+) -> SessionControlReplayPlan {
+    SessionControlReplayPlan {
+        mode: remembered_mode.filter(|mode| current.current_mode.as_deref() != Some(mode.as_str())),
+        config_overrides: remembered_config
+            .into_iter()
+            .filter(|selection| {
+                !current.config_options.iter().any(|option| {
+                    option.key == selection.key
+                        && option.value.as_ref().and_then(|value| value.as_str())
+                            == Some(selection.value.as_str())
+                })
+            })
+            .collect(),
+    }
+}
+
+/// Conversation selection wins per key over the agent's last-used / settings
+/// defaults (CodeG `getSavedPrefsForConnect`).
+fn session_control_preferences(
+    binding: Option<&ConversationAgentBindingRecord>,
+    agent_defaults: &[(String, serde_json::Value)],
+) -> SessionControlPreferences {
+    let mut config = Vec::new();
+    for (key, value) in agent_defaults {
+        if key == "mode" {
+            continue;
+        }
+        let value = value
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string());
+        if value.is_empty() {
+            continue;
+        }
+        config.push(AgentSessionConfigOverride {
+            key: key.clone(),
+            value,
+        });
+    }
+    for override_item in binding_config_selection(binding) {
+        if let Some(existing) = config
+            .iter_mut()
+            .find(|existing| existing.key == override_item.key)
+        {
+            existing.value = override_item.value;
+        } else {
+            config.push(override_item);
+        }
+    }
+    let mode = binding_mode_selection(binding).or_else(|| {
+        agent_defaults.iter().find_map(|(key, value)| {
+            (key == "mode")
+                .then(|| value.as_str().map(str::to_string))
+                .flatten()
+        })
+    });
+    SessionControlPreferences { mode, config }
+}
+
+fn binding_mode_selection(binding: Option<&ConversationAgentBindingRecord>) -> Option<String> {
+    binding
+        .and_then(|binding| binding.current_mode.clone())
+        .map(|mode| mode.trim().to_string())
+        .filter(|mode| !mode.is_empty())
+}
+
+fn binding_config_selection(
+    binding: Option<&ConversationAgentBindingRecord>,
+) -> Vec<AgentSessionConfigOverride> {
+    binding
+        .and_then(|binding| {
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &binding.config_selection_json,
+            )
+            .ok()
+        })
+        .map(|selection| {
+            selection
+                .into_iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| AgentSessionConfigOverride {
+                        key,
+                        value: value.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Layer the composer's explicit selection on top of profile/slash defaults.
@@ -3492,7 +3815,9 @@ mod tests {
         },
     };
     use db::models::{
-        conversation::{ConversationRecord, CreateConversationRecord},
+        conversation::{
+            ConversationAgentBindingRecord, ConversationRecord, CreateConversationRecord,
+        },
         conversation_event::AppendConversationEvent,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
         session::{Session, SessionStatus},
@@ -3511,8 +3836,176 @@ mod tests {
         checkpoint_turn_file_changes, conversation_input_blocks_with_display_text,
         diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
         host_started_at, known_acp_session_id, merge_user_prompt_overrides,
-        resume_external_session_id, turn_predates_this_host,
+        prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
+        session_control_replay_plan, turn_predates_this_host,
     };
+
+    #[test]
+    fn conversation_selection_outranks_the_agents_last_used_defaults() {
+        let agent_defaults = [
+            (
+                "mode".to_string(),
+                serde_json::Value::String("default".into()),
+            ),
+            (
+                "model".to_string(),
+                serde_json::Value::String("sonnet".into()),
+            ),
+            (
+                "thought_level".to_string(),
+                serde_json::Value::String("low".into()),
+            ),
+        ];
+        let prefs = session_control_preferences(None, &agent_defaults);
+        assert_eq!(prefs.mode.as_deref(), Some("default"));
+        assert_eq!(
+            prefs
+                .config
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "sonnet"), ("thought_level", "low")]
+        );
+
+        let binding = ConversationAgentBindingRecord {
+            id: Uuid::nil(),
+            conversation_id: Uuid::nil(),
+            agent_id: AgentId::parse("codex").expect("agent id"),
+            working_dir: String::new(),
+            acp_session_id: None,
+            acp_protocol_version: None,
+            runtime_version: None,
+            acp_version: None,
+            load_supported: false,
+            resume_supported: false,
+            close_supported: false,
+            terminal_supported: false,
+            additional_directories_supported: false,
+            prompt_capabilities_json: "{}".into(),
+            session_capabilities_json: "{}".into(),
+            client_capabilities_json: "{}".into(),
+            mcp_servers_json: "[]".into(),
+            modes_json: "[]".into(),
+            config_options_json: "[]".into(),
+            current_mode: Some("bypassPermissions".into()),
+            config_selection_json: r#"{"model":"opus"}"#.into(),
+            status: "ready".into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let prefs = session_control_preferences(Some(&binding), &agent_defaults);
+        assert_eq!(prefs.mode.as_deref(), Some("bypassPermissions"));
+        assert_eq!(
+            prefs
+                .config
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "opus"), ("thought_level", "low")]
+        );
+    }
+
+    /// Regression: a re-established session reports the agent's own defaults, and
+    /// those reached the UI unchallenged. The conversation would show "Approve for me"
+    /// after a rebind even though the user had chosen full access and the next turn
+    /// would run with full access.
+    #[test]
+    fn a_re_established_session_replays_the_remembered_selection_over_agent_defaults() {
+        let agent_defaults = agents::AgentSessionControlsSnapshot {
+            current_mode: Some("default".to_string()),
+            config_options: vec![config_option("model", "sonnet")],
+            ..Default::default()
+        };
+
+        let plan = session_control_replay_plan(
+            Some("bypassPermissions".to_string()),
+            vec![AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "opus".to_string(),
+            }],
+            &agent_defaults,
+        );
+
+        assert_eq!(plan.mode.as_deref(), Some("bypassPermissions"));
+        assert_eq!(
+            plan.config_overrides
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "opus")]
+        );
+    }
+
+    /// Replaying a value the session already holds is not free: some agents rebuild
+    /// dependent options on every `set_config_option`.
+    #[test]
+    fn a_remembered_selection_the_session_already_holds_is_not_replayed() {
+        let already_applied = agents::AgentSessionControlsSnapshot {
+            current_mode: Some("bypassPermissions".to_string()),
+            config_options: vec![config_option("model", "opus")],
+            ..Default::default()
+        };
+
+        let plan = session_control_replay_plan(
+            Some("bypassPermissions".to_string()),
+            vec![AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "opus".to_string(),
+            }],
+            &already_applied,
+        );
+
+        assert_eq!(plan, Default::default());
+    }
+
+    fn config_option(key: &str, value: &str) -> agents::AgentSessionConfigOption {
+        agents::AgentSessionConfigOption {
+            key: key.to_string(),
+            label: key.to_string(),
+            description: None,
+            category: None,
+            value: Some(serde_json::Value::String(value.to_string())),
+            choices: Vec::new(),
+            dependency: None,
+        }
+    }
+
+    /// Regression: `forget_conversation_runtime` used to evict the turn mutex while
+    /// `truncate_to_turn` / `rebind_session` still held its guard, so the next
+    /// `or_insert` minted a second mutex and two tasks could run turns concurrently.
+    #[tokio::test]
+    async fn a_held_turn_lock_survives_pruning_and_keeps_its_identity() {
+        use std::{collections::HashMap, sync::Arc};
+
+        use tokio::sync::Mutex;
+
+        let conversation_id = Uuid::new_v4();
+        let mut locks: HashMap<Uuid, Arc<Mutex<()>>> = HashMap::new();
+        let lock = Arc::clone(locks.entry(conversation_id).or_default());
+        let _guard = lock.lock().await;
+
+        prune_unreferenced_turn_lock(&mut locks, conversation_id);
+
+        let same_lock = Arc::clone(
+            locks
+                .get(&conversation_id)
+                .expect("a referenced turn lock must not be pruned"),
+        );
+        assert!(Arc::ptr_eq(&lock, &same_lock));
+        assert!(
+            same_lock.try_lock().is_err(),
+            "the surviving lock must still be the one the guard holds"
+        );
+
+        drop(_guard);
+        drop(same_lock);
+        drop(lock);
+        prune_unreferenced_turn_lock(&mut locks, conversation_id);
+        assert!(
+            !locks.contains_key(&conversation_id),
+            "an unreferenced turn lock must be pruned so the map stays bounded"
+        );
+    }
 
     async fn migrated_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")

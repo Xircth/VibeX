@@ -11,10 +11,7 @@ use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
 };
-use conversations::{
-    ConversationContext, DefaultConversationHost, IncrementalRowProjector,
-    start_agent_event_persistence,
-};
+use conversations::{ConversationContext, DefaultConversationHost, start_agent_event_persistence};
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
@@ -109,9 +106,7 @@ impl HeadlessServer {
             agent_runtime: agent_runtime.clone(),
             turn_locks: Arc::new(Mutex::new(HashMap::new())),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
-            row_projectors: Arc::new(Mutex::new(
-                HashMap::<uuid::Uuid, IncrementalRowProjector>::new(),
-            )),
+            row_projectors: Arc::new(Mutex::new(HashMap::new())),
             host: Arc::new(DefaultConversationHost::with_product_mcp_server_names({
                 let gate = plugin_control_plane.official_product_mcp_gate();
                 std::sync::Arc::new(move || gate.product_mcp_names())

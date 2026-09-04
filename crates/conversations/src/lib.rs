@@ -32,8 +32,9 @@ pub use input::{
     UpdateConversationInput,
 };
 pub use projection::{
-    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    ConversationStateApplier, IncrementalRowProjector,
+    CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
+    ConversationProjector, ConversationRowProjectors, ConversationStateApplier,
+    IncrementalRowProjector, evict_least_recently_used_projectors,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,

@@ -1,12 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
-
 use agents::{
     AgentEvent,
     conversation::{ConversationEvent, ConversationRowOpBatch, ConversationSessionModes},
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use conversations::{
-    ConversationAgentEventRecorder, IncrementalRowProjector, RecordedConversationBatch,
+    CachedRowProjector, ConversationAgentEventRecorder, IncrementalRowProjector,
+    RecordedConversationBatch, evict_least_recently_used_projectors,
 };
 use db::models::{
     conversation::ConversationRecord, conversation_event::ConversationEventRecord,
@@ -16,10 +15,7 @@ use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
-use tokio::{
-    sync::Mutex,
-    time::{self, Duration, MissedTickBehavior},
-};
+use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -32,9 +28,7 @@ pub mod channels {
     pub const DESKTOP_SESSION_ATTENTION: &str = "desktop-session-attention";
 }
 
-/// Per-conversation cache of live incremental projectors (消灭双投影). Held on
-/// `AppState`; fed only through [`emit_conversation_row_ops_after`].
-pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>;
+pub use conversations::ConversationRowProjectors;
 
 /// Publish committed events as frontend row operations in durable sequence order.
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
@@ -52,15 +46,18 @@ pub async fn emit_conversation_row_ops_after(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // Read the cursor and the durable tail without holding the map across SQLite.
-    // Apply still runs under the lock so two notifiers cannot fold out of order;
-    // a later load that wins the insert already includes earlier sequences.
-    let publish_after = {
-        let map = projectors.lock().await;
-        map.get(&conversation_id)
-            .map(IncrementalRowProjector::last_sequence)
-            .unwrap_or(after_sequence)
-    };
+    // Cursor read, tail read, projector load and fold all happen inside one critical
+    // section. Splitting them let two publishers disagree on the cursor: the one that
+    // won the map insert loaded its projector *at* the other's first unpublished
+    // sequence, silently folding that event into the baseline, and the other then
+    // skipped it as already applied. The ops for that sequence were never emitted —
+    // and at a turn boundary the lost op is the terminal one, so the composer kept
+    // showing a stop button until the user reloaded.
+    let mut map = projectors.lock().await;
+    let publish_after = map
+        .get(&conversation_id)
+        .map(|entry| entry.projector.last_sequence())
+        .unwrap_or(after_sequence);
     let new_records =
         match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
             .await
@@ -80,20 +77,11 @@ pub async fn emit_conversation_row_ops_after(
         .unwrap_or(publish_after);
 
     // Session control state (modes / config options) is not a timeline row, so carry
-    // the latest of each in the batch rather than on a separate channel. Also detect
-    // whether the batch settles a turn — the projector is a pure cache and can be
-    // dropped once its turn is terminal.
+    // the latest of each in the batch rather than on a separate channel.
     let mut session_modes = None;
     let mut session_config_options = None;
     let mut available_commands = None;
-    let mut settled = false;
     for record in &new_records {
-        if matches!(
-            record.event_kind.as_str(),
-            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
-        ) {
-            settled = true;
-        }
         if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
             match event {
                 ConversationEvent::SessionModeUpdated { current, modes } => {
@@ -114,46 +102,26 @@ pub async fn emit_conversation_row_ops_after(
         .iter()
         .any(|record| record.event_kind == "conversation_input");
 
-    let loaded = {
-        let map = projectors.lock().await;
-        if map.contains_key(&conversation_id) {
-            None
-        } else {
-            drop(map);
-            match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-                Ok(projector) => Some(projector),
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                    return;
-                }
+    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
+            Ok(projector) => {
+                entry.insert(CachedRowProjector::new(projector));
+            }
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                return;
             }
         }
-    };
-
-    let mut map = projectors.lock().await;
-    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
-        let projector = match loaded {
-            Some(projector) => projector,
-            None => {
-                match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-                    Ok(projector) => projector,
-                    Err(error) => {
-                        tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                        return;
-                    }
-                }
-            }
-        };
-        entry.insert(projector);
     }
     let mut ops = Vec::new();
     {
-        let projector = map.get_mut(&conversation_id).expect("projector present");
+        let entry = map.get_mut(&conversation_id).expect("projector present");
+        entry.touch();
         for record in &new_records {
-            if record.sequence <= projector.last_sequence() {
+            if record.sequence <= entry.projector.last_sequence() {
                 continue;
             }
-            match projector.apply(record) {
+            match entry.projector.apply(record) {
                 Ok(record_ops) => ops.extend(record_ops),
                 Err(error) => {
                     tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
@@ -187,14 +155,13 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
-    // A settled turn's projector holds the whole folded timeline but is a pure cache —
-    // drop it to bound memory. The next committed event reloads it from that event's
-    // predecessor sequence. Without this, one projector leaked per conversation ever
-    // streamed (the map is only otherwise cleared by `close_conversation`, which the UI
-    // never calls). Done under the lock, after emit.
-    if settled {
-        map.remove(&conversation_id);
-    }
+    // The projector is a pure cache of the folded timeline, so it must stay bounded —
+    // otherwise one leaks per conversation ever streamed (the map is only otherwise
+    // cleared by `close_conversation`, which the UI never calls). Evict by least
+    // recent use rather than on turn settle: settle is the busiest moment on this
+    // path, and dropping the projector there guaranteed a cold reload right when
+    // several publishers were racing, plus a full replay of the turn's events.
+    evict_least_recently_used_projectors(&mut map, conversation_id);
     drop(map);
 
     let workbench_changed = new_records.iter().any(|record| {

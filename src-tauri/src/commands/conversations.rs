@@ -25,8 +25,8 @@ use conversations::{
 };
 use db::models::{
     conversation::{
-        ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
-        CreateConversationRecord, DbConversationSummary,
+        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
+        CreateConversationAgentBinding, CreateConversationRecord, DbConversationSummary,
     },
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
@@ -1100,7 +1100,8 @@ pub async fn conversation_fork(
                     modes_json: &source_binding.modes_json,
                     config_options_json: &source_binding.config_options_json,
                     current_mode: source_binding.current_mode.as_deref(),
-                    status: "closed",
+                    config_selection_json: &source_binding.config_selection_json,
+                    status: BindingStatus::Closed,
                 },
             )
             .await;
@@ -1378,7 +1379,8 @@ async fn import_agent_session_on_connection(
             modes_json: "[]",
             config_options_json: "[]",
             current_mode: None,
-            status: "closed",
+            config_selection_json: "{}",
+            status: BindingStatus::Closed,
         },
     )
     .await?;

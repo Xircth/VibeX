@@ -125,7 +125,7 @@ pub use events::{
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
     AgentSessionListPage, AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt,
     AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage,
-    DelegationResultSummary,
+    DelegationResultSummary, SessionControlPreferences,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};

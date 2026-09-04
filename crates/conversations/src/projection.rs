@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use agents::conversation::{
     ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationError,
@@ -28,10 +31,12 @@ use db::models::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
+use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
-// v16 keeps a later turn's stream off a settled predecessor when turn_id is stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 16;
+// v17 attributes streaming deltas to the recorder's turn_id, which is now read from
+// the authoritative active-turn pointer instead of a cache that could go stale.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 17;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
@@ -932,6 +937,58 @@ impl IncrementalRowProjector {
     }
 }
 
+/// How many conversations keep a warm [`IncrementalRowProjector`]. Each holds that
+/// conversation's whole folded timeline, so the cache is capped; an evicted entry
+/// simply reloads from its snapshot on the next committed event.
+const MAX_CACHED_ROW_PROJECTORS: usize = 8;
+
+/// A cached projector plus the recency used to bound the cache.
+pub struct CachedRowProjector {
+    pub projector: IncrementalRowProjector,
+    last_used: Instant,
+}
+
+impl CachedRowProjector {
+    pub fn new(projector: IncrementalRowProjector) -> Self {
+        Self {
+            projector,
+            last_used: Instant::now(),
+        }
+    }
+
+    pub fn touch(&mut self) {
+        self.last_used = Instant::now();
+    }
+}
+
+/// Per-conversation cache of live incremental projectors (消灭双投影). Owned by the
+/// host's application state and fed through a single publish path.
+pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, CachedRowProjector>>>;
+
+/// Trim the projector cache to [`MAX_CACHED_ROW_PROJECTORS`], never evicting the
+/// conversation that just published.
+///
+/// Eviction is by least recent use rather than on turn settle: settle is the busiest
+/// moment on the publish path, so dropping the projector there guaranteed a cold
+/// reload — and a full replay of the turn's events — exactly when several publishers
+/// were racing to emit the terminal row op.
+pub fn evict_least_recently_used_projectors(
+    cache: &mut HashMap<Uuid, CachedRowProjector>,
+    keep: Uuid,
+) {
+    while cache.len() > MAX_CACHED_ROW_PROJECTORS {
+        let Some(oldest) = cache
+            .iter()
+            .filter(|(id, _)| **id != keep)
+            .min_by_key(|(_, entry)| entry.last_used)
+            .map(|(id, _)| *id)
+        else {
+            return;
+        };
+        cache.remove(&oldest);
+    }
+}
+
 /// Mutable accumulator that folds events into a conversation timeline. Persisted to
 /// the snapshot table via [`ProjectionSnapshotState`] so reads can resume from it.
 #[derive(Default)]
@@ -1033,8 +1090,13 @@ impl ProjectionFold {
         if let ConversationEvent::AssistantTextDelta { ref text, .. }
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
         {
+            // A delta belongs to the Turn the recorder attributed it to, even when
+            // that Turn has already settled — a late-flushed tail is part of the
+            // reply it came from. Re-pointing it at whichever Turn is currently open
+            // was a workaround for stale turn attribution, and it is what glued a
+            // stopped reply onto the front of the next one.
             let turn_id = self
-                .resolved_turn_id_for_stream(record)
+                .resolved_turn_id(record)
                 .unwrap_or(record.conversation_id);
             let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
                 TimelineTextStream::Reasoning
@@ -1766,37 +1828,6 @@ impl ProjectionFold {
         record.turn_id.or_else(|| self.turn_order.last().copied())
     }
 
-    /// Streaming deltas must never attach to a turn that has already settled once
-    /// a later turn is open. A stale recorder `turn_id` (the previous completed
-    /// turn) would otherwise concatenate reply B onto assistant A while the new
-    /// user row only shows a loading bubble.
-    fn resolved_turn_id_for_stream(&self, record: &ConversationEventRecord) -> Option<Uuid> {
-        let latest_open = self.latest_open_turn_id();
-        if let Some(turn_id) = record.turn_id {
-            if let Some(turn) = self.turns.get(&turn_id)
-                && turn_phase_is_terminal(&turn.phase)
-                && let Some(open_id) = latest_open
-                && open_id != turn_id
-            {
-                return Some(open_id);
-            }
-            return Some(turn_id);
-        }
-        latest_open.or_else(|| self.turn_order.last().copied())
-    }
-
-    fn latest_open_turn_id(&self) -> Option<Uuid> {
-        self.turn_order.iter().rev().find_map(|id| {
-            self.turns.get(id).and_then(|turn| {
-                if turn_phase_is_terminal(&turn.phase) {
-                    None
-                } else {
-                    Some(*id)
-                }
-            })
-        })
-    }
-
     fn seed_user_prompt_from_session(&mut self, conversation_id: Uuid, prompt: Option<&str>) {
         let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) else {
             return;
@@ -1899,10 +1930,6 @@ fn ensure_turn(
             revision: record.sequence,
         },
     );
-}
-
-fn turn_phase_is_terminal(phase: &str) -> bool {
-    matches!(phase, "settled" | "failed" | "cancelled" | "interrupted")
 }
 
 fn settle_turn(
@@ -2367,7 +2394,8 @@ mod tests {
                 modes_json: "[]",
                 config_options_json: "[]",
                 current_mode: None,
-                status: "connecting",
+                config_selection_json: "{}",
+                status: db::models::conversation::BindingStatus::Connecting,
             },
         )
         .await
@@ -3317,11 +3345,12 @@ mod tests {
         }
     }
 
+    /// Regression: each Turn's stream stays on its own assistant row. Deltas are
+    /// attributed by the recorder from the authoritative active-turn pointer, so the
+    /// fold must honour `turn_id` verbatim — re-pointing a settled Turn's late tail at
+    /// whichever Turn is open produced the reported "用户 A - AI A - 用户 B - AI AB".
     #[tokio::test]
-    async fn next_turn_stream_does_not_append_to_a_settled_predecessor() {
-        // User A → AI A, then User B. If the recorder still tags B's deltas with
-        // A's turn_id (stale active-turn cache), the fold must still place them
-        // on B. Otherwise the timeline becomes User A → AI AB, User B → loading.
+    async fn each_turns_stream_stays_on_its_own_assistant_row() {
         let pool = setup_pool().await;
         let (conversation_id, turn_a) = seed_turn(&pool).await;
         let turn_b = ConversationTurnRecord::create_pending(
@@ -3398,7 +3427,7 @@ mod tests {
         let delta_b = append_event(
             &pool,
             conversation_id,
-            Some(turn_a),
+            Some(turn_b),
             "acp",
             ConversationEvent::AssistantTextDelta {
                 text: "answer-B".into(),
@@ -3414,7 +3443,7 @@ mod tests {
                 ConversationRowOp::AppendText { row_id, delta, .. }
                     if row_id == &format!("{turn_b}:assistant") && delta == "answer-B"
             )),
-            "stale turn_id on B's delta must still append to B, not A: {ops:?}"
+            "B's delta must append to B: {ops:?}"
         );
         assert!(
             !ops.iter().any(|op| matches!(
@@ -3423,6 +3452,30 @@ mod tests {
                     if row_id == &format!("{turn_a}:assistant")
             )),
             "B's stream must not grow A's assistant row: {ops:?}"
+        );
+
+        // A settled Turn's late-flushed tail belongs to that Turn, not to the Turn
+        // that happens to be open.
+        let late_tail_a = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "-tail".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&late_tail_a).expect("fold A tail");
+        assert!(
+            ops.iter().any(|op| matches!(
+                op,
+                ConversationRowOp::AppendText { row_id, delta, .. }
+                    if row_id == &format!("{turn_a}:assistant") && delta == "-tail"
+            )),
+            "A's late tail must stay on A: {ops:?}"
         );
 
         let timeline = ConversationProjector::project(&pool, conversation_id)
@@ -3451,7 +3504,7 @@ mod tests {
         assert_eq!(
             assistant_texts,
             vec![
-                (format!("{turn_a}:assistant"), "answer-A".into()),
+                (format!("{turn_a}:assistant"), "answer-A-tail".into()),
                 (format!("{turn_b}:assistant"), "answer-B".into()),
             ]
         );

@@ -507,6 +507,7 @@ pub async fn create_task_and_start(
                     acp_session_id: session.id.to_string(),
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
+                    preferences: Default::default(),
                 })
                 .await,
         )

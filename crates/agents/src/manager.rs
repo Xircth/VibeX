@@ -201,6 +201,14 @@ const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
 // just session/update) refreshes the clock, and permission, elicitation, and
 // live-terminal waits are exempt.
 const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
+
+// ACP cancellation is complete when the agent answers the outstanding
+// `session/prompt` (normally with `StopReason::Cancelled`), not when the
+// `session/cancel` notification is written. Returning at notification time leaves
+// the agent generating into a Turn that the Host already settled, and its later
+// `session/update`s land on whatever Turn comes next. Wait for the acknowledgement,
+// but bounded — an agent that never answers must not wedge the connection.
+const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 const PI_COMMAND_ENV: &str = "PI_ACP_PI_COMMAND";
 const PI_CONFIG_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
 const PI_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
@@ -395,6 +403,7 @@ pub enum AgentConnectionCommand {
     /// throwaway capability probe.
     PrepareSession {
         session_id: AgentSessionId,
+        preferences: crate::SessionControlPreferences,
         result_tx: oneshot::Sender<AgentResult<(String, AgentSessionControlsSnapshot)>>,
     },
     DiscardSession {
@@ -404,6 +413,7 @@ pub enum AgentConnectionCommand {
     ResumeSession {
         session_id: AgentSessionId,
         external_session_id: String,
+        preferences: crate::SessionControlPreferences,
         result_tx: oneshot::Sender<AgentResult<(String, AgentSessionControlsSnapshot)>>,
     },
     /// Fork the live ACP session (P1-4): the agent branches its context into a
@@ -707,6 +717,7 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
         external_session_id: impl Into<String>,
+        preferences: crate::SessionControlPreferences,
     ) -> AgentResult<(String, AgentSessionControlsSnapshot)> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
@@ -714,6 +725,7 @@ impl AgentConnectionManager {
             AgentConnectionCommand::ResumeSession {
                 session_id,
                 external_session_id: external_session_id.into(),
+                preferences,
                 result_tx,
             },
         )
@@ -727,12 +739,14 @@ impl AgentConnectionManager {
         &self,
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
+        preferences: crate::SessionControlPreferences,
     ) -> AgentResult<(String, AgentSessionControlsSnapshot)> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
             AgentConnectionCommand::PrepareSession {
                 session_id,
+                preferences,
                 result_tx,
             },
         )
@@ -973,6 +987,9 @@ struct AgentConnectionRunner {
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
+    /// CodeG-style connect preferences: applied after the agent advertises
+    /// controls and before the first `SessionModes` / `SessionConfigOptions` event.
+    preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -1085,7 +1102,22 @@ impl AgentConnectionRunner {
             grok_subagent: Arc::new(Mutex::new(GrokSubagentTracker::default())),
             grok_mcp: Arc::new(Mutex::new(GrokMcpTracker::default())),
             pending_session_id: Arc::new(Mutex::new(None)),
+            preferred_controls: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    async fn store_preferred_controls(
+        &self,
+        session_id: AgentSessionId,
+        preferences: crate::SessionControlPreferences,
+    ) {
+        if preferences.is_empty() {
+            return;
+        }
+        self.preferred_controls
+            .write()
+            .await
+            .insert(session_id, preferences);
     }
 
     async fn run(
@@ -1135,6 +1167,7 @@ impl AgentConnectionRunner {
             match command {
                 AgentConnectionCommand::PrepareSession {
                     session_id,
+                    preferences: _,
                     result_tx,
                 } => {
                     let acp_session_id = format!("prepared-{}", session_id.0);
@@ -1158,6 +1191,7 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::ResumeSession {
                     session_id,
                     external_session_id,
+                    preferences: _,
                     result_tx,
                 } => {
                     self.session_map
@@ -1788,8 +1822,12 @@ impl AgentConnectionRunner {
                     match command {
                         AgentConnectionCommand::PrepareSession {
                             session_id,
+                            preferences,
                             result_tx,
                         } => {
+                            runner
+                                .store_preferred_controls(session_id, preferences)
+                                .await;
                             let result = match runner
                                 .ensure_acp_session(
                                     &conn,
@@ -1851,8 +1889,12 @@ impl AgentConnectionRunner {
                         AgentConnectionCommand::ResumeSession {
                             session_id,
                             external_session_id,
+                            preferences,
                             result_tx,
                         } => {
+                            runner
+                                .store_preferred_controls(session_id, preferences)
+                                .await;
                             let result = runner
                                 .load_or_new_acp_session(
                                     &conn,
@@ -1882,6 +1924,15 @@ impl AgentConnectionRunner {
                             mode_override,
                             config_overrides,
                         } => {
+                            runner
+                                .store_preferred_controls(
+                                    session_id,
+                                    crate::SessionControlPreferences {
+                                        mode: mode_override.clone(),
+                                        config: config_overrides.clone(),
+                                    },
+                                )
+                                .await;
                             let acp_session_id = runner
                                 .ensure_acp_session(
                                     &conn,
@@ -2120,7 +2171,6 @@ impl AgentConnectionRunner {
             );
             *self.pending_session_id.lock().await = Some(session_id);
             let load_result = conn.send_request(request).block_task().await;
-            *self.pending_session_id.lock().await = None;
             match load_result {
                 Ok(response) => {
                     self.session_map
@@ -2136,6 +2186,8 @@ impl AgentConnectionRunner {
                             response.meta.as_ref(),
                         );
                     self.emit_session_controls(
+                        conn,
+                        &external_session_id,
                         session_id,
                         modes,
                         config_options,
@@ -2143,9 +2195,11 @@ impl AgentConnectionRunner {
                         response.meta.as_ref(),
                     )
                     .await;
+                    *self.pending_session_id.lock().await = None;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
+                    *self.pending_session_id.lock().await = None;
                     let reason = classify_session_load_error(&error);
                     self.emit_session_load_failed(session_id, reason.clone());
                     return Err(map_session_restore_error(error));
@@ -2172,7 +2226,6 @@ impl AgentConnectionRunner {
             );
             *self.pending_session_id.lock().await = Some(session_id);
             let resume_result = conn.send_request(request).block_task().await;
-            *self.pending_session_id.lock().await = None;
             match resume_result {
                 Ok(response) => {
                     self.session_map
@@ -2188,6 +2241,8 @@ impl AgentConnectionRunner {
                             response.meta.as_ref(),
                         );
                     self.emit_session_controls(
+                        conn,
+                        &external_session_id,
                         session_id,
                         modes,
                         config_options,
@@ -2195,9 +2250,11 @@ impl AgentConnectionRunner {
                         response.meta.as_ref(),
                     )
                     .await;
+                    *self.pending_session_id.lock().await = None;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
+                    *self.pending_session_id.lock().await = None;
                     let reason = classify_session_load_error(&error);
                     self.emit_session_load_failed(session_id, reason.clone());
                     return Err(map_session_restore_error(error));
@@ -2250,8 +2307,13 @@ impl AgentConnectionRunner {
             .await;
         *self.pending_session_id.lock().await = Some(session_id);
         let response = conn.send_request(request).block_task().await;
-        *self.pending_session_id.lock().await = None;
-        let response = response?;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                *self.pending_session_id.lock().await = None;
+                return Err(error);
+            }
+        };
         let acp_session_id = response.session_id.0.to_string();
         self.session_map
             .write()
@@ -2265,6 +2327,8 @@ impl AgentConnectionRunner {
             response.meta.as_ref(),
         );
         self.emit_session_controls(
+            conn,
+            &acp_session_id,
             session_id,
             modes,
             config_options,
@@ -2272,6 +2336,7 @@ impl AgentConnectionRunner {
             response.meta.as_ref(),
         )
         .await;
+        *self.pending_session_id.lock().await = None;
         Ok(acp_session_id)
     }
 
@@ -2361,6 +2426,8 @@ impl AgentConnectionRunner {
     /// non-standard method (if any) the agent expects for changes.
     async fn emit_session_controls(
         &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
         session_id: AgentSessionId,
         modes: Option<SessionModeState>,
         config_options: Option<Vec<AcpSessionConfigOption>>,
@@ -2388,24 +2455,30 @@ impl AgentConnectionRunner {
             }
         }
 
-        let (derived_modes, current) = session_modes_from_config_options(&config_options);
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::SessionModes {
-                modes: derived_modes,
-                current,
-            },
-        );
-        if !config_options.is_empty() {
-            self.emit(
-                Some(session_id),
-                None,
-                AgentEvent::SessionConfigOptions {
-                    options: agent_session_config_options_from_acp(config_options),
-                },
-            );
+        if let Some(preferences) = self.preferred_controls.write().await.remove(&session_id)
+            && !preferences.is_empty()
+        {
+            // Apply before the first broadcast so the UI never sees the agent's
+            // defaults (CodeG `acp_connect` + preferred_*).
+            if let Err(error) = self
+                .apply_session_overrides(
+                    conn,
+                    acp_session_id,
+                    session_id,
+                    preferences.mode,
+                    preferences.config,
+                )
+                .await
+            {
+                tracing::warn!(
+                    %session_id,
+                    %error,
+                    "preferred session controls were rejected by the new session"
+                );
+            }
         }
+
+        self.emit_derived_session_controls(session_id).await;
     }
 
     async fn session_controls_snapshot(
@@ -2910,6 +2983,34 @@ impl AgentConnectionRunner {
                         {
                             self.cancel_pending_interactions(session_id).await;
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
+                            // Hold the turn open until the agent acknowledges by
+                            // answering `session/prompt`. Anything it streams in the
+                            // meantime still belongs to *this* prompt.
+                            let acknowledged = tokio::time::timeout(
+                                CANCEL_ACKNOWLEDGEMENT_TIMEOUT,
+                                &mut prompt_future,
+                            )
+                            .await
+                            .is_ok();
+                            if !acknowledged {
+                                // The prompt is still outstanding and the agent may
+                                // keep emitting for it. Unbind the ACP session so a
+                                // later turn re-establishes instead of interleaving
+                                // with an abandoned prompt, and so stray updates
+                                // resolve to no session and are discarded.
+                                self.session_map.write().await.remove(&session_id);
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::RawAcpDiagnostic {
+                                        raw: serde_json::json!({
+                                            "kind": "cancel_not_acknowledged",
+                                            "timeoutSecs": CANCEL_ACKNOWLEDGEMENT_TIMEOUT.as_secs(),
+                                            "acpSessionId": acp_session_id,
+                                        }),
+                                    },
+                                );
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -2922,6 +3023,33 @@ impl AgentConnectionRunner {
                             );
                             *self.active_prompt.lock().await = None;
                             return Ok(());
+                        }
+                        Some(AgentConnectionCommand::Prompt {
+                            session_id: rejected_session,
+                            prompt_id: rejected_prompt,
+                            ..
+                        }) => {
+                            // `run_prompt` owns the command loop until this turn
+                            // settles, so a prompt for a *different* session sharing
+                            // this connection cannot be served. Dropping it silently
+                            // left that conversation's Turn `running` forever (its
+                            // stop button never returned to send). Fail the Turn
+                            // instead; the prompt queue is per session, so this is
+                            // only reachable when a connection is shared.
+                            self.emit(
+                                Some(rejected_session),
+                                Some(rejected_prompt),
+                                AgentEvent::Error {
+                                    error: AgentErrorEvent {
+                                        message: "The agent connection was busy with another conversation's turn. Send again.".to_string(),
+                                        code: Some("prompt_conflict".to_string()),
+                                        raw: Some(serde_json::json!({
+                                            "activePromptId": prompt_id.to_string(),
+                                            "activeSessionId": session_id.to_string(),
+                                        })),
+                                    },
+                                },
+                            );
                         }
                         Some(AgentConnectionCommand::Steer {
                             session_id: steer_session,
@@ -3825,10 +3953,21 @@ impl AcpClientBridge {
 
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         let acp_session_id = args.session_id.0.to_string();
-        let session_id = resolve_agent_session_id(
-            self.agent_session_for_acp(acp_session_id.clone()).await,
-            *self.pending_session_id.lock().await,
-        );
+        let bound_session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
+        let session_id =
+            resolve_agent_session_id(bound_session_id, *self.pending_session_id.lock().await);
+        if bound_session_id.is_none()
+            && session_id.is_some()
+            && is_session_transcript_update(&args.update)
+        {
+            // The session does not exist yet, so this is `session/load` /
+            // `session/resume` replaying the agent's stored transcript, not live
+            // turn output. The Host's event log is the authoritative history
+            // (ADR-0044) — re-recording the replay would duplicate every message
+            // and, with no in-flight Turn to own it, attribute it to whichever Turn
+            // happens to be latest. Session controls still pass through below.
+            return Ok(());
+        }
         if !matches!(args.update, SessionUpdate::UsageUpdate(_)) {
             self.maybe_emit_grok_usage(session_id, args.meta.as_ref())
                 .await;
@@ -3980,12 +4119,14 @@ impl AcpClientBridge {
                         entry.config_options.clone()
                     };
                     let (modes, current) = session_modes_from_config_options(&options);
-                    let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                        connection_id: self.connection_id,
-                        session_id: Some(session_id),
-                        prompt_id: None,
-                        event: AgentEvent::SessionModes { modes, current },
-                    });
+                    if self.pending_session_id.lock().await.is_none() {
+                        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                            connection_id: self.connection_id,
+                            session_id: Some(session_id),
+                            prompt_id: None,
+                            event: AgentEvent::SessionModes { modes, current },
+                        });
+                    }
                 }
                 Some(AgentEvent::ModeChanged { mode_id })
             }
@@ -4020,6 +4161,19 @@ impl AcpClientBridge {
         };
 
         if let Some(event) = event {
+            let establishing = self.pending_session_id.lock().await.is_some();
+            if establishing
+                && matches!(
+                    event,
+                    AgentEvent::SessionModes { .. }
+                        | AgentEvent::SessionConfigOptions { .. }
+                        | AgentEvent::ModeChanged { .. }
+                )
+            {
+                // Hold the first broadcast until preferred controls are applied
+                // (CodeG applies before `session_modes` / `session_config_options`).
+                return Ok(());
+            }
             let _ = self.event_tx.send(AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
                 session_id,
@@ -4165,6 +4319,21 @@ fn resolve_agent_session_id(
     pending: Option<AgentSessionId>,
 ) -> Option<AgentSessionId> {
     mapped.or(pending)
+}
+
+/// Whether a `session/update` carries conversation transcript content (as opposed to
+/// session control state). Only transcript content is replayed by `session/load` and
+/// `session/resume`, and only it must be gated during session establishment.
+fn is_session_transcript_update(update: &SessionUpdate) -> bool {
+    matches!(
+        update,
+        SessionUpdate::AgentMessageChunk(_)
+            | SessionUpdate::AgentThoughtChunk(_)
+            | SessionUpdate::UserMessageChunk(_)
+            | SessionUpdate::ToolCall(_)
+            | SessionUpdate::ToolCallUpdate(_)
+            | SessionUpdate::Plan(_)
+    )
 }
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
@@ -5691,7 +5860,12 @@ mod tests {
             .await;
 
         let (acp_session_id, controls) = manager
-            .resume_session(connection_id, session_id, "external-session")
+            .resume_session(
+                connection_id,
+                session_id,
+                "external-session",
+                Default::default(),
+            )
             .await
             .unwrap();
 
@@ -6226,6 +6400,39 @@ mod tests {
             Some(mapped)
         );
         assert_eq!(resolve_agent_session_id(None, None), None);
+    }
+
+    /// Regression: `session/load` replays the agent's stored transcript as ordinary
+    /// `session/update` notifications. Recording them duplicated every earlier AI
+    /// message into the next turn ("用户 A - AI A - 用户 B - AI AB").
+    #[test]
+    fn transcript_updates_are_gated_during_session_restore_but_controls_are_not() {
+        use agent_client_protocol::schema::v1::{
+            AvailableCommandsUpdate, ContentChunk, CurrentModeUpdate, SessionModeId,
+        };
+
+        let transcript = [
+            SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::from("hello"))),
+            SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::from("thinking"))),
+            SessionUpdate::UserMessageChunk(ContentChunk::new(ContentBlock::from("prompt"))),
+        ];
+        for update in transcript {
+            assert!(
+                is_session_transcript_update(&update),
+                "{update:?} replays on session/load and must not be re-recorded"
+            );
+        }
+
+        let controls = [
+            SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new("plan"))),
+            SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(Vec::new())),
+        ];
+        for update in controls {
+            assert!(
+                !is_session_transcript_update(&update),
+                "{update:?} is session control state and must survive a restore"
+            );
+        }
     }
 
     #[test]

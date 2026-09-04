@@ -201,10 +201,9 @@ pub struct AppState {
         Arc<Mutex<HashMap<uuid::Uuid, conversations::ConversationRuntimeState>>>,
     /// Per-conversation live incremental projectors (消灭双投影). Cache the folded
     /// state so each newly-appended event turns into row ops in O(1) amortized instead
-    /// of re-projecting the turn every frame. Dropped when a conversation closes
-    /// (`forget_conversation_runtime`).
-    pub conversation_row_projectors:
-        Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
+    /// of re-projecting the turn every frame. Bounded by least recent use, and dropped
+    /// when a conversation closes (`forget_conversation_runtime`).
+    pub conversation_row_projectors: conversations::ConversationRowProjectors,
     pub plugin_preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,

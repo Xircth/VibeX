@@ -1079,6 +1079,30 @@ impl SessionDefaultRepository {
         Ok(())
     }
 
+    /// Last-used upsert for one advertised option (CodeG `saveConfigPreference`).
+    /// Does not replace the agent's other saved defaults.
+    pub async fn upsert(
+        &self,
+        agent_id: &AgentId,
+        option_id: &str,
+        value_json: &str,
+    ) -> Result<(), AgentManagementRepositoryError> {
+        sqlx::query(
+            r#"INSERT INTO agent_session_default
+                   (agent_id, option_id, value_json, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(agent_id, option_id) DO UPDATE SET
+                   value_json = excluded.value_json,
+                   updated_at = excluded.updated_at"#,
+        )
+        .bind(agent_id.as_str())
+        .bind(option_id)
+        .bind(value_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn list_for_agent(
         &self,
         agent_id: &AgentId,

@@ -1676,33 +1676,74 @@ impl PluginControlPlane {
         package: &PluginPackage,
     ) -> Result<(), WorkerHostError> {
         for declared in &package.runtimes {
-            let locked = self
-                .registry
-                .runtime_for_plugin(plugin_id, &declared.id)
-                .await
-                .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
-                .ok_or_else(|| {
-                    WorkerHostError::external(
-                        "runtime_not_ready",
-                        format!("Runtime {} has no installation lock", declared.id),
-                    )
-                })?;
-            if declared
-                .version
-                .as_deref()
-                .is_some_and(|version| version != locked.version)
-                || (!declared.target.is_empty() && declared.target != locked.target)
-                || (!declared.content_digest.is_empty()
-                    && declared.content_digest != locked.content_digest)
-                || !locked.executable_path.is_absolute()
-            {
-                return Err(WorkerHostError::external(
-                    "runtime_not_ready",
-                    format!("Runtime {} lock does not match the candidate", declared.id),
-                ));
+            if let Some(reason) = self.runtime_unready_reason(plugin_id, declared).await? {
+                return Err(WorkerHostError::external("runtime_not_ready", reason));
             }
         }
         Ok(())
+    }
+
+    /// Why this runtime cannot be used yet, or `None` when it is ready.
+    async fn runtime_unready_reason(
+        &self,
+        plugin_id: &str,
+        declared: &crate::RuntimeContribution,
+    ) -> Result<Option<String>, WorkerHostError> {
+        let locked = self
+            .registry
+            .runtime_for_plugin(plugin_id, &declared.id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        let Some(locked) = locked else {
+            return Ok(Some(format!(
+                "Runtime {} has no installation lock",
+                declared.id
+            )));
+        };
+        if declared
+            .version
+            .as_deref()
+            .is_some_and(|version| version != locked.version)
+            || (!declared.target.is_empty() && declared.target != locked.target)
+            || (!declared.content_digest.is_empty()
+                && declared.content_digest != locked.content_digest)
+            || !locked.executable_path.is_absolute()
+        {
+            return Ok(Some(format!(
+                "Runtime {} lock does not match the candidate",
+                declared.id
+            )));
+        }
+        Ok(None)
+    }
+
+    /// The generation currently serving this plugin, if any.
+    pub async fn active_generation(&self, plugin_id: &str) -> Option<u64> {
+        self.registry
+            .active_generation(plugin_id)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Runtime ids this plugin declares but cannot use. Diagnostics read this
+    /// so the panel can explain an enabled plugin that never serves anything.
+    pub async fn missing_runtimes(
+        &self,
+        installed: &InstalledPlugin,
+    ) -> Result<Vec<String>, WorkerHostError> {
+        let plugin_id = installed.id().to_owned();
+        let mut missing = Vec::new();
+        for declared in &installed.package.runtimes {
+            if self
+                .runtime_unready_reason(&plugin_id, declared)
+                .await?
+                .is_some()
+            {
+                missing.push(declared.id.clone());
+            }
+        }
+        Ok(missing)
     }
 
     pub async fn preview_import(

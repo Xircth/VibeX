@@ -6146,7 +6146,7 @@
   min-height: 64px;
   padding: 7px 9px;
   resize: vertical;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
 }
 
 .settings-page .agent-model-provider-state {
@@ -7643,7 +7643,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin: 0 16px 8px;
   color: var(--text-muted);
   font-size: 0.75rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
 }
 
 .settings-page .agent-auth-mode-submodes {
@@ -8467,7 +8467,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-plugin-path-copy dd {
   overflow: hidden;
   color: var(--text-secondary);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8591,7 +8591,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   outline: none;
   background: var(--surface-control);
   color: var(--text-strong);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
 }
 
@@ -8698,7 +8698,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   background: hsl(var(--background) / 0.58);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -9742,7 +9742,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .pi-provider-row-heading strong {
   overflow: hidden;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9785,7 +9785,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 118px;
   padding: 8px 9px;
   resize: vertical;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
 }
 
 .settings-page .pi-provider-fields input:focus-visible,
@@ -9819,7 +9819,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 118px;
   padding: 8px 10px;
   resize: vertical;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   line-height: 1.5;
 }
 
@@ -9881,7 +9881,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-config-file-format {
   flex-shrink: 0;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   font-weight: 500;
 }
@@ -9907,7 +9907,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: transparent;
   padding: 12px 14px;
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   line-height: 1.55;
   tab-size: 2;
@@ -10198,7 +10198,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-dev-connection small {
   overflow: hidden;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10489,7 +10489,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-product-capability-row code {
   flex: none;
   color: hsl(var(--primary));
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
 }
 
@@ -10843,7 +10843,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-contribution-browser-grid > nav code {
   overflow: hidden;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10858,7 +10858,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.625rem;
 }
 
@@ -10875,7 +10875,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 14px 16px;
   color: var(--text-default);
   background: var(--surface-subtle);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   line-height: 1.65;
   white-space: pre;
@@ -10959,6 +10959,50 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-weight: 600;
 }
 
+.settings-page .plugin-contribution-list .plugin-runtime-stopped {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.settings-page .plugin-log-tail {
+  max-height: 240px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+}
+
+.settings-page .plugin-log-tail > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  font-family: var(--font-mono, monospace);
+}
+
+.settings-page .plugin-log-tail > li > time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-page .plugin-log-tail > li > span {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--text-strong);
+}
+
+.settings-page .plugin-log-tail > li[data-stream='stderr'] > span {
+  color: hsl(var(--warning));
+}
+
 .settings-page .plugin-runtime-inventory {
   display: grid;
   gap: 8px;
@@ -10989,7 +11033,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-runtime-inventory code {
   overflow: hidden;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -10999,7 +11043,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11201,7 +11245,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 7px 9px;
   border-radius: var(--radius);
   background: var(--surface-control);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
 }
 
@@ -11250,7 +11294,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-permission-list code,
 .settings-page .plugin-permission-list pre {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
 }
 
@@ -11414,7 +11458,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin-top: 7px;
   overflow: hidden;
   color: var(--text-default);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11474,7 +11518,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   outline: 0;
   background: var(--surface-control);
   color: var(--text-default);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
   line-height: 1.55;
 }
@@ -11512,7 +11556,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   background: var(--surface-control);
   color: var(--text-default);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
   font-size: 0.6875rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -11548,7 +11592,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-cli-result ul {
   margin-top: 4px;
   color: var(--text-default);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
 }
 
 .settings-page .plugin-hub-loading {

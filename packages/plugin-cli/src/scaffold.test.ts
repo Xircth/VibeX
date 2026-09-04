@@ -9,6 +9,8 @@ import {
   scaffoldPlugin,
   type PluginTemplate,
 } from "./scaffold.js";
+import { buildPlugin } from "./build.js";
+import { validatePlugin } from "./validation.js";
 
 const roots: string[] = [];
 
@@ -28,6 +30,48 @@ describe("scaffoldPlugin templates", () => {
       ).resolves.toBeUndefined();
     },
   );
+
+  // A template that does not validate is worse than no template: the author
+  // hits an error on a file they did not write. Entrypoint bundles only exist
+  // after a build, so those two codes are the expected pre-build state.
+  const PRE_BUILD_ONLY = ["worker_entrypoint_invalid", "app_entrypoint_invalid"];
+
+  it.each(PLUGIN_TEMPLATES)(
+    "produces a manifest the validator accepts for the %s template",
+    async (template) => {
+      const root = await scaffold(template);
+      const result = await validatePlugin(root);
+      expect(
+        result.diagnostics.filter(
+          (diagnostic) => !PRE_BUILD_ONLY.includes(diagnostic.code)
+        )
+      ).toEqual([]);
+    }
+  );
+
+  it("makes the host-chrome template fully valid once built", async () => {
+    const root = await scaffold("host-chrome");
+    await buildPlugin(root);
+    await expect(validatePlugin(root)).resolves.toMatchObject({
+      valid: true,
+      diagnostics: [],
+    });
+  });
+
+  it("gives the host-chrome template one contribution per chrome slot", async () => {
+    const root = await scaffold("host-chrome");
+    const manifest = JSON.parse(
+      await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8")
+    ) as { integrations: { kind: string }[] };
+    expect(manifest.integrations.map((item) => item.kind).sort()).toEqual([
+      "app.command",
+      "app.composer.slash",
+      "app.settings.section",
+      "app.status",
+      "app.timeline.card",
+      "app.toolbar",
+    ]);
+  });
 
   it("defaults to the full template", async () => {
     const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-default-"));

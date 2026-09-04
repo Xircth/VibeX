@@ -46,7 +46,7 @@ export interface PluginDoctorReport {
   activation: unknown;
   grants?: unknown[];
   runtimes: unknown[];
-  surfaces: unknown[];
+  contributions: unknown[];
   agentBindings: unknown[];
   recentCrashes: unknown[];
   diagnostics: Array<{
@@ -117,7 +117,7 @@ export class PluginDevHostClient {
       typeof report.plugin.publisher !== "string" ||
       typeof report.plugin.id !== "string" ||
       !Array.isArray(report.runtimes) ||
-      !Array.isArray(report.surfaces) ||
+      !Array.isArray(report.contributions) ||
       !Array.isArray(report.agentBindings) ||
       !Array.isArray(report.recentCrashes) ||
       !Array.isArray(report.diagnostics) ||

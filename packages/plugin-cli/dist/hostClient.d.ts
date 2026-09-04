@@ -31,7 +31,7 @@ export interface PluginDoctorReport {
     activation: unknown;
     grants?: unknown[];
     runtimes: unknown[];
-    surfaces: unknown[];
+    contributions: unknown[];
     agentBindings: unknown[];
     recentCrashes: unknown[];
     diagnostics: Array<{

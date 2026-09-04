@@ -461,9 +461,7 @@ pub async fn plugin_resolve_provider_bind(
     request_id: String,
     approved: bool,
 ) -> Result<bool, AppError> {
-    Ok(state
-        .plugin_provider_presets
-        .resolve(&request_id, approved))
+    Ok(state.plugin_provider_presets.resolve(&request_id, approved))
 }
 
 #[tauri::command]
@@ -902,6 +900,77 @@ pub async fn plugin_control_logs(
 ) -> Result<serde_json::Value, AppError> {
     let lines = plugins::recent_plugin_logs(&plugin_id, after.unwrap_or(0));
     Ok(serde_json::json!({ "lines": lines }))
+}
+
+/// Runtime evidence for one installed plugin, for the settings detail panel.
+///
+/// Deliberately separate from the catalog: the catalog describes what a package
+/// declares and changes only on install or enable, while this changes whenever
+/// a Worker dies or a runtime goes missing.
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginDiagnosticsDto {
+    /// The package declares a Worker and is enabled, so one is meant to be up.
+    pub worker_expected: bool,
+    /// A published generation currently holds an activation lease.
+    pub worker_running: bool,
+    pub generation: Option<u64>,
+    /// Runtimes the package needs that are not installed. A plugin with an
+    /// unmet runtime looks enabled but cannot serve its contributions.
+    pub missing_runtimes: Vec<String>,
+    pub recent_crashes: Vec<PluginCrashDto>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginCrashDto {
+    pub message: String,
+    pub at_unix_ms: f64,
+}
+
+#[tauri::command]
+pub async fn plugin_control_diagnostics(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<PluginDiagnosticsDto, AppError> {
+    let control_plane = &state.plugin_control_plane;
+    let installed = control_plane
+        .catalog()
+        .await
+        .map_err(plugin_error)?
+        .into_iter()
+        .find(|item| item.id() == plugin_id);
+
+    let enabled = installed
+        .as_ref()
+        .is_some_and(|item| item.activation == plugins::PluginActivation::Enabled);
+    let declares_worker = installed
+        .as_ref()
+        .is_some_and(|item| item.entrypoints.worker.is_some());
+
+    let missing_runtimes = match installed.as_ref() {
+        Some(item) => control_plane
+            .missing_runtimes(item)
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?,
+        None => Vec::new(),
+    };
+
+    Ok(PluginDiagnosticsDto {
+        worker_expected: enabled && declares_worker,
+        worker_running: control_plane.activation_lease(&plugin_id).await.is_some(),
+        generation: control_plane.active_generation(&plugin_id).await,
+        missing_runtimes,
+        recent_crashes: plugins::recent_plugin_crashes(&plugin_id)
+            .into_iter()
+            .map(|crash| PluginCrashDto {
+                message: crash.message,
+                at_unix_ms: crash.at_unix_ms as f64,
+            })
+            .collect(),
+    })
 }
 
 #[tauri::command]

@@ -41,6 +41,8 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 - `python-worker` CPython Worker
 - `rust-worker` native Worker
 - `host-service` 后台定时 handler
+- `host-chrome` 六个宿主界面槽位各一条贡献
+- `provider-import` 一个模型供应商导入来源
 
 可编辑文件 Tab 要按 `file.opener.editorSurface` + `app.surface(slot: artifact.editor)` 另行声明。
 
@@ -139,17 +141,37 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `app.surface` | Full Trust App。可编辑文本页用 `slot` 为 `artifact.editor` |
 | `app.command` | 命令面板 |
 | `app.toolbar` | 工具栏 |
-| `app.status` | 状态栏，界面最多取 3 条 |
+| `app.status` | 状态栏，前 3 条并排显示，其余进溢出菜单 |
 | `app.composer.slash` | Composer 斜杠 |
 | `app.timeline.card` | 时间线卡片 |
 | `app.settings.section` | 设置段 |
 | `host.service` | 后台周期调用 Worker handler，`intervalSeconds` 最小 5 |
+| `provider.model.importSource` | 模型供应商导入来源，出现在设置的「导入」菜单里 |
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 
 `depends.kind=plugin` 不被 Host inspect 和 CLI validate 接受。只声明 runtime 依赖。
 
-`app.surface.slot` 稳定面只有 `plugin.detail.panel` 与 `artifact.editor`。`conversation.timeline.card` 会同时让 validate 和 inspect 失败。
+`app.surface.slot` 稳定面只有 `plugin.detail.panel` 与 `artifact.editor`。`conversation.timeline.card` 会同时让 validate 和 inspect 失败——时间线卡片和设置段的承载面由 Host 从 `app.timeline.card` / `app.settings.section` 自动合成，你不用也不能自己声明。
+
+### 六个宿主界面槽位各自要什么
+
+`node packages/plugin-cli/dist/cli.js init x --template host-chrome` 会把这六条一次写全，删掉不需要的即可。官方参考实现在 `assets/plugins/host-chrome/`。
+
+| kind | 必填 | Host 从返回值里读什么 |
+| --- | --- | --- |
+| `app.command` | `title`、`handler` | 不读，执行即可 |
+| `app.toolbar` | `title`、`handler`；`slot` 省略即 `toolbar.main` | 不读 |
+| `app.status` | `text` 或 `handler`；`slot` 省略即 `status.main` | `text` 与 `tooltip`；配 `refreshSeconds` 才会轮询 |
+| `app.composer.slash` | `command`（省略则取 `id`）、`prompt` | 不读，`prompt` 直接插进输入框 |
+| `app.timeline.card` | `label`、`handler`、`allowedMethods` | 由 App 通过 `bridge.invoke` 自取 |
+| `app.settings.section` | `title`、`handler`、`allowedMethods` | 同上 |
+
+`icon` 只能填 `@vibex/plugin-contract/catalog/icons` 里的名字。这份清单同时被 Rust、SDK 和前端校验，填别的会在 validate 阶段被拒——插件不能往宿主界面注入自己的图形。
+
+状态栏和工具栏是**只可添加**：你能加条目，不能改动或移除 VibeX 自己的指示器。
+
+`provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。参考实现在 `assets/plugins/provider-import/`。
 
 ## CLI
 
@@ -178,7 +200,7 @@ vibex-plugin uninstall --delete-data
 
 `pack` 产出确定性 `.vxp`，并打印 `sha256:` 摘要。发布物带 README、config 初值、contents、depends、dist 和 `.vibex-plugin` 元数据。不带 `runtime/` 源码、source map、`.git`、`node_modules`、开发链接文件。
 
-`doctor` 向 Host 问安装、激活、Runtime、surface、绑定和最近崩溃。不要指望它再吐 grants 字段。
+`doctor` 向 Host 问安装、激活、Runtime、贡献、绑定和最近崩溃。`contributions` 列的是这个插件**全部**已发布贡献，不按 kind 过滤，新 kind 也在里面。不要指望它再吐 grants 字段。
 
 ## 开发流程
 
@@ -193,6 +215,17 @@ vibex-plugin uninstall --delete-data
 9. 要分发就 `pack`，用 `vibex plugin add --profile file.vxp` 或把 `.vxp` 拖进去。
 
 Harness 绿了不算完。文件页、预览、Runtime、远程行为必须对着正在跑的 Host 点过。
+
+### 插件在 Host 里出了问题怎么看
+
+「设置 → 插件」选中插件，概览里的**运行状况**一段给的是运行期证据，不是清单声明：
+
+- **Worker** 三态。`未运行` 意味着插件已启用、清单声明了 Worker、但没有代在服务——通常是 activate 抛了异常。`未声明` 是正常的，纯内容插件就该是这样。
+- **缺少未安装的运行时**。插件看着已启用却什么都不做时先看这条。
+- **最近崩溃**。保留最近几次异常退出的时间和消息，不必现场复现。
+- **查看日志**。Worker 的 stdout / stderr 尾部，stderr 标黄。只在展开时才拉取。
+
+CLI 侧对应的是 `doctor`；崩溃与日志两边同源。
 
 ## Worker 协议
 

@@ -156,6 +156,35 @@ export interface OfficialProductMcpState {
   sessionControl: boolean;
 }
 
+/** One abnormal Worker exit the Host kept as evidence. */
+export interface PluginCrash {
+  message: string;
+  atUnixMs: number;
+}
+
+/**
+ * Runtime evidence for one installed plugin.
+ *
+ * Separate from the catalog because it changes whenever a Worker dies or a
+ * runtime goes missing, while the catalog only changes on install or enable.
+ */
+export interface PluginDiagnostics {
+  workerExpected: boolean;
+  workerRunning: boolean;
+  generation: number | null;
+  missingRuntimes: string[];
+  recentCrashes: PluginCrash[];
+}
+
+/** One line a plugin Worker wrote to stdout or stderr. */
+export interface PluginLogLine {
+  seq: number;
+  pluginId: string;
+  stream: string;
+  text: string;
+  atUnixMs: number;
+}
+
 export interface PluginContentDocument {
   path: string;
   kind: string;
@@ -396,6 +425,18 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'official_product_mcp_state'
       ) as Promise<OfficialProductMcpState>,
+    diagnostics: (pluginId: string) =>
+      transport.call('plugin_control_diagnostics', {
+        pluginId,
+      }) as Promise<PluginDiagnostics>,
+    /** Pass the last seen `seq` as `after` to tail without refetching history. */
+    logs: async (pluginId: string, after = 0) =>
+      (
+        (await transport.call('plugin_control_logs', {
+          pluginId,
+          after,
+        })) as { lines?: PluginLogLine[] }
+      ).lines ?? [],
     /** Resolves false when the request already expired or another window answered. */
     resolveProviderBind: (requestId: string, approved: boolean) =>
       transport.call('plugin_resolve_provider_bind', {

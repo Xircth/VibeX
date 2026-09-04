@@ -14,6 +14,8 @@ export const PLUGIN_TEMPLATES = [
   "python-worker",
   "rust-worker",
   "host-service",
+  "host-chrome",
+  "provider-import",
   "hooks",
 ] as const;
 
@@ -276,6 +278,43 @@ function templateSpec(template: PluginTemplate): TemplateSpec {
         hasMcp: false,
         hasHook: false,
       };
+    case "host-chrome":
+      return {
+        entrypoints: { worker: worker.node, app: appEntrypoint() },
+        integrations: hostChromeIntegrations(),
+        contentItems: [],
+        nodeHandlers: ["hello", "status", "surface.createSession"],
+        nodeWorker: true,
+        usesJsSdk: true,
+        hasApp: true,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
+    case "provider-import":
+      return {
+        entrypoints: { worker: worker.node },
+        integrations: [
+          {
+            id: "environment",
+            kind: "provider.model.importSource",
+            label: "Import from environment",
+            description: "Read API endpoints your shell already exports",
+            icon: "terminal",
+            handler: "hello",
+          },
+        ],
+        contentItems: [],
+        nodeHandlers: ["hello"],
+        nodeWorker: true,
+        usesJsSdk: true,
+        hasApp: false,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
     default: {
       const exhausted: never = template;
       throw new Error(`plugin_template_unknown: ${exhausted}`);
@@ -388,6 +427,63 @@ function fileTabIntegrations() {
       handler: "surface.createSession",
       allowedMethods: ["hello"],
       minHeight: 320,
+    },
+  ];
+}
+
+/**
+ * One contribution per Host chrome slot, so an author can delete the ones they
+ * do not need rather than hunt for the manifest shape of each.
+ */
+function hostChromeIntegrations() {
+  return [
+    {
+      id: "open",
+      kind: "app.command",
+      title: "Open the example panel",
+      icon: "gauge",
+      handler: "hello",
+    },
+    {
+      id: "refresh",
+      kind: "app.toolbar",
+      slot: "toolbar.main",
+      title: "Refresh",
+      icon: "refresh-cw",
+      handler: "hello",
+    },
+    {
+      id: "state",
+      kind: "app.status",
+      slot: "status.main",
+      text: "Example",
+      icon: "activity",
+      handler: "status",
+      refreshSeconds: 30,
+    },
+    {
+      id: "example",
+      kind: "app.composer.slash",
+      command: "example",
+      title: "Insert the example prefix",
+      description: "Prepends a fixed instruction to your message",
+      prompt: "Answer briefly.\n\n",
+    },
+    {
+      id: "card",
+      kind: "app.timeline.card",
+      label: "Example card",
+      handler: "surface.createSession",
+      allowedMethods: ["hello"],
+      minHeight: 240,
+    },
+    {
+      id: "settings",
+      kind: "app.settings.section",
+      title: "Example",
+      handler: "surface.createSession",
+      allowedMethods: ["hello"],
+      minHeight: 240,
     },
   ];
 }

@@ -420,18 +420,13 @@ async fn doctor(
         .contributions()
         .await
         .map_err(DevError::plugin)?;
-    let surfaces = catalog
+    // Every published contribution, not a hand-kept whitelist: an author who
+    // adds a kind the Host learned about later must still see it here, or
+    // `doctor` reports "nothing wrong" about a contribution it never looked at.
+    let contributions = catalog
         .items
         .into_iter()
         .filter(|item| item.plugin_id == id)
-        .filter(|item| {
-            matches!(
-                item.kind,
-                plugins::ContributionKind::FileOpener
-                    | plugins::ContributionKind::PreviewProvider
-                    | plugins::ContributionKind::AppSurface
-            )
-        })
         .collect::<Vec<_>>();
     let bindings = sqlx::query(
         "SELECT agent_id, desired, applied, pending_reason, error_code
@@ -514,7 +509,7 @@ async fn doctor(
             _ => "installed",
         },
         "runtimes": runtimes,
-        "surfaces": surfaces,
+        "contributions": contributions,
         "agentBindings": bindings,
         "mcpRebindingRequired": bindings.iter().any(|binding| {
             binding.get("desired").and_then(|value| value.as_bool()) == Some(true)

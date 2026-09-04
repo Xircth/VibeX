@@ -434,33 +434,48 @@ fn is_fatal_exchange_error(error: &WorkerHostError) -> bool {
     )
 }
 
+/// One abnormal Worker exit, kept so the plugin detail panel can show evidence
+/// after the fact instead of asking the user to reproduce it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCrash {
+    pub plugin_id: String,
+    pub message: String,
+    pub at_unix_ms: u64,
+}
+
 pub fn record_plugin_crash(plugin_id: &str, message: impl Into<String>) {
-    let mut crashes = PLUGIN_CRASHES.lock().unwrap();
-    crashes.push(serde_json::json!({
-        "pluginId": plugin_id,
-        "message": message.into(),
-        "atUnixMs": std::time::SystemTime::now()
+    let Ok(mut crashes) = PLUGIN_CRASHES.lock() else {
+        return;
+    };
+    crashes.push(PluginCrash {
+        plugin_id: plugin_id.to_owned(),
+        message: message.into(),
+        at_unix_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64,
-    }));
-    let overflow = crashes.len().saturating_sub(50);
+    });
+    let overflow = crashes.len().saturating_sub(MAX_PLUGIN_CRASHES);
     if overflow > 0 {
         crashes.drain(0..overflow);
     }
 }
 
-pub fn recent_plugin_crashes(plugin_id: &str) -> Vec<serde_json::Value> {
-    PLUGIN_CRASHES
-        .lock()
-        .unwrap()
+pub fn recent_plugin_crashes(plugin_id: &str) -> Vec<PluginCrash> {
+    let Ok(crashes) = PLUGIN_CRASHES.lock() else {
+        return Vec::new();
+    };
+    crashes
         .iter()
-        .filter(|crash| crash.get("pluginId").and_then(|value| value.as_str()) == Some(plugin_id))
+        .filter(|crash| crash.plugin_id == plugin_id)
         .cloned()
         .collect()
 }
 
-static PLUGIN_CRASHES: std::sync::Mutex<Vec<serde_json::Value>> = std::sync::Mutex::new(Vec::new());
+const MAX_PLUGIN_CRASHES: usize = 50;
+
+static PLUGIN_CRASHES: std::sync::Mutex<Vec<PluginCrash>> = std::sync::Mutex::new(Vec::new());
 
 const MAX_PLUGIN_LOG_LINES: usize = 2000;
 

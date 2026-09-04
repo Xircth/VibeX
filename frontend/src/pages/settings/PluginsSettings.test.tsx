@@ -1,11 +1,5 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +11,7 @@ import type {
 } from '@/lib/api/plugins';
 import { toast } from '@/components/ui/toast';
 import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 vi.mock('@/components/ui/toast', () => ({
   toast: {

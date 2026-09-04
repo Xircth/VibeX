@@ -115,7 +115,7 @@ default; `--delete-data` is explicit.
   "activation": {},
   "grants": [],
   "runtimes": [],
-  "surfaces": [],
+  "contributions": [],
   "agentBindings": [],
   "recentCrashes": [],
   "diagnostics": [
@@ -126,6 +126,10 @@ default; `--delete-data` is explicit.
 
 All inventory arrays are present even when empty. The CLI exits with status 1
 when any diagnostic has severity `error`.
+
+`contributions` lists every published contribution of the plugin, whatever its
+kind. A kind the Host learned about after this document was written still
+appears; nothing is filtered out.
 
 ## Errors
 

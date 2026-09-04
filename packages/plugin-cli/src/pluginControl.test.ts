@@ -77,7 +77,7 @@ describe("plugin Host control commands", () => {
           activation: { generation: 4 },
           grants: [{ capability: "artifact.read" }],
           runtimes: [],
-          surfaces: [{ id: "preview" }],
+          contributions: [{ id: "preview" }],
           agentBindings: [],
           recentCrashes: [],
           diagnostics: [],
@@ -98,7 +98,7 @@ describe("plugin Host control commands", () => {
         token: "test",
       });
       const report = await doctorPlugin(root, client);
-      expect(report.surfaces).toEqual([{ id: "preview" }]);
+      expect(report.contributions).toEqual([{ id: "preview" }]);
       expect(report.grants).toEqual([{ capability: "artifact.read" }]);
       await uninstallLinkedPlugin(root, client, true);
       expect(seen).toEqual([
@@ -137,7 +137,7 @@ describe("plugin Host control commands", () => {
         activation: { generation: 4 },
         grants: [],
         runtimes: [],
-        surfaces: [],
+        contributions: [],
         agentBindings: [],
         recentCrashes: [],
         diagnostics: [

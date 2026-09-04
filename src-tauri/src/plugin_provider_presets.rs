@@ -99,10 +99,7 @@ impl TauriProviderPresetHost {
         })
     }
 
-    async fn confirm(
-        &self,
-        prompt: ProviderBindConfirmation,
-    ) -> Result<bool, ProviderPresetError> {
+    async fn confirm(&self, prompt: ProviderBindConfirmation) -> Result<bool, ProviderPresetError> {
         let request_id = prompt.request_id.clone();
         let waiter = self.pending.park(request_id.clone());
         self.app

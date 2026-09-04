@@ -46,6 +46,7 @@ import { Button } from '@/components/ui/button';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { PluginRuntimeDiagnostics } from '@/components/plugins/PluginRuntimeDiagnostics';
 import {
   Dialog,
   DialogContent,
@@ -847,6 +848,8 @@ function PluginDetail({
           ) : null}
 
           <div className="plugin-overview-sections">
+            <PluginRuntimeDiagnostics pluginId={plugin.id} />
+
             {plugin.skills.length ? (
               <div className="plugin-detail-section">
                 <h4>

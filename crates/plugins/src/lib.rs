@@ -114,7 +114,8 @@ pub use runtime::{
 };
 pub use service::PluginService;
 pub use worker_host::{
-    CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginLogLine, ScopedCapabilityBroker,
-    WorkerActivation, WorkerHost, WorkerHostError, isolated_spawn_supported, recent_plugin_crashes,
-    recent_plugin_logs, record_plugin_crash, record_plugin_log,
+    CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginCrash, PluginLogLine,
+    ScopedCapabilityBroker, WorkerActivation, WorkerHost, WorkerHostError,
+    isolated_spawn_supported, recent_plugin_crashes, recent_plugin_logs, record_plugin_crash,
+    record_plugin_log,
 };

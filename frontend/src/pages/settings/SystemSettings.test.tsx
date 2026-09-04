@@ -1,9 +1,10 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from 'shared/types';
 
 import { SystemSettings } from './SystemSettings';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 const mocks = vi.hoisted(() => ({
   config: {

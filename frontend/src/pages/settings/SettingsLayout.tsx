@@ -126,13 +126,13 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     path: '/settings/logs',
     labelKey: 'logs',
     icon: FileText,
-    capability: 'desktop.tauri',
+    capability: 'application.call',
   },
   {
     path: '/settings/system',
     labelKey: 'system',
     icon: Settings,
-    capability: 'desktop.tauri',
+    capability: 'application.call',
   },
 ];
 

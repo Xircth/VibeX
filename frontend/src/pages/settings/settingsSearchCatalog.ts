@@ -50,8 +50,10 @@ const PAGES = {
   webService: page('webService', '/settings/web-service', {
     anyOf: ['desktop.tauri', 'device.pair'],
   }),
-  logs: page('logs', '/settings/logs', { capability: 'desktop.tauri' }),
-  system: page('system', '/settings/system', { capability: 'desktop.tauri' }),
+  logs: page('logs', '/settings/logs', { capability: 'application.call' }),
+  system: page('system', '/settings/system', {
+    capability: 'application.call',
+  }),
 } as const;
 
 function entriesFor(

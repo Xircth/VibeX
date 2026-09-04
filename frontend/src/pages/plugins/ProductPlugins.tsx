@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickHostFile } from '@/lib/hostFs';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -226,7 +226,7 @@ export function PluginCatalogPage() {
       setBusyId(plugin.id);
       try {
         const updated = await api.setEnabled(plugin.id, enabled);
-        if (enabled && supports('desktop.tauri')) {
+        if (enabled && supports('plugin.write')) {
           if (plugin.skills.length > 0) {
             await api.configureAgents(plugin.id, true, []);
           }
@@ -378,10 +378,9 @@ export function PluginCatalogPage() {
 
   const addPlugin = useCallback(async () => {
     try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [{ name: 'VibeX Plugin', extensions: ['vxp', 'zip'] }],
+      const selected = await pickHostFile({
+        title: 'Select plugin package',
+        extensions: ['vxp', 'zip'],
       });
       if (!selected || Array.isArray(selected)) return;
       await installPlugin(selected);

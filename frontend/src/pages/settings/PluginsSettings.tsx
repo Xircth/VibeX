@@ -1,4 +1,4 @@
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickHostFile } from '@/lib/hostFs';
 import {
   Button as AstryxButton,
   CheckboxInput,
@@ -1076,9 +1076,8 @@ export function PluginsSettings({
   );
   const canWrite = backendCapabilities.has('plugin.write');
   const canSurface = backendCapabilities.has('plugin.surface');
-  const canManagePackage = transport.environment === 'desktop';
-  const canUseLocalPluginFiles =
-    canWrite && transport.environment === 'desktop';
+  const canManagePackage = canWrite;
+  const canUseLocalPluginFiles = canWrite;
 
   useEffect(() => {
     let active = true;
@@ -1222,10 +1221,9 @@ export function PluginsSettings({
 
   const chooseZipImport = async (packageKind: PluginImportPackageKind) => {
     if (!canUseLocalPluginFiles) return;
-    const picked = await open({
-      directory: false,
-      multiple: false,
-      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+    const picked = await pickHostFile({
+      title: 'Select plugin package',
+      extensions: ['zip', 'vxp'],
     });
     if (typeof picked !== 'string') return;
     setBusy(true);
@@ -1379,11 +1377,7 @@ export function PluginsSettings({
         }
       }
       const updated = await api.setEnabled(plugin.id, enabled);
-      if (
-        enabled &&
-        !plugin.nativeManaged &&
-        transport.environment === 'desktop'
-      ) {
+      if (enabled && !plugin.nativeManaged && canWrite) {
         await api.configureAgents(plugin.id, true, []);
       }
       setCatalog((current) =>
@@ -1456,7 +1450,7 @@ export function PluginsSettings({
   };
 
   const rollbackPlugin = async (plugin: PluginControlItem) => {
-    if (!canWrite || transport.environment !== 'desktop') return;
+    if (!canWrite) return;
     setBusy(true);
     setError(null);
     try {

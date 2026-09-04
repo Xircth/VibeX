@@ -15,7 +15,7 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, reloads a Skill, and uninstalls.`;
+const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, enables chrome contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
 
 try {
@@ -134,6 +134,8 @@ try {
               "rust-worker",
               "host-service",
               "hooks",
+              "host-chrome",
+              "provider-import",
             ],
           },
           null,

@@ -30,6 +30,12 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.plugin-development', 'fallback', t)).toBe(
       '插件开发'
     );
+    expect(officialPluginName('vibex.host-chrome', 'fallback', t)).toBe(
+      '宿主界面示例'
+    );
+    expect(officialPluginName('vibex.provider-import', 'fallback', t)).toBe(
+      '环境变量导入供应商'
+    );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
       'VibeX Office'
@@ -46,6 +52,12 @@ describe('official plugin presentation', () => {
     expect(
       officialPluginName('vibex.plugin-development', 'fallback', en)
     ).toBe('Plugin Development');
+    expect(officialPluginName('vibex.host-chrome', 'fallback', en)).toBe(
+      'Host chrome sample'
+    );
+    expect(officialPluginName('vibex.provider-import', 'fallback', en)).toBe(
+      'Environment provider import'
+    );
   });
 
   it('localizes official config labels without rewriting user plugins', () => {

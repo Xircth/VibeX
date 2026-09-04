@@ -33,6 +33,12 @@ pub enum ImportDisposition {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct PluginAuditEvent {
+    pub event: String,
+    pub evidence: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportConflict {
     pub plugin_id: String,
     pub installed_source: PathBuf,
@@ -195,6 +201,10 @@ pub trait PluginRegistry: Send + Sync {
         event: &str,
         evidence: &serde_json::Value,
     ) -> Result<(), PluginError>;
+    async fn list_audit(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginAuditEvent>, PluginError>;
     async fn delete_unreferenced_runtime_artifacts(
         &self,
     ) -> Result<Vec<RuntimeInstallation>, PluginError>;
@@ -211,6 +221,7 @@ pub struct InMemoryPluginRegistry {
     candidate_packages: RwLock<BTreeMap<u64, PluginPackage>>,
     grants: RwLock<BTreeMap<String, Vec<crate::CapabilityGrant>>>,
     published_contributions: RwLock<BTreeMap<String, Vec<crate::ContributionDescriptor>>>,
+    audit: RwLock<Vec<(String, PluginAuditEvent)>>,
 }
 
 #[async_trait]
@@ -559,11 +570,32 @@ impl PluginRegistry for InMemoryPluginRegistry {
 
     async fn record_audit(
         &self,
-        _plugin_id: &str,
-        _event: &str,
-        _evidence: &serde_json::Value,
+        plugin_id: &str,
+        event: &str,
+        evidence: &serde_json::Value,
     ) -> Result<(), PluginError> {
+        self.audit.write().map_err(lock_error)?.push((
+            plugin_id.to_owned(),
+            PluginAuditEvent {
+                event: event.to_owned(),
+                evidence: evidence.clone(),
+            },
+        ));
         Ok(())
+    }
+
+    async fn list_audit(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginAuditEvent>, PluginError> {
+        Ok(self
+            .audit
+            .read()
+            .map_err(lock_error)?
+            .iter()
+            .filter(|(id, _)| id == plugin_id)
+            .map(|(_, event)| event.clone())
+            .collect())
     }
 
     async fn delete_unreferenced_runtime_artifacts(
@@ -1234,20 +1266,51 @@ impl PluginRegistry for SqlitePluginRegistry {
         evidence: &serde_json::Value,
     ) -> Result<(), PluginError> {
         let evidence_json = serde_json::to_string(evidence).map_err(registry_error)?;
+        // A bind refusal is evidence even when the install row is gone or
+        // never existed — joining on installations would silently drop it.
         sqlx::query(
             "INSERT INTO plugin_audit_v4
                  (plugin_id, publisher, operation_id, event, evidence_json, created_at)
-             SELECT ?, publisher, NULL, ?, ?, datetime('now','subsec')
-             FROM plugin_installations_v4 WHERE plugin_id = ?",
+             VALUES (
+                 ?,
+                 COALESCE((SELECT publisher FROM plugin_installations_v4 WHERE plugin_id = ?), ''),
+                 NULL,
+                 ?,
+                 ?,
+                 datetime('now','subsec')
+             )",
         )
+        .bind(plugin_id)
         .bind(plugin_id)
         .bind(event)
         .bind(evidence_json)
-        .bind(plugin_id)
         .execute(&self.pool)
         .await
         .map_err(registry_error)?;
         Ok(())
+    }
+
+    async fn list_audit(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginAuditEvent>, PluginError> {
+        let rows = sqlx::query(
+            "SELECT event, evidence_json FROM plugin_audit_v4
+             WHERE plugin_id = ? ORDER BY sequence",
+        )
+        .bind(plugin_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        rows.into_iter()
+            .map(|row| {
+                let event: String = row.try_get("event").map_err(registry_error)?;
+                let evidence_json: String =
+                    row.try_get("evidence_json").map_err(registry_error)?;
+                let evidence = serde_json::from_str(&evidence_json).map_err(registry_error)?;
+                Ok(PluginAuditEvent { event, evidence })
+            })
+            .collect()
     }
 
     async fn delete_unreferenced_runtime_artifacts(
@@ -2627,6 +2690,13 @@ impl PluginControlPlane {
         evidence: &serde_json::Value,
     ) -> Result<(), PluginError> {
         self.registry.record_audit(plugin_id, event, evidence).await
+    }
+
+    pub async fn audit_events(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<PluginAuditEvent>, PluginError> {
+        self.registry.list_audit(plugin_id).await
     }
 
     /// Display name for a plugin, for Host prompts that must tell the user who

@@ -819,6 +819,18 @@
         "summary": "Let an agent develop, validate, link, and publish plugins with this Host's SDK and CLI.",
         "readme": "# Plugin Development\n\nGives plugin authors the toolchain that matches the running Host: Skill, SDK, and CLI. Do not download a random template, and do not assume a VibeX source tree is on disk.\n\nEnabling the plugin delivers the Skill. Development, testing, and publishing use the CLI only.\n\n## Toolchain\n\nLocate the local contract with `vibex-plugin toolchain`, then `init`, `validate`, `test`, `build`, and `pack`. Link with `vibex plugin add --dev .`. List on the marketplace with `vibex plugin publish`.\n\n## Link a local directory\n\nStart Desktop or `vibex serve`, then run `vibex plugin add --dev .` at the plugin root. Do not ask for a token in chat.\n\n## Troubleshooting\n\nIf the Host is not running, start it first. If the current session has no new tools, open or rebind a session.",
         "config": {}
+      },
+      "hostChrome": {
+        "name": "Host chrome sample",
+        "summary": "Adds one item to the command palette, toolbar, status bar, slash menu, timeline, and Settings.",
+        "readme": "# Host chrome sample\n\nReference plugin for the six chrome slots. Turn it on to see each slot gain one item; turn it off and they disappear together.\n\n## Slots\n\nCommand palette, toolbar, status bar, composer slash, timeline card, Settings section.\n\n## Troubleshooting\n\nIf an item is missing, the plugin is off. Worker status and recent crashes are on this page under Runtime.",
+        "config": {}
+      },
+      "providerImport": {
+        "name": "Environment provider import",
+        "summary": "Import OpenAI-compatible providers from environment variables into Model Provider presets.",
+        "readme": "# Environment provider import\n\nReads OpenAI-compatible endpoints already exported in the process environment and offers them in Settings → Agents → Import.\n\nImport writes presets only. Binding an agent still asks you to confirm.\n\nProviders without an API key appear in the list but cannot be selected.",
+        "config": {}
       }
     },
     "contentTab": "Content",

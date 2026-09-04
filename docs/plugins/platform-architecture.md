@@ -236,14 +236,16 @@ App contribution 分两类：
 
 #### Host-rendered surface
 
-插件提供 descriptor，VibeX 使用自身组件和 design tokens 渲染。v4 第一批稳定 surface：
+插件提供 descriptor，VibeX 使用自身组件和 design tokens 渲染。当前稳定的 Host-rendered kind：
 
 - `app.command`
-- `app.settings`
-- `app.fileOpener`
-- `artifact.previewProvider`
-- `app.toolbarAction`
+- `app.toolbar`
 - `app.status`
+- `app.composer.slash`
+- `app.timeline.card`
+- `app.settings.section`
+- `file.opener` / `artifact.preview`
+- `provider.model.importSource`
 
 Host-rendered surface 不执行 package App 代码，适合 Office 第一阶段迁移。
 

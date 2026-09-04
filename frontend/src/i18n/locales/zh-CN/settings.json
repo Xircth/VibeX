@@ -819,6 +819,18 @@
         "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。",
         "readme": "# 插件开发\n\n给正在写插件的人一套跟当前 Host 一致的本机工具链：Skill、SDK、CLI。不要去网上找另一份模板，也不要假设本机有 VibeX 源码树。\n\n打开插件只会投递 Skill。开发、测试与发布只走 CLI。\n\n## 工具链\n\n用 `vibex-plugin toolchain` 定位本机契约，然后 `init`、`validate`、`test`、`build`、`pack`。用 `vibex plugin add --dev .` 链到正在跑的 Host。上架用 `vibex plugin publish`。\n\n## 链接本机目录\n\n打开 Desktop 或 `vibex serve`，在插件根目录执行 `vibex plugin add --dev .`。不要向对话索要 token。\n\n## 排障\n\nHost 未运行会提示先启动。当前会话没有新工具时，新开或 rebind 会话。",
         "config": {}
+      },
+      "hostChrome": {
+        "name": "宿主界面示例",
+        "summary": "在命令面板、工具栏、状态栏、斜杠菜单、时间线和设置里各加一项。",
+        "readme": "# 宿主界面示例\n\n六个宿主界面槽位的参考插件。打开后每个槽位多一项；关掉后一起消失。\n\n## 槽位\n\n命令面板、工具栏、状态栏、Composer 斜杠、时间线卡片、设置分区。\n\n## 排障\n\n缺某一项，说明插件没开。Worker 状态和最近崩溃在本页「运行状况」。",
+        "config": {}
+      },
+      "providerImport": {
+        "name": "环境变量导入供应商",
+        "summary": "把环境变量里已有的 OpenAI 兼容供应商导入 Model Provider 预设。",
+        "readme": "# 环境变量导入供应商\n\n读取进程环境里已经导出的 OpenAI 兼容端点，出现在 设置 → 智能体 → 导入。\n\n导入只写预设。把 Agent 绑到某个预设仍会先问你。\n\n没有 API 密钥的项会列出，但不能勾选。",
+        "config": {}
       }
     },
     "contentTab": "内容",

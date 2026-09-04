@@ -46,13 +46,27 @@ VibeX v4 executes installed plugin code with the user's trust. There is no permi
 Run from the plugin root:
 
 ```text
+vibex-plugin init . --template host-chrome   # or provider-import / full / …
 vibex-plugin build
 vibex-plugin validate
 vibex-plugin test
 vibex plugin add --dev .
+vibex-plugin test --host
 vibex-plugin pack
 vibex plugin publish
 ```
+
+`host-chrome` writes one contribution per chrome slot (`app.command` /
+`app.toolbar` / `app.status` / `app.composer.slash` / `app.timeline.card` /
+`app.settings.section`). `provider-import` writes one
+`provider.model.importSource`. Chrome slots refresh through the activation
+generation (enable, disable, or `add --dev`); Module Federation HMR is a
+later Host batch, not a requirement of these kinds.
+
+`vibex-plugin test --host` against a chrome package: install → enable → the
+six kinds appear in `plugin_contribution_catalog` → disable → they vanish →
+enable again → uninstall, source directory kept. A Skill-bearing package
+still also reloads `SKILL.md`.
 
 Prefer `vibex plugin add --dev .` against a running Desktop or `vibex serve`.
 `vibex-plugin install --link` is only an alias of that Host import when it still exists.

@@ -8,6 +8,13 @@ import { build } from "esbuild";
 import { buildPlugin, sdkAliases } from "./build.js";
 import { inspectLinkedPackage } from "./pluginControl.js";
 import {
+  catalogHasKinds,
+  catalogLacksKinds,
+  chromeKindsFromIntegrations,
+} from "./pluginHostJourney.js";
+import {
+  contributionCatalogOnProductHost,
+  disableOnProductHost,
   doctorOnProductHost,
   enableOnProductHost,
   importLinkedOnProductHost,
@@ -72,6 +79,31 @@ async function testPluginOnHost(root: string) {
     throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
   }
   await enableOnProductHost(plugin.identity.id);
+  const chromeKinds = chromeKindsFromIntegrations(
+    await readManifestIntegrations(root),
+  );
+  if (chromeKinds.length > 0) {
+    await waitForCatalog(
+      plugin.identity.id,
+      chromeKinds,
+      true,
+      "plugin_host_chrome_contributions_missing",
+    );
+    await disableOnProductHost(plugin.identity.id);
+    await waitForCatalog(
+      plugin.identity.id,
+      chromeKinds,
+      false,
+      "plugin_host_chrome_contributions_lingered",
+    );
+    await enableOnProductHost(plugin.identity.id);
+    await waitForCatalog(
+      plugin.identity.id,
+      chromeKinds,
+      true,
+      "plugin_host_chrome_contributions_missing",
+    );
+  }
   const skill = await firstSkillFile(root);
   if (skill) {
     const original = await readFile(skill, "utf8");
@@ -102,6 +134,31 @@ async function testPluginOnHost(root: string) {
   }
   await uninstallOnProductHost(plugin.identity.id, true);
   await access(root);
+}
+
+async function readManifestIntegrations(root: string): Promise<unknown> {
+  const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
+  const manifest = JSON.parse(raw) as { integrations?: unknown };
+  return manifest.integrations;
+}
+
+async function waitForCatalog(
+  pluginId: string,
+  kinds: readonly string[],
+  present: boolean,
+  error: string,
+) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const catalog = await contributionCatalogOnProductHost();
+    const items = catalog.items ?? [];
+    const ready = present
+      ? catalogHasKinds(items, pluginId, kinds)
+      : catalogLacksKinds(items, pluginId, kinds);
+    if (ready) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+  }
+  throw new Error(error);
 }
 
 async function firstSkillFile(root: string): Promise<string | null> {

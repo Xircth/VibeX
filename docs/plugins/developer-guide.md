@@ -194,7 +194,10 @@ vibex-plugin uninstall --delete-data
 
 `vibex-plugin install` 只支持 `--link`。产品 CLI：`vibex plugin add --dev .` 会 build、validate、导入为 developer link，并尝试启用。源码变化后重新 build；Host 按 digest 发布候选代。
 
-普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走装、Skill 热更新、卸载。
+普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走：安装 →
+启用 → 该包声明的 chrome 槽位出现在贡献目录 → 禁用后原子消失 → 再启用 →
+（若有 `SKILL.md`）改文件等 digest 更新 → 卸载且源目录仍在。chrome 槽位的
+「热更新」是激活代，不是 Vite HMR。
 
 `dev` 会先 build，再 link，再监视源码。digest 变了才重载。重载走候选代，失败则上一完整代仍对外可见。
 
@@ -222,7 +225,7 @@ Harness 绿了不算完。文件页、预览、Runtime、远程行为必须对�
 
 - **Worker** 三态。`未运行` 意味着插件已启用、清单声明了 Worker、但没有代在服务——通常是 activate 抛了异常。`未声明` 是正常的，纯内容插件就该是这样。
 - **缺少未安装的运行时**。插件看着已启用却什么都不做时先看这条。
-- **最近崩溃**。保留最近几次异常退出的时间和消息，不必现场复现。
+- **最近崩溃**。保留最近几次异常退出的时间和消息，不必现场复现。要人为制造一次：让 Worker 进程非 0 退出（或在启用状态下关掉再打开），这条会出现；Worker 回到「运行中」就是恢复，崩溃记录还在。
 - **查看日志**。Worker 的 stdout / stderr 尾部，stderr 标黄。只在展开时才拉取。
 
 CLI 侧对应的是 `doctor`；崩溃与日志两边同源。

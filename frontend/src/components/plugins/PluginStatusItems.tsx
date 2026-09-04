@@ -162,8 +162,8 @@ export function PluginStatusItems() {
             type="button"
             title={entry.tooltip ?? entry.text}
             className={cn(
-              'flex max-w-[10rem] items-center gap-1 truncate rounded-sm px-1 text-[10px] opacity-80',
-              'hover:bg-accent/70 hover:opacity-100'
+              'flex max-w-[10rem] items-center gap-1 truncate rounded-sm px-1 text-[11px] text-secondary-foreground',
+              'hover:bg-accent/70'
             )}
             onClick={() => invoke(entry)}
           >

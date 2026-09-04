@@ -185,14 +185,19 @@ inspect、至少一处真实 UI 或 Agent 消费、以及作者 Skill/参考文�
 当前稳定面：
 
 - `content.skill`、`content.mcp`（包内 managed Runtime 或官方 `hostFamilyBinary`）、
-  `content.hook`、`workflow.binding`
+  `workflow.binding`
 - `file.opener` + `artifact.preview`；`file.opener` + `app.surface(slot: artifact.editor)`
 - `app.surface` 的 `plugin.detail.panel` 与 `artifact.editor`
 - `host.service`
+- `app.command` / `app.toolbar` / `app.status` / `app.composer.slash` /
+  `app.timeline.card` / `app.settings.section`（官方参考包 `vibex.host-chrome`，
+  `init --template host-chrome`）
+- `provider.model.importSource` 与 `host.call: provider.presets.list/save/bind`
+  （官方参考包 `vibex.provider-import`，`init --template provider-import`）
 
-UI 已消费但尚无官方参考包的 `app.command` / `app.toolbar` / `app.status` /
-`app.composer.slash` / `app.timeline.card` / `app.settings.section` 可以保留
-kind，不进入默认 `init` 模板，Skill 标明「Host 已挂孔、无官方范例」。
+`content.hook` 仍出现在 kinds 目录里，状态为 `unimplemented`：清单能通过
+校验，但 Host 没有 Hook 运行时，inspect 会警告。不得把它写进 `init` 模板或
+当成稳定面。
 
 明确排除出稳定面：`app.surface.slot = conversation.timeline.card`（与 Host/CLI
 不一致）、`dependencies.kind = plugin`（CLI 接受、Host inspect 拒绝）、把

@@ -48,8 +48,9 @@ pub use contribution::{
 };
 pub use control_plane::{
     ActivationRecoveryFailure, BundledPluginActivation, ConflictDecision, ImportConflict,
-    ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginControlPlane,
-    PluginRegistry, RuntimeInstallation, SqlitePluginRegistry, candidate_capability_grants,
+    ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginAuditEvent,
+    PluginControlPlane, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
+    candidate_capability_grants,
 };
 pub use error::PluginError;
 pub use host_capability_broker::HostCapabilityBroker;

@@ -111,6 +111,19 @@ export async function enableOnProductHost(pluginId: string) {
   });
 }
 
+export async function disableOnProductHost(pluginId: string) {
+  return callProductHost("plugin_control_set_enabled", {
+    pluginId,
+    enabled: false,
+  });
+}
+
+export async function contributionCatalogOnProductHost() {
+  return callProductHost<{
+    items?: Array<{ pluginId?: string; kind?: string }>;
+  }>("plugin_contribution_catalog", {});
+}
+
 export async function uninstallOnProductHost(
   pluginId: string,
   retainData = true,

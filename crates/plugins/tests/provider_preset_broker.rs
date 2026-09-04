@@ -121,11 +121,17 @@ async fn control_plane() -> Arc<PluginControlPlane> {
     )))
 }
 
-async fn broker(presets: Arc<RecordingPresetHost>) -> HostCapabilityBroker {
-    HostCapabilityBroker::with_provider_presets(
-        control_plane().await,
-        Arc::new(UnusedPreviewHost),
-        presets,
+async fn broker(
+    presets: Arc<RecordingPresetHost>,
+) -> (HostCapabilityBroker, Arc<PluginControlPlane>) {
+    let plane = control_plane().await;
+    (
+        HostCapabilityBroker::with_provider_presets(
+            plane.clone(),
+            Arc::new(UnusedPreviewHost),
+            presets,
+        ),
+        plane,
     )
 }
 
@@ -141,13 +147,13 @@ async fn call(
 
 #[tokio::test]
 async fn the_capability_is_advertised_alongside_the_others() {
-    let broker = broker(Arc::new(RecordingPresetHost::default())).await;
+    let (broker, _) = broker(Arc::new(RecordingPresetHost::default())).await;
     assert!(broker.supports("provider.presets"));
 }
 
 #[tokio::test]
 async fn listing_presets_never_returns_the_api_key() {
-    let broker = broker(Arc::new(RecordingPresetHost::default())).await;
+    let (broker, _) = broker(Arc::new(RecordingPresetHost::default())).await;
     let result = call(&broker, "list", json!({ "agentId": "claude" }))
         .await
         .expect("list");
@@ -166,7 +172,7 @@ async fn a_declined_bind_reports_unconfirmed_instead_of_failing() {
         approve_bind: false,
         ..RecordingPresetHost::default()
     });
-    let broker = broker(presets.clone()).await;
+    let (broker, plane) = broker(presets.clone()).await;
     let result = call(
         &broker,
         "bind",
@@ -176,6 +182,16 @@ async fn a_declined_bind_reports_unconfirmed_instead_of_failing() {
     .expect("a refusal is an answer, not a transport error");
     assert_eq!(result["confirmed"], false);
     assert_eq!(presets.bound.lock().unwrap().len(), 1);
+    let events = plane
+        .audit_events("test.plugin")
+        .await
+        .expect("audit");
+    assert!(
+        events.iter().any(|event| {
+            event.event == "provider_preset_bind" && event.evidence["confirmed"] == false
+        }),
+        "a refusal must still land in the plugin audit: {events:?}"
+    );
 }
 
 #[tokio::test]
@@ -184,7 +200,7 @@ async fn an_approved_bind_reports_confirmed() {
         approve_bind: true,
         ..RecordingPresetHost::default()
     });
-    let broker = broker(presets).await;
+    let (broker, _) = broker(presets).await;
     let result = call(
         &broker,
         "bind",
@@ -201,7 +217,7 @@ async fn the_plugin_reason_reaches_the_host_seam() {
         approve_bind: true,
         ..RecordingPresetHost::default()
     });
-    let broker = broker(presets.clone()).await;
+    let (broker, _) = broker(presets.clone()).await;
     call(
         &broker,
         "bind",
@@ -223,7 +239,7 @@ async fn the_plugin_reason_reaches_the_host_seam() {
 #[tokio::test]
 async fn saving_requires_a_name_and_an_agent() {
     let presets = Arc::new(RecordingPresetHost::default());
-    let broker = broker(presets.clone()).await;
+    let (broker, _) = broker(presets.clone()).await;
 
     let missing_name = call(
         &broker,
@@ -251,7 +267,7 @@ async fn saving_requires_a_name_and_an_agent() {
 
 #[tokio::test]
 async fn an_unknown_operation_is_rejected_rather_than_ignored() {
-    let broker = broker(Arc::new(RecordingPresetHost::default())).await;
+    let (broker, _) = broker(Arc::new(RecordingPresetHost::default())).await;
     let error = call(&broker, "delete", json!({}))
         .await
         .expect_err("delete is not part of the seam");

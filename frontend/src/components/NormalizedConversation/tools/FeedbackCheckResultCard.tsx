@@ -14,6 +14,14 @@ function isFeedbackToolName(toolName: string): boolean {
   );
 }
 
+/** Reads the plain `summary` some feedback tools return instead of a list. */
+function summaryEntries(
+  record: Record<string, unknown> | null
+): Array<{ text: string; createdAt?: string | null }> {
+  const summary = record?.summary;
+  return typeof summary === 'string' && summary.trim() ? [{ text: summary }] : [];
+}
+
 function feedbackEntries(
   result: unknown
 ): Array<{ text: string; createdAt?: string | null }> {
@@ -29,7 +37,11 @@ function feedbackEntries(
           !Array.isArray(record.structuredContent)
         ? (record.structuredContent as Record<string, unknown>)
         : null;
-  if (!envelope || !Array.isArray(envelope.feedback)) return [];
+  // A feedback tool that reports a bare `summary` still has something worth
+  // showing; without this the whole card renders as null and the completed
+  // tool call disappears from the timeline.
+  if (!envelope) return summaryEntries(record);
+  if (!Array.isArray(envelope.feedback)) return summaryEntries(envelope);
   return envelope.feedback.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const text = (item as { text?: unknown }).text;
@@ -65,6 +77,12 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
   );
   if (entries.length === 0) return null;
   const summary = entries[0].text;
+  const args = action.arguments;
+  const check =
+    args && typeof args === 'object' && !Array.isArray(args) &&
+    typeof (args as { check?: unknown }).check === 'string'
+      ? (args as { check: string }).check
+      : null;
 
   return (
     <ToolCardShell
@@ -78,6 +96,7 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
       expandable={false}
     >
       <ToolArtifact title={summary}>
+        {check ? <ToolProse>{check}</ToolProse> : null}
         {entries.map((entry, index) => (
           <ToolProse key={`${entry.text}-${index}`}>{entry.text}</ToolProse>
         ))}

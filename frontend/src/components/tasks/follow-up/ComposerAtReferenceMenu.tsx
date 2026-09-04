@@ -45,7 +45,7 @@ export function ComposerAtReferenceMenu({
 
   return (
     <div
-      className="composer-at-reference-menu dialog-surface flex max-h-[min(18rem,calc(100dvh_-_1rem))] w-full flex-col overflow-hidden rounded-[14px] text-popover-foreground shadow-[var(--shadow-popover)]"
+      className="composer-at-reference-menu dialog-surface flex max-h-[min(18rem,calc(100dvh_-_1rem))] w-full flex-col overflow-hidden rounded-lg text-popover-foreground shadow-[var(--shadow-popover)]"
       data-testid="composer-at-reference-menu"
     >
       <div

@@ -1144,6 +1144,7 @@ function GrokProviderModelEditor({
         <span>{t('agents.grokApiBackend')}</span>
         <select
           aria-label={t('agents.grokApiBackend')}
+          className="raised-control"
           disabled={disabled}
           name="grok_provider_backend"
           value={parsed.api_backend}
@@ -1214,6 +1215,7 @@ function PiProviderModelEditor({
         <span>{t('agents.customProviderProtocol')}</span>
         <select
           aria-label={t('agents.customProviderProtocol')}
+          className="raised-control"
           disabled={disabled}
           name="pi_provider_protocol"
           value={parsed.api}

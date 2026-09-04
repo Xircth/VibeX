@@ -87,7 +87,10 @@ export class RemoteDesktopTransport implements BackendTransport {
   readonly environment = 'remote-desktop' as const;
   readonly profileId: string;
   private readonly baseUrl: string;
-  private readonly token: string;
+  // A `private` field is only compile-time private and still serializes, which
+  // would put the bearer token into any log or crash report that stringifies a
+  // transport. A `#` field is absent from the runtime object entirely.
+  readonly #token: string;
   private readonly bridge: RemoteDesktopBridge;
   private destroyed = false;
 
@@ -99,7 +102,7 @@ export class RemoteDesktopTransport implements BackendTransport {
   ) {
     this.profileId = profileId;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.token = token;
+    this.#token = token;
     this.bridge = bridge;
   }
 
@@ -149,7 +152,7 @@ export class RemoteDesktopTransport implements BackendTransport {
           `${this.baseUrl}/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
           {
             headers: {
-              Authorization: `Bearer ${this.token}`,
+              Authorization: `Bearer ${this.#token}`,
               'X-VibeX-Protocol-Version': '1.0',
             },
             signal: controller.signal,

@@ -8,7 +8,7 @@ use serde_json::Value;
 use sqlx::{Row, sqlite::SqliteConnectOptions};
 
 #[derive(Debug, Clone)]
-pub(super) struct ImportDraft {
+pub struct ImportDraft {
     pub source_id: String,
     pub name: String,
     pub api_url: String,
@@ -17,7 +17,7 @@ pub(super) struct ImportDraft {
     pub skip_reason: Option<String>,
 }
 
-pub(super) fn cc_switch_db_path(home: &Path) -> PathBuf {
+pub fn cc_switch_db_path(home: &Path) -> PathBuf {
     std::env::var_os("CC_SWITCH_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -25,7 +25,7 @@ pub(super) fn cc_switch_db_path(home: &Path) -> PathBuf {
         .join("cc-switch.db")
 }
 
-pub(super) fn cc_switch_app_type(agent_id: &AgentId) -> Option<&'static str> {
+pub fn cc_switch_app_type(agent_id: &AgentId) -> Option<&'static str> {
     match agent_id.as_str() {
         "claude_code" => Some("claude"),
         "codex" => Some("codex"),
@@ -39,7 +39,7 @@ pub(super) fn cc_switch_app_type(agent_id: &AgentId) -> Option<&'static str> {
     }
 }
 
-pub(super) async fn preview_cc_switch(
+pub async fn preview_cc_switch(
     home: &Path,
     agent_id: &AgentId,
     existing_names: &[String],
@@ -414,7 +414,7 @@ fn json_string(value: &Value, keys: &[&str]) -> String {
         .to_string()
 }
 
-pub(super) fn annotate_duplicate(mut draft: ImportDraft, existing_names: &[String]) -> ImportDraft {
+pub fn annotate_duplicate(mut draft: ImportDraft, existing_names: &[String]) -> ImportDraft {
     if draft.skip_reason.is_none()
         && existing_names
             .iter()
@@ -425,7 +425,7 @@ pub(super) fn annotate_duplicate(mut draft: ImportDraft, existing_names: &[Strin
     draft
 }
 
-pub(super) fn drafts_to_preview(
+pub fn drafts_to_preview(
     agent_id: AgentId,
     source: AgentModelProviderImportSource,
     source_path: Option<String>,
@@ -442,7 +442,7 @@ pub(super) fn drafts_to_preview(
 }
 
 impl ImportDraft {
-    pub(super) fn to_view(&self) -> AgentModelProviderImportCandidateView {
+    pub fn to_view(&self) -> AgentModelProviderImportCandidateView {
         AgentModelProviderImportCandidateView {
             source_id: self.source_id.clone(),
             name: self.name.clone(),

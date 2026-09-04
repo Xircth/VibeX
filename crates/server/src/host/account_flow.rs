@@ -8,7 +8,7 @@ use agents::profiles::ProfileManagementActionKind;
 use api_types::{AgentAccountFlowStatus, AgentAccountFlowView, AgentId};
 
 #[derive(Clone)]
-pub(super) struct PendingAccountFlow {
+pub struct PendingAccountFlow {
     pub action_id: String,
     pub kind: ProfileManagementActionKind,
     pub result_path: PathBuf,
@@ -19,11 +19,11 @@ fn pending_flows() -> &'static Mutex<HashMap<String, PendingAccountFlow>> {
     FLOWS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(super) fn account_flow_result_path(agent_id: &AgentId) -> PathBuf {
+pub fn account_flow_result_path(agent_id: &AgentId) -> PathBuf {
     std::env::temp_dir().join(format!("vibex-account-flow-{}.exit", agent_id.as_str()))
 }
 
-pub(super) fn wrap_account_flow_command(command: &str, result_path: &Path) -> String {
+pub fn wrap_account_flow_command(command: &str, result_path: &Path) -> String {
     let path = result_path.display().to_string();
     #[cfg(windows)]
     {
@@ -43,11 +43,11 @@ pub(super) fn wrap_account_flow_command(command: &str, result_path: &Path) -> St
     }
 }
 
-pub(super) fn parse_account_flow_exit(contents: &str) -> Option<i32> {
+pub fn parse_account_flow_exit(contents: &str) -> Option<i32> {
     contents.trim().parse().ok()
 }
 
-pub(super) fn register_account_flow(
+pub fn register_account_flow(
     agent_id: &AgentId,
     action_id: impl Into<String>,
     kind: ProfileManagementActionKind,
@@ -65,21 +65,21 @@ pub(super) fn register_account_flow(
     }
 }
 
-pub(super) fn take_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
+pub fn take_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
     pending_flows()
         .lock()
         .ok()
         .and_then(|mut flows| flows.remove(agent_id.as_str()))
 }
 
-pub(super) fn peek_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
+pub fn peek_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
     pending_flows()
         .lock()
         .ok()
         .and_then(|flows| flows.get(agent_id.as_str()).cloned())
 }
 
-pub(super) fn idle_account_flow(agent_id: AgentId) -> AgentAccountFlowView {
+pub fn idle_account_flow(agent_id: AgentId) -> AgentAccountFlowView {
     AgentAccountFlowView {
         agent_id,
         action_id: None,
@@ -89,10 +89,7 @@ pub(super) fn idle_account_flow(agent_id: AgentId) -> AgentAccountFlowView {
     }
 }
 
-pub(super) fn pending_account_flow_view(
-    agent_id: AgentId,
-    action_id: String,
-) -> AgentAccountFlowView {
+pub fn pending_account_flow_view(agent_id: AgentId, action_id: String) -> AgentAccountFlowView {
     AgentAccountFlowView {
         agent_id,
         action_id: Some(action_id),

@@ -9,17 +9,17 @@ use api_types::{OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodePluginV
 static PLUGIN_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const PLUGIN_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
 
-pub(super) fn check_plugins(
+pub fn check_plugins(
     config_path: &Path,
     cache_dir: &Path,
-) -> Result<OpenCodePluginSummaryView, String> {
+) -> Result<OpenCodePluginSummaryView, super::NativeError> {
     check_plugins_at(config_path.to_path_buf(), cache_dir.to_path_buf())
 }
 
 fn check_plugins_at(
     config_path: PathBuf,
     cache_dir: PathBuf,
-) -> Result<OpenCodePluginSummaryView, String> {
+) -> Result<OpenCodePluginSummaryView, super::NativeError> {
     if !config_path.exists() {
         return Ok(summary(config_path, cache_dir, Vec::new()));
     }
@@ -105,11 +105,11 @@ fn summary(
     }
 }
 
-pub(super) async fn install_missing(
+pub async fn install_missing(
     config_path: PathBuf,
     cache_dir: PathBuf,
     names: Option<Vec<String>>,
-) -> Result<OpenCodePluginSummaryView, String> {
+) -> Result<OpenCodePluginSummaryView, super::NativeError> {
     let _guard = PLUGIN_OPERATION
         .try_lock()
         .map_err(|_| "另一个 OpenCode 插件操作正在进行".to_string())?;
@@ -130,7 +130,7 @@ pub(super) async fn install_missing(
             .iter()
             .any(|name| !current.plugins.iter().any(|plugin| &plugin.name == name))
     {
-        return Err("只能安装 opencode.json 中已声明的插件".to_string());
+        return Err("只能安装 opencode.json 中已声明的插件".into());
     }
     if !missing.is_empty() {
         let cache_dir = PathBuf::from(&current.cache_dir);
@@ -150,27 +150,28 @@ pub(super) async fn install_missing(
             .map_err(|error| format!("启动 bun 失败：{error}"))?;
         if !output.status.success() {
             return Err(utils::process::command_output_detail(&output)
-                .unwrap_or_else(|| format!("bun add 退出码为 {}", output.status)));
+                .unwrap_or_else(|| format!("bun add 退出码为 {}", output.status))
+                .into());
         }
     }
     pin_latest_specs(&current).await?;
     check_plugins(&config_path, &cache_dir)
 }
 
-pub(super) async fn uninstall(
+pub async fn uninstall(
     config_path: PathBuf,
     cache_dir: PathBuf,
     name: String,
-) -> Result<OpenCodePluginSummaryView, String> {
+) -> Result<OpenCodePluginSummaryView, super::NativeError> {
     let _guard = PLUGIN_OPERATION
         .try_lock()
         .map_err(|_| "另一个 OpenCode 插件操作正在进行".to_string())?;
     if name.starts_with("@opencode-ai/") {
-        return Err("不能卸载 OpenCode 内部插件".to_string());
+        return Err("不能卸载 OpenCode 内部插件".into());
     }
     let current = check_plugins(&config_path, &cache_dir)?;
     if !current.plugins.iter().any(|plugin| plugin.name == name) {
-        return Err("插件未在 opencode.json 中声明".to_string());
+        return Err("插件未在 opencode.json 中声明".into());
     }
     let config_path = PathBuf::from(&current.config_path);
     let original_config = tokio::fs::read(&config_path)
@@ -189,9 +190,7 @@ pub(super) async fn uninstall(
                 .is_none_or(|(plugin_name, _)| plugin_name != name)
         });
     }
-    super::write_json_document(&config_path, &document, false)
-        .await
-        .map_err(|error| error.message)?;
+    super::write_json_document(&config_path, &document, false).await?;
 
     let cache_dir = PathBuf::from(&current.cache_dir);
     let removal = async {
@@ -209,9 +208,9 @@ pub(super) async fn uninstall(
         if detail.contains("not found") {
             Ok(())
         } else if detail.is_empty() {
-            Err(format!("bun remove 退出码为 {}", output.status))
+            Err((format!("bun remove 退出码为 {}", output.status).into()))
         } else {
-            Err(detail)
+            Err(detail.into())
         }
     }
     .await;
@@ -219,21 +218,18 @@ pub(super) async fn uninstall(
         if let Err(rollback) =
             super::write_bytes_document(&config_path, &original_config, false).await
         {
-            return Err(format!(
-                "{error}；恢复 opencode.json 失败：{}",
-                rollback.message
-            ));
+            return Err((format!("{error}；恢复 opencode.json 失败：{}", rollback.message).into()));
         }
         return Err(error);
     }
     check_plugins(&config_path, &cache_dir)
 }
 
-pub(super) async fn add_plugin(
+pub async fn add_plugin(
     config_path: PathBuf,
     cache_dir: PathBuf,
     spec: String,
-) -> Result<OpenCodePluginSummaryView, String> {
+) -> Result<OpenCodePluginSummaryView, super::NativeError> {
     let _guard = PLUGIN_OPERATION
         .try_lock()
         .map_err(|_| "另一个 OpenCode 插件操作正在进行".to_string())?;
@@ -263,9 +259,7 @@ pub(super) async fn add_plugin(
             .await
             .map_err(|error| format!("创建 OpenCode 配置目录失败：{error}"))?;
     }
-    super::write_json_document(&config_path, &document, false)
-        .await
-        .map_err(|error| error.message)?;
+    super::write_json_document(&config_path, &document, false).await?;
     if should_bun_add(&spec) {
         tokio::fs::create_dir_all(&cache_dir)
             .await
@@ -279,7 +273,8 @@ pub(super) async fn add_plugin(
             .map_err(|error| format!("启动 bun 失败：{error}"))?;
         if !output.status.success() {
             return Err(utils::process::command_output_detail(&output)
-                .unwrap_or_else(|| format!("bun add 退出码为 {}", output.status)));
+                .unwrap_or_else(|| format!("bun add 退出码为 {}", output.status))
+                .into());
         }
     }
     check_plugins(&config_path, &cache_dir)
@@ -307,7 +302,7 @@ fn plugin_array_mut(document: &mut serde_json::Value) -> &mut Vec<serde_json::Va
         .expect("plugin array")
 }
 
-fn normalize_add_spec(spec: &str) -> Result<String, String> {
+fn normalize_add_spec(spec: &str) -> Result<String, super::NativeError> {
     let spec = spec.trim();
     if parse_plugin_spec(spec).is_some() {
         return Ok(spec.to_string());
@@ -327,7 +322,7 @@ fn normalize_add_spec(spec: &str) -> Result<String, String> {
     {
         return Ok(spec.to_string());
     }
-    Err("仅支持 npm 包、GitHub 仓库或本地路径".to_string())
+    Err("仅支持 npm 包、GitHub 仓库或本地路径".into())
 }
 
 fn display_spec(spec: &str) -> Option<(String, String)> {
@@ -356,18 +351,19 @@ fn should_bun_add(spec: &str) -> bool {
         || spec.starts_with("https://github.com/")
 }
 
-fn resolve_bun(cache_dir: &std::path::Path) -> Result<PathBuf, String> {
+fn resolve_bun(cache_dir: &std::path::Path) -> Result<PathBuf, super::NativeError> {
     let bundled = cache_dir
         .join("bin")
         .join(if cfg!(windows) { "bun.exe" } else { "bun" });
     if bundled.is_file() {
         return Ok(bundled);
     }
-    which::which("bun")
-        .map_err(|_| "未找到 bun；OpenCode 缓存中的 bun 与系统 PATH 均不可用".to_string())
+    which::which("bun").map_err(|_| {
+        super::NativeError::from("未找到 bun；OpenCode 缓存中的 bun 与系统 PATH 均不可用")
+    })
 }
 
-async fn pin_latest_specs(current: &OpenCodePluginSummaryView) -> Result<(), String> {
+async fn pin_latest_specs(current: &OpenCodePluginSummaryView) -> Result<(), super::NativeError> {
     let pins = current
         .plugins
         .iter()
@@ -406,17 +402,15 @@ async fn pin_latest_specs(current: &OpenCodePluginSummaryView) -> Result<(), Str
             }
         }
     }
-    super::write_json_document(&config_path, &document, false)
-        .await
-        .map_err(|error| error.message)
+    super::write_json_document(&config_path, &document, false).await
 }
 
-pub(super) fn spec_has_floating_version(spec: &str) -> bool {
+pub fn spec_has_floating_version(spec: &str) -> bool {
     parse_plugin_spec(spec)
         .is_some_and(|(name, declared)| declared == name || declared.ends_with("@latest"))
 }
 
-pub(super) fn parse_plugin_spec(spec: &str) -> Option<(String, String)> {
+pub fn parse_plugin_spec(spec: &str) -> Option<(String, String)> {
     let spec = spec.trim();
     if spec.is_empty()
         || spec.len() > 256

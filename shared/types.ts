@@ -1785,9 +1785,9 @@ export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: bo
 
 export type SubscriptionId = string;
 
-export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, });
+export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, } | { "resource": "host_event", channel: string, after_sequence: bigint, } | { "resource": "patch_stream", stream: string, args: JsonValue, });
 
-export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, };
+export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, } | { "resource": "host_event", channel: string, after_sequence: bigint, } | { "resource": "patch_stream", stream: string, args: JsonValue, };
 
 export type SubscriptionSnapshot = { through_sequence: bigint, payload: JsonValue, };
 

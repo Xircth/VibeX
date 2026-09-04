@@ -101,18 +101,25 @@ impl HeadlessServer {
             SqlitePluginRegistry::new(pool.clone()),
         )));
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
+        let row_projectors = Arc::new(Mutex::new(
+            HashMap::<uuid::Uuid, IncrementalRowProjector>::new(),
+        ));
         let conversation_context = ConversationContext {
             deployment: application_deployment,
             agent_runtime: agent_runtime.clone(),
             turn_locks: Arc::new(Mutex::new(HashMap::new())),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
+<<<<<<< HEAD
             row_projectors: Arc::new(Mutex::new(HashMap::new())),
+=======
+            row_projectors: row_projectors.clone(),
+>>>>>>> 0d193664 (feat(host): move product commands and agent native settings onto Host)
             host: Arc::new(DefaultConversationHost::with_product_mcp_server_names({
                 let gate = plugin_control_plane.official_product_mcp_gate();
                 std::sync::Arc::new(move || gate.product_mcp_names())
             })),
             event_publisher: Arc::new(crate::chat_notify::ChatDeliveryPublisher::new(Arc::new(
-                conversations::NoopConversationEventPublisher,
+                crate::host::HostRowOpPublisher::new(pool.clone(), row_projectors),
             ))),
         };
         let agent_event_task =

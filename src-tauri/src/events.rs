@@ -153,6 +153,12 @@ pub async fn emit_conversation_row_ops_after(
         if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
             tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
         }
+        let bus = server::global_host_events();
+        bus.emit(
+            format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
+            &batch,
+        );
+        bus.emit(channels::CONVERSATION_EVENTS, &batch);
     }
 
     // The projector is a pure cache of the folded timeline, so it must stay bounded —

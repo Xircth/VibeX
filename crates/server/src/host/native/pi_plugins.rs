@@ -14,9 +14,7 @@ pub async fn list_plugins(
 ) -> Result<PiPluginSummaryView, String> {
     let env = pi_configuration::read_pi_env(pool).await?;
     let agent_dir = pi_configuration::pi_agent_dir(home, &env);
-    let settings = read_json_object_or_empty(&agent_dir.join("settings.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let settings = read_json_object_or_empty(&agent_dir.join("settings.json")).await?;
     Ok(PiPluginSummaryView {
         home: agent_dir.display().to_string(),
         plugins: parse_packages(&settings),

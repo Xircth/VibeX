@@ -31,7 +31,7 @@ struct StoredProvider {
 
 /// 原生 Codex `config.toml` 中声明的 Provider（`[model_providers.xxx]`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct NativeCodexProvider {
+pub struct NativeCodexProvider {
     pub id: String,
     pub name: String,
     pub api_url: String,
@@ -42,7 +42,7 @@ pub(super) struct NativeCodexProvider {
 /// Codex 原生配置的 Provider 状态。`config.toml` / `auth.json` 是当前启用项的
 /// 唯一真相源；VibeX 预设只在原生 `model_provider = "vibex"` 时才算启用。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct NativeCodexState {
+pub struct NativeCodexState {
     pub providers: Vec<NativeCodexProvider>,
     /// `model_provider` 键，包括 VibeX 投影槽 `vibex`。
     pub active_provider: Option<String>,
@@ -186,19 +186,19 @@ fn resolve_native_home(
         .unwrap_or_else(|| home.join(fallback))
 }
 
-pub(super) async fn list(
+pub async fn list(
     store_path: &Path,
     agent_id: AgentId,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     list_with_native(store_path, agent_id, None).await
 }
 
 /// 与 `list` 相同，并对 Codex / Pi 把原生存储中已有的供应商合并进视图。
-pub(super) async fn list_with_native(
+pub async fn list_with_native(
     store_path: &Path,
     agent_id: AgentId,
     native_home: Option<&Path>,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     validate_agent(&agent_id)?;
     match agent_id.as_str() {
         "pi" => {
@@ -238,14 +238,14 @@ pub(super) async fn list_with_native(
     }
 }
 
-pub(super) async fn resolve_probe_api_key_from(
+pub async fn resolve_probe_api_key_from(
     store_path: &Path,
     agent_id: &AgentId,
     provider_id: Option<&str>,
     submitted_api_key: Option<&str>,
     home: Option<&Path>,
     environment: Option<&HashMap<String, String>>,
-) -> Result<String, String> {
+) -> Result<String, super::NativeError> {
     validate_agent(agent_id)?;
     if let Some(api_key) = submitted_api_key
         .map(str::trim)
@@ -256,7 +256,7 @@ pub(super) async fn resolve_probe_api_key_from(
     let provider_id = provider_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "读取 Provider 模型需要填写 API Key".to_string())?;
+        .ok_or_else(|| super::NativeError::from("读取 Provider 模型需要填写 API Key"))?;
     let store = if let (Some(home), Some(environment)) = (home, environment) {
         let homes = ProviderNativeHomes::resolve(home, environment);
         load_store_with_natives(store_path, agent_id, &homes).await?
@@ -284,7 +284,7 @@ pub(super) async fn resolve_probe_api_key_from(
             return Ok(api_key);
         }
     }
-    Err("找不到可用于模型探测的 Provider 凭据".to_string())
+    Err("找不到可用于模型探测的 Provider 凭据".into())
 }
 
 async fn native_api_key(
@@ -305,12 +305,12 @@ async fn native_api_key(
     }))
 }
 
-pub(super) async fn save(
+pub async fn save(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
     request: AgentModelProviderSaveRequest,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     let homes = ProviderNativeHomes::resolve(home, environment);
     validate_request(&request)?;
     let mut store = load_store_with_natives(store_path, &request.agent_id, &homes).await?;
@@ -338,7 +338,7 @@ pub(super) async fn save(
     if let Some(index) = existing
         && store.providers[index].agent_id != request.agent_id
     {
-        return Err("Model Provider 的 Agent 类型不能更改".to_string());
+        return Err("Model Provider 的 Agent 类型不能更改".into());
     }
     let prior_key = existing
         .map(|index| store.providers[index].api_key.clone())
@@ -351,7 +351,7 @@ pub(super) async fn save(
         .map(str::to_string)
         .unwrap_or(prior_key);
     if api_key.is_empty() {
-        return Err("Model Provider 需要 API Key".to_string());
+        return Err("Model Provider 需要 API Key".into());
     }
     let provider = StoredProvider {
         id: id.clone(),
@@ -381,13 +381,13 @@ pub(super) async fn save(
     projected_view(&store, store_path, &homes, request.agent_id).await
 }
 
-pub(super) async fn bind(
+pub async fn bind(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
     agent_id: AgentId,
     provider_id: Option<String>,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     validate_agent(&agent_id)?;
     let homes = ProviderNativeHomes::resolve(home, environment);
     let mut store = load_store_with_natives(store_path, &agent_id, &homes).await?;
@@ -408,7 +408,7 @@ pub(super) async fn bind(
             .iter()
             .find(|provider| provider.id == provider_id && provider.agent_id == agent_id)
             .cloned()
-            .ok_or_else(|| "找不到可绑定的 Model Provider".to_string())?;
+            .ok_or_else(|| super::NativeError::from("找不到可绑定的 Model Provider"))?;
         if is_native_codex_channel(&provider, native_codex.as_ref()) {
             if native_uses_vibex_projection(native_codex.as_ref()) {
                 let backup = store
@@ -467,7 +467,10 @@ pub(super) async fn bind(
     projected_view(&store, store_path, &homes, agent_id).await
 }
 
-pub(super) async fn forget_binding(store_path: &Path, agent_id: AgentId) -> Result<(), String> {
+pub async fn forget_binding(
+    store_path: &Path,
+    agent_id: AgentId,
+) -> Result<(), super::NativeError> {
     validate_agent(&agent_id)?;
     let mut store = read_store(store_path).await?;
     if store.bindings.remove(agent_id.as_str()).is_none() {
@@ -477,13 +480,13 @@ pub(super) async fn forget_binding(store_path: &Path, agent_id: AgentId) -> Resu
     write_store(store_path, &store).await
 }
 
-pub(super) async fn delete(
+pub async fn delete(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
     agent_id: AgentId,
     provider_id: &str,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     validate_agent(&agent_id)?;
     let homes = ProviderNativeHomes::resolve(home, environment);
     let native_codex = if agent_id.as_str() == "codex" {
@@ -503,7 +506,7 @@ pub(super) async fn delete(
         .filter(|provider| provider.agent_id == agent_id)
         .count();
     if remaining <= 1 {
-        return Err("至少需要保留一个供应商".to_string());
+        return Err("至少需要保留一个供应商".into());
     }
     if provider_is_in_use(
         &store,
@@ -512,14 +515,14 @@ pub(super) async fn delete(
         native_codex.as_ref(),
         native_pi.as_ref(),
     ) {
-        return Err("无法删除正在使用的供应商".to_string());
+        return Err("无法删除正在使用的供应商".into());
     }
     let Some(index) = store
         .providers
         .iter()
         .position(|provider| provider.id == provider_id && provider.agent_id == agent_id)
     else {
-        return Err("找不到要删除的 Model Provider".to_string());
+        return Err("找不到要删除的 Model Provider".into());
     };
     let removed = store.providers[index].clone();
     match agent_id.as_str() {
@@ -674,7 +677,7 @@ async fn projected_view(
     store_path: &Path,
     homes: &ProviderNativeHomes,
     agent_id: AgentId,
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     let mut store = store.clone();
     match agent_id.as_str() {
         "codex" => {
@@ -910,7 +913,7 @@ async fn load_store_with_natives(
     store_path: &Path,
     agent_id: &AgentId,
     homes: &ProviderNativeHomes,
-) -> Result<ProviderStore, String> {
+) -> Result<ProviderStore, super::NativeError> {
     match agent_id.as_str() {
         "codex" => {
             let native = read_native_codex_state(&homes.codex).await?;
@@ -1021,7 +1024,9 @@ fn native_active_matches_provider<'a>(
 }
 
 /// 只读解析 Codex 原生配置的 Provider 状态，不修改任何 Agent 文件。
-pub(super) async fn read_native_codex_state(codex_home: &Path) -> Result<NativeCodexState, String> {
+pub async fn read_native_codex_state(
+    codex_home: &Path,
+) -> Result<NativeCodexState, super::NativeError> {
     let mut state = NativeCodexState::default();
     // config.toml 损坏时降级为空状态，鉴权管理按「未配置 Provider」处理。
     let table = match read_toml_table(&codex_home.join("config.toml")).await {
@@ -1096,9 +1101,7 @@ pub(super) async fn read_native_codex_state(codex_home: &Path) -> Result<NativeC
             provider.model = shared_model.clone();
         }
     }
-    let auth = read_json_object_or_empty(&codex_home.join("auth.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let auth = read_json_object_or_empty(&codex_home.join("auth.json")).await?;
     state.auth_api_key = auth
         .get("OPENAI_API_KEY")
         .and_then(serde_json::Value::as_str)
@@ -1116,16 +1119,10 @@ pub(super) async fn read_native_codex_state(codex_home: &Path) -> Result<NativeC
     Ok(state)
 }
 
-async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, String> {
-    let models = read_json_object_or_empty(&pi_home.join("models.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let auth = read_json_object_or_empty(&pi_home.join("auth.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let settings = read_json_object_or_empty(&pi_home.join("settings.json"))
-        .await
-        .map_err(|error| error.message)?;
+async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::NativeError> {
+    let models = read_json_object_or_empty(&pi_home.join("models.json")).await?;
+    let auth = read_json_object_or_empty(&pi_home.join("auth.json")).await?;
+    let settings = read_json_object_or_empty(&pi_home.join("settings.json")).await?;
     let active_provider = settings
         .get("defaultProvider")
         .and_then(Value::as_str)
@@ -1226,7 +1223,7 @@ async fn read_store_reconciled(
     store_path: &Path,
     agent_id: &AgentId,
     native: Option<&NativeCodexState>,
-) -> Result<ProviderStore, String> {
+) -> Result<ProviderStore, super::NativeError> {
     let mut store = read_store(store_path).await?;
     if reconcile_codex_store_bindings(&mut store, agent_id, native) {
         write_store(store_path, &store).await?;
@@ -1271,13 +1268,10 @@ fn is_native_codex_channel(provider: &StoredProvider, native: Option<&NativeCode
 async fn activate_native_codex_provider(
     codex_home: &Path,
     provider_id: &str,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let filesystem = TokioNativeFileSystem;
     let path = codex_home.join("config.toml");
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     if provider_id == NATIVE_ENDPOINT_PROVIDER_ID {
         table.remove("model_provider");
@@ -1299,7 +1293,7 @@ async fn activate_native_codex_provider(
     .await
 }
 
-pub(super) fn native_codex_provider_ready(state: &NativeCodexState) -> bool {
+pub fn native_codex_provider_ready(state: &NativeCodexState) -> bool {
     match state.active_provider.as_deref() {
         Some(active) => {
             state.providers.iter().any(|provider| provider.id == active) || active == "openai"
@@ -1308,31 +1302,29 @@ pub(super) fn native_codex_provider_ready(state: &NativeCodexState) -> bool {
     }
 }
 
-pub(super) async fn native_codex_provider_ready_at(codex_home: &Path) -> bool {
+pub async fn native_codex_provider_ready_at(codex_home: &Path) -> bool {
     match read_native_codex_state(codex_home).await {
         Ok(state) => native_codex_provider_ready(&state),
         Err(_) => false,
     }
 }
 
-async fn read_store(path: &Path) -> Result<ProviderStore, String> {
+async fn read_store(path: &Path) -> Result<ProviderStore, super::NativeError> {
     match tokio::fs::read(path).await {
         Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|error| format!("Model Provider 存储文件无效：{error}")),
+            .map_err(|error| format!("Model Provider 存储文件无效：{error}").into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(ProviderStore::default()),
-        Err(error) => Err(format!("读取 Model Provider 失败：{error}")),
+        Err(error) => Err((format!("读取 Model Provider 失败：{error}").into())),
     }
 }
 
-async fn write_store(path: &Path, store: &ProviderStore) -> Result<(), String> {
+async fn write_store(path: &Path, store: &ProviderStore) -> Result<(), super::NativeError> {
     let bytes = serde_json::to_vec_pretty(store)
         .map_err(|error| format!("序列化 Model Provider 失败：{error}"))?;
-    write_bytes_document(path, &bytes, true)
-        .await
-        .map_err(|error| error.message)
+    write_bytes_document(path, &bytes, true).await
 }
 
-fn validate_agent(agent_id: &AgentId) -> Result<(), String> {
+fn validate_agent(agent_id: &AgentId) -> Result<(), super::NativeError> {
     if matches!(
         agent_id.as_str(),
         "claude_code" | "codex" | "grok" | "kimi_code" | "hermes" | "openclaw" | "cline" | "pi"
@@ -1340,17 +1332,17 @@ fn validate_agent(agent_id: &AgentId) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("此 Agent 不支持可复用 Model Provider".to_string())
+        Err("此 Agent 不支持可复用 Model Provider".into())
     }
 }
 
-fn validate_request(request: &AgentModelProviderSaveRequest) -> Result<(), String> {
+fn validate_request(request: &AgentModelProviderSaveRequest) -> Result<(), super::NativeError> {
     validate_agent(&request.agent_id)?;
     if request.name.trim().is_empty() {
-        return Err("Model Provider 名称不能为空".to_string());
+        return Err("Model Provider 名称不能为空".into());
     }
     if request.api_url.trim().is_empty() {
-        return Err("Model Provider API URL 不能为空".to_string());
+        return Err("Model Provider API URL 不能为空".into());
     }
     let url = url::Url::parse(request.api_url.trim())
         .map_err(|error| format!("Model Provider API URL 无效：{error}"))?;
@@ -1358,18 +1350,18 @@ fn validate_request(request: &AgentModelProviderSaveRequest) -> Result<(), Strin
         || !url.username().is_empty()
         || url.password().is_some()
     {
-        return Err("Model Provider API URL 必须是无内嵌凭据的 http(s) 地址".to_string());
+        return Err("Model Provider API URL 必须是无内嵌凭据的 http(s) 地址".into());
     }
     Ok(())
 }
 
-pub(super) async fn preview_import(
+pub async fn preview_import(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
     agent_id: AgentId,
     source: AgentModelProviderImportSource,
-) -> Result<AgentModelProviderImportPreviewView, String> {
+) -> Result<AgentModelProviderImportPreviewView, super::NativeError> {
     if source != AgentModelProviderImportSource::CcSwitch
         || super::model_provider_import::cc_switch_app_type(&agent_id).is_none()
     {
@@ -1415,14 +1407,14 @@ pub(super) async fn preview_import(
     }
 }
 
-pub(super) async fn apply_import(
+pub async fn apply_import(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
     agent_id: AgentId,
     source: AgentModelProviderImportSource,
     source_ids: &[String],
-) -> Result<AgentModelProvidersView, String> {
+) -> Result<AgentModelProvidersView, super::NativeError> {
     let selected: HashSet<&str> = source_ids.iter().map(String::as_str).collect();
     let existing_names = existing_managed_names(store_path, agent_id.clone()).await?;
     let drafts = match source {
@@ -1458,7 +1450,7 @@ pub(super) async fn apply_import(
         imported += 1;
     }
     if imported == 0 {
-        return Err("没有可导入的供应商".to_string());
+        return Err("没有可导入的供应商".into());
     }
     let homes = ProviderNativeHomes::resolve(home, environment);
     list_with_native(
@@ -1526,9 +1518,7 @@ async fn native_import_drafts(
 }
 
 async fn native_claude_draft(claude_home: &Path) -> Result<Option<ImportDraft>, String> {
-    let document = read_json_object_or_empty(&claude_home.join("settings.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let document = read_json_object_or_empty(&claude_home.join("settings.json")).await?;
     let env = document
         .get("env")
         .cloned()
@@ -1580,9 +1570,7 @@ async fn native_gemini_draft(
     } else {
         antigravity_settings_path(gemini_home)
     };
-    let document = read_json_object_or_empty(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let document = read_json_object_or_empty(&path).await?;
     let env = document
         .get("env")
         .cloned()
@@ -1760,7 +1748,7 @@ async fn native_hermes_draft(hermes_home: &Path) -> Result<Vec<ImportDraft>, Str
     let text = match tokio::fs::read_to_string(&path).await {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display())),
+        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
     };
     if text.trim().is_empty() {
         return Ok(Vec::new());
@@ -1801,12 +1789,8 @@ async fn native_hermes_draft(hermes_home: &Path) -> Result<Vec<ImportDraft>, Str
 }
 
 async fn native_cline_draft(cline_home: &Path) -> Result<Vec<ImportDraft>, String> {
-    let state = read_json_object_or_empty(&cline_home.join("globalState.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let secrets = read_json_object_or_empty(&cline_home.join("secrets.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let state = read_json_object_or_empty(&cline_home.join("globalState.json")).await?;
+    let secrets = read_json_object_or_empty(&cline_home.join("secrets.json")).await?;
     let api_url = json_text(&state, &["openAiBaseUrl"]);
     if api_url.is_empty() {
         return Ok(Vec::new());
@@ -1825,9 +1809,7 @@ async fn native_cline_draft(cline_home: &Path) -> Result<Vec<ImportDraft>, Strin
 }
 
 async fn native_openclaw_drafts(openclaw_home: &Path) -> Result<Vec<ImportDraft>, String> {
-    let document = read_json_object_or_empty(&openclaw_home.join("openclaw.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let document = read_json_object_or_empty(&openclaw_home.join("openclaw.json")).await?;
     let Some(providers) = document
         .pointer("/models/providers")
         .and_then(Value::as_object)
@@ -1879,15 +1861,9 @@ async fn native_openclaw_drafts(openclaw_home: &Path) -> Result<Vec<ImportDraft>
 }
 
 async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
-    let models = read_json_object_or_empty(&pi_home.join("models.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let auth = read_json_object_or_empty(&pi_home.join("auth.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let settings = read_json_object_or_empty(&pi_home.join("settings.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let models = read_json_object_or_empty(&pi_home.join("models.json")).await?;
+    let auth = read_json_object_or_empty(&pi_home.join("auth.json")).await?;
+    let settings = read_json_object_or_empty(&pi_home.join("settings.json")).await?;
     let default_provider = settings
         .get("defaultProvider")
         .and_then(Value::as_str)
@@ -1947,8 +1923,7 @@ async fn native_codex_drafts(codex_home: &Path) -> Result<Vec<ImportDraft>, Stri
     let state = read_native_codex_state(codex_home).await?;
     let key = if state.credential_present {
         read_json_object_or_empty(&codex_home.join("auth.json"))
-            .await
-            .map_err(|error| error.message)?
+            .await?
             .get("OPENAI_API_KEY")
             .and_then(Value::as_str)
             .unwrap_or("")
@@ -2007,7 +1982,7 @@ fn json_text(value: &Value, keys: &[&str]) -> String {
         .to_string()
 }
 
-pub(super) async fn resolve_probe_target(
+pub async fn resolve_probe_target(
     store_path: &Path,
     home: &Path,
     environment: &HashMap<String, String>,
@@ -2015,7 +1990,7 @@ pub(super) async fn resolve_probe_target(
     provider_id: Option<&str>,
     api_url: Option<&str>,
     api_key: Option<&str>,
-) -> Result<(String, String), String> {
+) -> Result<(String, String), super::NativeError> {
     if let Some(url) = api_url.map(str::trim).filter(|value| !value.is_empty()) {
         let key = resolve_probe_api_key_from(
             store_path,
@@ -2031,7 +2006,7 @@ pub(super) async fn resolve_probe_target(
     let provider_id = provider_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "测试连接需要 Provider".to_string())?;
+        .ok_or_else(|| super::NativeError::from("测试连接需要 Provider"))?;
     let homes = ProviderNativeHomes::resolve(home, environment);
     let view = list_with_native(
         store_path,
@@ -2043,9 +2018,9 @@ pub(super) async fn resolve_probe_target(
         .providers
         .iter()
         .find(|item| item.id == provider_id)
-        .ok_or_else(|| "找不到要测试的 Provider".to_string())?;
+        .ok_or_else(|| super::NativeError::from("找不到要测试的 Provider"))?;
     if provider.api_url.is_empty() {
-        return Err("Provider 没有可测试的 API URL".to_string());
+        return Err("Provider 没有可测试的 API URL".into());
     }
     if provider.managed {
         let key = resolve_probe_api_key_from(
@@ -2065,7 +2040,7 @@ pub(super) async fn resolve_probe_target(
         .find(|draft| draft.source_id == provider_id)
         .map(|draft| draft.api_key)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "找不到可用于测试的 Provider 凭据".to_string())?;
+        .ok_or_else(|| super::NativeError::from("找不到可用于测试的 Provider 凭据"))?;
     Ok((provider.api_url.clone(), key))
 }
 
@@ -2114,7 +2089,7 @@ const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
 async fn capture_projection(
     homes: &ProviderNativeHomes,
     agent_id: &AgentId,
-) -> Result<ProviderProjectionBackup, String> {
+) -> Result<ProviderProjectionBackup, super::NativeError> {
     validate_agent(agent_id)?;
     let mut backup = ProviderProjectionBackup::default();
     match agent_id.as_str() {
@@ -2253,13 +2228,11 @@ async fn capture_json_env(
     path: &Path,
     keys: &[&str],
     backup: &mut ProviderProjectionBackup,
-) -> Result<(), String> {
-    let document = read_json_object_or_empty(path)
-        .await
-        .map_err(|error| error.message)?;
+) -> Result<(), super::NativeError> {
+    let document = read_json_object_or_empty(path).await?;
     let env = match document.get("env") {
         Some(Value::Object(env)) => Some(env),
-        Some(_) => return Err("原生配置字段 `env` 必须是对象".to_string()),
+        Some(_) => return Err("原生配置字段 `env` 必须是对象".into()),
         None => None,
     };
     for key in keys {
@@ -2275,10 +2248,8 @@ async fn capture_json_root(
     path: &Path,
     keys: &[&str],
     backup: &mut ProviderProjectionBackup,
-) -> Result<(), String> {
-    let document = read_json_object_or_empty(path)
-        .await
-        .map_err(|error| error.message)?;
+) -> Result<(), super::NativeError> {
+    let document = read_json_object_or_empty(path).await?;
     for key in keys {
         backup
             .json_values
@@ -2290,7 +2261,7 @@ async fn capture_json_root(
 async fn capture_codex_toml(
     path: &Path,
     backup: &mut ProviderProjectionBackup,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let table = read_toml_table(path).await?;
     for key in CODEX_CONFIG_KEYS {
         backup
@@ -2312,11 +2283,11 @@ async fn capture_text_file(
     path: &Path,
     key: &str,
     backup: &mut ProviderProjectionBackup,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let value = match tokio::fs::read_to_string(path).await {
         Ok(value) => Some(value),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display())),
+        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
     };
     backup.file_values.insert(key.to_string(), value);
     Ok(())
@@ -2326,7 +2297,7 @@ async fn restore_projection(
     homes: &ProviderNativeHomes,
     agent_id: &AgentId,
     backup: &ProviderProjectionBackup,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     match agent_id.as_str() {
         "claude_code" => {
             restore_json_env(
@@ -2418,9 +2389,9 @@ async fn restore_text_file(
     key: &str,
     backup: &ProviderProjectionBackup,
     sensitive: bool,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem.read(path).await.map_err(|error| error.message)?;
+    let original = filesystem.read(path).await?;
     let replacement = backup
         .file_values
         .get(key)
@@ -2439,28 +2410,16 @@ async fn restore_text_file(
 async fn restore_codex_projection(
     codex_home: &Path,
     backup: &ProviderProjectionBackup,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let filesystem = TokioNativeFileSystem;
     let auth_path = codex_home.join("auth.json");
     let config_path = codex_home.join("config.toml");
     let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
     let source_path = codex_home.join(CODEX_SOURCE_FILE);
-    let auth_original = filesystem
-        .read(&auth_path)
-        .await
-        .map_err(|error| error.message)?;
-    let config_original = filesystem
-        .read(&config_path)
-        .await
-        .map_err(|error| error.message)?;
-    let catalog_original = filesystem
-        .read(&catalog_path)
-        .await
-        .map_err(|error| error.message)?;
-    let source_original = filesystem
-        .read(&source_path)
-        .await
-        .map_err(|error| error.message)?;
+    let auth_original = filesystem.read(&auth_path).await?;
+    let config_original = filesystem.read(&config_path).await?;
+    let catalog_original = filesystem.read(&catalog_path).await?;
+    let source_original = filesystem.read(&source_path).await?;
 
     let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
     restore_json_values(
@@ -2521,10 +2480,8 @@ async fn restore_json_env(
     keys: &[&str],
     backup: &ProviderProjectionBackup,
     sensitive: bool,
-) -> Result<(), String> {
-    let mut document = read_json_object_or_empty(path)
-        .await
-        .map_err(|error| error.message)?;
+) -> Result<(), super::NativeError> {
+    let mut document = read_json_object_or_empty(path).await?;
     let env = object_entry(document.as_object_mut().expect("object"), "env")?;
     restore_json_values(env, keys, backup);
     write_json(path, &document, sensitive).await
@@ -2550,7 +2507,7 @@ fn restore_json_values(
 fn restore_codex_toml_values(
     table: &mut toml::Table,
     backup: &ProviderProjectionBackup,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     for key in CODEX_CONFIG_KEYS {
         match backup.toml_values.get(*key).cloned().flatten() {
             Some(value) => {
@@ -2572,7 +2529,7 @@ fn restore_codex_toml_values(
             .or_insert_with(|| toml::Value::Table(toml::Table::new()));
         let providers = providers
             .as_table_mut()
-            .ok_or_else(|| "Codex model_providers 必须是表".to_string())?;
+            .ok_or_else(|| super::NativeError::from("Codex model_providers 必须是表"))?;
         match original_vibex {
             Some(value) => {
                 providers.insert("vibex".to_string(), value);
@@ -2588,27 +2545,25 @@ fn restore_codex_toml_values(
     Ok(())
 }
 
-async fn read_toml_table(path: &Path) -> Result<toml::Table, String> {
+async fn read_toml_table(path: &Path) -> Result<toml::Table, super::NativeError> {
     let text = match tokio::fs::read_to_string(path).await {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display())),
+        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
     };
     if text.trim().is_empty() {
         Ok(toml::Table::new())
     } else {
-        toml::from_str(&text).map_err(|error| format!("{} 无效：{error}", path.display()))
+        toml::from_str(&text).map_err(|error| format!("{} 无效：{error}", path.display()).into())
     }
 }
 
 #[cfg(test)]
-async fn write_toml_table(path: &Path, table: &toml::Table) -> Result<(), String> {
+async fn write_toml_table(path: &Path, table: &toml::Table) -> Result<(), super::NativeError> {
     let bytes = toml::to_string_pretty(table)
         .map(String::into_bytes)
         .map_err(|error| format!("序列化 {} 失败：{error}", path.display()))?;
-    write_bytes_document(path, &bytes, false)
-        .await
-        .map_err(|error| error.message)
+    write_bytes_document(path, &bytes, false).await
 }
 
 fn codex_catalog_cache(store_path: &Path) -> std::path::PathBuf {
@@ -2622,7 +2577,7 @@ fn codex_catalog_cache(store_path: &Path) -> std::path::PathBuf {
 async fn apply_provider(
     homes: &ProviderNativeHomes,
     provider: &StoredProvider,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     match provider.agent_id.as_str() {
         "claude_code" => apply_claude(&homes.claude, provider).await,
         "codex" => apply_codex(&homes.codex, provider).await,
@@ -2638,13 +2593,13 @@ async fn apply_provider(
     }
 }
 
-async fn apply_claude(claude_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_claude(
+    claude_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let path = claude_home.join("settings.json");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut document = parse_json_object_bytes(&path, original.as_deref())?;
     let env = object_entry(document.as_object_mut().expect("object"), "env")?;
     for key in [
@@ -2700,13 +2655,13 @@ async fn apply_claude(claude_home: &Path, provider: &StoredProvider) -> Result<(
     .await
 }
 
-async fn apply_codex(codex_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_codex(
+    codex_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let filesystem = TokioNativeFileSystem;
     let auth_path = codex_home.join("auth.json");
-    let auth_original = filesystem
-        .read(&auth_path)
-        .await
-        .map_err(|error| error.message)?;
+    let auth_original = filesystem.read(&auth_path).await?;
     let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
     {
         let auth_object = auth.as_object_mut().expect("object");
@@ -2717,10 +2672,7 @@ async fn apply_codex(codex_home: &Path, provider: &StoredProvider) -> Result<(),
         );
     }
     let config_path = codex_home.join("config.toml");
-    let config_original = filesystem
-        .read(&config_path)
-        .await
-        .map_err(|error| error.message)?;
+    let config_original = filesystem.read(&config_path).await?;
     let mut table = parse_toml_table_bytes(&config_path, config_original.as_deref())?;
     table.remove("api_base_url");
     table.remove("openai_base_url");
@@ -2797,16 +2749,13 @@ async fn apply_codex(codex_home: &Path, provider: &StoredProvider) -> Result<(),
 async fn remove_native_codex_provider(
     codex_home: &Path,
     provider: &StoredProvider,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     if provider.id == "vibex" {
         return Ok(());
     }
     let path = codex_home.join("config.toml");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     let mut changed = false;
     if provider.id == NATIVE_ENDPOINT_PROVIDER_ID {
@@ -2869,10 +2818,8 @@ const ANTIGRAVITY_AUTH_TYPE_BACKUP_KEY: &str = "auth.type";
 async fn capture_antigravity_auth_type(
     path: &Path,
     backup: &mut ProviderProjectionBackup,
-) -> Result<(), String> {
-    let document = read_json_object_or_empty(path)
-        .await
-        .map_err(|error| error.message)?;
+) -> Result<(), super::NativeError> {
+    let document = read_json_object_or_empty(path).await?;
     backup.json_values.insert(
         ANTIGRAVITY_AUTH_TYPE_BACKUP_KEY.to_string(),
         document
@@ -2887,10 +2834,8 @@ async fn capture_antigravity_auth_type(
 async fn restore_antigravity_auth_type(
     path: &Path,
     backup: &ProviderProjectionBackup,
-) -> Result<(), String> {
-    let mut document = read_json_object_or_empty(path)
-        .await
-        .map_err(|error| error.message)?;
+) -> Result<(), super::NativeError> {
+    let mut document = read_json_object_or_empty(path).await?;
     let auth = object_entry(document.as_object_mut().expect("object"), "auth")?;
     match backup
         .json_values
@@ -2911,13 +2856,13 @@ async fn restore_antigravity_auth_type(
     write_json(path, &document, true).await
 }
 
-async fn apply_antigravity(gemini_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_antigravity(
+    gemini_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let path = antigravity_settings_path(gemini_home);
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut document = parse_json_object_bytes(&path, original.as_deref())?;
     let root = document.as_object_mut().expect("object");
     let auth = object_entry(root, "auth")?;
@@ -2979,7 +2924,7 @@ fn grok_spec(raw: &str) -> GrokModelSpec {
 fn toml_table_entry<'a>(
     table: &'a mut toml::Table,
     key: &str,
-) -> Result<&'a mut toml::Table, String> {
+) -> Result<&'a mut toml::Table, super::NativeError> {
     let entry = table
         .entry(key.to_string())
         .or_insert_with(|| toml::Value::Table(toml::Table::new()));
@@ -2988,7 +2933,7 @@ fn toml_table_entry<'a>(
     }
     entry
         .as_table_mut()
-        .ok_or_else(|| format!("{key} 必须是表"))
+        .ok_or_else(|| format!("{key} 必须是表").into())
 }
 
 async fn write_toml_mutation(
@@ -2996,7 +2941,7 @@ async fn write_toml_mutation(
     original: Option<Vec<u8>>,
     table: &toml::Table,
     sensitive: bool,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     apply_projection_mutations(&[NativeFileMutation {
         path: path.to_path_buf(),
         expected: original,
@@ -3010,13 +2955,10 @@ async fn write_toml_mutation(
     .await
 }
 
-async fn apply_grok(grok_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_grok(grok_home: &Path, provider: &StoredProvider) -> Result<(), super::NativeError> {
     let path = grok_home.join("config.toml");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     let spec = grok_spec(&provider.model);
     let models = toml_table_entry(&mut table, "models")?;
@@ -3056,13 +2998,10 @@ async fn apply_grok(grok_home: &Path, provider: &StoredProvider) -> Result<(), S
     write_toml_mutation(&path, original, &table, true).await
 }
 
-async fn apply_kimi(kimi_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_kimi(kimi_home: &Path, provider: &StoredProvider) -> Result<(), super::NativeError> {
     let path = kimi_home.join("config.toml");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     table.insert(
         "default_model".to_string(),
@@ -3099,14 +3038,14 @@ async fn apply_kimi(kimi_home: &Path, provider: &StoredProvider) -> Result<(), S
     seed_kimi_gate_credential(&kimi_home.join("credentials/kimi-code.json")).await
 }
 
-async fn seed_kimi_gate_credential(path: &Path) -> Result<(), String> {
+async fn seed_kimi_gate_credential(path: &Path) -> Result<(), super::NativeError> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|error| format!("创建 Kimi credentials 失败：{error}"))?;
     }
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem.read(path).await.map_err(|error| error.message)?;
+    let original = filesystem.read(path).await?;
     if let Some(bytes) = original.as_deref().filter(|bytes| !bytes.is_empty())
         && let Ok(existing) = serde_json::from_slice::<Value>(bytes)
         && existing.get("_vibex_synthetic") != Some(&Value::Bool(true))
@@ -3132,13 +3071,13 @@ async fn seed_kimi_gate_credential(path: &Path) -> Result<(), String> {
     .await
 }
 
-async fn apply_hermes(hermes_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_hermes(
+    hermes_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let path = hermes_home.join("config.yaml");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut document: serde_yaml::Value = match original.as_deref() {
         Some(bytes) if !bytes.is_empty() => serde_yaml::from_slice(bytes)
             .map_err(|error| format!("{} 无效：{error}", path.display()))?,
@@ -3146,7 +3085,7 @@ async fn apply_hermes(hermes_home: &Path, provider: &StoredProvider) -> Result<(
     };
     let root = document
         .as_mapping_mut()
-        .ok_or_else(|| "Hermes config.yaml 顶层必须是对象".to_string())?;
+        .ok_or_else(|| super::NativeError::from("Hermes config.yaml 顶层必须是对象"))?;
     let model_key = serde_yaml::Value::String("model".to_string());
     if !root
         .get(&model_key)
@@ -3160,7 +3099,7 @@ async fn apply_hermes(hermes_home: &Path, provider: &StoredProvider) -> Result<(
     let model = root
         .get_mut(&model_key)
         .and_then(serde_yaml::Value::as_mapping_mut)
-        .ok_or_else(|| "Hermes model 必须是对象".to_string())?;
+        .ok_or_else(|| super::NativeError::from("Hermes model 必须是对象"))?;
     model.insert(
         serde_yaml::Value::String("provider".to_string()),
         serde_yaml::Value::String("custom".to_string()),
@@ -3190,13 +3129,13 @@ async fn apply_hermes(hermes_home: &Path, provider: &StoredProvider) -> Result<(
     .await
 }
 
-async fn apply_openclaw(openclaw_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_openclaw(
+    openclaw_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let path = openclaw_home.join("openclaw.json");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut document = parse_json_object_bytes(&path, original.as_deref())?;
     let root = document.as_object_mut().expect("object");
     let agents = object_entry(root, "agents")?;
@@ -3233,23 +3172,14 @@ async fn apply_openclaw(openclaw_home: &Path, provider: &StoredProvider) -> Resu
     .await
 }
 
-async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super::NativeError> {
     let settings_path = pi_home.join("settings.json");
     let models_path = pi_home.join("models.json");
     let auth_path = pi_home.join("auth.json");
     let filesystem = TokioNativeFileSystem;
-    let settings_original = filesystem
-        .read(&settings_path)
-        .await
-        .map_err(|error| error.message)?;
-    let models_original = filesystem
-        .read(&models_path)
-        .await
-        .map_err(|error| error.message)?;
-    let auth_original = filesystem
-        .read(&auth_path)
-        .await
-        .map_err(|error| error.message)?;
+    let settings_original = filesystem.read(&settings_path).await?;
+    let models_original = filesystem.read(&models_path).await?;
+    let auth_original = filesystem.read(&auth_path).await?;
     let mut settings = parse_json_object_bytes(&settings_path, settings_original.as_deref())?;
     let mut models = parse_json_object_bytes(&models_path, models_original.as_deref())?;
     let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
@@ -3323,18 +3253,12 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), Strin
 async fn remove_native_pi_provider(
     pi_home: &Path,
     provider: &StoredProvider,
-) -> Result<(), String> {
+) -> Result<(), super::NativeError> {
     let models_path = pi_home.join("models.json");
     let auth_path = pi_home.join("auth.json");
     let filesystem = TokioNativeFileSystem;
-    let models_original = filesystem
-        .read(&models_path)
-        .await
-        .map_err(|error| error.message)?;
-    let auth_original = filesystem
-        .read(&auth_path)
-        .await
-        .map_err(|error| error.message)?;
+    let models_original = filesystem.read(&models_path).await?;
+    let auth_original = filesystem.read(&auth_path).await?;
     let mut models = parse_json_object_bytes(&models_path, models_original.as_deref())?;
     let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
     let slug = pi_native_id(provider);
@@ -3483,18 +3407,15 @@ fn pi_wire_api(raw: &str) -> &'static str {
     }
 }
 
-async fn apply_cline(cline_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_cline(
+    cline_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let state_path = cline_home.join("globalState.json");
     let secrets_path = cline_home.join("secrets.json");
     let filesystem = TokioNativeFileSystem;
-    let state_original = filesystem
-        .read(&state_path)
-        .await
-        .map_err(|error| error.message)?;
-    let secrets_original = filesystem
-        .read(&secrets_path)
-        .await
-        .map_err(|error| error.message)?;
+    let state_original = filesystem.read(&state_path).await?;
+    let secrets_original = filesystem.read(&secrets_path).await?;
     let mut state = parse_json_object_bytes(&state_path, state_original.as_deref())?;
     let mut secrets = parse_json_object_bytes(&secrets_path, secrets_original.as_deref())?;
     let state_root = state.as_object_mut().expect("object");
@@ -3529,13 +3450,13 @@ async fn apply_cline(cline_home: &Path, provider: &StoredProvider) -> Result<(),
     .await
 }
 
-async fn apply_gemini(gemini_home: &Path, provider: &StoredProvider) -> Result<(), String> {
+async fn apply_gemini(
+    gemini_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
     let path = gemini_home.join("settings.json");
     let filesystem = TokioNativeFileSystem;
-    let original = filesystem
-        .read(&path)
-        .await
-        .map_err(|error| error.message)?;
+    let original = filesystem.read(&path).await?;
     let mut document = parse_json_object_bytes(&path, original.as_deref())?;
     let env = object_entry(document.as_object_mut().expect("object"), "env")?;
     for key in GEMINI_ENV_KEYS {
@@ -3556,7 +3477,7 @@ async fn apply_gemini(gemini_home: &Path, provider: &StoredProvider) -> Result<(
     .await
 }
 
-fn parse_json_object_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<Value, String> {
+fn parse_json_object_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<Value, super::NativeError> {
     let Some(bytes) = bytes else {
         return Ok(Value::Object(Map::new()));
     };
@@ -3565,11 +3486,14 @@ fn parse_json_object_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<Value, S
     if value.is_object() {
         Ok(value)
     } else {
-        Err(format!("{} 顶层必须是对象", path.display()))
+        Err((format!("{} 顶层必须是对象", path.display()).into()))
     }
 }
 
-fn parse_toml_table_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<toml::Table, String> {
+fn parse_toml_table_bytes(
+    path: &Path,
+    bytes: Option<&[u8]>,
+) -> Result<toml::Table, super::NativeError> {
     let text = bytes
         .map(std::str::from_utf8)
         .transpose()
@@ -3578,27 +3502,29 @@ fn parse_toml_table_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<toml::Tab
     if text.trim().is_empty() {
         Ok(toml::Table::new())
     } else {
-        toml::from_str(text).map_err(|error| format!("{} 无效：{error}", path.display()))
+        toml::from_str(text).map_err(|error| format!("{} 无效：{error}", path.display()).into())
     }
 }
 
-async fn apply_projection_mutations(mutations: &[NativeFileMutation]) -> Result<(), String> {
+async fn apply_projection_mutations(
+    mutations: &[NativeFileMutation],
+) -> Result<(), super::NativeError> {
     TokioNativeFileSystem
         .apply_many_atomic(mutations)
         .await
-        .map_err(|error| error.message)
+        .map_err(super::NativeError::from)
 }
 
 fn object_entry<'a>(
     object: &'a mut Map<String, Value>,
     key: &str,
-) -> Result<&'a mut Map<String, Value>, String> {
+) -> Result<&'a mut Map<String, Value>, super::NativeError> {
     let value = object
         .entry(key.to_string())
         .or_insert_with(|| Value::Object(Map::new()));
     value
         .as_object_mut()
-        .ok_or_else(|| format!("原生配置字段 `{key}` 必须是对象"))
+        .ok_or_else(|| format!("原生配置字段 `{key}` 必须是对象").into())
 }
 
 fn insert_string(object: &mut Map<String, Value>, key: &str, value: &str) {
@@ -3626,12 +3552,14 @@ fn model_default(raw: &str) -> String {
     }
 }
 
-async fn write_json(path: &Path, document: &Value, sensitive: bool) -> Result<(), String> {
+async fn write_json(
+    path: &Path,
+    document: &Value,
+    sensitive: bool,
+) -> Result<(), super::NativeError> {
     let bytes = serde_json::to_vec_pretty(document)
         .map_err(|error| format!("序列化原生配置失败：{error}"))?;
-    write_bytes_document(path, &bytes, sensitive)
-        .await
-        .map_err(|error| error.message)
+    write_bytes_document(path, &bytes, sensitive).await
 }
 
 #[cfg(test)]

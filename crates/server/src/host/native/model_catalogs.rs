@@ -29,7 +29,7 @@ const IMPORT_SKIP_KEYS: &[&str] = &[
     "upgrade",
 ];
 
-pub(super) async fn cursor(
+pub async fn cursor(
     program: &Path,
     api_key: Option<&str>,
 ) -> Result<AgentModelCatalogView, String> {
@@ -59,7 +59,7 @@ pub(super) async fn cursor(
     })
 }
 
-pub(super) async fn kimi(base_url: &str, api_key: &str) -> Result<AgentModelCatalogView, String> {
+pub async fn kimi(base_url: &str, api_key: &str) -> Result<AgentModelCatalogView, String> {
     let catalog = provider(
         AgentId::parse("kimi_code").expect("built-in id"),
         base_url,
@@ -72,7 +72,7 @@ pub(super) async fn kimi(base_url: &str, api_key: &str) -> Result<AgentModelCata
     Ok(catalog)
 }
 
-pub(super) async fn provider(
+pub async fn provider(
     agent_id: AgentId,
     base_url: &str,
     api_key: &str,
@@ -138,7 +138,7 @@ pub(super) async fn provider(
     })
 }
 
-pub(super) async fn codex(
+pub async fn codex(
     program: Option<&Path>,
     cache_path: &Path,
     force_refresh: bool,
@@ -172,7 +172,7 @@ pub(super) async fn codex(
     }
 }
 
-pub(super) async fn codex_official_document(
+pub async fn codex_official_document(
     program: Option<&Path>,
     cache_path: &Path,
 ) -> Result<Value, String> {
@@ -191,9 +191,7 @@ pub(super) async fn codex_official_document(
         .ok_or_else(|| "没有可用的 Codex Runtime 模型目录或缓存".to_string())
 }
 
-pub(super) async fn load_codex_config(
-    codex_home: &Path,
-) -> Result<CodexModelCatalogConfigView, String> {
+pub async fn load_codex_config(codex_home: &Path) -> Result<CodexModelCatalogConfigView, String> {
     let source_path = codex_home.join(CODEX_SOURCE_FILE);
     let generated_catalog_path = codex_home.join(CODEX_CATALOG_FILE);
     let (request, catalog_path) = match tokio::fs::read(&source_path).await {
@@ -237,7 +235,7 @@ pub(super) async fn load_codex_config(
     })
 }
 
-pub(super) async fn peek_external_codex_catalog(
+pub async fn peek_external_codex_catalog(
     codex_home: &Path,
 ) -> Option<(PathBuf, Value, Option<String>)> {
     match read_external_codex_catalog(codex_home).await {
@@ -250,7 +248,7 @@ pub(super) async fn peek_external_codex_catalog(
     }
 }
 
-pub(super) fn first_catalog_slug(catalog: &Value) -> Option<String> {
+pub fn first_catalog_slug(catalog: &Value) -> Option<String> {
     catalog
         .get("models")
         .and_then(Value::as_array)
@@ -414,7 +412,7 @@ fn import_codex_catalog(
     }
 }
 
-pub(super) async fn apply_codex_config(
+pub async fn apply_codex_config(
     codex_home: &Path,
     official_document: &Value,
     request: CodexModelCatalogConfigRequest,
@@ -445,9 +443,7 @@ pub(super) async fn apply_codex_config(
     mutations.push(
         prepare_codex_config_toml(codex_home, active, request.default_model.as_deref()).await?,
     );
-    apply_native_file_mutations(&mutations)
-        .await
-        .map_err(|error| error.message)?;
+    apply_native_file_mutations(&mutations).await?;
     Ok(CodexModelCatalogConfigView {
         customs: request.customs,
         excluded_officials: request.excluded_officials,
@@ -458,7 +454,7 @@ pub(super) async fn apply_codex_config(
     })
 }
 
-pub(super) fn build_codex_catalog_files(
+pub fn build_codex_catalog_files(
     official_document: &Value,
     request: &CodexModelCatalogConfigRequest,
 ) -> Result<CodexCatalogFiles, String> {

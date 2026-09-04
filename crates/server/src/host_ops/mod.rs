@@ -1086,7 +1086,7 @@ impl ServerApplicationDomains {
         .map_err(internal_error)
     }
 
-    async fn require_workspace(&self, workspace_id: Uuid) -> Result<Workspace, ApplicationError> {
+    pub(crate) async fn require_workspace(&self, workspace_id: Uuid) -> Result<Workspace, ApplicationError> {
         Workspace::find_by_id(&self.pool, workspace_id)
             .await
             .map_err(internal_error)?
@@ -1100,7 +1100,7 @@ impl ServerApplicationDomains {
             .ok_or_else(|| ApplicationError::not_found(format!("session {session_id}")))
     }
 
-    async fn git_read<T: serde::Serialize>(
+    pub(crate) async fn git_read<T: serde::Serialize>(
         &self,
         path: PathBuf,
         op: impl FnOnce(&git::GitService, &Path) -> Result<T, git::GitServiceError>,
@@ -1110,7 +1110,7 @@ impl ServerApplicationDomains {
         serialize(value)
     }
 
-    async fn git_write(
+    pub(crate) async fn git_write(
         &self,
         path: PathBuf,
         op: impl FnOnce(&git::GitService, &Path) -> Result<(), git::GitServiceError>,
@@ -1120,7 +1120,7 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
-    async fn repo_path(&self, args: RepoIdArgs) -> Result<PathBuf, ApplicationError> {
+    pub(crate) async fn repo_path(&self, args: RepoIdArgs) -> Result<PathBuf, ApplicationError> {
         Ok(self
             .deployment
             .repo()
@@ -1130,7 +1130,7 @@ impl ServerApplicationDomains {
             .path)
     }
 
-    async fn worktree_path(&self, args: WorkspaceRepoArgs) -> Result<PathBuf, ApplicationError> {
+    pub(crate) async fn worktree_path(&self, args: WorkspaceRepoArgs) -> Result<PathBuf, ApplicationError> {
         let workspace = self.require_workspace(args.workspace_id).await?;
         let repo = self
             .deployment
@@ -1149,7 +1149,7 @@ impl ServerApplicationDomains {
             .unwrap_or_else(|| PathBuf::from(container)))
     }
 
-    async fn sandbox_existing_file(&self, path: &str) -> Result<PathBuf, ApplicationError> {
+    pub(crate) async fn sandbox_existing_file(&self, path: &str) -> Result<PathBuf, ApplicationError> {
         let path = self.sandbox_existing_path(path).await?;
         if !path.is_file() {
             return Err(ApplicationError::not_found(format!(
@@ -1223,7 +1223,7 @@ fn select_project_root_workspace<'a>(
         })
 }
 
-fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {
+pub(crate) fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {
     let path = PathBuf::from(path);
     if !path.is_absolute() {
         return Err(ApplicationError::bad_request(
@@ -1363,8 +1363,8 @@ struct IdArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RepoIdArgs {
-    repo_id: Uuid,
+pub(crate) struct RepoIdArgs {
+    pub(crate) repo_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -1474,9 +1474,9 @@ struct RepoBranchArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceRepoArgs {
-    workspace_id: Uuid,
-    repo_id: Uuid,
+pub(crate) struct WorkspaceRepoArgs {
+    pub(crate) workspace_id: Uuid,
+    pub(crate) repo_id: Uuid,
 }
 
 #[derive(Deserialize)]

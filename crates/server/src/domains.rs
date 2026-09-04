@@ -30,17 +30,17 @@ use crate::{PreviewProxyRegistry, automation_runtime::HeadlessAutomationRuntime}
 #[derive(Clone)]
 pub struct ServerApplicationDomains {
     pub(crate) pool: SqlitePool,
-    plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
     preview_host: Arc<dyn plugins::PluginPreviewHost>,
-    capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
     app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     preview_proxy: PreviewProxyRegistry,
     automation: HeadlessAutomationRuntime,
     owns_automation_engine: bool,
-    conversations: ConversationContext,
+    pub(crate) conversations: ConversationContext,
     pub(crate) deployment: Arc<LocalDeployment>,
-    runtime_root: std::path::PathBuf,
-    worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    pub(crate) runtime_root: std::path::PathBuf,
+    pub(crate) worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
 }
 
 pub struct ServerDomainDependencies {
@@ -154,11 +154,215 @@ impl ServerApplicationDomains {
             DomainCommand::AutomationUnseenFailures => self.automation_unseen_failures().await,
             DomainCommand::AutomationMarkSeen => self.automation_mark_seen().await,
             DomainCommand::DelegationCancel => self.delegation_cancel(args).await,
+            DomainCommand::ConversationDetail => self.conversation_detail(args).await,
+            DomainCommand::ConversationEventsSince => self.conversation_events_since(args).await,
+            DomainCommand::ConversationEnsureSessionControls => {
+                self.conversation_ensure_session_controls(args).await
+            }
+            DomainCommand::WorkspaceCreate
+            | DomainCommand::WorkspaceUpdate
+            | DomainCommand::WorkspaceDelete
+            | DomainCommand::WorkspaceMarkSeen
+            | DomainCommand::WorkspaceChildren
+            | DomainCommand::WorkspaceBranchStatus
+            | DomainCommand::WorkspaceCommitHistory
+            | DomainCommand::WorkspaceCommitGraph
+            | DomainCommand::WorkspaceCommitDiffs
+            | DomainCommand::WorkspacePush
+            | DomainCommand::WorkspacePull
+            | DomainCommand::WorkspaceFetch
+            | DomainCommand::WorkspaceMerge
+            | DomainCommand::WorkspaceRebase
+            | DomainCommand::WorkspaceRebaseBack
+            | DomainCommand::WorkspaceContinueRebase
+            | DomainCommand::WorkspaceAbortConflicts
+            | DomainCommand::WorkspaceStash
+            | DomainCommand::WorkspaceStashList
+            | DomainCommand::WorkspaceStashApply
+            | DomainCommand::WorkspaceStashPop
+            | DomainCommand::WorkspaceStashDrop
+            | DomainCommand::WorkspaceRenameBranch
+            | DomainCommand::WorkspaceChangeTargetBranch
+            | DomainCommand::AutomationExportSpec
+            | DomainCommand::AutomationImportSpec
+            | DomainCommand::AutomationUpdateWorkflow
+            | DomainCommand::AttentionInboxList
+            | DomainCommand::ScratchGet
+            | DomainCommand::ScratchCreate
+            | DomainCommand::ScratchUpdate
+            | DomainCommand::ScratchDelete
+            | DomainCommand::TagList
+            | DomainCommand::TagCreate
+            | DomainCommand::TagUpdate
+            | DomainCommand::TagDelete
+            | DomainCommand::TaskGet
+            | DomainCommand::TaskCreate
+            | DomainCommand::TaskCreateAndStart
+            | DomainCommand::TaskUpdate
+            | DomainCommand::TaskDelete
+            | DomainCommand::RepoUpdate
+            | DomainCommand::RepoPush
+            | DomainCommand::RepoPull
+            | DomainCommand::RepoFetch
+            | DomainCommand::RepoRemotes
+            | DomainCommand::RepoAddRemote
+            | DomainCommand::RepoRemoveRemote
+            | DomainCommand::RepoSetRemoteUrl
+            | DomainCommand::RepoCommitDetail
+            | DomainCommand::RepoCommitDiffs
+            | DomainCommand::RepoSearch
+            | DomainCommand::RepoIssues
+            | DomainCommand::RepoOpenPrs
+            | DomainCommand::WorkflowSourceRead
+            | DomainCommand::WorkflowSourceWrite
+            | DomainCommand::AgentRefreshCapabilityCatalog
+            | DomainCommand::AgentCapabilityCatalogFresh
+            | DomainCommand::AgentListLiveTerminals
+            | DomainCommand::AgentPlanUsage
+            | DomainCommand::FrontendPreferencesGet
+            | DomainCommand::FrontendPreferencesUpdate
+            | DomainCommand::ProjectWorktreeSettingsGet
+            | DomainCommand::ProjectWorktreeSettingsUpdate
+            |             DomainCommand::ReadBinaryAsset => self.product_command(command, args).await,
+            DomainCommand::SubscribeDiffStream
+            | DomainCommand::SubscribeConversationStream
+            | DomainCommand::SubscribeExecutionProcessesStream
+            | DomainCommand::SubscribeProjectWorkspacesStream
+            | DomainCommand::SubscribeProjectsStream
+            | DomainCommand::SubscribeFileTreeStream
+            | DomainCommand::SubscribeScratchStream
+            | DomainCommand::SubscribeLogStream
+            | DomainCommand::SubscribeSlashCommandsStream => {
+                self.subscribe_stream(command, args).await
+            }
+            DomainCommand::AgentConnect
+            | DomainCommand::AgentPrepareSession
+            | DomainCommand::AgentNewSession
+            | DomainCommand::AgentResumeSession
+            | DomainCommand::AgentSendPrompt
+            | DomainCommand::AgentCancelPrompt
+            | DomainCommand::AgentDisconnect
+            | DomainCommand::AgentRespondPermission
+            | DomainCommand::AgentRuntimeSnapshot
+            | DomainCommand::AgentConnectionSnapshot
+            | DomainCommand::AgentLoadSession
+            | DomainCommand::AgentListSessionCommands
+            | DomainCommand::AgentDiscardPreparedSession
+            | DomainCommand::AgentSetPreparedSessionMode
+            | DomainCommand::AgentSetPreparedSessionConfig
+            | DomainCommand::AgentListRemoteSessions
+            | DomainCommand::AgentDeleteRemoteSession
+            | DomainCommand::AgentImportRemoteSession
+            | DomainCommand::AgentResetToCheckpoint
+            | DomainCommand::AgentListLocalHistory
+            | DomainCommand::AgentImportLocalHistory
+            | DomainCommand::AgentImportLocalHistoryBatch
+            | DomainCommand::AgentLocalHistoryImportSnapshot
+            | DomainCommand::AgentTerminalSnapshot
+            | DomainCommand::AgentSessionDefaults
+            | DomainCommand::AgentSetSessionDefaults
+            | DomainCommand::AgentRegistryView
+            | DomainCommand::AgentRegistryRefresh
+            | DomainCommand::AgentRegistryAddAndInstall
+            | DomainCommand::AgentUserDefinitionAddAndInstall
+            | DomainCommand::AgentUserDefinitionDetail
+            | DomainCommand::AgentUserDefinitionUpdate
+            | DomainCommand::AgentManagementReorder
+            | DomainCommand::AgentManagementInstallVersion
+            | DomainCommand::AgentManagementRepair
+            | DomainCommand::AgentManagementApplyUpdate
+            | DomainCommand::AgentManagementUninstall
+            | DomainCommand::AgentManagementRemove
+            | DomainCommand::AgentManagementRollback
+            | DomainCommand::AgentManagementCheckUpdate
+            | DomainCommand::AgentManagementCancelOperation
+            | DomainCommand::AgentManagementPreflight
+            | DomainCommand::AgentManagementActions
+            | DomainCommand::AgentManagementRunAction
+            | DomainCommand::AgentManagementAccountFlow
+            | DomainCommand::AgentManagementDiscoveryProgress
+            | DomainCommand::AgentManagementDiagnostics
+            | DomainCommand::AgentManagementEnvironmentDiagnostics
+            | DomainCommand::AgentManagementClearDiagnostics
+            | DomainCommand::AgentManagementMarkDiagnosticsRead
+            | DomainCommand::AgentManagementEnvironment
+            | DomainCommand::AgentManagementEnvironmentWrite
+            | DomainCommand::AgentManagementConfigRead
+            | DomainCommand::AgentManagementConfigWrite
+            | DomainCommand::AgentManagementConfigFileWrite
+            | DomainCommand::AgentAuthMode
+            | DomainCommand::AgentAuthModeSet
+            | DomainCommand::AgentModelProviders
+            | DomainCommand::AgentModelProviderSave
+            | DomainCommand::AgentModelProviderDelete
+            | DomainCommand::AgentModelProviderBind
+            | DomainCommand::AgentModelProviderCatalog
+            | DomainCommand::AgentModelProviderProbe
+            | DomainCommand::AgentModelProviderImport
+            | DomainCommand::AgentModelProviderImportPreview
+            | DomainCommand::CodexModelCatalog
+            | DomainCommand::CodexModelCatalogApply
+            | DomainCommand::CodexModelCatalogConfig
+            | DomainCommand::CodexRequestDeviceCode
+            | DomainCommand::CodexPollDeviceCode
+            | DomainCommand::CursorModelCatalog
+            | DomainCommand::KimiModelCatalog
+            | DomainCommand::CreateWorkflowDebugWorkspace
+            | DomainCommand::GetChatEventWebhooks
+            | DomainCommand::SetChatEventWebhooks
+            | DomainCommand::GetChatMessageLanguage
+            | DomainCommand::SetChatMessageLanguage
+            | DomainCommand::WeixinGetQrcode
+            | DomainCommand::WeixinCheckQrcode
+            | DomainCommand::PluginWorkflowCatalog
+            | DomainCommand::PluginMarketplaceIndex
+            | DomainCommand::PluginInstall
+            | DomainCommand::PluginUninstall
+            | DomainCommand::PluginUpdate
+            | DomainCommand::PluginControlUpdate
+            | DomainCommand::PluginControlPreviewImport
+            | DomainCommand::PluginControlRollback
+            | DomainCommand::PluginControlContributions
+            | DomainCommand::PluginControlConfigureAgents
+            | DomainCommand::PluginControlConfigureMcp
+            | DomainCommand::PluginInvokeContribution
+            | DomainCommand::DshPlugins
+            | DomainCommand::DshPluginAdd
+            | DomainCommand::DshPluginRemove
+            | DomainCommand::DshProviders
+            | DomainCommand::DshProviderSave
+            | DomainCommand::DshProviderDelete
+            | DomainCommand::DshProviderDiscoverModels
+            | DomainCommand::GrokPlugins
+            | DomainCommand::GrokPluginAdd
+            | DomainCommand::GrokPluginRemove
+            | DomainCommand::PiPlugins
+            | DomainCommand::PiPluginAdd
+            | DomainCommand::PiPluginRemove
+            | DomainCommand::PiConfiguration
+            | DomainCommand::PiCredentialsSave
+            | DomainCommand::PiRuntimeSave
+            | DomainCommand::PiCommandValidate
+            | DomainCommand::OpenCodePluginList
+            | DomainCommand::OpenCodePluginAdd
+            | DomainCommand::OpenCodePluginInstall
+            | DomainCommand::OpenCodePluginUninstall
+            | DomainCommand::OpenCodeProviderCatalog
+            | DomainCommand::OpenCodeProviderConnect
+            | DomainCommand::OpenCodeProviderConnections
+            | DomainCommand::OpenCodeProviderDisconnect
+            | DomainCommand::OpenCodeProviderImport
+            |             DomainCommand::OpenCodeProviderSetEnabled => {
+                self.surface_command(command, args).await
+            }
+            other if crate::host::catalog::handles(other) => {
+                crate::host::catalog::dispatch(self, other, args).await
+            }
             other => self.host_ops(other, args).await,
         }
     }
 
-    async fn plugin_catalog(&self) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_catalog(&self) -> Result<Value, ApplicationError> {
         let control_plane = self.plugin_control_plane().await?;
         let inventory = control_plane
             .runtime_inventory()
@@ -424,7 +628,7 @@ impl ServerApplicationDomains {
         Ok(installation)
     }
 
-    async fn plugin_control_import(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_control_import(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PluginImportArgs {
@@ -520,7 +724,7 @@ impl ServerApplicationDomains {
         Ok(plugin_control_item(&imported.plugin))
     }
 
-    async fn plugin_marketplace_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_marketplace_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct CatalogArgs {
@@ -683,7 +887,7 @@ impl ServerApplicationDomains {
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
-    async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PluginUninstallArgs {
@@ -749,7 +953,7 @@ impl ServerApplicationDomains {
         )
     }
 
-    async fn plugin_surface_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_surface_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
         self.app_surfaces
             .invoke(parse(args)?)
             .await
@@ -965,7 +1169,7 @@ impl ServerApplicationDomains {
         )
     }
 
-    async fn agent_capability_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn agent_capability_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         let launch =
@@ -989,29 +1193,16 @@ impl ServerApplicationDomains {
 
     async fn agent_skills(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentSkillsArgs = parse(args)?;
-        let environment = saved_skill_environment(&self.pool, &args.agent_type).await?;
-        let result = agents::skills::with_saved_agent_environment(
-            environment,
-            agents::skills::list_agent_skills(args.agent_type, args.workspace_path),
+        crate::host::catalog::skills::list_agent_skills(
+            self,
+            args.agent_type,
+            args.workspace_path,
         )
         .await
-        .map_err(internal_error)?;
-        serialize(result)
     }
 
     async fn user_system_info(&self) -> Result<Value, ApplicationError> {
-        let config = self.deployment.config().read().await.clone();
-        Ok(json!({
-            "config": config,
-            "executors": {},
-            "environment": {
-                "os_type": std::env::consts::OS,
-                "os_version": "headless",
-                "os_architecture": std::env::consts::ARCH,
-                "bitness": if usize::BITS == 64 { "64-bit" } else { "32-bit" },
-            },
-            "capabilities": {},
-        }))
+        crate::host::catalog::config::user_system_info(self).await
     }
 
     async fn artifact_list(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1115,7 +1306,7 @@ impl ServerApplicationDomains {
         serialize(records.into_iter().map(automation_view).collect::<Vec<_>>())
     }
 
-    async fn automation_create(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn automation_create(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AutomationInputArgs = parse(args)?;
         let draft = self.normalize_draft(args.input).await?;
         let record = self
@@ -1155,7 +1346,7 @@ impl ServerApplicationDomains {
         serialize(automation_view(record))
     }
 
-    async fn automation_update(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn automation_update(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AutomationUpdateArgs = parse(args)?;
         let draft = self.normalize_draft(args.input).await?;
         let record = self
@@ -1837,32 +2028,6 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
         started_at: run.started_at,
         finished_at: run.finished_at,
     }
-}
-
-async fn saved_skill_environment(
-    pool: &SqlitePool,
-    agent_type: &str,
-) -> Result<std::collections::HashMap<String, String>, ApplicationError> {
-    let documents = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
-    )
-    .bind(agent_type)
-    .fetch_all(pool)
-    .await
-    .map_err(internal_error)?;
-    let mut merged = std::collections::HashMap::new();
-    for document in documents.into_iter().flatten() {
-        let values: std::collections::HashMap<String, String> =
-            serde_json::from_str(&document).map_err(internal_error)?;
-        for (key, value) in values {
-            if (key.ends_with("_HOME") || key.ends_with("_DIR") || key.starts_with("XDG_"))
-                && !value.trim().is_empty()
-            {
-                merged.insert(key, value);
-            }
-        }
-    }
-    Ok(merged)
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {

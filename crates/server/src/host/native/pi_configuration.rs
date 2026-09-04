@@ -57,21 +57,12 @@ const CUSTOM_PROTOCOLS: &[&str] = &[
     "google-generative-ai",
 ];
 
-pub(super) async fn load(
-    pool: &sqlx::SqlitePool,
-    home: &Path,
-) -> Result<PiConfigurationView, String> {
+pub async fn load(pool: &sqlx::SqlitePool, home: &Path) -> Result<PiConfigurationView, String> {
     let env = read_pi_env(pool).await?;
     let agent_dir = pi_agent_dir(home, &env);
-    let settings = read_json_object_or_empty(&agent_dir.join("settings.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let auth = read_json_object_or_empty(&agent_dir.join("auth.json"))
-        .await
-        .map_err(|error| error.message)?;
-    let models = read_json_object_or_empty(&agent_dir.join("models.json"))
-        .await
-        .map_err(|error| error.message)?;
+    let settings = read_json_object_or_empty(&agent_dir.join("settings.json")).await?;
+    let auth = read_json_object_or_empty(&agent_dir.join("auth.json")).await?;
+    let models = read_json_object_or_empty(&agent_dir.join("models.json")).await?;
     let mut auth_providers = auth
         .as_object()
         .into_iter()
@@ -146,7 +137,7 @@ pub(super) async fn load(
     })
 }
 
-pub(super) async fn save_credentials(
+pub async fn save_credentials(
     pool: &sqlx::SqlitePool,
     home: &Path,
     request: PiCredentialsSaveRequest,
@@ -202,9 +193,7 @@ pub(super) async fn save_credentials(
     let settings_path = agent_dir.join("settings.json");
     let auth_path = agent_dir.join("auth.json");
     let models_path = agent_dir.join("models.json");
-    let (mut settings, settings_original) = read_json_object_state(&settings_path)
-        .await
-        .map_err(|error| error.message)?;
+    let (mut settings, settings_original) = read_json_object_state(&settings_path).await?;
     let settings_object = settings.as_object_mut().expect("object");
     settings_object.insert(
         "defaultProvider".to_string(),
@@ -223,9 +212,7 @@ pub(super) async fn save_credentials(
         }
     }
 
-    let (mut auth, auth_original) = read_json_object_state(&auth_path)
-        .await
-        .map_err(|error| error.message)?;
+    let (mut auth, auth_original) = read_json_object_state(&auth_path).await?;
     if let Some(api_key) = request
         .api_key
         .as_deref()
@@ -238,9 +225,7 @@ pub(super) async fn save_credentials(
         );
     }
 
-    let (mut models, models_original) = read_json_object_state(&models_path)
-        .await
-        .map_err(|error| error.message)?;
+    let (mut models, models_original) = read_json_object_state(&models_path).await?;
     if let (Some(base_url), Some(api)) = (custom_base_url, custom_api) {
         let providers = object_entry(models.as_object_mut().expect("object"), "providers")?;
         let entry = providers
@@ -265,28 +250,26 @@ pub(super) async fn save_credentials(
     }
 
     let mut mutations = vec![
-        json_document_mutation(&settings_path, settings_original, &settings, false)
-            .map_err(|error| error.message)?,
-        json_document_mutation(&models_path, models_original, &models, false)
-            .map_err(|error| error.message)?,
+        json_document_mutation(&settings_path, settings_original, &settings, false)?,
+        json_document_mutation(&models_path, models_original, &models, false)?,
     ];
     if request
         .api_key
         .as_deref()
         .is_some_and(|key| !key.trim().is_empty())
     {
-        mutations.push(
-            json_document_mutation(&auth_path, auth_original, &auth, true)
-                .map_err(|error| error.message)?,
-        );
+        mutations.push(json_document_mutation(
+            &auth_path,
+            auth_original,
+            &auth,
+            true,
+        )?);
     }
-    apply_native_file_mutations(&mutations)
-        .await
-        .map_err(|error| error.message)?;
+    apply_native_file_mutations(&mutations).await?;
     load(pool, home).await
 }
 
-pub(super) async fn save_runtime(
+pub async fn save_runtime(
     pool: &sqlx::SqlitePool,
     request: PiRuntimeSaveRequest,
 ) -> Result<(), String> {
@@ -333,7 +316,7 @@ pub(super) async fn save_runtime(
     Ok(())
 }
 
-pub(super) async fn validate_command(command: &str) -> PiCommandValidationView {
+pub async fn validate_command(command: &str) -> PiCommandValidationView {
     let Some(resolved_path) = resolve_command(command) else {
         return PiCommandValidationView {
             found: false,
@@ -370,7 +353,7 @@ pub(super) async fn validate_command(command: &str) -> PiCommandValidationView {
     }
 }
 
-pub(super) fn resolve_command(command: &str) -> Option<PathBuf> {
+pub fn resolve_command(command: &str) -> Option<PathBuf> {
     let command = command.trim();
     if command.is_empty() {
         return None;
@@ -394,9 +377,7 @@ pub(super) fn resolve_command(command: &str) -> Option<PathBuf> {
     std::fs::canonicalize(&resolved).ok().or(Some(resolved))
 }
 
-pub(super) async fn read_pi_env(
-    pool: &sqlx::SqlitePool,
-) -> Result<HashMap<String, String>, String> {
+pub async fn read_pi_env(pool: &sqlx::SqlitePool) -> Result<HashMap<String, String>, String> {
     let raw = sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = 'pi'",
     )
@@ -412,7 +393,7 @@ pub(super) async fn read_pi_env(
         .map(Option::unwrap_or_default)
 }
 
-pub(super) fn pi_agent_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+pub fn pi_agent_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
     env.get(PI_CONFIG_DIR_ENV)
         .map(String::as_str)
         .map(str::trim)

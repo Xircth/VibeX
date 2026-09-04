@@ -59,7 +59,7 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|error| format!("创建 Codex 登录客户端失败：{error}"))
 }
 
-pub(super) async fn request_device_code() -> Result<CodexDeviceCodeView, String> {
+pub async fn request_device_code() -> Result<CodexDeviceCodeView, String> {
     let response = client()?
         .post(format!("{OAUTH_ISSUER}/api/accounts/deviceauth/usercode"))
         .json(&serde_json::json!({ "client_id": OAUTH_CLIENT_ID }))
@@ -81,7 +81,7 @@ pub(super) async fn request_device_code() -> Result<CodexDeviceCodeView, String>
     })
 }
 
-pub(super) async fn poll_device_code(
+pub async fn poll_device_code(
     codex_home: &Path,
     device_auth_id: String,
     user_code: String,
@@ -133,9 +133,7 @@ pub(super) async fn poll_device_code(
         .await
         .map_err(|error| format!("解析 Codex 登录令牌失败：{error}"))?;
     let document = auth_document(&tokens);
-    super::write_json_document(&codex_home.join("auth.json"), &document, true)
-        .await
-        .map_err(|error| error.message)?;
+    super::write_json_document(&codex_home.join("auth.json"), &document, true).await?;
     Ok(CodexDeviceCodePollView {
         status: "success".to_string(),
         message: None,

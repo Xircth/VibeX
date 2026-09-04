@@ -4,13 +4,12 @@ use std::{
     time::Duration,
 };
 
+use agents::NativeFileMutation;
 use api_types::{
     DshCatalogProviderView, DshExtensionKind, DshPluginSummaryView, DshPluginView, DshProviderKind,
     DshProviderModelView, DshProviderSaveRequest, DshProviderView, DshProvidersView,
 };
 use serde_yaml::Value;
-
-use super::NativeFileMutation;
 
 pub const OFFICIAL_PROVIDER_ID: &str = "deepseek-official";
 pub const OFFICIAL_API_KEY_ENV: &str = "DEEPSEEK_API_KEY";

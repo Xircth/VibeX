@@ -14,13 +14,14 @@ use super::write_bytes_document;
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_MODELS_DEV_BYTES: usize = 8 * 1024 * 1024;
-const BUNDLED_SNAPSHOT: &str = include_str!("../../../resources/opencode/models-dev.json");
+const BUNDLED_SNAPSHOT: &str =
+    include_str!("../../../../../src-tauri/resources/opencode/models-dev.json");
 
 fn is_oauth_provider(provider_id: &str) -> bool {
     matches!(provider_id, "openai" | "github-copilot" | "gitlab")
 }
 
-pub(super) fn normalize_models_dev(raw: &str) -> Result<Vec<OpenCodeCatalogProviderView>, String> {
+pub fn normalize_models_dev(raw: &str) -> Result<Vec<OpenCodeCatalogProviderView>, String> {
     let root: serde_json::Value =
         serde_json::from_str(raw).map_err(|error| format!("解析 models.dev 失败：{error}"))?;
     let object = root
@@ -223,10 +224,7 @@ async fn fetch_live() -> Result<Vec<OpenCodeCatalogProviderView>, String> {
     normalize_models_dev(text)
 }
 
-pub(super) async fn provider_catalog(
-    data_dir: &Path,
-    force_refresh: bool,
-) -> OpenCodeProviderCatalogView {
+pub async fn provider_catalog(data_dir: &Path, force_refresh: bool) -> OpenCodeProviderCatalogView {
     if !force_refresh && let Some(providers) = read_cache(data_dir, true) {
         return OpenCodeProviderCatalogView {
             source: OpenCodeProviderCatalogSource::Cache,

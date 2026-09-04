@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import DOMPurify, { type Config } from 'dompurify';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { hostFileSrc } from '@/lib/hostAsset';
 import { RAW_HTML_ALLOWED_TAGS } from '@/lib/conversation-rendering/rawHtml';
 import {
   isRenderableRemoteImage,
@@ -42,22 +42,24 @@ export function sanitizeRawHtml(html: string): string {
   return DOMPurify.sanitize(html, RAW_HTML_DOMPURIFY_CONFIG);
 }
 
-function buildSanitizedNodes(
+async function buildSanitizedNodes(
   html: string,
   workspacePath?: string | null
-): ChildNode[] {
+): Promise<ChildNode[]> {
   const container = document.createElement('div');
   container.innerHTML = sanitizeRawHtml(html);
 
   // Relative image destinations from raw HTML resolve the same way markdown
   // image destinations do: against the containing markdown file's directory
   // (or the workspace root). Remote / inline / absolute paths are untouched.
-  container.querySelectorAll('img[src]').forEach((image) => {
+  for (const image of Array.from(container.querySelectorAll('img[src]'))) {
     const src = image.getAttribute('src');
-    if (!src || isRenderableRemoteImage(src)) return;
+    if (!src || isRenderableRemoteImage(src)) continue;
     const localPath = resolveLocalMarkdownImagePath(src, workspacePath);
-    if (localPath) image.setAttribute('src', convertFileSrc(localPath));
-  });
+    if (localPath) {
+      image.setAttribute('src', await hostFileSrc(localPath));
+    }
+  }
 
   return Array.from(container.childNodes);
 }
@@ -87,7 +89,15 @@ export function RawHtmlElement({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    host.replaceChildren(...buildSanitizedNodes(html, workspacePath));
+    let cancelled = false;
+    void buildSanitizedNodes(html, workspacePath).then((nodes) => {
+      if (!cancelled && hostRef.current === host) {
+        host.replaceChildren(...nodes);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [html, workspacePath]);
 
   if (block) {

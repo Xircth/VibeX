@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useBackendTransport } from '@/lib/transport';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
@@ -66,6 +67,7 @@ export type UseConversationTimelineResult = {
 export function useConversationTimeline(
   conversationId: string | null
 ): UseConversationTimelineResult {
+  const transport = useBackendTransport();
   const [state, dispatch] = useReducer(
     conversationStoreReducer,
     emptyConversationStoreState
@@ -239,6 +241,42 @@ export function useConversationTimeline(
       unlisten?.();
     };
   }, [conversationId, hasDetail, loadDetail]);
+
+  useEffect(() => {
+    if (
+      transport.environment === 'desktop' ||
+      !conversationId ||
+      !hasDetail
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const tick = () => {
+      const current =
+        stateRef.current.byConversationId[conversationId]?.lastSequence ?? 0n;
+      void conversationApi
+        .eventsSince({
+          conversationId,
+          afterSequence: Number(current),
+          limit: 500,
+        })
+        .then((page) => {
+          if (cancelled || page.rows.length === 0) return;
+          dispatch({
+            type: 'upsert_rows',
+            conversationId,
+            rows: page.rows,
+            lastSequence: toBigInt(page.last_sequence),
+          });
+        })
+        .catch(() => {});
+    };
+    const timer = window.setInterval(tick, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [conversationId, hasDetail, transport.environment]);
 
   const entry = conversationId
     ? (state.byConversationId[conversationId] ?? null)

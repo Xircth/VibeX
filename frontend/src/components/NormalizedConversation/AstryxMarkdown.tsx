@@ -12,7 +12,7 @@ import {
   type MarkdownProps,
 } from '@astryxdesign/core/Markdown';
 import { loadKatex } from '@/lib/katexRuntime';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { hostFileSrc } from '@/lib/hostAsset';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
 import {
   parseCommitReferenceUri,
@@ -93,13 +93,29 @@ function MarkdownImage({
     isVibeImage || isRenderableRemoteImage(normalizedSrc)
       ? null
       : resolveLocalMarkdownImagePath(normalizedSrc, workspacePath);
+  const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!localImagePath) {
+      setLocalImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void hostFileSrc(localImagePath)
+      .then((url) => {
+        if (!cancelled) setLocalImageUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setLocalImageUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localImagePath]);
   const imageUrl = isVibeImage
     ? metadata?.proxy_url
     : isRenderableRemoteImage(normalizedSrc)
       ? normalizedSrc
-      : localImagePath
-        ? convertFileSrc(localImagePath)
-        : null;
+      : localImageUrl;
   const label = alt || metadata?.file_name || normalizedSrc || 'Image';
   const panelActions = useOptionalPanelActionsContext();
   const openImagePreview = useOpenImagePreview();

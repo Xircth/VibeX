@@ -4,6 +4,7 @@ import type {
   ServerCapabilities,
   SubscriptionRequest,
 } from './backendTransport';
+import { WebTransport } from './webTransport';
 
 export type RemoteDesktopProfile = {
   profileId: string;
@@ -47,38 +48,6 @@ const tauriBridge: RemoteDesktopBridge = {
   },
 };
 
-function eventsFromBootstrap(value: unknown): RemoteEvent[] {
-  if (typeof value !== 'object' || value === null) return [];
-  const bootstrap = value as {
-    snapshot?: { payload?: { events?: unknown[] } } | null;
-    replay?: unknown[];
-  };
-  const wireEvents = [
-    ...(bootstrap.snapshot?.payload?.events ?? []),
-    ...(bootstrap.replay ?? []),
-  ];
-  return wireEvents.flatMap((event) => {
-    if (
-      typeof event !== 'object' ||
-      event === null ||
-      !('sequence' in event) ||
-      typeof event.sequence !== 'number' ||
-      !Number.isSafeInteger(event.sequence) ||
-      !('kind' in event) ||
-      typeof event.kind !== 'string' ||
-      !('payload' in event)
-    ) {
-      return [];
-    }
-    return [
-      {
-        ...(event as unknown as Omit<RemoteEvent, 'sequence'>),
-        sequence: BigInt(event.sequence),
-      },
-    ];
-  });
-}
-
 /**
  * A window-owned remote connection. Credentials cross the WebView boundary
  * once during `connect` and live only in the Rust adapter afterwards.
@@ -89,6 +58,7 @@ export class RemoteDesktopTransport implements BackendTransport {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly bridge: RemoteDesktopBridge;
+  private readonly live: WebTransport;
   private destroyed = false;
 
   private constructor(
@@ -101,6 +71,7 @@ export class RemoteDesktopTransport implements BackendTransport {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.token = token;
     this.bridge = bridge;
+    this.live = new WebTransport({ baseUrl: this.baseUrl, token });
   }
 
   static async connect(
@@ -133,84 +104,15 @@ export class RemoteDesktopTransport implements BackendTransport {
     return this.bridge.capabilities(this.profileId);
   }
 
-  async listen<T>(
-    event: string,
-    handler: (payload: T) => void
-  ): Promise<() => void> {
-    const prefix = 'terminal-output:';
-    if (!event.startsWith(prefix) || this.destroyed) {
-      return () => undefined;
+  listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+    if (this.destroyed) {
+      return Promise.resolve(() => undefined);
     }
-    const controller = new AbortController();
-    const sessionId = event.slice(prefix.length);
-    void (async () => {
-      try {
-        const response = await fetch(
-          `${this.baseUrl}/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
-          {
-            headers: {
-              Authorization: `Bearer ${this.token}`,
-              'X-VibeX-Protocol-Version': '1.0',
-            },
-            signal: controller.signal,
-          }
-        );
-        if (!response.ok || !response.body) {
-          return;
-        }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (!controller.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() ?? '';
-          for (const frame of frames) {
-            const data = frame
-              .split('\n')
-              .filter((line) => line.startsWith('data:'))
-              .map((line) => line.slice(5).trimStart())
-              .join('\n');
-            if (data.length > 0) {
-              (handler as (payload: string) => void)(data);
-            }
-          }
-        }
-      } catch {
-        // Panel close and disconnect abort the stream.
-      }
-    })();
-    return () => controller.abort();
+    return this.live.listen(event, handler);
   }
 
-  async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
-    let cursor = request.after_sequence;
-    while (!this.destroyed) {
-      if (
-        cursor < BigInt(Number.MIN_SAFE_INTEGER) ||
-        cursor > BigInt(Number.MAX_SAFE_INTEGER)
-      ) {
-        throw new Error(
-          'Conversation sequence exceeds JSON-safe integer range'
-        );
-      }
-      const bootstrap = await this.call('conversation_attach', {
-        request: {
-          ...request,
-          after_sequence: Number(cursor),
-        },
-      });
-      const events = eventsFromBootstrap(bootstrap);
-      for (const event of events) {
-        if (event.sequence > cursor) {
-          cursor = event.sequence;
-          yield event;
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+  subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+    return this.live.subscribe(request);
   }
 
   artifactPreviewUrl(lease: {
@@ -226,6 +128,15 @@ export class RemoteDesktopTransport implements BackendTransport {
   async destroy(): Promise<void> {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.live.destroy();
     await this.bridge.disconnect(this.profileId);
+  }
+
+  toJSON(): { environment: string; profileId: string; baseUrl: string } {
+    return {
+      environment: this.environment,
+      profileId: this.profileId,
+      baseUrl: this.baseUrl,
+    };
   }
 }

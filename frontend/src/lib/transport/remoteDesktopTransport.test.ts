@@ -53,33 +53,10 @@ describe('RemoteDesktopTransport', () => {
 
     await expect(windowA.call('conversation_list')).resolves.toBe('profile-a');
     await expect(windowB.call('conversation_list')).resolves.toBe('profile-b');
-    const eventA = await windowA
-      .subscribe({
-        subscription_id: '00000000-0000-4000-8000-000000000001',
-        resource: 'conversation',
-        conversation_id: '00000000-0000-4000-8000-000000000011',
-        after_sequence: 0n,
-      })
-      [Symbol.asyncIterator]()
-      .next();
-    const eventB = await windowB
-      .subscribe({
-        subscription_id: '00000000-0000-4000-8000-000000000002',
-        resource: 'conversation',
-        conversation_id: '00000000-0000-4000-8000-000000000022',
-        after_sequence: 0n,
-      })
-      [Symbol.asyncIterator]()
-      .next();
-
-    expect(eventA.value?.kind).toBe('from-profile-a');
-    expect(eventB.value?.kind).toBe('from-profile-b');
     expect(calls).toEqual(
       expect.arrayContaining([
         ['profile-a', 'conversation_list'],
         ['profile-b', 'conversation_list'],
-        ['profile-a', 'conversation_attach'],
-        ['profile-b', 'conversation_attach'],
       ])
     );
     expect(JSON.stringify(windowA)).not.toContain('token-a');

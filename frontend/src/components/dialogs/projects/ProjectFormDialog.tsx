@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { pickHostDirectory } from '@/lib/hostFs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
 import type { CreateProject, Project } from 'shared/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -210,9 +210,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       setError('');
       try {
         setIsPickingFolder(true);
-        const selected = await open({
-          directory: true,
-          multiple: false,
+        const selected = await pickHostDirectory({
           title: isOpenExistingFolderMode
             ? t('projectForm.pickFolderTitleExisting')
             : t('projectForm.pickFolderTitleNew'),

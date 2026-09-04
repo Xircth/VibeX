@@ -83,6 +83,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
+vi.mock('@/lib/hostAsset', () => ({
+  hostFileSrc: async (path: string) => `asset://${path}`,
+}));
+
 vi.mock('@/contexts/PanelActionsContext', () => ({
   useOptionalPanelActionsContext: () => panelActionsMock,
 }));

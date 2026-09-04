@@ -30,6 +30,8 @@ export interface FolderPickerDialogProps {
   value?: string;
   title?: string;
   description?: string;
+  selectFile?: boolean;
+  extensions?: string[];
 }
 
 const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
@@ -37,6 +39,8 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
     value = '',
     title = 'Select Folder',
     description = 'Choose a folder for your project',
+    selectFile = false,
+    extensions,
   }) => {
     const modal = useModal();
     const { t } = useTranslation(['dialogs', 'common']);
@@ -92,11 +96,21 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
       }
     };
 
+    const extensionAllowed = (name: string) => {
+      if (!extensions?.length) return true;
+      const lower = name.toLowerCase();
+      return extensions.some((ext) => lower.endsWith(`.${ext.toLowerCase()}`));
+    };
+
     const handleFolderClick = (entry: DirectoryEntry) => {
       if (entry.is_directory) {
         setSearchTerm('');
         loadDirectory(entry.path);
-        setManualPath(entry.path); // Auto-populate the manual path field
+        setManualPath(entry.path);
+        return;
+      }
+      if (selectFile && extensionAllowed(entry.name)) {
+        setManualPath(entry.path);
       }
     };
 
@@ -251,13 +265,12 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                       <div
                         key={index}
                         className={`flex items-center space-x-2 p-2 rounded cursor-pointer hover:bg-accent ${
-                          !entry.is_directory
+                          !entry.is_directory &&
+                          !(selectFile && extensionAllowed(entry.name))
                             ? 'opacity-50 cursor-not-allowed'
                             : ''
                         }`}
-                        onClick={() =>
-                          entry.is_directory && handleFolderClick(entry)
-                        }
+                        onClick={() => handleFolderClick(entry)}
                         title={entry.name} // Show full name on hover
                       >
                         {entry.is_directory ? (

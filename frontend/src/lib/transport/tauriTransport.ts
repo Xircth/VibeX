@@ -5,6 +5,7 @@ import type {
   SubscriptionRequest,
 } from './backendTransport';
 import type { SubscriptionBootstrap } from 'shared/types';
+import { HOST_COMMANDS } from 'shared/hostCommands';
 
 type ApplicationCommandResponse = {
   operation_id: string;
@@ -24,45 +25,7 @@ type WireSubscriptionBootstrap = Omit<
   high_water_mark: number;
 };
 
-const APPLICATION_COMMANDS = new Set([
-  'conversation_list',
-  'conversation_list_recent',
-  'conversation_create',
-  'conversation_child_create',
-  'conversation_output',
-  'conversation_start_turn',
-  'conversation_steer',
-  'conversation_submit_feedback',
-  'conversation_list_feedback',
-  'conversation_input_submit',
-  'conversation_input_list',
-  'conversation_relation_list',
-  'conversation_input_update',
-  'conversation_input_reorder',
-  'conversation_input_cancel',
-  'conversation_respond_permission',
-  'conversation_cancel_turn',
-  'workflow_publish',
-  'workflow_validate',
-  'workflow_start',
-  'workflow_debug',
-  'workflow_show',
-  'workflow_version',
-  'workflow_list',
-  'workflow_versions',
-  'workflow_steps',
-  'workflow_events',
-  'workflow_complete_step',
-  'workflow_decide',
-  'workflow_cancel',
-  'workflow_resume',
-  'workflow_pause',
-  'workflow_resume_run',
-  'workflow_accept_candidate',
-  'workflow_pause_step',
-  'workflow_step_input',
-  'workflow_fork',
-]);
+const APPLICATION_COMMANDS = new Set<string>(HOST_COMMANDS);
 
 function sequenceToWire(sequence: bigint): number {
   if (
@@ -131,31 +94,25 @@ export class TauriTransport implements BackendTransport {
         'conversation.question',
         'conversation.cancel',
         'conversation.steer',
+        'application.call',
         'plugin.read',
         'plugin.write',
         'plugin.surface',
         'artifact.read',
         'artifact.preview',
+        'preview.proxy',
         'automation.read',
         'automation.write',
         'delegation.read',
+        'delegation.cancel',
         'workflow.read',
         'workflow.write',
         'workflow.run',
         'workflow.approve',
-        'application.call',
-        'file.read',
-        'file.write',
-        'git.read',
-        'git.write',
-        'terminal',
-        'workspace.read',
-        'workspace.write',
-        'project.write',
-        'session.write',
-        'agent.read',
-        'agent.write',
         'device.pair',
+        'device.revoke',
+        'notification.summary',
+        'offline.read',
         'desktop.tauri',
       ],
     };

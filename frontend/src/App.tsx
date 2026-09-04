@@ -33,6 +33,7 @@ import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { useTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
+import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
 import {
   SequenceIndicator,
   SequenceTrackerProvider,
@@ -291,6 +292,7 @@ function GlobalShortcutActionBridge() {
 
 function PluginContributionBridge() {
   usePluginContributionCatalogSync();
+  useProviderBindConfirmations();
   return null;
 }
 

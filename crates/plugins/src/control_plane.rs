@@ -2588,6 +2588,18 @@ impl PluginControlPlane {
         self.registry.record_audit(plugin_id, event, evidence).await
     }
 
+    /// Display name for a plugin, for Host prompts that must tell the user who
+    /// is asking. Falls back to `None` so callers show the id rather than an
+    /// empty string.
+    pub async fn installed_plugin_name(&self, plugin_id: &str) -> Option<String> {
+        self.catalog()
+            .await
+            .ok()?
+            .into_iter()
+            .find(|installed| installed.id() == plugin_id)
+            .map(|installed| installed.package.name.clone())
+    }
+
     /// Builtins whose identity was replaced. The old id stays in the install
     /// table until this runs, so the catalog would show two products for one
     /// capability.

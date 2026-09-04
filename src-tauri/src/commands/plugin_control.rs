@@ -452,6 +452,20 @@ pub async fn plugin_workflow_catalog(
     }))
 }
 
+/// Answers a `provider.presets.bind` prompt. Returns `false` when the request
+/// is already gone — timed out, or answered by another window — so the UI can
+/// close a stale dialog instead of reporting success.
+#[tauri::command]
+pub async fn plugin_resolve_provider_bind(
+    state: State<'_, AppState>,
+    request_id: String,
+    approved: bool,
+) -> Result<bool, AppError> {
+    Ok(state
+        .plugin_provider_presets
+        .resolve(&request_id, approved))
+}
+
 #[tauri::command]
 pub async fn official_product_mcp_state(
     state: State<'_, AppState>,

@@ -344,5 +344,15 @@
     "later": "Later",
     "discard": "Delete report",
     "submitToGithub": "Submit on GitHub"
+  },
+  "providerBind": {
+    "title": "Allow plugin to change the model provider?",
+    "describeBind": "{{plugin}} wants to point {{agentId}} at the preset “{{preset}}”.",
+    "describeUnbind": "{{plugin}} wants to remove the model provider bound to {{agentId}}.",
+    "endpoint": "Endpoint",
+    "reason": "Plugin says: {{reason}}",
+    "effect": "This rewrites the agent's own configuration. Running sessions pick it up on their next turn.",
+    "confirmBind": "Bind",
+    "confirmUnbind": "Unbind"
   }
 }

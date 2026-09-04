@@ -20,6 +20,7 @@ mod package;
 mod ports;
 mod preview_host;
 mod process_preview_host;
+mod provider_presets;
 mod readiness;
 mod resolver;
 mod runtime;
@@ -95,6 +96,10 @@ pub use preview_host::{
     PluginPreviewHost, PluginPreviewHostError, PluginPreviewRequest, PluginPreviewSession,
 };
 pub use process_preview_host::ExternalProcessPreviewHost;
+pub use provider_presets::{
+    ProviderBindDecision, ProviderBindRequest, ProviderPreset, ProviderPresetDraft,
+    ProviderPresetError, ProviderPresetErrorCode, ProviderPresetHost, UnavailableProviderPresetHost,
+};
 pub use readiness::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, PluginActivation,
     PluginReadiness, PluginSnapshot, ProviderState, ReadinessIssue, SkillState,

@@ -344,5 +344,15 @@
     "later": "稍后再说",
     "discard": "删除报告",
     "submitToGithub": "在 GitHub 提交"
+  },
+  "providerBind": {
+    "title": "允许插件更改模型供应商？",
+    "describeBind": "{{plugin}} 想把 {{agentId}} 指向预设「{{preset}}」。",
+    "describeUnbind": "{{plugin}} 想解除 {{agentId}} 当前绑定的模型供应商。",
+    "endpoint": "接入地址",
+    "reason": "插件说明：{{reason}}",
+    "effect": "这会改写该 Agent 自身的配置，进行中的会话在下一轮生效。",
+    "confirmBind": "绑定",
+    "confirmUnbind": "解除绑定"
   }
 }

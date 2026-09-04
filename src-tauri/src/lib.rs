@@ -33,6 +33,7 @@ mod logging;
 mod managed_artifacts;
 mod oneshot_agent;
 mod plugin_dev_server;
+mod plugin_provider_presets;
 mod pr_description;
 mod prompt_enhancement;
 mod remote_desktop;
@@ -716,6 +717,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::host_client::host_client_disconnect,
         commands::host_client::host_client_delete,
         commands::settings_window::open_settings_window,
+        commands::plugin_control::plugin_resolve_provider_bind,
         commands::plugin_control::plugin_control_import_cli,
         plugin_dev_server::plugin_dev_connection,
     ])

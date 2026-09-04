@@ -9299,6 +9299,14 @@ pub async fn agent_model_providers(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
+    list_model_providers(&app, &state, agent_id).await
+}
+
+pub(crate) async fn list_model_providers(
+    app: &AppHandle,
+    state: &AppState,
+    agent_id: AgentId,
+) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
     let store_path = app
         .path()
         .app_data_dir()
@@ -9361,6 +9369,14 @@ pub async fn agent_model_provider_save(
     state: tauri::State<'_, AppState>,
     request: AgentModelProviderSaveRequest,
 ) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
+    save_model_provider(&app, &state, request).await
+}
+
+pub(crate) async fn save_model_provider(
+    app: &AppHandle,
+    state: &AppState,
+    request: AgentModelProviderSaveRequest,
+) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
     let store_path = app
         .path()
         .app_data_dir()
@@ -9387,7 +9403,7 @@ pub async fn agent_model_provider_save(
         .map_err(internal_error)?;
     if result.bound_provider_id.is_some() {
         let _ =
-            refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false)
+            refresh_one_agent_authentication(app, &state.deployment.db().pool, &agent_id, false)
                 .await;
     }
     state
@@ -9402,6 +9418,19 @@ pub async fn agent_model_provider_save(
 pub async fn agent_model_provider_bind(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+    provider_id: Option<String>,
+) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
+    apply_model_provider_bind(&app, &state, agent_id, provider_id).await
+}
+
+/// The whole bind sequence: native projection, auth overlay, rollback on a
+/// half-applied change, and session invalidation. The Tauri command and the
+/// plugin `provider.presets.bind` seam both go through here so a plugin-driven
+/// bind cannot skip the parts that keep the agent's own config coherent.
+pub(crate) async fn apply_model_provider_bind(
+    app: &AppHandle,
+    state: &AppState,
     agent_id: AgentId,
     provider_id: Option<String>,
 ) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
@@ -9455,7 +9484,7 @@ pub async fn agent_model_provider_bind(
         return Err(error);
     }
     let _ =
-        refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false).await;
+        refresh_one_agent_authentication(app, &state.deployment.db().pool, &agent_id, false).await;
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 绑定已更改")

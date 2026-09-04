@@ -198,6 +198,7 @@ pub struct AppState {
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub plugin_provider_presets: Arc<crate::plugin_provider_presets::TauriProviderPresetHost>,
     pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
     pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
@@ -226,9 +227,13 @@ impl AppState {
         let plugin_preview_host: Arc<dyn plugins::PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
-        let plugin_capability_broker = Arc::new(plugins::HostCapabilityBroker::new(
+        let provider_preset_host = Arc::new(
+            crate::plugin_provider_presets::TauriProviderPresetHost::new(app_handle.clone()),
+        );
+        let plugin_capability_broker = Arc::new(plugins::HostCapabilityBroker::with_provider_presets(
             plugin_control_plane.clone(),
             plugin_preview_host.clone(),
+            provider_preset_host.clone(),
         ));
         plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
@@ -438,6 +443,7 @@ impl AppState {
             plugin_control_plane,
             plugin_worker_runtime,
             plugin_capability_broker,
+            plugin_provider_presets: provider_preset_host,
             plugin_app_surfaces,
             remote_desktop,
             local_history_import: Arc::new(StdMutex::new(LocalHistoryImportRuntime::default())),

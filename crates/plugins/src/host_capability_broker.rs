@@ -21,6 +21,7 @@ struct ArtifactAuthorization {
 pub struct HostCapabilityBroker {
     plugins: Arc<crate::PluginControlPlane>,
     previews: Arc<dyn crate::PluginPreviewHost>,
+    provider_presets: Arc<dyn crate::ProviderPresetHost>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
 }
@@ -30,9 +31,22 @@ impl HostCapabilityBroker {
         plugins: Arc<crate::PluginControlPlane>,
         previews: Arc<dyn crate::PluginPreviewHost>,
     ) -> Self {
+        Self::with_provider_presets(
+            plugins,
+            previews,
+            Arc::new(crate::UnavailableProviderPresetHost),
+        )
+    }
+
+    pub fn with_provider_presets(
+        plugins: Arc<crate::PluginControlPlane>,
+        previews: Arc<dyn crate::PluginPreviewHost>,
+        provider_presets: Arc<dyn crate::ProviderPresetHost>,
+    ) -> Self {
         Self {
             plugins,
             previews,
+            provider_presets,
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -123,6 +137,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "conversation"
                 | "app"
                 | "plugin.self"
+                | "provider.presets"
         )
     }
 
@@ -140,6 +155,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                     .await
             }
             "artifact.preview" => self.open_preview(plugin_id, generation, input).await,
+            "provider.presets" => self.call_provider_presets(plugin_id, operation, input).await,
             "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
@@ -224,6 +240,97 @@ impl HostCapabilityBroker {
                 "exitCode": output.status.code(),
             }))
         })
+    }
+
+    /// `list` and `save` touch only VibeX's own preset store. `bind` changes
+    /// which endpoint an agent actually talks to, so it goes through the Host
+    /// confirmation the seam contract requires and lands in the plugin audit
+    /// either way — a decline is evidence too.
+    async fn call_provider_presets(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match operation {
+            "list" => {
+                let agent_id = input.get("agentId").and_then(Value::as_str);
+                let presets = self
+                    .provider_presets
+                    .list(agent_id)
+                    .await
+                    .map_err(preset_error)?;
+                Ok(json!({ "presets": presets }))
+            }
+            "save" => {
+                let draft: crate::ProviderPresetDraft = serde_json::from_value(input)
+                    .map_err(|error| broker_error("provider_preset_invalid", error))?;
+                if draft.name.trim().is_empty() {
+                    return Err(broker_error(
+                        "provider_preset_invalid",
+                        "name must not be empty",
+                    ));
+                }
+                if draft.agent_id.trim().is_empty() {
+                    return Err(broker_error(
+                        "provider_preset_invalid",
+                        "agentId must not be empty",
+                    ));
+                }
+                let saved = self
+                    .provider_presets
+                    .save(plugin_id, draft)
+                    .await
+                    .map_err(preset_error)?;
+                self.audit(
+                    plugin_id,
+                    "provider_preset_saved",
+                    json!({ "presetId": saved.id, "agentId": saved.agent_id }),
+                )
+                .await;
+                Ok(serde_json::to_value(saved)
+                    .map_err(|error| broker_error("provider_preset_invalid", error))?)
+            }
+            "bind" => {
+                let request: crate::ProviderBindRequest = serde_json::from_value(input)
+                    .map_err(|error| broker_error("provider_bind_invalid", error))?;
+                if request.agent_id.trim().is_empty() {
+                    return Err(broker_error(
+                        "provider_bind_invalid",
+                        "agentId must not be empty",
+                    ));
+                }
+                let agent_id = request.agent_id.clone();
+                let preset_id = request.preset_id.clone();
+                let decision = self
+                    .provider_presets
+                    .bind(plugin_id, request)
+                    .await
+                    .map_err(preset_error)?;
+                let confirmed = decision == crate::ProviderBindDecision::Applied;
+                self.audit(
+                    plugin_id,
+                    "provider_preset_bind",
+                    json!({
+                        "agentId": agent_id,
+                        "presetId": preset_id,
+                        "confirmed": confirmed,
+                    }),
+                )
+                .await;
+                Ok(json!({ "confirmed": confirmed }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("provider.presets.{operation} is not implemented"),
+            )),
+        }
+    }
+
+    async fn audit(&self, plugin_id: &str, event: &str, evidence: Value) {
+        if let Err(error) = self.plugins.record_audit(plugin_id, event, &evidence).await {
+            tracing::warn!(%plugin_id, %event, %error, "plugin audit write failed");
+        }
     }
 
     async fn open_preview(
@@ -432,4 +539,10 @@ fn unix_time_millis() -> u64 {
 
 fn broker_error(code: &'static str, message: impl std::fmt::Display) -> crate::WorkerHostError {
     crate::WorkerHostError::broker(code, message)
+}
+
+/// Keeps the seam's own code instead of flattening every failure into one
+/// broker code, so a plugin can tell a missing preset from a broken store.
+fn preset_error(error: crate::ProviderPresetError) -> crate::WorkerHostError {
+    crate::WorkerHostError::broker(error.code().as_str(), error)
 }

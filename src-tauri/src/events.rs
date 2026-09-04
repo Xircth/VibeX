@@ -27,6 +27,9 @@ pub mod channels {
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
     pub const DESKTOP_SESSION_ATTENTION: &str = "desktop-session-attention";
     pub const PLUGIN_CONTRIBUTIONS: &str = "plugin-contributions-changed";
+    /// A plugin is asking to re-point an agent at a provider preset. The
+    /// Worker is parked until the user answers.
+    pub const PROVIDER_BIND_CONFIRM: &str = "provider-bind-confirm";
 }
 
 /// Mirrors live contribution-catalog changes to the webview so plugin chrome

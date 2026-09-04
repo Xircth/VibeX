@@ -395,6 +395,12 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'official_product_mcp_state'
       ) as Promise<OfficialProductMcpState>,
+    /** Resolves false when the request already expired or another window answered. */
+    resolveProviderBind: (requestId: string, approved: boolean) =>
+      transport.call('plugin_resolve_provider_bind', {
+        requestId,
+        approved,
+      }) as Promise<boolean>,
     contributionCatalog: () =>
       transport.call(
         'plugin_contribution_catalog'

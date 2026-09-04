@@ -659,8 +659,7 @@ impl GitCli {
                 "No rebase in progress".to_string(),
             ));
         }
-        self.git(worktree_path, ["rebase", "--continue"])
-            .map(|_| ())
+        self.continue_with_existing_message(worktree_path, ["rebase", "--continue"])
     }
 
     /// Return true if there are staged changes (index differs from HEAD)
@@ -750,6 +749,47 @@ impl GitCli {
             return Ok(());
         }
         self.git(worktree_path, ["revert", "--abort"]).map(|_| ())
+    }
+
+    pub fn continue_merge(&self, worktree_path: &Path) -> Result<(), GitCliError> {
+        self.continue_with_existing_message(worktree_path, ["merge", "--continue"])
+    }
+
+    pub fn continue_cherry_pick(&self, worktree_path: &Path) -> Result<(), GitCliError> {
+        self.continue_with_existing_message(worktree_path, ["cherry-pick", "--continue"])
+    }
+
+    pub fn continue_revert(&self, worktree_path: &Path) -> Result<(), GitCliError> {
+        self.continue_with_existing_message(worktree_path, ["revert", "--continue"])
+    }
+
+    fn continue_with_existing_message(
+        &self,
+        worktree_path: &Path,
+        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    ) -> Result<(), GitCliError> {
+        self.git_with_env(
+            worktree_path,
+            args,
+            &[(OsString::from("GIT_EDITOR"), OsString::from("true"))],
+        )
+        .map(|_| ())
+    }
+
+    /// Read an index stage (`:1:`, `:2:`, `:3:`). Missing stages return `None`
+    /// instead of an empty string so add/delete conflicts stay honest.
+    pub fn show_index_stage(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+        stage: u8,
+    ) -> Result<Option<String>, GitCliError> {
+        let spec = format!(":{stage}:{file_path}");
+        match self.git(worktree_path, ["show", &spec]) {
+            Ok(out) => Ok(Some(out)),
+            Err(GitCliError::CommandFailed(_)) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// List files currently in a conflicted (unmerged) state in the worktree.

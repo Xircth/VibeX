@@ -142,7 +142,7 @@ describe('useSessionComposerQueue', () => {
         text: 'agent text',
         displayText: 'visible',
         images: ['vibe://image'],
-        pluginActions: [],
+        workflowRefs: [],
         modeOverride: 'plan',
         configOverrides: [{ key: 'model', value: 'gpt-5.4' }],
         fileRefs: [],

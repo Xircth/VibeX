@@ -2139,3 +2139,11 @@ export type ProjectUsageUsageData = { input_tokens?: bigint | null, output_token
 export type ProjectUsageWeekData = { sessions: bigint, cost?: number | null, tokens?: bigint | null, };
 
 export type ProjectUsageWeeklyComparison = { current_week: ProjectUsageWeekData, last_week: ProjectUsageWeekData, trends: ProjectUsageTrends, };
+
+export type ConflictFileDetail = { path: string, base: ConflictStageContent, ours: ConflictStageContent, theirs: ConflictStageContent, result: string, hunks: Array<ConflictHunk>, is_binary: boolean, is_resolved: boolean, };
+
+export type ConflictHunk = { index: number, ours: string, theirs: string, };
+
+export type ConflictStageContent = { present: boolean, content?: string | null, };
+
+export type WriteConflictResolutionResult = { path: string, is_resolved: boolean, };

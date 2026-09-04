@@ -100,7 +100,10 @@ use executors::{
     logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
-use git::{GitBranch, StashEntry};
+use git::{
+    ConflictFileDetail, ConflictHunk, ConflictStageContent, GitBranch, StashEntry,
+    WriteConflictResolutionResult,
+};
 use remote_protocol::{
     CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, ReachabilityOrigin,
     RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
@@ -500,6 +503,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
     insert_declaration::<GitBranch>(&mut decls);
     insert_declaration::<StashEntry>(&mut decls);
+    insert_declaration::<ConflictStageContent>(&mut decls);
+    insert_declaration::<ConflictHunk>(&mut decls);
+    insert_declaration::<ConflictFileDetail>(&mut decls);
+    insert_declaration::<WriteConflictResolutionResult>(&mut decls);
     insert_declaration::<ConversationSearchHit>(&mut decls);
     insert_declaration::<ArtifactPreviewLeaseDto>(&mut decls);
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);

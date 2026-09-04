@@ -144,6 +144,11 @@ export interface PanelActions {
     path: string,
     options?: OpenFilePreviewOptions & { title?: string }
   ) => void;
+  openMergePanel: (params: {
+    workspaceId: string;
+    repoId: string;
+    filePath: string;
+  }) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
   openTerminalEditorTab: () => void;
@@ -1130,6 +1135,30 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+  const openMergePanel = useCallback(
+    (params: { workspaceId: string; repoId: string; filePath: string }) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+      const panelId = `merge:${params.filePath}`;
+      const title = params.filePath.split(/[/\\]/).pop() || params.filePath;
+      const existingPanel = dockviewApi.getPanel(panelId);
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        existingPanel.group.api.setVisible(true);
+        existingPanel.api.setActive();
+        return;
+      }
+      const panel = addPanelToActiveEditorGroup({
+        id: panelId,
+        component: PANEL_IDS.MERGE,
+        title,
+        params,
+      });
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
+  );
+
   const openDiffPreview = useCallback(() => {
     clearCommitDiff();
     clearGitDiffTargetPath();
@@ -1232,6 +1261,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       revealInFileTree,
       openDiffPreview,
       openDiffPreviewAtPath,
+      openMergePanel,
       openCommitDiff,
       openNewTerminal,
       openTerminalEditorTab,
@@ -1262,6 +1292,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openCommitDiff,
       openDiffPreview,
       openDiffPreviewAtPath,
+      openMergePanel,
       openFilePreview,
       openImagePreview,
       openWebPreview,

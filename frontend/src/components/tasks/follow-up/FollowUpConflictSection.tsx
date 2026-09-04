@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ConflictBanner } from '@/components/tasks/ConflictBanner';
-import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { useAttemptConflicts } from '@/hooks/useAttemptConflicts';
+import { usePanelActions } from '@/hooks/usePanelActions';
 import type { RepoBranchStatus } from 'shared/types';
 
 type Props = {
   workspaceId?: string;
   attemptBranch: string | null;
   branchStatus: RepoBranchStatus[] | undefined;
-  isEditable: boolean;
-  onResolve?: () => void;
   enableResolve: boolean;
   enableAbort: boolean;
   conflictResolutionInstructions: string | null;
@@ -19,7 +17,6 @@ export function FollowUpConflictSection({
   workspaceId,
   attemptBranch,
   branchStatus,
-  onResolve,
   enableResolve,
   enableAbort,
   conflictResolutionInstructions,
@@ -28,7 +25,7 @@ export function FollowUpConflictSection({
     (r) => r.is_rebase_in_progress || (r.conflicted_files?.length ?? 0) > 0
   );
   const op = repoWithConflicts?.conflict_op ?? null;
-  const openInEditor = useOpenInEditor(workspaceId);
+  const { openMergePanel } = usePanelActions();
   const repoId = repoWithConflicts?.repo_id;
   const { abortConflicts } = useAttemptConflicts(workspaceId, repoId);
 
@@ -48,13 +45,13 @@ export function FollowUpConflictSection({
         baseBranch={repoWithConflicts.target_branch_name ?? ''}
         conflictedFiles={repoWithConflicts.conflicted_files || []}
         op={op}
-        onResolve={onResolve}
-        enableResolve={enableResolve && !aborting}
-        onOpenEditor={() => {
-          if (!workspaceId) return;
+        onResolve={() => {
+          if (!workspaceId || !repoId) return;
           const first = repoWithConflicts.conflicted_files?.[0];
-          openInEditor(first ? { filePath: first } : undefined);
+          if (!first) return;
+          openMergePanel({ workspaceId, repoId, filePath: first });
         }}
+        enableResolve={enableResolve && !aborting}
         onAbort={async () => {
           if (!workspaceId) return;
           if (!enableAbort || abortingRef.current) return;

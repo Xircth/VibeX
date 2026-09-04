@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   GitBranch,
   History,
@@ -28,6 +28,7 @@ import {
   useGitHubData,
   useGitPanelController,
 } from '@/hooks/git';
+import { GitConflictSection } from './GitConflictSection';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
 import { GitStashSection } from './GitStashSection';
@@ -35,8 +36,12 @@ import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
 import { GitPRsView } from './GitPRsView';
+import { useBranchStatus } from '@/hooks/useBranchStatus';
+import { useAttemptConflicts } from '@/hooks/useAttemptConflicts';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
+import { attemptsApi } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 
 function EmptyState() {
   return (
@@ -59,7 +64,11 @@ function LoadingState() {
 }
 
 export function GitPanel() {
-  const { openDiffPreview } = usePanelActions();
+  const { openDiffPreview, openMergePanel } = usePanelActions();
+  const queryClient = useQueryClient();
+  const [conflictBusy, setConflictBusy] = useState<'continue' | 'abort' | null>(
+    null
+  );
   const focusDiffPath = useGitDiffNavigationStore((state) => state.focusPath);
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId, projectId } = useParams<{
@@ -69,6 +78,9 @@ export function GitPanel() {
   const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId ?? null;
   const { data: workspace } = useAttempt(effectiveWorkspaceId ?? undefined);
   const { selectedRepoId } = useAttemptRepo(effectiveWorkspaceId ?? undefined);
+  const { data: branchStatus } = useBranchStatus(
+    effectiveWorkspaceId ?? undefined
+  );
 
   // When no workspace is active, fall back to the project's first repo
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
@@ -78,6 +90,13 @@ export function GitPanel() {
 
   const workspaceId = effectiveWorkspaceId;
   const repoId = selectedRepoId ?? fallbackRepoId;
+  const conflictStatus = branchStatus?.find((repo) => repo.repo_id === repoId);
+  const conflictOp = conflictStatus?.conflict_op ?? null;
+  const conflictedFiles = conflictStatus?.conflicted_files ?? [];
+  const { abortConflicts } = useAttemptConflicts(
+    workspaceId ?? undefined,
+    repoId ?? undefined
+  );
   const {
     mode,
     setMode,
@@ -330,6 +349,38 @@ export function GitPanel() {
       {/* Diff mode */}
       {mode === 'diff' && (
         <div className="flex flex-col flex-1 min-h-0">
+          {workspaceId && repoId && conflictOp ? (
+            <GitConflictSection
+              op={conflictOp}
+              files={conflictedFiles}
+              onOpenFile={(filePath) =>
+                openMergePanel({ workspaceId, repoId, filePath })
+              }
+              onContinue={async () => {
+                setConflictBusy('continue');
+                try {
+                  await attemptsApi.continueConflicts(workspaceId, repoId);
+                  await queryClient.invalidateQueries({
+                    queryKey: ['branchStatus', workspaceId],
+                  });
+                  refreshStatus();
+                } finally {
+                  setConflictBusy(null);
+                }
+              }}
+              onAbort={async () => {
+                setConflictBusy('abort');
+                try {
+                  await abortConflicts();
+                  refreshStatus();
+                } finally {
+                  setConflictBusy(null);
+                }
+              }}
+              continueLoading={conflictBusy === 'continue'}
+              abortLoading={conflictBusy === 'abort'}
+            />
+          ) : null}
           <GitCommitBox
             commitMessage={commitMessage}
             onCommitMessageChange={setCommitMessage}

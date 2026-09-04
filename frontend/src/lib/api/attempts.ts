@@ -31,6 +31,10 @@ import type {
   StashEntry,
 } from 'shared/types';
 
+import type {
+  ConflictFileDetail,
+  WriteConflictResolutionResult,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
 import { backendCall, invokeAsResult } from './base';
@@ -280,10 +284,44 @@ export const attemptsApi = {
     attemptId: string,
     data: ContinueRebaseRequest
   ): Promise<void> => {
-    return backendCall<void>('continue_rebase_workspace', {
+    return backendCall<void>('continue_conflicts_workspace', {
       workspaceId: attemptId,
       repoId: data.repo_id,
     });
+  },
+
+  continueConflicts: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<void> => {
+    return backendCall<void>('continue_conflicts_workspace', {
+      workspaceId,
+      repoId,
+    });
+  },
+
+  getConflictFile: async (
+    workspaceId: string,
+    repoId: string,
+    filePath: string
+  ): Promise<ConflictFileDetail> => {
+    return backendCall<ConflictFileDetail>('get_workspace_conflict_file', {
+      workspaceId,
+      repoId,
+      filePath,
+    });
+  },
+
+  writeConflictResolution: async (
+    workspaceId: string,
+    repoId: string,
+    filePath: string,
+    content: string
+  ): Promise<WriteConflictResolutionResult> => {
+    return backendCall<WriteConflictResolutionResult>(
+      'write_workspace_conflict_resolution',
+      { workspaceId, repoId, filePath, content }
+    );
   },
 
   createPR: async (

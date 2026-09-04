@@ -58,6 +58,42 @@ pub enum ConflictOp {
     Revert,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ConflictStageContent {
+    pub present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ConflictHunk {
+    pub index: u32,
+    pub ours: String,
+    pub theirs: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ConflictFileDetail {
+    pub path: String,
+    pub base: ConflictStageContent,
+    pub ours: ConflictStageContent,
+    pub theirs: ConflictStageContent,
+    pub result: String,
+    pub hunks: Vec<ConflictHunk>,
+    pub is_binary: bool,
+    pub is_resolved: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct WriteConflictResolutionResult {
+    pub path: String,
+    pub is_resolved: bool,
+}
+
 #[derive(Debug, Serialize, TS)]
 pub struct GitBranch {
     pub name: String,

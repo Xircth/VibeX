@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { AlertTriangle, Copy, SendHorizonal } from 'lucide-react';
 import type { AgentKind, ConflictOp, ExecutorProfileId } from 'shared/types';
+import type { ConflictFileDetail } from '@/types/mergeConflict';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,6 +28,7 @@ export interface GitConflictResolutionDialogProps {
   conflictedFiles: string[];
   op?: ConflictOp | null;
   repoName?: string;
+  fileDetail?: ConflictFileDetail | null;
 }
 
 export type GitConflictResolutionDialogResult = {
@@ -42,6 +44,7 @@ const GitConflictResolutionDialogImpl =
       conflictedFiles,
       op = null,
       repoName,
+      fileDetail = null,
     }) => {
       const modal = useModal();
       const queryClient = useQueryClient();
@@ -58,9 +61,10 @@ const GitConflictResolutionDialogImpl =
             targetBranch,
             conflictedFiles,
             op,
-            repoName
+            repoName,
+            fileDetail
           ),
-        [conflictedFiles, op, repoName, sourceBranch, targetBranch]
+        [conflictedFiles, fileDetail, op, repoName, sourceBranch, targetBranch]
       );
 
       const executorProfile = useMemo<ExecutorProfileId | null>(() => {

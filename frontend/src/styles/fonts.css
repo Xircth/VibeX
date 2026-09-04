@@ -1,3 +1,4 @@
+@import '@fontsource-variable/inter/wght.css';
 @import '@fontsource-variable/noto-sans-sc/wght.css';
 
 /* IBM Plex Mono */
@@ -39,9 +40,12 @@
  */
 :root {
   /*
-   * Product UI font. Match Codex's native system stack so macOS uses SF Pro and
-   * Windows uses Segoe UI. Explicit CJK families keep Chinese text native on
-   * each platform; bundled Noto Sans SC remains the offline Linux fallback.
+   * Product UI font. macOS keeps the native SF Pro / PingFang stack. Windows and
+   * Linux swap Latin UI to bundled Inter Variable below: Segoe UI and typical
+   * Linux UI sans render poorly in WebView2/Chromium with antialiased smoothing.
+   * CJK: PingFang on macOS. Windows and Linux use bundled Noto Sans SC Variable
+   * (Source Han Sans / 思源黑体) immediately after Inter so Segoe UI font-linking
+   * cannot pull Microsoft YaHei.
    */
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
@@ -50,4 +54,12 @@
   --font-mono:
     'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     monospace;
+}
+
+html[data-host-platform='windows'],
+html[data-host-platform='linux'] {
+  --font-ui:
+    'Inter Variable', 'Noto Sans SC Variable', 'Source Han Sans SC',
+    'Noto Sans SC', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
 }

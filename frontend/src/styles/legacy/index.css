@@ -480,10 +480,7 @@
   }
 
   .legacy-design [data-astryx-theme] {
-    --font-family-body:
-      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
-      system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-      'Noto Sans SC Variable', sans-serif;
+    --font-family-body: var(--font-ui);
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-text-accent: hsl(var(--primary));

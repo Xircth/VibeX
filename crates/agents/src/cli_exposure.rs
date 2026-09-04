@@ -667,14 +667,17 @@ mod tests {
             fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        let published = publish_managed_runtime_cli(
-            &home,
-            &AgentId::parse("claude-code").unwrap(),
-            &install_root,
-            &runtime,
-            std::slice::from_ref(&node_bin),
-            ShellFamily::Posix,
-        )
+        // Pin the effective PATH: the real one would resolve `claude` to whatever the
+        // developer has installed and report it as a command conflict.
+        let published = publish_managed_runtime_cli_with_path(CliPublication {
+            home_dir: &home,
+            agent_id: &AgentId::parse("claude-code").unwrap(),
+            managed_install_root: &install_root,
+            runtime_executable: &runtime,
+            runtime_path_entries: std::slice::from_ref(&node_bin),
+            shell: ShellFamily::Posix,
+            effective_path: Some(OsStr::new("")),
+        })
         .unwrap();
 
         let output = Command::new(&published.shim_path)

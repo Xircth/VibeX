@@ -1,15 +1,10 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
 
 import { toast } from '@/components/ui/toast';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';

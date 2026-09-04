@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.provider-import",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "环境变量供应商导入",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^1.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    }
+  },
+  "integrations": [
+    {
+      "id": "environment",
+      "kind": "provider.model.importSource",
+      "label": "从环境变量导入",
+      "description": "读取 OPENAI_/ANTHROPIC_/DEEPSEEK_ 等常见变量对",
+      "icon": "terminal",
+      "handler": "import.environment"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

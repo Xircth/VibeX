@@ -55,7 +55,10 @@ const ProviderBindConfirmDialogImpl =
               </DialogTitle>
               <DialogDescription>
                 {unbinding
-                  ? t('providerBind.describeUnbind', { plugin: pluginName, agentId })
+                  ? t('providerBind.describeUnbind', {
+                      plugin: pluginName,
+                      agentId,
+                    })
                   : t('providerBind.describeBind', {
                       plugin: pluginName,
                       agentId,

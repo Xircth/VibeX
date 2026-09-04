@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { AgentModelProviderManager } from './AgentModelProviderManager';
 import { pickAstryxOption } from './agentSettingsTestUtils';

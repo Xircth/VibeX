@@ -145,7 +145,10 @@ fn authors_still_cannot_declare_the_synthesized_slots_directly() {
           "integrations":[{"id":"sneaky","kind":"app.surface","slot":"conversation.timeline.card","appEntrypoint":"app","handler":"surface.createSession"}]
         }"#,
     );
-    write(&root.path().join("README.md"), "---\nsummary: x\n---\n# x\n");
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: x\n---\n# x\n",
+    );
     write(&root.path().join("config.json"), "{}");
     write(
         &root.path().join(".vibex-plugin/content.index.json"),
@@ -275,8 +278,6 @@ fn the_icon_set_matches_the_published_contract() {
 
 #[test]
 fn host_service_interval_defaults_when_unset() {
-    let package = product_package(
-        r#"[{"id":"tick","kind":"host.service","handler":"tick"}]"#,
-    );
+    let package = product_package(r#"[{"id":"tick","kind":"host.service","handler":"tick"}]"#);
     assert_eq!(package.app.host_services[0].interval_seconds, 30);
 }

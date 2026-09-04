@@ -39,6 +39,22 @@
       "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。",
       "packageDigest": "builtin:vibex.plugin-development",
       "archive": "builtin://vibex.plugin-development"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.host-chrome",
+      "version": "1.0.0",
+      "summary": "官方参考插件，演示命令面板、工具栏、状态栏、斜杠命令、时间线卡片与设置分区六个宿主界面槽位。",
+      "packageDigest": "builtin:vibex.host-chrome",
+      "archive": "builtin://vibex.host-chrome"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.provider-import",
+      "version": "1.0.0",
+      "summary": "把已经导出到环境变量里的 OpenAI 兼容供应商，一次性导入 Model Provider 预设。",
+      "packageDigest": "builtin:vibex.provider-import",
+      "archive": "builtin://vibex.provider-import"
     }
   ]
 }

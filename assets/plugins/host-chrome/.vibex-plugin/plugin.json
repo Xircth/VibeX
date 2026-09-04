@@ -1,0 +1,101 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.host-chrome",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "宿主界面示例",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^1.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "root": "dist/app",
+      "document": "index.html",
+      "protocol": "1.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "workspace-digest",
+      "kind": "app.command",
+      "title": "工作区速览",
+      "subtitle": "宿主界面示例",
+      "icon": "gauge",
+      "handler": "digest.show"
+    },
+    {
+      "id": "toggle-digest",
+      "kind": "app.toolbar",
+      "slot": "toolbar.main",
+      "title": "刷新速览",
+      "icon": "refresh-cw",
+      "handler": "digest.refresh"
+    },
+    {
+      "id": "digest-status",
+      "kind": "app.status",
+      "slot": "status.main",
+      "text": "速览就绪",
+      "icon": "activity",
+      "handler": "digest.status",
+      "refreshSeconds": 30
+    },
+    {
+      "id": "digest",
+      "kind": "app.composer.slash",
+      "command": "digest",
+      "title": "插入工作区速览",
+      "description": "把当前速览作为提示词插入输入框",
+      "prompt": "请先阅读下面的工作区速览，再回答我的问题。\n\n"
+    },
+    {
+      "id": "digest-card",
+      "kind": "app.timeline.card",
+      "label": "工作区速览",
+      "handler": "surface.createSession",
+      "allowedMethods": [
+        "digest.read"
+      ],
+      "minHeight": 240
+    },
+    {
+      "id": "digest-settings",
+      "kind": "app.settings.section",
+      "title": "宿主界面示例",
+      "handler": "surface.createSession",
+      "allowedMethods": [
+        "digest.read"
+      ],
+      "minHeight": 240
+    },
+    {
+      "id": "digest-refresh",
+      "kind": "host.service",
+      "handler": "digest.refresh",
+      "intervalSeconds": 300
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

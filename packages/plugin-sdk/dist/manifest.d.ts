@@ -119,44 +119,64 @@ export interface AppSurfaceIntegrationManifest extends IntegrationBase {
     minHeight?: number;
     nativeRenderer?: string;
 }
+/**
+ * Icon names the Host is willing to render for plugin chrome. Plugins name an
+ * icon instead of shipping markup, so no plugin asset reaches Host DOM.
+ * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * `CONTRIBUTION_ICONS`; all three are asserted equal by tests.
+ */
+export declare const CONTRIBUTION_ICONS: readonly ["activity", "alert-triangle", "bell", "bookmark", "bot", "calendar", "chart-bar", "check-circle", "clock", "cloud", "code", "database", "file-text", "filter", "flag", "folder", "gauge", "git-branch", "globe", "info", "key", "layers", "link", "list", "message-square", "package", "play", "plug", "puzzle", "refresh-cw", "search", "settings", "shield", "sparkles", "star", "tag", "terminal", "timer", "user", "zap"];
+export type ContributionIcon = (typeof CONTRIBUTION_ICONS)[number];
 export interface CommandIntegrationManifest extends IntegrationBase {
     kind: "app.command";
     title: string;
     subtitle?: string;
     shortcut?: string;
+    icon?: ContributionIcon;
     handler: string;
 }
 export interface ToolbarIntegrationManifest extends IntegrationBase {
     kind: "app.toolbar";
-    slot: "toolbar.main";
+    slot?: "toolbar.main";
     title: string;
-    icon?: {
-        kind: "svg";
-        resource: string;
-    };
+    icon?: ContributionIcon;
     handler: string;
 }
 export interface StatusIntegrationManifest extends IntegrationBase {
     kind: "app.status";
-    slot: "status.main";
+    slot?: "status.main";
+    /** Text shown before the first refresh, and the only text when static. */
     text?: string;
+    icon?: ContributionIcon;
+    /** Returns `{ text?, tooltip? }` on click and on every refresh tick. */
     handler: string;
+    /** 5–3600. Omit for a static item. */
     refreshSeconds?: number;
 }
 export interface ComposerSlashIntegrationManifest extends IntegrationBase {
     kind: "app.composer.slash";
+    /** Typed after `/`; lowercase, digits and dashes. Defaults to `id`. */
+    command?: string;
     title: string;
-    target: string;
+    description?: string;
+    /** Inserted into the draft when the author picks the command. */
+    prompt: string;
 }
 export interface TimelineCardIntegrationManifest extends IntegrationBase {
     kind: "app.timeline.card";
-    handler: string;
+    label?: string;
+    handler: "surface.createSession";
+    allowedMethods?: string[];
+    /** 240–900. */
     minHeight?: number;
 }
 export interface SettingsSectionIntegrationManifest extends IntegrationBase {
     kind: "app.settings.section";
     title: string;
-    handler?: string;
+    handler: "surface.createSession";
+    allowedMethods?: string[];
+    /** 240–900. */
+    minHeight?: number;
 }
 export interface HookIntegrationManifest extends IntegrationBase {
     kind: "content.hook";
@@ -166,9 +186,26 @@ export interface HookIntegrationManifest extends IntegrationBase {
 export interface HostServiceIntegrationManifest extends IntegrationBase {
     kind: "host.service";
     handler: string;
+    /** 5–86400, default 30. At most eight services tick per plugin. */
     intervalSeconds?: number;
 }
-export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest;
+/**
+ * Adds an entry to the "import from…" menu in model provider settings.
+ *
+ * The handler returns the presets it discovered; the Host renders the picker
+ * and writes them through `provider.presets.save`. Importing never binds — the
+ * user still chooses which preset an agent uses.
+ */
+export interface ProviderImportSourceIntegrationManifest extends IntegrationBase {
+    kind: "provider.model.importSource";
+    label: string;
+    handler: string;
+    icon?: ContributionIcon;
+    /** Agent ids this source can import for. Omit for every agent. */
+    agents?: string[];
+    description?: string;
+}
+export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest;
 export declare const pluginManifestSchema: {
     readonly $schema: "https://json-schema.org/draft/2020-12/schema";
     readonly $id: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json";
@@ -349,7 +386,7 @@ export declare const pluginManifestSchema: {
                         readonly pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
                     };
                     readonly kind: {
-                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service"];
+                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service", "provider.model.importSource"];
                     };
                     readonly resource: {
                         readonly type: "string";

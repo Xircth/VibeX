@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>工作区速览</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  <style>:root{color-scheme:light dark}body{margin:0;font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:canvastext;background:transparent}.digest{display:flex;flex-direction:column;gap:12px;padding:16px}.digest h1{margin:0;font-size:13px;font-weight:600}.rows{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0}.rows dt{opacity:0.65}.rows dd{margin:0;font-variant-numeric:tabular-nums}.hint{margin:0;opacity:0.65}
+</style><script type="module">function definePluginApp(mount){return{apiVersion:"1.0",mount}}function escapeText(value){return String(value).replace(/[&<>"']/g,character=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}function formatMoment(value){if(!value)return"\u5C1A\u672A\u5237\u65B0";const at=new Date(value);return Number.isNaN(at.getTime())?"\u5C1A\u672A\u5237\u65B0":at.toLocaleString()}var app_default=definePluginApp(async({bridge:bridge2,root:root2,signal})=>{const render=body=>{root2.innerHTML=`<section class="digest">${body}</section>`};render('<h1>\u5DE5\u4F5C\u533A\u901F\u89C8</h1><p class="hint">\u6B63\u5728\u8BFB\u53D6\u2026</p>');bridge2.ready();try{const digest=await bridge2.invoke("digest.read");render(`
+      <h1>\u5DE5\u4F5C\u533A\u901F\u89C8</h1>
+      <dl class="rows">
+        <dt>\u4E0A\u6B21\u5237\u65B0</dt><dd>${escapeText(formatMoment(digest?.refreshedAt))}</dd>
+        <dt>\u5237\u65B0\u6B21\u6570</dt><dd>${escapeText(digest?.refreshCount??0)}</dd>
+      </dl>
+      <p class="hint">\u5DE5\u5177\u680F\u7684\u300C\u5237\u65B0\u901F\u89C8\u300D\u548C\u6BCF 5 \u5206\u949F\u7684\u540E\u53F0\u4EFB\u52A1\u90FD\u4F1A\u66F4\u65B0\u5B83\u3002</p>
+    `)}catch(error){render(`<h1>\u5DE5\u4F5C\u533A\u901F\u89C8</h1><p class="hint">\u8BFB\u53D6\u5931\u8D25\uFF1A${escapeText(error?.message??error)}</p>`)}signal.addEventListener("abort",()=>{root2.innerHTML=""},{once:true})});var root=document.querySelector("#app")??document.body;var controller=new AbortController;var surface=globalThis.vibexSurface;if(!surface)throw new Error("vibex_app_surface_unavailable");var bootstrap=await surface.ready;var artifact=bootstrap.artifact?Object.freeze({name:bootstrap.artifact.name,readText:()=>surface.request("artifact.readText",null),writeText:(content,expectedRevision)=>surface.request("artifact.writeText",{content,expectedRevision})}):void 0;var bridge=Object.freeze({pluginId:bootstrap.pluginId,generation:bootstrap.generation,artifact,invoke:(handler,input=null)=>surface.request(handler,input),subscribe:(channel,listener)=>{if(channel!=="context")throw new Error("app_subscription_unsupported");const receive=event=>listener(event.detail);addEventListener("vibexsurfacecontext",receive);return()=>removeEventListener("vibexsurfacecontext",receive)},ready:()=>{void surface.request("surface.ready")}});var dispose=await app_default.mount({root,bridge,signal:controller.signal});addEventListener("pagehide",()=>{controller.abort();if(typeof dispose==="function")void dispose()},{once:true});
+</script></body>
+</html>

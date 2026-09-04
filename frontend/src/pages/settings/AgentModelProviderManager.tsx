@@ -126,8 +126,9 @@ export function AgentModelProviderManager({
       }),
     [importContributions, agentId]
   );
-  const [importPreview, setImportPreview] =
-    useState<ImportPreviewModel | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreviewModel | null>(
+    null
+  );
   const [importSelected, setImportSelected] = useState<string[]>([]);
   const [probes, setProbes] = useState<
     Record<string, AgentModelProviderProbeView | 'loading'>
@@ -628,11 +629,14 @@ export function AgentModelProviderManager({
       const handler =
         typeof metadata.handler === 'string' ? metadata.handler : item.id;
       const candidates = pluginImportCandidates(
-        await pluginApi.invokeContribution(item.pluginId, handler, { agentId })
+        await pluginApi.invokeContribution(item.pluginId, handler, { agentId }),
+        t('settings:agents.providerImportNoKey')
       );
       setImportPreview({
         candidates: candidates.map((candidate) => candidate.view),
-        error: candidates.length ? null : t('settings:agents.providerImportEmpty'),
+        error: candidates.length
+          ? null
+          : t('settings:agents.providerImportEmpty'),
         origin: {
           kind: 'plugin',
           label: item.label,
@@ -1263,8 +1267,13 @@ type ImportPreviewModel = Pick<
  * whole import — one malformed entry should not hide the rest.
  */
 export function pluginImportCandidates(
-  payload: unknown
-): { view: AgentModelProviderImportPreviewView['candidates'][number]; draft: PluginImportDraft }[] {
+  payload: unknown,
+  /** Shown against a candidate the store cannot accept. Translated by the caller. */
+  missingKeyReason: string
+): {
+  view: AgentModelProviderImportPreviewView['candidates'][number];
+  draft: PluginImportDraft;
+}[] {
   const rows = Array.isArray(payload)
     ? payload
     : payload &&
@@ -1285,15 +1294,14 @@ export function pluginImportCandidates(
     return [
       {
         view: {
-          source_id: text(record.id) ?? text(record.sourceId) ?? `plugin-${index}`,
+          source_id:
+            text(record.id) ?? text(record.sourceId) ?? `plugin-${index}`,
           name,
           api_url: apiUrl,
           model,
           credential_present: apiKey !== null,
           // The store requires a key, so a keyless candidate cannot be saved.
-          skip_reason: apiKey
-            ? null
-            : 'This source did not provide an API key',
+          skip_reason: apiKey ? null : missingKeyReason,
         },
         draft: { name, api_url: apiUrl, api_key: apiKey, model },
       },

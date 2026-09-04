@@ -29,7 +29,7 @@ export interface PluginDoctorReport {
     plugin: PluginIdentity;
     installation: unknown;
     activation: unknown;
-    grants: unknown[];
+    grants?: unknown[];
     runtimes: unknown[];
     surfaces: unknown[];
     agentBindings: unknown[];

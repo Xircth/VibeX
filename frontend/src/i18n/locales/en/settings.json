@@ -1889,6 +1889,7 @@
     "providerImportApply": "Import selected",
     "providerImportCancel": "Cancel import",
     "providerImportEmpty": "Nothing to import",
+    "providerImportNoKey": "No API key from this source",
     "providerImported": "Providers imported.",
     "providerEnable": "Enable",
     "providerEnabled": "Enabled",

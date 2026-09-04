@@ -19,6 +19,8 @@ const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.multi-agent", "agent"),
     ("vibex.workflow-creator", "workflow"),
     ("vibex.plugin-development", "other"),
+    ("vibex.host-chrome", "other"),
+    ("vibex.provider-import", "other"),
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

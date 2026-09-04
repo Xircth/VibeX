@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildPlugin } from "./build.js";
 import { watchPluginSources } from "./dev.js";
-import { PluginDevHostClient, PluginDevHostError, resolvePluginDevConnection, } from "./hostClient.js";
 import { packPlugin } from "./package.js";
-import { doctorPlugin, installLinkedPlugin, reloadLinkedPlugin, uninstallLinkedPlugin, } from "./pluginControl.js";
+import { doctorOnProductHost, importLinkedOnProductHost, uninstallOnProductHost, } from "./productHost.js";
+import { inspectLinkedPackage } from "./pluginControl.js";
 import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template full|app|agent]\n  validate [dir] [--json]\n  build [dir]\n  test [dir]\n  dev [dir] [--host url] [--token token]\n  install --link [dir] [--host url] [--token token]\n  uninstall [dir] [--delete-data] [--host url] [--token token]\n  pack [dir] [--output file.vxp]\n  doctor [dir] [--host url] [--token token]\n\nPlugins run with full trust. Connection can also use VIBEX_PLUGIN_DEV_HOST and VIBEX_PLUGIN_DEV_TOKEN.`;
+const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, reloads a Skill, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
 try {
     switch (command) {
         case "init": {
-            const root = await scaffoldPlugin(positional(args) ?? "vibex-plugin", flag(args, "--publisher") ?? "local", (flag(args, "--template") ?? "full"));
+            const root = await scaffoldPlugin(positional(args) ?? "vibex-plugin", flag(args, "--publisher") ?? "local", flag(args, "--template") ?? "full");
             await buildPlugin(root);
             console.log(`Created ${root}`);
             break;
@@ -32,7 +33,9 @@ try {
             break;
         }
         case "test":
-            await testPlugin(resolve(positional(args) ?? "."));
+            await testPlugin(resolve(positional(args) ?? "."), {
+                host: args.includes("--host"),
+            });
             break;
         case "pack": {
             const root = resolve(positional(args) ?? ".");
@@ -45,21 +48,24 @@ try {
             if (!args.includes("--link"))
                 throw new Error("install_requires_--link");
             const root = resolve(positional(args) ?? ".");
-            const result = await installLinkedPlugin(root, hostClient(args));
+            await buildPlugin(root);
+            const plugin = await inspectLinkedPackage(root);
+            const result = await importLinkedOnProductHost(plugin.root, plugin.identity);
             console.log(`Installed ${result.plugin.publisher}/${result.plugin.id} generation ${result.generation} (${result.packageDigest})`);
             break;
         }
         case "uninstall": {
             const root = resolve(positional(args) ?? ".");
-            const result = await uninstallLinkedPlugin(root, hostClient(args), !args.includes("--delete-data"));
-            console.log(`Uninstalled ${result.plugin.publisher}/${result.plugin.id}; data ${result.dataRetention}`);
+            const plugin = await inspectLinkedPackage(root);
+            const result = await uninstallOnProductHost(plugin.identity.id, !args.includes("--delete-data"));
+            console.log(`Uninstalled ${plugin.identity.publisher}/${plugin.identity.id}; data ${result.dataRetention ?? "retained"}`);
             break;
         }
         case "dev": {
             const root = resolve(positional(args) ?? ".");
-            const client = hostClient(args);
             await buildPlugin(root);
-            const installed = await installLinkedPlugin(root, client);
+            const plugin = await inspectLinkedPackage(root);
+            const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
             console.log(`Published generation ${installed.generation}; watching ${root}`);
             const controller = new AbortController();
             const stop = () => controller.abort();
@@ -72,7 +78,7 @@ try {
                         await buildPlugin(root);
                         if (controller.signal.aborted)
                             return;
-                        const candidate = await reloadLinkedPlugin(root, client);
+                        const candidate = await importLinkedOnProductHost(plugin.root, plugin.identity);
                         console.log(`Published generation ${candidate.generation}`);
                     },
                     onError(error) {
@@ -86,9 +92,35 @@ try {
             }
             break;
         }
+        case "toolchain": {
+            const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
+            console.log(JSON.stringify({
+                hostVersion: "0.1.3",
+                cli: resolve(here, "cli.js"),
+                contract: resolve(here, "../../plugin-contract"),
+                js: resolve(here, "../../plugin-sdk"),
+                python: resolve(here, "../../../sdk/python"),
+                rust: resolve(here, "../../../crates/plugin-sdk"),
+                templates: [
+                    "skill",
+                    "mcp",
+                    "file-tab",
+                    "editor-tab",
+                    "full",
+                    "ts-worker",
+                    "node-worker",
+                    "python-worker",
+                    "rust-worker",
+                    "host-service",
+                    "hooks",
+                ],
+            }, null, 2));
+            break;
+        }
         case "doctor": {
             const root = resolve(positional(args) ?? ".");
-            const report = await doctorPlugin(root, hostClient(args));
+            const plugin = await inspectLinkedPackage(root);
+            const report = await doctorOnProductHost(plugin.identity.id);
             console.log(JSON.stringify(report, null, 2));
             if (report.diagnostics.some((item) => item.severity === "error")) {
                 process.exitCode = 1;
@@ -147,18 +179,6 @@ function positional(args) {
     }
     return undefined;
 }
-function hostClient(args) {
-    return new PluginDevHostClient(resolvePluginDevConnection(args));
-}
 function formatError(error) {
-    if (error instanceof PluginDevHostError) {
-        const generation = error.publishedGeneration === undefined
-            ? ""
-            : `; published generation ${error.publishedGeneration} remains active`;
-        const diagnostic = error.diagnosticId
-            ? `; diagnostic ${error.diagnosticId}`
-            : "";
-        return `${error.code}: ${error.message}${generation}${diagnostic}`;
-    }
     return error instanceof Error ? error.message : String(error);
 }

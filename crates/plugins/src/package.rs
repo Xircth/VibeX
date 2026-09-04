@@ -619,7 +619,12 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
         });
     }
     for command in &app.commands {
-        documents.push(chrome_document("commands", "command", &command.id, &command.title));
+        documents.push(chrome_document(
+            "commands",
+            "command",
+            &command.id,
+            &command.title,
+        ));
     }
     for item in &app.toolbar_items {
         documents.push(chrome_document("toolbar", "toolbar", &item.id, &item.title));
@@ -1936,17 +1941,27 @@ fn parse_v4_ui_contributions(
                 .is_some(),
             "app.timeline.card" => parse_timeline_card_contribution(integration)
                 .map(|item| {
-                    contributions
-                        .surfaces
-                        .push(synthesized_surface(&item.id, &item.label, TIMELINE_CARD_SLOT, &item.handler, item.allowed_methods.clone(), item.min_height));
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.label,
+                        TIMELINE_CARD_SLOT,
+                        &item.handler,
+                        item.allowed_methods.clone(),
+                        item.min_height,
+                    ));
                     contributions.timeline_cards.push(item);
                 })
                 .is_some(),
             "app.settings.section" => parse_settings_section_contribution(integration)
                 .map(|item| {
-                    contributions
-                        .surfaces
-                        .push(synthesized_surface(&item.id, &item.title, SETTINGS_SECTION_SLOT, &item.handler, item.allowed_methods.clone(), item.min_height));
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.title,
+                        SETTINGS_SECTION_SLOT,
+                        &item.handler,
+                        item.allowed_methods.clone(),
+                        item.min_height,
+                    ));
                     contributions.settings_sections.push(item);
                 })
                 .is_some(),
@@ -2032,9 +2047,9 @@ fn contribution_allowed_methods(integration: &Map<String, Value>) -> Option<Vec<
         .iter()
         .all(|method| {
             !method.is_empty()
-                && method
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_'))
+                && method.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+                })
         })
         .then_some(methods)
 }
@@ -2057,9 +2072,7 @@ fn surface_handler(integration: &Map<String, Value>) -> Option<String> {
     contribution_text(integration, "handler").filter(|handler| handler == "surface.createSession")
 }
 
-fn parse_command_contribution(
-    integration: &Map<String, Value>,
-) -> Option<AppCommandContribution> {
+fn parse_command_contribution(integration: &Map<String, Value>) -> Option<AppCommandContribution> {
     Some(AppCommandContribution {
         id: contribution_id(integration)?,
         title: contribution_text(integration, "title")?,
@@ -2070,9 +2083,7 @@ fn parse_command_contribution(
     })
 }
 
-fn parse_toolbar_contribution(
-    integration: &Map<String, Value>,
-) -> Option<AppToolbarContribution> {
+fn parse_toolbar_contribution(integration: &Map<String, Value>) -> Option<AppToolbarContribution> {
     let slot = contribution_text(integration, "slot");
     if slot.as_deref().is_some_and(|slot| slot != "toolbar.main") {
         return None;
@@ -2117,9 +2128,9 @@ fn parse_composer_slash_contribution(
         .trim_start_matches('/')
         .to_owned();
     let valid_command = !command.is_empty()
-        && command
-            .chars()
-            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-');
+        && command.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        });
     if !valid_command {
         return None;
     }
@@ -2164,7 +2175,9 @@ fn parse_host_service_contribution(
 ) -> Option<HostServiceContribution> {
     let interval_seconds = match integration.get("intervalSeconds") {
         None | Some(Value::Null) => 30,
-        Some(value) => value.as_u64().filter(|seconds| (5..=86_400).contains(seconds))?,
+        Some(value) => value
+            .as_u64()
+            .filter(|seconds| (5..=86_400).contains(seconds))?,
     };
     Some(HostServiceContribution {
         id: contribution_id(integration)?,

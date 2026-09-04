@@ -1886,6 +1886,7 @@
     "providerImportApply": "导入所选",
     "providerImportCancel": "取消导入",
     "providerImportEmpty": "没有可导入的供应商",
+    "providerImportNoKey": "该来源没有提供密钥",
     "providerImported": "已导入供应商。",
     "providerEnable": "启用",
     "providerEnabled": "已启用",

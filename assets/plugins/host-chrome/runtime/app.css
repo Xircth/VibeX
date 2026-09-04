@@ -1,0 +1,44 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: canvastext;
+  background: transparent;
+}
+
+.digest {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.digest h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.rows dt {
+  opacity: 0.65;
+}
+
+.rows dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.65;
+}

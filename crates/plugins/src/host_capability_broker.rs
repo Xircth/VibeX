@@ -155,7 +155,10 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                     .await
             }
             "artifact.preview" => self.open_preview(plugin_id, generation, input).await,
-            "provider.presets" => self.call_provider_presets(plugin_id, operation, input).await,
+            "provider.presets" => {
+                self.call_provider_presets(plugin_id, operation, input)
+                    .await
+            }
             "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",

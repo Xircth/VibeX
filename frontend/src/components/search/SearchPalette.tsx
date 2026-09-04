@@ -54,7 +54,10 @@ export function SearchPalette() {
   const { openFilePreview } = usePanelActionsContext();
   const pluginCommands = usePluginHostContributions('command');
   const transport = useBackendTransport();
-  const pluginApi = useMemo(() => createPluginControlApi(transport), [transport]);
+  const pluginApi = useMemo(
+    () => createPluginControlApi(transport),
+    [transport]
+  );
   const { projectId } = useProject();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -164,9 +167,13 @@ export function SearchPalette() {
           id: `cmd:${item.pluginId}:${item.id}`,
           kind: 'command' as const,
           title: String(metadata.title ?? item.label),
-          subtitle: typeof metadata.subtitle === 'string' ? metadata.subtitle : item.pluginId,
+          subtitle:
+            typeof metadata.subtitle === 'string'
+              ? metadata.subtitle
+              : item.pluginId,
           pluginId: item.pluginId,
-          handler: typeof metadata.handler === 'string' ? metadata.handler : item.id,
+          handler:
+            typeof metadata.handler === 'string' ? metadata.handler : item.id,
           icon: contributionIconComponent(metadata.icon, Command),
         };
       });

@@ -1,1 +1,3 @@
-export declare function testPlugin(root: string): Promise<void>;
+export declare function testPlugin(root: string, options?: {
+    host?: boolean;
+}): Promise<void>;

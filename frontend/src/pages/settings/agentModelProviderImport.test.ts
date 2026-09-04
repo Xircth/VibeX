@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { pluginImportCandidates } from './AgentModelProviderManager';
+import { pluginImportCandidates as parse } from './AgentModelProviderManager';
+
+const NO_KEY = 'No API key from this source';
+
+/** The reason string is translated by the caller, so tests pin one value. */
+const pluginImportCandidates = (payload: unknown) => parse(payload, NO_KEY);
 
 describe('plugin provider import payloads', () => {
   it('accepts both a bare array and a providers envelope', () => {
@@ -33,7 +38,7 @@ describe('plugin provider import payloads', () => {
       { name: 'Staging', apiUrl: 'https://a.invalid' },
     ]);
     expect(candidate.view.credential_present).toBe(false);
-    expect(candidate.view.skip_reason).toBeTruthy();
+    expect(candidate.view.skip_reason).toBe(NO_KEY);
   });
 
   it('falls back to a positional id when the plugin omits one', () => {

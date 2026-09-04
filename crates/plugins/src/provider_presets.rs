@@ -116,7 +116,10 @@ impl ProviderPresetError {
 /// prompt.
 #[async_trait]
 pub trait ProviderPresetHost: Send + Sync {
-    async fn list(&self, agent_id: Option<&str>) -> Result<Vec<ProviderPreset>, ProviderPresetError>;
+    async fn list(
+        &self,
+        agent_id: Option<&str>,
+    ) -> Result<Vec<ProviderPreset>, ProviderPresetError>;
 
     async fn save(
         &self,

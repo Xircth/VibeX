@@ -1,0 +1,12 @@
+{
+  "name": "vibex.provider-import",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node ../../../packages/plugin-cli/dist/cli.js validate",
+    "build": "node ../../../packages/plugin-cli/dist/cli.js build",
+    "test": "node ../../../packages/plugin-cli/dist/cli.js test",
+    "pack": "node ../../../packages/plugin-cli/dist/cli.js pack"
+  }
+}

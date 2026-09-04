@@ -87,8 +87,7 @@ pub use package::{
     PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage, PluginProductDetail,
     PluginSource, PluginSourceKind, PreviewProcessContribution, PreviewProviderContribution,
     ProviderImportSourceContribution, RuntimeContribution, RuntimeInstall, SETTINGS_SECTION_SLOT,
-    TIMELINE_CARD_SLOT,
-    package_content_digest,
+    TIMELINE_CARD_SLOT, package_content_digest,
 };
 pub use ports::{
     ManagedTool, PluginRuntimeError, SkillAvailabilityPort, ToolRuntimeAdapter, ToolRuntimePort,
@@ -99,7 +98,8 @@ pub use preview_host::{
 pub use process_preview_host::ExternalProcessPreviewHost;
 pub use provider_presets::{
     ProviderBindDecision, ProviderBindRequest, ProviderPreset, ProviderPresetDraft,
-    ProviderPresetError, ProviderPresetErrorCode, ProviderPresetHost, UnavailableProviderPresetHost,
+    ProviderPresetError, ProviderPresetErrorCode, ProviderPresetHost,
+    UnavailableProviderPresetHost,
 };
 pub use readiness::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, PluginActivation,

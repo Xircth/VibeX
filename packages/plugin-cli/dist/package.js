@@ -54,6 +54,13 @@ export async function packPlugin(root, output) {
         lockEntry.header.time = new Date('1980-01-01T00:00:00.000Z');
     const manifest = JSON.parse(await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8'));
     const target = resolve(output ?? join(root, 'dist', `${manifest.id}-${manifest.version}.vxp`));
+    const signature = {
+        algorithm: 'sha256',
+        packageDigest: lock.packageDigest,
+        publisher: process.env.VIBEX_PLUGIN_PUBLISHER ?? 'local',
+        signedAt: new Date(0).toISOString(),
+    };
+    zip.addFile('.vibex-plugin/signature.json', Buffer.from(`${JSON.stringify(signature, null, 2)}\n`), '', 0o100644 << 16);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, zip.toBuffer());
     return { output: target, lock };

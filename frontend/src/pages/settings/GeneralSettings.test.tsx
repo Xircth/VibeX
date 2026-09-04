@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorType, SoundFile, type Config } from 'shared/types';

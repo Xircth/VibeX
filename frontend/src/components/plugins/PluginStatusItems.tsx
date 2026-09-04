@@ -1,5 +1,5 @@
 import { MoreHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
@@ -36,7 +36,10 @@ function positiveInteger(value: unknown): number | undefined {
     : undefined;
 }
 
-function readStatusResult(result: unknown): { text?: string; tooltip?: string } {
+function readStatusResult(result: unknown): {
+  text?: string;
+  tooltip?: string;
+} {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return {};
   const record = result as Record<string, unknown>;
   return {
@@ -54,7 +57,9 @@ export function PluginStatusItems() {
   const contributions = usePluginHostContributions('status');
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
-  const [live, setLive] = useState<Record<string, { text?: string; tooltip?: string }>>({});
+  const [live, setLive] = useState<
+    Record<string, { text?: string; tooltip?: string }>
+  >({});
 
   const entries = useMemo<StatusEntry[]>(
     () =>
@@ -89,15 +94,21 @@ export function PluginStatusItems() {
         })),
     [entries]
   );
-  // Depend on identity, not on the entries whose text this effect updates.
+  // The effect below writes the text that `entries` — and therefore
+  // `refreshTargets` — is derived from, so depending on the array directly
+  // would restart every timer on each tick. It reads the current targets
+  // through a ref and restarts only when the set of timers actually changes.
+  const refreshTargetsRef = useRef(refreshTargets);
+  refreshTargetsRef.current = refreshTargets;
   const refreshSignature = refreshTargets
     .map((target) => `${target.key}@${target.seconds}`)
     .join('|');
 
   useEffect(() => {
-    if (refreshTargets.length === 0) return;
+    const targets = refreshTargetsRef.current;
+    if (targets.length === 0) return;
     let disposed = false;
-    const tick = async (target: (typeof refreshTargets)[number]) => {
+    const tick = async (target: (typeof targets)[number]) => {
       try {
         const result = await api.invokeContribution(
           target.pluginId,
@@ -112,7 +123,7 @@ export function PluginStatusItems() {
         // diagnostics panel carries the evidence.
       }
     };
-    const timers = refreshTargets.map((target) => {
+    const timers = targets.map((target) => {
       void tick(target);
       return window.setInterval(() => void tick(target), target.seconds * 1000);
     });
@@ -120,7 +131,6 @@ export function PluginStatusItems() {
       disposed = true;
       timers.forEach(window.clearInterval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, refreshSignature]);
 
   const invoke = useCallback(

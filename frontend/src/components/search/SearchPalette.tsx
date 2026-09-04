@@ -22,7 +22,8 @@ import {
 } from '@/hooks/usePluginHostContributions';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
-import { Command } from 'lucide-react';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { Command, type LucideIcon } from 'lucide-react';
 
 type PaletteResultKind = 'file' | 'directory' | 'conversation' | 'command';
 
@@ -36,6 +37,7 @@ interface PaletteResult {
   workspaceId?: string;
   pluginId?: string;
   handler?: string;
+  icon?: LucideIcon;
 }
 
 export function SearchPalette() {
@@ -165,6 +167,7 @@ export function SearchPalette() {
           subtitle: typeof metadata.subtitle === 'string' ? metadata.subtitle : item.pluginId,
           pluginId: item.pluginId,
           handler: typeof metadata.handler === 'string' ? metadata.handler : item.id,
+          icon: contributionIconComponent(metadata.icon, Command),
         };
       });
     return [...commands, ...conversations, ...files];
@@ -296,7 +299,12 @@ export function SearchPalette() {
                 ) : result.kind === 'conversation' ? (
                   <MessagesSquare className="h-4 w-4 text-muted-foreground shrink-0" />
                 ) : result.kind === 'command' ? (
-                  <Command className="h-4 w-4 text-muted-foreground shrink-0" />
+                  (() => {
+                    const Icon = result.icon ?? Command;
+                    return (
+                      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                    );
+                  })()
                 ) : (
                   <KanbanSquare className="h-4 w-4 text-muted-foreground shrink-0" />
                 )}

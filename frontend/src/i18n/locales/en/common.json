@@ -7,6 +7,7 @@
   "run": "Run",
   "history": "History",
   "close": "Close",
+  "more": "More",
   "reset": "Reset to default",
   "settingsChanged": "Settings changed. They take effect after saving."
 }

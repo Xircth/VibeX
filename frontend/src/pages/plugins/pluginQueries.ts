@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui/toast';
+import { pluginContributionCatalogQueryKey } from '@/hooks/usePluginHostContributions';
 import {
   createPluginControlApi,
   type PluginControlItem,
@@ -10,9 +11,7 @@ import {
 } from '@/lib/api/plugins';
 
 export const pluginCatalogQueryKey = ['plugin-control-catalog'] as const;
-export const pluginContributionCatalogQueryKey = [
-  'plugin-contribution-catalog',
-] as const;
+export { pluginContributionCatalogQueryKey };
 
 export function pluginDetailQueryKey(pluginId: string) {
   return ['plugin-product-detail', pluginId] as const;
@@ -127,8 +126,7 @@ export function usePluginContributionCatalog(
   return useQuery({
     queryKey: pluginContributionCatalogQueryKey,
     queryFn: () => api.contributionCatalog(),
-    staleTime: Infinity,
-    gcTime: 1000 * 60 * 30,
+    staleTime: 30_000,
     retry: false,
   });
 }

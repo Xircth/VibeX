@@ -159,6 +159,20 @@ pub struct PackageAppContributions {
     pub preview_providers: Vec<PreviewProviderContribution>,
     #[serde(default)]
     pub surfaces: Vec<AppSurfaceContribution>,
+    #[serde(default)]
+    pub commands: Vec<AppCommandContribution>,
+    #[serde(default)]
+    pub toolbar_items: Vec<AppToolbarContribution>,
+    #[serde(default)]
+    pub status_items: Vec<AppStatusContribution>,
+    #[serde(default)]
+    pub composer_slash: Vec<AppComposerSlashContribution>,
+    #[serde(default)]
+    pub timeline_cards: Vec<AppTimelineCardContribution>,
+    #[serde(default)]
+    pub settings_sections: Vec<AppSettingsSectionContribution>,
+    #[serde(default)]
+    pub host_services: Vec<HostServiceContribution>,
 }
 
 impl PackageAppContributions {
@@ -166,6 +180,13 @@ impl PackageAppContributions {
         self.file_openers.is_empty()
             && self.preview_providers.is_empty()
             && self.surfaces.is_empty()
+            && self.commands.is_empty()
+            && self.toolbar_items.is_empty()
+            && self.status_items.is_empty()
+            && self.composer_slash.is_empty()
+            && self.timeline_cards.is_empty()
+            && self.settings_sections.is_empty()
+            && self.host_services.is_empty()
     }
 }
 
@@ -186,6 +207,147 @@ pub struct AppSurfaceContribution {
     #[serde(default)]
     pub native_renderer: Option<String>,
 }
+
+/// Icon names the Host renders for plugin-contributed chrome. Plugins pick a
+/// name instead of shipping markup, so no plugin asset reaches Host DOM.
+/// Mirrored by `packages/plugin-contract/catalog/icons.v1.json` and the
+/// frontend icon map; all three are asserted equal by tests.
+pub const CONTRIBUTION_ICONS: &[&str] = &[
+    "activity",
+    "alert-triangle",
+    "bell",
+    "bookmark",
+    "bot",
+    "calendar",
+    "chart-bar",
+    "check-circle",
+    "clock",
+    "cloud",
+    "code",
+    "database",
+    "file-text",
+    "filter",
+    "flag",
+    "folder",
+    "gauge",
+    "git-branch",
+    "globe",
+    "info",
+    "key",
+    "layers",
+    "link",
+    "list",
+    "message-square",
+    "package",
+    "play",
+    "plug",
+    "puzzle",
+    "refresh-cw",
+    "search",
+    "settings",
+    "shield",
+    "sparkles",
+    "star",
+    "tag",
+    "terminal",
+    "timer",
+    "user",
+    "zap",
+];
+
+/// Command palette entry. The Host renders the row and calls `handler`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppCommandContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub shortcut: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+}
+
+/// Main toolbar button.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppToolbarContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+}
+
+/// Status bar item. When `refresh_seconds` is set the Host polls `handler`
+/// for `{ text, tooltip }` so the item can track live state.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStatusContribution {
+    pub id: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default)]
+    pub refresh_seconds: Option<u32>,
+}
+
+/// Composer slash command. Selecting it inserts `prompt` into the draft;
+/// there is no Worker round trip.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppComposerSlashContribution {
+    pub id: String,
+    pub command: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub prompt: String,
+}
+
+/// Card pinned above the conversation timeline, rendered as an App surface.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppTimelineCardContribution {
+    pub id: String,
+    pub label: String,
+    pub handler: String,
+    #[serde(default)]
+    pub allowed_methods: Vec<String>,
+    #[serde(default)]
+    pub min_height: Option<u32>,
+}
+
+/// Block embedded in the general settings page, rendered as an App surface.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsSectionContribution {
+    pub id: String,
+    pub title: String,
+    pub handler: String,
+    #[serde(default)]
+    pub allowed_methods: Vec<String>,
+    #[serde(default)]
+    pub min_height: Option<u32>,
+}
+
+/// Background job the Host ticks on an interval while the plugin is enabled.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostServiceContribution {
+    pub id: String,
+    pub handler: String,
+    pub interval_seconds: u64,
+}
+
+/// App surface slot synthesized for a timeline card contribution.
+pub const TIMELINE_CARD_SLOT: &str = "conversation.timeline.card";
+/// App surface slot synthesized for a settings section contribution.
+pub const SETTINGS_SECTION_SLOT: &str = "app.settings.section";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -418,7 +580,13 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
         });
     }
     for surface in &app.surfaces {
-        if bound_handlers.contains(surface.id.as_str()) {
+        // Cards and sections synthesize a surface; they get their own document.
+        if bound_handlers.contains(surface.id.as_str())
+            || matches!(
+                surface.slot.as_str(),
+                TIMELINE_CARD_SLOT | SETTINGS_SECTION_SLOT
+            )
+        {
             continue;
         }
         documents.push(PluginContentDocument {
@@ -428,7 +596,58 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             content: surface.label.clone(),
         });
     }
+    for command in &app.commands {
+        documents.push(chrome_document("commands", "command", &command.id, &command.title));
+    }
+    for item in &app.toolbar_items {
+        documents.push(chrome_document("toolbar", "toolbar", &item.id, &item.title));
+    }
+    for item in &app.status_items {
+        let title = item.text.clone().unwrap_or_else(|| item.id.clone());
+        documents.push(chrome_document("status", "status", &item.id, &title));
+    }
+    for item in &app.composer_slash {
+        documents.push(chrome_document(
+            "composer",
+            "composer_slash",
+            &item.id,
+            &format!("/{} {}", item.command, item.title),
+        ));
+    }
+    for card in &app.timeline_cards {
+        documents.push(chrome_document(
+            "timeline",
+            "timeline_card",
+            &card.id,
+            &card.label,
+        ));
+    }
+    for section in &app.settings_sections {
+        documents.push(chrome_document(
+            "settings",
+            "settings_section",
+            &section.id,
+            &section.title,
+        ));
+    }
+    for service in &app.host_services {
+        documents.push(chrome_document(
+            "services",
+            "host_service",
+            &service.id,
+            &format!("{} ({}s)", service.handler, service.interval_seconds),
+        ));
+    }
     documents
+}
+
+fn chrome_document(folder: &str, kind: &str, id: &str, title: &str) -> PluginContentDocument {
+    PluginContentDocument {
+        path: format!("app/{folder}/{id}.md"),
+        kind: kind.to_owned(),
+        title: title.to_owned(),
+        content: title.to_owned(),
+    }
 }
 
 fn default_plugin_config() -> Value {
@@ -906,7 +1125,10 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
     let object = manifest.as_object_mut().ok_or_else(|| {
         PluginError::invalid_manifest("portable plugin manifest must be a JSON object")
     })?;
-    let Some(integrations) = object.remove("integrations") else {
+    // `integrations` stays on the manifest: it is the authored source for the
+    // v4-native kinds below, which have no legacy `contributes` equivalent and
+    // are parsed into typed contributions by `parse_app_contributions`.
+    let Some(integrations) = object.get("integrations").cloned() else {
         return Ok(());
     };
     let integrations = integrations
@@ -987,6 +1209,7 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
                 }
                 surfaces.push(integration_contribution(integration, &id));
             }
+            // v4-native kinds: no legacy `contributes` shape to project into.
             "content.hook"
             | "app.command"
             | "app.toolbar"
@@ -1637,11 +1860,283 @@ fn parse_app_contributions(
             });
         }
     }
-    PackageAppContributions {
+    let mut contributions = PackageAppContributions {
         file_openers: parsed,
         preview_providers,
         surfaces,
+        ..PackageAppContributions::default()
+    };
+    parse_v4_ui_contributions(object, warnings, &mut contributions);
+    contributions
+}
+
+/// Parses the v4-native integration kinds the Host renders itself or schedules.
+/// These have no legacy `contributes` shape, so the authored `integrations`
+/// array stays their single source of truth.
+fn parse_v4_ui_contributions(
+    object: &Map<String, Value>,
+    warnings: &mut Vec<PackageWarning>,
+    contributions: &mut PackageAppContributions,
+) {
+    let integrations = object
+        .get("integrations")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for value in integrations {
+        let Some(integration) = value.as_object() else {
+            continue;
+        };
+        let Some(kind) = integration.get("kind").and_then(Value::as_str) else {
+            continue;
+        };
+        let accepted = match kind {
+            "app.command" => parse_command_contribution(integration)
+                .map(|item| contributions.commands.push(item))
+                .is_some(),
+            "app.toolbar" => parse_toolbar_contribution(integration)
+                .map(|item| contributions.toolbar_items.push(item))
+                .is_some(),
+            "app.status" => parse_status_contribution(integration)
+                .map(|item| contributions.status_items.push(item))
+                .is_some(),
+            "app.composer.slash" => parse_composer_slash_contribution(integration)
+                .map(|item| contributions.composer_slash.push(item))
+                .is_some(),
+            "app.timeline.card" => parse_timeline_card_contribution(integration)
+                .map(|item| {
+                    contributions
+                        .surfaces
+                        .push(synthesized_surface(&item.id, &item.label, TIMELINE_CARD_SLOT, &item.handler, item.allowed_methods.clone(), item.min_height));
+                    contributions.timeline_cards.push(item);
+                })
+                .is_some(),
+            "app.settings.section" => parse_settings_section_contribution(integration)
+                .map(|item| {
+                    contributions
+                        .surfaces
+                        .push(synthesized_surface(&item.id, &item.title, SETTINGS_SECTION_SLOT, &item.handler, item.allowed_methods.clone(), item.min_height));
+                    contributions.settings_sections.push(item);
+                })
+                .is_some(),
+            "host.service" => parse_host_service_contribution(integration)
+                .map(|item| contributions.host_services.push(item))
+                .is_some(),
+            _ => continue,
+        };
+        if !accepted {
+            warnings.push(PackageWarning {
+                code: format!("{}_invalid", contribution_warning_code(kind)),
+                message: format!("ignored invalid `{kind}` contribution"),
+                contribution: integration
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            });
+        }
     }
+}
+
+fn contribution_warning_code(kind: &str) -> String {
+    kind.replace(['.', '-'], "_")
+}
+
+fn synthesized_surface(
+    id: &str,
+    label: &str,
+    slot: &str,
+    handler: &str,
+    allowed_methods: Vec<String>,
+    min_height: Option<u32>,
+) -> AppSurfaceContribution {
+    AppSurfaceContribution {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        slot: slot.to_owned(),
+        app_entrypoint: "app".to_owned(),
+        route: None,
+        handler: handler.to_owned(),
+        allowed_methods,
+        min_height,
+        native_renderer: None,
+    }
+}
+
+fn contribution_id(integration: &Map<String, Value>) -> Option<String> {
+    integration
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
+fn contribution_text(integration: &Map<String, Value>, key: &str) -> Option<String> {
+    integration
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// Rejects unknown icon names outright so a typo degrades to no icon at
+/// authoring time rather than to a blank glyph at render time.
+fn contribution_icon(integration: &Map<String, Value>) -> Result<Option<String>, ()> {
+    match integration.get("icon") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(name)) if CONTRIBUTION_ICONS.contains(&name.as_str()) => {
+            Ok(Some(name.clone()))
+        }
+        Some(_) => Err(()),
+    }
+}
+
+fn contribution_allowed_methods(integration: &Map<String, Value>) -> Option<Vec<String>> {
+    let methods = string_array(integration.get("allowedMethods"));
+    methods
+        .iter()
+        .all(|method| {
+            !method.is_empty()
+                && method
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_'))
+        })
+        .then_some(methods)
+}
+
+fn contribution_min_height(integration: &Map<String, Value>) -> Result<Option<u32>, ()> {
+    match integration.get("minHeight") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .and_then(|height| u32::try_from(height).ok())
+            .filter(|height| (240..=900).contains(height))
+            .map(Some)
+            .ok_or(()),
+    }
+}
+
+/// App surfaces reach the Worker through one fixed entry handler; the card and
+/// section kinds synthesize surfaces, so they carry the same requirement.
+fn surface_handler(integration: &Map<String, Value>) -> Option<String> {
+    contribution_text(integration, "handler").filter(|handler| handler == "surface.createSession")
+}
+
+fn parse_command_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppCommandContribution> {
+    Some(AppCommandContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        subtitle: contribution_text(integration, "subtitle"),
+        shortcut: contribution_text(integration, "shortcut"),
+        icon: contribution_icon(integration).ok()?,
+        handler: contribution_text(integration, "handler")?,
+    })
+}
+
+fn parse_toolbar_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppToolbarContribution> {
+    let slot = contribution_text(integration, "slot");
+    if slot.as_deref().is_some_and(|slot| slot != "toolbar.main") {
+        return None;
+    }
+    Some(AppToolbarContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: contribution_text(integration, "handler")?,
+    })
+}
+
+fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStatusContribution> {
+    let slot = contribution_text(integration, "slot");
+    if slot.as_deref().is_some_and(|slot| slot != "status.main") {
+        return None;
+    }
+    let refresh_seconds = match integration.get("refreshSeconds") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_u64()
+                .and_then(|seconds| u32::try_from(seconds).ok())
+                .filter(|seconds| (5..=3600).contains(seconds))?,
+        ),
+    };
+    Some(AppStatusContribution {
+        id: contribution_id(integration)?,
+        text: contribution_text(integration, "text"),
+        icon: contribution_icon(integration).ok()?,
+        handler: contribution_text(integration, "handler")?,
+        refresh_seconds,
+    })
+}
+
+fn parse_composer_slash_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppComposerSlashContribution> {
+    let id = contribution_id(integration)?;
+    let command = contribution_text(integration, "command")
+        .unwrap_or_else(|| id.clone())
+        .trim_start_matches('/')
+        .to_owned();
+    let valid_command = !command.is_empty()
+        && command
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-');
+    if !valid_command {
+        return None;
+    }
+    Some(AppComposerSlashContribution {
+        title: contribution_text(integration, "title")?,
+        description: contribution_text(integration, "description"),
+        prompt: contribution_text(integration, "prompt")?,
+        command,
+        id,
+    })
+}
+
+fn parse_timeline_card_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppTimelineCardContribution> {
+    let id = contribution_id(integration)?;
+    Some(AppTimelineCardContribution {
+        label: contribution_text(integration, "label")
+            .or_else(|| contribution_text(integration, "title"))
+            .unwrap_or_else(|| id.clone()),
+        handler: surface_handler(integration)?,
+        allowed_methods: contribution_allowed_methods(integration)?,
+        min_height: contribution_min_height(integration).ok()?,
+        id,
+    })
+}
+
+fn parse_settings_section_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppSettingsSectionContribution> {
+    Some(AppSettingsSectionContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        handler: surface_handler(integration)?,
+        allowed_methods: contribution_allowed_methods(integration)?,
+        min_height: contribution_min_height(integration).ok()?,
+    })
+}
+
+fn parse_host_service_contribution(
+    integration: &Map<String, Value>,
+) -> Option<HostServiceContribution> {
+    let interval_seconds = match integration.get("intervalSeconds") {
+        None | Some(Value::Null) => 30,
+        Some(value) => value.as_u64().filter(|seconds| (5..=86_400).contains(seconds))?,
+    };
+    Some(HostServiceContribution {
+        id: contribution_id(integration)?,
+        handler: contribution_text(integration, "handler")?,
+        interval_seconds,
+    })
 }
 
 fn required_string(object: &Map<String, Value>, key: &str) -> Result<String, PluginError> {
@@ -2005,6 +2500,7 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         "engines",
         "entrypoints",
         "permissions",
+        "integrations",
         "contributes",
         "interface",
     ];

@@ -67,28 +67,12 @@ struct HostServiceSpec {
 
 fn host_services(package: &PluginPackage) -> Vec<HostServiceSpec> {
     package
-        .manifest
-        .get("integrations")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|value| {
-            let object = value.as_object()?;
-            if object.get("kind").and_then(Value::as_str) != Some("host.service") {
-                return None;
-            }
-            let handler = object.get("handler")?.as_str()?.to_owned();
-            let seconds = object
-                .get("intervalSeconds")
-                .or_else(|| object.get("schedule"))
-                .and_then(|value| {
-                    value
-                        .as_u64()
-                        .or_else(|| value.get("seconds").and_then(Value::as_u64))
-                })
-                .unwrap_or(30)
-                .max(5);
-            Some(HostServiceSpec { handler, seconds })
+        .app
+        .host_services
+        .iter()
+        .map(|service| HostServiceSpec {
+            handler: service.handler.clone(),
+            seconds: service.interval_seconds,
         })
         .take(8)
         .collect()

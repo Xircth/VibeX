@@ -1,0 +1,101 @@
+import {
+  Activity,
+  AlertTriangle,
+  Bell,
+  Bookmark,
+  Bot,
+  Calendar,
+  ChartBar,
+  CheckCircle,
+  Clock,
+  Cloud,
+  Code,
+  Database,
+  FileText,
+  Filter,
+  Flag,
+  Folder,
+  Gauge,
+  GitBranch,
+  Globe,
+  Info,
+  Key,
+  Layers,
+  Link,
+  List,
+  MessageSquare,
+  Package,
+  Play,
+  Plug,
+  Puzzle,
+  RefreshCw,
+  Search,
+  Settings,
+  Shield,
+  Sparkles,
+  Star,
+  Tag,
+  Terminal,
+  Timer,
+  User,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
+
+/**
+ * The only glyphs a plugin can put in Host chrome. Plugins name an icon rather
+ * than shipping markup, so nothing a plugin authors reaches Host DOM.
+ * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * `CONTRIBUTION_ICONS`; a test asserts the three stay equal.
+ */
+export const CONTRIBUTION_ICONS: Record<string, LucideIcon> = {
+  activity: Activity,
+  'alert-triangle': AlertTriangle,
+  bell: Bell,
+  bookmark: Bookmark,
+  bot: Bot,
+  calendar: Calendar,
+  'chart-bar': ChartBar,
+  'check-circle': CheckCircle,
+  clock: Clock,
+  cloud: Cloud,
+  code: Code,
+  database: Database,
+  'file-text': FileText,
+  filter: Filter,
+  flag: Flag,
+  folder: Folder,
+  gauge: Gauge,
+  'git-branch': GitBranch,
+  globe: Globe,
+  info: Info,
+  key: Key,
+  layers: Layers,
+  link: Link,
+  list: List,
+  'message-square': MessageSquare,
+  package: Package,
+  play: Play,
+  plug: Plug,
+  puzzle: Puzzle,
+  'refresh-cw': RefreshCw,
+  search: Search,
+  settings: Settings,
+  shield: Shield,
+  sparkles: Sparkles,
+  star: Star,
+  tag: Tag,
+  terminal: Terminal,
+  timer: Timer,
+  user: User,
+  zap: Zap,
+};
+
+export function contributionIconComponent(
+  name: unknown,
+  fallback: LucideIcon = Puzzle
+): LucideIcon {
+  return typeof name === 'string' && name in CONTRIBUTION_ICONS
+    ? CONTRIBUTION_ICONS[name]
+    : fallback;
+}

@@ -7,6 +7,7 @@
   "exports": {
     "./catalog/contribution-kinds": "./catalog/contribution-kinds.v1.json",
     "./catalog/host-api": "./catalog/host-api.v1.json",
+    "./catalog/icons": "./catalog/icons.v1.json",
     "./catalog/renderers": "./catalog/renderers.v1.json",
     "./schemas/plugin": "./schemas/plugin.v4.json"
   },

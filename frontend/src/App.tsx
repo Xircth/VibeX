@@ -32,6 +32,7 @@ import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { useTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
+import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import {
   SequenceIndicator,
   SequenceTrackerProvider,
@@ -288,6 +289,11 @@ function GlobalShortcutActionBridge() {
   return null;
 }
 
+function PluginContributionBridge() {
+  usePluginContributionCatalogSync();
+  return null;
+}
+
 function App() {
   return (
     <AppErrorBoundary>
@@ -305,6 +311,7 @@ function App() {
               >
                 <SequenceTrackerProvider>
                   <GlobalShortcutActionBridge />
+                  <PluginContributionBridge />
                   <AppContent />
                   <SequenceIndicator />
                 </SequenceTrackerProvider>

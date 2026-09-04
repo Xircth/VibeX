@@ -1,7 +1,10 @@
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
+import { CONTRIBUTION_ICONS as ICON_NAMES } from "@vibex/plugin-sdk";
 import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
+
+const CONTRIBUTION_ICONS = new Set<string>(ICON_NAMES);
 
 export interface Diagnostic {
   code: string;
@@ -539,7 +542,120 @@ async function validateIntegrations(
         );
       }
     }
+    validateHostChrome(integration, diagnostics);
   }
+}
+
+/**
+ * The Host drops a chrome contribution it cannot render rather than failing the
+ * whole plugin, so these checks are what turns a typo into a build error.
+ */
+function validateHostChrome(
+  integration: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+) {
+  const kind = String(integration.kind);
+  const icon = integration.icon;
+  if (
+    icon !== undefined &&
+    (typeof icon !== "string" || !CONTRIBUTION_ICONS.has(icon))
+  ) {
+    diagnostics.push(
+      error(
+        "contribution_icon_unknown",
+        `Icon must be one of @vibex/plugin-contract/catalog/icons`,
+      ),
+    );
+  }
+  const requireText = (key: string) => {
+    if (typeof integration[key] !== "string" || !integration[key]) {
+      diagnostics.push(
+        error(
+          `${kindCode(kind)}_invalid`,
+          `${kind} requires a non-empty ${key}`,
+        ),
+      );
+    }
+  };
+  const requireSlot = (expected: string) => {
+    if (integration.slot !== undefined && integration.slot !== expected) {
+      diagnostics.push(
+        error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected}`),
+      );
+    }
+  };
+  const requireRange = (key: string, min: number, max: number) => {
+    const value = integration[key];
+    if (value === undefined) return;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+      diagnostics.push(
+        error(
+          `${kindCode(kind)}_invalid`,
+          `${kind} ${key} must be an integer between ${min} and ${max}`,
+        ),
+      );
+    }
+  };
+  const requireSurfaceEntry = () => {
+    if (integration.handler !== "surface.createSession") {
+      diagnostics.push(
+        error(
+          `${kindCode(kind)}_invalid`,
+          `${kind} handler must be surface.createSession`,
+        ),
+      );
+    }
+  };
+
+  switch (kind) {
+    case "app.command":
+      requireText("title");
+      requireText("handler");
+      break;
+    case "app.toolbar":
+      requireSlot("toolbar.main");
+      requireText("title");
+      requireText("handler");
+      break;
+    case "app.status":
+      requireSlot("status.main");
+      requireText("handler");
+      requireRange("refreshSeconds", 5, 3600);
+      break;
+    case "app.composer.slash": {
+      requireText("title");
+      requireText("prompt");
+      const command = String(integration.command ?? integration.id ?? "").replace(/^\/+/, "");
+      if (!/^[a-z0-9-]+$/.test(command)) {
+        diagnostics.push(
+          error(
+            "app_composer_slash_invalid",
+            "Slash command must use lowercase letters, digits, or dashes",
+          ),
+        );
+      }
+      break;
+    }
+    case "app.timeline.card":
+      requireSurfaceEntry();
+      requireRange("minHeight", 240, 900);
+      break;
+    case "app.settings.section":
+      requireText("title");
+      requireSurfaceEntry();
+      requireRange("minHeight", 240, 900);
+      break;
+    case "host.service":
+      requireText("handler");
+      requireRange("intervalSeconds", 5, 86400);
+      break;
+    default:
+      break;
+  }
+}
+
+function kindCode(kind: string) {
+  return kind.replace(/[.-]/g, "_");
 }
 
 async function safeFile(root: string, path: string) {

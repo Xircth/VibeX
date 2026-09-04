@@ -128,46 +128,112 @@ export interface AppSurfaceIntegrationManifest extends IntegrationBase {
   nativeRenderer?: string;
 }
 
+/**
+ * Icon names the Host is willing to render for plugin chrome. Plugins name an
+ * icon instead of shipping markup, so no plugin asset reaches Host DOM.
+ * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * `CONTRIBUTION_ICONS`; all three are asserted equal by tests.
+ */
+export const CONTRIBUTION_ICONS = [
+  "activity",
+  "alert-triangle",
+  "bell",
+  "bookmark",
+  "bot",
+  "calendar",
+  "chart-bar",
+  "check-circle",
+  "clock",
+  "cloud",
+  "code",
+  "database",
+  "file-text",
+  "filter",
+  "flag",
+  "folder",
+  "gauge",
+  "git-branch",
+  "globe",
+  "info",
+  "key",
+  "layers",
+  "link",
+  "list",
+  "message-square",
+  "package",
+  "play",
+  "plug",
+  "puzzle",
+  "refresh-cw",
+  "search",
+  "settings",
+  "shield",
+  "sparkles",
+  "star",
+  "tag",
+  "terminal",
+  "timer",
+  "user",
+  "zap",
+] as const;
+
+export type ContributionIcon = (typeof CONTRIBUTION_ICONS)[number];
+
 export interface CommandIntegrationManifest extends IntegrationBase {
   kind: "app.command";
   title: string;
   subtitle?: string;
   shortcut?: string;
+  icon?: ContributionIcon;
   handler: string;
 }
 
 export interface ToolbarIntegrationManifest extends IntegrationBase {
   kind: "app.toolbar";
-  slot: "toolbar.main";
+  slot?: "toolbar.main";
   title: string;
-  icon?: { kind: "svg"; resource: string };
+  icon?: ContributionIcon;
   handler: string;
 }
 
 export interface StatusIntegrationManifest extends IntegrationBase {
   kind: "app.status";
-  slot: "status.main";
+  slot?: "status.main";
+  /** Text shown before the first refresh, and the only text when static. */
   text?: string;
+  icon?: ContributionIcon;
+  /** Returns `{ text?, tooltip? }` on click and on every refresh tick. */
   handler: string;
+  /** 5–3600. Omit for a static item. */
   refreshSeconds?: number;
 }
 
 export interface ComposerSlashIntegrationManifest extends IntegrationBase {
   kind: "app.composer.slash";
+  /** Typed after `/`; lowercase, digits and dashes. Defaults to `id`. */
+  command?: string;
   title: string;
-  target: string;
+  description?: string;
+  /** Inserted into the draft when the author picks the command. */
+  prompt: string;
 }
 
 export interface TimelineCardIntegrationManifest extends IntegrationBase {
   kind: "app.timeline.card";
-  handler: string;
+  label?: string;
+  handler: "surface.createSession";
+  allowedMethods?: string[];
+  /** 240–900. */
   minHeight?: number;
 }
 
 export interface SettingsSectionIntegrationManifest extends IntegrationBase {
   kind: "app.settings.section";
   title: string;
-  handler?: string;
+  handler: "surface.createSession";
+  allowedMethods?: string[];
+  /** 240–900. */
+  minHeight?: number;
 }
 
 export interface HookIntegrationManifest extends IntegrationBase {
@@ -179,6 +245,7 @@ export interface HookIntegrationManifest extends IntegrationBase {
 export interface HostServiceIntegrationManifest extends IntegrationBase {
   kind: "host.service";
   handler: string;
+  /** 5–86400, default 30. At most eight services tick per plugin. */
   intervalSeconds?: number;
 }
 

@@ -31,8 +31,12 @@ export function PluginSettingsSections() {
                 surfaceId,
                 label: section.label,
                 generation: section.generation,
-                allowedMethods: [],
-                slot: 'plugin.detail.panel',
+                allowedMethods: Array.isArray(metadata.allowedMethods)
+                  ? metadata.allowedMethods.filter(
+                      (method): method is string => typeof method === 'string'
+                    )
+                  : [],
+                slot: 'app.settings.section',
               }}
               enabled
               transport={transport}

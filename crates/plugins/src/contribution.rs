@@ -307,49 +307,94 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             metadata: Value::Null,
         }));
     }
-    if let Some(integrations) = plugin
-        .manifest
-        .get("integrations")
-        .and_then(Value::as_array)
-    {
-        for integration in integrations {
-            let Some(object) = integration.as_object() else {
-                continue;
-            };
-            let Some(id) = object.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            let Some(kind) = object.get("kind").and_then(Value::as_str) else {
-                continue;
-            };
-            let mapped = match kind {
-                "app.command" => Some(ContributionKind::Command),
-                "app.toolbar" => Some(ContributionKind::Toolbar),
-                "app.status" => Some(ContributionKind::Status),
-                "app.composer.slash" => Some(ContributionKind::ComposerSlash),
-                "app.timeline.card" => Some(ContributionKind::TimelineCard),
-                "app.settings.section" => Some(ContributionKind::SettingsSection),
-                "content.hook" => Some(ContributionKind::Hook),
-                "host.service" => Some(ContributionKind::HostService),
-                "workflow.binding" => Some(ContributionKind::WorkflowBinding),
-                _ => None,
-            };
-            if let Some(kind) = mapped {
-                templates.push(ContributionTemplate {
-                    plugin_id: plugin_id.clone(),
-                    id: id.to_owned(),
-                    kind,
-                    label: object
-                        .get("title")
-                        .or_else(|| object.get("label"))
-                        .and_then(Value::as_str)
-                        .unwrap_or(id)
-                        .to_owned(),
-                    metadata: integration.clone(),
-                });
-            }
-        }
-    }
+    templates.extend(plugin.app.commands.iter().map(|command| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: command.id.clone(),
+        kind: ContributionKind::Command,
+        label: command.title.clone(),
+        metadata: json!({
+            "title": command.title,
+            "subtitle": command.subtitle,
+            "shortcut": command.shortcut,
+            "icon": command.icon,
+            "handler": command.handler,
+        }),
+    }));
+    templates.extend(plugin.app.toolbar_items.iter().map(|item| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: item.id.clone(),
+        kind: ContributionKind::Toolbar,
+        label: item.title.clone(),
+        metadata: json!({
+            "title": item.title,
+            "icon": item.icon,
+            "handler": item.handler,
+        }),
+    }));
+    templates.extend(plugin.app.status_items.iter().map(|item| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: item.id.clone(),
+        kind: ContributionKind::Status,
+        label: item.text.clone().unwrap_or_else(|| item.id.clone()),
+        metadata: json!({
+            "text": item.text,
+            "icon": item.icon,
+            "handler": item.handler,
+            "refreshSeconds": item.refresh_seconds,
+        }),
+    }));
+    templates.extend(plugin.app.composer_slash.iter().map(|item| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: item.id.clone(),
+        kind: ContributionKind::ComposerSlash,
+        label: item.title.clone(),
+        metadata: json!({
+            "command": item.command,
+            "title": item.title,
+            "description": item.description,
+            "prompt": item.prompt,
+        }),
+    }));
+    templates.extend(plugin.app.timeline_cards.iter().map(|card| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: card.id.clone(),
+        kind: ContributionKind::TimelineCard,
+        label: card.label.clone(),
+        metadata: json!({
+            "surfaceId": card.id,
+            "handler": card.handler,
+            "allowedMethods": card.allowed_methods,
+            "minHeight": card.min_height,
+        }),
+    }));
+    templates.extend(
+        plugin
+            .app
+            .settings_sections
+            .iter()
+            .map(|section| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: section.id.clone(),
+                kind: ContributionKind::SettingsSection,
+                label: section.title.clone(),
+                metadata: json!({
+                    "surfaceId": section.id,
+                    "handler": section.handler,
+                    "allowedMethods": section.allowed_methods,
+                    "minHeight": section.min_height,
+                }),
+            }),
+    );
+    templates.extend(plugin.app.host_services.iter().map(|service| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: service.id.clone(),
+        kind: ContributionKind::HostService,
+        label: service.id.clone(),
+        metadata: json!({
+            "handler": service.handler,
+            "intervalSeconds": service.interval_seconds,
+        }),
+    }));
     templates
 }
 

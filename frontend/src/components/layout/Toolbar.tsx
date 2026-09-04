@@ -28,7 +28,6 @@ import {
   Columns2,
   MessagesSquare,
   Monitor,
-  Puzzle,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -70,6 +69,7 @@ import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 import { MoreHorizontal } from 'lucide-react';
@@ -572,6 +572,7 @@ export function Toolbar() {
                 typeof metadata.handler === 'string'
                   ? metadata.handler
                   : item.id;
+              const Icon = contributionIconComponent(metadata.icon);
               return (
                 <Tooltip key={`${item.pluginId}:${item.id}`}>
                   <TooltipTrigger asChild>
@@ -587,7 +588,7 @@ export function Toolbar() {
                         )
                       }
                     >
-                      <Puzzle className="h-3.5 w-3.5" />
+                      <Icon className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">{title}</TooltipContent>
@@ -614,9 +615,11 @@ export function Toolbar() {
                       typeof metadata.handler === 'string'
                         ? metadata.handler
                         : item.id;
+                    const Icon = contributionIconComponent(metadata.icon);
                     return (
                       <DropdownMenuItem
                         key={`${item.pluginId}:${item.id}`}
+                        className="gap-2"
                         onSelect={() =>
                           void pluginApi.invokeContribution(
                             item.pluginId,
@@ -624,6 +627,7 @@ export function Toolbar() {
                           )
                         }
                       >
+                        <Icon className="h-3.5 w-3.5" />
                         {title}
                       </DropdownMenuItem>
                     );

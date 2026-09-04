@@ -13,7 +13,7 @@
     { "id": "app.status", "status": "ready", "handler": true },
     { "id": "app.composer.slash", "status": "ready", "handler": false },
     { "id": "app.timeline.card", "status": "ready", "handler": true },
-    { "id": "app.settings.section", "status": "ready", "handler": false },
+    { "id": "app.settings.section", "status": "ready", "handler": true },
     { "id": "host.service", "status": "ready", "handler": true }
   ]
 }

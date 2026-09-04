@@ -78,11 +78,14 @@ pub use official_mcp::{
     session_features_from_config,
 };
 pub use package::{
-    AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,
-    InvocationDefinition, InvocationKind, PackageAppContributions, PackageFormat, PackageSkill,
-    PackageWarning, PluginContentDocument, PluginContentIndex, PluginContentItem,
-    PluginEntrypoints, PluginPackage, PluginProductDetail, PluginSource, PluginSourceKind,
-    PreviewProcessContribution, PreviewProviderContribution, RuntimeContribution, RuntimeInstall,
+    AppCommandContribution, AppComposerSlashContribution, AppSettingsSectionContribution,
+    AppStatusContribution, AppSurfaceContribution, AppTimelineCardContribution,
+    AppToolbarContribution, CONTRIBUTION_ICONS, CapabilityRequest, FileOpenerContribution,
+    FileOpenerTarget, HostServiceContribution, InvocationDefinition, InvocationKind,
+    PackageAppContributions, PackageFormat, PackageSkill, PackageWarning, PluginContentDocument,
+    PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage, PluginProductDetail,
+    PluginSource, PluginSourceKind, PreviewProcessContribution, PreviewProviderContribution,
+    RuntimeContribution, RuntimeInstall, SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT,
     package_content_digest,
 };
 pub use ports::{

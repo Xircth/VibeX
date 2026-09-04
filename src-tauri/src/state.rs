@@ -295,6 +295,10 @@ impl AppState {
                 );
             }
         }
+        crate::events::spawn_plugin_contribution_bridge(
+            app_handle.clone(),
+            plugin_control_plane.clone(),
+        );
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,

@@ -167,13 +167,19 @@ impl PluginAppSurfaceHost {
             .get("slot")
             .and_then(Value::as_str)
             .ok_or_else(|| internal("App surface slot is missing"))?;
-        if !matches!(slot, "plugin.detail.panel" | "artifact.editor")
-            || metadata.get("appEntrypoint").and_then(Value::as_str) != Some("app")
+        // Authors declare only the two `app.surface` slots; the card and section
+        // slots are synthesized by the Host from their own integration kinds.
+        if !matches!(
+            slot,
+            "plugin.detail.panel"
+                | "artifact.editor"
+                | crate::TIMELINE_CARD_SLOT
+                | crate::SETTINGS_SECTION_SLOT
+        ) || metadata.get("appEntrypoint").and_then(Value::as_str) != Some("app")
         {
             return Err(bad_request("App surface targets an unsupported Host slot"));
         }
         let artifact = match (slot, artifact_path) {
-            ("plugin.detail.panel", None) => None,
             ("artifact.editor", Some(path)) => Some(
                 self.open_artifact_editor(&identity.plugin_id, &identity.surface_id, path)
                     .await?,
@@ -181,10 +187,10 @@ impl PluginAppSurfaceHost {
             ("artifact.editor", None) => {
                 return Err(bad_request("Artifact editor surface requires a file"));
             }
-            ("plugin.detail.panel", Some(_)) => {
-                return Err(bad_request("Plugin detail surface cannot receive a file"));
+            (_, Some(_)) => {
+                return Err(bad_request("This App surface cannot receive a file"));
             }
-            _ => return Err(bad_request("App surface targets an unsupported Host slot")),
+            (_, None) => None,
         };
         let handler = metadata
             .get("handler")

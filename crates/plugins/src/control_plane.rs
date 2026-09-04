@@ -1279,6 +1279,7 @@ pub struct PluginControlPlane {
     official_mcp: Arc<crate::OfficialMcpRuntime>,
     host_services: crate::host_service::HostServiceSupervisor,
     worker_restore: tokio::sync::RwLock<Option<WorkerRestore>>,
+    catalog_changes: tokio::sync::broadcast::Sender<u64>,
 }
 
 impl PluginControlPlane {
@@ -1290,7 +1291,15 @@ impl PluginControlPlane {
             official_mcp: Arc::new(crate::OfficialMcpRuntime::default()),
             host_services: crate::host_service::HostServiceSupervisor::default(),
             worker_restore: tokio::sync::RwLock::new(None),
+            catalog_changes: tokio::sync::broadcast::channel(16).0,
         }
+    }
+
+    /// Fires with the new catalog generation whenever the live contribution set
+    /// changes. UI contributions must appear and disappear with activation
+    /// (ADR-0069 principle 4), including when the CLI drives the change.
+    pub fn subscribe_catalog_changes(&self) -> tokio::sync::broadcast::Receiver<u64> {
+        self.catalog_changes.subscribe()
     }
 
     pub fn official_product_mcp_gate(&self) -> Arc<crate::OfficialMcpRuntime> {
@@ -1438,8 +1447,10 @@ impl PluginControlPlane {
             }
         }
         self.official_mcp.sync_from_plugins(&live);
-        self.contributions
+        let catalog = self
+            .contributions
             .publish(self.registry.active_contributions().await?)?;
+        let _ = self.catalog_changes.send(catalog.generation);
         Ok(())
     }
 

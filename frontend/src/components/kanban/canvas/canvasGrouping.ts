@@ -1194,12 +1194,16 @@ export function dropHintsEqual(
   if (!left || !right || left.type !== right.type) return false;
   switch (left.type) {
     case 'canvas':
-      return true;
+      return right.type === 'canvas';
     case 'group':
     case 'same':
-      return left.groupId === right.groupId;
+      return (
+        (right.type === 'group' || right.type === 'same') &&
+        left.groupId === right.groupId
+      );
     case 'merge':
       return (
+        right.type === 'merge' &&
         left.targetId === right.targetId &&
         left.rect.x === right.rect.x &&
         left.rect.y === right.rect.y &&

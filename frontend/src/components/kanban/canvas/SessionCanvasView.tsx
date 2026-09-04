@@ -771,7 +771,7 @@ function SessionCanvasFlow({
       id: groupId,
       width: group.width,
       height: group.height,
-    };
+    } satisfies GroupResizeOrigin & { id: string };
   }, []);
 
   const originForGroupResize = useCallback(
@@ -786,7 +786,7 @@ function SessionCanvasFlow({
           : (() => {
               const group = nodeById(documentRef.current.nodes, groupId);
               if (!group || !isGroupNode(group)) return null;
-              const next = {
+              const next: GroupResizeOrigin & { id: string } = {
                 id: groupId,
                 width: group.width,
                 height: group.height,

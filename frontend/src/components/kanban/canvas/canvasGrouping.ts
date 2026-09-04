@@ -1074,22 +1074,35 @@ export function detachNode(
   return relayoutGroup(next, previousParent);
 }
 
+export function canAcceptGroupMember(
+  nodes: readonly SessionCanvasNode[],
+  childId: string,
+  groupId: string
+): boolean {
+  const child = nodeById(nodes, childId);
+  const group = nodeById(nodes, groupId);
+  if (!child || !group || !isGroupNode(group) || child.id === groupId) {
+    return false;
+  }
+  if (belongsToAncestor(nodes, group, childId)) return false;
+  if (isGroupNode(child)) {
+    return (
+      groupDepth(nodes, groupId) === 0 &&
+      !directChildren(nodes, child.id).some(isGroupNode)
+    );
+  }
+  return groupDepth(nodes, groupId) < MAX_GROUP_DEPTH;
+}
+
 export function attachToGroup(
   nodes: readonly SessionCanvasNode[],
   childId: string,
   groupId: string
 ): SessionCanvasNode[] {
+  if (!canAcceptGroupMember(nodes, childId, groupId)) return [...nodes];
   const child = nodeById(nodes, childId);
   const group = nodeById(nodes, groupId);
-  if (!child || !group || !isGroupNode(group) || child.id === groupId) {
-    return [...nodes];
-  }
-  if (isGroupNode(child)) {
-    if (groupDepth(nodes, groupId) !== 0) return [...nodes];
-    if (directChildren(nodes, child.id).some(isGroupNode)) return [...nodes];
-  } else if (groupDepth(nodes, groupId) >= MAX_GROUP_DEPTH) {
-    return [...nodes];
-  }
+  if (!child || !group) return [...nodes];
   const previousParent = child.parentId;
   let next = nodes.map((node) =>
     node.id === childId ? { ...node, parentId: groupId } : node
@@ -1340,12 +1353,21 @@ export function computeDropHint(
     cy <= rect.y + rect.height;
 
   let groupHit: SessionCanvasNode | undefined;
+  let bestDepth = -1;
   for (const node of nodes) {
     if (!isGroupNode(node) || node.id === draggedId || node.collapsed) continue;
-    if (dragged.parentId && belongsToAncestor(nodes, node, draggedId)) continue;
+    if (belongsToAncestor(nodes, node, draggedId)) continue;
     const rect = worldRect(nodes, node);
-    if (!contains(rect)) continue;
-    if (!groupHit) groupHit = node;
+    if (!contains(rect) && overlapRatio(hit, rect) < 0.18) continue;
+    const isCurrentParent = dragged.parentId === node.id;
+    if (!isCurrentParent && !canAcceptGroupMember(nodes, draggedId, node.id)) {
+      continue;
+    }
+    const depth = groupDepth(nodes, node.id);
+    if (!groupHit || depth > bestDepth) {
+      groupHit = node;
+      bestDepth = depth;
+    }
   }
   if (groupHit) {
     if (dragged.parentId === groupHit.id) {

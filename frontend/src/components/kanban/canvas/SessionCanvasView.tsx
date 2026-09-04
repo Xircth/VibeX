@@ -1023,7 +1023,7 @@ function SessionCanvasFlow({
       updateNodes((items) => {
         const current = nodeById(items, instanceId);
         if (!current) return items;
-        if ((isGroupNode(current) && !current.parentId) || current.expanded) {
+        if (current.expanded) {
           return items.map((node) =>
             node.id === instanceId
               ? {

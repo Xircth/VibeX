@@ -318,6 +318,42 @@ describe('grouping', () => {
     });
   });
 
+  it('returns a card from the outer nested group back into the inner group', () => {
+    const nested = makeNestedGroup();
+    const innerWorld = worldPosition(nested.nodes, nested.inner);
+    const hint = computeDropHint(nested.nodes, 'c', {
+      x: innerWorld.x + GROUP_PAD + 24,
+      y: innerWorld.y + GROUP_HEADER_HEIGHT + GROUP_PAD + 24,
+    });
+    expect(hint).toEqual({ type: 'group', groupId: nested.inner.id });
+    const dropped = applyDropHint(nested.nodes, 'c', hint);
+    expect(dropped.find((node) => node.id === 'c')?.parentId).toBe(
+      nested.inner.id
+    );
+  });
+
+  it('nests a detached subgroup back into its outer group', () => {
+    const nested = makeNestedGroup();
+    const detached = detachNode(nested.nodes, nested.inner.id, {
+      x: 800,
+      y: 40,
+    });
+    expect(detached.find((node) => node.id === nested.inner.id)?.parentId).toBe(
+      null
+    );
+    const outer = detached.find((node) => node.id === nested.outer.id)!;
+    const outerWorld = worldPosition(detached, outer);
+    const hint = computeDropHint(detached, nested.inner.id, {
+      x: outerWorld.x,
+      y: outerWorld.y,
+    });
+    expect(hint).toEqual({ type: 'group', groupId: outer.id });
+    const dropped = applyDropHint(detached, nested.inner.id, hint);
+    expect(dropped.find((node) => node.id === nested.inner.id)?.parentId).toBe(
+      outer.id
+    );
+  });
+
   it('packs nested-group children and grows height when the outer width shrinks', () => {
     const nested = makeNestedGroup();
     const grown = resizeGroupFrame(

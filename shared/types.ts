@@ -1723,7 +1723,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 

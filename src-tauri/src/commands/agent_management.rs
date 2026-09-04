@@ -338,6 +338,7 @@ mod tests {
             component: ProfileComponent::AgentRuntime,
             executable,
             version_args: &["--version"],
+            acp_args: &[],
         })
         .await
         .expect("the runnable CLI is independent Runtime evidence");
@@ -2402,7 +2403,7 @@ use agents::{
     InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
     LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
     NativeFileMutation, NativeFileSystem, ObservedUserComponent, OfficialRegistryHttpFetcher,
-    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileInstallSource,
+    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent,
     ProfileManagementActionKind, ProfileTopology, REGISTRY_REFRESH_TIMEOUT, RegistryCache,
     RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
     ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
@@ -3730,30 +3731,7 @@ async fn discover_profile_acp_launch(
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
         anyhow::bail!("external ACP candidate is not an absolute executable file");
     }
-    let args = profile
-        .install_sources
-        .iter()
-        .find_map(|source| match source {
-            ProfileInstallSource::Npx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Uvx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Binary {
-                component, args, ..
-            } if profile_component_key(*component)
-                == profile_component_key(candidate.component) =>
-            {
-                Some(
-                    args.iter()
-                        .map(|argument| (*argument).to_string())
-                        .collect::<Vec<_>>(),
-                )
-            }
-            _ => None,
-        })
-        .unwrap_or_default();
+    let args = agents::acp_launch_args(profile, candidate.component);
     let mut env = BTreeMap::new();
     let mut path_entries = vec![
         executable
@@ -3947,25 +3925,8 @@ async fn probe_one_built_in_external_installation(
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
         .ok_or_else(|| anyhow::anyhow!("external ACP executable is missing"))?;
-    let args = profile
-        .install_sources
-        .iter()
-        .find_map(|source| match source {
-            ProfileInstallSource::Npx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Uvx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Binary {
-                component, args, ..
-            } if profile_component_key(*component) == acp.kind => Some(
-                args.iter()
-                    .map(|argument| (*argument).to_string())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        })
+    let args = profile_component_from_key(&acp.kind)
+        .map(|component| agents::acp_launch_args(profile, component))
         .unwrap_or_default();
     let mut env = BTreeMap::new();
     if profile.agent_id.as_str() == "pi" {
@@ -4065,6 +4026,15 @@ fn profile_component_key(component: ProfileComponent) -> &'static str {
         ProfileComponent::AgentRuntime => "agent_runtime",
         ProfileComponent::AcpAdapter => "acp_adapter",
         ProfileComponent::CombinedRuntime => "combined_runtime",
+    }
+}
+
+fn profile_component_from_key(key: &str) -> Option<ProfileComponent> {
+    match key {
+        "agent_runtime" => Some(ProfileComponent::AgentRuntime),
+        "acp_adapter" => Some(ProfileComponent::AcpAdapter),
+        "combined_runtime" => Some(ProfileComponent::CombinedRuntime),
+        _ => None,
     }
 }
 
@@ -9106,6 +9076,7 @@ async fn ensure_not_busy(
                     && matches!(
                         connection.status,
                         agents::AgentConnectionStatus::Connecting
+                            | agents::AgentConnectionStatus::Recovering
                             | agents::AgentConnectionStatus::Ready
                     )
             });

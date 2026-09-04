@@ -28,6 +28,7 @@ pub fn builtin_contribution_capabilities() -> Vec<AgentContributionCapability> {
         AgentKind::Grok,
         AgentKind::Cursor,
         AgentKind::DeepseekHarness,
+        AgentKind::Qoder,
     ]
     .into_iter()
     .map(|agent| {

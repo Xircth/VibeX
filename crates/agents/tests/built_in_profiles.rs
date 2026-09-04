@@ -211,6 +211,96 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     ));
 }
 
+/// Every Profile must resolve to a non-ambiguous ACP invocation, and the two
+/// places that can declare it must not disagree. An external candidate that
+/// declares `acp_args` while its install source pins different args would make
+/// the same Agent launch differently depending on how it was obtained.
+#[test]
+fn acp_launch_args_have_one_answer_per_profile() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    for profile in catalog.profiles() {
+        for candidate in profile.external_candidates {
+            if candidate.acp_args.is_empty() {
+                continue;
+            }
+            let pinned = profile
+                .install_sources
+                .iter()
+                .find_map(|source| match source {
+                    ProfileInstallSource::Npx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Uvx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Binary {
+                        component, args, ..
+                    } if *component == candidate.component => Some(*args),
+                    _ => None,
+                });
+            if let Some(pinned) = pinned {
+                assert_eq!(
+                    candidate.acp_args,
+                    pinned,
+                    "{}: candidate `{}` declares ACP args that disagree with its install source",
+                    profile.agent_id.as_str(),
+                    candidate.executable
+                );
+            }
+        }
+
+        let acp_candidate = profile.external_candidates.iter().find(|candidate| {
+            matches!(
+                candidate.component,
+                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+            )
+        });
+        assert!(
+            acp_candidate.is_some(),
+            "{}: no external candidate can serve ACP",
+            profile.agent_id.as_str()
+        );
+    }
+}
+
+/// Qoder CLI starts its interactive TUI when launched bare; only `--acp` makes
+/// it an ACP stdio server. Both published bin names must resolve to it.
+#[test]
+fn qoder_launches_as_an_acp_server_under_both_bin_names() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let qoder = catalog.profile(&AgentId::parse("qoder").unwrap()).unwrap();
+
+    let names = qoder
+        .external_candidates
+        .iter()
+        .map(|candidate| candidate.executable)
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["qoder", "qodercli"]);
+
+    for candidate in qoder.external_candidates {
+        assert_eq!(candidate.acp_args, ["--acp"]);
+        assert_eq!(
+            agents::acp_launch_args(qoder, candidate.component),
+            vec!["--acp".to_string()]
+        );
+    }
+
+    assert!(matches!(
+        qoder.install_sources.first().unwrap(),
+        ProfileInstallSource::Npx {
+            component: ProfileComponent::CombinedRuntime,
+            package: "@qoder-ai/qodercli",
+            command: "qodercli",
+            args: ["--acp"],
+            ..
+        }
+    ));
+    assert_eq!(
+        qoder.registry_binding.as_ref().unwrap().registry_id,
+        "qoder"
+    );
+}
+
 #[test]
 fn built_in_profiles_are_declarative_and_bind_explicitly() {
     let catalog = BuiltInProfileCatalog::bundled();
@@ -235,6 +325,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             "grok",
             "cursor",
             "deepseek_harness",
+            "qoder",
         ]
     );
 
@@ -310,6 +401,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("grok", None),
             ("cursor", None),
             ("deepseek_harness", None),
+            ("qoder", None),
         ]
     );
     assert!(

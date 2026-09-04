@@ -9,7 +9,7 @@
 //! ## Serialized form (canonical): snake_case
 //!
 //! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
-//! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`,
+//! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`, `qoder`,
 //! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
@@ -52,12 +52,13 @@ pub enum AgentKind {
     Grok,
     Cursor,
     DeepseekHarness,
+    Qoder,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in a stable order (registry / picker ordering).
-    pub const ALL: [AgentKind; 14] = [
+    pub const ALL: [AgentKind; 15] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Antigravity,
@@ -71,6 +72,7 @@ impl AgentKind {
         AgentKind::Grok,
         AgentKind::Cursor,
         AgentKind::DeepseekHarness,
+        AgentKind::Qoder,
         AgentKind::QaMock,
     ];
 
@@ -90,6 +92,7 @@ impl AgentKind {
             AgentKind::Grok => "grok",
             AgentKind::Cursor => "cursor",
             AgentKind::DeepseekHarness => "deepseek_harness",
+            AgentKind::Qoder => "qoder",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -117,6 +120,9 @@ impl AgentKind {
             "grok" => AgentKind::Grok,
             "cursor" => AgentKind::Cursor,
             "deepseekharness" => AgentKind::DeepseekHarness,
+            // `qodercli` is the installed executable name; some producers wrote it
+            // as the agent id before the identity was canonicalized.
+            "qoder" | "qodercli" => AgentKind::Qoder,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -189,8 +195,14 @@ mod tests {
             (AgentKind::Grok, "grok"),
             (AgentKind::Cursor, "cursor"),
             (AgentKind::DeepseekHarness, "deepseek_harness"),
+            (AgentKind::Qoder, "qoder"),
             (AgentKind::QaMock, "qa_mock"),
         ];
+        assert_eq!(
+            expected.len(),
+            AgentKind::ALL.len(),
+            "every AgentKind variant must have a locked canonical key"
+        );
         for (kind, key) in expected {
             assert_eq!(kind.as_str(), key);
             assert_eq!(kind.to_string(), key);
@@ -236,6 +248,10 @@ mod tests {
             ("DeepseekHarness", AgentKind::DeepseekHarness),
             ("deepseek-harness", AgentKind::DeepseekHarness),
             ("deepseek_harness", AgentKind::DeepseekHarness),
+            ("QODER", AgentKind::Qoder),
+            ("Qoder", AgentKind::Qoder),
+            ("qoder", AgentKind::Qoder),
+            ("qodercli", AgentKind::Qoder),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

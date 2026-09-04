@@ -86,6 +86,11 @@ pub struct ProfileExternalCandidate {
     pub component: ProfileComponent,
     pub executable: &'static str,
     pub version_args: &'static [&'static str],
+    /// Arguments that make this executable speak ACP over stdio. Required for
+    /// detection-only profiles, which have no install source to pin them.
+    /// Managed installs pin the same invocation on their install source; when
+    /// both are declared they must agree (locked by `built_in_profiles`).
+    pub acp_args: &'static [&'static str],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +304,47 @@ pub fn adapter_bundles_runtime(agent_id: &AgentId) -> bool {
     !bundled_adapter_runtime_env_keys(agent_id).is_empty()
 }
 
+/// The arguments that make a Profile's component speak ACP over stdio.
+///
+/// Managed installs pin the invocation on their install source. Detection-only
+/// Profiles have no install source, so their external candidate carries it.
+/// This is the only place either is read, so the two cannot drift into two
+/// different answers at different call sites.
+pub fn acp_launch_args(profile: &BuiltInProfile, component: ProfileComponent) -> Vec<String> {
+    let declared = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == component && !candidate.acp_args.is_empty())
+        .map(|candidate| candidate.acp_args);
+    let pinned = profile
+        .install_sources
+        .iter()
+        .find_map(|source| match source {
+            ProfileInstallSource::Npx {
+                component: source_component,
+                args,
+                ..
+            }
+            | ProfileInstallSource::Uvx {
+                component: source_component,
+                args,
+                ..
+            }
+            | ProfileInstallSource::Binary {
+                component: source_component,
+                args,
+                ..
+            } if *source_component == component => Some(*args),
+            _ => None,
+        });
+    declared
+        .or(pinned)
+        .unwrap_or(&[])
+        .iter()
+        .map(|argument| (*argument).to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryEntryIdentity {
     pub registry_id: String,
@@ -327,6 +373,7 @@ impl BuiltInProfileCatalog {
                 grok_profile(),
                 cursor_profile(),
                 deepseek_harness_profile(),
+                qoder_profile(),
             ],
         }
     }
@@ -368,11 +415,13 @@ const CLAUDE_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::AgentRuntime,
         executable: "claude",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "claude-agent-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const CODEX_CANDIDATES: &[ProfileExternalCandidate] = &[
@@ -380,28 +429,33 @@ const CODEX_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::AgentRuntime,
         executable: "codex",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "codex-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] = &[ProfileExternalCandidate {
     component: ProfileComponent::CombinedRuntime,
     executable: "opencode",
     version_args: &["--version"],
+    acp_args: &[],
 }];
 const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
     ProfileExternalCandidate {
         component: ProfileComponent::AgentRuntime,
         executable: "pi",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "pi-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
@@ -409,6 +463,7 @@ const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::CombinedRuntime,
         executable: "agy_acp_server.par",
         version_args: &[],
+        acp_args: &[],
     },
     external("agy_acp_server"),
 ];
@@ -432,12 +487,34 @@ const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
 const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
 const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
 const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
+/// Qoder CLI turns into an ACP stdio server with `--acp`; without it the same
+/// executable starts the interactive TUI. Both published executable names are
+/// probed because the official ACP guide uses `qoder` while the Model Studio
+/// install guide verifies `qodercli`.
+const QODER_ACP_ARGS: &[&str] = &["--acp"];
+const QODER_CANDIDATES: &[ProfileExternalCandidate] = &[
+    external_acp("qoder", QODER_ACP_ARGS),
+    external_acp("qodercli", QODER_ACP_ARGS),
+];
 
 const fn external(executable: &'static str) -> ProfileExternalCandidate {
     ProfileExternalCandidate {
         component: ProfileComponent::CombinedRuntime,
         executable,
         version_args: &["--version"],
+        acp_args: &[],
+    }
+}
+
+const fn external_acp(
+    executable: &'static str,
+    acp_args: &'static [&'static str],
+) -> ProfileExternalCandidate {
+    ProfileExternalCandidate {
+        component: ProfileComponent::CombinedRuntime,
+        executable,
+        version_args: &["--version"],
+        acp_args,
     }
 }
 
@@ -604,6 +681,14 @@ const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     ProfileManagementActionKind::Login,
     "codebuddy",
     &["login"],
+)];
+const QODER_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 Qoder",
+    "启动 Qoder CLI，在终端中使用 /login",
+    ProfileManagementActionKind::Login,
+    "qodercli",
+    &[],
 )];
 const KIMI_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -2183,6 +2268,14 @@ const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
+/// Qoder authenticates through the CLI's own `/login` or the
+/// `QODER_PERSONAL_ACCESS_TOKEN` environment variable, and reads Skills from
+/// `~/.qoder/skills`. Native MCP is not declared: Qoder CLI supports MCP, but
+/// the on-disk location VibeX would have to write is undocumented.
+const QODER_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeSkills,
+];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ReusableModelProviders,
@@ -2868,6 +2961,43 @@ fn deepseek_harness_profile() -> BuiltInProfile {
         native_config: DEEPSEEK_HARNESS_CONFIG,
         settings_features: DEEPSEEK_HARNESS_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn qoder_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("qoder").expect("bundled AgentId"),
+        display_name: "Qoder",
+        description: "Qoder CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/qoder.svg",
+            dark: "/agents/qoder.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "qoder",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@qoder-ai/qodercli",
+            "1.1.42",
+            "qodercli",
+            QODER_ACP_ARGS,
+            ">=20",
+            "sha512-KSqmCX1CsbwslB5yknMs2opk6eD6zv1+bqEsjlk9EviDvWKVoy5tmqxhJq25j86LV6s7Yw1hgMQBD0JZZjWHEA==",
+        )],
+        external_candidates: QODER_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: QODER_ACTIONS,
+        runtime_executable_env: None,
+        // Qoder CLI's on-disk configuration schema is undocumented, so no
+        // native field bindings are declared. Skills are, because their
+        // location is (`~/.qoder/skills` and `.qoder/skills`).
+        native_config: &[],
+        settings_features: QODER_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: None,
     }

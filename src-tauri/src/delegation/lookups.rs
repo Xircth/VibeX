@@ -171,11 +171,7 @@ mod tests {
         let event = ConversationEvent::DelegationCompleted {
             delegation_id: call_id.to_string(),
             result: ConversationDelegationResult::Err {
-                error: ConversationError {
-                    message: "canceled".to_string(),
-                    code: Some("canceled".to_string()),
-                    raw: None,
-                },
+                error: ConversationError::new("canceled", Some("canceled".to_string()), None),
             },
         };
         let normalized = serde_json::to_string(&event).unwrap();

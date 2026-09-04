@@ -7,7 +7,7 @@ use super::{AgentManagementRepositoryError, source_key};
 use crate::models::agent_setting::AgentSetting;
 
 const MIGRATION_KEY: &str = "legacy-agent-settings-v1";
-const BUILT_INS: [&str; 13] = [
+const BUILT_INS: [&str; 14] = [
     "claude_code",
     "codex",
     "antigravity",
@@ -21,6 +21,7 @@ const BUILT_INS: [&str; 13] = [
     "grok",
     "cursor",
     "deepseek_harness",
+    "qoder",
 ];
 
 #[derive(Debug, FromRow)]

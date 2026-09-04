@@ -245,6 +245,9 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
+        // Qoder CLI's session store location and format are not documented.
+        // An invented path would list a source that can never yield sessions.
+        AgentKind::Qoder => Vec::new(),
         // In-process mock agent: no on-disk history to import.
         AgentKind::QaMock => Vec::new(),
     }
@@ -294,7 +297,7 @@ pub fn configured_history_sources(
             .or_else(|| {
                 configured_root(configured_env, "DSH_HOME").map(|path| path.join("sessions"))
             }),
-        AgentKind::QaMock => None,
+        AgentKind::Qoder | AgentKind::QaMock => None,
     }
     .into_iter()
     .collect::<Vec<_>>();

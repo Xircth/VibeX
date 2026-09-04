@@ -693,6 +693,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("grok", true),
             ("cursor", true),
             ("deepseek_harness", true),
+            ("qoder", true),
         ]
     );
     assert!(
@@ -721,6 +722,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         "grok",
         "cursor",
         "deepseek_harness",
+        "qoder",
     ] {
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")

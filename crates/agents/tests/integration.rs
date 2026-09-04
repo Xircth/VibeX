@@ -188,8 +188,8 @@ async fn run_agent_fixture_gate(
         })
         .await
         .unwrap();
-    assert_eq!(resumed.id, resumed_session_id);
-    assert!(resumed.acp_session_id.ends_with("-resume-session"));
+    assert_eq!(resumed.0.id, resumed_session_id);
+    assert!(resumed.0.acp_session_id.ends_with("-resume-session"));
 
     let interrupt_prompt = runtime
         .send_prompt(SendAgentPromptInput {

@@ -114,6 +114,7 @@ export class FakeMcpDelegationTransport implements BackendTransport {
                 error: {
                   message: 'Canceled by the parent after evidence was saved.',
                   code: 'canceled',
+                  kind: 'cancelled',
                 },
               },
         } satisfies ConversationDelegationView;

@@ -208,8 +208,8 @@ pub use profiles::{
     NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
     ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, adapter_bundles_runtime,
-    bundled_adapter_runtime_env_keys,
+    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, acp_launch_args,
+    adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,

@@ -1608,7 +1608,8 @@ pub async fn agent_resume_session(
                 env: launch_settings.env,
                 preferences: Default::default(),
             })
-            .await,
+            .await
+            .map(|(snapshot, _)| snapshot),
     )
     .await
 }

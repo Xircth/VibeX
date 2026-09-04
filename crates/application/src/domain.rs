@@ -51,6 +51,7 @@ domain_commands! {
     PluginResolveFileOpener => "plugin_resolve_file_opener" / "plugin.read",
     PluginOpenFilePreview => "plugin_open_file_preview" / "artifact.preview",
     PluginCloseFilePreview => "plugin_close_file_preview" / "artifact.preview",
+    PluginRenewFilePreview => "plugin_renew_file_preview" / "artifact.preview",
     PluginControlSetEnabled => "plugin_control_set_enabled" / "plugin.write",
     PluginControlGrantPermissions => "plugin_control_grant_permissions" / "plugin.write",
     PluginControlInstallRuntime => "plugin_control_install_runtime" / "plugin.write",

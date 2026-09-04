@@ -74,8 +74,19 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     assert_eq!(
         plugin["actions"],
         serde_json::json!([]),
-        "freshly imported plugins stay disabled until the user enables them"
+        "official plugins stay out of the catalog until the user installs them"
     );
+
+    let installed = call(
+        app.clone(),
+        "plugin_marketplace_install",
+        serde_json::json!({
+            "owner": "vibex",
+            "pluginName": "office",
+        }),
+    )
+    .await;
+    assert_eq!(installed["id"], "vibex.office");
 
     let product_plugins = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
     assert_eq!(product_plugins["plugins"][0]["id"], "vibex.office");
@@ -102,11 +113,25 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         serde_json::json!({ "pluginId": "vibex.office" }),
     )
     .await;
-    assert_eq!(detail["contents"].as_array().expect("contents").len(), 9);
+    let contents = detail["contents"].as_array().expect("contents");
+    assert_eq!(
+        contents
+            .iter()
+            .filter(|item| item["kind"] == "skill")
+            .count(),
+        10,
+        "Office skills come from the locked officecli load_skill set"
+    );
+    assert!(
+        contents
+            .iter()
+            .any(|item| item["kind"] == "file_opener" && item["title"] == "Office Preview")
+    );
     assert!(
         detail["readme"]
             .as_str()
             .expect("README")
+            .trim_start()
             .starts_with("# VibeX Office")
     );
     assert_eq!(detail["config"]["idleTimeoutMinutes"], 10);

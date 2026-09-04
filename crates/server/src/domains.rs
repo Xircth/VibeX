@@ -108,6 +108,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginResolveFileOpener => self.plugin_resolve_file_opener(args).await,
             DomainCommand::PluginOpenFilePreview => self.plugin_open_file_preview(args).await,
             DomainCommand::PluginCloseFilePreview => self.plugin_close_file_preview(args).await,
+            DomainCommand::PluginRenewFilePreview => self.plugin_renew_file_preview(args).await,
             DomainCommand::PluginControlSetEnabled => self.plugin_control_set_enabled(args).await,
             DomainCommand::PluginControlGrantPermissions => {
                 self.plugin_control_grant_permissions(args).await
@@ -902,6 +903,23 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
+    async fn plugin_renew_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginFilePreviewRenewArgs = parse(args)?;
+        let lease = self
+            .preview_host
+            .renew_preview(&args.lease_id.to_string())
+            .await
+            .map_err(internal_error)?;
+        self.preview_proxy
+            .renew(args.lease_id, lease.expires_at_unix_ms)
+            .await
+            .map_err(internal_error)?;
+        Ok(json!({
+            "leaseId": lease.lease_id,
+            "expiresAtUnixMs": lease.expires_at_unix_ms,
+        }))
+    }
+
     async fn project_list(&self) -> Result<Value, ApplicationError> {
         serialize(
             Project::find_all(&self.pool)
@@ -1432,6 +1450,12 @@ struct PluginFilePreviewArgs {
     file_path: String,
     #[serde(default)]
     lease_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilePreviewRenewArgs {
+    lease_id: Uuid,
 }
 
 #[derive(Default, Deserialize)]

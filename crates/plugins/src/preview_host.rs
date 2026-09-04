@@ -59,4 +59,9 @@ pub trait PluginPreviewHost: Send + Sync {
         file_path: &str,
         lease_id: Option<&str>,
     ) -> Result<(), PluginPreviewHostError>;
+
+    async fn renew_preview(
+        &self,
+        lease_id: &str,
+    ) -> Result<PluginPreviewSession, PluginPreviewHostError>;
 }

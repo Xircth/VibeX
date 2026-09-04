@@ -4,6 +4,12 @@ import { FileWarning, Loader2, RotateCw } from 'lucide-react';
 import { pluginControlApi } from '@/lib/api/plugins';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 
+function renewIntervalMs(expiresAtUnixMs: number | null): number {
+  if (expiresAtUnixMs === null) return 30_000;
+  const remaining = Math.max(0, expiresAtUnixMs - Date.now());
+  return Math.max(15_000, Math.floor(remaining / 3));
+}
+
 export function PluginFilePreview({ filePath }: { filePath: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
@@ -14,6 +20,7 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
     let cancelled = false;
     let acquired = false;
     let acquiredLeaseId: string | null = null;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
     setPreviewUrl(null);
     setError(null);
     void pluginControlApi
@@ -42,6 +49,21 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
               : null)
         );
         setError(result.errorMessage ?? result.errorCode);
+        if (acquired && result.leaseId) {
+          const leaseId = result.leaseId;
+          heartbeat = setInterval(() => {
+            void pluginControlApi
+              .renewFilePreview(leaseId)
+              .catch((cause: unknown) => {
+                if (cancelled) return;
+                clearInterval(heartbeat);
+                setPreviewUrl(null);
+                setError(
+                  cause instanceof Error ? cause.message : 'Preview expired'
+                );
+              });
+          }, renewIntervalMs(result.expiresAtUnixMs));
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
@@ -50,6 +72,7 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
       });
     return () => {
       cancelled = true;
+      if (heartbeat) clearInterval(heartbeat);
       if (acquired) {
         void pluginControlApi.closeFilePreview(filePath, acquiredLeaseId);
       }

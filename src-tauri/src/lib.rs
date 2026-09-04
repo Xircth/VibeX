@@ -1142,6 +1142,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::plugin_control::plugin_resolve_file_opener,
         commands::plugin_control::plugin_open_file_preview,
         commands::plugin_control::plugin_close_file_preview,
+        commands::plugin_control::plugin_renew_file_preview,
         commands::plugin_control::plugin_control_contributions,
         commands::plugin_control::plugin_control_preview_import,
         commands::plugin_control::plugin_control_import_cli,

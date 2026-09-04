@@ -110,6 +110,25 @@ async fn preview_proxy_rejects_missing_wrong_expired_and_unknown_capabilities() 
 }
 
 #[tokio::test]
+async fn renewing_a_preview_registration_extends_its_expiry() {
+    let runtime = runtime().await;
+    let registry = runtime.preview_proxy_registry();
+    let lease = Uuid::new_v4();
+    registry
+        .register(lease, 40555, CAPABILITY, 1)
+        .await
+        .expect("registration");
+    registry.renew(lease, future_expiry()).await.expect("renew");
+    let app = runtime.router();
+    assert_eq!(
+        request_get(app, &format!("/api/v1/previews/{lease}?cap={CAPABILITY}"))
+            .await
+            .status(),
+        StatusCode::BAD_GATEWAY
+    );
+}
+
+#[tokio::test]
 async fn revoked_preview_capability_cannot_be_replayed() {
     let runtime = runtime().await;
     let registry = runtime.preview_proxy_registry();

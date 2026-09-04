@@ -99,6 +99,14 @@ pub struct PluginFilePreviewStartDto {
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
+pub struct PluginFilePreviewRenewDto {
+    pub lease_id: String,
+    pub expires_at_unix_ms: i64,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct PluginControlItemDto {
     pub id: String,
     pub publisher: Option<String>,
@@ -1233,6 +1241,28 @@ pub async fn plugin_close_file_preview(
         .close_preview(&file_path, lease_id.as_deref())
         .await
         .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn plugin_renew_file_preview(
+    state: State<'_, AppState>,
+    preview_proxy: State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
+    lease_id: String,
+) -> Result<PluginFilePreviewRenewDto, AppError> {
+    let lease = state
+        .plugin_preview_host
+        .renew_preview(&lease_id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    preview_proxy
+        .renew(&lease)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(PluginFilePreviewRenewDto {
+        lease_id: lease.lease_id,
+        expires_at_unix_ms: i64::try_from(lease.expires_at_unix_ms)
+            .map_err(|_| AppError::Internal("preview lease expiry exceeds i64".into()))?,
+    })
 }
 
 fn contribution_kind_key(kind: plugins::ContributionKind) -> &'static str {

@@ -216,6 +216,46 @@ fn slash_command_defaults_to_the_contribution_id() {
 }
 
 #[test]
+fn provider_import_sources_survive_normalization() {
+    // Naming no agents is how the second source says "any agent".
+    let package = product_package(
+        r#"[
+  {"id":"cc-switch","kind":"provider.model.importSource","label":"CC Switch","handler":"import.ccSwitch","icon":"plug","agents":["claude","codex"],"description":"Reads a CC Switch config"},
+  {"id":"any-agent","kind":"provider.model.importSource","label":"Anywhere","handler":"import.anywhere"}
+]"#,
+    );
+
+    let sources = &package.app.provider_import_sources;
+    assert_eq!(sources.len(), 2, "{:?}", package.warnings);
+    assert_eq!(sources[0].label, "CC Switch");
+    assert_eq!(sources[0].agents, vec!["claude", "codex"]);
+    assert_eq!(sources[0].icon.as_deref(), Some("plug"));
+    assert!(
+        sources[1].agents.is_empty(),
+        "an omitted agent list must stay empty rather than defaulting to something"
+    );
+}
+
+#[test]
+fn a_provider_import_source_without_a_handler_warns_instead_of_publishing() {
+    // A valid sibling keeps the package installable, so the assertion is about
+    // the two bad entries rather than about the package being rejected wholesale.
+    let package = product_package(
+        r#"[
+  {"id":"poll-runs","kind":"host.service","handler":"pollRuns","intervalSeconds":60},
+  {"id":"broken","kind":"provider.model.importSource","label":"No handler"},
+  {"id":"bad-agents","kind":"provider.model.importSource","label":"Bad agents","handler":"import.x","agents":"claude"}
+]"#,
+    );
+
+    assert!(
+        package.app.provider_import_sources.is_empty(),
+        "malformed sources must not reach the catalog"
+    );
+    assert_eq!(package.warnings.len(), 2, "{:?}", package.warnings);
+}
+
+#[test]
 fn the_icon_set_matches_the_published_contract() {
     let catalog: serde_json::Value = serde_json::from_str(include_str!(
         "../../../packages/plugin-contract/catalog/icons.v1.json"

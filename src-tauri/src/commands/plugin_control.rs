@@ -1310,24 +1310,7 @@ pub async fn plugin_renew_file_preview(
 }
 
 fn contribution_kind_key(kind: plugins::ContributionKind) -> &'static str {
-    match kind {
-        plugins::ContributionKind::Skill => "skill",
-        plugins::ContributionKind::Action => "action",
-        plugins::ContributionKind::Command => "command",
-        plugins::ContributionKind::Runtime => "runtime",
-        plugins::ContributionKind::Mcp => "mcp",
-        plugins::ContributionKind::FileOpener => "file_opener",
-        plugins::ContributionKind::PreviewProvider => "preview_provider",
-        plugins::ContributionKind::AppSurface => "app_surface",
-        plugins::ContributionKind::Hook => "hook",
-        plugins::ContributionKind::Toolbar => "toolbar",
-        plugins::ContributionKind::Status => "status",
-        plugins::ContributionKind::ComposerSlash => "composer_slash",
-        plugins::ContributionKind::TimelineCard => "timeline_card",
-        plugins::ContributionKind::SettingsSection => "settings_section",
-        plugins::ContributionKind::HostService => "host_service",
-        plugins::ContributionKind::WorkflowBinding => "workflow_binding",
-    }
+    kind.key()
 }
 
 #[tauri::command]

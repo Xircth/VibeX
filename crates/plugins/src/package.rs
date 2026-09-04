@@ -173,6 +173,8 @@ pub struct PackageAppContributions {
     pub settings_sections: Vec<AppSettingsSectionContribution>,
     #[serde(default)]
     pub host_services: Vec<HostServiceContribution>,
+    #[serde(default)]
+    pub provider_import_sources: Vec<ProviderImportSourceContribution>,
 }
 
 impl PackageAppContributions {
@@ -187,6 +189,7 @@ impl PackageAppContributions {
             && self.timeline_cards.is_empty()
             && self.settings_sections.is_empty()
             && self.host_services.is_empty()
+            && self.provider_import_sources.is_empty()
     }
 }
 
@@ -342,6 +345,25 @@ pub struct HostServiceContribution {
     pub id: String,
     pub handler: String,
     pub interval_seconds: u64,
+}
+
+/// An entry in the "import from…" menu of the model provider settings.
+///
+/// ADR-0063 originally fixed the import sources to a closed enum; ADR-0069
+/// turns that enum into this contribution so a plugin can teach VibeX to read
+/// a provider layout it has never heard of.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderImportSourceContribution {
+    pub id: String,
+    pub label: String,
+    pub icon: Option<String>,
+    /// Worker handler returning the presets it discovered.
+    pub handler: String,
+    /// Agents this source can import for. Empty means every agent.
+    pub agents: Vec<String>,
+    /// Shown under the menu entry so the user can tell two sources apart.
+    pub description: Option<String>,
 }
 
 /// App surface slot synthesized for a timeline card contribution.
@@ -636,6 +658,14 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             "host_service",
             &service.id,
             &format!("{} ({}s)", service.handler, service.interval_seconds),
+        ));
+    }
+    for source in &app.provider_import_sources {
+        documents.push(chrome_document(
+            "provider-imports",
+            "provider_import_source",
+            &source.id,
+            &source.label,
         ));
     }
     documents
@@ -1217,7 +1247,8 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             | "app.composer.slash"
             | "app.timeline.card"
             | "app.settings.section"
-            | "host.service" => {}
+            | "host.service"
+            | "provider.model.importSource" => {}
             other => {
                 return Err(PluginError::invalid_manifest(format!(
                     "unknown v4 integration kind `{other}`"
@@ -1922,6 +1953,9 @@ fn parse_v4_ui_contributions(
             "host.service" => parse_host_service_contribution(integration)
                 .map(|item| contributions.host_services.push(item))
                 .is_some(),
+            "provider.model.importSource" => parse_provider_import_source(integration)
+                .map(|item| contributions.provider_import_sources.push(item))
+                .is_some(),
             _ => continue,
         };
         if !accepted {
@@ -2136,6 +2170,30 @@ fn parse_host_service_contribution(
         id: contribution_id(integration)?,
         handler: contribution_text(integration, "handler")?,
         interval_seconds,
+    })
+}
+
+fn parse_provider_import_source(
+    integration: &Map<String, Value>,
+) -> Option<ProviderImportSourceContribution> {
+    let agents = match integration.get("agents") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()?,
+        Some(_) => return None,
+    };
+    Some(ProviderImportSourceContribution {
+        id: contribution_id(integration)?,
+        label: contribution_text(integration, "label")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: contribution_text(integration, "handler")?,
+        agents,
+        description: integration
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 

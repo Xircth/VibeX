@@ -2953,24 +2953,7 @@ fn source_kind_key(kind: crate::PluginSourceKind) -> &'static str {
 }
 
 fn contribution_kind_key(kind: crate::ContributionKind) -> &'static str {
-    match kind {
-        crate::ContributionKind::Skill => "skill",
-        crate::ContributionKind::Action => "action",
-        crate::ContributionKind::Command => "command",
-        crate::ContributionKind::Runtime => "runtime",
-        crate::ContributionKind::Mcp => "mcp",
-        crate::ContributionKind::FileOpener => "file_opener",
-        crate::ContributionKind::PreviewProvider => "preview_provider",
-        crate::ContributionKind::AppSurface => "app_surface",
-        crate::ContributionKind::Hook => "hook",
-        crate::ContributionKind::Toolbar => "toolbar",
-        crate::ContributionKind::Status => "status",
-        crate::ContributionKind::ComposerSlash => "composer_slash",
-        crate::ContributionKind::TimelineCard => "timeline_card",
-        crate::ContributionKind::SettingsSection => "settings_section",
-        crate::ContributionKind::HostService => "host_service",
-        crate::ContributionKind::WorkflowBinding => "workflow_binding",
-    }
+    kind.key()
 }
 
 fn package_publisher(package: &PluginPackage) -> &str {

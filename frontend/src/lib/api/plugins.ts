@@ -201,7 +201,8 @@ export type PluginContributionKind =
   | 'timeline_card'
   | 'settings_section'
   | 'host_service'
-  | 'workflow_binding';
+  | 'workflow_binding'
+  | 'provider_import_source';
 
 export interface PluginContributionCatalogItem {
   pluginId: string;

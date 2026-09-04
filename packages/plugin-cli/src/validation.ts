@@ -52,6 +52,7 @@ const INTEGRATION_KINDS = new Set([
   "app.timeline.card",
   "app.settings.section",
   "host.service",
+  "provider.model.importSource",
 ]);
 const CAPABILITIES = new Set(["runtime.execute", "artifact.preview"]);
 
@@ -596,6 +597,21 @@ function validateHostChrome(
       );
     }
   };
+  const requireStringArray = (key: string) => {
+    const value = integration[key];
+    if (value === undefined) return;
+    if (
+      !Array.isArray(value) ||
+      value.some((item) => typeof item !== "string" || !item)
+    ) {
+      diagnostics.push(
+        error(
+          `${kindCode(kind)}_invalid`,
+          `${kind} ${key} must be an array of non-empty strings`,
+        ),
+      );
+    }
+  };
   const requireSurfaceEntry = () => {
     if (integration.handler !== "surface.createSession") {
       diagnostics.push(
@@ -648,6 +664,11 @@ function validateHostChrome(
     case "host.service":
       requireText("handler");
       requireRange("intervalSeconds", 5, 86400);
+      break;
+    case "provider.model.importSource":
+      requireText("label");
+      requireText("handler");
+      requireStringArray("agents");
       break;
     default:
       break;

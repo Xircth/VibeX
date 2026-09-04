@@ -86,7 +86,8 @@ pub use package::{
     PackageAppContributions, PackageFormat, PackageSkill, PackageWarning, PluginContentDocument,
     PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage, PluginProductDetail,
     PluginSource, PluginSourceKind, PreviewProcessContribution, PreviewProviderContribution,
-    RuntimeContribution, RuntimeInstall, SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT,
+    ProviderImportSourceContribution, RuntimeContribution, RuntimeInstall, SETTINGS_SECTION_SLOT,
+    TIMELINE_CARD_SLOT,
     package_content_digest,
 };
 pub use ports::{

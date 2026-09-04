@@ -12,7 +12,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
@@ -28,9 +28,19 @@ import type {
 } from 'shared/types';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import {
+  createPluginControlApi,
+  type PluginContributionCatalogItem,
+} from '@/lib/api/plugins';
+import { useBackendTransport } from '@/lib/transport';
 import { cn } from '@/lib/utils';
 import {
   agentManagementApi,
@@ -97,8 +107,27 @@ export function AgentModelProviderManager({
   >({});
   const [claudeMappingTarget, setClaudeMappingTarget] = useState('main');
   const [importOpen, setImportOpen] = useState(false);
+  const transport = useBackendTransport();
+  const pluginApi = useMemo(
+    () => createPluginControlApi(transport),
+    [transport]
+  );
+  const importContributions = usePluginHostContributions(
+    'provider_import_source'
+  );
+  // A source that names agents only shows up for those agents; naming none
+  // means it can read any agent's layout.
+  const pluginImportSources = useMemo(
+    () =>
+      importContributions.filter((item) => {
+        const agents = contributionMetadata(item).agents;
+        if (!Array.isArray(agents) || agents.length === 0) return true;
+        return agents.includes(agentId);
+      }),
+    [importContributions, agentId]
+  );
   const [importPreview, setImportPreview] =
-    useState<AgentModelProviderImportPreviewView | null>(null);
+    useState<ImportPreviewModel | null>(null);
   const [importSelected, setImportSelected] = useState<string[]>([]);
   const [probes, setProbes] = useState<
     Record<string, AgentModelProviderProbeView | 'loading'>
@@ -566,7 +595,7 @@ export function AgentModelProviderManager({
         agentId,
         source
       );
-      setImportPreview(preview);
+      setImportPreview({ ...preview, origin: { kind: 'builtin', source } });
       setImportSelected(
         preview.candidates
           .filter((candidate) => !candidate.skip_reason)
@@ -585,18 +614,85 @@ export function AgentModelProviderManager({
     }
   };
 
+  /**
+   * Runs a plugin-contributed import source. The plugin only discovers
+   * candidates; nothing is written until the user picks from the same preview
+   * the built-in sources use.
+   */
+  const loadPluginImport = async (item: PluginContributionCatalogItem) => {
+    setImportOpen(false);
+    setSaving(true);
+    setError(null);
+    try {
+      const metadata = contributionMetadata(item);
+      const handler =
+        typeof metadata.handler === 'string' ? metadata.handler : item.id;
+      const candidates = pluginImportCandidates(
+        await pluginApi.invokeContribution(item.pluginId, handler, { agentId })
+      );
+      setImportPreview({
+        candidates: candidates.map((candidate) => candidate.view),
+        error: candidates.length ? null : t('settings:agents.providerImportEmpty'),
+        origin: {
+          kind: 'plugin',
+          label: item.label,
+          drafts: new Map(
+            candidates.map((candidate) => [
+              candidate.view.source_id,
+              candidate.draft,
+            ])
+          ),
+        },
+      });
+      setImportSelected(
+        candidates
+          .filter((candidate) => !candidate.view.skip_reason)
+          .map((candidate) => candidate.view.source_id)
+      );
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        t('settings:agents.providerActionFailed')
+      );
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const applyImport = async () => {
     if (!importPreview) return;
     setSaving(true);
     setError(null);
     try {
-      setView(
-        await agentManagementApi.importModelProviders({
-          agent_id: agentId,
-          source: importPreview.source,
-          source_ids: importSelected,
-        })
-      );
+      if (importPreview.origin.kind === 'plugin') {
+        const { drafts } = importPreview.origin;
+        let latest = view;
+        // Saved one at a time through the normal save path, so a plugin's
+        // candidates get the same validation as anything typed by hand.
+        for (const sourceId of importSelected) {
+          const draft = drafts.get(sourceId);
+          if (!draft) continue;
+          latest = await agentManagementApi.saveModelProvider({
+            id: null,
+            agent_id: agentId,
+            name: draft.name,
+            api_url: draft.api_url,
+            api_key: draft.api_key,
+            model: draft.model,
+          });
+        }
+        setView(latest);
+      } else {
+        setView(
+          await agentManagementApi.importModelProviders({
+            agent_id: agentId,
+            source: importPreview.origin.source,
+            source_ids: importSelected,
+          })
+        );
+      }
       setImportPreview(null);
       setImportSelected([]);
       toast.success(t('settings:agents.providerImported'));
@@ -836,6 +932,27 @@ export function AgentModelProviderManager({
             >
               {t('settings:agents.providerImportCcSwitch')}
             </button>
+            {pluginImportSources.map((item) => {
+              const metadata = contributionMetadata(item);
+              const Icon = contributionIconComponent(metadata.icon, Upload);
+              return (
+                <button
+                  key={`${item.pluginId}:${item.id}`}
+                  type="button"
+                  role="menuitem"
+                  disabled={busy}
+                  title={
+                    typeof metadata.description === 'string'
+                      ? metadata.description
+                      : undefined
+                  }
+                  onClick={() => void loadPluginImport(item)}
+                >
+                  <Icon aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -1121,6 +1238,69 @@ function ProviderCard({
   );
 }
 
+/** One provider a plugin found, ready to go through the normal save path. */
+interface PluginImportDraft {
+  name: string;
+  api_url: string;
+  api_key: string | null;
+  model: string;
+}
+
+type ImportOrigin =
+  | { kind: 'builtin'; source: AgentModelProviderImportSource }
+  | { kind: 'plugin'; label: string; drafts: Map<string, PluginImportDraft> };
+
+type ImportPreviewModel = Pick<
+  AgentModelProviderImportPreviewView,
+  'candidates' | 'error'
+> & { origin: ImportOrigin };
+
+/**
+ * Reads whatever a plugin's import handler returned.
+ *
+ * The payload crosses a Worker boundary, so every field is checked rather than
+ * cast. A candidate missing a name or URL is dropped instead of failing the
+ * whole import — one malformed entry should not hide the rest.
+ */
+export function pluginImportCandidates(
+  payload: unknown
+): { view: AgentModelProviderImportPreviewView['candidates'][number]; draft: PluginImportDraft }[] {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload &&
+        typeof payload === 'object' &&
+        Array.isArray((payload as { providers?: unknown }).providers)
+      ? (payload as { providers: unknown[] }).providers
+      : [];
+  const text = (value: unknown) =>
+    typeof value === 'string' && value.trim() ? value.trim() : null;
+  return rows.flatMap((row, index) => {
+    if (!row || typeof row !== 'object') return [];
+    const record = row as Record<string, unknown>;
+    const name = text(record.name);
+    const apiUrl = text(record.apiUrl) ?? text(record.api_url);
+    if (!name || !apiUrl) return [];
+    const apiKey = text(record.apiKey) ?? text(record.api_key);
+    const model = text(record.model) ?? '';
+    return [
+      {
+        view: {
+          source_id: text(record.id) ?? text(record.sourceId) ?? `plugin-${index}`,
+          name,
+          api_url: apiUrl,
+          model,
+          credential_present: apiKey !== null,
+          // The store requires a key, so a keyless candidate cannot be saved.
+          skip_reason: apiKey
+            ? null
+            : 'This source did not provide an API key',
+        },
+        draft: { name, api_url: apiUrl, api_key: apiKey, model },
+      },
+    ];
+  });
+}
+
 function ImportPreview({
   preview,
   selected,
@@ -1129,7 +1309,9 @@ function ImportPreview({
   onCancel,
   onApply,
 }: {
-  preview: AgentModelProviderImportPreviewView;
+  // Plugin-contributed sources produce the same candidate list without going
+  // through the built-in import command, so this only needs the parts it renders.
+  preview: Pick<AgentModelProviderImportPreviewView, 'candidates' | 'error'>;
   selected: string[];
   saving: boolean;
   onToggle: (sourceId: string, checked: boolean) => void;

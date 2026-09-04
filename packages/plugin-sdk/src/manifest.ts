@@ -249,6 +249,24 @@ export interface HostServiceIntegrationManifest extends IntegrationBase {
   intervalSeconds?: number;
 }
 
+/**
+ * Adds an entry to the "import from…" menu in model provider settings.
+ *
+ * The handler returns the presets it discovered; the Host renders the picker
+ * and writes them through `provider.presets.save`. Importing never binds — the
+ * user still chooses which preset an agent uses.
+ */
+export interface ProviderImportSourceIntegrationManifest
+  extends IntegrationBase {
+  kind: "provider.model.importSource";
+  label: string;
+  handler: string;
+  icon?: ContributionIcon;
+  /** Agent ids this source can import for. Omit for every agent. */
+  agents?: string[];
+  description?: string;
+}
+
 export type IntegrationManifest =
   | SkillIntegrationManifest
   | McpIntegrationManifest
@@ -263,7 +281,8 @@ export type IntegrationManifest =
   | ComposerSlashIntegrationManifest
   | TimelineCardIntegrationManifest
   | SettingsSectionIntegrationManifest
-  | HostServiceIntegrationManifest;
+  | HostServiceIntegrationManifest
+  | ProviderImportSourceIntegrationManifest;
 
 const relativePath = {
   type: "string",
@@ -410,6 +429,7 @@ export const pluginManifestSchema = {
               "app.timeline.card",
               "app.settings.section",
               "host.service",
+              "provider.model.importSource",
             ],
           },
           resource: relativePath,

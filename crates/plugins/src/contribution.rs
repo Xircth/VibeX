@@ -24,6 +24,33 @@ pub enum ContributionKind {
     SettingsSection,
     HostService,
     WorkflowBinding,
+    ProviderImportSource,
+}
+
+impl ContributionKind {
+    /// Stable snake_case key the catalog and every IPC surface use. This is
+    /// wire vocabulary — renaming a variant must not silently rename the key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Skill => "skill",
+            Self::Action => "action",
+            Self::Command => "command",
+            Self::Runtime => "runtime",
+            Self::Mcp => "mcp",
+            Self::Hook => "hook",
+            Self::FileOpener => "file_opener",
+            Self::PreviewProvider => "preview_provider",
+            Self::AppSurface => "app_surface",
+            Self::Toolbar => "toolbar",
+            Self::Status => "status",
+            Self::ComposerSlash => "composer_slash",
+            Self::TimelineCard => "timeline_card",
+            Self::SettingsSection => "settings_section",
+            Self::HostService => "host_service",
+            Self::WorkflowBinding => "workflow_binding",
+            Self::ProviderImportSource => "provider_import_source",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -394,6 +421,20 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             "handler": service.handler,
             "intervalSeconds": service.interval_seconds,
         }),
+    }));
+    templates.extend(plugin.app.provider_import_sources.iter().map(|source| {
+        ContributionTemplate {
+            plugin_id: plugin_id.clone(),
+            id: source.id.clone(),
+            kind: ContributionKind::ProviderImportSource,
+            label: source.label.clone(),
+            metadata: json!({
+                "handler": source.handler,
+                "icon": source.icon,
+                "agents": source.agents,
+                "description": source.description,
+            }),
+        }
     }));
     templates
 }

@@ -26,12 +26,12 @@ mod tests {
         PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, RuntimeSource,
         agent_process_command, apply_codex_auth_document, apply_config_transition_then,
         apply_custom_version_override, apply_opencode_provider_connection,
-        bind_profile_runtime_executable, build_launch_environment, built_in_probe_action,
-        cancellable_command_output, codex_provider_config_is_projected,
-        compare_and_set_agent_environment, configure_uv_tool_install_command,
-        dependency_version_satisfied, detect_account_login, extract_binary_archive,
-        install_locked_plan, managed_artifacts_directory, managed_install_root,
-        managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        authentication_with_bound_provider, bind_profile_runtime_executable,
+        build_launch_environment, built_in_probe_action, cancellable_command_output,
+        codex_provider_config_is_projected, compare_and_set_agent_environment,
+        configure_uv_tool_install_command, dependency_version_satisfied, detect_account_login,
+        extract_binary_archive, install_locked_plan, managed_artifacts_directory,
+        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
         opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
@@ -41,8 +41,8 @@ mod tests {
         read_agent_environment_record, read_agent_management_snapshot,
         reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
         redact_operation_output, relocate_managed_path, remove_opencode_provider_state,
-        resolve_npm_package_executable, resolve_uv_tool_executable, restore_native_file_rollback,
-        run_agent_management_warmup_once, run_bounded_agent_probes,
+        resolve_npm_package_executable, resolve_profile_auth_mode, resolve_uv_tool_executable,
+        restore_native_file_rollback, run_agent_management_warmup_once, run_bounded_agent_probes,
         run_local_runtime_discovery_once, runtime_preflight_facts, safe_archive_executable,
         sanitize_custom_version, seed_kimi_synthetic_credential, set_opencode_provider_enabled,
         staging_dir_is_referenced_by, sync_native_launch_preferences,
@@ -2323,6 +2323,38 @@ base_url = "https://example.test/v1"
         .await
         .unwrap();
     }
+
+    #[test]
+    fn grok_bound_provider_is_model_provider_even_when_env_defaults_to_subscription() {
+        let agent_id = AgentId::parse("grok").unwrap();
+        let policy = agents::built_in_auth_mode_policy(&agent_id).expect("grok policy");
+        let env = HashMap::new();
+
+        assert_eq!(
+            resolve_profile_auth_mode(&agent_id, policy, &env, false, false, None),
+            "subscription"
+        );
+        assert_eq!(
+            resolve_profile_auth_mode(&agent_id, policy, &env, true, false, None),
+            "model_provider"
+        );
+    }
+
+    #[test]
+    fn bound_provider_credentials_count_as_api_key_login() {
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, true),
+            AgentAuthenticationStatus::ApiKey
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, false),
+            AgentAuthenticationStatus::NotLoggedIn
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::Account, true),
+            AgentAuthenticationStatus::Account
+        );
+    }
 }
 
 #[path = "agent_management/account_flow.rs"]
@@ -3381,7 +3413,36 @@ async fn observe_native_authentication(
             return AgentAuthenticationStatus::ApiKey;
         }
     }
-    native_authentication
+    let bound_with_credential =
+        bound_model_provider_has_credentials(app, agent_id, agent_env).await;
+    authentication_with_bound_provider(native_authentication, bound_with_credential)
+}
+
+async fn bound_model_provider_has_credentials(
+    app: &AppHandle,
+    agent_id: &AgentId,
+    agent_env: &HashMap<String, String>,
+) -> bool {
+    let Ok(home) = app.path().home_dir() else {
+        return false;
+    };
+    let Ok(store_path) = app
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("agent-model-providers.json"))
+    else {
+        return false;
+    };
+    let native_home = resolve_model_provider_native_home(&home, agent_env, agent_id);
+    let Ok(view) =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home)).await
+    else {
+        return false;
+    };
+    view.providers
+        .iter()
+        .find(|provider| Some(&provider.id) == view.bound_provider_id.as_ref())
+        .is_some_and(|provider| provider.credential_present)
 }
 
 async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
@@ -4540,37 +4601,7 @@ pub async fn agent_management_preflight(
         }
     }
     let authentication_observation: Option<AcpAuthenticationObservationSnapshot> = None;
-    let native_authentication = if let Ok(home) = app.path().home_dir() {
-        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home,
-            agent_env.clone().into_iter().collect(),
-        );
-        match provider.read(&agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(_) => AgentAuthenticationStatus::NotLoggedIn,
-        }
-    } else {
-        AgentAuthenticationStatus::NotLoggedIn
-    };
-    let native_authentication = if agent_id.as_str() == "deepseek_harness" {
-        if let Ok(home) = app.path().home_dir() {
-            let paths = dsh_paths(&home, &agent_env);
-            if dsh_configuration::any_credential_present(&paths) {
-                AgentAuthenticationStatus::ApiKey
-            } else {
-                native_authentication
-            }
-        } else {
-            native_authentication
-        }
-    } else {
-        native_authentication
-    };
+    let native_authentication = observe_native_authentication(&app, &agent_id, &agent_env).await;
     let authentication_required_by_default = BuiltInProfileCatalog::bundled()
         .profile(&agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
@@ -4944,7 +4975,10 @@ async fn evaluate_auth_mode_preflight(
             ),
         });
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return Ok(
             match evaluate_profile_auth_mode_preflight(app, pool, agent_id.clone(), authentication)
                 .await
@@ -6236,23 +6270,11 @@ async fn record_post_install_probe(
         &CancellationToken::new(),
     )
     .await?;
-    let native_authentication = if let Ok(home) = app.path().home_dir() {
+    let native_authentication = if app.path().home_dir().is_ok() {
         let agent_env = read_agent_environment(pool, agent_id)
             .await
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        let account_logged_in = resolve_native_account_login(&home, agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home,
-            agent_env.into_iter().collect(),
-        );
-        match provider.read(agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(error) => return Err(error.into()),
-        }
+        observe_native_authentication(app, agent_id, &agent_env).await
     } else {
         AgentAuthenticationStatus::NotRequired
     };
@@ -10070,7 +10092,10 @@ pub async fn agent_auth_mode(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return with_account_label(
             read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await?,
         )
@@ -10115,7 +10140,10 @@ pub async fn agent_auth_mode_set(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return with_account_label(
             set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
         )
@@ -10322,6 +10350,56 @@ async fn read_agent_environment(
     parse_agent_env(env_json.as_deref()).map_err(internal_error)
 }
 
+fn resolve_profile_auth_mode(
+    agent_id: &AgentId,
+    policy: agents::BuiltInAuthModePolicy,
+    env: &HashMap<String, String>,
+    bound_provider: bool,
+    native_custom_endpoint: bool,
+    snapshot: Option<&agents::NativeConfigSnapshot>,
+) -> String {
+    if policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint) {
+        return "model_provider".to_string();
+    }
+    if let Some(mode) = env
+        .get(policy.mode_env)
+        .filter(|mode| policy.modes.contains(&mode.as_str()))
+        .filter(|mode| mode.as_str() != "model_provider")
+    {
+        return mode.clone();
+    }
+    if agent_id.as_str() == "claude_code" {
+        if snapshot.is_some_and(|snapshot| native_field_present(snapshot, "anthropic_api_key")) {
+            return "official_api".to_string();
+        }
+        return "official_subscription".to_string();
+    }
+    if snapshot.is_some_and(|snapshot| native_field_present(snapshot, "antigravity_api_key")) {
+        return "gemini-api-key".to_string();
+    }
+    if snapshot.is_some_and(|snapshot| {
+        native_field_present(snapshot, "antigravity_google_api_key")
+            || native_field_text(snapshot, "antigravity_cloud_project").is_some()
+    }) {
+        return "agent-platform".to_string();
+    }
+    if policy.modes.contains(&"oauth-personal") {
+        return "oauth-personal".to_string();
+    }
+    policy.default_mode.to_string()
+}
+
+fn authentication_with_bound_provider(
+    observed: AgentAuthenticationStatus,
+    bound_with_credential: bool,
+) -> AgentAuthenticationStatus {
+    if bound_with_credential && matches!(observed, AgentAuthenticationStatus::NotLoggedIn) {
+        AgentAuthenticationStatus::ApiKey
+    } else {
+        observed
+    }
+}
+
 fn project_agent_auth_mode(
     agent_id: AgentId,
     policy: agents::BuiltInAuthModePolicy,
@@ -10394,32 +10472,14 @@ async fn read_profile_auth_mode_view(
     .read(&agent_id, account_logged_in)
     .await
     .map_err(internal_error)?;
-    let configured_mode = environment
-        .get(policy.mode_env)
-        .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .filter(|mode| mode.as_str() != "model_provider")
-        .cloned();
-    let mode = if providers.bound_provider_id.is_some()
-        || native_uses_custom_endpoint(&agent_id, &snapshot)
-    {
-        "model_provider".to_string()
-    } else if let Some(mode) = configured_mode {
-        mode
-    } else if agent_id.as_str() == "claude_code" {
-        if native_field_present(&snapshot, "anthropic_api_key") {
-            "official_api".to_string()
-        } else {
-            "official_subscription".to_string()
-        }
-    } else if native_field_present(&snapshot, "antigravity_api_key") {
-        "gemini-api-key".to_string()
-    } else if native_field_present(&snapshot, "antigravity_google_api_key")
-        || native_field_text(&snapshot, "antigravity_cloud_project").is_some()
-    {
-        "agent-platform".to_string()
-    } else {
-        "oauth-personal".to_string()
-    };
+    let mode = resolve_profile_auth_mode(
+        &agent_id,
+        policy,
+        &environment,
+        providers.bound_provider_id.is_some(),
+        native_uses_custom_endpoint(&agent_id, &snapshot),
+        Some(&snapshot),
+    );
     let credential_env = agents::auth_mode_credential_env(&agent_id, &mode)
         .unwrap_or(policy.credential_env)
         .to_string();
@@ -10432,6 +10492,7 @@ async fn read_profile_auth_mode_view(
         ("claude_code", "official_api" | "custom") => {
             native_field_present(&snapshot, "anthropic_api_key")
         }
+        ("grok", "api_key" | "custom") => native_field_present(&snapshot, "grok_api_key"),
         ("antigravity" | "gemini", "gemini-api-key") => {
             native_field_present(&snapshot, "antigravity_api_key")
         }
@@ -10440,7 +10501,9 @@ async fn read_profile_auth_mode_view(
                 || (native_field_text(&snapshot, "antigravity_cloud_project").is_some()
                     && native_field_text(&snapshot, "antigravity_cloud_location").is_some())
         }
-        _ => false,
+        _ => environment
+            .get(&credential_env)
+            .is_some_and(|value| !value.trim().is_empty()),
     };
     Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, policy.modes),
@@ -10568,6 +10631,47 @@ async fn evaluate_profile_auth_mode_preflight(
                 Some(native_path),
             )
         }
+        ("grok", "subscription") => (
+            account_ready,
+            if account_ready {
+                "Grok 订阅登录模式已检测到有效账号会话。".to_string()
+            } else {
+                "Grok 订阅登录模式尚未检测到有效账号会话，请先运行官方登录。".to_string()
+            },
+            Some(native_path),
+        ),
+        ("grok", "api_key") => (
+            view.credential_present,
+            if view.credential_present {
+                "Grok 官方 API Key 已配置。".to_string()
+            } else {
+                "Grok 官方 API 需要 XAI_API_KEY。".to_string()
+            },
+            Some(native_path),
+        ),
+        ("grok", "custom") => {
+            let ready = native_field_present(&snapshot, "grok_api_key")
+                && native_field_text(&snapshot, "grok_base_url").is_some()
+                && native_field_text(&snapshot, "grok_custom_model_id").is_some();
+            (
+                ready,
+                if ready {
+                    "Grok 自定义端点与模型已配置。".to_string()
+                } else {
+                    "Grok 自定义模式需要端点、模型与 API Key。".to_string()
+                },
+                Some(native_path),
+            )
+        }
+        ("grok", "model_provider") => (
+            view.credential_present,
+            if view.credential_present {
+                "已启用的供应商凭据可用。".to_string()
+            } else {
+                "尚未检测到已启用的供应商凭据。".to_string()
+            },
+            Some(native_path),
+        ),
         _ => (
             false,
             format!("无法验证鉴权模式 `{}`。", view.mode),

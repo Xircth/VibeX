@@ -467,6 +467,41 @@ describe('AgentAuthModeControl', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('treats a bound Grok provider as the saved auth mode, not a draft tab', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: [
+        ...grokOptions,
+        authOption(
+          'model_provider',
+          'provider',
+          'authModeProvider',
+          'authDescGrokCustom'
+        ),
+      ],
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="api_key"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    const providerTab = await screen.findByRole('tab', { name: '供应商' });
+    expect(providerTab).toHaveAttribute('aria-selected', 'true');
+    expect(providerTab).not.toHaveClass('is-draft');
+    expect(screen.getByTestId('model-provider')).toBeVisible();
+    expect(
+      screen.queryByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
+    ).not.toBeInTheDocument();
+  });
+
   it('hides login and shows logout when the official account is signed in', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'claude_code',

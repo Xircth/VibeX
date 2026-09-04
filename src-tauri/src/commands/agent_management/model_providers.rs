@@ -5265,4 +5265,37 @@ mod tests {
         assert_eq!(provider.api_url, "https://gateway.example/v1");
         assert_eq!(provider.api_key, "sk-gemini");
     }
+
+    #[tokio::test]
+    async fn native_grok_custom_model_is_adopted_and_bound() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-grok"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("grok").unwrap(),
+            Some(&grok_home),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.providers.len(), 1);
+        let provider = &view.providers[0];
+        assert!(provider.bound);
+        assert!(provider.credential_present);
+        assert_eq!(provider.api_url, "https://gateway.example/v1");
+        assert_eq!(provider.api_key, "sk-grok");
+    }
 }

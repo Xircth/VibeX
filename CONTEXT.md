@@ -214,6 +214,8 @@ Workflow 领域与 Automation 的关系见
 ## Remote and device domain
 
 - **Application Core（应用核心）** — 不依赖 Tauri 或 Axum 的用例门面；desktop command、Web route 与 Remote Desktop adapter 都只能做认证、DTO/错误转换后调用同一公共 seam。
+- **Host Command Registry（Host 命令注册表）** — Host 上唯一的产品命令集合与实现入口；WebUI、Workstation 客户端和本机桌面都通过同一注册表执行，capabilities 由注册表派生。桌面壳命令（本机控制台、CEF、系统对话框宿主）不进入该表。见 [ADR-0078](docs/adr/0078-host-command-registry-single-seam.md)。
+- **Host Event Bus（Host 事件总线）** — Host 上唯一的推送面；会话行操作、patch 流与终端输出都经此到达 WebSocket 或本机转发，客户端不得各写一套静默 no-op 的 listen。见 [ADR-0078](docs/adr/0078-host-command-registry-single-seam.md)。
 - **Server owner（服务器所有者）** — 对一个 VibeX Server 数据目录及其配对设备拥有最终管理权的单一主体；P0/P1 不把不同设备解释为不同用户，也不提供团队成员或多租户数据隔离。
 - **VibeX Host（VibeX 主机）** — 当前拥有一个 VibeX 数据目录并对客户端提供 Remote protocol 的运行实例，可以是桌面应用或 Headless Server；同一数据目录同一时刻只能有一个 Host。
 - **Host identity（Host 身份）** — 一个数据目录在配对与 capabilities 中出示的稳定身份；客户端用它合并 Server Profile，不以 URL 识别 Host。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。

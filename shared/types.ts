@@ -1969,8 +1969,8 @@ export type PlanUsageWindow = {
 /**
  * Stable window identifier the frontend maps to a localized label.
  * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
- * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `monthly`.
- * Cursor: `cursor_models` / `other_models`.
+ * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
+ * `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
  */
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
 

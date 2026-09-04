@@ -7,7 +7,13 @@
 //! Cursor through the official DashboardService period-usage API. None of the
 //! probes touch live agent connections or conversations.
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{
+    collections::HashMap,
+    env,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -109,14 +115,32 @@ impl PlanUsageResult {
     }
 }
 
+fn plan_usage_cache() -> &'static Mutex<HashMap<AgentId, AgentPlanUsage>> {
+    static CACHE: OnceLock<Mutex<HashMap<AgentId, AgentPlanUsage>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn cached_plan_usage(agent_id: &AgentId) -> Option<AgentPlanUsage> {
+    plan_usage_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(agent_id).cloned())
+}
+
 pub async fn probe_plan_usage(agent_id: &AgentId) -> PlanUsageResult {
-    match agent_id.as_str() {
+    let result = match agent_id.as_str() {
         "claude_code" => probe_claude_plan_usage().await,
         "codex" => probe_codex_plan_usage().await,
         "grok" => probe_grok_plan_usage().await,
         "cursor" => probe_cursor_plan_usage().await,
         _ => PlanUsageResult::unavailable(PlanUsageUnavailableReason::UnsupportedAgent),
+    };
+    if let PlanUsageResult::Ok { usage } = &result
+        && let Ok(mut cache) = plan_usage_cache().lock()
+    {
+        cache.insert(agent_id.clone(), usage.clone());
     }
+    result
 }
 
 // ── Codex: one-shot `codex app-server` JSON-RPC probe ──────────────────────

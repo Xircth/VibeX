@@ -2113,3 +2113,29 @@ export type LocalHistoryImportLogEntry = { phase: LocalHistoryImportPhase, agent
 export type LocalHistoryScanProgress = { session_count: number, bytes_scanned: bigint, };
 
 export type ConversationTurnErrorKind = "rejected" | "service_error" | "rate_limited" | "cancelled" | "auth_required" | "resource_not_found" | "session_resume_unsupported" | "session_load_failed" | "idle_timeout" | "connection_closed" | "prompt_conflict" | "unknown";
+
+export type ProjectUsageAgentUsage = { agent_id: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>, };
+
+export type ProjectUsageFolderUsage = { workspace_id: string, folder?: string | null, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageModelUsage = { model: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageProviderStatus = { provider: string, success: boolean, error: string | null, sessions_scanned: bigint, };
+
+export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null, };
+
+export type ProjectUsageSourcedTokens = { protocol?: ProjectUsageTokenCounts | null, vendor_log?: ProjectUsageTokenCounts | null, sources_disagree: boolean, };
+
+export type ProjectUsageStatistics = { scope: string, project_id: string, project_name: string, total_sessions: bigint, total_tokens: ProjectUsageSourcedTokens, estimated_cost?: number | null, vendor_estimated_cost?: number | null, sessions: Array<ProjectUsageSessionSummary>, daily_usage: Array<ProjectUsageDailyUsage>, weekly_comparison: ProjectUsageWeeklyComparison, by_model: Array<ProjectUsageModelUsage>, by_folder: Array<ProjectUsageFolderUsage>, by_agent: Array<ProjectUsageAgentUsage>, provider_status: Array<ProjectUsageProviderStatus>, unattributed_vendor_sessions: bigint, last_updated: bigint, pricing_notice?: string | null, };
+
+export type ProjectUsageTokenCounts = { input_tokens?: bigint | null, output_tokens?: bigint | null, cache_write_tokens?: bigint | null, cache_read_tokens?: bigint | null, total_tokens?: bigint | null, };
+
+export type ProjectUsageTrends = { sessions: number, cost: number, tokens: number, };
+
+export type ProjectUsageUsageData = { input_tokens?: bigint | null, output_tokens?: bigint | null, cache_write_tokens?: bigint | null, cache_read_tokens?: bigint | null, total_tokens?: bigint | null, };
+
+export type ProjectUsageWeekData = { sessions: bigint, cost?: number | null, tokens?: bigint | null, };
+
+export type ProjectUsageWeeklyComparison = { current_week: ProjectUsageWeekData, last_week: ProjectUsageWeekData, trends: ProjectUsageTrends, };

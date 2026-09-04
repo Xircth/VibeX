@@ -106,8 +106,15 @@ use remote_protocol::{
     RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
     SubscriptionResource, SubscriptionSnapshot,
 };
-use services::services::config::{
-    CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen,
+use services::services::{
+    config::{CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen},
+    usage::{
+        ProjectUsageAgentUsage, ProjectUsageDailyUsage, ProjectUsageFolderUsage,
+        ProjectUsageModelUsage, ProjectUsageProviderStatus, ProjectUsageSessionSummary,
+        ProjectUsageSourcedTokens, ProjectUsageStatistics, ProjectUsageTokenCounts,
+        ProjectUsageTrends, ProjectUsageUsageData, ProjectUsageWeekData,
+        ProjectUsageWeeklyComparison,
+    },
 };
 use ts_rs::TS;
 use vibex::{
@@ -523,6 +530,19 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentPlan>(&mut decls);
     insert_declaration::<AgentPlanEntry>(&mut decls);
     insert_declaration::<AgentUsage>(&mut decls);
+    insert_declaration::<ProjectUsageTokenCounts>(&mut decls);
+    insert_declaration::<ProjectUsageSourcedTokens>(&mut decls);
+    insert_declaration::<ProjectUsageUsageData>(&mut decls);
+    insert_declaration::<ProjectUsageDailyUsage>(&mut decls);
+    insert_declaration::<ProjectUsageModelUsage>(&mut decls);
+    insert_declaration::<ProjectUsageFolderUsage>(&mut decls);
+    insert_declaration::<ProjectUsageAgentUsage>(&mut decls);
+    insert_declaration::<ProjectUsageSessionSummary>(&mut decls);
+    insert_declaration::<ProjectUsageWeekData>(&mut decls);
+    insert_declaration::<ProjectUsageTrends>(&mut decls);
+    insert_declaration::<ProjectUsageWeeklyComparison>(&mut decls);
+    insert_declaration::<ProjectUsageProviderStatus>(&mut decls);
+    insert_declaration::<ProjectUsageStatistics>(&mut decls);
     insert_declaration::<AgentListedSession>(&mut decls);
     insert_declaration::<AgentSessionListPage>(&mut decls);
     insert_declaration::<AgentSessionMode>(&mut decls);

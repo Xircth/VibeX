@@ -1,26 +1,22 @@
 //! Tauri command + AppState/DB coordination for local usage statistics.
 //!
-//! The pure scanning / cost / aggregation logic and the `ProjectUsage*` output types
-//! were sunk into `services::services::usage` (架构报告 A-1). This module keeps the
-//! command plus the parts that need AppState (the scan cache) or the DB (scope
-//! resolution), and re-exports the output types so existing imports keep resolving.
+//! Attribution comes from `sessions` × `workspaces` × the usage snapshot
+//! (ADR-0075). Vendor logs are optional token-breakdown supplements aligned by
+//! `external_session_id`.
 
-use std::{
-    collections::HashSet,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use db::models::{project::Project, project_repo::ProjectRepo, workspace::Workspace};
-// Re-export the output types so `crate::commands::local_usage::ProjectUsage*` (used by
-// state.rs) and any frontend-facing reference keep resolving from here.
+use conversations::catch_up_usage_snapshots;
+use db::models::{conversation_usage::ConversationUsageSnapshotRecord, project::Project};
 pub use services::services::usage::{
-    ProjectUsageDailyUsage, ProjectUsageModelUsage, ProjectUsageProviderStatus,
-    ProjectUsageSessionSummary, ProjectUsageStatistics, ProjectUsageTrends, ProjectUsageUsageData,
-    ProjectUsageWeekData, ProjectUsageWeeklyComparison,
+    ProjectUsageAgentUsage, ProjectUsageDailyUsage, ProjectUsageFolderUsage,
+    ProjectUsageModelUsage, ProjectUsageProviderStatus, ProjectUsageSessionSummary,
+    ProjectUsageSourcedTokens, ProjectUsageStatistics, ProjectUsageTokenCounts, ProjectUsageTrends,
+    ProjectUsageUsageData, ProjectUsageWeekData, ProjectUsageWeeklyComparison,
 };
 use services::services::usage::{
-    build_project_usage_statistics, scan_claude_sessions, scan_codex_sessions,
+    VendorLogUsage, align_vendor_usage, build_project_usage_statistics, scan_claude_sessions,
+    scan_codex_sessions,
 };
 use uuid::Uuid;
 
@@ -37,8 +33,8 @@ enum UsageScope {
 struct UsageScopeContext {
     scope: UsageScope,
     project_id: String,
+    project_uuid: Option<Uuid>,
     project_name: String,
-    workspace_paths: Vec<PathBuf>,
 }
 
 fn current_time_ms() -> i64 {
@@ -48,54 +44,27 @@ fn current_time_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn build_usage_cache_key(scope_ctx: &UsageScopeContext) -> String {
-    match scope_ctx.scope {
-        UsageScope::Global => "global".to_string(),
-        UsageScope::Project => format!("project:{}", scope_ctx.project_id),
-    }
+fn datetime_to_ms(value: chrono::DateTime<chrono::Utc>) -> i64 {
+    value.timestamp_millis()
 }
 
-fn filter_sessions_by_cutoff(
-    sessions: &[ProjectUsageSessionSummary],
-    cutoff_time: i64,
-) -> Vec<ProjectUsageSessionSummary> {
-    let mut filtered = if cutoff_time > 0 {
-        sessions
-            .iter()
-            .filter(|session| session.timestamp >= cutoff_time)
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        sessions.to_vec()
-    };
-
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    filtered
-}
-
-async fn scan_usage_sessions(
+async fn scan_vendor_logs(
     state: &tauri::State<'_, AppState>,
-    scope_ctx: &UsageScopeContext,
     now_ms: i64,
-) -> (
-    Vec<ProjectUsageSessionSummary>,
-    Vec<ProjectUsageProviderStatus>,
-) {
-    let cache_key = build_usage_cache_key(scope_ctx);
+) -> (Vec<VendorLogUsage>, Vec<ProjectUsageProviderStatus>) {
     {
         let cache = state.local_usage_cache.lock().await;
-        if let Some(entry) = cache.get(&cache_key)
+        if let Some(entry) = cache.get("vendor")
             && now_ms - entry.scanned_at_ms <= LOCAL_USAGE_SCAN_CACHE_TTL_MS
         {
-            return (entry.sessions.clone(), entry.provider_status.clone());
+            return (entry.vendor_sessions.clone(), entry.provider_status.clone());
         }
     }
 
     let mut all_sessions = Vec::new();
     let mut provider_status = Vec::new();
 
-    let claude_result = scan_claude_sessions(&scope_ctx.workspace_paths);
-    match claude_result {
+    match scan_claude_sessions() {
         Ok(sessions) => {
             provider_status.push(ProjectUsageProviderStatus {
                 provider: "claude".to_string(),
@@ -105,18 +74,17 @@ async fn scan_usage_sessions(
             });
             all_sessions.extend(sessions);
         }
-        Err(e) => {
+        Err(error) => {
             provider_status.push(ProjectUsageProviderStatus {
                 provider: "claude".to_string(),
                 success: false,
-                error: Some(e),
+                error: Some(error),
                 sessions_scanned: 0,
             });
         }
     }
 
-    let codex_result = scan_codex_sessions(&scope_ctx.workspace_paths);
-    match codex_result {
+    match scan_codex_sessions() {
         Ok(sessions) => {
             provider_status.push(ProjectUsageProviderStatus {
                 provider: "codex".to_string(),
@@ -126,11 +94,11 @@ async fn scan_usage_sessions(
             });
             all_sessions.extend(sessions);
         }
-        Err(e) => {
+        Err(error) => {
             provider_status.push(ProjectUsageProviderStatus {
                 provider: "codex".to_string(),
                 success: false,
-                error: Some(e),
+                error: Some(error),
                 sessions_scanned: 0,
             });
         }
@@ -138,38 +106,15 @@ async fn scan_usage_sessions(
 
     let mut cache = state.local_usage_cache.lock().await;
     cache.insert(
-        cache_key,
+        "vendor".to_string(),
         crate::state::LocalUsageCacheEntry {
-            sessions: all_sessions.clone(),
+            vendor_sessions: all_sessions.clone(),
             provider_status: provider_status.clone(),
             scanned_at_ms: now_ms,
         },
     );
 
     (all_sessions, provider_status)
-}
-
-fn collect_project_scope_paths(repo_paths: &[PathBuf], workspaces: &[Workspace]) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut seen = HashSet::new();
-
-    for path in repo_paths {
-        if !path.as_os_str().is_empty() && seen.insert(path.clone()) {
-            paths.push(path.clone());
-        }
-    }
-
-    for workspace in workspaces {
-        let Some(container_ref) = workspace.container_ref.as_deref() else {
-            continue;
-        };
-        let path = PathBuf::from(container_ref);
-        if !path.as_os_str().is_empty() && seen.insert(path.clone()) {
-            paths.push(path);
-        }
-    }
-
-    paths
 }
 
 async fn resolve_usage_scope(
@@ -187,8 +132,8 @@ async fn resolve_usage_scope(
         return Ok(UsageScopeContext {
             scope,
             project_id: "global".to_string(),
+            project_uuid: None,
             project_name: "全局".to_string(),
-            workspace_paths: Vec::new(),
         });
     }
 
@@ -201,23 +146,65 @@ async fn resolve_usage_scope(
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("Project {raw_project_id} not found"))?;
-    let repos = ProjectRepo::find_repos_for_project(pool, project_uuid)
-        .await
-        .map_err(|error| error.to_string())?;
-    let workspaces = Workspace::fetch_by_project_id(pool, project_uuid)
-        .await
-        .map_err(|error| error.to_string())?;
-    let repo_paths: Vec<PathBuf> = repos.iter().map(|repo| repo.path.clone()).collect();
 
     Ok(UsageScopeContext {
         scope,
         project_id: raw_project_id,
+        project_uuid: Some(project_uuid),
         project_name: project.name,
-        workspace_paths: collect_project_scope_paths(&repo_paths, &workspaces),
     })
 }
 
-// ============= Tauri Command =============
+fn attributed_sessions_from_rows(
+    rows: Vec<db::models::conversation_usage::ConversationUsageAttributionRow>,
+    cutoff_time: i64,
+) -> Vec<ProjectUsageSessionSummary> {
+    rows.into_iter()
+        .filter(|row| cutoff_time <= 0 || datetime_to_ms(row.session_updated_at) >= cutoff_time)
+        .map(|row| {
+            let protocol = match (
+                row.protocol_input_tokens,
+                row.protocol_output_tokens,
+                row.protocol_cache_write_tokens,
+                row.protocol_cache_read_tokens,
+                row.protocol_total_tokens,
+            ) {
+                (None, None, None, None, None) => None,
+                (input, output, cache_write, cache_read, total) => Some(ProjectUsageTokenCounts {
+                    input_tokens: input,
+                    output_tokens: output,
+                    cache_write_tokens: cache_write,
+                    cache_read_tokens: cache_read,
+                    total_tokens: total,
+                }),
+            };
+            let timestamp = row
+                .last_usage_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.timestamp_millis())
+                .unwrap_or_else(|| datetime_to_ms(row.session_updated_at));
+            ProjectUsageSessionSummary {
+                session_id: row.session_id.to_string(),
+                workspace_id: row.workspace_id.to_string(),
+                folder: row.container_ref,
+                agent_id: row.agent_id,
+                timestamp,
+                model: row.snapshot_model.or(row.model),
+                tokens: ProjectUsageSourcedTokens {
+                    protocol,
+                    vendor_log: None,
+                    sources_disagree: false,
+                },
+                context_used: row.context_used,
+                context_window_max: row.context_window_max,
+                cost: row.protocol_cost_amount,
+                summary: row.session_name,
+                external_session_id: row.external_session_id,
+            }
+        })
+        .collect()
+}
 
 #[tauri::command]
 pub async fn get_project_usage_statistics(
@@ -229,14 +216,24 @@ pub async fn get_project_usage_statistics(
     let date_range = date_range.unwrap_or_else(|| "7d".to_string());
     let scope_ctx = resolve_usage_scope(&state, scope, project_id).await?;
     let now_ms = current_time_ms();
-
     let cutoff_time = match date_range.as_str() {
         "7d" => now_ms - 7 * 24 * 60 * 60 * 1000,
         "30d" => now_ms - 30 * 24 * 60 * 60 * 1000,
         _ => 0,
     };
-    let (all_sessions, provider_status) = scan_usage_sessions(&state, &scope_ctx, now_ms).await;
-    let filtered_sessions = filter_sessions_by_cutoff(&all_sessions, cutoff_time);
+
+    let pool = &state.deployment.db().pool;
+    catch_up_usage_snapshots(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let rows = ConversationUsageSnapshotRecord::list_attributed(pool, scope_ctx.project_uuid)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut sessions = attributed_sessions_from_rows(rows, cutoff_time);
+    let (vendor_logs, provider_status) = scan_vendor_logs(&state, now_ms).await;
+    let unattributed_vendor_sessions = align_vendor_usage(&mut sessions, &vendor_logs);
+    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
     Ok(build_project_usage_statistics(
         match scope_ctx.scope {
@@ -245,105 +242,51 @@ pub async fn get_project_usage_statistics(
         },
         scope_ctx.project_id,
         scope_ctx.project_name,
-        filtered_sessions,
+        sessions,
         provider_status,
+        unattributed_vendor_sessions,
         now_ms,
     ))
 }
 
-// ============= Tests =============
-
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use db::models::conversation_usage::ConversationUsageAttributionRow;
 
     use super::*;
 
-    fn fake_session(
-        session_id: &str,
-        model: &str,
-        tokens: i64,
-        cost: f64,
-        timestamp: i64,
-    ) -> ProjectUsageSessionSummary {
-        ProjectUsageSessionSummary {
-            session_id: session_id.to_string(),
-            timestamp,
-            model: model.to_string(),
-            usage: ProjectUsageUsageData {
-                input_tokens: tokens / 2,
-                output_tokens: tokens / 2,
-                cache_write_tokens: 0,
-                cache_read_tokens: 0,
-                total_tokens: tokens,
-            },
-            cost,
-            summary: None,
-            provider: "test".to_string(),
-        }
-    }
-
     #[test]
-    fn project_scope_paths_include_repos_and_workspaces_without_duplicates() {
-        let repo_root = PathBuf::from("C:/repo");
-        let workspace_root = PathBuf::from("C:/repo/.worktrees/feature-a");
-        let workspaces = vec![
-            Workspace {
-                id: Uuid::nil(),
-                project_id: Uuid::nil(),
-                task_id: Uuid::nil(),
-                parent_workspace_id: None,
-                container_ref: Some(repo_root.to_string_lossy().to_string()),
-                branch: "main".to_string(),
-                use_worktree: false,
-                agent_working_dir: None,
-                setup_completed_at: None,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-                archived: false,
-                pinned: false,
-                name: None,
-            },
-            Workspace {
-                id: Uuid::nil(),
-                project_id: Uuid::nil(),
-                task_id: Uuid::nil(),
-                parent_workspace_id: None,
-                container_ref: Some(workspace_root.to_string_lossy().to_string()),
-                branch: "feature-a".to_string(),
-                use_worktree: true,
-                agent_working_dir: None,
-                setup_completed_at: None,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-                archived: false,
-                pinned: false,
-                name: None,
-            },
-        ];
+    fn attributed_rows_keep_missing_tokens_and_workspace_identity() {
+        let row = ConversationUsageAttributionRow {
+            session_id: Uuid::nil(),
+            workspace_id: Uuid::from_u128(2),
+            project_id: Uuid::from_u128(3),
+            container_ref: Some("/repo/.worktrees/feature".to_string()),
+            agent_id: Some("kimi".to_string()),
+            model: None,
+            external_session_id: Some("acp-1".to_string()),
+            session_name: Some("Ask".to_string()),
+            session_created_at: Utc::now(),
+            session_updated_at: Utc::now(),
+            protocol_input_tokens: None,
+            protocol_output_tokens: None,
+            protocol_cache_write_tokens: None,
+            protocol_cache_read_tokens: None,
+            protocol_total_tokens: None,
+            context_used: Some(12_000),
+            context_window_max: Some(200_000),
+            protocol_cost_amount: None,
+            protocol_cost_currency: None,
+            snapshot_model: None,
+            last_usage_at: None,
+        };
 
-        let paths =
-            collect_project_scope_paths(&[repo_root.clone(), repo_root.clone()], &workspaces);
-
-        assert_eq!(paths, vec![repo_root, workspace_root]);
-    }
-
-    #[test]
-    fn filter_sessions_by_cutoff_keeps_recent_entries_sorted_descending() {
-        let filtered = filter_sessions_by_cutoff(
-            &[
-                fake_session("old", "gpt-5.4", 100, 1.0, 100),
-                fake_session("newest", "gpt-5.4", 100, 1.0, 500),
-                fake_session("mid", "gpt-5.4", 100, 1.0, 300),
-            ],
-            250,
-        );
-
-        let ids = filtered
-            .iter()
-            .map(|session| session.session_id.as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(ids, vec!["newest", "mid"]);
+        let sessions = attributed_sessions_from_rows(vec![row], 0);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].workspace_id, Uuid::from_u128(2).to_string());
+        assert_eq!(sessions[0].tokens.protocol, None);
+        assert_eq!(sessions[0].context_used, Some(12_000));
+        assert_eq!(sessions[0].cost, None);
     }
 }

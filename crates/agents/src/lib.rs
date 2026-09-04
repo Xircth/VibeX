@@ -200,7 +200,7 @@ pub use permissions::{
 };
 pub use plan_usage::{
     AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
-    probe_plan_usage,
+    cached_plan_usage, probe_plan_usage,
 };
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,

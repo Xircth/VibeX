@@ -11,9 +11,8 @@ use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
-    desktop_toast::DesktopToastPayload,
-    local_history::LocalHistoryImportRuntime,
-    local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
+    desktop_toast::DesktopToastPayload, local_history::LocalHistoryImportRuntime,
+    local_usage::ProjectUsageProviderStatus,
 };
 
 #[derive(Default)]
@@ -24,7 +23,7 @@ pub struct DesktopToastRuntimeState {
 
 #[derive(Clone, Default)]
 pub struct LocalUsageCacheEntry {
-    pub sessions: Vec<ProjectUsageSessionSummary>,
+    pub vendor_sessions: Vec<services::services::usage::VendorLogUsage>,
     pub provider_status: Vec<ProjectUsageProviderStatus>,
     pub scanned_at_ms: i64,
 }

@@ -16,6 +16,7 @@ pub mod scoped_control;
 pub mod search;
 pub mod service;
 pub mod session_info;
+pub mod usage_accounting;
 pub mod workbench_status;
 
 pub use export::{render_html, render_markdown};
@@ -63,3 +64,4 @@ pub use service::{
 pub use session_info::{
     SessionInfo, load_compact_transcript, resolve_referenced_session, session_info_value,
 };
+pub use usage_accounting::catch_up_usage_snapshots;

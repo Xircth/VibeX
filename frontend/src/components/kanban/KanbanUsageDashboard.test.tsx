@@ -87,6 +87,18 @@ vi.mock('@/features/agent-management', () => ({
   }),
 }));
 
+const sourced = (total: number) => ({
+  protocol: {
+    input_tokens: total / 2,
+    output_tokens: total / 2,
+    cache_write_tokens: 0,
+    cache_read_tokens: total === 250 ? 80 : 40,
+    total_tokens: total,
+  },
+  vendor_log: null,
+  sources_disagree: false,
+});
+
 describe('KanbanUsageDashboard', () => {
   beforeEach(() => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
@@ -119,70 +131,50 @@ describe('KanbanUsageDashboard', () => {
       project_id: 'project-1',
       project_name: 'VibeX',
       total_sessions: 2,
-      total_usage: {
-        input_tokens: 100,
-        output_tokens: 50,
-        cache_write_tokens: 20,
-        cache_read_tokens: 80,
-        total_tokens: 250,
+      total_tokens: {
+        protocol: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_write_tokens: 20,
+          cache_read_tokens: 80,
+          total_tokens: 250,
+        },
+        vendor_log: null,
+        sources_disagree: false,
       },
       estimated_cost: 0.42,
       sessions: [
         {
           session_id: 'session-1',
+          workspace_id: 'ws-1',
           timestamp: new Date(2026, 8, 1, 15).getTime(),
           model: 'claude-sonnet-4',
-          usage: {
-            input_tokens: 80,
-            output_tokens: 20,
-            cache_write_tokens: 10,
-            cache_read_tokens: 40,
-            total_tokens: 150,
-          },
+          tokens: sourced(150),
           cost: 0.3,
           summary: 'First session',
-          provider: 'claude',
         },
         {
           session_id: 'session-2',
+          workspace_id: 'ws-1',
           timestamp: new Date(2026, 8, 2, 9).getTime(),
           model: 'claude-sonnet-4',
-          usage: {
-            input_tokens: 20,
-            output_tokens: 30,
-            cache_write_tokens: 10,
-            cache_read_tokens: 40,
-            total_tokens: 100,
-          },
+          tokens: sourced(100),
           cost: 0.12,
           summary: 'Second session',
-          provider: 'claude',
         },
       ],
       daily_usage: [
         {
           date: '2026-09-01',
           sessions: 1,
-          usage: {
-            input_tokens: 80,
-            output_tokens: 20,
-            cache_write_tokens: 10,
-            cache_read_tokens: 40,
-            total_tokens: 150,
-          },
+          tokens: sourced(150),
           cost: 0.3,
           models_used: ['claude-sonnet-4'],
         },
         {
           date: '2026-09-02',
           sessions: 1,
-          usage: {
-            input_tokens: 20,
-            output_tokens: 30,
-            cache_write_tokens: 10,
-            cache_read_tokens: 40,
-            total_tokens: 100,
-          },
+          tokens: sourced(100),
           cost: 0.12,
           models_used: ['claude-sonnet-4'],
         },
@@ -195,16 +187,30 @@ describe('KanbanUsageDashboard', () => {
       by_model: [
         {
           model: 'claude-sonnet-4',
-          total_cost: 0.42,
-          total_tokens: 250,
-          input_tokens: 100,
-          output_tokens: 50,
-          cache_creation_tokens: 20,
-          cache_read_tokens: 80,
+          cost: 0.42,
+          tokens: sourced(250),
           session_count: 2,
         },
       ],
+      by_folder: [
+        {
+          workspace_id: 'ws-1',
+          folder: '/repo',
+          session_count: 2,
+          tokens: sourced(250),
+          cost: 0.42,
+        },
+      ],
+      by_agent: [
+        {
+          agent_id: 'claude_code',
+          session_count: 2,
+          tokens: sourced(250),
+          cost: 0.42,
+        },
+      ],
       provider_status: [],
+      unattributed_vendor_sessions: 0,
       last_updated: Date.now(),
       pricing_notice: null,
     });
@@ -238,5 +244,76 @@ describe('KanbanUsageDashboard', () => {
 
     expect(screen.getByRole('tooltip')).toHaveTextContent('二 15:00');
     expect(screen.getByRole('tooltip')).toHaveTextContent('150 Token');
+  });
+
+  it('renders missing token breakdowns as 未提供 instead of zero', async () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
+      scope: 'project',
+      project_id: 'project-1',
+      project_name: 'VibeX',
+      total_sessions: 1,
+      total_tokens: {
+        protocol: null,
+        vendor_log: null,
+        sources_disagree: false,
+      },
+      estimated_cost: null,
+      sessions: [
+        {
+          session_id: 'kimi-1',
+          workspace_id: 'ws-2',
+          folder: '/repo/.worktrees/a',
+          agent_id: 'kimi',
+          timestamp: Date.now(),
+          model: null,
+          tokens: { protocol: null, vendor_log: null, sources_disagree: false },
+          cost: null,
+          summary: 'Kimi session',
+        },
+      ],
+      daily_usage: [],
+      weekly_comparison: {
+        current_week: { sessions: 1, cost: null, tokens: null },
+        last_week: { sessions: 0, cost: null, tokens: null },
+        trends: { sessions: 0, cost: 0, tokens: 0 },
+      },
+      by_model: [],
+      by_folder: [
+        {
+          workspace_id: 'ws-2',
+          folder: '/repo/.worktrees/a',
+          session_count: 1,
+          tokens: { protocol: null, vendor_log: null, sources_disagree: false },
+          cost: null,
+        },
+      ],
+      by_agent: [
+        {
+          agent_id: 'kimi',
+          session_count: 1,
+          tokens: { protocol: null, vendor_log: null, sources_disagree: false },
+          cost: null,
+        },
+      ],
+      provider_status: [],
+      unattributed_vendor_sessions: 0,
+      last_updated: Date.now(),
+      pricing_notice: null,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findAllByText('未提供')).not.toHaveLength(0);
+    expect(screen.getByText(/未通过协议提供/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    expect(screen.getByText('kimi')).toBeVisible();
+    expect(screen.getAllByText('未提供').length).toBeGreaterThan(0);
   });
 });

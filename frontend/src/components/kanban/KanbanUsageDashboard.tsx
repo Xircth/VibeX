@@ -26,13 +26,14 @@ import {
   localUsageApi,
   type ProjectUsageDailyUsage,
   type ProjectUsageSessionSummary,
+  type ProjectUsageSourcedTokens,
   type ProjectUsageStatistics,
 } from '@/lib/api';
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { cn } from '@/lib/utils';
 import { PlanUsageDashboard } from './PlanUsageDashboard';
 
-type UsageTab = 'overview' | 'models' | 'sessions' | 'plan';
+type UsageTab = 'overview' | 'folders' | 'agents' | 'models' | 'sessions' | 'plan';
 type DateRange = '7d' | '30d' | 'all';
 
 const SESSIONS_PER_PAGE = 15;
@@ -92,6 +93,26 @@ function UsageRing({ ratio, label }: { ratio: number; label: string }) {
   );
 }
 
+function preferredTokenTotal(
+  tokens: ProjectUsageSourcedTokens
+): number | null {
+  return tokens.protocol?.total_tokens ?? null;
+}
+
+function formatOptionalNumber(
+  value: number | null | undefined,
+  notProvided: string
+): string {
+  return value == null ? notProvided : formatNumber(value);
+}
+
+function formatOptionalCost(
+  value: number | null | undefined,
+  notProvided: string
+): string {
+  return value == null ? notProvided : formatCost(value);
+}
+
 function UsageHeatmap({
   sessions,
 }: {
@@ -105,8 +126,10 @@ function UsageHeatmap({
     sessions.forEach((session) => {
       const date = new Date(session.timestamp);
       if (Number.isNaN(date.getTime())) return;
+      const total = preferredTokenTotal(session.tokens);
+      if (total == null) return;
       const weekday = (date.getDay() + 6) % 7;
-      cells[weekday][date.getHours()] += session.usage.total_tokens;
+      cells[weekday][date.getHours()] += total;
     });
     return cells;
   }, [sessions]);
@@ -495,7 +518,7 @@ export function KanbanUsageDashboard() {
     const source = statistics?.sessions ?? [];
     return source.slice().sort((left, right) => {
       if (sessionSortBy === 'cost') {
-        return right.cost - left.cost;
+        return (right.cost ?? -1) - (left.cost ?? -1);
       }
       return right.timestamp - left.timestamp;
     });
@@ -522,14 +545,20 @@ export function KanbanUsageDashboard() {
 
   const maxDailyTokens = useMemo(
     () =>
-      Math.max(1, ...filteredDailyUsage.map((day) => day.usage.total_tokens)),
+      Math.max(
+        1,
+        ...filteredDailyUsage.map(
+          (day) => preferredTokenTotal(day.tokens) ?? 0
+        )
+      ),
     [filteredDailyUsage]
   );
 
   const getTokenPercentage = useCallback(
-    (value: number): number => {
-      if (!statistics || statistics.total_usage.total_tokens === 0) return 0;
-      return (value / statistics.total_usage.total_tokens) * 100;
+    (value: number | null | undefined): number => {
+      const total = preferredTokenTotal(statistics?.total_tokens ?? { sources_disagree: false });
+      if (total == null || total === 0 || value == null) return 0;
+      return (value / total) * 100;
     },
     [statistics]
   );
@@ -542,6 +571,18 @@ export function KanbanUsageDashboard() {
       key: 'overview' as UsageTab,
       label: t('usageDashboard.tabOverview'),
       icon: TrendingUp,
+      activeColor: 'is-active',
+    },
+    {
+      key: 'folders' as UsageTab,
+      label: t('usageDashboard.tabFolders'),
+      icon: FolderOpen,
+      activeColor: 'is-active',
+    },
+    {
+      key: 'agents' as UsageTab,
+      label: t('usageDashboard.tabAgents'),
+      icon: Zap,
       activeColor: 'is-active',
     },
     {
@@ -571,15 +612,18 @@ export function KanbanUsageDashboard() {
           ?.name ?? t('usageDashboard.currentProject'));
 
   const topModels = statistics?.by_model.slice(0, 5) ?? [];
-  const cacheHitRatio = statistics
-    ? statistics.total_usage.cache_read_tokens /
-      Math.max(
-        1,
-        statistics.total_usage.input_tokens +
-          statistics.total_usage.cache_write_tokens +
-          statistics.total_usage.cache_read_tokens
-      )
-    : 0;
+  const notProvided = t('usageDashboard.notProvided');
+  const protocolTokens = statistics?.total_tokens.protocol;
+  const cacheHitRatio =
+    protocolTokens?.cache_read_tokens != null
+      ? protocolTokens.cache_read_tokens /
+        Math.max(
+          1,
+          (protocolTokens.input_tokens ?? 0) +
+            (protocolTokens.cache_write_tokens ?? 0) +
+            protocolTokens.cache_read_tokens
+        )
+      : 0;
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -719,6 +763,15 @@ export function KanbanUsageDashboard() {
             </div>
           ) : null}
 
+          {activeTab !== 'plan' &&
+          (statistics?.unattributed_vendor_sessions ?? 0) > 0 ? (
+            <div className="kanban-usage-message-warning mb-4 rounded-lg px-4 py-2.5 text-sm">
+              {t('usageDashboard.unattributedVendor', {
+                count: statistics?.unattributed_vendor_sessions,
+              })}
+            </div>
+          ) : null}
+
           {activeTab !== 'plan' && failedProviders.length > 0 ? (
             <div className="kanban-usage-message-error mb-4 rounded-lg px-4 py-2.5 text-sm">
               {t('usageDashboard.providerScanFailed', {
@@ -760,17 +813,36 @@ export function KanbanUsageDashboard() {
                     </div>
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="text-4xl font-semibold leading-none text-foreground">
-                        {formatNumber(statistics.total_usage.total_tokens)}
+                        {formatOptionalNumber(
+                          preferredTokenTotal(statistics.total_tokens),
+                          notProvided
+                        )}
                       </span>
                       {renderTrend(statistics.weekly_comparison.trends.tokens)}
                     </div>
                     <p className="mt-2 max-w-md text-xs leading-relaxed text-muted-foreground">
-                      {t('usageDashboard.cacheReadDescription', {
-                        value: formatNumber(
-                          statistics.total_usage.cache_read_tokens
-                        ),
-                      })}
+                      {protocolTokens?.cache_read_tokens == null
+                        ? t('usageDashboard.notProvidedReason')
+                        : t('usageDashboard.cacheReadDescription', {
+                            value: formatNumber(
+                              protocolTokens.cache_read_tokens
+                            ),
+                          })}
                     </p>
+                    {statistics.total_tokens.sources_disagree ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('usageDashboard.sourcesDisagree', {
+                          protocol: formatOptionalNumber(
+                            statistics.total_tokens.protocol?.total_tokens,
+                            notProvided
+                          ),
+                          vendor: formatOptionalNumber(
+                            statistics.total_tokens.vendor_log?.total_tokens,
+                            notProvided
+                          ),
+                        })}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-4">
                     <UsageRing
@@ -782,7 +854,10 @@ export function KanbanUsageDashboard() {
                         {t('usageDashboard.cacheHitRate')}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {formatNumber(statistics.total_usage.cache_read_tokens)}{' '}
+                        {formatOptionalNumber(
+                          protocolTokens?.cache_read_tokens,
+                          notProvided
+                        )}{' '}
                         {t('usageDashboard.tokenCacheRead')}
                       </div>
                     </div>
@@ -796,7 +871,7 @@ export function KanbanUsageDashboard() {
                     {t('usageDashboard.totalCost')}
                   </span>
                   <strong className="mt-1 block text-lg font-semibold text-foreground">
-                    {formatCost(statistics.estimated_cost)}
+                    {formatOptionalCost(statistics.estimated_cost, notProvided)}
                   </strong>
                   <span className="mt-1 block">
                     {renderTrend(statistics.weekly_comparison.trends.cost)}
@@ -818,19 +893,24 @@ export function KanbanUsageDashboard() {
                     {t('usageDashboard.avgPerSession')}
                   </span>
                   <strong className="mt-1 block text-lg font-semibold text-foreground">
-                    {statistics.total_sessions > 0
+                    {statistics.total_sessions > 0 &&
+                    statistics.estimated_cost != null
                       ? formatCost(
                           statistics.estimated_cost / statistics.total_sessions
                         )
-                      : '$0.0000'}
+                      : notProvided}
                   </strong>
                   <span className="mt-1 block text-[11px] text-muted-foreground">
                     {t('usageDashboard.avgTokensPerSession', {
-                      value: formatNumber(
+                      value: formatOptionalNumber(
                         statistics.total_sessions > 0
-                          ? statistics.total_usage.total_tokens /
-                              statistics.total_sessions
-                          : 0
+                          ? preferredTokenTotal(statistics.total_tokens) !=
+                            null
+                            ? (preferredTokenTotal(statistics.total_tokens) ??
+                                0) / statistics.total_sessions
+                            : null
+                          : null,
+                        notProvided
                       ),
                     })}
                   </span>
@@ -842,7 +922,7 @@ export function KanbanUsageDashboard() {
                   <strong className="mt-1 block text-lg font-semibold text-foreground">
                     {
                       filteredDailyUsage.filter(
-                        (day) => day.usage.total_tokens > 0
+                        (day) => (preferredTokenTotal(day.tokens) ?? 0) > 0
                       ).length
                     }
                   </strong>
@@ -907,10 +987,10 @@ export function KanbanUsageDashboard() {
                         }}
                       >
                         {filteredDailyUsage.map((day) => {
-                          const totalTokens = day.usage.total_tokens;
+                          const totalTokens = preferredTokenTotal(day.tokens) ?? 0;
                           const cacheReadTokens = Math.min(
                             totalTokens,
-                            Math.max(0, day.usage.cache_read_tokens)
+                            Math.max(0, day.tokens.protocol?.cache_read_tokens ?? 0)
                           );
                           const freshTokens = Math.max(
                             0,
@@ -926,7 +1006,7 @@ export function KanbanUsageDashboard() {
                               y: rect.top,
                               content: {
                                 date: day.date,
-                                cost: day.cost,
+                                cost: day.cost ?? 0,
                                 sessions: day.sessions,
                                 totalTokens,
                                 freshTokens,
@@ -1034,25 +1114,25 @@ export function KanbanUsageDashboard() {
                       {
                         id: 'input',
                         label: t('usageDashboard.tokenInput'),
-                        value: statistics.total_usage.input_tokens,
+                        value: protocolTokens?.input_tokens ?? null,
                         color: 'bg-foreground',
                       },
                       {
                         id: 'output',
                         label: t('usageDashboard.tokenOutput'),
-                        value: statistics.total_usage.output_tokens,
+                        value: protocolTokens?.output_tokens ?? null,
                         color: 'bg-foreground/70',
                       },
                       {
                         id: 'cacheWrite',
                         label: t('usageDashboard.tokenCacheWrite'),
-                        value: statistics.total_usage.cache_write_tokens,
+                        value: protocolTokens?.cache_write_tokens ?? null,
                         color: 'bg-foreground/45',
                       },
                       {
                         id: 'cacheRead',
                         label: t('usageDashboard.tokenCacheRead'),
-                        value: statistics.total_usage.cache_read_tokens,
+                        value: protocolTokens?.cache_read_tokens ?? null,
                         color: 'bg-primary',
                       },
                     ].map((item) => {
@@ -1064,7 +1144,7 @@ export function KanbanUsageDashboard() {
                               {item.label}
                             </span>
                             <span className="shrink-0 font-mono text-xs tabular-nums text-foreground">
-                              {formatNumber(item.value)}
+                              {formatOptionalNumber(item.value, notProvided)}
                             </span>
                             <span className="w-11 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
                               {percentage.toFixed(1)}%
@@ -1077,7 +1157,7 @@ export function KanbanUsageDashboard() {
                                 item.color
                               )}
                               style={{
-                                width: `${Math.max(percentage, item.value > 0 ? 1.5 : 0)}%`,
+                                width: `${Math.max(percentage, (item.value ?? 0) > 0 ? 1.5 : 0)}%`,
                               }}
                             />
                           </div>
@@ -1127,8 +1207,11 @@ export function KanbanUsageDashboard() {
                             {model.model}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {formatCost(model.total_cost)} ·{' '}
-                            {formatNumber(model.total_tokens)}{' '}
+                            {formatOptionalCost(model.cost, notProvided)} ·{' '}
+                            {formatOptionalNumber(
+                              preferredTokenTotal(model.tokens),
+                              notProvided
+                            )}{' '}
                             {t('usageDashboard.tokens')}
                           </div>
                         </div>
@@ -1142,6 +1225,92 @@ export function KanbanUsageDashboard() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {statistics && activeTab === 'folders' ? (
+            <div>
+              <h4 className="mb-4 text-sm font-medium text-foreground">
+                {t('usageDashboard.byFolderTitle')}
+              </h4>
+              {statistics.by_folder.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <FolderOpen className="mb-2 h-8 w-8 opacity-50" />
+                  <p className="text-sm">{t('usageDashboard.noFolderData')}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {statistics.by_folder.map((folder) => (
+                    <div
+                      key={folder.workspace_id}
+                      className="kanban-usage-card p-4"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">
+                            {folder.folder || folder.workspace_id}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {t('usageDashboard.sessionsCount', {
+                              count: folder.session_count,
+                            })}
+                          </div>
+                        </div>
+                        <div className="text-right text-sm tabular-nums">
+                          {formatOptionalNumber(
+                            preferredTokenTotal(folder.tokens),
+                            notProvided
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {statistics && activeTab === 'agents' ? (
+            <div>
+              <h4 className="mb-4 text-sm font-medium text-foreground">
+                {t('usageDashboard.byAgentTitle')}
+              </h4>
+              {statistics.by_agent.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <Zap className="mb-2 h-8 w-8 opacity-50" />
+                  <p className="text-sm">{t('usageDashboard.noAgentData')}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {statistics.by_agent.map((agent) => (
+                    <div key={agent.agent_id} className="kanban-usage-card p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">
+                            {agent.agent_id === 'unprovided'
+                              ? notProvided
+                              : agent.agent_id}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {t('usageDashboard.sessionsCount', {
+                              count: agent.session_count,
+                            })}
+                            {agent.tokens.protocol == null
+                              ? ` · ${t('usageDashboard.notProvidedReason')}`
+                              : null}
+                          </div>
+                        </div>
+                        <div className="text-right text-sm tabular-nums">
+                          {formatOptionalNumber(
+                            preferredTokenTotal(agent.tokens),
+                            notProvided
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -1181,17 +1350,26 @@ export function KanbanUsageDashboard() {
                           <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
                             <span>
                               {t('usageDashboard.modelInput', {
-                                value: formatNumber(model.input_tokens),
+                                value: formatOptionalNumber(
+                                  model.tokens.protocol?.input_tokens,
+                                  notProvided
+                                ),
                               })}
                             </span>
                             <span>
                               {t('usageDashboard.modelOutput', {
-                                value: formatNumber(model.output_tokens),
+                                value: formatOptionalNumber(
+                                  model.tokens.protocol?.output_tokens,
+                                  notProvided
+                                ),
                               })}
                             </span>
                             <span>
                               {t('usageDashboard.modelTotalTokens', {
-                                value: formatNumber(model.total_tokens),
+                                value: formatOptionalNumber(
+                                  preferredTokenTotal(model.tokens),
+                                  notProvided
+                                ),
                               })}
                             </span>
                           </div>
@@ -1199,13 +1377,16 @@ export function KanbanUsageDashboard() {
 
                         <div className="text-right">
                           <div className="text-lg font-bold text-foreground">
-                            {formatCost(model.total_cost)}
+                            {formatOptionalCost(model.cost, notProvided)}
                           </div>
                           <div className="text-[10px] text-muted-foreground">
                             {t('usageDashboard.avgCostPerSession', {
-                              cost: formatCost(
-                                model.total_cost /
-                                  Math.max(1, model.session_count)
+                              cost: formatOptionalCost(
+                                model.cost != null
+                                  ? model.cost /
+                                      Math.max(1, model.session_count)
+                                  : null,
+                                notProvided
                               ),
                             })}
                           </div>
@@ -1278,7 +1459,7 @@ export function KanbanUsageDashboard() {
                             ) : null}
                           </div>
                           <span className="shrink-0 text-base font-bold text-foreground">
-                            {formatCost(session.cost)}
+                            {formatOptionalCost(session.cost, notProvided)}
                           </span>
                         </div>
 
@@ -1288,10 +1469,13 @@ export function KanbanUsageDashboard() {
                             {formatDate(session.timestamp)}
                           </span>
                           <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            {session.model}
+                            {session.model ?? notProvided}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
-                            {formatNumber(session.usage.total_tokens)}{' '}
+                            {formatOptionalNumber(
+                              preferredTokenTotal(session.tokens),
+                              notProvided
+                            )}{' '}
                             {t('usageDashboard.tokens')}
                           </span>
                         </div>

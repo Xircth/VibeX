@@ -153,8 +153,12 @@ export type {
 export { localUsageApi } from './localUsage';
 export type {
   ProjectUsageUsageData,
+  ProjectUsageTokenCounts,
+  ProjectUsageSourcedTokens,
   ProjectUsageDailyUsage,
   ProjectUsageModelUsage,
+  ProjectUsageFolderUsage,
+  ProjectUsageAgentUsage,
   ProjectUsageSessionSummary,
   ProjectUsageWeekData,
   ProjectUsageTrends,

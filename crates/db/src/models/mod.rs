@@ -14,6 +14,7 @@ pub mod conversation_snapshot;
 pub mod conversation_steering;
 pub mod conversation_tool;
 pub mod conversation_turn;
+pub mod conversation_usage;
 pub mod execution_process;
 pub mod execution_process_logs;
 pub mod execution_process_repo_state;

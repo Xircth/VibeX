@@ -357,6 +357,28 @@ impl Session {
         Ok(())
     }
 
+    pub async fn update_external_session_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        external_session_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        let trimmed = external_session_id.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            r#"UPDATE sessions
+               SET external_session_id = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(trimmed)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn update_agent_metadata(
         pool: &SqlitePool,
         id: Uuid,

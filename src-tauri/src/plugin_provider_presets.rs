@@ -102,8 +102,16 @@ impl TauriProviderPresetHost {
     async fn confirm(&self, prompt: ProviderBindConfirmation) -> Result<bool, ProviderPresetError> {
         let request_id = prompt.request_id.clone();
         let waiter = self.pending.park(request_id.clone());
+        // Addressed to the main window, not broadcast. Every webview mounts the
+        // listener, so a broadcast would raise the same modal in the rail and
+        // toast windows too, and whichever one was dismissed first would decide
+        // the answer for all of them.
         self.app
-            .emit(crate::events::channels::PROVIDER_BIND_CONFIRM, &prompt)
+            .emit_to(
+                tauri::EventTarget::webview_window("main"),
+                crate::events::channels::PROVIDER_BIND_CONFIRM,
+                &prompt,
+            )
             .map_err(|error| {
                 self.pending.abandon(&request_id);
                 ProviderPresetError::new(ProviderPresetErrorCode::Unavailable, error.to_string())

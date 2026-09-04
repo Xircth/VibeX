@@ -134,7 +134,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | --- | --- |
 | `content.skill` | 把 `contents/skills/...` 投影给兼容 Agent |
 | `content.mcp` | 托管 MCP，Host 按 session 拉起 |
-| `content.hook` | Hook 资源 |
+| `content.hook` | **尚未实现。** 清单能通过校验，但宿主没有 Hook 运行时，声明了也不会触发，inspect 会给出警告 |
 | `workflow.binding` | 把 `contents/workflows/` 暴露给 Composer / Automation |
 | `file.opener` | 按扩展名、媒体类型或文件名后缀打开。只读预览写 `previewProvider`，可编辑页写 `editorSurface` |
 | `artifact.preview` | Broker 管的预览 provider，可带 process argv |

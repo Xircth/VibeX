@@ -1971,6 +1971,20 @@ fn parse_v4_ui_contributions(
             "provider.model.importSource" => parse_provider_import_source(integration)
                 .map(|item| contributions.provider_import_sources.push(item))
                 .is_some(),
+            // Accepted by the manifest schema but wired to nothing: no package
+            // field, no contribution, no consumer. Say so at inspect time
+            // instead of letting an author ship a hook that never fires.
+            "content.hook" => {
+                warnings.push(PackageWarning {
+                    code: "hook_contribution_unsupported".to_owned(),
+                    message: "`content.hook` is declared but this Host has no hook runtime; the hook will never fire".to_owned(),
+                    contribution: integration
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                });
+                continue;
+            }
             _ => continue,
         };
         if !accepted {

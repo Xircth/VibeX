@@ -353,6 +353,7 @@
     "reason": "Plugin says: {{reason}}",
     "effect": "This rewrites the agent's own configuration. Running sessions pick it up on their next turn.",
     "confirmBind": "Bind",
-    "confirmUnbind": "Unbind"
+    "confirmUnbind": "Unbind",
+    "expired": "This request expired before you answered. Ask the plugin to try again."
   }
 }

@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { ProviderBindConfirmDialog } from '@/components/dialogs/global/ProviderBindConfirmDialog';
+import { toast } from '@/components/ui/toast';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 
@@ -30,11 +32,12 @@ function isConfirmation(value: unknown): value is ProviderBindConfirmation {
 /**
  * Shows the Host confirmation a plugin's `provider.presets.bind` is parked on.
  *
- * The backend broadcasts to every webview, so more than one window may raise
- * the prompt. The Host resolves only the first answer and reports `false` for
- * the rest, so a losing window just closes its dialog.
+ * The Host addresses this to the main window only, so exactly one dialog can
+ * appear per request. It also stops waiting after a few minutes, which is why
+ * an approval can still come back rejected.
  */
 export function useProviderBindConfirmations() {
+  const { t } = useTranslation('dialogs');
   const transport = useBackendTransport();
 
   useEffect(() => {
@@ -56,10 +59,14 @@ export function useProviderBindConfirmations() {
             reason: request.reason,
           });
           ProviderBindConfirmDialog.remove();
-          await createPluginControlApi(transport).resolveProviderBind(
-            request.requestId,
-            approved === true
-          );
+          const accepted = await createPluginControlApi(
+            transport
+          ).resolveProviderBind(request.requestId, approved === true);
+          // The Host had already given up waiting. Saying nothing would leave
+          // the user believing the bind went through.
+          if (approved === true && !accepted) {
+            toast.error(t('providerBind.expired'));
+          }
         })();
       });
       if (disposed) {
@@ -73,5 +80,5 @@ export function useProviderBindConfirmations() {
       disposed = true;
       unlisten?.();
     };
-  }, [transport]);
+  }, [t, transport]);
 }

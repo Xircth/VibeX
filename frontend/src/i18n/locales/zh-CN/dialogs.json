@@ -353,6 +353,7 @@
     "reason": "插件说明：{{reason}}",
     "effect": "这会改写该 Agent 自身的配置，进行中的会话在下一轮生效。",
     "confirmBind": "绑定",
-    "confirmUnbind": "解除绑定"
+    "confirmUnbind": "解除绑定",
+    "expired": "该请求在你回答前已过期，请让插件重新发起。"
   }
 }

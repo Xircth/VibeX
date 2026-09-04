@@ -219,6 +219,30 @@ fn slash_command_defaults_to_the_contribution_id() {
 }
 
 #[test]
+fn a_declared_hook_warns_because_no_host_runs_hooks() {
+    let package = product_package(
+        r#"[
+  {"id":"start","kind":"content.hook","path":"contents/hooks/start.json"},
+  {"id":"keeper","kind":"app.command","title":"Keeper","handler":"keep"}
+]"#,
+    );
+
+    assert!(
+        package
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "hook_contribution_unsupported"),
+        "a hook that can never fire must say so: {:?}",
+        package.warnings
+    );
+    assert_eq!(
+        package.app.commands.len(),
+        1,
+        "a valid sibling contribution still publishes"
+    );
+}
+
+#[test]
 fn provider_import_sources_survive_normalization() {
     // Naming no agents is how the second source says "any agent".
     let package = product_package(

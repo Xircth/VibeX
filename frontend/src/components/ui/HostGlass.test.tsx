@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { HostGlass } from './HostGlass';
+import { HostGlass } from './host-glass';
 
 describe('HostGlass', () => {
   it('renders children without a WebGL surface on Windows', () => {

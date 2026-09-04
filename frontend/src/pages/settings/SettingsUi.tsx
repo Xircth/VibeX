@@ -1,7 +1,7 @@
 import { useId, useRef, type ComponentType, type ReactNode } from 'react';
 import { ChevronRight, Loader2, Save, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { HostGlass } from '@/components/ui/HostGlass';
+import { HostGlass } from '@/components/ui/host-glass';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';

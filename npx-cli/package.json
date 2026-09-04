@@ -27,6 +27,7 @@
     "bin/download.js",
     "bin/help.js",
     "bin/plugin.js",
+    "bin/release-assets.js",
     "dist",
     "plugin-cli"
   ]

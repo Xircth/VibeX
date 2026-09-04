@@ -92,7 +92,7 @@ jobs:
             ext=".exe"
           fi
           VERSION="$(node -p "require('./package.json').version")"
-          ARCHIVE="VibeX-${VERSION}-${{ matrix.release_name }}-server.tar.gz"
+          ARCHIVE="$(node npx-cli/bin/release-assets.js archive "${VERSION}" "${{ matrix.release_name }}")"
           echo "SERVER_ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           node scripts/package-host-family.js \
             --server "target/${{ matrix.target }}/release/vibex-server${ext}" \
@@ -115,6 +115,26 @@ jobs:
               fs.writeFileSync(`${name}.sha256`, `${digest}  ${name}\n`);
             ' "${ARCHIVE}"
           )
+
+      - name: Smoke install from the just-built archive
+        shell: bash
+        run: |
+          python3 -m http.server --bind 127.0.0.1 --directory dist 8765 &
+          pid=$!
+          trap 'kill "$pid"' EXIT
+          for _ in 1 2 3 4 5; do
+            curl -fsS "http://127.0.0.1:8765/${SERVER_ARCHIVE}.sha256" >/dev/null && break
+            sleep 1
+          done
+          HOME="$(mktemp -d)"
+          INSTALL_DIR="$(mktemp -d)"
+          HOME="$HOME" \
+          VIBEX_VERSION="$(node -p "require('./package.json').version")" \
+          VIBEX_PLATFORM="${{ matrix.release_name }}" \
+          VIBEX_HOST_FAMILY_BASE="http://127.0.0.1:8765" \
+          VIBEX_INSTALL_DIR="$INSTALL_DIR" \
+          sh install.sh
+          test -x "$INSTALL_DIR/vibex" || test -f "$INSTALL_DIR/vibex.cmd"
 
       - name: Upload Server archive
         uses: actions/upload-artifact@v4

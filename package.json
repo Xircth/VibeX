@@ -29,6 +29,8 @@
     "server:package-smoke": "pnpm run frontend:build && node scripts/smoke-vibex-server-package.js",
     "host-family:package": "node scripts/package-host-family.js",
     "test:host-family-package": "node --test scripts/package-host-family.test.js",
+    "test:release-assets": "node --test scripts/release-assets.test.js npx-cli/bin/download.test.js",
+    "test:host-family-install": "node scripts/smoke-host-family-install.js",
     "prepare-db": "node scripts/prepare-db.js",
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "tauri:dev": "pnpm run tauri:dev:desktop",

@@ -5,6 +5,8 @@ const https = require("https");
 const os = require("os");
 const path = require("path");
 
+const { archiveName, releaseBaseUrl } = require("./release-assets");
+
 const CLI_VERSION = require("../package.json").version;
 const DEFAULT_GITHUB_REPO = "Xircth/VibeX";
 const CACHE_ROOT = path.join(os.homedir(), ".vibex", "host-family");
@@ -19,14 +21,14 @@ function familyTag() {
 }
 
 function familyAssetName(platform) {
-  return `vibex-host-family-${platform}.tar.gz`;
+  return archiveName(familyTag(), platform);
 }
 
 function familyBaseUrl() {
   if (process.env.VIBEX_HOST_FAMILY_BASE) {
     return process.env.VIBEX_HOST_FAMILY_BASE.replace(/\/+$/, "");
   }
-  return `https://github.com/${githubRepo()}/releases/download/${familyTag()}`;
+  return releaseBaseUrl(githubRepo(), familyTag());
 }
 
 function familyAssetUrl(platform, suffix = "") {

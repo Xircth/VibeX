@@ -342,6 +342,9 @@ pub struct AgentPromptFinished {
     pub prompt_id: AgentPromptId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    /// End-turn token breakdown from ACP `PromptResponse.usage` when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<AgentUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

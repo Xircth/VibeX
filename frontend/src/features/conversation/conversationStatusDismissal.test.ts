@@ -78,6 +78,7 @@ describe('conversationStatusDismissal announcements', () => {
         message: 'agent connection closed',
         code: 'connection_closed',
         raw: { attempt: 1 },
+        kind: 'connection_closed',
       },
     });
 
@@ -89,6 +90,7 @@ describe('conversationStatusDismissal announcements', () => {
           message: 'agent connection closed',
           code: 'connection_closed',
           raw: { attempt: 2 },
+          kind: 'connection_closed',
         },
       })
     ).toBe(true);

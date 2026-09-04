@@ -21,6 +21,7 @@ use db::models::{
     conversation::{BindingStatus, ConversationAgentBindingRecord, DbConversationSummary},
     conversation_event::AppendConversationEvent,
     conversation_turn::ConversationTurnRecord,
+    session::Session,
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
@@ -153,21 +154,23 @@ impl ConversationAgentEventRecorder {
             );
             return Ok(None);
         }
-        let Some(event) = map_agent_event(envelope, turn_id) else {
+        let Some(mut event) = map_agent_event(envelope, turn_id) else {
             return Ok(None);
         };
+        attach_cached_plan_usage(&self.pool, conversation_id, &mut event).await;
 
-        if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event
-            && let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await?
-        {
-            ConversationAgentBindingRecord::bind_acp_session(
-                &self.pool,
-                binding_id,
-                acp_session_id,
-                None,
-                BindingStatus::Ready,
-            )
-            .await?;
+        if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event {
+            persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id).await?;
+            if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
+                ConversationAgentBindingRecord::bind_acp_session(
+                    &self.pool,
+                    binding_id,
+                    acp_session_id,
+                    None,
+                    BindingStatus::Ready,
+                )
+                .await?;
+            }
         }
 
         if let AgentEvent::SessionInfoUpdated { patch } = &envelope.event
@@ -622,6 +625,20 @@ async fn latest_binding_id(
     .await
 }
 
+async fn attach_cached_plan_usage(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    event: &mut ConversationEvent,
+) {
+    let ConversationEvent::TurnFailed { error } = event else {
+        return;
+    };
+    let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await else {
+        return;
+    };
+    *error = std::mem::take(error).with_cached_plan_usage(session.agent_id.as_ref());
+}
+
 fn parse_json_payload(payload: &str) -> serde_json::Value {
     serde_json::from_str(payload).unwrap_or_else(|_| serde_json::Value::String(payload.to_string()))
 }
@@ -639,6 +656,9 @@ fn map_agent_event(
                     }
                     AgentConnectionStatus::Connecting => {
                         ConversationAgentConnectionStatus::Connecting
+                    }
+                    AgentConnectionStatus::Recovering => {
+                        ConversationAgentConnectionStatus::Recovering
                     }
                     AgentConnectionStatus::Ready => ConversationAgentConnectionStatus::Ready,
                     AgentConnectionStatus::Failed => ConversationAgentConnectionStatus::Error,
@@ -713,8 +733,8 @@ fn map_agent_event(
                 output_tokens: usage.output_tokens.unwrap_or(0),
                 cache_creation_input_tokens: usage.cache_write_tokens.unwrap_or(0),
                 cache_read_input_tokens: usage.cache_read_tokens.unwrap_or(0),
-                context_used: Some(usage.used),
-                context_window_max: usage.limit,
+                context_used: (usage.used > 0).then_some(usage.used),
+                context_window_max: usage.limit.filter(|limit| *limit > 0),
                 cost_amount: usage.cost_amount,
                 cost_currency: usage.cost_currency.clone(),
             },
@@ -859,11 +879,11 @@ fn map_agent_event(
                 },
                 agents::DelegationResultSummary::Err { error_code } => {
                     ConversationDelegationResult::Err {
-                        error: ConversationError {
-                            message: error_code.clone(),
-                            code: Some(error_code.clone()),
-                            raw: None,
-                        },
+                        error: ConversationError::new(
+                            error_code.clone(),
+                            Some(error_code.clone()),
+                            None,
+                        ),
                     }
                 }
             },
@@ -883,11 +903,11 @@ fn map_agent_event(
                     "agent turn failed"
                 );
                 ConversationEvent::TurnFailed {
-                    error: ConversationError {
-                        message: error.message.clone(),
-                        code: error.code.clone(),
-                        raw: error.raw.clone(),
-                    },
+                    error: ConversationError::new(
+                        error.message.clone(),
+                        error.code.clone(),
+                        error.raw.clone(),
+                    ),
                 }
             } else {
                 tracing::error!(
@@ -1003,6 +1023,15 @@ fn diagnostic_label(raw: &serde_json::Value) -> String {
         .to_string()
 }
 
+async fn persist_session_linked_external_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    acp_session_id: &str,
+) -> Result<(), RuntimeEventRecordError> {
+    Session::update_external_session_id(pool, conversation_id, acp_session_id).await?;
+    Ok(())
+}
+
 fn conversation_event_kind(event: &ConversationEvent) -> String {
     serde_json::to_value(event)
         .ok()
@@ -1023,6 +1052,7 @@ mod tests {
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::Session,
     };
     use sqlx::{
         SqlitePool,
@@ -1033,7 +1063,7 @@ mod tests {
     use super::{
         ConversationEventCoalescer, MappedConversationEventRecord, binds_only_to_in_flight_turn,
         conversation_event_kind, conversation_event_source, is_turn_scoped_content,
-        map_agent_event, resolve_agent_event_turn_id,
+        map_agent_event, persist_session_linked_external_id, resolve_agent_event_turn_id,
     };
 
     #[test]
@@ -1238,6 +1268,7 @@ mod tests {
                 finished: agents::AgentPromptFinished {
                     prompt_id: agents::AgentPromptId(Uuid::new_v4()),
                     stop_reason: Some(reason.to_string()),
+                    usage: None,
                 },
             });
             let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
@@ -1324,6 +1355,7 @@ mod tests {
             finished: agents::AgentPromptFinished {
                 prompt_id: agents::AgentPromptId(Uuid::new_v4()),
                 stop_reason: Some("EndTurn".to_string()),
+                usage: None,
             },
         });
         assert!(matches!(
@@ -1438,6 +1470,25 @@ mod tests {
                 updated_at: now,
             },
         }
+    }
+
+    #[tokio::test]
+    async fn session_linked_writes_external_session_id() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_conversation_turn(&pool, "prompt-1", "hello").await;
+
+        persist_session_linked_external_id(&pool, conversation_id, "acp-live-session-9")
+            .await
+            .expect("persist SessionLinked");
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session exists");
+        assert_eq!(
+            session.external_session_id.as_deref(),
+            Some("acp-live-session-9")
+        );
     }
 
     #[tokio::test]

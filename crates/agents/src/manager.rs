@@ -414,7 +414,13 @@ pub enum AgentConnectionCommand {
         session_id: AgentSessionId,
         external_session_id: String,
         preferences: crate::SessionControlPreferences,
-        result_tx: oneshot::Sender<AgentResult<(String, AgentSessionControlsSnapshot)>>,
+        result_tx: oneshot::Sender<
+            AgentResult<(
+                String,
+                AgentSessionControlsSnapshot,
+                Option<crate::conversation::SessionRecoveryStrategy>,
+            )>,
+        >,
     },
     /// Fork the live ACP session (P1-4): the agent branches its context into a
     /// new server-side session; the returned id is the new (forked) session.
@@ -718,7 +724,11 @@ impl AgentConnectionManager {
         session_id: AgentSessionId,
         external_session_id: impl Into<String>,
         preferences: crate::SessionControlPreferences,
-    ) -> AgentResult<(String, AgentSessionControlsSnapshot)> {
+    ) -> AgentResult<(
+        String,
+        AgentSessionControlsSnapshot,
+        Option<crate::conversation::SessionRecoveryStrategy>,
+    )> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
@@ -1154,7 +1164,7 @@ impl AgentConnectionRunner {
                 AgentEvent::Error {
                     error: AgentErrorEvent {
                         message,
-                        code: None,
+                        code: Some("internal_error".to_string()),
                         raw: None,
                     },
                 },
@@ -1199,7 +1209,7 @@ impl AgentConnectionRunner {
                         .await
                         .insert(session_id, external_session_id.clone());
                     let controls = AgentSessionControlsSnapshot::default();
-                    let _ = result_tx.send(Ok((external_session_id, controls)));
+                    let _ = result_tx.send(Ok((external_session_id, controls, None)));
                 }
                 AgentConnectionCommand::ForkSession {
                     session_id,
@@ -1261,6 +1271,7 @@ impl AgentConnectionRunner {
                         finished: AgentPromptFinished {
                             prompt_id,
                             stop_reason: Some("cancelled".to_string()),
+                            usage: None,
                         },
                     },
                 ),
@@ -1496,6 +1507,7 @@ impl AgentConnectionRunner {
                 finished: AgentPromptFinished {
                     prompt_id,
                     stop_reason: Some("end_turn".to_string()),
+                    usage: None,
                 },
             },
         );
@@ -1909,9 +1921,10 @@ impl AgentConnectionRunner {
                                 )
                                 .await;
                             let result = match result {
-                                Ok(acp_session_id) => Ok((
+                                Ok((acp_session_id, strategy)) => Ok((
                                     acp_session_id,
                                     runner.session_controls_snapshot(session_id).await,
+                                    strategy,
                                 )),
                                 Err(error) => Err(error),
                             };
@@ -2064,6 +2077,7 @@ impl AgentConnectionRunner {
                                     finished: AgentPromptFinished {
                                         prompt_id,
                                         stop_reason: Some("cancelled".to_string()),
+                                        usage: None,
                                     },
                                 },
                             );
@@ -2147,9 +2161,9 @@ impl AgentConnectionRunner {
         external_session_id: String,
         support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
-    ) -> AgentResult<String> {
+    ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
-            return Ok(existing);
+            return Ok((existing, None));
         }
 
         if support.load {
@@ -2170,6 +2184,7 @@ impl AgentConnectionRunner {
                 .await,
             );
             *self.pending_session_id.lock().await = Some(session_id);
+            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
             let load_result = conn.send_request(request).block_task().await;
             match load_result {
                 Ok(response) => {
@@ -2196,7 +2211,10 @@ impl AgentConnectionRunner {
                     )
                     .await;
                     *self.pending_session_id.lock().await = None;
-                    return Ok(external_session_id);
+                    return Ok((
+                        external_session_id,
+                        Some(crate::conversation::SessionRecoveryStrategy::Loaded),
+                    ));
                 }
                 Err(error) => {
                     *self.pending_session_id.lock().await = None;
@@ -2225,6 +2243,7 @@ impl AgentConnectionRunner {
                 .await,
             );
             *self.pending_session_id.lock().await = Some(session_id);
+            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
             let resume_result = conn.send_request(request).block_task().await;
             match resume_result {
                 Ok(response) => {
@@ -2251,7 +2270,10 @@ impl AgentConnectionRunner {
                     )
                     .await;
                     *self.pending_session_id.lock().await = None;
-                    return Ok(external_session_id);
+                    return Ok((
+                        external_session_id,
+                        Some(crate::conversation::SessionRecoveryStrategy::Resumed),
+                    ));
                 }
                 Err(error) => {
                     *self.pending_session_id.lock().await = None;
@@ -2774,10 +2796,10 @@ impl AgentConnectionRunner {
             if option.id.0.as_ref() != selection.config_id {
                 continue;
             }
-            if let SessionConfigKind::Select(select) = &mut option.kind {
-                if let Some(value_id) = selection.event_value.as_str() {
-                    select.current_value = SessionConfigValueId::new(value_id);
-                }
+            if let SessionConfigKind::Select(select) = &mut option.kind
+                && let Some(value_id) = selection.event_value.as_str()
+            {
+                select.current_value = SessionConfigValueId::new(value_id);
             }
         }
     }
@@ -2900,6 +2922,14 @@ impl AgentConnectionRunner {
                     self.cancel_pending_interactions(session_id).await;
                     match result {
                         Ok(response) => {
+                            let usage = response.usage.as_ref().map(agent_usage_from_end_turn);
+                            if let Some(usage) = usage.clone() {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::Usage { usage },
+                                );
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -2907,6 +2937,7 @@ impl AgentConnectionRunner {
                                     finished: AgentPromptFinished {
                                         prompt_id,
                                         stop_reason: Some(format!("{:?}", response.stop_reason)),
+                                        usage,
                                     },
                                 },
                             );
@@ -3018,6 +3049,7 @@ impl AgentConnectionRunner {
                                     finished: AgentPromptFinished {
                                         prompt_id,
                                         stop_reason: Some("cancelled".to_string()),
+                                        usage: None,
                                     },
                                 },
                             );
@@ -4812,6 +4844,19 @@ where
         .unwrap_or_else(|| format!("{value:?}"))
 }
 
+fn agent_usage_from_end_turn(usage: &agent_client_protocol::schema::v1::Usage) -> AgentUsage {
+    AgentUsage {
+        used: 0,
+        limit: None,
+        input_tokens: Some(usage.input_tokens),
+        output_tokens: Some(usage.output_tokens),
+        cache_read_tokens: usage.cached_read_tokens,
+        cache_write_tokens: usage.cached_write_tokens,
+        cost_amount: None,
+        cost_currency: None,
+    }
+}
+
 fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) -> AgentUsage {
     let (cost_amount, cost_currency) = update
         .cost
@@ -5859,7 +5904,7 @@ mod tests {
             })
             .await;
 
-        let (acp_session_id, controls) = manager
+        let (acp_session_id, controls, _strategy) = manager
             .resume_session(
                 connection_id,
                 session_id,

@@ -40,9 +40,9 @@ use agents::{
         ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-        ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn, PlanEntry,
-        SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-        TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, ImageData,
+        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -614,6 +614,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationUsage>(&mut decls);
     insert_declaration::<ConversationFileChange>(&mut decls);
     insert_declaration::<ConversationFileChangeSummary>(&mut decls);
+    insert_declaration::<ConversationTurnErrorKind>(&mut decls);
     insert_declaration::<ConversationError>(&mut decls);
     insert_declaration::<TurnBlockedReason>(&mut decls);
     insert_declaration::<SessionRecoveryStrategy>(&mut decls);

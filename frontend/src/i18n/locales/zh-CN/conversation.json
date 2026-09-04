@@ -115,8 +115,19 @@
     "connectionClosedDetail": "代理连接在本回合完成前断开。",
     "authRequiredTitle": "需要重新认证",
     "authRequiredDetail": "代理要求重新认证后才能继续。",
+    "rejectedTitle": "请求被拒绝",
+    "rejectedDetail": "代理拒绝了这次请求，原样重发不会成功。",
+    "serviceErrorTitle": "服务故障",
+    "rateLimitedTitle": "已触发限流",
     "defaultTitle": "会话出错",
-    "detailWithCode": "{{message}}（{{code}}）"
+    "detailWithCode": "{{message}}（{{code}}）",
+    "planUsageAside": "额度窗口已用 {{percent}}%，将在 {{reset}} 重置。",
+    "planUsagePercent": "额度窗口已用 {{percent}}%。",
+    "planUsageResetOnly": "额度窗口将在 {{reset}} 重置。",
+    "planUsageResetSoon": "很快",
+    "planUsageReset_minutes": "{{count}} 分钟后",
+    "planUsageReset_hours": "{{count}} 小时后",
+    "planUsageReset_days": "{{count}} 天后"
   },
   "generatedImageCard": {
     "generating": "正在生成图片…",

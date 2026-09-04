@@ -83,7 +83,7 @@ describe('no-response conversation regressions', () => {
               kind: 'turn_error',
               error: {
                 turn_id: 'turn-1',
-                error: { message, code: 'no_response' },
+                error: { message, code: 'no_response', kind: 'unknown' },
               },
             },
           },
@@ -99,7 +99,7 @@ describe('no-response conversation regressions', () => {
       kind: 'turn_error',
       error: {
         turn_id: 'turn-1',
-        error: { message, code: 'no_response' },
+        error: { message, code: 'no_response', kind: 'unknown' },
       },
     });
   });

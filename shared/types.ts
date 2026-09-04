@@ -1229,7 +1229,7 @@ export type AgentConnectionId = string;
 
 export type AgentConnectionSnapshot = { id: AgentConnectionId, agent_id: AgentId, workspace_id: string, status: AgentConnectionStatus, working_dir: string, status_message?: string | null, created_at: string, updated_at: string, };
 
-export type AgentConnectionStatus = "disconnected" | "connecting" | "ready" | "failed";
+export type AgentConnectionStatus = "disconnected" | "connecting" | "recovering" | "ready" | "failed";
 
 export type AgentContentBlock = { "kind": "text", text: string, } | { "kind": "image", data: string, mime_type: string, uri: string | null, } | { "kind": "resource", uri: string, title: string | null, } | { "kind": "protocol", content: JsonValue, };
 
@@ -1263,7 +1263,11 @@ export type AgentPermissionResponse = { "kind": "selected", option_id: string, }
 
 export type AgentPlan = { entries: Array<AgentPlanEntry>, };
 
-export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null, };
+export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null,
+/**
+ * End-turn token breakdown from ACP `PromptResponse.usage` when present.
+ */
+usage?: AgentUsage | null, };
 
 export type AgentPromptId = string;
 
@@ -1453,7 +1457,7 @@ export type ConversationDelegation = { delegation_id: string, parent_tool_call_i
 
 export type ConversationDelegationResult = { "kind": "ok", text_preview?: string | null, duration_ms?: bigint | null, } | { "kind": "err", error: ConversationError, };
 
-export type ConversationError = { message: string, code?: string | null, raw?: JsonValue | null, };
+export type ConversationError = { message: string, code?: string | null, raw?: JsonValue | null, kind: ConversationTurnErrorKind, plan_usage?: AgentPlanUsage | null, };
 
 export type ConversationErrorView = { turn_id: string | null, error: ConversationError, };
 
@@ -2107,3 +2111,5 @@ export type LocalHistoryImportJobStatus = "idle" | "running" | "completed" | "fa
 export type LocalHistoryImportLogEntry = { phase: LocalHistoryImportPhase, agent_id: AgentId, external_session_id: string, title: string | null, conversation_id?: string | null, error?: string | null, };
 
 export type LocalHistoryScanProgress = { session_count: number, bytes_scanned: bigint, };
+
+export type ConversationTurnErrorKind = "rejected" | "service_error" | "rate_limited" | "cancelled" | "auth_required" | "resource_not_found" | "session_resume_unsupported" | "session_load_failed" | "idle_timeout" | "connection_closed" | "prompt_conflict" | "unknown";

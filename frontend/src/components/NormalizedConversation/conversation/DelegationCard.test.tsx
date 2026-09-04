@@ -118,7 +118,7 @@ describe('DelegationCard', () => {
           status: 'failed',
           result: {
             kind: 'err',
-            error: { message: 'sub-agent crashed' },
+            error: { message: 'sub-agent crashed', kind: 'unknown' },
           },
         })}
       />
@@ -141,6 +141,7 @@ describe('DelegationCard', () => {
             error: {
               message: 'canceled by request',
               code: 'canceled',
+              kind: 'cancelled',
             },
           },
         })}

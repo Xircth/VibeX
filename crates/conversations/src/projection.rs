@@ -4,12 +4,13 @@ use std::{
 };
 
 use agents::conversation::{
-    ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationError,
-    ConversationErrorView, ConversationEvent, ConversationPermissionView, ConversationRowOp,
-    ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
-    ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
-    SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
-    cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
+    ContentBlock, ConversationAgentConnectionStatus, ConversationDelegationResult,
+    ConversationDelegationView, ConversationError, ConversationErrorView, ConversationEvent,
+    ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
+    PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, TimelineRow, TimelineTextStream,
+    TurnRole, TurnUsage, cap_preview_bytes, cap_timeline_preview_fields,
+    cap_timeline_row_preview_fields,
 };
 use db::models::{
     conversation::ConversationAgentBindingRecord,
@@ -41,6 +42,7 @@ const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
+const AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID: &str = "notice:agent-connection-recovering";
 const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
@@ -556,6 +558,16 @@ impl ConversationStateApplier {
                 )
                 .await?;
             }
+            ConversationEvent::UsageUpdated { usage } => {
+                crate::usage_accounting::apply_usage_updated(
+                    &mut *conn,
+                    record.conversation_id,
+                    record.sequence,
+                    &usage,
+                    record.created_at,
+                )
+                .await?;
+            }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 if let Some(turn_id) = record.turn_id {
                     for file in summary.files {
@@ -759,6 +771,7 @@ impl ConversationProjector {
             "conversation_permissions",
             "conversation_terminals",
             "conversation_file_changes",
+            "conversation_usage_snapshots",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE conversation_id = ?"))
                 .bind(conversation_id)
@@ -1597,7 +1610,50 @@ impl ProjectionFold {
                     row: ConversationTimelineRow::SessionNotice { notice },
                 });
             }
-            ConversationEvent::AgentBindingReady { .. } => {}
+            ConversationEvent::AgentBindingReady { .. } => {
+                if let Some(index) = side_rows
+                    .iter()
+                    .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
+                {
+                    side_rows.remove(index);
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                    });
+                }
+            }
+            ConversationEvent::AgentConnectionStatusChanged { status } => match status {
+                ConversationAgentConnectionStatus::Recovering => {
+                    side_rows.retain(|row| row.row_id != AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
+                    side_rows.push(TimelineRow {
+                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                        row: ConversationTimelineRow::SessionNotice {
+                            notice: ConversationSessionNotice {
+                                title: "正在恢复会话".into(),
+                                message: None,
+                                severity: "info".into(),
+                                ..Default::default()
+                            },
+                        },
+                    });
+                }
+                ConversationAgentConnectionStatus::Ready
+                | ConversationAgentConnectionStatus::Error
+                | ConversationAgentConnectionStatus::Closed => {
+                    if let Some(index) = side_rows
+                        .iter()
+                        .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
+                    {
+                        side_rows.remove(index);
+                        deleted_rows.push(ConversationRowOp::Delete {
+                            row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                            revision: record.sequence,
+                        });
+                    }
+                }
+                ConversationAgentConnectionStatus::Connecting => {}
+            },
             ConversationEvent::AgentBindingRecovered { strategy } => match strategy {
                 SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
                     if let Some(index) = side_rows
@@ -1706,6 +1762,8 @@ impl ProjectionFold {
                                     message,
                                     code: Some("auth_required".into()),
                                     raw: None,
+                                    kind: Default::default(),
+                                    plan_usage: None,
                                 },
                             },
                         },
@@ -3168,6 +3226,8 @@ mod tests {
                         message: "agent failed".into(),
                         code: Some("fixture_failure".into()),
                         raw: None,
+                        kind: Default::default(),
+                        plan_usage: None,
                     },
                 },
                 "failed",
@@ -3316,6 +3376,8 @@ mod tests {
                     message: "ACP connection closed".into(),
                     code: Some("connection_closed".into()),
                     raw: None,
+                    kind: Default::default(),
+                    plan_usage: None,
                 },
             },
             None,
@@ -4549,6 +4611,8 @@ mod tests {
                         message: "canceled by request".into(),
                         code: Some("canceled".into()),
                         raw: None,
+                        kind: Default::default(),
+                        plan_usage: None,
                     },
                 },
             },
@@ -4841,6 +4905,8 @@ mod tests {
                     message: "late visible error".into(),
                     code: None,
                     raw: None,
+                    kind: Default::default(),
+                    plan_usage: None,
                 },
             },
             None,

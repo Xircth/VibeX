@@ -127,21 +127,13 @@ fn session_load_failure_message(reason: &agents::SessionLoadFailureReason) -> St
 impl ConversationServiceError {
     fn turn_failure(&self) -> ConversationError {
         match self {
-            Self::AuthenticationRequired(message) => ConversationError {
-                message: message.clone(),
-                code: Some("auth_required".into()),
-                raw: None,
-            },
-            Self::SessionUnavailable { code, message } => ConversationError {
-                message: message.clone(),
-                code: Some((*code).into()),
-                raw: None,
-            },
-            other => ConversationError {
-                message: other.to_string(),
-                code: None,
-                raw: None,
-            },
+            Self::AuthenticationRequired(message) => {
+                ConversationError::new(message.clone(), Some("auth_required".into()), None)
+            }
+            Self::SessionUnavailable { code, message } => {
+                ConversationError::new(message.clone(), Some((*code).into()), None)
+            }
+            other => ConversationError::new(other.to_string(), None, None),
         }
     }
 }
@@ -1217,7 +1209,9 @@ impl ConversationSessionService {
                         Some(turn.id),
                         "runtime",
                         ConversationEvent::TurnFailed {
-                            error: error.turn_failure(),
+                            error: error
+                                .turn_failure()
+                                .with_cached_plan_usage(Some(&input.agent_id)),
                         },
                         Some(format!("turn:{}:send_failed", turn.id)),
                     )
@@ -2041,8 +2035,11 @@ impl ConversationSessionService {
             false,
         );
 
+        let restored_existing_session = external_session_id.is_some();
+        let mut restore_strategy = None;
         let runtime_snapshot = if let Some(external_session_id) = external_session_id {
-            self.ctx
+            let (snapshot, strategy) = self
+                .ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
                     agent_id: agent_id.clone(),
@@ -2056,7 +2053,9 @@ impl ConversationSessionService {
                     env: launch_settings.env.clone(),
                     preferences: preferences.clone(),
                 })
-                .await?
+                .await?;
+            restore_strategy = strategy;
+            snapshot
         } else {
             let prepared = self
                 .ctx
@@ -2110,6 +2109,18 @@ impl ConversationSessionService {
             state.connection_status = Some("ready".to_string());
         })
         .await;
+        if latest_binding
+            .as_ref()
+            .is_some_and(|binding| binding.status == "failed")
+        {
+            let strategy = restore_strategy.unwrap_or(if restored_existing_session {
+                agents::SessionRecoveryStrategy::Resumed
+            } else {
+                agents::SessionRecoveryStrategy::CreatedNewSession
+            });
+            self.record_agent_binding_recovered(conversation_id, strategy)
+                .await?;
+        }
         Ok(controls)
     }
 
@@ -2308,6 +2319,16 @@ impl ConversationSessionService {
             );
         }
         self.forget_conversation_runtime(conversation_id).await;
+        self.append_event(
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentConnectionStatusChanged {
+                status: agents::conversation::ConversationAgentConnectionStatus::Recovering,
+            },
+            None,
+        )
+        .await?;
 
         let pool = &self.ctx.deployment.db().pool;
         let placeholder = format!("vibex-new-session-{conversation_id}");
@@ -2725,6 +2746,7 @@ impl ConversationSessionService {
                     preferences: preferences.clone(),
                 })
                 .await?
+                .0
         } else {
             self.ctx
                 .agent_runtime

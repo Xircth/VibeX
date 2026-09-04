@@ -702,11 +702,7 @@ mod tests {
         assert_eq!(title.as_deref(), Some("Edit file"));
 
         let failed = ConversationEvent::TurnFailed {
-            error: agents::conversation::ConversationError {
-                message: "boom".into(),
-                code: None,
-                raw: None,
-            },
+            error: agents::conversation::ConversationError::new("boom", None, None),
         };
         assert_eq!(
             super::attention_from_event(&failed).map(|(kind, _, _)| kind),

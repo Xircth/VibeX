@@ -918,7 +918,10 @@ impl AgentRuntime {
     pub async fn resume_session(
         &self,
         input: ResumeAgentSessionInput,
-    ) -> AgentResult<AgentSessionSnapshot> {
+    ) -> AgentResult<(
+        AgentSessionSnapshot,
+        Option<crate::conversation::SessionRecoveryStrategy>,
+    )> {
         let session = self
             .ensure_session(EnsureAgentSessionInput {
                 agent_id: input.agent_id,
@@ -933,7 +936,7 @@ impl AgentRuntime {
                 preferences: input.preferences.clone(),
             })
             .await?;
-        let (acp_session_id, controls) = self
+        let (acp_session_id, controls, restore_strategy) = self
             .connection_manager
             .resume_session(
                 session.connection_id,
@@ -951,7 +954,7 @@ impl AgentRuntime {
         session_state.snapshot.status = AgentSessionStatus::Ready;
         session_state.snapshot.updated_at = Utc::now();
         session_state.controls = controls;
-        Ok(session_state.snapshot.clone())
+        Ok((session_state.snapshot.clone(), restore_strategy))
     }
 
     /// Return the controls retained for a live session. Resume/prepare paths
@@ -1271,6 +1274,7 @@ impl AgentRuntime {
                             finished: crate::AgentPromptFinished {
                                 prompt_id: input.prompt_id,
                                 stop_reason: Some("cancelled".to_string()),
+                                usage: None,
                             },
                         }
                     },
@@ -2322,6 +2326,7 @@ mod tests {
                 finished: AgentPromptFinished {
                     prompt_id: active_prompt.id,
                     stop_reason: Some("end_turn".to_string()),
+                    usage: None,
                 },
             },
         };
@@ -2771,9 +2776,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(resumed.id, session_id);
-        assert_eq!(resumed.acp_session_id, "codex-session-123");
-        assert_eq!(resumed.status, AgentSessionStatus::Ready);
+        assert_eq!(resumed.0.id, session_id);
+        assert_eq!(resumed.0.acp_session_id, "codex-session-123");
+        assert_eq!(resumed.0.status, AgentSessionStatus::Ready);
         assert_eq!(
             runtime
                 .session_controls_snapshot(session_id)

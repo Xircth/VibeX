@@ -10,7 +10,46 @@ import type { ConversationError } from 'shared/types';
 import { TurnErrorCard } from './TurnErrorCard';
 
 function err(overrides: Partial<ConversationError> = {}): ConversationError {
-  return { message: 'boom', code: null, raw: null, ...overrides };
+  const merged: ConversationError = {
+    message: 'boom',
+    code: null,
+    raw: null,
+    kind: 'unknown',
+    ...overrides,
+  };
+  if (overrides.kind == null) {
+    merged.kind = kindFromCode(merged.code ?? null);
+  }
+  return merged;
+}
+
+function kindFromCode(code: string | null): ConversationError['kind'] {
+  switch (code) {
+    case 'invalid_request':
+    case 'invalid_params':
+      return 'rejected';
+    case 'internal_error':
+      return 'service_error';
+    case 'request_cancelled':
+    case 'cancelled':
+      return 'cancelled';
+    case 'auth_required':
+      return 'auth_required';
+    case 'resource_not_found':
+      return 'resource_not_found';
+    case 'session_resume_unsupported':
+      return 'session_resume_unsupported';
+    case 'session_load_failed':
+      return 'session_load_failed';
+    case 'idle_timeout':
+      return 'idle_timeout';
+    case 'connection_closed':
+      return 'connection_closed';
+    case 'prompt_conflict':
+      return 'prompt_conflict';
+    default:
+      return 'unknown';
+  }
 }
 
 describe('TurnErrorCard', () => {
@@ -115,6 +154,66 @@ describe('TurnErrorCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects invalid requests without offering retry', () => {
+    render(
+      <TurnErrorCard
+        error={err({ kind: 'rejected', code: 'invalid_params' })}
+        onReload={vi.fn()}
+        onRebind={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('请求被拒绝')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /重新加载/ })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: /重新绑定会话/ })
+    ).toBeInTheDocument();
+  });
+
+  it('offers retry for a service error', () => {
+    render(
+      <TurnErrorCard
+        error={err({ kind: 'service_error', code: 'internal_error' })}
+        onReload={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('服务故障')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /重新加载会话/ })
+    ).toBeInTheDocument();
+  });
+
+  it('offers retry for a structured rate limit', () => {
+    render(
+      <TurnErrorCard
+        error={err({ kind: 'rate_limited', code: 'rpc_-32000' })}
+        onReload={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('已触发限流')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /重新加载会话/ })
+    ).toBeInTheDocument();
+  });
+
+  it('does not classify rate-limit wording as rate_limited', () => {
+    render(
+      <TurnErrorCard
+        error={err({
+          kind: 'unknown',
+          message: 'rate limit exceeded',
+          code: 'rpc_-32050',
+        })}
+        onReload={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('会话出错')).toBeInTheDocument();
+    expect(screen.queryByText('已触发限流')).toBeNull();
   });
 
   it('puts composer recovery actions beside the title and replaces the icon with a badge', () => {

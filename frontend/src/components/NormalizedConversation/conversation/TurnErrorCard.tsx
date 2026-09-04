@@ -3,7 +3,12 @@ import { Badge } from '@astryxdesign/core/Badge';
 import { Ban, RefreshCw, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import type { ConversationError } from 'shared/types';
+import type {
+  AgentPlanUsage,
+  ConversationError,
+  ConversationTurnErrorKind,
+} from 'shared/types';
+import { describeReset } from '@/components/kanban/planUsageFormat';
 import { Button } from '@/components/ui/button';
 import { ConversationStatusDetails } from './ConversationStatusDetails';
 import { cn } from '@/lib/utils';
@@ -104,6 +109,7 @@ export function TurnErrorCard({
             <div className="whitespace-pre-wrap break-words">{view.detail}</div>
           </ConversationStatusDetails>
         ) : null}
+        <PlanUsageAside usage={error.plan_usage} />
       </div>
     );
   }
@@ -128,6 +134,7 @@ export function TurnErrorCard({
               {view.detail}
             </div>
           ) : null}
+          <PlanUsageAside usage={error.plan_usage} />
           {showRebind || showReload ? (
             <div className="mt-2">
               <Button
@@ -202,9 +209,8 @@ type ErrorView = {
 
 function describeError(error: ConversationError, t: TFunction): ErrorView {
   const message = error.message?.trim() || null;
-  switch (error.code) {
+  switch (errorKind(error)) {
     case 'cancelled':
-    case 'request_cancelled':
       return {
         title: t('turnErrorCard.cancelledTitle'),
         detail: message,
@@ -267,7 +273,39 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         canReload: false,
         canRebind: true,
       };
-    default:
+    case 'rejected':
+      return {
+        title: t('turnErrorCard.rejectedTitle'),
+        detail: errorDetail(
+          message ?? t('turnErrorCard.rejectedDetail'),
+          error.code,
+          t
+        ),
+        tone: 'error',
+        icon: <Ban className="h-4 w-4" />,
+        canReload: false,
+        canRebind: true,
+      };
+    case 'service_error':
+      return {
+        title: t('turnErrorCard.serviceErrorTitle'),
+        detail: errorDetail(message, error.code, t),
+        tone: 'error',
+        icon: <TriangleAlert className="h-4 w-4" />,
+        canReload: true,
+        canRebind: false,
+      };
+    case 'rate_limited':
+      return {
+        title: t('turnErrorCard.rateLimitedTitle'),
+        detail: errorDetail(message, error.code, t),
+        tone: 'error',
+        icon: <TriangleAlert className="h-4 w-4" />,
+        canReload: true,
+        canRebind: false,
+      };
+    case 'prompt_conflict':
+    case 'unknown':
       return {
         title: t('turnErrorCard.defaultTitle'),
         detail: errorDetail(message, error.code, t),
@@ -277,6 +315,69 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         canRebind: false,
       };
   }
+}
+
+function errorKind(error: ConversationError): ConversationTurnErrorKind {
+  if (error.kind) {
+    return error.kind;
+  }
+  switch (error.code) {
+    case 'invalid_request':
+    case 'invalid_params':
+      return 'rejected';
+    case 'internal_error':
+      return 'service_error';
+    case 'request_cancelled':
+    case 'cancelled':
+      return 'cancelled';
+    case 'auth_required':
+      return 'auth_required';
+    case 'resource_not_found':
+      return 'resource_not_found';
+    case 'session_resume_unsupported':
+      return 'session_resume_unsupported';
+    case 'session_load_failed':
+      return 'session_load_failed';
+    case 'idle_timeout':
+      return 'idle_timeout';
+    case 'connection_closed':
+      return 'connection_closed';
+    case 'prompt_conflict':
+      return 'prompt_conflict';
+    default:
+      return 'unknown';
+  }
+}
+
+function PlanUsageAside({ usage }: { usage?: AgentPlanUsage | null }) {
+  const { t } = useTranslation(['conversation']);
+  const window = usage?.windows.find(
+    (item) => item.usedPercent != null || item.resetsAtMs != null
+  );
+  if (!window) return null;
+  const percent =
+    typeof window.usedPercent === 'number'
+      ? Math.round(window.usedPercent)
+      : null;
+  const reset = describeReset(window.resetsAtMs, Date.now());
+  const resetLabel = !reset
+    ? null
+    : reset.kind === 'soon'
+      ? t('turnErrorCard.planUsageResetSoon')
+      : t(`turnErrorCard.planUsageReset_${reset.kind}`, {
+          count: reset.count,
+        });
+  return (
+    <div className="mt-1 text-xs opacity-80">
+      {percent != null && resetLabel
+        ? t('turnErrorCard.planUsageAside', { percent, reset: resetLabel })
+        : percent != null
+          ? t('turnErrorCard.planUsagePercent', { percent })
+          : resetLabel
+            ? t('turnErrorCard.planUsageResetOnly', { reset: resetLabel })
+            : null}
+    </div>
+  );
 }
 
 function errorDetail(

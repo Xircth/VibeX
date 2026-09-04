@@ -85,7 +85,9 @@ describe('Product Plugin content layout', () => {
       '.settings-page .product-plugin-market-list'
     );
     const row = declarationsFor('.settings-page .product-plugin-row');
-    expect(list.get('background')).toBe('transparent');
+    // The installed list is a white settings surface (see
+    // SettingsContent.styles.test.ts); only the market list stays uncontained.
+    expect(list.get('background')).toBe('var(--surface-card-strong)');
     expect(market.get('background')).toBe('transparent');
     expect(market.get('border-radius')).toBeUndefined();
     expect(row.get('margin')).toBe('0');

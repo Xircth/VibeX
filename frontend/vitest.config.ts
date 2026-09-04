@@ -12,6 +12,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/vitest.setup.ts'],
+    // The heavier settings suites drive long userEvent sequences and land
+    // around 2-4s alone, which overran the 5s default once the whole suite ran
+    // in parallel and made CI fail on scheduling luck rather than behaviour.
+    testTimeout: 20000,
     include: [
       'src/**/*.{test,spec}.{ts,tsx}',
       'tests/**/*.{test,spec}.{ts,tsx}',

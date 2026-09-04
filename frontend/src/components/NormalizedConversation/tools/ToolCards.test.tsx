@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionType, NormalizedEntry, ToolStatus } from 'shared/types';
+import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { ToolCallCard } from '../ToolCallCard';
 import type { ToolResultBlock, ToolUseBlock } from '../messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from '../messageTurnTool';
@@ -367,8 +368,9 @@ describe('conversation tool cards', () => {
   });
 
   it('opens and copies web fetch targets without expanding the card', async () => {
-    // The Tauri shell plugin is unavailable in jsdom, so the system-browser
-    // opener falls back to window.open.
+    // vitest.setup.ts stubs @tauri-apps/plugin-shell for every suite, so the
+    // shell open must be made to fail here to exercise the window.open
+    // fallback the opener relies on outside the desktop shell.
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     render(
@@ -385,6 +387,9 @@ describe('conversation tool cards', () => {
       />
     );
 
+    vi.mocked(openExternal).mockRejectedValueOnce(
+      new Error('Tauri shell is unavailable outside the desktop shell')
+    );
     fireEvent.click(screen.getByRole('button', { name: '打开链接' }));
     fireEvent.click(screen.getByRole('button', { name: '复制 URL' }));
 

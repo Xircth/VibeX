@@ -86,7 +86,11 @@ describe('release workflow contract', () => {
     expect(workflow).toMatch(/push:\s+tags:\s+- ['"]v\*['"]/);
     expect(workflow).toContain('bundles: nsis');
     expect(workflow).toContain('bundles: appimage');
-    expect(workflow).toContain('bundles: app,dmg');
+    // macOS builds the .app only; the DMG is produced by the dedicated
+    // notarize step so the disk image wraps an already-notarized bundle.
+    expect(workflow).toContain('bundles: app');
+    expect(workflow).toContain('Notarize macOS app and create DMG');
+    expect(workflow).toContain('scripts/macos-notarize-and-dmg.js');
     expect(workflow).not.toContain('bundles: msi,nsis');
     expect(workflow).not.toContain('bundles: appimage,deb');
     expect(workflow).toContain('xdg-utils');
@@ -121,7 +125,8 @@ describe('release workflow contract', () => {
     );
     expect(workflow).toContain('vibex.exe');
     expect(workflow).toContain('bundles: appimage');
-    expect(workflow).toContain('bundles: app,dmg');
+    expect(workflow).toContain('bundles: app');
+    expect(workflow).toContain('scripts/macos-notarize-and-dmg.js');
     expect(workflow).toContain(
       "RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}"
     );

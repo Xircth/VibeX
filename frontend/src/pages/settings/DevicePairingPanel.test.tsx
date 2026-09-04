@@ -51,7 +51,9 @@ describe('DevicePairingPanel', () => {
       pairing_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
       pairing_token: 'K7M2NPQX',
       connection_code: 'K7M2NPQX',
-      expires_at: '2026-08-31T05:05:00Z',
+      // Must stay in the future: once this timestamp passes, the panel reports
+      // the challenge as failed and the waiting status under test disappears.
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
       requested_scopes: ['conversation.read', 'conversation.question'],
       host_id: 'host-1',
       invitation,
@@ -141,7 +143,9 @@ describe('DevicePairingPanel', () => {
       pairing_id: 'pair-2',
       pairing_token: 'K7M2NPQX',
       connection_code: 'K7M2NPQX',
-      expires_at: '2026-08-31T05:05:00Z',
+      // Must stay in the future: once this timestamp passes, the panel reports
+      // the challenge as failed and the waiting status under test disappears.
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
       requested_scopes: ['conversation.read'],
       invitation: 'vibex-pairing:{"pairing_token":"K7M2NPQX"}',
       reachability: [

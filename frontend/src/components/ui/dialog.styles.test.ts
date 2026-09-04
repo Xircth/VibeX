@@ -41,8 +41,9 @@ describe('global modal surfaces', () => {
   });
 
   it('keeps custom modal implementations on the shared surface contract', () => {
+    // App.tsx no longer hand-rolls a modal: its crash report dialog moved to
+    // the shared Dialog primitive, which already owns the surface contract.
     const customModalFiles = [
-      'src/App.tsx',
       'src/components/search/SearchPalette.tsx',
       'src/components/panels/git/GitDiscardDialog.tsx',
       'src/components/panels/git/GitDiffModal.tsx',

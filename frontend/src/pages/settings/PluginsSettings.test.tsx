@@ -956,8 +956,11 @@ describe('PluginsSettings', () => {
     const command = within(dialog).getByRole('textbox', {
       name: 'Codex CLI 命令',
     });
-    await user.type(
-      command,
+    // Paste rather than type: keystroke-by-keystroke entry of this command
+    // pushed the test past the 5s limit whenever the full suite ran in
+    // parallel, and nothing here depends on per-character input.
+    await user.click(command);
+    await user.paste(
       'codex plugin marketplace add official\n' +
         'codex plugin add frontend-design@official'
     );

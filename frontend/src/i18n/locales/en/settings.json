@@ -826,6 +826,12 @@
         "readme": "# Host chrome sample\n\nReference plugin for the six chrome slots. Turn it on to see each slot gain one item; turn it off and they disappear together.\n\n## Slots\n\nCommand palette, toolbar, status bar, composer slash, timeline card, Settings section.\n\n## Troubleshooting\n\nIf an item is missing, the plugin is off. Worker status and recent crashes are on this page under Runtime.",
         "config": {}
       },
+      "hostSurface": {
+        "name": "Host surface sample",
+        "summary": "Adds a top-level tab, a workspace panel, and a kanban view.",
+        "readme": "# Host surface sample\n\nReference plugin for structure surfaces. Turn it on to see a tab, a panel, and a kanban view; turn it off and they disappear together.",
+        "config": {}
+      },
       "providerImport": {
         "name": "Environment provider import",
         "summary": "Import OpenAI-compatible providers from environment variables into Model Provider presets.",

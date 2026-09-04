@@ -3,13 +3,14 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPlugin } from "./build.js";
 import { watchPluginSources } from "./dev.js";
+import { readPluginRemotes, startPluginRemoteDev } from "./remoteDev.js";
 import { packPlugin } from "./package.js";
 import { doctorOnProductHost, importLinkedOnProductHost, uninstallOnProductHost, } from "./productHost.js";
 import { inspectLinkedPackage } from "./pluginControl.js";
 import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, reloads a Skill, and uninstalls.`;
+const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import|panel|kanban-view]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, enables Host contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
 try {
     switch (command) {
@@ -71,9 +72,28 @@ try {
             const stop = () => controller.abort();
             process.once("SIGINT", stop);
             process.once("SIGTERM", stop);
+            const remotes = await readPluginRemotes(root);
+            const remoteDev = remotes.length > 0
+                ? await startPluginRemoteDev({
+                    root,
+                    remotes,
+                    signal: controller.signal,
+                    onReady(entry) {
+                        console.log(`Remote HMR at ${entry}`);
+                    },
+                    onError(error) {
+                        console.error(formatError(error));
+                    },
+                })
+                : null;
+            if (remoteDev) {
+                const published = await importLinkedOnProductHost(plugin.root, plugin.identity);
+                console.log(`Published generation ${published.generation} with live remotes`);
+            }
             try {
                 await watchPluginSources(root, {
                     signal: controller.signal,
+                    ignoreRemoteSources: remotes.length > 0,
                     async reload() {
                         await buildPlugin(root);
                         if (controller.signal.aborted)
@@ -113,6 +133,10 @@ try {
                     "rust-worker",
                     "host-service",
                     "hooks",
+                    "host-chrome",
+                    "provider-import",
+                    "panel",
+                    "kanban-view",
                 ],
             }, null, 2));
             break;

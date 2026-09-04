@@ -3,6 +3,7 @@ import {
   Hash,
   MessageSquare,
   FileIcon,
+  Sparkles,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +20,7 @@ const TAB_ICON = {
   conversation: MessageSquare,
   commit: GitCommitHorizontal,
   instruction: Hash,
+  action: Sparkles,
 } as const;
 
 export function ComposerAtReferenceMenu({

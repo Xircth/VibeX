@@ -27,6 +27,7 @@ import {
 } from '@/lib/settingsPreload';
 import { Projects } from '@/pages/Projects';
 import { SettingsLayout } from '@/pages/settings/SettingsLayout';
+import { PluginSettingsPage } from '@/pages/settings/PluginSettingsPage';
 
 function lazyNamed<
   T extends Record<Name, ComponentType>,
@@ -199,6 +200,10 @@ export function MainAppRoutes() {
           />
           <Route path="logs" element={<LogsSettings />} />
           <Route path="system" element={<SystemSettings />} />
+          <Route
+            path="plugin/:pluginId/:pageId"
+            element={<PluginSettingsPage />}
+          />
         </Route>
         <Route path="/plugins" element={<PluginsPage />} />
         <Route

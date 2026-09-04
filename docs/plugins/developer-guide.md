@@ -43,6 +43,8 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 - `host-service` 后台定时 handler
 - `host-chrome` 六个宿主界面槽位各一条贡献
 - `provider-import` 一个模型供应商导入来源
+- `panel` 一个 `app.panel`，带 Vite Module Federation 远程
+- `kanban-view` 一个 `app.kanban.view`，带 Vite Module Federation 远程
 
 可编辑文件 Tab 要按 `file.opener.editorSurface` + `app.surface(slot: artifact.editor)` 另行声明。
 
@@ -147,6 +149,11 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `app.settings.section` | 设置段 |
 | `host.service` | 后台周期调用 Worker handler，`intervalSeconds` 最小 5 |
 | `provider.model.importSource` | 模型供应商导入来源，出现在设置的「导入」菜单里 |
+| `app.panel` | 工作区 Dockview 面板 |
+| `app.tab` | 中央顶级 Tab |
+| `app.kanban.view` | 看板 Tab 里的一页视图 |
+| `app.composer.action` | Composer `@` 面板的动作 |
+| `app.settings.page` | **预览。** 设置侧栏整页；稳定面认定在 Batch 3 |
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 
@@ -195,9 +202,10 @@ vibex-plugin uninstall --delete-data
 `vibex-plugin install` 只支持 `--link`。产品 CLI：`vibex plugin add --dev .` 会 build、validate、导入为 developer link，并尝试启用。源码变化后重新 build；Host 按 digest 发布候选代。
 
 普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走：安装 →
-启用 → 该包声明的 chrome 槽位出现在贡献目录 → 禁用后原子消失 → 再启用 →
+启用 → 该包声明的 chrome / 结构面 kind 出现在贡献目录 → 禁用后原子消失 → 再启用 →
 （若有 `SKILL.md`）改文件等 digest 更新 → 卸载且源目录仍在。chrome 槽位的
-「热更新」是激活代，不是 Vite HMR。
+「热更新」是激活代。`panel` / `kanban-view` 的面板改代码走 `vibex-plugin dev`
+的 Vite HMR，不重载宿主。
 
 `dev` 会先 build，再 link，再监视源码。digest 变了才重载。重载走候选代，失败则上一完整代仍对外可见。
 

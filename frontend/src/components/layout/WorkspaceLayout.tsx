@@ -15,7 +15,10 @@ import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { attemptsApi } from '@/lib/api';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
-import { resolveFocusDispatch } from '@/lib/projectFocusRouting';
+import {
+  resolveFocusDispatch,
+  type FocusSurface,
+} from '@/lib/projectFocusRouting';
 import { requestCanvasReveal } from '@/lib/canvasSessionReveal';
 
 interface WorkspaceLayoutProps {
@@ -63,8 +66,12 @@ function PendingProjectFocusBridge() {
     // IDELayout's `effectiveActiveTab`); otherwise the kanban/workspace surface
     // is whatever tab the user is on. Never switch the tab itself — the session
     // is revealed where the user already is.
-    const surface =
-      routeWorkspaceId || routeSessionId ? 'workspace' : activeTab;
+    const surface: FocusSurface =
+      routeWorkspaceId || routeSessionId
+        ? 'workspace'
+        : activeTab === 'kanban'
+          ? 'kanban'
+          : 'workspace';
     const isCanvasHub =
       surface === 'kanban' &&
       boardStyle === 'canvas' &&

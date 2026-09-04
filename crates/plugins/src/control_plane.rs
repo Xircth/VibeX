@@ -201,10 +201,7 @@ pub trait PluginRegistry: Send + Sync {
         event: &str,
         evidence: &serde_json::Value,
     ) -> Result<(), PluginError>;
-    async fn list_audit(
-        &self,
-        plugin_id: &str,
-    ) -> Result<Vec<PluginAuditEvent>, PluginError>;
+    async fn list_audit(&self, plugin_id: &str) -> Result<Vec<PluginAuditEvent>, PluginError>;
     async fn delete_unreferenced_runtime_artifacts(
         &self,
     ) -> Result<Vec<RuntimeInstallation>, PluginError>;
@@ -584,10 +581,7 @@ impl PluginRegistry for InMemoryPluginRegistry {
         Ok(())
     }
 
-    async fn list_audit(
-        &self,
-        plugin_id: &str,
-    ) -> Result<Vec<PluginAuditEvent>, PluginError> {
+    async fn list_audit(&self, plugin_id: &str) -> Result<Vec<PluginAuditEvent>, PluginError> {
         Ok(self
             .audit
             .read()
@@ -1290,10 +1284,7 @@ impl PluginRegistry for SqlitePluginRegistry {
         Ok(())
     }
 
-    async fn list_audit(
-        &self,
-        plugin_id: &str,
-    ) -> Result<Vec<PluginAuditEvent>, PluginError> {
+    async fn list_audit(&self, plugin_id: &str) -> Result<Vec<PluginAuditEvent>, PluginError> {
         let rows = sqlx::query(
             "SELECT event, evidence_json FROM plugin_audit_v4
              WHERE plugin_id = ? ORDER BY sequence",
@@ -1305,8 +1296,7 @@ impl PluginRegistry for SqlitePluginRegistry {
         rows.into_iter()
             .map(|row| {
                 let event: String = row.try_get("event").map_err(registry_error)?;
-                let evidence_json: String =
-                    row.try_get("evidence_json").map_err(registry_error)?;
+                let evidence_json: String = row.try_get("evidence_json").map_err(registry_error)?;
                 let evidence = serde_json::from_str(&evidence_json).map_err(registry_error)?;
                 Ok(PluginAuditEvent { event, evidence })
             })

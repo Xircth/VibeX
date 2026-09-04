@@ -22,6 +22,7 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use crate::{
     PreviewProxyRegistry, ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore,
     automation_runtime::HeadlessAutomationRuntime, delegation_runtime::HeadlessDelegationRuntime,
+    plugin_artifact::start_plugin_artifact_http,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -284,6 +285,9 @@ impl HeadlessServer {
         }
         plugin_control_plane
             .sync_official_product_mcp_gate()
+            .await
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+        start_plugin_artifact_http(plugin_control_plane.clone())
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
         let app_surfaces = Arc::new(plugins::PluginAppSurfaceHost::new(

@@ -170,6 +170,13 @@ export interface PanelActions {
   focusKanban: () => void;
   openLogs: () => void;
   openNotes: () => void;
+  openPluginPanel: (options: {
+    panelId: string;
+    title: string;
+    pluginId: string;
+    contributionId: string;
+    icon?: string | null;
+  }) => void;
   setDockviewApi: (api: DockviewApi | null) => void;
 }
 
@@ -1276,6 +1283,43 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     openOrFocusPanel(PANEL_IDS.NOTES, 'Notes');
   }, [openOrFocusPanel]);
 
+  const openPluginPanel = useCallback(
+    (options: {
+      panelId: string;
+      title: string;
+      pluginId: string;
+      contributionId: string;
+      icon?: string | null;
+    }) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+      const existing = dockviewApi.getPanel(options.panelId);
+      if (existing) {
+        existing.api.setTitle(options.title);
+        existing.api.updateParameters({
+          pluginId: options.pluginId,
+          contributionId: options.contributionId,
+          icon: options.icon ?? null,
+        });
+        existing.group.api.setVisible(true);
+        existing.api.setActive();
+        return;
+      }
+      const panel = addPanelToActiveEditorGroup({
+        id: options.panelId,
+        component: 'plugin-panel',
+        title: options.title,
+        params: {
+          pluginId: options.pluginId,
+          contributionId: options.contributionId,
+          icon: options.icon ?? null,
+        },
+      });
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
+  );
+
   const value = useMemo<PanelActions>(
     () => ({
       openOrFocusPanel,
@@ -1305,6 +1349,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       focusKanban,
       openLogs,
       openNotes,
+      openPluginPanel,
       setDockviewApi,
     }),
     [
@@ -1326,6 +1371,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openTerminalEditorTab,
       showTerminal,
       openNotes,
+      openPluginPanel,
       openOrFocusPanel,
       openPanelInNewEditorGroup,
       setDockviewApi,

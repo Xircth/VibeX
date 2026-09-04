@@ -4,13 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceOverlayContext } from '@/contexts/WorkspaceOverlayContext';
 import { WorkspaceTabAddMenu } from './WorkspaceTabAddMenu';
 
-const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab } =
-  vi.hoisted(() => ({
-    openDiffPreview: vi.fn(),
-    openNotes: vi.fn(),
-    openWebPreview: vi.fn(),
-    openTerminalEditorTab: vi.fn(),
-  }));
+const {
+  openDiffPreview,
+  openNotes,
+  openWebPreview,
+  openTerminalEditorTab,
+  openPluginPanel,
+  usePluginHostContributions,
+} = vi.hoisted(() => ({
+  openDiffPreview: vi.fn(),
+  openNotes: vi.fn(),
+  openWebPreview: vi.fn(),
+  openTerminalEditorTab: vi.fn(),
+  openPluginPanel: vi.fn(),
+  usePluginHostContributions: vi.fn((): unknown[] => []),
+}));
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
@@ -18,7 +26,14 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     openNotes,
     openWebPreview,
     openTerminalEditorTab,
+    openPluginPanel,
   }),
+}));
+
+vi.mock('@/hooks/usePluginHostContributions', () => ({
+  usePluginHostContributions,
+  contributionMetadata: (item: { metadata?: Record<string, unknown> }) =>
+    item.metadata ?? {},
 }));
 
 function headerProps(): IDockviewHeaderActionsProps {
@@ -39,6 +54,7 @@ function headerProps(): IDockviewHeaderActionsProps {
 describe('WorkspaceTabAddMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePluginHostContributions.mockReturnValue([]);
   });
 
   it('offers browser, review, note, and terminal from the editor tab strip', () => {
@@ -147,6 +163,36 @@ describe('WorkspaceTabAddMenu', () => {
     });
 
     expect(container).not.toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('opens a plugin panel from the tab creation menu', () => {
+    usePluginHostContributions.mockReturnValue([
+      {
+        pluginId: 'vibex.host-surface',
+        id: 'sample-panel',
+        label: '示例面板',
+        kind: 'app_panel',
+        generation: 1,
+        metadata: { icon: 'bookmark' },
+      },
+    ]);
+    const props = headerProps();
+
+    render(<WorkspaceTabAddMenu {...props} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '新建标签页' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: '示例面板' }));
+
+    expect(openPluginPanel).toHaveBeenCalledWith({
+      panelId: 'plugin:vibex.host-surface/sample-panel',
+      title: '示例面板',
+      pluginId: 'vibex.host-surface',
+      contributionId: 'sample-panel',
+      icon: 'bookmark',
+    });
   });
 
   it('does not add the control to non-editor groups', () => {

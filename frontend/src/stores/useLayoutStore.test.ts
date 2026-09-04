@@ -246,4 +246,49 @@ describe('persisted layout migration', () => {
     expect(migrated.projectLayouts['new-project'].serializedLayout).toBeNull();
     expect(migrated.projectLayouts['new-project'].rightPanelWidth).toBe(434);
   });
+
+  it('reopens an old layout that already had a plugin panel id', () => {
+    const oldLayout = {
+      grid: { root: {}, width: 1360, height: 800, orientation: 0 },
+      panels: {
+        'plugin:vibex.host-surface/sample-panel': {
+          id: 'plugin:vibex.host-surface/sample-panel',
+          contentComponent: 'plugin-panel',
+          title: '示例面板',
+        },
+        notes: {
+          id: 'notes',
+          contentComponent: 'notes',
+          title: 'Notes',
+        },
+      },
+    } as unknown as SerializedDockview;
+
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'project-a',
+        projectLayouts: {
+          'project-a': {
+            serializedLayout: oldLayout,
+            rightPanelWidth: 480,
+            activeTab: 'plugin:vibex.host-surface/sample-tab',
+          },
+        },
+      },
+      27
+    );
+
+    expect(migrated.projectLayouts['project-a'].serializedLayout).toEqual(
+      oldLayout
+    );
+    expect(migrated.projectLayouts['project-a'].activeTab).toBe(
+      'plugin:vibex.host-surface/sample-tab'
+    );
+    expect(migrated.activeTab).toBe('plugin:vibex.host-surface/sample-tab');
+    expect(
+      migrated.projectLayouts['project-a'].serializedLayout?.panels?.[
+        'plugin:vibex.host-surface/sample-panel'
+      ]
+    ).toMatchObject({ contentComponent: 'plugin-panel' });
+  });
 });

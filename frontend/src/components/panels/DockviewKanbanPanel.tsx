@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { KanbanNavArrow } from '@/components/kanban/KanbanNavArrow';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
@@ -21,17 +28,24 @@ import {
 } from '@/hooks/useKanbanProjectSessions';
 import { dateTimestamp } from '@/utils/date';
 import { resolveCreateSessionHref } from '@/lib/createSessionHref';
-import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useKanbanViews } from '@/hooks/useKanbanViews';
 import {
-  shouldShowLeftArrow,
-  shouldShowRightArrow,
-  shouldHideKanbanSessionSlot,
-  getKanbanPanelTranslateX,
-} from '@/lib/kanbanPanelView';
+  adjacentKanbanViewId,
+  kanbanCarouselTranslateX,
+  kanbanCarouselWidth,
+  kanbanPageWidth,
+  kanbanViewIndex,
+  resolveKanbanViewId,
+} from '@/lib/kanbanViews';
+import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
+import { PluginSurfacePlaceholder } from '@/components/plugins/PluginSurfacePlaceholder';
+import {
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
 import type { SessionStatus } from '@/lib/api';
 import {
   kanbanSlotOfZone,
@@ -84,59 +98,46 @@ function createEmptyStatusBuckets(): Record<
 
 export function KanbanBoard() {
   const { t } = useTranslation(['panels', 'common']);
-  const { panelView, goToBoard, goToSessionHub, goToUsageDashboard } =
-    useKanbanSessionContext();
+  const { activeViewId, setActiveViewId } = useKanbanSessionContext();
   const kanbanArrangement = useKanbanArrangement();
-  const boardStyle = useKanbanBoardStyle();
-  const canvasMode = boardStyle === 'canvas';
+  const views = useKanbanViews();
+  const pluginViews = usePluginHostContributions('kanban_view');
+  const resolvedViewId = resolveKanbanViewId(activeViewId, views);
   useEffect(() => {
-    if (canvasMode && panelView === 'board') {
-      goToSessionHub();
+    if (resolvedViewId && resolvedViewId !== activeViewId) {
+      setActiveViewId(resolvedViewId);
     }
-  }, [canvasMode, goToSessionHub, panelView]);
+  }, [activeViewId, resolvedViewId, setActiveViewId]);
+  const currentViewId = resolvedViewId ?? activeViewId;
+  const currentIndex = kanbanViewIndex(views, currentViewId);
+  const canvasMode = currentViewId === 'builtin:canvas';
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
-  const hideSessionSlot = shouldHideKanbanSessionSlot(panelView, canvasMode);
-  // The center slot only exists inside the session hub; on the other views
-  // the session column docks to the outer edge instead. Usage statistics and
-  // infinite canvas absorb the execution column entirely.
+  const canvasSessionView = canvasMode;
   const outerSessionSide: 'left' | 'right' =
     sessionSlotSide === 'left' ? 'left' : 'right';
   const outerSessionActive =
-    !hideSessionSlot &&
-    (sessionSlotSide !== 'center' || panelView !== 'sessionHub');
+    !canvasSessionView &&
+    (sessionSlotSide !== 'center' || currentViewId !== 'builtin:sessions');
 
-  const showLeftArrow = canvasMode
-    ? panelView === 'usageDashboard'
-    : shouldShowLeftArrow(panelView);
-  const showRightArrow = shouldShowRightArrow(panelView);
+  const showLeftArrow = currentIndex > 0;
+  const showRightArrow = currentIndex < views.length - 1;
 
   const handleLeftArrowClick = () => {
-    if (panelView === 'sessionHub') {
-      goToBoard();
-    } else if (panelView === 'usageDashboard') {
-      goToSessionHub();
-    }
+    setActiveViewId(adjacentKanbanViewId(views, currentViewId, -1));
   };
 
   const handleRightArrowClick = () => {
-    if (panelView === 'board') {
-      goToSessionHub();
-    } else if (panelView === 'sessionHub') {
-      goToUsageDashboard();
-    }
+    setActiveViewId(adjacentKanbanViewId(views, currentViewId, 1));
   };
 
   const getLeftArrowLabel = () => {
-    if (panelView === 'sessionHub') return t('kanbanPanel.backToBoard');
-    if (panelView === 'usageDashboard')
-      return t('kanbanPanel.backToSessionHub');
-    return '';
+    const previous = views[currentIndex - 1];
+    return previous ? t(previous.titleKey, { defaultValue: previous.titleKey }) : '';
   };
 
   const getRightArrowLabel = () => {
-    if (panelView === 'board') return t('kanbanPanel.enterSessionHub');
-    if (panelView === 'sessionHub') return t('kanbanPanel.enterUsageDashboard');
-    return '';
+    const next = views[currentIndex + 1];
+    return next ? t(next.titleKey, { defaultValue: next.titleKey }) : '';
   };
 
   return (
@@ -146,34 +147,50 @@ export function KanbanBoard() {
       )}
       <div className="kanban-shell relative h-full min-w-0 flex-1 overflow-hidden">
         <div
-          className="flex h-full w-[300%] transition-transform duration-300 ease-out"
+          className="flex h-full transition-transform duration-300 ease-out"
           style={{
-            transform: getKanbanPanelTranslateX(panelView),
+            width: kanbanCarouselWidth(views.length),
+            transform: kanbanCarouselTranslateX(views, currentViewId),
           }}
         >
-          <div className="h-full w-1/3 shrink-0">
-            <SessionKanbanBoard />
-          </div>
-          <div className="h-full w-1/3 shrink-0 border-x border-border/60">
-            <KanbanSessionHub
-              zoneOrder={[
-                kanbanArrangement.left,
-                kanbanArrangement.center,
-                kanbanArrangement.right,
-              ]}
-              sessionSlot={
-                sessionSlotSide === 'center' ? (
-                  <KanbanSessionSlot
-                    side="center"
-                    active={panelView === 'sessionHub'}
-                  />
-                ) : null
-              }
-            />
-          </div>
-          <div className="h-full w-1/3 shrink-0">
-            <KanbanUsageDashboard />
-          </div>
+          {views.map((view) => (
+            <div
+              key={view.id}
+              className="h-full shrink-0"
+              style={{ width: kanbanPageWidth(views.length) }}
+              data-kanban-view={view.id}
+            >
+              <KanbanViewErrorBoundary>
+                <KanbanRegisteredView
+                  view={view}
+                  active={view.id === currentViewId}
+                  zoneOrder={[
+                    kanbanArrangement.left,
+                    kanbanArrangement.center,
+                    kanbanArrangement.right,
+                  ]}
+                  sessionSlot={
+                    sessionSlotSide === 'center' &&
+                    view.id === 'builtin:sessions' ? (
+                      <KanbanSessionSlot
+                        side="center"
+                        active={currentViewId === 'builtin:sessions'}
+                      />
+                    ) : null
+                  }
+                  pluginItem={
+                    view.pluginId
+                      ? pluginViews.find(
+                          (item) =>
+                            item.pluginId === view.pluginId &&
+                            item.id === view.contributionId
+                        ) ?? null
+                      : null
+                  }
+                />
+              </KanbanViewErrorBoundary>
+            </div>
+          ))}
         </div>
       </div>
       {!hideSessionSlot && outerSessionSide === 'right' && (
@@ -194,6 +211,69 @@ export function KanbanBoard() {
         />
       )}
     </div>
+  );
+}
+
+class KanbanViewErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <PluginSurfacePlaceholder
+          reason="failed"
+          onRecover={() => this.setState({ failed: false })}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function KanbanRegisteredView({
+  view,
+  active,
+  zoneOrder,
+  sessionSlot,
+  pluginItem,
+}: {
+  view: { id: string; pluginId?: string };
+  active: boolean;
+  zoneOrder: Array<'list' | 'monitor' | 'session'>;
+  sessionSlot: ReactNode;
+  pluginItem: ReturnType<typeof usePluginHostContributions>[number] | null;
+}) {
+  if (view.id === 'builtin:columns') {
+    return <SessionKanbanBoard />;
+  }
+  if (view.id === 'builtin:sessions') {
+    return (
+      <KanbanSessionHub
+        presentation="fixed"
+        zoneOrder={zoneOrder}
+        sessionSlot={sessionSlot}
+      />
+    );
+  }
+  if (view.id === 'builtin:canvas') {
+    return <KanbanSessionHub presentation="canvas" zoneOrder={zoneOrder} />;
+  }
+  if (view.id === 'builtin:usage') {
+    return <KanbanUsageDashboard />;
+  }
+  return (
+    <PluginRemoteView
+      item={pluginItem}
+      slot="app.kanban.view"
+      enabled={active || pluginItem !== null}
+    />
   );
 }
 

@@ -267,6 +267,56 @@ export interface ProviderImportSourceIntegrationManifest
   description?: string;
 }
 
+export interface RemoteModuleManifest {
+  name: string;
+  entry: string;
+  module?: string;
+}
+
+export interface PanelIntegrationManifest extends IntegrationBase {
+  kind: "app.panel";
+  title: string;
+  icon?: ContributionIcon;
+  handler: "surface.createSession";
+  defaultPosition?: "left" | "center";
+  hidesBottomDock?: boolean;
+  remote?: RemoteModuleManifest;
+}
+
+export interface TabIntegrationManifest extends IntegrationBase {
+  kind: "app.tab";
+  title: string;
+  icon?: ContributionIcon;
+  handler: "surface.createSession";
+  hidesBottomDock?: boolean;
+  remote?: RemoteModuleManifest;
+}
+
+export interface KanbanViewIntegrationManifest extends IntegrationBase {
+  kind: "app.kanban.view";
+  title: string;
+  icon?: ContributionIcon;
+  handler: "surface.createSession";
+  hidesBottomDock?: boolean;
+  remote?: RemoteModuleManifest;
+}
+
+export interface SettingsPageIntegrationManifest extends IntegrationBase {
+  kind: "app.settings.page";
+  title: string;
+  icon?: ContributionIcon;
+  handler: "surface.createSession";
+  remote?: RemoteModuleManifest;
+}
+
+export interface ComposerActionIntegrationManifest extends IntegrationBase {
+  kind: "app.composer.action";
+  title: string;
+  icon?: ContributionIcon;
+  handler?: string;
+  prompt?: string;
+}
+
 export type IntegrationManifest =
   | SkillIntegrationManifest
   | McpIntegrationManifest
@@ -282,7 +332,12 @@ export type IntegrationManifest =
   | TimelineCardIntegrationManifest
   | SettingsSectionIntegrationManifest
   | HostServiceIntegrationManifest
-  | ProviderImportSourceIntegrationManifest;
+  | ProviderImportSourceIntegrationManifest
+  | PanelIntegrationManifest
+  | TabIntegrationManifest
+  | KanbanViewIntegrationManifest
+  | SettingsPageIntegrationManifest
+  | ComposerActionIntegrationManifest;
 
 const relativePath = {
   type: "string",
@@ -430,6 +485,11 @@ export const pluginManifestSchema = {
               "app.settings.section",
               "host.service",
               "provider.model.importSource",
+              "app.panel",
+              "app.tab",
+              "app.kanban.view",
+              "app.settings.page",
+              "app.composer.action",
             ],
           },
           resource: relativePath,

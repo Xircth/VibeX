@@ -30,7 +30,8 @@
         "file": "文件",
         "conversation": "会话",
         "commit": "提交",
-        "instruction": "快捷指令"
+        "instruction": "快捷指令",
+        "action": "动作"
       }
     }
   },

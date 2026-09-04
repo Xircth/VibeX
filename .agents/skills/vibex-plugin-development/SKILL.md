@@ -58,15 +58,16 @@ vibex plugin publish
 
 `host-chrome` writes one contribution per chrome slot (`app.command` /
 `app.toolbar` / `app.status` / `app.composer.slash` / `app.timeline.card` /
-`app.settings.section`). `provider-import` writes one
+`app.settings.section`). `panel` / `kanban-view` write one structure surface
+each with a Vite Module Federation remote. `provider-import` writes one
 `provider.model.importSource`. Chrome slots refresh through the activation
-generation (enable, disable, or `add --dev`); Module Federation HMR is a
-later Host batch, not a requirement of these kinds.
+generation. Structure remotes use `vibex-plugin dev` HMR (host `loadRemote`
+points at Vite; leaving dev falls back to `dist/remoteEntry.js`).
 
-`vibex-plugin test --host` against a chrome package: install → enable → the
-six kinds appear in `plugin_contribution_catalog` → disable → they vanish →
-enable again → uninstall, source directory kept. A Skill-bearing package
-still also reloads `SKILL.md`.
+`vibex-plugin test --host` against a chrome or structure package: install →
+enable → declared kinds appear in `plugin_contribution_catalog` → disable →
+they vanish → enable again → uninstall, source directory kept. A Skill-bearing
+package still also reloads `SKILL.md`.
 
 Prefer `vibex plugin add --dev .` against a running Desktop or `vibex serve`.
 `vibex-plugin install --link` is only an alias of that Host import when it still exists.

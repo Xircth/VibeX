@@ -372,5 +372,25 @@
     "duplicateFailed": "Failed to create duplicate",
     "createFileFailed": "Failed to create file",
     "createFolderFailed": "Failed to create folder"
+  },
+  "kanbanViews": {
+    "columns": "Columns",
+    "sessions": "Sessions",
+    "canvas": "Canvas",
+    "usage": "Usage"
+  },
+  "surface": {
+    "placeholder": {
+      "disabled": "This panel is turned off.",
+      "missing": "This panel is no longer available.",
+      "failed": "This panel could not be opened.",
+      "uninstalled": "This panel was removed.",
+      "recover": {
+        "disabled": "Turn on",
+        "missing": "Retry",
+        "failed": "Retry",
+        "uninstalled": "Retry"
+      }
+    }
   }
 }

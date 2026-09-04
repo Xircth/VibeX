@@ -55,6 +55,14 @@
       "summary": "把已经导出到环境变量里的 OpenAI 兼容供应商，一次性导入 Model Provider 预设。",
       "packageDigest": "builtin:vibex.provider-import",
       "archive": "builtin://vibex.provider-import"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.host-surface",
+      "version": "1.0.0",
+      "summary": "官方样例插件，用公开 SDK 贡献一个顶级 Tab、一个面板和一个看板视图。",
+      "packageDigest": "builtin:vibex.host-surface",
+      "archive": "builtin://vibex.host-surface"
     }
   ]
 }

@@ -168,10 +168,12 @@ pub async fn start(
             get(doctor),
         )
         .layer(DefaultBodyLimit::max(1024 * 1024))
-        .layer(middleware::from_fn_with_state(state.clone(), authenticate))
-        .with_state(state);
+        .layer(middleware::from_fn_with_state(state.clone(), authenticate));
+    let plugins = state.plugins.clone();
+    let router = router.with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
+    start_artifact_http(plugins).await?;
     tauri::async_runtime::spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
             tracing::warn!(%error, "Plugin Dev control server stopped");
@@ -182,6 +184,57 @@ pub async fn start(
         token,
         protocol_version: PROTOCOL,
     })
+}
+
+async fn start_artifact_http(plugins: Arc<plugins::PluginControlPlane>) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    plugins::set_artifact_origin(format!("http://{address}"));
+    let router = Router::new()
+        .route("/{plugin_id}/{*path}", get(serve_plugin_artifact))
+        .with_state(plugins);
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            tracing::warn!(%error, "Plugin artifact server stopped");
+        }
+    });
+    Ok(())
+}
+
+async fn serve_plugin_artifact(
+    State(plugins): State<Arc<plugins::PluginControlPlane>>,
+    Path((plugin_id, path)): Path<(String, String)>,
+) -> Response {
+    let Ok(Some(plugin)) = plugins.plugin(&plugin_id).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if plugin.activation != plugins::PluginActivation::Enabled {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Ok(file) = plugin.package.checked_file(&path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(bytes) = tokio::fs::read(file).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let content_type = if path.ends_with(".js") || path.ends_with(".mjs") {
+        "text/javascript; charset=utf-8"
+    } else if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    };
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, content_type),
+            (axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (axum::http::header::CACHE_CONTROL, "no-cache"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 async fn authenticate(State(state): State<DevState>, request: Request, next: Next) -> Response {

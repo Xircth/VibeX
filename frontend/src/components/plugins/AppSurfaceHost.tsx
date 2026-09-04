@@ -27,7 +27,11 @@ export interface AppSurfaceDescriptor {
     | 'plugin.detail.panel'
     | 'artifact.editor'
     | 'conversation.timeline.card'
-    | 'app.settings.section';
+    | 'app.settings.section'
+    | 'app.settings.page'
+    | 'app.panel'
+    | 'app.tab'
+    | 'app.kanban.view';
   artifactPath?: string;
 }
 

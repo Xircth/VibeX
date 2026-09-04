@@ -8,6 +8,7 @@ export const AT_REFERENCE_TAB_ORDER = [
   'conversation',
   'commit',
   'instruction',
+  'action',
 ] as const;
 
 export type AtReferenceTab = (typeof AT_REFERENCE_TAB_ORDER)[number];
@@ -28,6 +29,13 @@ export type AtReferenceGroup = {
   truncated: boolean;
 };
 
+export type AtReferenceAction = {
+  id: string;
+  title: string;
+  detail?: string;
+  insertText: string;
+};
+
 export type AtReferenceSources = {
   files: Array<{ path: string; name: string }>;
   conversations: DbConversationSummary[];
@@ -35,6 +43,7 @@ export type AtReferenceSources = {
   repoId: string | null;
   instructions: Tag[];
   currentConversationId?: string | null;
+  actions?: AtReferenceAction[];
 };
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
@@ -200,11 +209,22 @@ export function buildAtReferenceGroups(
     .filter((tag) => matchesQuery(q, tag.tag_name, tag.content))
     .map(instructionToAtReference);
 
+  const actions = (sources.actions ?? [])
+    .filter((action) => matchesQuery(q, action.title, action.detail))
+    .map((action) => ({
+      id: action.id,
+      tab: 'action' as const,
+      label: action.title,
+      detail: action.detail,
+      insertText: action.insertText,
+    }));
+
   return [
     { tab: 'file', ...capItems(files) },
     { tab: 'conversation', ...capItems(conversations) },
     { tab: 'commit', ...capItems(commits) },
     { tab: 'instruction', ...capItems(instructions) },
+    { tab: 'action', ...capItems(actions) },
   ];
 }
 

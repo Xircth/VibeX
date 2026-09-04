@@ -372,5 +372,25 @@
     "duplicateFailed": "创建副本失败",
     "createFileFailed": "创建文件失败",
     "createFolderFailed": "创建文件夹失败"
+  },
+  "kanbanViews": {
+    "columns": "四栏",
+    "sessions": "会话",
+    "canvas": "画布",
+    "usage": "计量"
+  },
+  "surface": {
+    "placeholder": {
+      "disabled": "此面板已关闭。",
+      "missing": "此面板已不可用。",
+      "failed": "此面板无法打开。",
+      "uninstalled": "此面板已被移除。",
+      "recover": {
+        "disabled": "重新打开",
+        "missing": "重试",
+        "failed": "重试",
+        "uninstalled": "重试"
+      }
+    }
   }
 }

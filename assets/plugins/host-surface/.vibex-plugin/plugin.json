@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.host-surface",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "结构面示例",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^1.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "root": "dist/app",
+      "document": "index.html",
+      "protocol": "1.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "sample-tab",
+      "kind": "app.tab",
+      "title": "示例页",
+      "icon": "layers",
+      "handler": "surface.createSession",
+      "hidesBottomDock": true,
+      "remote": {
+        "name": "host_surface",
+        "entry": "dist/remoteEntry.js",
+        "module": "./view"
+      }
+    },
+    {
+      "id": "sample-panel",
+      "kind": "app.panel",
+      "title": "示例面板",
+      "icon": "bookmark",
+      "handler": "surface.createSession",
+      "defaultPosition": "left",
+      "remote": {
+        "name": "host_surface",
+        "entry": "dist/remoteEntry.js",
+        "module": "./view"
+      }
+    },
+    {
+      "id": "sample-view",
+      "kind": "app.kanban.view",
+      "title": "示例视图",
+      "icon": "gauge",
+      "handler": "surface.createSession",
+      "hidesBottomDock": true,
+      "remote": {
+        "name": "host_surface",
+        "entry": "dist/remoteEntry.js",
+        "module": "./view"
+      }
+    },
+    {
+      "id": "sample-action",
+      "kind": "app.composer.action",
+      "title": "插入示例说明",
+      "icon": "sparkles",
+      "prompt": "请先阅读示例面板里的说明，再继续。"
+    },
+    {
+      "id": "sample-settings",
+      "kind": "app.settings.page",
+      "title": "结构面示例",
+      "icon": "settings",
+      "handler": "surface.createSession"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

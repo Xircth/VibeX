@@ -26,6 +26,7 @@ import {
   isAtReferenceNavigationKey,
   matchAtReferenceTrigger,
   mergeAtReferenceSearch,
+  type AtReferenceAction,
   type AtReferenceGroup,
   type AtReferenceItem,
   type AtReferenceTab,
@@ -46,6 +47,7 @@ export type ComposerAtReferenceContext = {
   repoIds?: string[];
   projectId?: string;
   transport?: BackendTransport;
+  actions?: AtReferenceAction[];
 };
 
 type PanelState = {
@@ -267,6 +269,7 @@ export function useComposerAtReferencePanel({
         repoId: ctx.repoIds?.find(Boolean) ?? ctx.repoId ?? null,
         instructions,
         currentConversationId: ctx.sessionId,
+        actions: ctx.actions ?? [],
       });
       searchedQueryRef.current = query;
       setPanel((current) => {

@@ -134,15 +134,19 @@ interface KanbanSessionHubProps {
   zoneOrder?: readonly KanbanZone[];
   /** Rendered between list and monitor when the session zone sits center. */
   sessionSlot?: ReactNode;
+  /** Container-selected presentation. Overrides the global board-style overlay. */
+  presentation?: 'fixed' | 'canvas';
 }
 
 export function KanbanSessionHub({
   zoneOrder = ['list', 'monitor', 'session'],
   sessionSlot = null,
+  presentation,
 }: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
-  const boardStyle = useKanbanBoardStyle();
+  const storedBoardStyle = useKanbanBoardStyle();
+  const boardStyle = presentation ?? storedBoardStyle;
   const canvasListVisible = useKanbanCanvasListVisible();
   const canvasApiRef = useRef<SessionCanvasApi | null>(null);
   const [canvasWindowSessionIds, setCanvasWindowSessionIds] = useState<

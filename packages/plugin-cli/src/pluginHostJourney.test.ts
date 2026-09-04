@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   catalogHasKinds,
+  catalogKindFor,
   catalogLacksKinds,
   chromeKindsFromIntegrations,
+  hostJourneyKindsFromIntegrations,
   liveKindsForPlugin,
 } from "./pluginHostJourney.js";
 
@@ -36,17 +38,41 @@ describe("chromeKindsFromIntegrations", () => {
   });
 });
 
+describe("hostJourneyKindsFromIntegrations", () => {
+  it("includes Batch 2 structure kinds", () => {
+    expect(
+      hostJourneyKindsFromIntegrations([
+        { kind: "app.panel" },
+        { kind: "app.tab" },
+        { kind: "app.kanban.view" },
+        { kind: "app.composer.action" },
+        { kind: "content.skill" },
+      ]),
+    ).toEqual([
+      "app.panel",
+      "app.tab",
+      "app.kanban.view",
+      "app.composer.action",
+    ]);
+  });
+});
+
 describe("live contribution catalog", () => {
   const items = [
-    { pluginId: "vibex.host-chrome", kind: "app.command" },
-    { pluginId: "vibex.host-chrome", kind: "app.status" },
-    { pluginId: "other.plugin", kind: "app.command" },
+    { pluginId: "vibex.host-chrome", kind: "command" },
+    { pluginId: "vibex.host-chrome", kind: "status" },
+    { pluginId: "other.plugin", kind: "command" },
   ];
+
+  it("maps manifest kinds onto Host catalog keys", () => {
+    expect(catalogKindFor("app.command")).toBe("command");
+    expect(catalogKindFor("app.panel")).toBe("app_panel");
+  });
 
   it("only counts the plugin under test", () => {
     expect(liveKindsForPlugin(items, "vibex.host-chrome")).toEqual([
-      "app.command",
-      "app.status",
+      "command",
+      "status",
     ]);
   });
 

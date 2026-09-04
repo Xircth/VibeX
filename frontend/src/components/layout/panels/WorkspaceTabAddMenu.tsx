@@ -21,6 +21,13 @@ import {
   useBackendTransport,
 } from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { pluginSurfaceId } from '@/lib/hostSurfaceIds';
+import { Puzzle } from 'lucide-react';
 
 function NativeSurfaceOcclusionBridge({
   setOccluded,
@@ -44,8 +51,9 @@ export function WorkspaceTabAddMenu({
   group,
 }: IDockviewHeaderActionsProps) {
   const { t } = useTranslation('panels');
-  const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab } =
+  const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab, openPluginPanel } =
     usePanelActionsContext();
+  const pluginPanels = usePluginHostContributions('app_panel');
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
@@ -99,6 +107,30 @@ export function WorkspaceTabAddMenu({
           <SquareTerminal />
           {t('tabCreation.terminal')}
         </DropdownMenuItem>
+        {pluginPanels.map((item) => {
+          const metadata = contributionMetadata(item);
+          const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+          const Icon = contributionIconComponent(icon, Puzzle);
+          return (
+            <DropdownMenuItem
+              key={`${item.pluginId}:${item.id}`}
+              onSelect={() =>
+                runInThisGroup(() =>
+                  openPluginPanel({
+                    panelId: pluginSurfaceId(item.pluginId, item.id),
+                    title: item.label,
+                    pluginId: item.pluginId,
+                    contributionId: item.id,
+                    icon,
+                  })
+                )
+              }
+            >
+              <Icon />
+              {item.label}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -21,6 +21,7 @@ const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.plugin-development", "other"),
     ("vibex.host-chrome", "other"),
     ("vibex.provider-import", "other"),
+    ("vibex.host-surface", "other"),
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

@@ -75,6 +75,31 @@
       "id": "provider.model.importSource",
       "status": "ready",
       "handler": true
+    },
+    {
+      "id": "app.panel",
+      "status": "ready",
+      "handler": true
+    },
+    {
+      "id": "app.tab",
+      "status": "ready",
+      "handler": true
+    },
+    {
+      "id": "app.kanban.view",
+      "status": "ready",
+      "handler": true
+    },
+    {
+      "id": "app.settings.page",
+      "status": "preview",
+      "handler": true
+    },
+    {
+      "id": "app.composer.action",
+      "status": "ready",
+      "handler": false
     }
   ]
 }

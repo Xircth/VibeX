@@ -68,6 +68,7 @@ describe('composer @ references', () => {
       'conversation',
       'commit',
       'instruction',
+      'action',
     ]);
     expect(groups[0]?.items[0]?.insertText).toBe('[@:App.tsx](src/App.tsx)');
     expect(groups[1]?.items[0]?.insertText).toBe(
@@ -148,8 +149,9 @@ describe('composer @ references', () => {
 
   it('cycles tabs left and right', () => {
     expect(cycleAtReferenceTab('file', 1)).toBe('conversation');
-    expect(cycleAtReferenceTab('instruction', 1)).toBe('file');
-    expect(cycleAtReferenceTab('file', -1)).toBe('instruction');
+    expect(cycleAtReferenceTab('instruction', 1)).toBe('action');
+    expect(cycleAtReferenceTab('action', 1)).toBe('file');
+    expect(cycleAtReferenceTab('file', -1)).toBe('action');
     expect(cycleAtReferenceTab('conversation', -1)).toBe('file');
   });
 
@@ -203,5 +205,30 @@ describe('composer @ references', () => {
     expect(isAtReferenceNavigationKey('ArrowDown')).toBe(true);
     expect(isAtReferenceNavigationKey('ArrowLeft')).toBe(true);
     expect(isAtReferenceNavigationKey('a')).toBe(false);
+  });
+
+  it('lists composer actions on their own tab', () => {
+    const groups = buildAtReferenceGroups('', {
+      files: [],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+      actions: [
+        {
+          id: 'plugin:vibex.host-surface/sample-action',
+          title: '插入示例说明',
+          insertText: '请先阅读示例面板里的说明，再继续。',
+        },
+      ],
+    });
+    expect(groups.find((group) => group.tab === 'action')?.items).toEqual([
+      {
+        id: 'plugin:vibex.host-surface/sample-action',
+        tab: 'action',
+        label: '插入示例说明',
+        insertText: '请先阅读示例面板里的说明，再继续。',
+      },
+    ]);
   });
 });

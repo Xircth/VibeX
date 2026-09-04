@@ -1,8 +1,10 @@
 import {
   FileText,
   FolderCode,
+  Layers,
   MessageSquareWarning,
   Puzzle,
+  Plug,
   Users,
   Workflow,
 } from 'lucide-react';
@@ -15,6 +17,9 @@ const OFFICIAL_GLYPHS = {
   sessionEnhance: MessageSquareWarning,
   multiAgent: Users,
   pluginDevelopment: FolderCode,
+  hostChrome: Puzzle,
+  hostSurface: Layers,
+  providerImport: Plug,
 } as const;
 
 export function PluginProductIcon({ pluginId }: { pluginId?: string }) {

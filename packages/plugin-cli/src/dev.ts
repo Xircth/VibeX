@@ -7,6 +7,7 @@ const ignoredDirectories = new Set(['.git', 'dist', 'node_modules']);
 const ignoredFiles = new Set([
   '.vibex-plugin/developer-link.json',
   '.vibex-plugin/package.lock.json',
+  '.vibex-plugin/dev-remote.json',
 ]);
 
 export type PluginSourceWatcher = {
@@ -18,6 +19,19 @@ export type CreatePluginSourceWatcher = (
   listener: () => void
 ) => PluginSourceWatcher;
 
+function shouldIgnoreSource(path: string, ignoreRemoteSources: boolean) {
+  if (ignoredFiles.has(path)) return true;
+  if (path.endsWith('.vxp')) return true;
+  if (!ignoreRemoteSources) return false;
+  return (
+    path.startsWith('src/') ||
+    path === 'vite.config.ts' ||
+    path === 'vite.config.js' ||
+    path.startsWith('dist/remote') ||
+    path.startsWith('dist/assets/')
+  );
+}
+
 export async function watchPluginSources(
   root: string,
   options: {
@@ -27,10 +41,12 @@ export async function watchPluginSources(
     pollIntervalMs?: number;
     debounceMs?: number;
     createWatcher?: CreatePluginSourceWatcher;
+    ignoreRemoteSources?: boolean;
   }
 ) {
   const debounceMs = options.debounceMs ?? 150;
-  let baseline = await sourceDigest(root);
+  const ignoreRemoteSources = options.ignoreRemoteSources === true;
+  let baseline = await sourceDigest(root, ignoreRemoteSources);
   let timer: NodeJS.Timeout | undefined;
   let reloading = false;
   let queued = false;
@@ -45,7 +61,7 @@ export async function watchPluginSources(
       do {
         queued = false;
         if (options.signal.aborted) return;
-        const observed = await sourceDigest(root);
+        const observed = await sourceDigest(root, ignoreRemoteSources);
         if (observed === baseline && !queued) return;
         try {
           await options.reload();
@@ -53,7 +69,7 @@ export async function watchPluginSources(
           options.onError?.(error);
         }
         baseline = observed;
-        const after = await sourceDigest(root);
+        const after = await sourceDigest(root, ignoreRemoteSources);
         if (after !== observed) queued = true;
       } while (queued && !options.signal.aborted);
     } finally {
@@ -86,7 +102,7 @@ export async function watchPluginSources(
   });
 }
 
-async function sourceDigest(root: string) {
+async function sourceDigest(root: string, ignoreRemoteSources = false) {
   const hash = createHash('sha256');
   const files: string[] = [];
   async function visit(directory: string) {
@@ -94,7 +110,7 @@ async function sourceDigest(root: string) {
       if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
       const absolute = join(directory, entry.name);
       const path = relative(root, absolute).replaceAll('\\', '/');
-      if (ignoredFiles.has(path) || path.endsWith('.vxp')) continue;
+      if (shouldIgnoreSource(path, ignoreRemoteSources)) continue;
       if (entry.isDirectory()) await visit(absolute);
       else if (entry.isFile()) files.push(path);
     }

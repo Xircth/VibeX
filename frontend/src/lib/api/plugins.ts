@@ -231,7 +231,12 @@ export type PluginContributionKind =
   | 'settings_section'
   | 'host_service'
   | 'workflow_binding'
-  | 'provider_import_source';
+  | 'provider_import_source'
+  | 'app_panel'
+  | 'app_tab'
+  | 'kanban_view'
+  | 'settings_page'
+  | 'composer_action';
 
 export interface PluginContributionCatalogItem {
   pluginId: string;

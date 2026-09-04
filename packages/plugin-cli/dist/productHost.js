@@ -87,6 +87,15 @@ export async function enableOnProductHost(pluginId) {
         enabled: true,
     });
 }
+export async function disableOnProductHost(pluginId) {
+    return callProductHost("plugin_control_set_enabled", {
+        pluginId,
+        enabled: false,
+    });
+}
+export async function contributionCatalogOnProductHost() {
+    return callProductHost("plugin_contribution_catalog", {});
+}
 export async function uninstallOnProductHost(pluginId, retainData = true) {
     return callProductHost("plugin_control_uninstall", {
         pluginId,

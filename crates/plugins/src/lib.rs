@@ -2,6 +2,7 @@
 
 mod activation;
 mod app_surface;
+mod artifact_http;
 mod artifact_preview;
 mod catalog;
 mod contribution;
@@ -32,6 +33,7 @@ pub use app_surface::{
     AppSurfaceDocument, AppSurfaceError, AppSurfaceErrorKind, AppSurfaceIdentity,
     AppSurfaceInvocation, AppSurfaceOpenRequest, PluginAppSurfaceHost,
 };
+pub use artifact_http::{artifact_origin, rewrite_remote_entry, set_artifact_origin};
 pub use artifact_preview::PluginArtifactPreviewService;
 pub use catalog::{
     COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage, CatalogPluginDetail, CatalogVersion,
@@ -80,14 +82,17 @@ pub use official_mcp::{
     session_features_from_config,
 };
 pub use package::{
-    AppCommandContribution, AppComposerSlashContribution, AppSettingsSectionContribution,
-    AppStatusContribution, AppSurfaceContribution, AppTimelineCardContribution,
+    APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,
+    AppComposerSlashContribution, AppKanbanViewContribution, AppPanelContribution,
+    AppSettingsPageContribution, AppSettingsSectionContribution, AppStatusContribution,
+    AppSurfaceContribution, AppTabContribution, AppTimelineCardContribution,
     AppToolbarContribution, CONTRIBUTION_ICONS, CapabilityRequest, FileOpenerContribution,
     FileOpenerTarget, HostServiceContribution, InvocationDefinition, InvocationKind,
-    PackageAppContributions, PackageFormat, PackageSkill, PackageWarning, PluginContentDocument,
-    PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage, PluginProductDetail,
-    PluginSource, PluginSourceKind, PreviewProcessContribution, PreviewProviderContribution,
-    ProviderImportSourceContribution, RuntimeContribution, RuntimeInstall, SETTINGS_SECTION_SLOT,
+    KANBAN_VIEW_SLOT, PackageAppContributions, PackageFormat, PackageSkill, PackageWarning,
+    PluginContentDocument, PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage,
+    PluginProductDetail, PluginSource, PluginSourceKind, PreviewProcessContribution,
+    PreviewProviderContribution, ProviderImportSourceContribution, RemoteModuleRef,
+    RuntimeContribution, RuntimeInstall, SETTINGS_PAGE_SLOT, SETTINGS_SECTION_SLOT,
     TIMELINE_CARD_SLOT, package_content_digest,
 };
 pub use ports::{

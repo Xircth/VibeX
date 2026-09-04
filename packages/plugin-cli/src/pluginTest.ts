@@ -10,7 +10,7 @@ import { inspectLinkedPackage } from "./pluginControl.js";
 import {
   catalogHasKinds,
   catalogLacksKinds,
-  chromeKindsFromIntegrations,
+  hostJourneyKindsFromIntegrations,
 } from "./pluginHostJourney.js";
 import {
   contributionCatalogOnProductHost,
@@ -79,29 +79,29 @@ async function testPluginOnHost(root: string) {
     throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
   }
   await enableOnProductHost(plugin.identity.id);
-  const chromeKinds = chromeKindsFromIntegrations(
+  const hostKinds = hostJourneyKindsFromIntegrations(
     await readManifestIntegrations(root),
   );
-  if (chromeKinds.length > 0) {
+  if (hostKinds.length > 0) {
     await waitForCatalog(
       plugin.identity.id,
-      chromeKinds,
+      hostKinds,
       true,
-      "plugin_host_chrome_contributions_missing",
+      "plugin_host_contributions_missing",
     );
     await disableOnProductHost(plugin.identity.id);
     await waitForCatalog(
       plugin.identity.id,
-      chromeKinds,
+      hostKinds,
       false,
-      "plugin_host_chrome_contributions_lingered",
+      "plugin_host_contributions_lingered",
     );
     await enableOnProductHost(plugin.identity.id);
     await waitForCatalog(
       plugin.identity.id,
-      chromeKinds,
+      hostKinds,
       true,
-      "plugin_host_chrome_contributions_missing",
+      "plugin_host_contributions_missing",
     );
   }
   const skill = await firstSkillFile(root);

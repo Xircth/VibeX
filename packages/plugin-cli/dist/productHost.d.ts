@@ -16,6 +16,13 @@ export declare function importLinkedOnProductHost(sourcePath: string, plugin: {
     queued: boolean;
 }>;
 export declare function enableOnProductHost(pluginId: string): Promise<unknown>;
+export declare function disableOnProductHost(pluginId: string): Promise<unknown>;
+export declare function contributionCatalogOnProductHost(): Promise<{
+    items?: Array<{
+        pluginId?: string;
+        kind?: string;
+    }>;
+}>;
 export declare function uninstallOnProductHost(pluginId: string, retainData?: boolean): Promise<{
     pluginId?: string;
     dataRetention?: string;

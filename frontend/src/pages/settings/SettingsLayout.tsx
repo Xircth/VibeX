@@ -44,11 +44,17 @@ import { SettingsSearch } from './SettingsSearchField';
 import { SETTINGS_SEARCH_ENTRIES } from './settingsSearchCatalog';
 import { applySettingsSearchHighlight } from './settingsSearchQuery';
 import { syncSettingsWindowTitle } from './syncSettingsWindowTitle';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 
 interface SettingsNavItem {
   path: string;
   /** Key under the `settings:nav` namespace. */
-  labelKey: string;
+  labelKey?: string;
+  label?: string;
   icon: ComponentType<{ className?: string }>;
   capability?: string;
   anyOf?: string[];
@@ -143,6 +149,7 @@ export function SettingsLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
+  const pluginPages = usePluginHostContributions('settings_page');
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
@@ -210,7 +217,21 @@ export function SettingsLayout() {
           />
           {searching ? null : (
             <nav className="space-y-1" aria-busy={capabilities === null}>
-              {SETTINGS_NAV_ITEMS.filter((item) => {
+              {(
+                [
+                  ...SETTINGS_NAV_ITEMS,
+                  ...pluginPages.map(
+                    (page): SettingsNavItem => ({
+                      path: `/settings/plugin/${page.pluginId}/${page.id}`,
+                      label: page.label,
+                      icon: contributionIconComponent(
+                        contributionMetadata(page).icon,
+                        Puzzle
+                      ),
+                    })
+                  ),
+                ] satisfies SettingsNavItem[]
+              ).filter((item) => {
                 if (item.anyOf) return item.anyOf.some((cap) => supports(cap));
                 return !item.capability || supports(item.capability);
               }).map((item) => {
@@ -236,7 +257,7 @@ export function SettingsLayout() {
                   >
                     <span className="inline-flex items-center gap-2">
                       <Icon className="h-4 w-4" />
-                      {t(`nav.${item.labelKey}`)}
+                      {item.label ?? t(`nav.${item.labelKey}`)}
                     </span>
                   </Button>
                 );

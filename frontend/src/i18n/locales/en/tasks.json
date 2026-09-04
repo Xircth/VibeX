@@ -30,7 +30,8 @@
         "file": "Files",
         "conversation": "Sessions",
         "commit": "Commits",
-        "instruction": "Quick instructions"
+        "instruction": "Quick instructions",
+        "action": "Actions"
       }
     }
   },

@@ -15,6 +15,11 @@ vi.mock('./syncSettingsWindowTitle', () => ({
   syncSettingsWindowTitle,
 }));
 
+vi.mock('@/hooks/usePluginHostContributions', () => ({
+  usePluginHostContributions: () => [],
+  contributionMetadata: () => ({}),
+}));
+
 describe('SettingsLayout capability gating', () => {
   it('keeps the settings shell pinned to the visible viewport', () => {
     const transport: BackendTransport = {

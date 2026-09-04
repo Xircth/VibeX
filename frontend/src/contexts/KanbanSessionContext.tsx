@@ -29,10 +29,21 @@ import {
   DEFAULT_KANBAN_VIEW,
   type KanbanPanelView,
 } from '@/lib/kanbanPanelView';
+import {
+  DEFAULT_KANBAN_VIEW_ID,
+  legacyKanbanPanelView,
+  migrateKanbanViewId,
+} from '@/lib/kanbanViews';
+import {
+  getKanbanBoardStyle,
+  useKanbanBoardStyle,
+} from '@/lib/kanbanBoardStyle';
 import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 
 interface KanbanSessionContextValue {
   panelView: KanbanPanelView;
+  activeViewId: string;
+  setActiveViewId: (viewId: string) => void;
   setPanelView: (view: KanbanPanelView) => void;
   goToBoard: () => void;
   goToSessionHub: () => void;
@@ -71,9 +82,13 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const isKanbanSessionVisible = useLayoutStore(
     (state) => state.isKanbanSessionVisible
   );
+  const boardStyle = useKanbanBoardStyle();
 
-  const [panelView, setPanelView] =
+  const [panelView, setPanelViewState] =
     useState<KanbanPanelView>(DEFAULT_KANBAN_VIEW);
+  const [activeViewId, setActiveViewIdState] = useState<string>(
+    DEFAULT_KANBAN_VIEW_ID
+  );
   const [layoutState, setLayoutState] = useState<KanbanSessionLayoutState>(
     createEmptyKanbanSessionLayoutState()
   );
@@ -92,7 +107,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     const stored = useProjectViewStateStore
       .getState()
       .getKanbanState(projectKey);
-    setPanelView(stored.panelView);
+    setPanelViewState(stored.panelView);
+    setActiveViewIdState(
+      stored.activeViewId ??
+        migrateKanbanViewId(stored.panelView, getKanbanBoardStyle())
+    );
     setLayoutState(stored.layoutState);
     setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
     lastSyncedWorkspaceIdRef.current = null;
@@ -103,6 +122,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     if (hydratedProjectKey !== projectKey) return;
     useProjectViewStateStore.getState().setKanbanState(projectKey, {
       panelView,
+      activeViewId,
       layoutState,
       lastActiveWorkspaceId,
     });
@@ -110,6 +130,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     hydratedProjectKey,
     projectKey,
     panelView,
+    activeViewId,
     layoutState,
     lastActiveWorkspaceId,
   ]);
@@ -118,6 +139,18 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     if (!activeWorktreeId) return;
     setLastActiveWorkspaceId(activeWorktreeId);
   }, [activeWorktreeId]);
+
+  useEffect(() => {
+    if (hydratedProjectKey !== projectKey) return;
+    if (boardStyle === 'canvas' && activeViewId === 'builtin:sessions') {
+      setActiveViewIdState('builtin:canvas');
+      setPanelViewState('sessionHub');
+    }
+    if (boardStyle === 'fixed' && activeViewId === 'builtin:canvas') {
+      setActiveViewIdState('builtin:sessions');
+      setPanelViewState('sessionHub');
+    }
+  }, [activeViewId, boardStyle, hydratedProjectKey, projectKey]);
 
   useEffect(() => {
     if (!projectId) {
@@ -186,30 +219,40 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const canUseRightPanelForSessions = isKanbanSessionVisible;
   const isLayoutHydrated = hydratedProjectKey === projectKey;
 
-  const goToBoard = useCallback(() => {
-    setPanelView('board');
+  const setActiveViewId = useCallback((viewId: string) => {
+    setActiveViewIdState(viewId);
+    setPanelViewState(legacyKanbanPanelView(viewId));
   }, []);
+
+  const setPanelView = useCallback((view: KanbanPanelView) => {
+    setPanelViewState(view);
+    setActiveViewIdState(migrateKanbanViewId(view, getKanbanBoardStyle()));
+  }, []);
+
+  const goToBoard = useCallback(() => {
+    setActiveViewId('builtin:columns');
+  }, [setActiveViewId]);
 
   const goToSessionHub = useCallback(() => {
-    setPanelView('sessionHub');
-  }, []);
+    setActiveViewId('builtin:sessions');
+  }, [setActiveViewId]);
 
   const goToUsageDashboard = useCallback(() => {
-    setPanelView('usageDashboard');
-  }, []);
+    setActiveViewId('builtin:usage');
+  }, [setActiveViewId]);
 
   const toggleSessionHub = useCallback(() => {
-    setPanelView((current) => {
-      if (current === 'sessionHub') {
-        return 'board';
-      }
-      return 'sessionHub';
+    setActiveViewIdState((current) => {
+      const next =
+        current === 'builtin:sessions' ? 'builtin:columns' : 'builtin:sessions';
+      setPanelViewState(legacyKanbanPanelView(next));
+      return next;
     });
   }, []);
 
   const setSessionHubVisible = useCallback((visible: boolean) => {
-    setPanelView(visible ? 'sessionHub' : 'board');
-  }, []);
+    setActiveViewId(visible ? 'builtin:sessions' : 'builtin:columns');
+  }, [setActiveViewId]);
 
   const openSessionFromList = useCallback(
     (session: KanbanSessionPlacement) => {
@@ -286,6 +329,8 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<KanbanSessionContextValue>(
     () => ({
       panelView,
+      activeViewId,
+      setActiveViewId,
       setPanelView,
       goToBoard,
       goToSessionHub,
@@ -310,6 +355,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       panelView,
+      activeViewId,
+      setActiveViewId,
+      setPanelView,
       goToBoard,
       goToSessionHub,
       goToUsageDashboard,

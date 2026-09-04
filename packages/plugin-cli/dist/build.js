@@ -2,6 +2,8 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
+import { buildFederationRemotes } from "./federationBuild.js";
+import { remotesFromManifest } from "./remoteDev.js";
 import { validatePlugin } from "./validation.js";
 export async function buildPlugin(root) {
     const pluginRoot = resolve(root);
@@ -127,6 +129,16 @@ export async function buildPlugin(root) {
             legalComments: "none",
             logLevel: "silent",
         });
+    }
+    const remotes = remotesFromManifest(manifest);
+    await buildFederationRemotes(pluginRoot, remotes);
+    for (const remote of remotes) {
+        if (remote.entry.startsWith("http://") || remote.entry.startsWith("https://")) {
+            continue;
+        }
+        if (!(await exists(join(pluginRoot, remote.entry)))) {
+            throw new Error(`plugin_remote_entry_missing: ${remote.entry}`);
+        }
     }
     const result = await validatePlugin(pluginRoot);
     if (!result.valid) {

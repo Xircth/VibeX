@@ -54,7 +54,10 @@ import {
   pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
 } from '@/lib/conversation-rendering/commandSources';
-import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
 import { cn } from '@/lib/utils';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
@@ -839,6 +842,7 @@ export function SessionComposerInput({
     [hideElementTokenDetails]
   );
 
+  const composerActions = usePluginHostContributions('composer_action');
   const atReference = useComposerAtReferencePanel({
     composerRootRef,
     composerHandleRef,
@@ -849,6 +853,18 @@ export function SessionComposerInput({
       repoIds,
       projectId,
       transport,
+      actions: composerActions.map((item) => {
+        const metadata = contributionMetadata(item);
+        const prompt =
+          typeof metadata.prompt === 'string' ? metadata.prompt : item.label;
+        return {
+          id: `${item.pluginId}/${item.id}`,
+          title: item.label,
+          detail:
+            typeof metadata.title === 'string' ? metadata.title : undefined,
+          insertText: prompt,
+        };
+      }),
     },
     disabled,
     onChange,

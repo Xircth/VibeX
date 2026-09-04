@@ -23,6 +23,10 @@ import {
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
+import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
+import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
+import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
@@ -409,6 +413,18 @@ export function IDELayout({
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
+  const hidesBottomDock = useActiveSurfaceHidesBottomDock(effectiveActiveTab);
+  const pluginTabs = usePluginHostContributions('app_tab');
+  const activePluginTab = (() => {
+    const parsed = parsePluginSurfaceId(effectiveActiveTab);
+    if (!parsed) return null;
+    return (
+      pluginTabs.find(
+        (item) =>
+          item.pluginId === parsed.pluginId && item.id === parsed.contributionId
+      ) ?? null
+    );
+  })();
   const serializedLayoutRef = useRef(serializedLayout);
   const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -603,8 +619,8 @@ export function IDELayout({
   );
   rebuildDefaultLayoutRef.current = rebuildDefaultLayout;
 
-  // Terminal visibility captured when the kanban page force-hides the strip,
-  // so returning to the workspace restores the user's previous choice.
+  // Terminal visibility captured when a surface that hides the bottom dock
+  // is active, so returning to the workspace restores the user's previous choice.
   const terminalVisibleBeforeKanbanRef = useRef<boolean | null>(null);
 
   const hideWorkspaceZonesForKanban = useCallback((api: DockviewApi) => {
@@ -758,7 +774,7 @@ export function IDELayout({
   }, []);
 
   enforceTabVisibilityRef.current = (api: DockviewApi) => {
-    if (effectiveActiveTab !== 'workspace') {
+    if (hidesBottomDock) {
       hideWorkspaceZonesForKanban(api);
       return;
     }
@@ -1115,14 +1131,14 @@ export function IDELayout({
     rebuildDefaultLayout,
   ]);
 
-  // The kanban board replaces the dock/workspace/terminal zones; only the
-  // session zone stays interactive next to it.
+  // Surfaces that declare hidesBottomDock replace the dock/workspace/terminal
+  // zones; only the session zone stays interactive next to them.
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || effectiveActiveTab === 'workspace') return;
+    if (!api || !hidesBottomDock) return;
 
     hideWorkspaceZonesForKanban(api);
-  }, [effectiveActiveTab, hideWorkspaceZonesForKanban]);
+  }, [hidesBottomDock, hideWorkspaceZonesForKanban]);
 
   // Re-shape the grid when the arrangement preference changes (e.g. from the
   // settings window, synced through the storage event).
@@ -1320,6 +1336,16 @@ export function IDELayout({
                   </Suspense>
                 </div>
               )}
+
+              {activePluginTab ? (
+                <div className="kanban-overlay absolute inset-0 z-10">
+                  <PluginRemoteView
+                    item={activePluginTab}
+                    slot="app.tab"
+                    enabled
+                  />
+                </div>
+              ) : null}
 
               {tabContextMenu && (
                 <div

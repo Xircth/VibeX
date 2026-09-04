@@ -27,9 +27,11 @@ import {
   ScrollText,
   Search,
   SquareTerminal,
+  Puzzle,
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import FileIcon from '@/components/FileIcon';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
@@ -188,10 +190,15 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
  * The dockview component resolver.
  * Returns the appropriate panel component for the given component ID.
  */
+export const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
+
 export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   ...PANEL_COMPONENT_MAP,
   // Serialized layouts from before the Web Preview rename still resolve.
   'dev-preview': PANEL_COMPONENT_MAP[PANEL_IDS.WEB_PREVIEW],
+  [PLUGIN_PANEL_COMPONENT]: lazyPanel(
+    () => import('@/components/layout/panels/PluginDockviewPanel')
+  ),
 };
 
 type WorkspaceDockviewTabProps = IDockviewPanelHeaderProps &
@@ -205,6 +212,7 @@ interface WorkspaceTabParams {
   filePath?: string | null;
   imagePreviewId?: string | null;
   mode?: 'editor' | 'diff';
+  icon?: string | null;
 }
 
 const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
@@ -288,6 +296,18 @@ function WorkspaceTabIcon({
         aria-hidden="true"
         className="workspace-tab-icon"
         data-tab-icon="image"
+        data-testid="workspace-tab-icon"
+      />
+    );
+  }
+
+  if (component === PLUGIN_PANEL_COMPONENT) {
+    const PluginIcon = contributionIconComponent(params.icon, Puzzle);
+    return (
+      <PluginIcon
+        aria-hidden="true"
+        className="workspace-tab-icon"
+        data-tab-icon="plugin"
         data-testid="workspace-tab-icon"
       />
     );

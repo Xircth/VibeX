@@ -25,6 +25,11 @@ pub enum ContributionKind {
     HostService,
     WorkflowBinding,
     ProviderImportSource,
+    AppPanel,
+    AppTab,
+    KanbanView,
+    SettingsPage,
+    ComposerAction,
 }
 
 impl ContributionKind {
@@ -49,6 +54,11 @@ impl ContributionKind {
             Self::HostService => "host_service",
             Self::WorkflowBinding => "workflow_binding",
             Self::ProviderImportSource => "provider_import_source",
+            Self::AppPanel => "app_panel",
+            Self::AppTab => "app_tab",
+            Self::KanbanView => "kanban_view",
+            Self::SettingsPage => "settings_page",
+            Self::ComposerAction => "composer_action",
         }
     }
 }
@@ -472,7 +482,156 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             }),
         }
     }));
+    templates.extend(plugin.app.panels.iter().map(|panel| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: panel.id.clone(),
+        kind: ContributionKind::AppPanel,
+        label: panel.title.clone(),
+        metadata: structure_surface_metadata(
+            plugin,
+            &panel.title,
+            &panel.icon,
+            &panel.handler,
+            panel.hides_bottom_dock,
+            panel.remote.as_ref(),
+            json!({ "defaultPosition": panel.default_position }),
+        ),
+    }));
+    templates.extend(plugin.app.tabs.iter().map(|tab| ContributionTemplate {
+        plugin_id: plugin_id.clone(),
+        id: tab.id.clone(),
+        kind: ContributionKind::AppTab,
+        label: tab.title.clone(),
+        metadata: structure_surface_metadata(
+            plugin,
+            &tab.title,
+            &tab.icon,
+            &tab.handler,
+            tab.hides_bottom_dock,
+            tab.remote.as_ref(),
+            json!({}),
+        ),
+    }));
+    templates.extend(
+        plugin
+            .app
+            .kanban_views
+            .iter()
+            .map(|view| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: view.id.clone(),
+                kind: ContributionKind::KanbanView,
+                label: view.title.clone(),
+                metadata: structure_surface_metadata(
+                    plugin,
+                    &view.title,
+                    &view.icon,
+                    &view.handler,
+                    view.hides_bottom_dock,
+                    view.remote.as_ref(),
+                    json!({}),
+                ),
+            }),
+    );
+    templates.extend(
+        plugin
+            .app
+            .settings_pages
+            .iter()
+            .map(|page| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: page.id.clone(),
+                kind: ContributionKind::SettingsPage,
+                label: page.title.clone(),
+                metadata: structure_surface_metadata(
+                    plugin,
+                    &page.title,
+                    &page.icon,
+                    &page.handler,
+                    false,
+                    page.remote.as_ref(),
+                    json!({}),
+                ),
+            }),
+    );
+    templates.extend(
+        plugin
+            .app
+            .composer_actions
+            .iter()
+            .map(|action| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: action.id.clone(),
+                kind: ContributionKind::ComposerAction,
+                label: action.title.clone(),
+                metadata: json!({
+                    "title": action.title,
+                    "icon": action.icon,
+                    "handler": action.handler,
+                    "prompt": action.prompt,
+                }),
+            }),
+    );
     templates
+}
+
+fn structure_surface_metadata(
+    plugin: &InstalledPlugin,
+    title: &str,
+    icon: &Option<String>,
+    handler: &str,
+    hides_bottom_dock: bool,
+    remote: Option<&crate::RemoteModuleRef>,
+    extra: Value,
+) -> Value {
+    let mut metadata = extra;
+    if let Some(object) = metadata.as_object_mut() {
+        object.insert("title".to_owned(), json!(title));
+        object.insert("icon".to_owned(), json!(icon));
+        object.insert("handler".to_owned(), json!(handler));
+        object.insert("hidesBottomDock".to_owned(), json!(hides_bottom_dock));
+        object.insert("surfaceId".to_owned(), json!(handler));
+        if let Some(remote) = overlay_dev_remote(plugin, remote) {
+            object.insert("remote".to_owned(), remote);
+        }
+    }
+    metadata
+}
+
+fn overlay_dev_remote(
+    plugin: &InstalledPlugin,
+    remote: Option<&crate::RemoteModuleRef>,
+) -> Option<Value> {
+    let authored = remote.cloned();
+    let sidecar = plugin
+        .package
+        .content_root()
+        .join(".vibex-plugin/dev-remote.json");
+    let overlay = std::fs::read_to_string(sidecar).ok().and_then(|text| {
+        let value: Value = serde_json::from_str(&text).ok()?;
+        let name = value
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| authored.as_ref().map(|item| item.name.clone()))?;
+        let entry = value.get("entry").and_then(Value::as_str)?.to_owned();
+        let module = value
+            .get("module")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| authored.as_ref().map(|item| item.module.clone()))
+            .unwrap_or_else(|| "./view".to_owned());
+        Some(json!({ "name": name, "entry": entry, "module": module }))
+    });
+    overlay.or_else(|| {
+        authored.map(|item| {
+            json!({
+                "name": item.name,
+                "entry": crate::rewrite_remote_entry(plugin.id(), &item.entry),
+                "module": item.module,
+            })
+        })
+    })
 }
 
 pub(crate) fn descriptors_for_package(

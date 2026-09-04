@@ -53,6 +53,11 @@ const INTEGRATION_KINDS = new Set([
   "app.settings.section",
   "host.service",
   "provider.model.importSource",
+  "app.panel",
+  "app.tab",
+  "app.kanban.view",
+  "app.settings.page",
+  "app.composer.action",
 ]);
 const CAPABILITIES = new Set(["runtime.execute", "artifact.preview"]);
 
@@ -670,8 +675,73 @@ function validateHostChrome(
       requireText("handler");
       requireStringArray("agents");
       break;
+    case "app.panel": {
+      requireText("title");
+      requireSurfaceEntry();
+      const position = integration.defaultPosition;
+      if (
+        position !== undefined &&
+        position !== "left" &&
+        position !== "center"
+      ) {
+        diagnostics.push(
+          error("app_panel_invalid", "app.panel defaultPosition must be left or center"),
+        );
+      }
+      validateRemote(integration, diagnostics, kind);
+      break;
+    }
+    case "app.tab":
+    case "app.kanban.view":
+    case "app.settings.page":
+      requireText("title");
+      requireSurfaceEntry();
+      validateRemote(integration, diagnostics, kind);
+      break;
+    case "app.composer.action": {
+      requireText("title");
+      const hasHandler =
+        typeof integration.handler === "string" && integration.handler;
+      const hasPrompt =
+        typeof integration.prompt === "string" && integration.prompt;
+      if (!hasHandler && !hasPrompt) {
+        diagnostics.push(
+          error(
+            "app_composer_action_invalid",
+            "app.composer.action requires a handler or a prompt",
+          ),
+        );
+      }
+      break;
+    }
     default:
       break;
+  }
+}
+
+function validateRemote(
+  integration: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+  kind: string,
+) {
+  const remote = integration.remote;
+  if (remote === undefined) return;
+  if (!remote || typeof remote !== "object" || Array.isArray(remote)) {
+    diagnostics.push(
+      error(`${kindCode(kind)}_invalid`, `${kind} remote must be an object`),
+    );
+    return;
+  }
+  const value = remote as Record<string, unknown>;
+  if (typeof value.name !== "string" || !value.name) {
+    diagnostics.push(
+      error(`${kindCode(kind)}_invalid`, `${kind} remote.name is required`),
+    );
+  }
+  if (typeof value.entry !== "string" || !value.entry) {
+    diagnostics.push(
+      error(`${kindCode(kind)}_invalid`, `${kind} remote.entry is required`),
+    );
   }
 }
 

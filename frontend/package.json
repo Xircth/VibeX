@@ -63,6 +63,7 @@
     "gsap": "^3.15.0",
     "i18next": "^26.3.4",
     "katex": "^0.17.0",
+    "@module-federation/runtime": "^0.21.6",
     "liquid-glass-react": "1.1.1",
     "lucide-react": "^0.539.0",
     "mermaid": "^11.15.0",

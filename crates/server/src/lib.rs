@@ -17,6 +17,7 @@ mod host_core;
 mod host_ops;
 mod host_runtime;
 mod host_token;
+mod plugin_artifact;
 mod preview_proxy;
 mod product_mcp;
 mod runtime;

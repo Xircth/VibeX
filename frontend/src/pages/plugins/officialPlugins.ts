@@ -13,6 +13,7 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.multi-agent': 'multiAgent',
   'vibex.plugin-development': 'pluginDevelopment',
   'vibex.host-chrome': 'hostChrome',
+  'vibex.host-surface': 'hostSurface',
   'vibex.provider-import': 'providerImport',
 } as const;
 

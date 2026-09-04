@@ -17,6 +17,8 @@ export const PLUGIN_TEMPLATES = [
   "host-chrome",
   "provider-import",
   "hooks",
+  "panel",
+  "kanban-view",
 ] as const;
 
 export type PluginTemplate = (typeof PLUGIN_TEMPLATES)[number];
@@ -85,9 +87,24 @@ export async function scaffoldPlugin(
       dev: "vibex-plugin dev",
     },
     ...(spec.usesJsSdk
-      ? { dependencies: { "@vibex/plugin-sdk": "^1.0.0" } }
+      ? {
+          dependencies: {
+            "@vibex/plugin-sdk": "^1.0.0",
+            ...((template === "panel" || template === "kanban-view")
+              ? { react: "^19.2.8", "react-dom": "^19.2.8" }
+              : {}),
+          },
+        }
       : {}),
-    devDependencies: { "@vibex/plugin-cli": "^1.0.0" },
+    devDependencies: {
+      "@vibex/plugin-cli": "^1.0.0",
+      ...((template === "panel" || template === "kanban-view")
+        ? {
+            "@module-federation/vite": "^1.9.0",
+            vite: "^6.3.0",
+          }
+        : {}),
+    },
   });
   await writePluginTest(root, spec.nodeHandlers);
   if (spec.hasSkill) await writeSkill(root);
@@ -96,6 +113,9 @@ export async function scaffoldPlugin(
   if (spec.hasHook) await writeHook(root);
   if (spec.nodeWorker) await writeNodeWorker(root, template, spec);
   if (spec.hasApp) await writeAppSurface(root);
+  if (template === "panel" || template === "kanban-view") {
+    await writeFederationScaffold(root, template);
+  }
   if (template === "python-worker") await writePythonWorker(root, id);
   if (template === "rust-worker") await writeRustWorker(root, id);
   return root;
@@ -310,6 +330,62 @@ function templateSpec(template: PluginTemplate): TemplateSpec {
         nodeWorker: true,
         usesJsSdk: true,
         hasApp: false,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
+    case "panel":
+      return {
+        entrypoints: { worker: worker.node, app: appEntrypoint() },
+        integrations: [
+          {
+            id: "example-panel",
+            kind: "app.panel",
+            title: "Example panel",
+            icon: "layers",
+            handler: "surface.createSession",
+            defaultPosition: "left",
+            remote: {
+              name: "example_panel",
+              entry: "dist/remoteEntry.js",
+              module: "./view",
+            },
+          },
+        ],
+        contentItems: [],
+        nodeHandlers: ["hello", "surface.createSession"],
+        nodeWorker: true,
+        usesJsSdk: true,
+        hasApp: true,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
+    case "kanban-view":
+      return {
+        entrypoints: { worker: worker.node, app: appEntrypoint() },
+        integrations: [
+          {
+            id: "example-view",
+            kind: "app.kanban.view",
+            title: "Example view",
+            icon: "layers",
+            handler: "surface.createSession",
+            hidesBottomDock: true,
+            remote: {
+              name: "example_view",
+              entry: "dist/remoteEntry.js",
+              module: "./view",
+            },
+          },
+        ],
+        contentItems: [],
+        nodeHandlers: ["hello", "surface.createSession"],
+        nodeWorker: true,
+        usesJsSdk: true,
+        hasApp: true,
         hasSkill: false,
         hasWorkflow: false,
         hasMcp: false,
@@ -593,6 +669,65 @@ function nodeWorkerSource(spec: TemplateSpec) {
     })
     .join("\n");
   return `import { definePluginWorker } from '@vibex/plugin-sdk/worker';\n\nexport default definePluginWorker((plugin) => {\n${handles}\n});\n`;
+}
+
+async function writeFederationScaffold(
+  root: string,
+  template: "panel" | "kanban-view",
+) {
+  const remoteName = template === "panel" ? "example_panel" : "example_view";
+  await mkdir(join(root, "src", "views"), { recursive: true });
+  await writeFile(
+    join(root, "src", "views", "view.tsx"),
+    `import { createRoot } from 'react-dom/client';
+
+export default function ExampleView() {
+  return (
+    <main style={{ padding: 16, font: '13px system-ui, sans-serif' }}>
+      <p>${template === "panel" ? "Example panel" : "Example kanban view"}</p>
+    </main>
+  );
+}
+
+export function mount(root: HTMLElement) {
+  const reactRoot = createRoot(root);
+  reactRoot.render(<ExampleView />);
+  return () => reactRoot.unmount();
+}
+`,
+  );
+  await writeFile(
+    join(root, "vite.config.ts"),
+    `import { federation } from '@module-federation/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  plugins: [
+    federation({
+      name: ${JSON.stringify(remoteName)},
+      filename: 'remoteEntry.js',
+      dts: false,
+      exposes: { './view': './src/views/view.tsx' },
+      shared: {
+        react: { singleton: true },
+        'react-dom': { singleton: true },
+      },
+    }),
+  ],
+  build: {
+    target: 'esnext',
+    outDir: 'dist',
+    emptyOutDir: false,
+    rollupOptions: {
+      input: './src/views/view.tsx',
+    },
+  },
+  server: {
+    cors: true,
+  },
+});
+`,
+  );
 }
 
 async function writeAppSurface(root: string) {

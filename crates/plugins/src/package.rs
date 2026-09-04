@@ -175,6 +175,16 @@ pub struct PackageAppContributions {
     pub host_services: Vec<HostServiceContribution>,
     #[serde(default)]
     pub provider_import_sources: Vec<ProviderImportSourceContribution>,
+    #[serde(default)]
+    pub panels: Vec<AppPanelContribution>,
+    #[serde(default)]
+    pub tabs: Vec<AppTabContribution>,
+    #[serde(default)]
+    pub kanban_views: Vec<AppKanbanViewContribution>,
+    #[serde(default)]
+    pub settings_pages: Vec<AppSettingsPageContribution>,
+    #[serde(default)]
+    pub composer_actions: Vec<AppComposerActionContribution>,
 }
 
 impl PackageAppContributions {
@@ -190,6 +200,11 @@ impl PackageAppContributions {
             && self.settings_sections.is_empty()
             && self.host_services.is_empty()
             && self.provider_import_sources.is_empty()
+            && self.panels.is_empty()
+            && self.tabs.is_empty()
+            && self.kanban_views.is_empty()
+            && self.settings_pages.is_empty()
+            && self.composer_actions.is_empty()
     }
 }
 
@@ -366,10 +381,114 @@ pub struct ProviderImportSourceContribution {
     pub description: Option<String>,
 }
 
+/// Federated module a structure-surface contribution can load instead of an iframe.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteModuleRef {
+    pub name: String,
+    pub entry: String,
+    #[serde(default = "default_remote_module")]
+    pub module: String,
+}
+
+fn default_remote_module() -> String {
+    "./view".to_owned()
+}
+
+fn default_panel_position() -> String {
+    "left".to_owned()
+}
+
+fn default_tab_hides_bottom_dock() -> bool {
+    true
+}
+
+/// Dockable workspace panel contributed by a plugin.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppPanelContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default = "default_panel_position")]
+    pub default_position: String,
+    #[serde(default)]
+    pub hides_bottom_dock: bool,
+    #[serde(default)]
+    pub remote: Option<RemoteModuleRef>,
+}
+
+/// Top-level Host tab that replaces the workspace/kanban content area.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppTabContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default = "default_tab_hides_bottom_dock")]
+    pub hides_bottom_dock: bool,
+    #[serde(default)]
+    pub remote: Option<RemoteModuleRef>,
+}
+
+/// One page in the Kanban view container.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppKanbanViewContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default = "default_tab_hides_bottom_dock")]
+    pub hides_bottom_dock: bool,
+    #[serde(default)]
+    pub remote: Option<RemoteModuleRef>,
+}
+
+/// Full settings page listed in the settings sidebar.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsPageContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default)]
+    pub remote: Option<RemoteModuleRef>,
+}
+
+/// Action listed in the Composer `@` panel.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppComposerActionContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub handler: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
 /// App surface slot synthesized for a timeline card contribution.
 pub const TIMELINE_CARD_SLOT: &str = "conversation.timeline.card";
 /// App surface slot synthesized for a settings section contribution.
 pub const SETTINGS_SECTION_SLOT: &str = "app.settings.section";
+/// App surface slot synthesized for a settings page contribution.
+pub const SETTINGS_PAGE_SLOT: &str = "app.settings.page";
+/// App surface slot synthesized for a workspace panel contribution.
+pub const APP_PANEL_SLOT: &str = "app.panel";
+/// App surface slot synthesized for a top-level tab contribution.
+pub const APP_TAB_SLOT: &str = "app.tab";
+/// App surface slot synthesized for a kanban view contribution.
+pub const KANBAN_VIEW_SLOT: &str = "app.kanban.view";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -606,7 +725,12 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
         if bound_handlers.contains(surface.id.as_str())
             || matches!(
                 surface.slot.as_str(),
-                TIMELINE_CARD_SLOT | SETTINGS_SECTION_SLOT
+                TIMELINE_CARD_SLOT
+                    | SETTINGS_SECTION_SLOT
+                    | SETTINGS_PAGE_SLOT
+                    | APP_PANEL_SLOT
+                    | APP_TAB_SLOT
+                    | KANBAN_VIEW_SLOT
             )
         {
             continue;
@@ -673,6 +797,41 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             &source.label,
         ));
     }
+    for panel in &app.panels {
+        documents.push(chrome_document(
+            "panels",
+            "app_panel",
+            &panel.id,
+            &panel.title,
+        ));
+    }
+    for tab in &app.tabs {
+        documents.push(chrome_document("tabs", "app_tab", &tab.id, &tab.title));
+    }
+    for view in &app.kanban_views {
+        documents.push(chrome_document(
+            "kanban-views",
+            "kanban_view",
+            &view.id,
+            &view.title,
+        ));
+    }
+    for page in &app.settings_pages {
+        documents.push(chrome_document(
+            "settings-pages",
+            "settings_page",
+            &page.id,
+            &page.title,
+        ));
+    }
+    for action in &app.composer_actions {
+        documents.push(chrome_document(
+            "composer-actions",
+            "composer_action",
+            &action.id,
+            &action.title,
+        ));
+    }
     documents
 }
 
@@ -690,6 +849,10 @@ fn default_plugin_config() -> Value {
 }
 
 impl PluginPackage {
+    pub fn checked_file(&self, relative: &str) -> Result<PathBuf, PluginError> {
+        checked_package_path(self.content_root(), relative)
+    }
+
     pub fn content_root(&self) -> &Path {
         self.execution_root
             .as_deref()
@@ -1253,7 +1416,12 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             | "app.timeline.card"
             | "app.settings.section"
             | "host.service"
-            | "provider.model.importSource" => {}
+            | "provider.model.importSource"
+            | "app.panel"
+            | "app.tab"
+            | "app.kanban.view"
+            | "app.settings.page"
+            | "app.composer.action" => {}
             other => {
                 return Err(PluginError::invalid_manifest(format!(
                     "unknown v4 integration kind `{other}`"
@@ -1971,6 +2139,61 @@ fn parse_v4_ui_contributions(
             "provider.model.importSource" => parse_provider_import_source(integration)
                 .map(|item| contributions.provider_import_sources.push(item))
                 .is_some(),
+            "app.panel" => parse_panel_contribution(integration)
+                .map(|item| {
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.title,
+                        APP_PANEL_SLOT,
+                        &item.handler,
+                        Vec::new(),
+                        None,
+                    ));
+                    contributions.panels.push(item);
+                })
+                .is_some(),
+            "app.tab" => parse_tab_contribution(integration)
+                .map(|item| {
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.title,
+                        APP_TAB_SLOT,
+                        &item.handler,
+                        Vec::new(),
+                        None,
+                    ));
+                    contributions.tabs.push(item);
+                })
+                .is_some(),
+            "app.kanban.view" => parse_kanban_view_contribution(integration)
+                .map(|item| {
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.title,
+                        KANBAN_VIEW_SLOT,
+                        &item.handler,
+                        Vec::new(),
+                        None,
+                    ));
+                    contributions.kanban_views.push(item);
+                })
+                .is_some(),
+            "app.settings.page" => parse_settings_page_contribution(integration)
+                .map(|item| {
+                    contributions.surfaces.push(synthesized_surface(
+                        &item.id,
+                        &item.title,
+                        SETTINGS_PAGE_SLOT,
+                        &item.handler,
+                        Vec::new(),
+                        None,
+                    ));
+                    contributions.settings_pages.push(item);
+                })
+                .is_some(),
+            "app.composer.action" => parse_composer_action_contribution(integration)
+                .map(|item| contributions.composer_actions.push(item))
+                .is_some(),
             // Accepted by the manifest schema but wired to nothing: no package
             // field, no contribution, no consumer. Say so at inspect time
             // instead of letting an author ship a hook that never fires.
@@ -2197,6 +2420,101 @@ fn parse_host_service_contribution(
         id: contribution_id(integration)?,
         handler: contribution_text(integration, "handler")?,
         interval_seconds,
+    })
+}
+
+fn parse_remote(integration: &Map<String, Value>) -> Result<Option<RemoteModuleRef>, ()> {
+    match integration.get("remote") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Object(remote)) => {
+            let name = contribution_text(remote, "name").ok_or(())?;
+            let entry = contribution_text(remote, "entry").ok_or(())?;
+            let module = contribution_text(remote, "module").unwrap_or_else(default_remote_module);
+            Ok(Some(RemoteModuleRef {
+                name,
+                entry,
+                module,
+            }))
+        }
+        Some(_) => Err(()),
+    }
+}
+
+fn parse_hides_bottom_dock(integration: &Map<String, Value>, default: bool) -> Result<bool, ()> {
+    match integration.get("hidesBottomDock") {
+        None | Some(Value::Null) => Ok(default),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(()),
+    }
+}
+
+fn parse_panel_contribution(integration: &Map<String, Value>) -> Option<AppPanelContribution> {
+    let default_position =
+        contribution_text(integration, "defaultPosition").unwrap_or_else(default_panel_position);
+    if default_position != "left" && default_position != "center" {
+        return None;
+    }
+    Some(AppPanelContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: surface_handler(integration)?,
+        default_position,
+        hides_bottom_dock: parse_hides_bottom_dock(integration, false).ok()?,
+        remote: parse_remote(integration).ok()?,
+    })
+}
+
+fn parse_tab_contribution(integration: &Map<String, Value>) -> Option<AppTabContribution> {
+    Some(AppTabContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: surface_handler(integration)?,
+        hides_bottom_dock: parse_hides_bottom_dock(integration, true).ok()?,
+        remote: parse_remote(integration).ok()?,
+    })
+}
+
+fn parse_kanban_view_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppKanbanViewContribution> {
+    Some(AppKanbanViewContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: surface_handler(integration)?,
+        hides_bottom_dock: parse_hides_bottom_dock(integration, true).ok()?,
+        remote: parse_remote(integration).ok()?,
+    })
+}
+
+fn parse_settings_page_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppSettingsPageContribution> {
+    Some(AppSettingsPageContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: surface_handler(integration)?,
+        remote: parse_remote(integration).ok()?,
+    })
+}
+
+fn parse_composer_action_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppComposerActionContribution> {
+    let handler = contribution_text(integration, "handler");
+    let prompt = contribution_text(integration, "prompt");
+    if handler.is_none() && prompt.is_none() {
+        return None;
+    }
+    Some(AppComposerActionContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        handler,
+        prompt,
     })
 }
 

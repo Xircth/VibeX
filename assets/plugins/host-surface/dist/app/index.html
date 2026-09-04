@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>结构面示例</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  <style>:root{color-scheme:light dark;font:13px system-ui,sans-serif}body{margin:0}.surface{padding:16px}h1{margin:0 0 8px;font-size:14px}p{margin:0;color:inherit;opacity:0.75}
+</style><script type="module">function definePluginApp(mount){return{apiVersion:"1.0",mount}}var app_default=definePluginApp(({root:root2,bridge:bridge2})=>{root2.innerHTML='<section class="surface"><h1>\u7ED3\u6784\u9762\u793A\u4F8B</h1><p>\u8FD9\u662F\u7528\u516C\u5F00 SDK \u8D21\u732E\u7684\u793A\u4F8B\u9762\u3002</p></section>';bridge2.ready();return()=>{root2.innerHTML=""}});var root=document.querySelector("#app")??document.body;var controller=new AbortController;var surface=globalThis.vibexSurface;if(!surface)throw new Error("vibex_app_surface_unavailable");var bootstrap=await surface.ready;var artifact=bootstrap.artifact?Object.freeze({name:bootstrap.artifact.name,readText:()=>surface.request("artifact.readText",null),writeText:(content,expectedRevision)=>surface.request("artifact.writeText",{content,expectedRevision})}):void 0;var bridge=Object.freeze({pluginId:bootstrap.pluginId,generation:bootstrap.generation,artifact,invoke:(handler,input=null)=>surface.request(handler,input),subscribe:(channel,listener)=>{if(channel!=="context")throw new Error("app_subscription_unsupported");const receive=event=>listener(event.detail);addEventListener("vibexsurfacecontext",receive);return()=>removeEventListener("vibexsurfacecontext",receive)},ready:()=>{void surface.request("surface.ready")}});var dispose=await app_default.mount({root,bridge,signal:controller.signal});addEventListener("pagehide",()=>{controller.abort();if(typeof dispose==="function")void dispose()},{once:true});
+</script></body>
+</html>

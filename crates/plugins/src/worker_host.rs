@@ -1309,7 +1309,9 @@ mod isolated_spawn_tests {
         record_plugin_crash("demo.crash", "worker exited 2");
         let crashes = recent_plugin_crashes("demo.crash");
         assert!(
-            crashes.iter().any(|crash| crash.message == "worker exited 2"),
+            crashes
+                .iter()
+                .any(|crash| crash.message == "worker exited 2"),
             "{crashes:?}"
         );
         assert!(

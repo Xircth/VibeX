@@ -1,0 +1,5 @@
+:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
+body { margin: 0; }
+.surface { padding: 16px; }
+h1 { margin: 0 0 8px; font-size: 14px; }
+p { margin: 0; color: inherit; opacity: 0.75; }

@@ -4,6 +4,11 @@ import {
   type KanbanPanelView,
 } from '@/lib/kanbanPanelView';
 import {
+  DEFAULT_KANBAN_VIEW_ID,
+  migrateKanbanViewId,
+} from '@/lib/kanbanViews';
+import { getKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import {
   createEmptyKanbanSessionLayoutState,
   type KanbanSessionLayoutState,
 } from '@/lib/kanbanSessionLayout';
@@ -15,6 +20,7 @@ interface StoredWorktreeState {
 
 interface StoredKanbanState {
   panelView: KanbanPanelView;
+  activeViewId: string;
   layoutState: KanbanSessionLayoutState;
   lastActiveWorkspaceId: string | null;
 }
@@ -45,6 +51,7 @@ function createDefaultWorktreeState(): StoredWorktreeState {
 function createDefaultKanbanState(): StoredKanbanState {
   return {
     panelView: DEFAULT_KANBAN_VIEW,
+    activeViewId: DEFAULT_KANBAN_VIEW_ID,
     layoutState: createEmptyKanbanSessionLayoutState(),
     lastActiveWorkspaceId: null,
   };
@@ -67,8 +74,17 @@ export const useProjectViewStateStore = create<ProjectViewStateStore>(
           },
         },
       })),
-    getKanbanState: (projectKey) =>
-      get().kanbanByProject[projectKey] ?? createDefaultKanbanState(),
+    getKanbanState: (projectKey) => {
+      const stored = get().kanbanByProject[projectKey];
+      if (!stored) return createDefaultKanbanState();
+      return {
+        ...createDefaultKanbanState(),
+        ...stored,
+        activeViewId:
+          stored.activeViewId ??
+          migrateKanbanViewId(stored.panelView, getKanbanBoardStyle()),
+      };
+    },
     setKanbanState: (projectKey, nextState) =>
       set((state) => ({
         kanbanByProject: {

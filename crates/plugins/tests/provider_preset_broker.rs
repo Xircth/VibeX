@@ -182,10 +182,7 @@ async fn a_declined_bind_reports_unconfirmed_instead_of_failing() {
     .expect("a refusal is an answer, not a transport error");
     assert_eq!(result["confirmed"], false);
     assert_eq!(presets.bound.lock().unwrap().len(), 1);
-    let events = plane
-        .audit_events("test.plugin")
-        .await
-        .expect("audit");
+    let events = plane.audit_events("test.plugin").await.expect("audit");
     assert!(
         events.iter().any(|event| {
             event.event == "provider_preset_bind" && event.evidence["confirmed"] == false

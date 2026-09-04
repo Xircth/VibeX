@@ -9,4 +9,5 @@ export declare function watchPluginSources(root: string, options: {
     pollIntervalMs?: number;
     debounceMs?: number;
     createWatcher?: CreatePluginSourceWatcher;
+    ignoreRemoteSources?: boolean;
 }): Promise<void>;

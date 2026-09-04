@@ -1,0 +1,22 @@
+{
+  "name": "vibex.host-surface",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node ../../../packages/plugin-cli/dist/cli.js validate",
+    "build": "node ../../../packages/plugin-cli/dist/cli.js build",
+    "test": "node ../../../packages/plugin-cli/dist/cli.js test",
+    "dev": "node ../../../packages/plugin-cli/dist/cli.js dev",
+    "pack": "node ../../../packages/plugin-cli/dist/cli.js pack"
+  },
+  "dependencies": {
+    "@vibex/plugin-sdk": "^1.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "^1.9.0",
+    "vite": "^6.3.0"
+  }
+}

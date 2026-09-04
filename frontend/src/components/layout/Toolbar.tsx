@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, settingsWindowApi } from '@/lib/api';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ import {
   Columns2,
   MessagesSquare,
   Monitor,
+  Puzzle,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -52,6 +53,8 @@ import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
+import { fallbackWorkspaceTab, pluginSurfaceId } from '@/lib/hostSurfaceIds';
+import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
@@ -324,8 +327,32 @@ function WorkspaceTabSwitcher() {
     enabled: Boolean(primaryRepo?.id),
   });
   const { activeTab, setActiveTab } = useLayoutStore();
+  const pluginTabs = usePluginHostContributions('app_tab');
+  const kanbanViews = useKanbanViews();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const tabs: {
+    key: WorkspaceTab;
+    label: string;
+    icon: typeof LayoutDashboard;
+  }[] = [
+    ...(kanbanViews.length > 0
+      ? [{ key: 'kanban', label: t('toolbar.kanban'), icon: LayoutDashboard }]
+      : []),
+    { key: 'workspace', label: t('toolbar.workspace'), icon: Monitor },
+    ...pluginTabs.map((item) => ({
+      key: pluginSurfaceId(item.pluginId, item.id),
+      label: item.label,
+      icon: contributionIconComponent(contributionMetadata(item).icon, Puzzle),
+    })),
+  ];
+  const availableTabKeys = tabs.map((tab) => tab.key);
+  const resolvedActiveTab = fallbackWorkspaceTab(activeTab, availableTabKeys);
+  useEffect(() => {
+    if (resolvedActiveTab !== activeTab) {
+      setActiveTab(resolvedActiveTab);
+    }
+  }, [activeTab, resolvedActiveTab, setActiveTab]);
+  const effectiveActiveTab = routeTab ?? resolvedActiveTab;
   const preferredWorkspaceBranch = useMemo(() => {
     const repoBranch =
       repos
@@ -363,21 +390,12 @@ function WorkspaceTabSwitcher() {
     return worktrees.find((item) => item.workspace.id === selected.id) ?? null;
   }, [activeWorktreeId, currentProjectBranch, worktrees]);
 
-  const tabs: {
-    key: WorkspaceTab;
-    label: string;
-    icon: typeof LayoutDashboard;
-  }[] = [
-    { key: 'kanban', label: t('toolbar.kanban'), icon: LayoutDashboard },
-    { key: 'workspace', label: t('toolbar.workspace'), icon: Monitor },
-  ];
-
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
       setActiveTab(tab);
       if (!projectId) return;
 
-      if (tab === 'kanban') {
+      if (tab !== 'workspace') {
         navigate(paths.projectSessions(projectId));
         return;
       }

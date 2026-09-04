@@ -141,12 +141,12 @@ describe('settings page alignment', () => {
     expect(item.get('min-height')).toBe('2.5rem');
   });
 
-  it('keeps the Windows save bar centered inside its stage', () => {
+  it('does not patch the Windows save bar with a LiquidGlass centering transform', () => {
     const glass = declarationsFor(
       'html.host-windows .settings-page .settings-action-bar__glass'
     );
 
-    expect(glass.get('transform')).toBe('translate(-50%, -50%)');
+    expect(glass.get('transform')).toBeUndefined();
   });
 
   it('keeps the page scrollbar as a thumb without a track', () => {

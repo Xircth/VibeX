@@ -1552,13 +1552,6 @@
     background: transparent !important;
   }
 
-  /* HostGlass falls back to a plain div on Windows. Keep the same centered
-     positioning that liquid-glass-react applies to its wrapper so the bar
-     remains anchored to the stage instead of starting at its midpoint. */
-  html.host-windows .settings-page .settings-action-bar__glass {
-    transform: translate(-50%, -50%) !important;
-  }
-
   .settings-page .settings-action-bar__glass .glass {
     box-sizing: border-box;
     display: block !important;
@@ -5479,17 +5472,17 @@
     transform: none !important;
   }
 
-  :where(.legacy-design) .project-rail-liquid-glass {
+  html:not(.host-windows) :where(.legacy-design) .project-rail-liquid-glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
 
-  :where(.legacy-design) .settings-action-bar__glass {
+  html:not(.host-windows) :where(.legacy-design) .settings-action-bar__glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
 
-  :where(.legacy-design) .branch-info-liquid-glass {
+  html:not(.host-windows) :where(.legacy-design) .branch-info-liquid-glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }

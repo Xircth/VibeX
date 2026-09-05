@@ -62,7 +62,7 @@ export function mergeCreateSessionControls(
         optionsByKey.set(option.key, option);
         continue;
       }
-      if (option.choices.length <= existing.choices.length) {
+      if ((option.choices ?? []).length <= (existing.choices ?? []).length) {
         continue;
       }
       optionsByKey.set(option.key, {

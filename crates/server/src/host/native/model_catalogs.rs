@@ -1210,11 +1210,10 @@ mod tests {
         assert!(loaded.excluded_officials.is_empty());
         assert_eq!(loaded.default_model.as_deref(), Some("custom-model"));
         assert!(!temp.path().join(CODEX_SOURCE_FILE).exists());
-        assert_eq!(
+        assert!(
             std::fs::read_to_string(&catalog)
                 .unwrap()
-                .contains("custom-model"),
-            true
+                .contains("custom-model")
         );
     }
 

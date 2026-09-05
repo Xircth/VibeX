@@ -1045,13 +1045,13 @@ impl ServerApplicationDomains {
     async fn save_file(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: SaveFileArgs = parse(args)?;
         let path = sanitize_absolute(&args.path)?;
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                return Err(ApplicationError::not_found(format!(
-                    "Parent directory does not exist: {}",
-                    parent.display()
-                )));
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            return Err(ApplicationError::not_found(format!(
+                "Parent directory does not exist: {}",
+                parent.display()
+            )));
         }
         tokio::fs::write(path, args.content)
             .await
@@ -1208,40 +1208,34 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?
-        {
-            if let Some(mut workspace) = Workspace::find_by_id(&self.pool, workspace_id)
+            && let Some(mut workspace) = Workspace::find_by_id(&self.pool, workspace_id)
                 .await
                 .map_err(internal_error)?
-            {
-                let expected_container_ref = primary.path.to_string_lossy().into_owned();
-                if workspace.container_ref.as_deref() != Some(expected_container_ref.as_str()) {
-                    Workspace::update_container_ref(
-                        &self.pool,
-                        workspace.id,
-                        &expected_container_ref,
-                    )
+        {
+            let expected_container_ref = primary.path.to_string_lossy().into_owned();
+            if workspace.container_ref.as_deref() != Some(expected_container_ref.as_str()) {
+                Workspace::update_container_ref(&self.pool, workspace.id, &expected_container_ref)
                     .await
                     .map_err(internal_error)?;
-                    workspace.container_ref = Some(expected_container_ref);
-                }
-                if workspace.agent_working_dir != primary.default_working_dir {
-                    sqlx::query(
-                        "UPDATE workspaces SET agent_working_dir = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
-                    )
-                    .bind(primary.default_working_dir.as_deref())
-                    .bind(workspace.id)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(internal_error)?;
-                    workspace.agent_working_dir = primary.default_working_dir.clone();
-                }
-                let _ = self
-                    .deployment
-                    .container()
-                    .ensure_container_exists(&workspace)
-                    .await;
-                return Ok(workspace);
+                workspace.container_ref = Some(expected_container_ref);
             }
+            if workspace.agent_working_dir != primary.default_working_dir {
+                sqlx::query(
+                    "UPDATE workspaces SET agent_working_dir = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
+                )
+                .bind(primary.default_working_dir.as_deref())
+                .bind(workspace.id)
+                .execute(&self.pool)
+                .await
+                .map_err(internal_error)?;
+                workspace.agent_working_dir = primary.default_working_dir.clone();
+            }
+            let _ = self
+                .deployment
+                .container()
+                .ensure_container_exists(&workspace)
+                .await;
+            return Ok(workspace);
         }
         let owner_task = if let Some(task) =
             Task::find_by_project_id_with_attempt_status(&self.pool, project_id)

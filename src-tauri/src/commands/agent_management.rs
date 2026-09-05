@@ -19,6 +19,9 @@ mod tests {
     };
     use sha2::Digest;
 
+    // Only the symlink tests below exercise it, and those are Unix-only.
+    #[cfg(unix)]
+    use super::extract_binary_archive;
     use super::{
         AgentManagementRuntimeState, ArtifactTrust, BuiltInProbeAction, LockedInstall,
         LockedInstallSource, MANAGED_UV_VERSION, NativeFileRollback, OperationCancellationRegistry,
@@ -29,8 +32,8 @@ mod tests {
         build_launch_environment, built_in_probe_action, cancellable_command_output,
         codex_provider_config_is_projected, compare_and_set_agent_environment,
         configure_uv_tool_install_command, dependency_version_satisfied, detect_account_login,
-        extract_binary_archive, install_locked_plan, managed_artifacts_directory,
-        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        install_locked_plan, managed_artifacts_directory, managed_install_root,
+        managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
         opencode_provider_paths, operation_event, overlay_local_runtime_evidence,

@@ -1758,7 +1758,7 @@ async fn native_hermes_draft(hermes_home: &Path) -> Result<Vec<ImportDraft>, Str
     let text = match tokio::fs::read_to_string(&path).await {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display()).into()),
+        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display())),
     };
     if text.trim().is_empty() {
         return Ok(Vec::new());

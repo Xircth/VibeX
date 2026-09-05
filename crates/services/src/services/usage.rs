@@ -1790,14 +1790,16 @@ mod tests {
     #[test]
     fn build_statistics_surfaces_vendor_tokens_when_protocol_is_missing() {
         let now = 1_725_000_000_000;
-        let mut tokens = ProjectUsageSourcedTokens::default();
-        tokens.vendor_log = Some(ProjectUsageTokenCounts {
-            input_tokens: Some(80),
-            output_tokens: Some(40),
-            cache_write_tokens: Some(0),
-            cache_read_tokens: Some(20),
-            total_tokens: Some(140),
-        });
+        let tokens = ProjectUsageSourcedTokens {
+            vendor_log: Some(ProjectUsageTokenCounts {
+                input_tokens: Some(80),
+                output_tokens: Some(40),
+                cache_write_tokens: Some(0),
+                cache_read_tokens: Some(20),
+                total_tokens: Some(140),
+            }),
+            ..Default::default()
+        };
         let sessions = vec![attributed_session(
             "codex-1",
             "ws-1",

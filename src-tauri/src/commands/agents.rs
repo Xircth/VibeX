@@ -1244,10 +1244,13 @@ fn session_control_matches(
     value: &Value,
 ) -> bool {
     if option_id == "mode" {
+        // Non-string values (a numeric or boolean mode id) only match through
+        // their JSON rendering, so keep that fallback but allocate it once.
+        let rendered = value.to_string();
         return controls
             .current_mode
             .as_deref()
-            .is_some_and(|mode| Some(mode) == value.as_str() || mode == value.to_string());
+            .is_some_and(|mode| Some(mode) == value.as_str() || mode == rendered);
     }
     controls
         .config_options
@@ -1548,7 +1551,7 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, path::PathBuf, str::FromStr};
+    use std::str::FromStr;
 
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 

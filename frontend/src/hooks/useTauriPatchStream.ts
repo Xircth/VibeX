@@ -3,6 +3,7 @@ import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
 import { getBackendTransport } from '@/lib/transport/transportRegistry';
 import type { RemoteEvent } from '@/lib/transport/backendTransport';
+import type { JsonValue } from 'shared/types';
 
 type TauriLogMsg =
   | { JsonPatch: Operation[] }
@@ -146,16 +147,13 @@ export const usePatchStream = <T extends object>(
         setError(`patch stream ${subscribeCommand} is not available`);
         return;
       }
-      const args = argsKey
-        ? (JSON.parse(argsKey) as Record<string, unknown>)
-        : {};
+      const args = (argsKey ? JSON.parse(argsKey) : {}) as JsonValue;
       try {
         const subscription = transport.subscribe({
           subscription_id: globalThis.crypto.randomUUID(),
           resource: 'patch_stream',
           stream,
           args,
-          after_sequence: 0n,
         });
         if (!cancelled) {
           setIsConnected(true);

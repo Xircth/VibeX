@@ -183,7 +183,7 @@ export class WebTransport implements BackendTransport {
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
     const subscription: ActiveSubscription = {
       request,
-      cursor: request.after_sequence,
+      cursor: 'after_sequence' in request ? request.after_sequence : 0n,
       queue: new AsyncEventQueue(),
     };
     this.subscriptions.set(request.subscription_id, subscription);

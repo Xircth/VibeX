@@ -61,7 +61,11 @@ const {
   usePreviewSettingsMock: vi.fn(() => ({
     overrideUrl: 'https://www.baidu.com',
   })),
-  useTaskAttemptWithSessionMock: vi.fn(() => ({ data: undefined })),
+  useTaskAttemptWithSessionMock: vi.fn(
+    (): { data: { session: { id: string } } | undefined } => ({
+      data: undefined,
+    })
+  ),
   useWorktreeMock: vi.fn(() => ({ activeWorktreeId: 'workspace-tree' })),
 }));
 

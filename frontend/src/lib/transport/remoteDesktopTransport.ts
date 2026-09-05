@@ -85,7 +85,9 @@ async function* subscribeRemoteDesktop(
     profileId,
     request: {
       ...request,
-      after_sequence: Number(request.after_sequence),
+      ...('after_sequence' in request
+        ? { after_sequence: Number(request.after_sequence) }
+        : {}),
     },
     onEvent: channel,
   });

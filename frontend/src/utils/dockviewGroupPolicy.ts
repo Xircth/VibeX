@@ -21,7 +21,7 @@ export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([
 
 interface DockviewGroupLike {
   id: string;
-  panels: Array<{ id: string }>;
+  panels: ReadonlyArray<{ id: string }>;
   element?: HTMLElement;
 }
 

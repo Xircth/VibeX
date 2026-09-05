@@ -215,7 +215,7 @@ export class TauriTransport implements BackendTransport {
       queue.push({
         sequence,
         kind: channel,
-        payload,
+        payload: payload as RemoteEvent['payload'],
       });
       wake?.();
       wake = undefined;

@@ -76,7 +76,11 @@ function OverviewStat({
 }) {
   return (
     <div className="min-w-0">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span
+        className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}
+      >
+        {label}
+      </span>
       <strong
         className={cn(
           'kanban-usage-stat__value mt-1 block font-semibold tabular-nums text-foreground',
@@ -98,7 +102,7 @@ function UsageSummaryPrimary({
   cache: ReactNode;
 }) {
   return (
-    <div className="kanban-usage-card kanban-usage-summary__primary overflow-hidden p-4">
+    <div className="kanban-usage-card kanban-usage-summary__primary overflow-hidden p-5">
       <div className="min-w-0">{token}</div>
       {cache}
     </div>
@@ -892,7 +896,7 @@ export function KanbanUsageDashboard() {
                       )}
                       detail={
                         statistics.total_tokens.sources_disagree ? (
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {t('usageDashboard.sourcesDisagree', {
                               protocol: formatOptionalNumber(
                                 statistics.total_tokens.protocol?.total_tokens,
@@ -907,7 +911,7 @@ export function KanbanUsageDashboard() {
                           </span>
                         ) : preferredTokenTotal(statistics.total_tokens) ==
                           null ? (
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {t('usageDashboard.notProvidedReason')}
                           </span>
                         ) : (
@@ -925,10 +929,10 @@ export function KanbanUsageDashboard() {
                         label={t('usageDashboard.cacheHitRate')}
                       />
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-foreground">
+                        <div className="text-base font-semibold text-foreground">
                           {t('usageDashboard.cacheHitRate')}
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="mt-1 text-sm text-muted-foreground">
                           {formatOptionalNumber(
                             displayTokens?.cache_read_tokens,
                             notProvided

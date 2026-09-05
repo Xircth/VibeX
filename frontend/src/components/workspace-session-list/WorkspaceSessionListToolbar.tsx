@@ -81,8 +81,7 @@ export function WorkspaceSessionListToolbar({
         <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
           <div
             className={cn(
-              'relative h-7 overflow-hidden motion-reduce:transition-none',
-              'transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
+              'workspace-session-search-shell relative h-7 overflow-hidden',
               isSearchExpanded ? 'w-full' : 'w-7 shrink-0'
             )}
           >

@@ -860,7 +860,12 @@ cef::wrap_life_span_handler! {
                     registry.pending.remove(&self.tab_id).unwrap_or_default(),
                 )
             };
-            if let Some(surface) = surface {
+            let closing = pending
+                .iter()
+                .any(|command| matches!(command, BrowserEngineCommand::Close { .. }));
+            if closing {
+                let _ = native::hide_browser_view(&browser);
+            } else if let Some(surface) = surface {
                 let _ = native::apply_surface(&browser, &surface);
             }
             for command in pending {
@@ -870,6 +875,7 @@ cef::wrap_life_span_handler! {
 
         fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
             if let Some(browser) = browser {
+                let _ = native::hide_browser_view(browser);
                 schedule_browser_view_destruction(browser);
             }
             // Returning 0 would ask CEF to close the top-level Tauri window.
@@ -972,14 +978,24 @@ cef::wrap_load_handler! {
             _failed_url: Option<&CefString>,
         ) {
             if frame.is_some_and(|frame| frame.is_main() != 0) {
+                let code = format!("{error_code:?}");
+                let message = error_text.map(CefString::to_string).unwrap_or_default();
+                if is_cancelled_load_error(&code, &message) {
+                    return;
+                }
                 let _ = self.runtime.apply_engine_event(BrowserEngineEvent::Failed {
                     tab_id: self.tab_id.clone(),
-                    code: format!("{error_code:?}"),
-                    message: error_text.map(CefString::to_string).unwrap_or_default(),
+                    code,
+                    message,
                 });
             }
         }
     }
+}
+
+fn is_cancelled_load_error(code: &str, message: &str) -> bool {
+    let haystack = format!("{code} {message}").to_ascii_uppercase();
+    haystack.contains("ERR_ABORTED") || haystack.contains("ABORTED")
 }
 
 fn publish_navigation_state(
@@ -1071,5 +1087,19 @@ struct CefLibrary;
 impl CefLibrary {
     fn load() -> Result<Self, CefHostError> {
         Ok(Self)
+    }
+}
+
+#[cfg(test)]
+mod cancelled_load_error_tests {
+    use super::is_cancelled_load_error;
+
+    #[test]
+    fn aborted_navigation_is_not_a_user_facing_failure() {
+        assert!(is_cancelled_load_error("ERR_ABORTED", "net::ERR_ABORTED"));
+        assert!(!is_cancelled_load_error(
+            "ERR_SOCKET_NOT_CONNECTED",
+            "ERR_SOCKET_NOT_CONNECTED"
+        ));
     }
 }

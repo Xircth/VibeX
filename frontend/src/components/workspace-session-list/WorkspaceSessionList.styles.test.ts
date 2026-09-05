@@ -36,6 +36,13 @@ describe('workspace session group layout', () => {
     expect(railLine.size).toBe(0);
   });
 
+  it('eases the search field width without an ambiguous Tailwind class', () => {
+    const shell = declarationsFor('.workspace-session-search-shell');
+    expect(shell.get('transition')).toBe(
+      'width 200ms cubic-bezier(0.22, 1, 0.36, 1)'
+    );
+  });
+
   it('keeps the first workspace group tight against the header actions', () => {
     const listBody = declarationsFor('.session-hub-list-body');
     const inset = declarationsFor('.session-hub-inset');

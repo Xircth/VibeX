@@ -389,7 +389,7 @@ export function WorkspaceDockviewTab({
       <span className="dv-default-tab-content">{title}</span>
       {!hideClose && (
         <div
-          className="dv-default-tab-action"
+          className="dv-default-tab-action rounded-full"
           onPointerDown={(event) => event.preventDefault()}
           onClick={onClose}
           aria-label={`Close ${title}`}

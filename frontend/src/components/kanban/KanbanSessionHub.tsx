@@ -33,6 +33,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
+  requestCreateSessionInExecutionArea,
+  resolveCreateSessionSurface,
+} from '@/lib/requestCreateSession';
+import {
   setKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
 } from '@/lib/kanbanCanvasListVisible';
@@ -1048,15 +1052,6 @@ export function KanbanSessionHub({
       groupedSessions={groupedSessions}
       flatSessions={flatSessions}
       workspaces={workspaces}
-      workspaceBranchOptions={workspaceBranchOptions}
-      profiles={profiles}
-      createMode={createMode}
-      createWorkspaceValue={createWorkspaceValue}
-      createSessionName={createSessionName}
-      selectedExecutorProfile={selectedExecutorProfile}
-      repoBranchConfigs={repoBranchConfigs}
-      isLoadingRepoBranches={isLoadingRepoBranches}
-      isCreatePopoverOpen={isCreatePopoverOpen}
       sortField={sortField}
       workspaceFilterIds={workspaceFilterIds}
       executorFilterValues={executorFilterValues}
@@ -1067,9 +1062,6 @@ export function KanbanSessionHub({
       deleteErrorMessage={deleteErrorMessage}
       deleteSuccessMessage={deleteSuccessMessage}
       isDeletingSessions={isDeletingSessions}
-      canCreateSession={canCreateSession}
-      isCreatePending={createSessionMutation.isPending}
-      createError={createSessionMutation.error}
       monitorPlacements={listMonitorPlacements}
       currentExecutionPlacement={listExecutionPlacement}
       openingSessionId={openingSessionId}
@@ -1078,18 +1070,12 @@ export function KanbanSessionHub({
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
       onCreateSessionRequested={() => {
-        handleCreatePopoverOpenChange(!isCreatePopoverOpen);
+        if (resolveCreateSessionSurface(boardStyle) === 'beside-session-list') {
+          handleCreatePopoverOpenChange(!isCreatePopoverOpen);
+          return;
+        }
+        requestCreateSessionInExecutionArea(setSearchParams, searchParams);
       }}
-      onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
-      onCreateSession={handleSubmitCreateSession}
-      onSessionControlsPresetChange={(preset) => {
-        sessionControlsPresetRef.current = preset;
-      }}
-      onCreateModeChange={setCreateMode}
-      onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-      onCreateSessionNameChange={updateCreateSessionName}
-      onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
-      onRepoBranchChange={setRepoBranch}
       onSortFieldChange={setSortField}
       onWorkspaceFilterIdsChange={setWorkspaceFilterIds}
       onExecutorFilterValuesChange={setExecutorFilterValues}

@@ -100,7 +100,7 @@ export type ConversationStoreAction =
       conversationId: string;
       detail: DbConversationDetail;
     }
-  | { type: 'load_error'; conversationId: string; error: string }
+  | { type: 'load_error'; conversationId: string; error: string | null }
   | {
       type: 'session_controls_hydrated';
       conversationId: string;

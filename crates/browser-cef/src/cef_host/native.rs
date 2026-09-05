@@ -141,6 +141,10 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
         NSSize::new(f64::from(surface.width), height),
     );
     unsafe {
+        // WKWebView resizes with the window. If this child inherits a flexible
+        // mask, restore/layout changes pin it to a corner of the webview
+        // instead of the Dockview panel that owns the surface.
+        let _: () = msg_send![view, setAutoresizingMask: 0_usize];
         let _: () = msg_send![view, setFrame: frame];
         let _: () = msg_send![view, setHidden: Bool::new(!surface.visible)];
     }

@@ -52,7 +52,13 @@
   },
   "webPreviewPanel": {
     "emptyTitle": "开始浏览",
-    "emptyDescription": "输入 URL 以打开页面"
+    "emptyDescription": "输入 URL 以打开页面",
+    "errorTitle": "无法打开此页面",
+    "errorNotFound": "找不到此网站",
+    "errorTimedOut": "连接超时",
+    "errorConnection": "无法连接到此网站",
+    "errorCertificate": "此网站的证书无效",
+    "errorRetry": "重试"
   },
   "tabCreation": {
     "newTab": "新建标签页",

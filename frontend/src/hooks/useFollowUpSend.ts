@@ -43,6 +43,7 @@ type Args = {
   onBeforeSend?: () => void;
   onSendFailure?: (message: string) => void;
   onAfterSendCleanup: () => void | Promise<void>;
+  onPendingOperationIdChange?: (operationId: string | null) => void;
 };
 
 let optimisticTurnSequence = 0;
@@ -66,6 +67,7 @@ export function useFollowUpSend({
   onBeforeSend,
   onSendFailure,
   onAfterSendCleanup,
+  onPendingOperationIdChange,
 }: Args) {
   const { t } = useTranslation(['app', 'common']);
   const queryClient = useQueryClient();
@@ -112,6 +114,7 @@ export function useFollowUpSend({
       lastSubmittedMessageRef.current = acceptedMessage;
       operationIdRef.current ??= crypto.randomUUID();
       const operationId = operationIdRef.current;
+      onPendingOperationIdChange?.(operationId);
       let turnAccepted = false;
       try {
         onBeforeSend?.();
@@ -247,6 +250,7 @@ export function useFollowUpSend({
       } finally {
         isSendingRef.current = false;
         setIsSendingFollowUp(false);
+        onPendingOperationIdChange?.(null);
       }
     },
     [
@@ -270,6 +274,7 @@ export function useFollowUpSend({
       onBeforeSend,
       onSendFailure,
       onAfterSendCleanup,
+      onPendingOperationIdChange,
     ]
   );
 

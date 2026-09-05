@@ -138,7 +138,6 @@ function Harness({
   onResizeMouseDown?: SidebarProps['onResizeMouseDown'];
   compactHeader?: boolean;
 }) {
-  const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [queryClient] = useState(
     () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
   );
@@ -171,40 +170,6 @@ function Harness({
             name: 'Main',
           },
         ]}
-        workspaceBranchOptions={[
-          {
-            value: 'workspace:workspace-1',
-            branch: 'main',
-            workspace: {
-              id: 'workspace-1',
-              project_id: 'project-1',
-              task_id: 'task-1',
-              parent_workspace_id: null,
-              container_ref: null,
-              branch: 'main',
-              use_worktree: true,
-              agent_working_dir: null,
-              setup_completed_at: null,
-              created_at: '2026-04-15T00:00:00.000Z',
-              updated_at: '2026-04-15T00:00:00.000Z',
-              archived: false,
-              pinned: false,
-              name: 'Main',
-            },
-            existingWorkspaceId: 'workspace-1',
-            directWorkspaceId: 'workspace-1',
-            useWorktree: true,
-            isCurrentProjectBranch: true,
-          },
-        ]}
-        profiles={null}
-        createMode="existing_workspace"
-        createWorkspaceValue="workspace:workspace-1"
-        createSessionName=""
-        selectedExecutorProfile={null}
-        repoBranchConfigs={[]}
-        isLoadingRepoBranches={false}
-        isCreatePopoverOpen={isCreatePopoverOpen}
         sortField={null}
         workspaceFilterIds={[]}
         executorFilterValues={[]}
@@ -215,22 +180,12 @@ function Harness({
         deleteErrorMessage={deleteErrorMessage}
         deleteSuccessMessage={deleteSuccessMessage}
         isDeletingSessions={false}
-        canCreateSession={true}
-        isCreatePending={false}
-        createError={null}
         monitorPlacements={[]}
         currentExecutionPlacement={null}
         isArchiveView={isArchiveView}
         onResizeMouseDown={onResizeMouseDown}
         onArchiveViewChange={onArchiveViewChange}
         onCreateSessionRequested={onCreateSessionRequested}
-        onCreatePopoverOpenChange={setIsCreatePopoverOpen}
-        onCreateSession={vi.fn()}
-        onCreateModeChange={vi.fn()}
-        onCreateWorkspaceValueChange={vi.fn()}
-        onCreateSessionNameChange={vi.fn()}
-        onSelectedExecutorProfileChange={vi.fn()}
-        onRepoBranchChange={vi.fn()}
         onSortFieldChange={vi.fn()}
         onWorkspaceFilterIdsChange={vi.fn()}
         onExecutorFilterValuesChange={vi.fn()}
@@ -273,9 +228,12 @@ describe('SessionHubSidebar', () => {
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the session list title and opens create in the hub header', async () => {
+  it('shows the session list title and asks the parent to place create', async () => {
     const user = userEvent.setup();
-    const { container } = render(<Harness />);
+    const onCreateSessionRequested = vi.fn();
+    const { container } = render(
+      <Harness onCreateSessionRequested={onCreateSessionRequested} />
+    );
 
     expect(screen.getByText('会话列表')).toBeInTheDocument();
     expect(screen.getByText('会话列表').className).not.toMatch(/truncate/);
@@ -283,7 +241,8 @@ describe('SessionHubSidebar', () => {
       container.querySelector('.flex.items-center.justify-between')
     ).not.toBeNull();
     await user.click(screen.getByRole('button', { name: '新增会话' }));
-    expect(screen.getByText('新建会话')).toBeInTheDocument();
+    expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('新建会话')).not.toBeInTheDocument();
   });
 
   it('keeps delete available in archive view without a title or archive border', () => {

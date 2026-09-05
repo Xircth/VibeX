@@ -149,6 +149,26 @@ describe('settings page alignment', () => {
     expect(glass.get('transform')).toBeUndefined();
   });
 
+  it('keeps the Agent header on one row when switching Agents', () => {
+    const header = declarationsFor('.settings-page .agent-detail-header');
+    const title = declarationsFor(
+      '.settings-page .agent-detail-header-title h2'
+    );
+    const description = declarationsFor(
+      '.settings-page .agent-detail-header-copy p'
+    );
+    const actions = declarationsFor(
+      '.settings-page .agent-detail-header-actions'
+    );
+
+    expect(header.get('display')).toBe('grid');
+    expect(header.get('grid-template-columns')).toBe('minmax(0, 1fr) auto');
+    expect(header.get('flex-wrap')).toBeUndefined();
+    expect(title.get('white-space')).toBe('nowrap');
+    expect(description.get('white-space')).toBe('nowrap');
+    expect(actions.get('flex-wrap')).toBe('nowrap');
+  });
+
   it('keeps the page scrollbar as a thumb without a track', () => {
     const pane = declarationsFor('.settings-page [data-settings-content]');
     const agentScroll = declarationsFor(
@@ -187,6 +207,20 @@ describe('settings page alignment', () => {
     expect(list.get('background')).toBe(surface.get('background'));
     expect(list.get('background')).toBe('var(--surface-card-strong)');
     expect(card.get('background')).toBe('var(--surface-content)');
+  });
+
+  it('keeps grouped settings surfaces lifted so loading shells show their shadow', () => {
+    const surface = declarationsFor('.settings-surface');
+    expect(surface.get('border-radius')).toBe('var(--radius)');
+    expect(surface.get('box-shadow')?.replace(/\s+/g, ' ')).toBe(
+      '0 1px 2px hsl(220 36% 8% / 0.05), 0 10px 30px hsl(220 36% 8% / 0.06)'
+    );
+  });
+
+  it('animates loading bones outside the settings page wrapper', () => {
+    const line = declarationsMatching('.agent-settings-loading-line');
+    expect(line.get('animation')).toContain('agent-settings-loading-pulse');
+    expect(line.get('background')).toBe('var(--surface-control)');
   });
 
   it('shrinks the preflight version-to-status spacer before wrapping the version row', () => {

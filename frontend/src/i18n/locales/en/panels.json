@@ -52,7 +52,13 @@
   },
   "webPreviewPanel": {
     "emptyTitle": "Start browsing",
-    "emptyDescription": "Enter a URL to open a page"
+    "emptyDescription": "Enter a URL to open a page",
+    "errorTitle": "This page can’t be opened",
+    "errorNotFound": "This site can’t be reached",
+    "errorTimedOut": "The connection timed out",
+    "errorConnection": "The connection was interrupted",
+    "errorCertificate": "This site’s certificate is invalid",
+    "errorRetry": "Try again"
   },
   "tabCreation": {
     "newTab": "New tab",

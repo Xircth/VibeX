@@ -183,6 +183,51 @@ describe('useFollowUpSend', () => {
     expect(queryClient.getQueryState(summariesKey)?.isInvalidated).toBe(true);
   });
 
+  it('exposes the in-flight submit operation so the queue can hide it', async () => {
+    let resolveSend: (value: unknown) => void = () => {};
+    sendTurnMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      })
+    );
+    const onPendingOperationIdChange = vi.fn();
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'hello',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+          onPendingOperationIdChange,
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      void result.current.onSubmitFollowUp('hello');
+      await Promise.resolve();
+    });
+
+    expect(onPendingOperationIdChange).toHaveBeenCalledWith(expect.any(String));
+    const operationId = onPendingOperationIdChange.mock.calls[0]?.[0];
+    expect(operationId).toEqual(expect.any(String));
+
+    await act(async () => {
+      resolveSend({});
+      await Promise.resolve();
+    });
+
+    expect(onPendingOperationIdChange).toHaveBeenLastCalledWith(null);
+  });
+
   it('sends the composer value supplied by the Enter submission frame', async () => {
     sendTurnMock.mockResolvedValue({});
     const queryClient = new QueryClient();

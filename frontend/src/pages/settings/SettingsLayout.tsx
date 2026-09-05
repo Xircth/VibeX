@@ -30,6 +30,7 @@ import {
   Sun,
 } from 'lucide-react';
 
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { Button } from '@/components/ui/button';
 import {
   preloadSettingsPath,
@@ -270,35 +271,5 @@ function SettingsContentFallback() {
   ) {
     return <AgentSettingsLoading />;
   }
-  return <SettingsSectionLoading />;
-}
-
-function SettingsSectionLoading() {
-  return (
-    <div
-      className="agent-settings-loading flex flex-col gap-4"
-      role="status"
-      aria-busy="true"
-    >
-      <section className="settings-surface" aria-hidden="true">
-        <div className="agent-section-heading">
-          <span className="agent-settings-loading-line agent-settings-loading-line-heading" />
-        </div>
-        <ul className="agent-settings-loading-rows">
-          <li />
-          <li />
-          <li />
-        </ul>
-      </section>
-      <section className="settings-surface" aria-hidden="true">
-        <div className="agent-section-heading">
-          <span className="agent-settings-loading-line agent-settings-loading-line-heading" />
-        </div>
-        <ul className="agent-settings-loading-rows">
-          <li />
-          <li />
-        </ul>
-      </section>
-    </div>
-  );
+  return <SurfaceLoading />;
 }

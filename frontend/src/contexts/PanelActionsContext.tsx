@@ -21,10 +21,7 @@ import {
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { backendCall } from '@/lib/backendTransport';
-import {
-  useBackendCapabilities,
-  useBackendTransport,
-} from '@/lib/transport';
+import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   editorTerminalPanelId,
@@ -64,6 +61,7 @@ import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   restoreFlexibleEditorColumn,
+  setColumnVisible,
 } from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
@@ -898,10 +896,20 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
               }
             }
 
-            leftGroup.api.setVisible(true);
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              leftGroup,
+              true
+            );
             applyLeftGroupHeaderHiding(dockviewApi);
           } else {
-            leftGroup.api.setVisible(!leftGroup.api.isVisible);
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              leftGroup,
+              !leftGroup.api.isVisible
+            );
           }
         }
 
@@ -951,7 +959,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      leftGroup.api.setVisible(true);
+      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },
@@ -980,7 +988,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
 
         const leftGroup = getLeftGroup(dockviewApi);
-        leftGroup?.api.setVisible(true);
+        if (leftGroup) {
+          setColumnVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            leftGroup,
+            true
+          );
+        }
         applyLeftGroupHeaderHiding(dockviewApi);
         normalizeEditorGroupIds(dockviewApi);
         return;
@@ -1029,7 +1044,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      leftGroup.api.setVisible(true);
+      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },

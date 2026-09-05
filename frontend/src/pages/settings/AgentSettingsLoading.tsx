@@ -27,14 +27,14 @@ export function AgentSettingsLoading() {
       </div>
 
       <header className="agent-detail-header" aria-hidden="true">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="agent-detail-header-identity">
           <span className="agent-detail-icon agent-settings-loading-bone" />
-          <div className="agent-settings-loading-copy min-w-0">
+          <div className="agent-detail-header-copy agent-settings-loading-copy">
             <span className="agent-settings-loading-line agent-settings-loading-line-title" />
             <span className="agent-settings-loading-line agent-settings-loading-line-meta" />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="agent-detail-header-actions">
           <span className="agent-settings-loading-chip" />
           <span className="agent-settings-loading-action" />
           <span className="agent-settings-loading-action" />

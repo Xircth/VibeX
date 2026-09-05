@@ -113,7 +113,7 @@ export function AgentMentionProvider({
 
     void Promise.all([
       conversationId
-        ? transport.call('conversation_detail', { sessionId: conversationId })
+        ? transport.call('conversation_detail', { conversationId })
         : Promise.resolve(null),
       transport.call('plugin_control_catalog'),
     ])

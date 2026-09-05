@@ -11,6 +11,7 @@ export type QueueStatusQueryKey = readonly [
 export type QueuedMessage = {
   id: string;
   session_id: string;
+  operationId: string;
   revision: bigint;
   sortKey: bigint;
   status: 'queued' | 'claimed';
@@ -45,6 +46,7 @@ export function inputViewToQueuedMessage(
   return {
     id: input.id,
     session_id: input.conversationId,
+    operationId: input.operationId,
     revision: BigInt(input.revision),
     sortKey: BigInt(input.sortKey),
     status: input.status === 'claimed' ? 'claimed' : 'queued',
@@ -64,14 +66,34 @@ export function inputViewToQueuedMessage(
   };
 }
 
+export function waitingQueueMessages(
+  inputs: ConversationInputView[],
+  options: { excludeOperationId?: string | null } = {}
+): QueuedMessage[] {
+  const excludeOperationId = options.excludeOperationId ?? null;
+  return inputs
+    .filter((input) => input.status === 'queued')
+    .filter(
+      (input) =>
+        excludeOperationId == null || input.operationId !== excludeOperationId
+    )
+    .map(inputViewToQueuedMessage);
+}
+
 export function getQueueIndicatorState(
   status: QueueStatus | undefined,
-  _isAttemptRunning: boolean
+  options: { excludeOperationId?: string | null } = {}
 ): {
   isQueued: boolean;
   queuedMessages: QueuedMessage[];
 } {
-  const queuedMessages = status?.status === 'queued' ? status.messages : [];
+  const excludeOperationId = options.excludeOperationId ?? null;
+  const queuedMessages = (status?.status === 'queued' ? status.messages : [])
+    .filter((message) => message.status === 'queued')
+    .filter(
+      (message) =>
+        excludeOperationId == null || message.operationId !== excludeOperationId
+    );
   return { isQueued: queuedMessages.length > 0, queuedMessages };
 }
 

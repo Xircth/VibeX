@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, X } from 'lucide-react';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 
 /**
@@ -39,6 +40,9 @@ interface AstryxSelectProps {
   /** `compact` shrinks the trigger to fit dense toolbar and tab-bar chrome. */
   size?: 'default' | 'compact';
   className?: string;
+  /** Label shown in the open menu when `options` is empty. */
+  emptyLabel?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface MenuPosition {
@@ -82,8 +86,11 @@ export function AstryxSelect({
   renderOptionAction,
   size = 'default',
   className,
+  emptyLabel,
+  onOpenChange,
 }: AstryxSelectProps) {
   const container = usePortalContainer();
+  const { setHtmlOverlayOpen } = useWorkspaceOverlay();
   const rootRef = React.useRef<HTMLSpanElement>(null);
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -92,6 +99,7 @@ export function AstryxSelect({
   const [activeIndex, setActiveIndex] = React.useState(-1);
   const [position, setPosition] = React.useState<MenuPosition | null>(null);
   const typeAheadRef = React.useRef({ text: '', at: 0 });
+  const overlayHeldRef = React.useRef(false);
 
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
@@ -103,6 +111,30 @@ export function AstryxSelect({
         .filter((index) => index >= 0),
     [options]
   );
+
+  const holdOverlay = React.useCallback(() => {
+    if (overlayHeldRef.current) return;
+    overlayHeldRef.current = true;
+    setHtmlOverlayOpen(true);
+  }, [setHtmlOverlayOpen]);
+
+  const releaseOverlay = React.useCallback(() => {
+    if (!overlayHeldRef.current) return;
+    overlayHeldRef.current = false;
+    setHtmlOverlayOpen(false);
+  }, [setHtmlOverlayOpen]);
+
+  const closeMenu = React.useCallback(() => {
+    setOpen(false);
+    releaseOverlay();
+    onOpenChange?.(false);
+  }, [onOpenChange, releaseOverlay]);
+
+  const openMenu = React.useCallback(() => {
+    holdOverlay();
+    setOpen(true);
+    onOpenChange?.(true);
+  }, [holdOverlay, onOpenChange]);
 
   const reposition = React.useCallback(() => {
     if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current));
@@ -132,11 +164,11 @@ export function AstryxSelect({
       ) {
         return;
       }
-      setOpen(false);
+      closeMenu();
     };
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open]);
+  }, [closeMenu, open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -145,6 +177,8 @@ export function AstryxSelect({
     );
     active?.scrollIntoView?.({ block: 'nearest' });
   }, [activeIndex, open]);
+
+  React.useEffect(() => () => releaseOverlay(), [releaseOverlay]);
 
   const moveActive = React.useCallback(
     (delta: number) => {
@@ -170,9 +204,9 @@ export function AstryxSelect({
       const option = options[index];
       if (!option || option.disabled) return;
       onChange(option.value);
-      setOpen(false);
+      closeMenu();
     },
-    [onChange, options]
+    [closeMenu, onChange, options]
   );
 
   const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -186,7 +220,7 @@ export function AstryxSelect({
           setActiveIndex(
             selectableIndices[(index + 1) % selectableIndices.length]
           );
-          setOpen(true);
+          openMenu();
         }
         break;
       case 'ArrowUp':
@@ -200,7 +234,7 @@ export function AstryxSelect({
               (index - 1 + selectableIndices.length) % selectableIndices.length
             ]
           );
-          setOpen(true);
+          openMenu();
         }
         break;
       case 'Enter':
@@ -209,13 +243,13 @@ export function AstryxSelect({
         if (open) {
           selectOption(activeIndex);
         } else {
-          setOpen(true);
+          openMenu();
         }
         break;
       case 'Escape':
         if (open) {
           event.preventDefault();
-          setOpen(false);
+          closeMenu();
         }
         break;
       case 'Home':
@@ -273,10 +307,10 @@ export function AstryxSelect({
         onClick={() => {
           if (disabled) return;
           if (open) {
-            setOpen(false);
+            closeMenu();
           } else {
             setActiveIndex(selectedIndex);
-            setOpen(true);
+            openMenu();
           }
         }}
         onKeyDown={(event) => {
@@ -332,12 +366,14 @@ export function AstryxSelect({
               onKeyDown={(event) => {
                 if (event.key !== 'Escape') return;
                 event.preventDefault();
-                setOpen(false);
+                closeMenu();
                 triggerRef.current?.focus();
               }}
             >
               {options.length === 0 ? (
-                <div className="astryx-select-empty">{placeholder}</div>
+                <div className="astryx-select-empty">
+                  {emptyLabel ?? placeholder}
+                </div>
               ) : (
                 options.map((option, index) => (
                   <div
@@ -367,7 +403,7 @@ export function AstryxSelect({
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setOpen(false);
+                          closeMenu();
                         }}
                       >
                         {renderOptionAction(option)}

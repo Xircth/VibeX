@@ -12,7 +12,7 @@ import {
 import {
   getQueueIndicatorState,
   getQueueStatusQueryKey,
-  inputViewToQueuedMessage,
+  waitingQueueMessages,
   type QueuedMessage,
   type QueueStatus,
 } from './sessionComposerQueue';
@@ -28,6 +28,7 @@ export function useSessionComposerQueue({
   processCount = 0,
   modeOverride = null,
   configOverrides = [],
+  excludeOperationId = null,
 }: {
   sessionId: string | undefined;
   workspaceId?: string | null;
@@ -35,11 +36,15 @@ export function useSessionComposerQueue({
   processCount?: number;
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];
+  excludeOperationId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const editingInputRef = useRef<QueuedMessage | null>(null);
   const [editingInput, setEditingInput] = useState<QueuedMessage | null>(null);
   const operationIdRef = useRef<string | null>(null);
+  const [pendingOperationId, setPendingOperationId] = useState<string | null>(
+    null
+  );
   const queryKey = getQueueStatusQueryKey(sessionId);
   const { data: queueStatus = EMPTY_QUEUE_STATUS, refetch } =
     useQuery<QueueStatus>({
@@ -47,9 +52,7 @@ export function useSessionComposerQueue({
       queryFn: async () => {
         if (!sessionId) return EMPTY_QUEUE_STATUS;
         const inputs = await conversationApi.listInputs(sessionId);
-        const messages = inputs
-          .filter((input) => ['queued', 'claimed'].includes(input.status))
-          .map(inputViewToQueuedMessage);
+        const messages = waitingQueueMessages(inputs);
         return messages.length === 0
           ? EMPTY_QUEUE_STATUS
           : { status: 'queued', messages };
@@ -144,13 +147,18 @@ export function useSessionComposerQueue({
         return updated;
       }
       operationIdRef.current ??= crypto.randomUUID();
-      const submitted = await conversationApi.submitInput(
-        sessionId,
-        payload,
-        operationIdRef.current
-      );
-      operationIdRef.current = null;
-      return submitted.input;
+      setPendingOperationId(operationIdRef.current);
+      try {
+        const submitted = await conversationApi.submitInput(
+          sessionId,
+          payload,
+          operationIdRef.current
+        );
+        operationIdRef.current = null;
+        return submitted.input;
+      } finally {
+        setPendingOperationId(null);
+      }
     },
     onSuccess: refresh,
   });
@@ -234,8 +242,11 @@ export function useSessionComposerQueue({
     [queueStatus.messages, reorderMutation]
   );
 
-  const queuedMessages = queueStatus.messages;
-  const isQueued = queuedMessages.length > 0;
+  const queueIndicatorState = getQueueIndicatorState(queueStatus, {
+    excludeOperationId: pendingOperationId ?? excludeOperationId,
+  });
+  const queuedMessages = queueIndicatorState.queuedMessages;
+  const isQueued = queueIndicatorState.isQueued;
 
   return {
     queueStatus,
@@ -254,6 +265,6 @@ export function useSessionComposerQueue({
       cancelMutation.isPending ||
       reorderMutation.isPending,
     isQueued,
-    queueIndicatorState: getQueueIndicatorState(queueStatus, isAttemptRunning),
+    queueIndicatorState,
   };
 }

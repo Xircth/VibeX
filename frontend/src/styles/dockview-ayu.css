@@ -400,6 +400,33 @@
   margin-right: 0;
 }
 
+[class*='dockview-theme-ayu'] .dv-tab .dv-default-tab .dv-default-tab-action,
+[class*='dockview-theme-ayu']
+  .dv-tab
+  .workspace-tab-surface
+  .dv-default-tab-action {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tab
+  .dv-default-tab
+  .dv-default-tab-action:hover,
+[class*='dockview-theme-ayu']
+  .dv-tab
+  .workspace-tab-surface
+  .dv-default-tab-action:hover {
+  border-radius: 999px;
+  background-color: var(
+    --dv-icon-hover-background-color,
+    var(--dv-tab-state-background)
+  );
+}
+
 [class*='dockview-theme-ayu']
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab::before {

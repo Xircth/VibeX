@@ -21,6 +21,16 @@ export interface ResendCheckpointDialogProps {
   previewUnavailable?: boolean;
 }
 
+export function shouldConfirmResendCheckpoint({
+  files,
+  previewUnavailable = false,
+}: {
+  files: ConversationFileChange[];
+  previewUnavailable?: boolean;
+}): boolean {
+  return previewUnavailable || files.length > 0;
+}
+
 const ResendCheckpointDialogImpl =
   NiceModal.create<ResendCheckpointDialogProps>((props) => {
     const modal = useModal();

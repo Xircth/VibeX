@@ -49,6 +49,7 @@ describe('WorkspaceTabAddMenu', () => {
       <WorkspaceOverlayContext.Provider
         value={{
           setTabCreationMenuOpen,
+          setHtmlOverlayOpen: vi.fn(),
           subscribeNativeSurfaceOcclusion: () => () => {},
         }}
       >
@@ -91,6 +92,7 @@ describe('WorkspaceTabAddMenu', () => {
       <WorkspaceOverlayContext.Provider
         value={{
           setTabCreationMenuOpen,
+          setHtmlOverlayOpen: vi.fn(),
           subscribeNativeSurfaceOcclusion: () => () => {},
         }}
       >

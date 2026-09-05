@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanelSlotContext } from '@/contexts/RightPanelSlotContext';
 import DockviewWebPreviewPanel from './DockviewWebPreviewPanel';
 
@@ -9,20 +9,24 @@ const {
   openWebPreviewMock,
   useKanbanSessionContextMock,
   usePreviewSettingsMock,
+  useTaskAttemptWithSessionMock,
   useWorktreeMock,
 } = vi.hoisted(() => ({
   browserPanelMock: vi.fn(
     (props: {
       initialUrl: string | null;
       requestNonce: number;
+      panelId?: string;
       workspaceId?: string;
       visible: boolean;
       onFaviconChange?: (faviconUrl: string | null) => void;
+      onLocationChange?: (url: string) => void;
       onOpenExternalTab?: (url: string) => void;
     }) => (
       <div
         data-testid="browser-panel"
         data-url={props.initialUrl}
+        data-panel-id={props.panelId}
         data-request-nonce={props.requestNonce}
         data-workspace-id={props.workspaceId}
         data-visible={props.visible}
@@ -34,6 +38,12 @@ const {
           }
         >
           Update favicon
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onLocationChange?.('https://www.baidu.com/')}
+        >
+          Persist location
         </button>
         <button
           type="button"
@@ -51,6 +61,7 @@ const {
   usePreviewSettingsMock: vi.fn(() => ({
     overrideUrl: 'https://www.baidu.com',
   })),
+  useTaskAttemptWithSessionMock: vi.fn(() => ({ data: undefined })),
   useWorktreeMock: vi.fn(() => ({ activeWorktreeId: 'workspace-tree' })),
 }));
 
@@ -77,7 +88,7 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
 }));
 
 vi.mock('@/hooks/useTaskAttempt', () => ({
-  useTaskAttemptWithSession: vi.fn(() => ({ data: undefined })),
+  useTaskAttemptWithSession: useTaskAttemptWithSessionMock,
 }));
 
 vi.mock('@/contexts/ExecutionProcessesContext', () => ({
@@ -108,6 +119,7 @@ function panelProps(): IDockviewPanelProps {
       requestedUrlNonce: 7,
     },
     api: {
+      id: 'web-preview:7',
       isActive: true,
       isVisible: true,
       onDidVisibilityChange: vi.fn(() => disposable),
@@ -124,6 +136,10 @@ function panelProps(): IDockviewPanelProps {
 }
 
 describe('DockviewWebPreviewPanel', () => {
+  beforeEach(() => {
+    useTaskAttemptWithSessionMock.mockReturnValue({ data: undefined });
+  });
+
   it('mounts the CEF browser for the active workspace and requested URL', () => {
     render(<DockviewWebPreviewPanel {...panelProps()} />);
 
@@ -157,6 +173,27 @@ describe('DockviewWebPreviewPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open outer preview' }));
     expect(openWebPreviewMock).toHaveBeenCalledWith('https://outer.test');
+  });
+
+  it('keeps a stable panel id so the native tab can survive layout remounts', () => {
+    render(<DockviewWebPreviewPanel {...panelProps()} />);
+
+    expect(screen.getByTestId('browser-panel')).toHaveAttribute(
+      'data-panel-id',
+      'web-preview:7'
+    );
+  });
+
+  it('persists address-bar navigation into the Dockview panel parameters', () => {
+    const props = panelProps();
+    render(<DockviewWebPreviewPanel {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Persist location' }));
+
+    expect(props.api.updateParameters).toHaveBeenCalledWith({
+      requestedUrl: 'https://www.baidu.com/',
+      requestedUrlNonce: 7,
+    });
   });
 
   it('publishes browser favicon changes to the Dockview tab parameters', () => {
@@ -228,5 +265,17 @@ describe('DockviewWebPreviewPanel', () => {
       'data-visible',
       'false'
     );
+  });
+
+  it('keeps the browser host mounted after restored session data arrives', () => {
+    const { rerender } = render(<DockviewWebPreviewPanel {...panelProps()} />);
+    const host = screen.getByTestId('browser-panel');
+
+    useTaskAttemptWithSessionMock.mockReturnValue({
+      data: { session: { id: 'session-after-restore' } },
+    });
+    rerender(<DockviewWebPreviewPanel {...panelProps()} />);
+
+    expect(screen.getByTestId('browser-panel')).toBe(host);
   });
 });

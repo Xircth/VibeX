@@ -11,6 +11,7 @@ function message(
   return {
     id,
     session_id: 'session-1',
+    operationId: `operation-${id}`,
     revision: 1n,
     sortKey: id === 'input-1' ? 1024n : 2048n,
     status,

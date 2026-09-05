@@ -316,50 +316,77 @@ export function CodexModelCatalogEditor({
   );
 }
 
+export type CustomModelTestState =
+  | 'loading'
+  | { ok: true }
+  | { ok: false; error: string };
+
 export function CodexModelConfigFields({
   catalog,
   draft,
   disabled,
   onChange,
+  showOfficialModels = true,
+  defaultModels,
+  defaultModelDetecting = false,
+  onDefaultModelOpen,
+  customModelTests,
+  onTestCustomModel,
+  onCustomModelSlugChange,
+  onCustomModelRemove,
 }: {
   catalog: AgentModelCatalogView;
   draft: CodexModelCatalogConfigRequest;
   disabled: boolean;
   onChange: (next: CodexModelCatalogConfigRequest) => void;
+  showOfficialModels?: boolean;
+  defaultModels?: AgentModelCatalogView['models'];
+  defaultModelDetecting?: boolean;
+  onDefaultModelOpen?: () => void;
+  customModelTests?: Record<number, CustomModelTestState>;
+  onTestCustomModel?: (index: number, slug: string) => void;
+  onCustomModelSlugChange?: (index: number) => void;
+  onCustomModelRemove?: (index: number) => void;
 }) {
   const { t } = useTranslation('settings');
+  const detectingLabel = t('agents.providerDetectingCurrentModels');
+  const defaultOptions = defaultModels
+    ? detectedModelOptions(draft, defaultModels, t('agents.custom'))
+    : codexModelOptions(draft, catalog.models, t('agents.custom'));
   return (
     <>
-      <fieldset>
-        <legend>{t('agents.codexOfficialModels')}</legend>
-        <div className="codex-official-models">
-          {catalog.models.map((model) => {
-            const included = !draft.excluded_officials.includes(model.id);
-            return (
-              <label key={model.id}>
-                <input
-                  type="checkbox"
-                  checked={included}
-                  disabled={disabled}
-                  name={`codex_official_${model.id}`}
-                  onChange={(event) => {
-                    const excluded = event.target.checked
-                      ? draft.excluded_officials.filter(
-                          (slug) => slug !== model.id
-                        )
-                      : [...draft.excluded_officials, model.id];
-                    onChange({ ...draft, excluded_officials: excluded });
-                  }}
-                />
-                <span>
-                  <strong>{model.label}</strong>
-                  <code>{model.id}</code>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
+      {showOfficialModels ? (
+        <fieldset>
+          <legend>{t('agents.codexOfficialModels')}</legend>
+          <div className="codex-official-models">
+            {catalog.models.map((model) => {
+              const included = !draft.excluded_officials.includes(model.id);
+              return (
+                <label key={model.id}>
+                  <input
+                    type="checkbox"
+                    checked={included}
+                    disabled={disabled}
+                    name={`codex_official_${model.id}`}
+                    onChange={(event) => {
+                      const excluded = event.target.checked
+                        ? draft.excluded_officials.filter(
+                            (slug) => slug !== model.id
+                          )
+                        : [...draft.excluded_officials, model.id];
+                      onChange({ ...draft, excluded_officials: excluded });
+                    }}
+                  />
+                  <span>
+                    <strong>{model.label}</strong>
+                    <code>{model.id}</code>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      ) : null}
 
       <fieldset>
         <div className="codex-custom-model-heading">
@@ -370,8 +397,7 @@ export function CodexModelConfigFields({
             className="h-7"
             disabled={disabled}
             onClick={() => {
-              const base = catalog.models[0]?.id;
-              if (!base) return;
+              const base = catalog.models[0]?.id ?? '';
               onChange({
                 ...draft,
                 customs: [
@@ -395,26 +421,36 @@ export function CodexModelConfigFields({
           <ul className="codex-custom-models">
             {draft.customs.map((custom, index) => (
               <CustomModelRow
-                key={`${custom.slug}-${index}`}
+                key={`custom-${index}`}
                 custom={custom}
                 bases={catalog.models}
                 disabled={disabled}
                 rowLabel={t('agents.codexCustomModelNumber', {
                   number: index + 1,
                 })}
+                testState={customModelTests?.[index]}
+                onTest={
+                  onTestCustomModel
+                    ? () => onTestCustomModel(index, custom.slug)
+                    : undefined
+                }
                 onChange={(next) => {
+                  if (next.slug !== custom.slug) {
+                    onCustomModelSlugChange?.(index);
+                  }
                   const customs = [...draft.customs];
                   customs[index] = next;
                   onChange({ ...draft, customs });
                 }}
-                onRemove={() =>
+                onRemove={() => {
+                  onCustomModelRemove?.(index);
                   onChange({
                     ...draft,
                     customs: draft.customs.filter(
                       (_, customIndex) => customIndex !== index
                     ),
-                  })
-                }
+                  });
+                }}
               />
             ))}
           </ul>
@@ -432,15 +468,60 @@ export function CodexModelConfigFields({
           disabled={disabled}
           hasClear
           placeholder={t('agents.codexDecides')}
+          emptyLabel={defaultModelDetecting ? detectingLabel : undefined}
           value={draft.default_model ?? ''}
-          options={codexModelOptions(draft, catalog.models, t('agents.custom'))}
+          options={
+            defaultModelDetecting && defaultOptions.length === 0
+              ? []
+              : defaultOptions
+          }
+          onOpenChange={(open) => {
+            if (open) onDefaultModelOpen?.();
+          }}
           onChange={(next) =>
             onChange({ ...draft, default_model: next || null })
           }
         />
+        {defaultModelDetecting ? (
+          <p aria-live="polite">{detectingLabel}</p>
+        ) : null}
       </label>
     </>
   );
+}
+
+function detectedModelOptions(
+  draft: CodexModelCatalogConfigRequest,
+  models: AgentModelCatalogView['models'],
+  customLabel: string
+): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  const options: { value: string; label: string }[] = [];
+  for (const custom of draft.customs) {
+    const slug = custom.slug.trim();
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    options.push({
+      value: slug,
+      label: `${custom.display_name || slug} · ${customLabel}`,
+    });
+  }
+  for (const model of models) {
+    if (seen.has(model.id)) continue;
+    seen.add(model.id);
+    options.push({
+      value: model.id,
+      label:
+        model.label === model.id ? model.id : `${model.label} · ${model.id}`,
+    });
+  }
+  if (draft.default_model && !seen.has(draft.default_model)) {
+    options.push({
+      value: draft.default_model,
+      label: draft.default_model,
+    });
+  }
+  return options;
 }
 
 function CustomModelRow({
@@ -448,6 +529,8 @@ function CustomModelRow({
   bases,
   disabled,
   rowLabel,
+  testState,
+  onTest,
   onChange,
   onRemove,
 }: {
@@ -455,6 +538,8 @@ function CustomModelRow({
   bases: AgentModelCatalogView['models'];
   disabled: boolean;
   rowLabel: string;
+  testState?: CustomModelTestState;
+  onTest?: () => void;
   onChange: (next: CodexCustomModelRequest) => void;
   onRemove: () => void;
 }) {
@@ -546,6 +631,42 @@ function CustomModelRow({
           }
         />
       </label>
+      {onTest ? (
+        <div className="codex-custom-model-test">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            aria-label={t('agents.providerCustomModelTestAria', {
+              slug: custom.slug || rowLabel,
+            })}
+            disabled={disabled || testState === 'loading'}
+            onClick={onTest}
+          >
+            {testState === 'loading' ? (
+              <Loader2
+                aria-hidden="true"
+                className="mr-1.5 h-3.5 w-3.5 animate-spin"
+              />
+            ) : null}
+            {t('agents.providerCustomModelTest')}
+          </Button>
+          {typeof testState === 'object' ? (
+            <p
+              role={testState.ok ? 'status' : 'alert'}
+              className={
+                testState.ok
+                  ? 'codex-custom-model-test-ok'
+                  : 'codex-custom-model-test-fail'
+              }
+            >
+              {testState.ok
+                ? t('agents.providerCustomModelTestOk')
+                : testState.error}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <Button
         size="sm"
         variant="ghost"

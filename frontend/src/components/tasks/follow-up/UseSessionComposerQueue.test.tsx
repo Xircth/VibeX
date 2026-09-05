@@ -86,7 +86,7 @@ describe('useSessionComposerQueue', () => {
     api.reorderInput.mockImplementation(async () => input());
   });
 
-  it('hydrates every queued input from the backend projection', async () => {
+  it('hydrates waiting queued inputs and ignores claimed dispatch', async () => {
     api.listInputs.mockResolvedValue([
       input('input-1', 1024n),
       input('input-2', 2048n, 'claimed'),
@@ -102,10 +102,9 @@ describe('useSessionComposerQueue', () => {
       { wrapper: wrapperFor(client()) }
     );
 
-    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(2));
+    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(1));
     expect(result.current.queuedMessages.map((message) => message.id)).toEqual([
       'input-1',
-      'input-2',
     ]);
     expect(api.listInputs).toHaveBeenCalledWith('session-1');
   });
@@ -271,5 +270,24 @@ describe('useSessionComposerQueue', () => {
     });
     await waitFor(() => expect(result.current.queuedMessages).toHaveLength(1));
     expect(result.current.queuedMessages[0]?.id).toBe('input-2');
+  });
+
+  it('does not show the input this composer is currently sending', async () => {
+    api.listInputs.mockResolvedValue([input('input-1', 1024n)]);
+    const { result } = renderHook(
+      () =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning: false,
+          excludeOperationId: 'operation-input-1',
+        }),
+      { wrapper: wrapperFor(client()) }
+    );
+
+    await waitFor(() =>
+      expect(result.current.queueIndicatorState.isQueued).toBe(false)
+    );
+    expect(result.current.queuedMessages).toEqual([]);
   });
 });

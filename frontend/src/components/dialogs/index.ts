@@ -58,6 +58,7 @@ export { GhCliSetupDialog } from './auth/GhCliSetupDialog';
 export { ConfirmDialog, type ConfirmDialogProps } from './shared/ConfirmDialog';
 export {
   ResendCheckpointDialog,
+  shouldConfirmResendCheckpoint,
   type ResendCheckpointDialogProps,
   type ResendCheckpointResult,
 } from './shared/ResendCheckpointDialog';

@@ -37,7 +37,10 @@ import {
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 
-import { CodexModelConfigFields } from './CodexModelCatalogEditor';
+import {
+  CodexModelConfigFields,
+  type CustomModelTestState,
+} from './CodexModelCatalogEditor';
 
 const CLAUDE_MODEL_FIELDS = [
   ['main', 'providerModelMain'],
@@ -51,6 +54,10 @@ const CLAUDE_MODEL_FIELDS = [
 ] as const;
 
 type Surface = 'list' | 'form';
+
+function customModelVerified(state: CustomModelTestState | undefined) {
+  return typeof state === 'object' && state.ok;
+}
 
 export function AgentModelProviderManager({
   agentId,
@@ -85,6 +92,9 @@ export function AgentModelProviderManager({
     useState<AgentModelCatalogView | null>(null);
   const [detectingModels, setDetectingModels] = useState(false);
   const [detectionError, setDetectionError] = useState<string | null>(null);
+  const [customModelTests, setCustomModelTests] = useState<
+    Record<number, CustomModelTestState>
+  >({});
   const [claudeMappingTarget, setClaudeMappingTarget] = useState('main');
   const [importOpen, setImportOpen] = useState(false);
   const [importPreview, setImportPreview] =
@@ -152,6 +162,7 @@ export function AgentModelProviderManager({
     setModel('');
     setDetectedCatalog(null);
     setDetectionError(null);
+    setCustomModelTests({});
   };
 
   const openCreate = () => {
@@ -220,20 +231,14 @@ export function AgentModelProviderManager({
     }
     if (agentId === 'codex') {
       const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
-      const isOfficial = codexCatalog?.models.some(
-        (candidate) => candidate.id === detected.id
-      );
       const alreadyCustom = draft.customs.some(
         (candidate) => candidate.slug === detected.id
       );
       const base =
-        draft.default_model &&
-        codexCatalog?.models.some(
-          (candidate) => candidate.id === draft.default_model
-        )
-          ? draft.default_model
-          : codexCatalog?.models[0]?.id;
-      if (!isOfficial && !alreadyCustom && base) {
+        codexCatalog?.models[0]?.id ??
+        detectedCatalog?.models[0]?.id ??
+        detected.id;
+      if (!alreadyCustom) {
         draft.customs = [
           ...draft.customs,
           {
@@ -243,6 +248,10 @@ export function AgentModelProviderManager({
             base,
           },
         ];
+        setCustomModelTests((current) => ({
+          ...current,
+          [draft.customs.length - 1]: { ok: true },
+        }));
       }
       draft.default_model = detected.id;
       setModel(serializeCodexModel(draft));
@@ -257,10 +266,76 @@ export function AgentModelProviderManager({
     setModel(detected.id);
   };
 
+  const testCustomModel = async (index: number, slug: string) => {
+    const modelId = slug.trim();
+    if (!modelId) {
+      toast.warning(t('settings:agents.providerCustomModelTestNeedId'));
+      return;
+    }
+    if (!apiUrl.trim() || !apiKey.trim()) {
+      toast.warning(t('settings:agents.providerRequiredFields'));
+      return;
+    }
+    setCustomModelTests((current) => ({ ...current, [index]: 'loading' }));
+    try {
+      const catalog =
+        detectedCatalog ??
+        (await agentManagementApi.modelProviderCatalog(
+          agentId,
+          id,
+          apiUrl.trim(),
+          apiKey.trim() || null
+        ));
+      if (!detectedCatalog) {
+        setDetectedCatalog(catalog);
+        setDetectionError(catalog.error);
+      }
+      const available = catalog.models.some(
+        (candidate) => candidate.id === modelId
+      );
+      setCustomModelTests((current) => ({
+        ...current,
+        [index]: available
+          ? { ok: true }
+          : {
+              ok: false,
+              error: t('settings:agents.providerCustomModelTestMissing'),
+            },
+      }));
+      if (available) {
+        toast.success(t('settings:agents.providerCustomModelTestOk'));
+      } else {
+        toast.error(t('settings:agents.providerCustomModelTestMissing'));
+      }
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        t('settings:agents.providerModelDetectionFailed')
+      );
+      setCustomModelTests((current) => ({
+        ...current,
+        [index]: { ok: false, error: message },
+      }));
+      toast.error(message);
+    }
+  };
+
   const save = async () => {
     if (!name.trim() || !apiUrl.trim() || (!id && !apiKey.trim())) {
       toast.warning(t('settings:agents.providerRequiredFields'));
       return;
+    }
+    if (agentId === 'codex') {
+      const draft = parseCodexModel(model);
+      const untested = draft.customs.some(
+        (custom, index) =>
+          Boolean(custom.slug.trim()) &&
+          !customModelVerified(customModelTests[index])
+      );
+      if (untested) {
+        toast.warning(t('settings:agents.providerCustomModelTestRequired'));
+        return;
+      }
     }
     setSaving(true);
     setError(null);
@@ -543,24 +618,61 @@ export function AgentModelProviderManager({
         ) : agentId === 'codex' ? (
           <div className="agent-model-provider-codex">
             <span>{t('settings:agents.modelCatalog')}</span>
-            {codexCatalog?.models.length ? (
-              <div className="codex-model-editor-body">
-                <CodexModelConfigFields
-                  catalog={codexCatalog}
-                  disabled={busy}
-                  draft={mergeCodexConfigDraft(
-                    parseCodexModel(model),
-                    codexConfig
-                  )}
-                  onChange={(next) => setModel(serializeCodexModel(next))}
-                />
-              </div>
-            ) : (
-              <p role={codexCatalog?.error ? 'alert' : undefined}>
-                {codexCatalog?.error ??
-                  t('settings:agents.codexCatalogWaiting')}
-              </p>
-            )}
+            <div className="codex-model-editor-body">
+              <CodexModelConfigFields
+                catalog={{
+                  agent_id: 'codex',
+                  source: detectedCatalog?.source ?? 'live',
+                  models: detectedCatalog?.models ?? [],
+                  default_model: detectedCatalog?.default_model ?? null,
+                  error: detectedCatalog?.error ?? null,
+                }}
+                defaultModelDetecting={detectingModels}
+                defaultModels={detectedCatalog?.models ?? []}
+                disabled={busy}
+                draft={mergeCodexConfigDraft(
+                  parseCodexModel(model),
+                  codexConfig
+                )}
+                showOfficialModels={false}
+                customModelTests={customModelTests}
+                onTestCustomModel={(index, slug) =>
+                  void testCustomModel(index, slug)
+                }
+                onCustomModelSlugChange={(index) =>
+                  setCustomModelTests((current) => {
+                    if (!(index in current)) return current;
+                    const next = { ...current };
+                    delete next[index];
+                    return next;
+                  })
+                }
+                onCustomModelRemove={(index) =>
+                  setCustomModelTests((current) => {
+                    const next: Record<number, CustomModelTestState> = {};
+                    for (const [key, value] of Object.entries(current)) {
+                      const currentIndex = Number(key);
+                      if (currentIndex < index) next[currentIndex] = value;
+                      else if (currentIndex > index)
+                        next[currentIndex - 1] = value;
+                    }
+                    return next;
+                  })
+                }
+                onDefaultModelOpen={() => {
+                  if (
+                    detectingModels ||
+                    detectedCatalog ||
+                    !apiUrl.trim() ||
+                    !apiKey.trim()
+                  ) {
+                    return;
+                  }
+                  void detectModels();
+                }}
+                onChange={(next) => setModel(serializeCodexModel(next))}
+              />
+            </div>
           </div>
         ) : (
           <label className="agent-model-provider-model">

@@ -31,12 +31,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type {
-  Workspace,
-  ExecutorConfigs,
-  ExecutorProfileId,
-} from 'shared/types';
-import type { RepoBranchConfig } from '@/hooks';
+import type { Workspace } from 'shared/types';
 import type { SessionStatus } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -62,13 +57,6 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { WorkspaceSessionList } from '@/components/workspace-session-list/WorkspaceSessionList';
 import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
-import {
-  SessionCreationForm,
-  type SessionControlsPreset,
-  type SessionCreationMode,
-} from '@/components/sessions/SessionCreationForm';
-import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
-import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_DRAG_OVERLAY_CLASS,
@@ -110,15 +98,6 @@ interface SessionHubSidebarProps {
   groupedSessions: Record<string, KanbanProjectSessionRecord[]>;
   flatSessions: KanbanProjectSessionRecord[];
   workspaces: Workspace[];
-  workspaceBranchOptions: WorkspaceBranchOption[];
-  profiles: ExecutorConfigs['executors'] | null;
-  createMode: SessionCreationMode;
-  createWorkspaceValue: string;
-  createSessionName: string;
-  selectedExecutorProfile: ExecutorProfileId | null;
-  repoBranchConfigs: RepoBranchConfig[];
-  isLoadingRepoBranches: boolean;
-  isCreatePopoverOpen: boolean;
   sortField: SortField | null;
   workspaceFilterIds: string[];
   executorFilterValues: string[];
@@ -129,9 +108,6 @@ interface SessionHubSidebarProps {
   deleteErrorMessage: string | null;
   deleteSuccessMessage: string | null;
   isDeletingSessions: boolean;
-  canCreateSession: boolean;
-  isCreatePending: boolean;
-  createError: unknown;
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
   openingSessionId?: string | null;
@@ -140,16 +116,6 @@ interface SessionHubSidebarProps {
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onArchiveViewChange: (value: boolean) => void;
   onCreateSessionRequested: () => void;
-  onCreatePopoverOpenChange?: (open: boolean) => void;
-  onCreateSession?: () => void;
-  onSessionControlsPresetChange?: (
-    preset: SessionControlsPreset | null
-  ) => void;
-  onCreateModeChange: (value: SessionCreationMode) => void;
-  onCreateWorkspaceValueChange: (value: string) => void;
-  onCreateSessionNameChange: (value: string) => void;
-  onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
-  onRepoBranchChange: (repoId: string, branch: string) => void;
   onSortFieldChange: (value: SortField | null) => void;
   onWorkspaceFilterIdsChange: (value: string[]) => void;
   onExecutorFilterValuesChange: (value: string[]) => void;
@@ -485,15 +451,6 @@ export function SessionHubSidebar({
   groupedSessions,
   flatSessions,
   workspaces,
-  workspaceBranchOptions,
-  profiles,
-  createMode,
-  createWorkspaceValue,
-  createSessionName,
-  selectedExecutorProfile,
-  repoBranchConfigs,
-  isLoadingRepoBranches,
-  isCreatePopoverOpen,
   sortField,
   workspaceFilterIds,
   executorFilterValues,
@@ -504,9 +461,6 @@ export function SessionHubSidebar({
   deleteErrorMessage,
   deleteSuccessMessage,
   isDeletingSessions,
-  canCreateSession,
-  isCreatePending,
-  createError,
   monitorPlacements,
   currentExecutionPlacement,
   openingSessionId = null,
@@ -515,14 +469,6 @@ export function SessionHubSidebar({
   onResizeMouseDown,
   onArchiveViewChange,
   onCreateSessionRequested,
-  onCreatePopoverOpenChange,
-  onCreateSession,
-  onSessionControlsPresetChange,
-  onCreateModeChange,
-  onCreateWorkspaceValueChange,
-  onCreateSessionNameChange,
-  onSelectedExecutorProfileChange,
-  onRepoBranchChange,
   onSortFieldChange,
   onWorkspaceFilterIdsChange,
   onExecutorFilterValuesChange,
@@ -675,7 +621,7 @@ export function SessionHubSidebar({
       variant="ghost"
       className={SESSION_LIST_ACTION_BUTTON_CLASS}
       aria-label={t('hubSidebar.newSession')}
-      onClick={compactHeader ? onCreateSessionRequested : undefined}
+      onClick={onCreateSessionRequested}
     >
       <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
     </Button>
@@ -718,69 +664,10 @@ export function SessionHubSidebar({
                   : 'flex shrink-0 items-center gap-1'
               }
             >
-              {compactHeader ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>{newSessionTrigger}</TooltipTrigger>
-                  <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
-                </Tooltip>
-              ) : (
-                <Popover
-                  open={isCreatePopoverOpen}
-                  onOpenChange={onCreatePopoverOpenChange}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PopoverTrigger asChild>
-                        {newSessionTrigger}
-                      </PopoverTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('hubSidebar.newSession')}
-                    </TooltipContent>
-                  </Tooltip>
-                  <PopoverContent
-                    align="start"
-                    side="right"
-                    className="w-[360px] p-4"
-                  >
-                    <SessionCreationForm
-                      title={t('hubSidebar.createSessionTitle')}
-                      mode={createMode}
-                      onModeChange={onCreateModeChange}
-                      workspaceBranchOptions={workspaceBranchOptions}
-                      selectedWorkspaceValue={createWorkspaceValue}
-                      onSelectedWorkspaceValueChange={
-                        onCreateWorkspaceValueChange
-                      }
-                      sessionName={createSessionName}
-                      onSessionNameChange={onCreateSessionNameChange}
-                      profiles={profiles}
-                      selectedExecutorProfile={selectedExecutorProfile}
-                      onSelectedExecutorProfileChange={
-                        onSelectedExecutorProfileChange
-                      }
-                      repoBranchConfigs={repoBranchConfigs}
-                      onRepoBranchChange={onRepoBranchChange}
-                      isLoadingBranches={isLoadingRepoBranches}
-                      onSessionControlsPresetChange={
-                        onSessionControlsPresetChange
-                      }
-                      canSubmit={canCreateSession}
-                      isSubmitting={isCreatePending}
-                      errorMessage={
-                        createError
-                          ? getSessionUiErrorMessage(
-                              createError,
-                              t('hubSidebar.createSessionFailed')
-                            )
-                          : null
-                      }
-                      onSubmit={() => onCreateSession?.()}
-                      onCancel={() => onCreatePopoverOpenChange?.(false)}
-                    />
-                  </PopoverContent>
-                </Popover>
-              )}
+              <Tooltip>
+                <TooltipTrigger asChild>{newSessionTrigger}</TooltipTrigger>
+                <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
+              </Tooltip>
 
               {isWorkspaceListView ? null : (
                 <DropdownMenu>

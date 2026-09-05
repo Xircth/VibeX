@@ -51,7 +51,10 @@ import { ConversationChildrenSummary } from '@/features/conversation/Conversatio
 import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
-import { ResendCheckpointDialog } from '@/components/dialogs';
+import {
+  ResendCheckpointDialog,
+  shouldConfirmResendCheckpoint,
+} from '@/components/dialogs';
 import { getErrorMessage } from '@/lib/modals';
 import { toast } from '@/components/ui/toast';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
@@ -1080,13 +1083,21 @@ const AgentTimelineConversation = forwardRef<
         console.warn('checkpoint preview unavailable', error);
       }
 
-      const choice = await ResendCheckpointDialog.show({
-        title: t('timeline.resendMessageTitle'),
-        files: rollbackFiles,
-        previewUnavailable,
-      });
-      if (choice === 'dismissed') return false;
-      const restoreFiles = choice === 'restore';
+      let restoreFiles = false;
+      if (
+        shouldConfirmResendCheckpoint({
+          files: rollbackFiles,
+          previewUnavailable,
+        })
+      ) {
+        const choice = await ResendCheckpointDialog.show({
+          title: t('timeline.resendMessageTitle'),
+          files: rollbackFiles,
+          previewUnavailable,
+        });
+        if (choice === 'dismissed') return false;
+        restoreFiles = choice === 'restore';
+      }
 
       try {
         // Optional workspace rollback first — it relies on the checkpoint recorded

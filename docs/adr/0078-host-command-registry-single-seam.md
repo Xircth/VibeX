@@ -50,7 +50,13 @@ Task、Tag、Scratch、Image、Attention、Conversation 辅助、Agent 运行时
 
 ### 2. Host Command Registry 是唯一注册表
 
-`crates/server::host::registry` 用声明式表 `host_commands!` 登记每个命令的名称、所需
+活接缝是 `application::DomainCommand` + `RegisteredCommand`（Conversation / Workflow
+用例由 Application Core 直接实现，其余产品命令由 `ServerApplicationDomains` 派发）。
+`pnpm run generate-types` 从 `RegisteredCommand::host_command_names()` 写出
+`shared/hostCommands.ts`。ADR 里的 `host_commands!` / `HostContext` 名称对应同一职责，
+不另建第二份注册表。
+
+`crates/server::host` 用 `DomainCommand` 登记每个命令的名称、所需
 scope、参数结构与实现函数，并生成：
 
 - `HOST_COMMANDS: &[HostCommandDescriptor]`——命令名、scope 的静态清单；

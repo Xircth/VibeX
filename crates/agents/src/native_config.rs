@@ -54,6 +54,24 @@ pub struct NativeConfigSnapshot {
     pub authentication: AgentAuthenticationStatus,
 }
 
+impl NativeConfigSnapshot {
+    pub fn field_present(&self, field_id: &str) -> bool {
+        self.fields
+            .iter()
+            .find(|field| field.field_id == field_id)
+            .is_some_and(|field| field.present)
+    }
+
+    pub fn field_text(&self, field_id: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|field| field.field_id == field_id)
+            .and_then(|field| field.value.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeConfigPatch {
     pub base_field_revisions: BTreeMap<String, String>,

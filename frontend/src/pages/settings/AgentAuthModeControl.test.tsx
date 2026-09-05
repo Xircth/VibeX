@@ -467,6 +467,62 @@ describe('AgentAuthModeControl', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('opens Codex on the Provider tab when a model provider is bound', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'model_provider',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: true,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: codexOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="codex"
+        authentication="api_key"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    const providerTab = await screen.findByRole('tab', { name: '供应商' });
+    expect(providerTab).toHaveAttribute('aria-selected', 'true');
+    expect(providerTab).not.toHaveClass('is-draft');
+    expect(screen.getByTestId('model-provider')).toBeVisible();
+    expect(screen.getByRole('tab', { name: '官方 API' })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+  });
+
+  it('opens Claude Code on the Provider tab when a model provider is bound', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'model_provider',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: true,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: claudeOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="claude_code"
+        authentication="api_key"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    const providerTab = await screen.findByRole('tab', { name: '供应商' });
+    expect(providerTab).toHaveAttribute('aria-selected', 'true');
+    expect(providerTab).not.toHaveClass('is-draft');
+    expect(screen.getByTestId('model-provider')).toBeVisible();
+    expect(screen.getByRole('tab', { name: '官方 API' })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+  });
+
   it('treats a bound Grok provider as the saved auth mode, not a draft tab', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'grok',
@@ -709,6 +765,54 @@ describe('AgentAuthModeControl', () => {
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('antigravity', 'gemini-api-key', null)
     );
+  });
+
+  it('does not render auth-kind tabs for Qoder subscription-only auth', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'qoder',
+      mode: 'official_subscription',
+      credential_env: 'QODER_PERSONAL_ACCESS_TOKEN',
+      credential_present: false,
+      modes: ['official_subscription'],
+      options: [
+        authOption(
+          'official_subscription',
+          'subscription',
+          'authModeOfficialSubscription',
+          'authDescQoderSubscription'
+        ),
+      ],
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="qoder"
+        authentication="not_logged_in"
+        actions={{
+          agent_id: 'qoder',
+          actions: [
+            {
+              id: 'login',
+              label: '登录 Qoder',
+              description: '打开浏览器完成 Qoder 官方账号登录',
+              label_key: 'agents.managementAction.qoder.login.label',
+              description_key:
+                'agents.managementAction.qoder.login.description',
+              kind: 'login' as const,
+              available: true,
+              unavailable_reason: null,
+              url: null,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(await screen.findByTestId('agent-account-identity')).toBeVisible();
+    expect(screen.getByRole('button', { name: '登录 Qoder' })).toBeVisible();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
   });
 
   it('does not render auth-kind tabs when the Agent only has Provider mode', async () => {

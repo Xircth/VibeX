@@ -1014,6 +1014,7 @@ fn grok_credits(config: &Value) -> Option<PlanCredits> {
     })
 }
 
+#[cfg(test)]
 fn map_grok_plan_usage(settings: &Value, billing: &Value) -> AgentPlanUsage {
     map_grok_plan_usage_for(settings, billing, None)
 }

@@ -57,24 +57,32 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
-    /// Every variant, in a stable order (registry / picker ordering).
+    /// Every variant, in Agent Bar / picker order. `QaMock` stays last because
+    /// it is a test identity, not a product Agent.
     pub const ALL: [AgentKind; 15] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
-        AgentKind::Antigravity,
-        AgentKind::Openclaw,
-        AgentKind::Opencode,
-        AgentKind::Cline,
-        AgentKind::Hermes,
-        AgentKind::Codebuddy,
-        AgentKind::KimiCode,
         AgentKind::Pi,
+        AgentKind::Opencode,
         AgentKind::Grok,
         AgentKind::Cursor,
         AgentKind::DeepseekHarness,
+        AgentKind::Antigravity,
+        AgentKind::Cline,
+        AgentKind::Openclaw,
+        AgentKind::Hermes,
+        AgentKind::Codebuddy,
+        AgentKind::KimiCode,
         AgentKind::Qoder,
         AgentKind::QaMock,
     ];
+
+    /// Product Agents in Agent Bar order. Excludes `QaMock`.
+    pub fn built_in_bar_order() -> impl Iterator<Item = AgentKind> {
+        Self::ALL
+            .into_iter()
+            .filter(|kind| *kind != AgentKind::QaMock)
+    }
 
     /// The canonical snake_case key (what `Serialize` / `Display` / sqlx emit).
     pub const fn as_str(self) -> &'static str {
@@ -184,20 +192,27 @@ mod tests {
         let expected = [
             (AgentKind::ClaudeCode, "claude_code"),
             (AgentKind::Codex, "codex"),
-            (AgentKind::Antigravity, "antigravity"),
-            (AgentKind::Openclaw, "openclaw"),
-            (AgentKind::Opencode, "opencode"),
-            (AgentKind::Cline, "cline"),
-            (AgentKind::Hermes, "hermes"),
-            (AgentKind::Codebuddy, "codebuddy"),
-            (AgentKind::KimiCode, "kimi_code"),
             (AgentKind::Pi, "pi"),
+            (AgentKind::Opencode, "opencode"),
             (AgentKind::Grok, "grok"),
             (AgentKind::Cursor, "cursor"),
             (AgentKind::DeepseekHarness, "deepseek_harness"),
+            (AgentKind::Antigravity, "antigravity"),
+            (AgentKind::Cline, "cline"),
+            (AgentKind::Openclaw, "openclaw"),
+            (AgentKind::Hermes, "hermes"),
+            (AgentKind::Codebuddy, "codebuddy"),
+            (AgentKind::KimiCode, "kimi_code"),
             (AgentKind::Qoder, "qoder"),
             (AgentKind::QaMock, "qa_mock"),
         ];
+        assert_eq!(
+            AgentKind::ALL
+                .iter()
+                .map(|kind| kind.as_str())
+                .collect::<Vec<_>>(),
+            expected.iter().map(|(_, key)| *key).collect::<Vec<_>>()
+        );
         assert_eq!(
             expected.len(),
             AgentKind::ALL.len(),

@@ -2,7 +2,7 @@ use agents::{
     AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface, ProfileComponent,
     ProfileInstallSource, ProfileManagementActionKind, RegistryEntryIdentity,
 };
-use api_types::AgentSettingsFeature;
+use api_types::{AgentKind, AgentSettingsFeature};
 
 fn native_field<'a>(
     catalog: &'a BuiltInProfileCatalog,
@@ -290,6 +290,7 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
         ProfileInstallSource::Npx {
             component: ProfileComponent::CombinedRuntime,
             package: "@qoder-ai/qodercli",
+            version: "1.1.44",
             command: "qodercli",
             args: ["--acp"],
             ..
@@ -298,6 +299,12 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
     assert_eq!(
         qoder.registry_binding.as_ref().unwrap().registry_id,
         "qoder"
+    );
+    assert_eq!(qoder.management_actions[0].args, &["login"]);
+    assert!(
+        qoder
+            .settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
     );
 }
 
@@ -311,20 +318,26 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         .collect::<Vec<_>>();
     assert_eq!(
         ids,
+        AgentKind::built_in_bar_order()
+            .map(AgentKind::as_str)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        ids,
         [
             "claude_code",
             "codex",
-            "antigravity",
-            "openclaw",
-            "opencode",
-            "cline",
-            "hermes",
-            "codebuddy",
-            "kimi_code",
             "pi",
+            "opencode",
             "grok",
             "cursor",
             "deepseek_harness",
+            "antigravity",
+            "cline",
+            "openclaw",
+            "hermes",
+            "codebuddy",
+            "kimi_code",
             "qoder",
         ]
     );
@@ -390,17 +403,17 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         [
             ("claude_code", None),
             ("codex", None),
-            ("antigravity", None),
-            ("openclaw", None),
-            ("opencode", None),
-            ("cline", None),
-            ("hermes", None),
-            ("codebuddy", None),
-            ("kimi_code", None),
             ("pi", None),
+            ("opencode", None),
             ("grok", None),
             ("cursor", None),
             ("deepseek_harness", None),
+            ("antigravity", None),
+            ("cline", None),
+            ("openclaw", None),
+            ("hermes", None),
+            ("codebuddy", None),
+            ("kimi_code", None),
             ("qoder", None),
         ]
     );
@@ -682,6 +695,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "kimi_code",
         "grok",
         "cursor",
+        "qoder",
     ] {
         assert!(
             profile(id)
@@ -712,6 +726,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "grok",
         "cursor",
         "deepseek_harness",
+        "qoder",
     ] {
         assert!(
             profile(id)

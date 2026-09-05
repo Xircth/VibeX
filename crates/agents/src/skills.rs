@@ -380,12 +380,13 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
                 )
                 .collect()
         }
-        AgentKind::Qoder => {
-            configured_dir("QODER_HOME", home.as_ref().map(|home| home.join(".qoder")))
-                .into_iter()
-                .map(|dir| (dir.join("skills"), false))
-                .collect()
-        }
+        AgentKind::Qoder => configured_dir(
+            "QODER_CONFIG_DIR",
+            home.as_ref().map(|home| home.join(".qoder")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .collect(),
         // In-process mock agent: no skill directories.
         AgentKind::QaMock => Vec::new(),
     };
@@ -1015,8 +1016,10 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
             configured_dir("DSH_HOME", home.map(|home| home.join(".dsh")))
                 .map(|dir| dir.join("skills"))
         }
-        AgentKind::Qoder => configured_dir("QODER_HOME", home.map(|home| home.join(".qoder")))
-            .map(|dir| dir.join("skills")),
+        AgentKind::Qoder => {
+            configured_dir("QODER_CONFIG_DIR", home.map(|home| home.join(".qoder")))
+                .map(|dir| dir.join("skills"))
+        }
         AgentKind::QaMock => None,
     }
 }

@@ -362,17 +362,17 @@ impl BuiltInProfileCatalog {
             profiles: vec![
                 claude_code_profile(),
                 codex_profile(),
-                antigravity_profile(),
-                openclaw_profile(),
-                opencode_profile(),
-                cline_profile(),
-                hermes_profile(),
-                codebuddy_profile(),
-                kimi_code_profile(),
                 pi_profile(),
+                opencode_profile(),
                 grok_profile(),
                 cursor_profile(),
                 deepseek_harness_profile(),
+                antigravity_profile(),
+                cline_profile(),
+                openclaw_profile(),
+                hermes_profile(),
+                codebuddy_profile(),
+                kimi_code_profile(),
                 qoder_profile(),
             ],
         }
@@ -685,10 +685,10 @@ const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
 const QODER_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "login",
     "登录 Qoder",
-    "启动 Qoder CLI，在终端中使用 /login",
+    "打开浏览器完成 Qoder 官方账号登录",
     ProfileManagementActionKind::Login,
     "qodercli",
-    &[],
+    &["login"],
 )];
 const KIMI_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -2018,6 +2018,15 @@ const DEEPSEEK_HARNESS_CONFIG: &[NativeConfigBinding] = &[
     },
 ];
 
+const QODER_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "settings",
+    home_relative_path: ".qoder/settings.json",
+    directory_override_env: Some("QODER_CONFIG_DIR"),
+    override_relative_path: "settings.json",
+    format: NativeConfigFormat::Json,
+    fields: &[],
+}];
+
 const fn text_field(
     field_id: &'static str,
     label: &'static str,
@@ -2268,12 +2277,13 @@ const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
-/// Qoder authenticates through the CLI's own `/login` or the
-/// `QODER_PERSONAL_ACCESS_TOKEN` environment variable, and reads Skills from
-/// `~/.qoder/skills`. Native MCP is not declared: Qoder CLI supports MCP, but
-/// the on-disk location VibeX would have to write is undocumented.
+/// Qoder authenticates through `qoder login` (or `QODER_PERSONAL_ACCESS_TOKEN`
+/// as the same account's headless credential). There is no official API Key
+/// env and no custom endpoint. Skills live in `~/.qoder/skills`; MCP servers
+/// live in `~/.qoder/settings.json` `mcpServers`.
 const QODER_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
@@ -2982,24 +2992,27 @@ fn qoder_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "@qoder-ai/qodercli",
-            "1.1.42",
+            "1.1.44",
             "qodercli",
             QODER_ACP_ARGS,
             ">=20",
-            "sha512-KSqmCX1CsbwslB5yknMs2opk6eD6zv1+bqEsjlk9EviDvWKVoy5tmqxhJq25j86LV6s7Yw1hgMQBD0JZZjWHEA==",
+            "sha512-OFZFj6w6Zckuz/o8KT3LCLctS7g5UZbSSyoF66+8seYNrQkkFmU0GrnGCsduHK7ZBrlpRVWXPQg6h9gUWo3v4A==",
         )],
         external_candidates: QODER_CANDIDATES,
         dependencies: NODE_20_DEPENDENCIES,
         management_actions: QODER_ACTIONS,
         runtime_executable_env: None,
-        // Qoder CLI's on-disk configuration schema is undocumented, so no
-        // native field bindings are declared. Skills are, because their
-        // location is (`~/.qoder/skills` and `.qoder/skills`).
-        native_config: &[],
+        native_config: QODER_CONFIG,
         settings_features: QODER_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
-        account_evidence: None,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".qoder",
+            directory_override_env: Some("QODER_CONFIG_DIR"),
+            override_relative_directory: "",
+            relative_file: "settings.json",
+            kind: AccountEvidenceKind::NonEmptyStringAt(&["security", "auth", "selectedType"]),
+        }),
     }
 }
 

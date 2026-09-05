@@ -69,6 +69,23 @@ fn deepseek_official_mode_clears_custom_base_url() {
 }
 
 #[test]
+fn qoder_has_only_subscription_and_keeps_the_personal_access_token() {
+    let policy = agents::built_in_auth_mode_policy(&AgentId::parse("qoder").unwrap()).unwrap();
+    assert_eq!(policy.modes, &["official_subscription"]);
+    assert!(policy.credential_modes.is_empty());
+
+    let mut env = HashMap::from([(
+        "QODER_PERSONAL_ACCESS_TOKEN".to_string(),
+        "pt-keep".to_string(),
+    )]);
+    apply_built_in_auth_mode_policy(&AgentId::parse("qoder").unwrap(), &mut env);
+    assert_eq!(
+        env.get("QODER_PERSONAL_ACCESS_TOKEN").map(String::as_str),
+        Some("pt-keep")
+    );
+}
+
+#[test]
 fn the_shared_launch_policy_matches_auth_scrubbing_and_argument_projection() {
     let mut env = HashMap::from([
         ("GROK_AUTH_MODE".to_string(), "subscription".to_string()),

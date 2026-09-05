@@ -1776,6 +1776,15 @@
     "authDescClineOfficialApi": "Use an official Cline API key.",
     "authDescClineProvider": "Configure a BYOK provider for Cline.",
     "authDescCodebuddySubscription": "Sign in to the Tencent Cloud CodeBuddy account.",
+    "authDescQoderSubscription": "Sign in with a Qoder account.",
+    "qoderTokenLabel": "QODER_PERSONAL_ACCESS_TOKEN",
+    "qoderTokenPlaceholder": "Personal access token",
+    "qoderTokenHint": "Same-account token for machines without a browser.",
+    "qoderTokenSave": "Save",
+    "qoderTokenClear": "Clear",
+    "qoderTokenSaved": "Saved",
+    "qoderTokenLoadFailed": "Could not read the Qoder token",
+    "qoderTokenSaveFailed": "Could not save the Qoder token",
     "authDescGenericProvider": "Use this agent's native provider configuration.",
     "dshProviderLoadFailed": "Could not read DeepSeek Harness authentication",
     "dshProviderSaveFailed": "Could not save DeepSeek Harness authentication",
@@ -1886,6 +1895,12 @@
     "providerTestAria": "Test {{name}} connection",
     "providerTestOk": "Connected in {{ms}} ms",
     "providerTestFailed": "Connection failed ({{ms}} ms)",
+    "providerCustomModelTest": "Test model",
+    "providerCustomModelTestAria": "Test custom model {{slug}}",
+    "providerCustomModelTestOk": "Model is available",
+    "providerCustomModelTestMissing": "This provider does not offer that model",
+    "providerCustomModelTestRequired": "Test custom models before saving",
+    "providerCustomModelTestNeedId": "Enter a model ID first",
     "providerCopyAria": "Copy {{name}} configuration",
     "providerCopied": "Copied configuration",
     "providerCopyFailed": "Could not write to the clipboard",
@@ -1944,6 +1959,7 @@
     "providerModelFieldAria": "Provider {{label}}",
     "providerDetectModels": "Detect models",
     "providerDetectingModels": "Detecting models…",
+    "providerDetectingCurrentModels": "Detecting models available from this provider",
     "providerModelDetectionFailed": "Could not detect Provider models",
     "providerDetectedModelCount_one": "Detected {{count}} model",
     "providerDetectedModelCount_other": "Detected {{count}} models",
@@ -2149,6 +2165,12 @@
         "login": {
           "label": "Sign in to CodeBuddy",
           "description": "Run the official CodeBuddy sign-in flow."
+        }
+      },
+      "qoder": {
+        "login": {
+          "label": "Sign in to Qoder",
+          "description": "Open a browser to complete Qoder account sign-in."
         }
       },
       "kimi_code": {

@@ -43,7 +43,7 @@ Qoder CLI 的接入条件（来自 `docs.qoder.com/cli/acp` 与 Zed ACP agent �
   "distribution": { "npx": { "package": "@qoder-ai/qodercli@0.2.14", "args": ["--acp"] } } }
 ```
 
-npm 上 `@qoder-ai/qodercli` 的 `latest` 是 `1.1.42`，`bin` 同时提供 `qodercli`
+npm 上 `@qoder-ai/qodercli` 的 `latest` 是 `1.1.44`，`bin` 同时提供 `qodercli`
 与 `qoder` 两个名字，`engines.node` 为 `>=20`。这解释了文档间的不一致：Qoder
 官方 ACP 文档写 `qoder`、阿里云 Model Studio 文档验证 `qodercli`，两个都对。
 
@@ -84,7 +84,7 @@ Skills 面。社区预设只有一段锁定的 npx 分发 JSON，装不下这些
 
 ### 2. 分发走既有的 npx 托管安装形态
 
-`install_sources` 为单条 `native_npx("@qoder-ai/qodercli", "1.1.42", "qodercli",
+`install_sources` 为单条 `native_npx("@qoder-ai/qodercli", "1.1.44", "qodercli",
 ["--acp"], ">=20", <sha512>)`，与 Kimi Code、DeepSeek Harness 同形，摘要取自 npm
 registry 的 `dist.integrity`。`external_candidates` 同时覆盖 `qoder` 与
 `qodercli` 两个已发布的 bin 名，用户手动装过的也能被认出来。
@@ -101,23 +101,23 @@ registry 的 `dist.integrity`。`external_candidates` 同时覆盖 `qoder` 与
 两者同时声明时必须相等，由 `acp_launch_args_have_one_answer_per_profile`
 锁定——否则同一个 Agent 会因为「怎么装来的」而启动成不同的东西。
 
-### 4. 鉴权走已有的统一模式，不新增机制
+### 4. 鉴权只有官方订阅，不出现 API / 供应商 Tab
 
-`authentication_precedence` 取 `AccountThenApiKey`，`authentication_required_by_default`
-为 `true`：账号态（CLI `/login` 的结果）优先，`QODER_PERSONAL_ACCESS_TOKEN`
-作为 API-key 侧的凭据。这直接落在 [ADR-0064](0064-unified-agent-authentication-modes.md)
-的统一鉴权模式上，不为 Qoder 开例外。
+Qoder 的账号面是 `qoder login`（或 IDE 的 `qoder-browser` 流程）。无浏览器环境
+可用同一账号的 `QODER_PERSONAL_ACCESS_TOKEN`；它不是独立的官方 API Key，也
+没有可改的官方 URL。`allow_byok` 只是账号能力位，不是 VibeX 的供应商模式。
+因此 `built_in_auth_mode_policy` 只声明 `official_subscription`，设置页不出现
+鉴权 Tab。登录动作是 `qodercli login`，不能裸启 TUI。
 
-### 5. 未验证的事实保持缺失
+### 5. 已核实的本机事实按证据接入
 
-- Skills 目录已核实（`~/.qoder/skills/{name}/SKILL.md` 与项目级
-  `.qoder/skills/`，见 `docs.qoder.com/cli/Skills`），因此
-  `settings_features` 声明 `NativeSkills`。
-- 配置文件的键位结构没有文档，因此 `native_config` 为空。声明
-  `NativeMcp` 需要知道该往哪个文件写 MCP server，这一条不声明。
-- `default_history_sources(AgentKind::Qoder)` 返回空，直到 Qoder 的会话落盘
-  格式被确认。空列表的含义是「本机历史导入暂不支持」，UI 照此显示；编造一个
-  `~/.qoder/sessions` 路径会让导入对话框列出一个永远为空的来源。
+- Skills：`~/.qoder/skills/{name}/SKILL.md` 与项目级 `.qoder/skills/`。
+- MCP：`~/.qoder/settings.json` 的 `mcpServers`（与 Claude 同形的 JSON）。
+- 会话历史：`$QODER_CONFIG_DIR/projects/<encoded-cwd>/<sessionId>.jsonl`
+  （默认 `~/.qoder/projects/...`），信封与 Claude Code JSONL 同形。
+- 账号证据：`settings.json` 的 `security.auth.selectedType`。
+- `native_config` 绑定该 `settings.json`；模型 / 权限 / 推理档位由 ACP
+  `configOptions` 进入 Composer，不在设置里复制一份。
 
 ### 6. Onboarding 的 Agent 位与 AgentKind 对齐
 

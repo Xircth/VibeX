@@ -73,7 +73,8 @@ pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
     apply_built_in_launch_policy, auth_mode_credential_env, auth_mode_kind,
     auto_approve_mode_for_launch, built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys,
-    official_api_url,
+    is_non_official_api_url, native_uses_custom_endpoint, official_api_url,
+    resolve_built_in_auth_mode,
 };
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,

@@ -54,6 +54,10 @@ struct StoredProfile {
     last_connected_at: Option<String>,
     #[serde(default)]
     needs_token: bool,
+    #[serde(default)]
+    provision_kind: Option<String>,
+    #[serde(default)]
+    provision: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -66,6 +70,10 @@ pub struct HostClientProfileView {
     pub needs_token: bool,
     pub has_credential: bool,
     pub connected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provision_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provision: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -383,6 +391,90 @@ impl HostClientRuntime {
         Ok(())
     }
 
+    pub async fn upsert_provisioned(
+        &self,
+        draft_id: Option<&str>,
+        origin: String,
+        name: Option<String>,
+        provision_kind: String,
+        provision: Option<serde_json::Value>,
+    ) -> Result<HostClientProfileView, AppError> {
+        let origin = normalize_origin(&origin)?;
+        let kind = provision_kind.trim();
+        if kind.is_empty() {
+            return Err(AppError::BadRequest(
+                "provision kind is required".to_string(),
+            ));
+        }
+        let mut state = self.load().await?;
+        let named = name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let display_name = named.clone().unwrap_or_else(|| origin.clone());
+        let existing_index = draft_id
+            .and_then(|id| state.profiles.iter().position(|profile| profile.id == id))
+            .or_else(|| {
+                state
+                    .profiles
+                    .iter()
+                    .position(|profile| profile.origin == origin)
+            });
+        let id = if let Some(index) = existing_index {
+            let profile = &mut state.profiles[index];
+            profile.origin = origin.clone();
+            if named.is_some() || profile.name.is_empty() || profile.name == profile.origin {
+                profile.name = display_name.clone();
+            }
+            profile.provision_kind = Some(kind.to_string());
+            profile.provision = provision;
+            profile.id.clone()
+        } else {
+            let id = Uuid::new_v4().to_string();
+            state.profiles.push(StoredProfile {
+                id: id.clone(),
+                origin: origin.clone(),
+                host_id: None,
+                name: display_name,
+                device_id: None,
+                access_token: None,
+                last_connected_at: None,
+                needs_token: true,
+                provision_kind: Some(kind.to_string()),
+                provision,
+            });
+            id
+        };
+        self.save(&state).await?;
+        let active_id = self
+            .active
+            .lock()
+            .await
+            .as_ref()
+            .map(|item| item.profile_id.clone());
+        Ok(views(&state, active_id.as_deref())
+            .into_iter()
+            .find(|profile| profile.id == id)
+            .expect("upserted profile"))
+    }
+
+    pub async fn profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<HostClientProfileView>, AppError> {
+        let state = self.load().await?;
+        let active_id = self
+            .active
+            .lock()
+            .await
+            .as_ref()
+            .map(|item| item.profile_id.clone());
+        Ok(views(&state, active_id.as_deref())
+            .into_iter()
+            .find(|profile| profile.id == profile_id))
+    }
+
     async fn refresh_active(&self, registry: &RemoteDesktopRegistry) -> Result<(), AppError> {
         let active_id = self
             .active
@@ -510,6 +602,8 @@ fn views(state: &StoredState, active_id: Option<&str>) -> Vec<HostClientProfileV
             needs_token: profile.needs_token || profile.access_token.is_none(),
             has_credential: profile.access_token.is_some() && !profile.needs_token,
             connected: active_id == Some(profile.id.as_str()),
+            provision_kind: profile.provision_kind.clone(),
+            provision: profile.provision.clone(),
         })
         .collect();
     profiles.sort_by(|left, right| {
@@ -562,6 +656,8 @@ fn upsert_profile(
         access_token: Some(credential.access_token),
         last_connected_at: Some(now),
         needs_token: false,
+        provision_kind: None,
+        provision: None,
     });
     id
 }
@@ -822,6 +918,8 @@ mod tests {
                     access_token: Some("secret-a".into()),
                     last_connected_at: Some("2026-08-01T00:00:00Z".into()),
                     needs_token: false,
+                    provision_kind: None,
+                    provision: None,
                 },
                 StoredProfile {
                     id: "b".into(),
@@ -832,6 +930,8 @@ mod tests {
                     access_token: Some("secret-b".into()),
                     last_connected_at: Some("2026-08-02T00:00:00Z".into()),
                     needs_token: false,
+                    provision_kind: None,
+                    provision: None,
                 },
             ],
         };
@@ -887,6 +987,30 @@ mod tests {
             normalize_origin("http://10.0.0.4:19000").expect("origin"),
             "http://10.0.0.4:19000"
         );
+    }
+
+    #[tokio::test]
+    async fn provisioned_hosts_keep_their_kind_across_saves() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let runtime = HostClientRuntime::with_path(dir.path().join("profiles.json"));
+        let saved = runtime
+            .upsert_provisioned(
+                None,
+                "http://127.0.0.1:41234".to_string(),
+                Some("root@lab".to_string()),
+                "ssh".to_string(),
+                Some(serde_json::json!({ "host": "203.0.113.8", "port": 22, "user": "root" })),
+            )
+            .await
+            .expect("upsert");
+        assert_eq!(saved.provision_kind.as_deref(), Some("ssh"));
+        let again = runtime
+            .profile(&saved.id)
+            .await
+            .expect("profile")
+            .expect("present");
+        assert_eq!(again.name, "root@lab");
+        assert_eq!(again.provision_kind.as_deref(), Some("ssh"));
     }
 
     #[tokio::test]

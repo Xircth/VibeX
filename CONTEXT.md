@@ -229,6 +229,8 @@ Workflow 领域与 Automation 的关系见
 - **Host identity（Host 身份）** — 一个数据目录在配对与 capabilities 中出示的稳定身份；客户端用它合并 Server Profile，不以 URL 识别 Host。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
 - **Host console（本机控制台）** — 正在运行 Host 的那台机器上的管理面：监听、Reachability 发布、配对邀请、设备撤销、管理员 token 与升级。它不是 Paired device；远程 Workstation 不复制该面。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
 - **Server profile（服务器档案）** — 客户端上对一个 VibeX Host 的本地身份；由 Host 身份而不是某条 URL 区分。本机控制台是默认的 Local Profile；远端档案保存非秘密元数据与多条 Reachability，访问凭据独立受保护。
+- **Host provision kind（Host 供给类型）** — 客户端已保存 Host 的来源标记，如 `manual`、`discovered`、`ssh`。它属于 Host 档案，不是插件身份。需要重建可达性的类型由匹配的 `provider.remote.provisioner` 贡献负责，Host 不按插件 ID 分支。卸载插件默认不删除这些档案。
+- **Remote provisioner（远程供给器）** — 插件向 Host 注册的供给贡献：声明一个 `provisionKind` 与 `ensure` handler，用于在连接已保存 Host 前恢复可达。见 [ADR-0070](docs/adr/0070-ssh-provisioned-remote-server.md)。
 - **Reachability（可达目标）** — 客户端用来找到同一 Host 的一条 origin。一个 Server Profile 可以同时有局域网、FRP、Tailscale 或 Cloudflare 多条；它不是 Paired device，也不改变设备权限。远程 origin 只有通过检查的发布才进入权威名单，检查失败或关闭发布即从名单移除；局域网地址是探测结果，不是发布物。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
 _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Server-bound window（服务器绑定窗口）** — 只呈现并操作一个 Server Profile 所属资源的应用窗口；Project、Workspace、Conversation、Agent、设置与运行状态不得在同一窗口跨 Server 混用，访问另一档案必须使用另一窗口。

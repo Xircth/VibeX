@@ -230,12 +230,15 @@ impl AppState {
         let provider_preset_host = Arc::new(
             crate::plugin_provider_presets::TauriProviderPresetHost::new(app_handle.clone()),
         );
-        let plugin_capability_broker =
-            Arc::new(plugins::HostCapabilityBroker::with_provider_presets(
-                plugin_control_plane.clone(),
-                plugin_preview_host.clone(),
-                provider_preset_host.clone(),
-            ));
+        let remote_profile_host = Arc::new(
+            crate::plugin_remote_profiles::TauriRemoteProfileHost::new(app_handle.clone()),
+        );
+        let plugin_capability_broker = Arc::new(plugins::HostCapabilityBroker::with_hosts(
+            plugin_control_plane.clone(),
+            plugin_preview_host.clone(),
+            provider_preset_host.clone(),
+            remote_profile_host,
+        ));
         plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await

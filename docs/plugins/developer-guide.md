@@ -1,8 +1,8 @@
 # VibeX 插件开发文档
 
-对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。不要向用户索要 token。
+对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。
 
-查工具链路径执行 `vibex-plugin toolchain`（仓库里是 `node packages/plugin-cli/dist/cli.js toolchain`）。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。链接正在跑的 Host 用 `vibex plugin add --dev .`。
+查工具链路径执行 `vibex-plugin toolchain`。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。先 `vibex plugin run server --http://127.0.0.1:17891 --token <token>`，再在插件目录里 `vibex plugin run dev`。
 
 ## 你在开发什么
 
@@ -182,32 +182,31 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 
 ## CLI
 
-开发、校验、链接、诊断只走命令行。链接使用正在跑的 Host 的本机 token，调用 `plugin_control_import`。不要向用户索要 token。
+开发、校验、链接、诊断只走命令行。先绑定正在跑的 Host，再在插件目录里跑 `run`。
 
 ```bash
-vibex-plugin validate
-vibex-plugin validate --json
-vibex-plugin build
-vibex-plugin test
-vibex-plugin test --host
-vibex-plugin install --link .
+vibex plugin run server --http://127.0.0.1:17891 --token <token>
+cd my-plugin
+vibex plugin run build
+vibex plugin run test
 vibex plugin add --dev .
+vibex plugin run dev
+vibex plugin run test --host
+vibex plugin pack
+vibex plugin pack --output dist/notes.vxp
 vibex-plugin doctor
-vibex-plugin pack
-vibex-plugin pack --output dist/notes.vxp
 vibex-plugin uninstall
 vibex-plugin uninstall --delete-data
 ```
 
-`vibex-plugin install` 只支持 `--link`。产品 CLI：`vibex plugin add --dev .` 会 build、validate、导入为 developer link，并尝试启用。源码变化后重新 build；Host 按 digest 发布候选代。
+`vibex plugin run server` 把 URL 和 token 写到 `~/.vibex/pluginrc`。之后在插件目录里 `vibex plugin run dev` 即可。`add --dev` 只把目录链到 Host 并返回；HMR 只由 `run dev` 启动。`vibex-plugin dev` 是 `run dev` 的别名。
 
-普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin test --host` 与 `vibex-plugin test --host` 对着真 Host 走：安装 →
+普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin run test --host` 与 `vibex plugin test --host` 对着真 Host 走：安装 →
 启用 → 该包声明的 chrome / 结构面 kind 出现在贡献目录 → 禁用后原子消失 → 再启用 →
 （若有 `SKILL.md`）改文件等 digest 更新 → 卸载且源目录仍在。chrome 槽位的
-「热更新」是激活代。`panel` / `kanban-view` 的面板改代码走 `vibex-plugin dev`
-的 Vite HMR，不重载宿主。
+「热更新」是激活代。结构面 remote 走 `run dev` 的 Vite HMR，不重载宿主。
 
-`dev` 会先 build，再 link，再监视源码。digest 变了才重载。重载走候选代，失败则上一完整代仍对外可见。
+`run dev` 会先 build，再 link，再监视源码。digest 变了才重载 Worker。有 federation remote 时 Host `loadRemote` 指向 Vite。失败则上一完整代仍对外可见。
 
 `pack` 产出确定性 `.vxp`，并打印 `sha256:` 摘要。发布物带 README、config 初值、contents、depends、dist 和 `.vibex-plugin` 元数据。不带 `runtime/` 源码、source map、`.git`、`node_modules`、开发链接文件。
 
@@ -317,6 +316,9 @@ catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话
 
 - `artifact.preview` 的 `open` / `close`，打开要先拿到 Host 发的短命 handle（约 30 秒）
 - `storage.kv` 的 `get` / `put` / `delete` / `list`，按插件 ID 隔离，进程内存储
+- `storage.settings.get` / `put` 读写该插件的 `config.json`
+- `remote.profile.list` / `upsert` / `forget` 操作客户端已保存 Host。`provisionKind` 是 Host 拥有的来源标记（如 `ssh`），不是插件 ID。卸载插件不得调用 `forget`；已保存 Host 属于 Host。
+- `remote.connect` / `disconnect` 把应用壳接到某个已保存 Host。带 origin 的 connect 不再走供给器；从已保存列表只带 profileId 连接时，Host 按 `provisionKind` 调用匹配的 `provider.remote.provisioner`。
 - `log.*` 走 Worker 日志
 
 会明确失败的
@@ -326,7 +328,7 @@ catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话
 - `conversation.read.get`、`conversation.append.enqueueInput` 返回 `conversation_scope_denied`，除非会话已经绑到这个 Worker
 - `agent.invoke` 返回 `handler_not_visible`
 
-占位或未做完的会 `capability_unimplemented`。`storage.settings.*` 目前原样回传 input，不要当持久设置用，设置请写 `config.json`。`secrets.*` 目前只回 `{ "present": false }`。
+占位或未做完的会 `capability_unimplemented`。`secrets.*` 目前只回 `{ "present": false }`。
 
 ### definePluginApp
 

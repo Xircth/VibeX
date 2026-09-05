@@ -41,6 +41,7 @@ const INTEGRATION_KINDS = new Set([
     "app.kanban.view",
     "app.settings.page",
     "app.composer.action",
+    "provider.remote.provisioner",
 ]);
 const CAPABILITIES = new Set(["runtime.execute", "artifact.preview"]);
 export async function validatePlugin(root) {
@@ -472,6 +473,16 @@ function validateHostChrome(integration, diagnostics) {
             if (!hasHandler && !hasPrompt) {
                 diagnostics.push(error("app_composer_action_invalid", "app.composer.action requires a handler or a prompt"));
             }
+            break;
+        }
+        case "provider.remote.provisioner": {
+            requireText("label");
+            requireText("handler");
+            const provisionKind = String(integration.provisionKind ?? "").trim();
+            if (!/^[a-z][a-z0-9-]{0,31}$/.test(provisionKind)) {
+                diagnostics.push(error("remote_provisioner_invalid", "provisionKind must be lowercase letters, digits, or dashes"));
+            }
+            requireRange("timeoutSeconds", 5, 600);
             break;
         }
         default:

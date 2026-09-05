@@ -441,6 +441,8 @@ export interface HostClientProfile {
   needs_token: boolean;
   has_credential: boolean;
   connected: boolean;
+  provision_kind?: string | null;
+  provision?: Record<string, unknown> | null;
 }
 
 export interface DiscoveredHost {

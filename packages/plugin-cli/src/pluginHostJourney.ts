@@ -40,6 +40,7 @@ export const MANIFEST_KIND_TO_CATALOG: Record<string, string> = {
   "app.kanban.view": "kanban_view",
   "app.settings.page": "settings_page",
   "app.composer.action": "composer_action",
+  "provider.remote.provisioner": "remote_provisioner",
 };
 
 export function catalogKindFor(kind: string): string {

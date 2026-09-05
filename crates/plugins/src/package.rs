@@ -185,6 +185,8 @@ pub struct PackageAppContributions {
     pub settings_pages: Vec<AppSettingsPageContribution>,
     #[serde(default)]
     pub composer_actions: Vec<AppComposerActionContribution>,
+    #[serde(default)]
+    pub remote_provisioners: Vec<RemoteProvisionerContribution>,
 }
 
 impl PackageAppContributions {
@@ -205,6 +207,7 @@ impl PackageAppContributions {
             && self.kanban_views.is_empty()
             && self.settings_pages.is_empty()
             && self.composer_actions.is_empty()
+            && self.remote_provisioners.is_empty()
     }
 }
 
@@ -475,6 +478,24 @@ pub struct AppComposerActionContribution {
     pub handler: Option<String>,
     #[serde(default)]
     pub prompt: Option<String>,
+}
+
+/// Restores reachability for a saved Host whose `provisionKind` matches.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteProvisionerContribution {
+    pub id: String,
+    pub provision_kind: String,
+    pub label: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub handler: String,
+    #[serde(default = "default_provisioner_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_provisioner_timeout_seconds() -> u64 {
+    120
 }
 
 /// App surface slot synthesized for a timeline card contribution.
@@ -830,6 +851,14 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             "composer_action",
             &action.id,
             &action.title,
+        ));
+    }
+    for provisioner in &app.remote_provisioners {
+        documents.push(chrome_document(
+            "remote-provisioners",
+            "remote_provisioner",
+            &provisioner.id,
+            &provisioner.label,
         ));
     }
     documents
@@ -1421,7 +1450,8 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             | "app.tab"
             | "app.kanban.view"
             | "app.settings.page"
-            | "app.composer.action" => {}
+            | "app.composer.action"
+            | "provider.remote.provisioner" => {}
             other => {
                 return Err(PluginError::invalid_manifest(format!(
                     "unknown v4 integration kind `{other}`"
@@ -2194,6 +2224,9 @@ fn parse_v4_ui_contributions(
             "app.composer.action" => parse_composer_action_contribution(integration)
                 .map(|item| contributions.composer_actions.push(item))
                 .is_some(),
+            "provider.remote.provisioner" => parse_remote_provisioner_contribution(integration)
+                .map(|item| contributions.remote_provisioners.push(item))
+                .is_some(),
             // Accepted by the manifest schema but wired to nothing: no package
             // field, no contribution, no consumer. Say so at inspect time
             // instead of letting an author ship a hook that never fires.
@@ -2515,6 +2548,46 @@ fn parse_composer_action_contribution(
         icon: contribution_icon(integration).ok()?,
         handler,
         prompt,
+    })
+}
+
+fn parse_remote_provisioner_contribution(
+    integration: &Map<String, Value>,
+) -> Option<RemoteProvisionerContribution> {
+    let provision_kind = contribution_text(integration, "provisionKind")?;
+    if !provision_kind
+        .chars()
+        .enumerate()
+        .all(|(index, character)| {
+            if index == 0 {
+                character.is_ascii_lowercase()
+            } else {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            }
+        })
+        || provision_kind.len() > 32
+    {
+        return None;
+    }
+    let timeout_seconds = match integration.get("timeoutSeconds") {
+        None | Some(Value::Null) => default_provisioner_timeout_seconds(),
+        Some(Value::Number(value)) => {
+            let timeout = value.as_u64()?;
+            if (5..=600).contains(&timeout) {
+                timeout
+            } else {
+                return None;
+            }
+        }
+        Some(_) => return None,
+    };
+    Some(RemoteProvisionerContribution {
+        id: contribution_id(integration)?,
+        provision_kind,
+        label: contribution_text(integration, "label")?,
+        icon: contribution_icon(integration).ok()?,
+        handler: contribution_text(integration, "handler")?,
+        timeout_seconds,
     })
 }
 

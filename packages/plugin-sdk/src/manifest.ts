@@ -317,6 +317,24 @@ export interface ComposerActionIntegrationManifest extends IntegrationBase {
   prompt?: string;
 }
 
+/**
+ * Registers a Host-side provisioner for saved remote Hosts.
+ *
+ * `provisionKind` is a Host-owned source tag (for example `ssh`). Connecting a
+ * saved Host with that kind invokes this handler so the plugin can restore
+ * reachability. The Host never branches on plugin identity.
+ */
+export interface RemoteProvisionerIntegrationManifest extends IntegrationBase {
+  kind: "provider.remote.provisioner";
+  /** Stable source tag written onto saved Hosts, e.g. `ssh`. */
+  provisionKind: string;
+  label: string;
+  handler: string;
+  icon?: ContributionIcon;
+  /** 5–600. Default 120. Used when the Host waits on `ensure`. */
+  timeoutSeconds?: number;
+}
+
 export type IntegrationManifest =
   | SkillIntegrationManifest
   | McpIntegrationManifest
@@ -337,7 +355,8 @@ export type IntegrationManifest =
   | TabIntegrationManifest
   | KanbanViewIntegrationManifest
   | SettingsPageIntegrationManifest
-  | ComposerActionIntegrationManifest;
+  | ComposerActionIntegrationManifest
+  | RemoteProvisionerIntegrationManifest;
 
 const relativePath = {
   type: "string",
@@ -490,6 +509,7 @@ export const pluginManifestSchema = {
               "app.kanban.view",
               "app.settings.page",
               "app.composer.action",
+              "provider.remote.provisioner",
             ],
           },
           resource: relativePath,

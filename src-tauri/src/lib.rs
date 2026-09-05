@@ -34,6 +34,7 @@ mod managed_artifacts;
 mod oneshot_agent;
 mod plugin_dev_server;
 mod plugin_provider_presets;
+mod plugin_remote_profiles;
 mod pr_description;
 mod prompt_enhancement;
 mod remote_desktop;

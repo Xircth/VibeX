@@ -23,6 +23,10 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn().mockResolvedValue(() => undefined),
+}));
+
 const connectedHost = {
   id: 'current',
   origin: 'http://192.168.1.9:17891',
@@ -43,6 +47,19 @@ const otherHost = {
   needs_token: false,
   has_credential: true,
   connected: false,
+};
+
+const sshHost = {
+  id: 'ssh-lab',
+  origin: 'http://127.0.0.1:41234',
+  host_id: 'host-ssh',
+  name: 'Lab',
+  last_connected_at: '2026-09-01T00:00:00Z',
+  needs_token: false,
+  has_credential: true,
+  connected: false,
+  provision_kind: 'ssh',
+  provision: { host: '203.0.113.8', port: 22, user: 'root' },
 };
 
 describe('RemoteClientSettings', () => {
@@ -161,5 +178,25 @@ describe('RemoteClientSettings', () => {
         profile_id: 'other',
       })
     );
+  });
+
+  it('marks SSH-provisioned saved Hosts without treating them as the current connection', async () => {
+    hostClientApiMock.status.mockResolvedValue({
+      connected: true,
+      profile: connectedHost,
+      profiles: [connectedHost, sshHost],
+    });
+    render(<RemoteClientSettings />);
+
+    const lab = await screen.findByText('Lab');
+    expect(lab).toBeVisible();
+    expect(
+      within(lab.closest('.settings-host-row') as HTMLElement).getByText('SSH')
+    ).toBeVisible();
+    expect(
+      within(
+        screen.getByText('Beta').closest('.settings-host-row') as HTMLElement
+      ).queryByText('SSH')
+    ).toBeNull();
   });
 });

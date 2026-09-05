@@ -100,6 +100,11 @@
       "id": "app.composer.action",
       "status": "ready",
       "handler": false
+    },
+    {
+      "id": "provider.remote.provisioner",
+      "status": "ready",
+      "handler": true
     }
   ]
 }

@@ -837,6 +837,12 @@
         "summary": "把环境变量里已有的 OpenAI 兼容供应商导入 Model Provider 预设。",
         "readme": "# 环境变量导入供应商\n\n读取进程环境里已经导出的 OpenAI 兼容端点，出现在 设置 → 智能体 → 导入。\n\n导入只写预设。把 Agent 绑到某个预设仍会先问你。\n\n没有 API 密钥的项会列出，但不能勾选。",
         "config": {}
+      },
+      "remoteSsh": {
+        "name": "Remote SSH",
+        "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
+        "readme": "# Remote SSH\n\n在能 SSH 登录的服务器上安装 VibeX Server，经隧道加入远程连接列表并把应用接到该 Host。\n\n卸载后已保存的 SSH Host 默认保留。",
+        "config": {}
       }
     },
     "contentTab": "内容",
@@ -1016,6 +1022,7 @@
     "savedTitle": "已保存 Host",
     "savedEmpty": "还没有已保存的 Host",
     "connectedBadge": "已连接",
+    "provisionKindSsh": "SSH",
     "hostIdLabel": "Host ID",
     "lastConnectedLabel": "上次连接",
     "deleteHost": "删除",

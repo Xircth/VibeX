@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import {
   ChevronDown,
   Laptop,
@@ -7,6 +8,7 @@ import {
   RefreshCw,
   Server,
 } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -35,6 +37,20 @@ function isNeedsToken(error: unknown): boolean {
 
 function hostKey(host: { origin: string; host_id?: string | null }): string {
   return host.host_id?.trim() || host.origin;
+}
+
+function provisionKindLabel(
+  kind: string | null | undefined,
+  t: TFunction<'settings'>
+): string | null {
+  const value = kind?.trim();
+  if (!value || value === 'manual' || value === 'discovered') {
+    return null;
+  }
+  if (value === 'ssh') {
+    return t('webService.provisionKindSsh');
+  }
+  return value.toUpperCase();
 }
 
 export function RemoteClientSettings() {
@@ -108,6 +124,26 @@ export function RemoteClientSettings() {
     }, 8000);
     return () => window.clearInterval(timer);
   }, [connected, loadStatus, t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void listen('host-client-changed', () => {
+      if (!cancelled) void loadStatus().catch(() => undefined);
+    })
+      .then((unlisten) => {
+        if (cancelled) {
+          unlisten();
+          return;
+        }
+        stop = unlisten;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [loadStatus]);
 
   const savedMatch = useCallback(
     (host: DiscoveredHost) =>
@@ -465,6 +501,11 @@ export function RemoteClientSettings() {
                         {profile.connected ? (
                           <span className="settings-status-success rounded-full px-2 py-0.5 text-xs font-medium">
                             {t('webService.connectedBadge')}
+                          </span>
+                        ) : null}
+                        {provisionKindLabel(profile.provision_kind, t) ? (
+                          <span className="rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-xs font-medium text-[color:var(--text-muted)]">
+                            {provisionKindLabel(profile.provision_kind, t)}
                           </span>
                         ) : null}
                       </p>

@@ -22,6 +22,7 @@ pub struct HostCapabilityBroker {
     plugins: Arc<crate::PluginControlPlane>,
     previews: Arc<dyn crate::PluginPreviewHost>,
     provider_presets: Arc<dyn crate::ProviderPresetHost>,
+    remote_profiles: Arc<dyn crate::RemoteProfileHost>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
 }
@@ -43,10 +44,25 @@ impl HostCapabilityBroker {
         previews: Arc<dyn crate::PluginPreviewHost>,
         provider_presets: Arc<dyn crate::ProviderPresetHost>,
     ) -> Self {
+        Self::with_hosts(
+            plugins,
+            previews,
+            provider_presets,
+            Arc::new(crate::UnavailableRemoteProfileHost),
+        )
+    }
+
+    pub fn with_hosts(
+        plugins: Arc<crate::PluginControlPlane>,
+        previews: Arc<dyn crate::PluginPreviewHost>,
+        provider_presets: Arc<dyn crate::ProviderPresetHost>,
+        remote_profiles: Arc<dyn crate::RemoteProfileHost>,
+    ) -> Self {
         Self {
             plugins,
             previews,
             provider_presets,
+            remote_profiles,
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -138,6 +154,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "app"
                 | "plugin.self"
                 | "provider.presets"
+                | "remote"
         )
     }
 
@@ -159,6 +176,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 self.call_provider_presets(plugin_id, operation, input)
                     .await
             }
+            "remote" => self.call_remote(plugin_id, operation, input).await,
             "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
@@ -171,7 +189,10 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 "recentCrashes": [],
             })),
             "storage" | "secrets" | "files" | "network" | "events" | "agent" | "conversation"
-            | "app" => self.call_plugin_data(plugin_id, generation, capability, operation, input),
+            | "app" => {
+                self.call_plugin_data(plugin_id, generation, capability, operation, input)
+                    .await
+            }
             _ => Err(broker_error(
                 "capability_unimplemented",
                 format!("{capability}.{operation} is not exposed by the Host capability broker"),
@@ -330,6 +351,100 @@ impl HostCapabilityBroker {
         }
     }
 
+    async fn call_remote(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match operation {
+            "profile.list" => {
+                let profiles = self.remote_profiles.list().await.map_err(remote_error)?;
+                Ok(json!({ "profiles": profiles }))
+            }
+            "profile.upsert" => {
+                let draft: crate::RemoteHostProfileDraft = serde_json::from_value(input)
+                    .map_err(|error| broker_error("remote_profile_invalid", error))?;
+                if draft.origin.trim().is_empty() {
+                    return Err(broker_error(
+                        "remote_profile_invalid",
+                        "origin must not be empty",
+                    ));
+                }
+                if draft.provision_kind.trim().is_empty() {
+                    return Err(broker_error(
+                        "remote_profile_invalid",
+                        "provisionKind must not be empty",
+                    ));
+                }
+                let saved = self
+                    .remote_profiles
+                    .upsert(plugin_id, draft)
+                    .await
+                    .map_err(remote_error)?;
+                self.audit(
+                    plugin_id,
+                    "remote_profile_upserted",
+                    json!({ "profileId": saved.id, "provisionKind": saved.provision_kind }),
+                )
+                .await;
+                Ok(serde_json::to_value(saved)
+                    .map_err(|error| broker_error("remote_profile_invalid", error))?)
+            }
+            "profile.forget" => {
+                let profile_id = input
+                    .get("profileId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        broker_error("remote_profile_invalid", "profileId is required")
+                    })?;
+                self.remote_profiles
+                    .forget(plugin_id, profile_id)
+                    .await
+                    .map_err(remote_error)?;
+                self.audit(
+                    plugin_id,
+                    "remote_profile_forgotten",
+                    json!({ "profileId": profile_id }),
+                )
+                .await;
+                Ok(json!({ "forgotten": true }))
+            }
+            "connect" => {
+                let request: crate::RemoteConnectRequest = serde_json::from_value(input)
+                    .map_err(|error| broker_error("remote_connect_failed", error))?;
+                let result = self
+                    .remote_profiles
+                    .connect(plugin_id, request)
+                    .await
+                    .map_err(remote_error)?;
+                self.audit(
+                    plugin_id,
+                    "remote_connected",
+                    json!({ "profileId": result.profile.id, "stoppedHost": result.stopped_host }),
+                )
+                .await;
+                Ok(serde_json::to_value(result)
+                    .map_err(|error| broker_error("remote_connect_failed", error))?)
+            }
+            "disconnect" => {
+                self.remote_profiles
+                    .disconnect(plugin_id)
+                    .await
+                    .map_err(remote_error)?;
+                self.audit(plugin_id, "remote_disconnected", json!({}))
+                    .await;
+                Ok(json!({ "disconnected": true }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("remote.{operation} is not implemented"),
+            )),
+        }
+    }
+
     async fn audit(&self, plugin_id: &str, event: &str, evidence: Value) {
         if let Err(error) = self.plugins.record_audit(plugin_id, event, &evidence).await {
             tracing::warn!(%plugin_id, %event, %error, "plugin audit write failed");
@@ -404,7 +519,7 @@ impl HostCapabilityBroker {
         }))
     }
 
-    fn call_plugin_data(
+    async fn call_plugin_data(
         &self,
         plugin_id: &str,
         _generation: u64,
@@ -443,7 +558,34 @@ impl HostCapabilityBroker {
                     .map(Value::String)
                     .collect(),
             )),
-            "storage.settings.get" | "storage.settings.put" => Ok(input),
+            "storage.settings.get" => {
+                let plugin = self
+                    .plugins
+                    .plugin(plugin_id)
+                    .await
+                    .map_err(|error| broker_error("config_schema_invalid", error))?
+                    .ok_or_else(|| {
+                        broker_error("config_schema_invalid", "plugin is not installed")
+                    })?;
+                let refreshed =
+                    crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+                        .map_err(|error| broker_error("config_schema_invalid", error))?;
+                Ok(refreshed.config)
+            }
+            "storage.settings.put" => {
+                let plugin = self
+                    .plugins
+                    .plugin(plugin_id)
+                    .await
+                    .map_err(|error| broker_error("config_schema_invalid", error))?
+                    .ok_or_else(|| {
+                        broker_error("config_schema_invalid", "plugin is not installed")
+                    })?;
+                plugin
+                    .write_config(input.clone())
+                    .map_err(|error| broker_error("config_schema_invalid", error))?;
+                Ok(input)
+            }
             "secrets.get" => Ok(json!({ "present": false })),
             "secrets.put" | "secrets.delete" => Ok(json!({ "present": false })),
             "network.fetch" => Err(broker_error(
@@ -547,5 +689,9 @@ fn broker_error(code: &'static str, message: impl std::fmt::Display) -> crate::W
 /// Keeps the seam's own code instead of flattening every failure into one
 /// broker code, so a plugin can tell a missing preset from a broken store.
 fn preset_error(error: crate::ProviderPresetError) -> crate::WorkerHostError {
+    crate::WorkerHostError::broker(error.code().as_str(), error)
+}
+
+fn remote_error(error: crate::RemoteProfileError) -> crate::WorkerHostError {
     crate::WorkerHostError::broker(error.code().as_str(), error)
 }

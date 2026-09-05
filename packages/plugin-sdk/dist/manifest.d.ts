@@ -205,7 +205,68 @@ export interface ProviderImportSourceIntegrationManifest extends IntegrationBase
     agents?: string[];
     description?: string;
 }
-export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest;
+export interface RemoteModuleManifest {
+    name: string;
+    entry: string;
+    module?: string;
+}
+export interface PanelIntegrationManifest extends IntegrationBase {
+    kind: "app.panel";
+    title: string;
+    icon?: ContributionIcon;
+    handler: "surface.createSession";
+    defaultPosition?: "left" | "center";
+    hidesBottomDock?: boolean;
+    remote?: RemoteModuleManifest;
+}
+export interface TabIntegrationManifest extends IntegrationBase {
+    kind: "app.tab";
+    title: string;
+    icon?: ContributionIcon;
+    handler: "surface.createSession";
+    hidesBottomDock?: boolean;
+    remote?: RemoteModuleManifest;
+}
+export interface KanbanViewIntegrationManifest extends IntegrationBase {
+    kind: "app.kanban.view";
+    title: string;
+    icon?: ContributionIcon;
+    handler: "surface.createSession";
+    hidesBottomDock?: boolean;
+    remote?: RemoteModuleManifest;
+}
+export interface SettingsPageIntegrationManifest extends IntegrationBase {
+    kind: "app.settings.page";
+    title: string;
+    icon?: ContributionIcon;
+    handler: "surface.createSession";
+    remote?: RemoteModuleManifest;
+}
+export interface ComposerActionIntegrationManifest extends IntegrationBase {
+    kind: "app.composer.action";
+    title: string;
+    icon?: ContributionIcon;
+    handler?: string;
+    prompt?: string;
+}
+/**
+ * Registers a Host-side provisioner for saved remote Hosts.
+ *
+ * `provisionKind` is a Host-owned source tag (for example `ssh`). Connecting a
+ * saved Host with that kind invokes this handler so the plugin can restore
+ * reachability. The Host never branches on plugin identity.
+ */
+export interface RemoteProvisionerIntegrationManifest extends IntegrationBase {
+    kind: "provider.remote.provisioner";
+    /** Stable source tag written onto saved Hosts, e.g. `ssh`. */
+    provisionKind: string;
+    label: string;
+    handler: string;
+    icon?: ContributionIcon;
+    /** 5–600. Default 120. Used when the Host waits on `ensure`. */
+    timeoutSeconds?: number;
+}
+export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest | PanelIntegrationManifest | TabIntegrationManifest | KanbanViewIntegrationManifest | SettingsPageIntegrationManifest | ComposerActionIntegrationManifest | RemoteProvisionerIntegrationManifest;
 export declare const pluginManifestSchema: {
     readonly $schema: "https://json-schema.org/draft/2020-12/schema";
     readonly $id: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json";
@@ -386,7 +447,7 @@ export declare const pluginManifestSchema: {
                         readonly pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
                     };
                     readonly kind: {
-                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service", "provider.model.importSource"];
+                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service", "provider.model.importSource", "app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "provider.remote.provisioner"];
                     };
                     readonly resource: {
                         readonly type: "string";

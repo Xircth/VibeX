@@ -61,6 +61,17 @@ impl ActivationLease {
     pub async fn invoke(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
         self.host.invoke(handler, input).await
     }
+
+    pub async fn invoke_with_timeout(
+        &self,
+        handler: &str,
+        input: Value,
+        request_timeout: std::time::Duration,
+    ) -> Result<Value, WorkerHostError> {
+        self.host
+            .invoke_with_timeout(handler, input, request_timeout)
+            .await
+    }
 }
 
 impl ActivationManager {

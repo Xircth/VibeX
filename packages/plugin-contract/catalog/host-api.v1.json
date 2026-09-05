@@ -205,6 +205,40 @@
         "provider_preset_not_found",
         "provider_preset_rejected"
       ]
+    },
+    {
+      "id": "remote.profile.list",
+      "deny": [
+        "remote_profiles_unavailable"
+      ]
+    },
+    {
+      "id": "remote.profile.upsert",
+      "deny": [
+        "remote_profiles_unavailable",
+        "remote_profile_invalid"
+      ]
+    },
+    {
+      "id": "remote.profile.forget",
+      "deny": [
+        "remote_profiles_unavailable",
+        "remote_profile_not_found"
+      ]
+    },
+    {
+      "id": "remote.connect",
+      "deny": [
+        "remote_profiles_unavailable",
+        "remote_connect_failed",
+        "remote_provisioner_missing"
+      ]
+    },
+    {
+      "id": "remote.disconnect",
+      "deny": [
+        "remote_profiles_unavailable"
+      ]
     }
   ]
 }

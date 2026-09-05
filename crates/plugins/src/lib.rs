@@ -23,6 +23,7 @@ mod preview_host;
 mod process_preview_host;
 mod provider_presets;
 mod readiness;
+mod remote_profiles;
 mod resolver;
 mod runtime;
 mod service;
@@ -92,8 +93,8 @@ pub use package::{
     PluginContentDocument, PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage,
     PluginProductDetail, PluginSource, PluginSourceKind, PreviewProcessContribution,
     PreviewProviderContribution, ProviderImportSourceContribution, RemoteModuleRef,
-    RuntimeContribution, RuntimeInstall, SETTINGS_PAGE_SLOT, SETTINGS_SECTION_SLOT,
-    TIMELINE_CARD_SLOT, package_content_digest,
+    RemoteProvisionerContribution, RuntimeContribution, RuntimeInstall, SETTINGS_PAGE_SLOT,
+    SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT, package_content_digest,
 };
 pub use ports::{
     ManagedTool, PluginRuntimeError, SkillAvailabilityPort, ToolRuntimeAdapter, ToolRuntimePort,
@@ -110,6 +111,11 @@ pub use provider_presets::{
 pub use readiness::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, PluginActivation,
     PluginReadiness, PluginSnapshot, ProviderState, ReadinessIssue, SkillState,
+};
+pub use remote_profiles::{
+    RemoteConnectRequest, RemoteConnectResult, RemoteHostProfile, RemoteHostProfileDraft,
+    RemoteProfileError, RemoteProfileErrorCode, RemoteProfileHost, UnavailableRemoteProfileHost,
+    provision_kind_needs_ensure,
 };
 pub use resolver::{
     Architecture, OperatingSystem, Platform, ResolvedToolDistribution, ToolDependencyResolver,

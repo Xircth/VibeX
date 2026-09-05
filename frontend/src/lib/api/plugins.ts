@@ -236,7 +236,8 @@ export type PluginContributionKind =
   | 'app_tab'
   | 'kanban_view'
   | 'settings_page'
-  | 'composer_action';
+  | 'composer_action'
+  | 'remote_provisioner';
 
 export interface PluginContributionCatalogItem {
   pluginId: string;

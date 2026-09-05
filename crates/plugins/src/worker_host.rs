@@ -372,6 +372,16 @@ impl WorkerHost {
     }
 
     pub async fn invoke(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
+        self.invoke_with_timeout(handler, input, self.request_timeout)
+            .await
+    }
+
+    pub async fn invoke_with_timeout(
+        &self,
+        handler: &str,
+        input: Value,
+        request_timeout: Duration,
+    ) -> Result<Value, WorkerHostError> {
         if !self.activation.handlers.iter().any(|item| item == handler) {
             return Err(WorkerHostError::new(
                 "handler_not_found",
@@ -387,7 +397,7 @@ impl WorkerHost {
             &self.broker,
             "invoke",
             json!({ "handler": handler, "input": input }),
-            self.request_timeout,
+            request_timeout,
         )
         .await;
         if let Err(error) = &result
@@ -1234,6 +1244,48 @@ fn validate_registrations(
             std::iter::once(surface.handler.as_str())
                 .chain(surface.allowed_methods.iter().map(String::as_str))
         }))
+        .chain(
+            package
+                .app
+                .remote_provisioners
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
+        .chain(
+            package
+                .app
+                .commands
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
+        .chain(
+            package
+                .app
+                .toolbar_items
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
+        .chain(
+            package
+                .app
+                .status_items
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
+        .chain(
+            package
+                .app
+                .host_services
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
+        .chain(
+            package
+                .app
+                .provider_import_sources
+                .iter()
+                .map(|item| item.handler.as_str()),
+        )
         .collect::<BTreeSet<_>>();
     let actual = handlers.iter().map(String::as_str).collect::<BTreeSet<_>>();
     if let Some(undeclared) = actual.difference(&declared).next() {

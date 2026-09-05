@@ -143,16 +143,12 @@ capabilities 台账；差距即 P0 落实的剩余工作，不属于本 ADR 的�
   app.tab 等）在远程窗口中的呈现属于「完整插件面」，按 ADR-0033 不在 P0，
   经 capabilities 降级；其资产经隧道加载的设计随 ADR-0069 Batch 2 的资产
   端点一并考虑（同为 HTTP 端点，隧道天然可承载）。
-- **SSH 供给器的两阶段形态。**
-  - **阶段一（随远程 P0）：宿主内置。** 供给器作为桌面 Host 的内置能力交付
-    （Profile 表单的 `ssh` 类型 + 供给管线 + 隧道管理），因为它是连接远端的
-    前置设施，且 `remote_desktop_*` 尚未进入 broker 公开面。
-  - **阶段二（ADR-0069 Batch 4 后）：迁出为官方能力等价插件。** 将
-    `remote.profile.*` / `remote.connect` 开为公开 `host.call` 族后，SSH
-    供给器按 ADR-0069 第 8 节迁出为官方插件（`app.settings.page` 管服务器
-    列表 + Full Trust Worker 跑 SSH 供给与隧道），并作为「新领域功能插件」
-    的第二个试金石（第一个是 SSH 终端类插件，见 0069 讨论）。届时第三方可
-    用同一套 API 开发 mosh、teleport、云厂商 API 等替代供给器。
+- **SSH 供给器作为官方插件交付。** `remote.profile.*` / `remote.connect` 是
+  公开 `host.call` 族；`provider.remote.provisioner` 是公开贡献点。SSH 供给
+  走官方插件 `vibex.remote-ssh`（插件详情配置面 + Full Trust Worker 跑探测、
+  安装、启动、隧道与配对）。已保存 Host 用 `provisionKind=ssh` 标记，Host
+  不按插件 ID 分支。第三方可用同一套 API 开发 mosh、teleport、云厂商 API
+  等替代供给器。卸载该插件默认不删除已保存 Host。
 
 ### 6. 安全基线
 

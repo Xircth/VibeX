@@ -30,6 +30,7 @@ pub enum ContributionKind {
     KanbanView,
     SettingsPage,
     ComposerAction,
+    RemoteProvisioner,
 }
 
 impl ContributionKind {
@@ -59,6 +60,7 @@ impl ContributionKind {
             Self::KanbanView => "kanban_view",
             Self::SettingsPage => "settings_page",
             Self::ComposerAction => "composer_action",
+            Self::RemoteProvisioner => "remote_provisioner",
         }
     }
 }
@@ -572,6 +574,20 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                 }),
             }),
     );
+    templates.extend(plugin.app.remote_provisioners.iter().map(|provisioner| {
+        ContributionTemplate {
+            plugin_id: plugin_id.clone(),
+            id: provisioner.id.clone(),
+            kind: ContributionKind::RemoteProvisioner,
+            label: provisioner.label.clone(),
+            metadata: json!({
+                "provisionKind": provisioner.provision_kind,
+                "handler": provisioner.handler,
+                "icon": provisioner.icon,
+                "timeoutSeconds": provisioner.timeout_seconds,
+            }),
+        }
+    }));
     templates
 }
 

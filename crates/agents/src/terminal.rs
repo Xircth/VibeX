@@ -108,10 +108,33 @@ struct AgentTerminalSession {
     truncated: Arc<RwLock<bool>>,
 }
 
+/// Shared Default Terminal selection. User PTY tabs and ACP command-line
+/// fallbacks both read this so a settings change is picked up on the next
+/// spawn without restarting Agent connections.
+#[derive(Clone, Default)]
+pub struct TerminalShellRuntimeConfig {
+    inner: Arc<RwLock<Option<String>>>,
+}
+
+impl TerminalShellRuntimeConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub async fn snapshot(&self) -> Option<String> {
+        self.inner.read().await.clone()
+    }
+
+    pub async fn set(&self, default_shell: Option<String>) {
+        *self.inner.write().await = normalize_configured_shell(default_shell);
+    }
+}
+
 #[derive(Clone)]
 pub struct AgentTerminalRegistry {
     sessions: Arc<RwLock<HashMap<AgentTerminalId, Arc<AgentTerminalSession>>>>,
     lifecycle_tx: broadcast::Sender<AgentTerminalLifecycleEvent>,
+    default_shell: TerminalShellRuntimeConfig,
 }
 
 impl AgentTerminalRegistry {
@@ -120,7 +143,16 @@ impl AgentTerminalRegistry {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_tx,
+            default_shell: TerminalShellRuntimeConfig::new(),
         }
+    }
+
+    pub async fn set_default_shell(&self, default_shell: Option<String>) {
+        self.default_shell.set(default_shell).await;
+    }
+
+    pub async fn default_shell(&self) -> Option<String> {
+        self.default_shell.snapshot().await
     }
 
     pub async fn create_terminal(
@@ -141,7 +173,7 @@ impl AgentTerminalRegistry {
         let mut direct = new_hidden_tokio_command(PathBuf::from(&args.command), &args.args);
         configure_terminal_command(&mut direct, args, cwd.as_ref());
 
-        let fallback_shell = default_platform_shell();
+        let fallback_shell = resolve_fallback_shell(self.default_shell.snapshot().await.as_deref());
         let can_retry_through_shell =
             can_retry_command_through_shell(&args.command, &args.args, &fallback_shell);
         let mut child = match direct.spawn() {
@@ -446,6 +478,11 @@ fn configure_terminal_command(
         command.current_dir(cwd);
     }
 
+    command.env("PYTHONUTF8", "1");
+    command.env("PYTHONIOENCODING", "utf-8");
+    command.env("LANG", "C.UTF-8");
+    command.env("LC_ALL", "C.UTF-8");
+
     if !args
         .env
         .iter()
@@ -525,28 +562,53 @@ fn classify_shell_family(shell: &str) -> ShellFamily {
     }
 }
 
+fn normalize_configured_shell(default_shell: Option<String>) -> Option<String> {
+    default_shell
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// Resolve the shell used when an Agent command has to be wrapped.
+///
+/// An explicit Default Terminal setting wins. Warp is an external app, not a
+/// spawnable shell, so it falls back to the platform default. Git Bash is only
+/// selected when the setting names bash — it is never auto-detected.
+fn resolve_fallback_shell(configured: Option<&str>) -> String {
+    let Some(shell) = configured.map(str::trim).filter(|value| !value.is_empty()) else {
+        return default_platform_shell();
+    };
+    if shell_basename(shell) == "warp" {
+        return default_platform_shell();
+    }
+    resolve_named_shell(shell)
+}
+
+fn resolve_named_shell(shell: &str) -> String {
+    #[cfg(windows)]
+    {
+        if classify_shell_family(shell) == ShellFamily::Posix
+            && shell_basename(shell).contains("bash")
+        {
+            return prefer_git_bash(windows_git_bash_candidates(), shell);
+        }
+    }
+    shell.to_string()
+}
+
+/// Preserve the platform shell used before Default Terminal applied to Agents.
+/// General Settings only changes this after an explicit shell selection.
 #[cfg(unix)]
 fn default_platform_shell() -> String {
     "/bin/sh".to_string()
 }
 
-/// Windows Agent fallback shell: Git Bash, then cmd, then PowerShell.
-///
-/// `System32\bash.exe` is the WSL stub and is skipped. Interactive Terminal
-/// panels keep their own PowerShell default.
 #[cfg(any(windows, test))]
-fn resolve_windows_agent_shell(
-    git_bash: impl IntoIterator<Item = PathBuf>,
-    cmd: impl IntoIterator<Item = PathBuf>,
-    powershell: impl IntoIterator<Item = PathBuf>,
-) -> String {
+fn prefer_git_bash(git_bash: impl IntoIterator<Item = PathBuf>, requested: &str) -> String {
     git_bash
         .into_iter()
-        .chain(cmd)
-        .chain(powershell)
         .find(|path| path.is_file())
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "cmd.exe".to_string())
+        .unwrap_or_else(|| requested.to_string())
 }
 
 #[cfg(any(windows, test))]
@@ -558,12 +620,32 @@ fn is_wsl_bash(path: &Path) -> bool {
     normalized.ends_with("\\system32\\bash.exe") || normalized.ends_with("\\sysnative\\bash.exe")
 }
 
+/// Unset Windows fallback: PowerShell, then cmd / COMSPEC. Never Git Bash.
+#[cfg(any(windows, test))]
+fn default_windows_platform_shell(
+    powershell: impl IntoIterator<Item = PathBuf>,
+    cmd: impl IntoIterator<Item = PathBuf>,
+    comspec: Option<String>,
+) -> String {
+    powershell
+        .into_iter()
+        .chain(cmd)
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+        .or_else(|| {
+            comspec
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "cmd.exe".to_string())
+}
+
 #[cfg(windows)]
 fn default_platform_shell() -> String {
-    resolve_windows_agent_shell(
-        windows_git_bash_candidates(),
-        windows_cmd_candidates(),
+    default_windows_platform_shell(
         windows_powershell_candidates(),
+        windows_cmd_candidates(),
+        std::env::var("COMSPEC").ok(),
     )
 }
 
@@ -697,6 +779,18 @@ pub fn agent_terminal_registry() -> &'static AgentTerminalRegistry {
     &AGENT_TERMINAL_REGISTRY
 }
 
+/// Publish the Default Terminal setting to the Agent ACP fallback shell.
+/// Existing connections pick this up on the next `terminal/create`.
+pub async fn apply_configured_terminal_shell(default_shell: Option<String>) {
+    agent_terminal_registry()
+        .set_default_shell(default_shell)
+        .await;
+}
+
+pub async fn configured_terminal_shell() -> Option<String> {
+    agent_terminal_registry().default_shell().await
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -705,7 +799,8 @@ mod tests {
         AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
         HARD_OUTPUT_BYTE_LIMIT, ShellFamily, can_retry_command_through_shell,
         classify_shell_family, default_platform_shell, effective_output_byte_limit,
-        is_utf8_boundary_byte, resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
+        is_utf8_boundary_byte, resolve_fallback_shell, resolve_terminal_cwd, shell_wrapped_command,
+        trim_output_history,
     };
     use crate::ids::AgentSessionId;
 
@@ -834,28 +929,80 @@ mod tests {
     }
 
     #[test]
-    fn windows_agent_shell_prefers_git_bash_then_cmd_then_powershell() {
+    fn unset_windows_shell_prefers_powershell_then_cmd_never_git_bash() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let bash = dir.path().join("Git").join("bin").join("bash.exe");
         let cmd = dir.path().join("System32").join("cmd.exe");
         let powershell = dir.path().join("WindowsPowerShell").join("powershell.exe");
-        touch(&bash);
         touch(&cmd);
         touch(&powershell);
 
         assert_eq!(
-            super::resolve_windows_agent_shell([bash.clone()], [cmd.clone()], [powershell.clone()]),
-            bash.to_string_lossy()
+            super::default_windows_platform_shell(
+                [powershell.clone()],
+                [cmd.clone()],
+                Some(r"C:\Windows\System32\cmd.exe".to_string()),
+            ),
+            powershell.to_string_lossy()
         );
         assert_eq!(
-            super::resolve_windows_agent_shell([], [cmd.clone()], [powershell.clone()]),
+            super::default_windows_platform_shell(
+                [],
+                [cmd.clone()],
+                Some(r"C:\Windows\System32\cmd.exe".to_string()),
+            ),
             cmd.to_string_lossy()
         );
         assert_eq!(
-            super::resolve_windows_agent_shell([], [], [powershell.clone()]),
-            powershell.to_string_lossy()
+            super::default_windows_platform_shell(
+                [],
+                [],
+                Some("  C:\\Windows\\System32\\cmd.exe  ".to_string()),
+            ),
+            r"C:\Windows\System32\cmd.exe"
         );
-        assert_eq!(super::resolve_windows_agent_shell([], [], []), "cmd.exe");
+        assert_eq!(
+            super::default_windows_platform_shell([], [], None),
+            "cmd.exe"
+        );
+    }
+
+    #[test]
+    fn configured_shell_is_used_as_agent_fallback() {
+        assert_eq!(resolve_fallback_shell(Some("pwsh.exe")), "pwsh.exe");
+        assert_eq!(resolve_fallback_shell(Some("cmd.exe")), "cmd.exe");
+        assert_eq!(
+            resolve_fallback_shell(Some("warp")),
+            default_platform_shell()
+        );
+        assert_eq!(
+            resolve_fallback_shell(Some("   ")),
+            default_platform_shell()
+        );
+        assert_eq!(resolve_fallback_shell(None), default_platform_shell());
+    }
+
+    #[test]
+    fn configured_bash_uses_git_bash_when_present() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let bash = dir.path().join("Git").join("bin").join("bash.exe");
+        touch(&bash);
+        assert_eq!(
+            super::prefer_git_bash([bash.clone()], "bash.exe"),
+            bash.to_string_lossy()
+        );
+        assert_eq!(super::prefer_git_bash([], "bash.exe"), "bash.exe");
+    }
+
+    #[tokio::test]
+    async fn default_shell_config_hot_swaps_on_the_next_create() {
+        let registry = AgentTerminalRegistry::new();
+        assert_eq!(registry.default_shell().await, None);
+        registry
+            .set_default_shell(Some("  pwsh.exe  ".to_string()))
+            .await;
+        assert_eq!(registry.default_shell().await.as_deref(), Some("pwsh.exe"));
+        registry.set_default_shell(None).await;
+        assert_eq!(registry.default_shell().await, None);
     }
 
     #[test]

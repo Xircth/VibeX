@@ -12,6 +12,23 @@ use tokio::sync::mpsc;
 use utils::shell::{get_interactive_shell, resolve_executable_path};
 use uuid::Uuid;
 
+async fn resolve_pty_shell(shell_override: Option<String>) -> PathBuf {
+    if let Some(shell) = shell_override.filter(|value| !value.is_empty()) {
+        if !shell.eq_ignore_ascii_case("warp") {
+            return resolve_executable_path(&shell)
+                .await
+                .unwrap_or_else(|| PathBuf::from(shell));
+        }
+    } else if let Some(configured) = agents::configured_terminal_shell().await
+        && !configured.eq_ignore_ascii_case("warp")
+    {
+        return resolve_executable_path(&configured)
+            .await
+            .unwrap_or_else(|| PathBuf::from(configured));
+    }
+    get_interactive_shell().await
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("Failed to create PTY: {0}")]
@@ -105,14 +122,7 @@ impl PtyService {
         let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let working_dir = Self::normalize_working_dir_for_shell(working_dir);
-        let shell = if let Some(shell) = shell_override.as_deref().filter(|value| !value.is_empty())
-        {
-            resolve_executable_path(shell)
-                .await
-                .unwrap_or_else(|| PathBuf::from(shell))
-        } else {
-            get_interactive_shell().await
-        };
+        let shell = resolve_pty_shell(shell_override).await;
         let output_history = Arc::new(Mutex::new(Vec::new()));
         let subscribers = Arc::new(Mutex::new(vec![output_tx]));
         let history_for_thread = Arc::clone(&output_history);

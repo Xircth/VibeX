@@ -6,7 +6,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use agents::{AgentId, AgentSessionId};
+use agents::{AgentId, AgentSessionId, AgentTerminalId, terminal::agent_terminal_registry};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
@@ -460,25 +460,8 @@ impl ServerApplicationDomains {
             DomainCommand::TerminalCreate => self.create_terminal(args).await,
             DomainCommand::TerminalWrite => self.write_terminal(args).await,
             DomainCommand::TerminalResize => self.resize_terminal(args).await,
-            DomainCommand::TerminalClose => {
-                let args: TerminalSessionArgs = parse(args)?;
-                self.deployment
-                    .pty()
-                    .close_session(args.session_id)
-                    .await
-                    .map_err(internal_error)?;
-                Ok(Value::Null)
-            }
-            DomainCommand::TerminalAttach => {
-                let args: TerminalSessionArgs = parse(args)?;
-                if !self.deployment.pty().session_exists(&args.session_id) {
-                    return Err(ApplicationError::not_found(format!(
-                        "terminal {}",
-                        args.session_id
-                    )));
-                }
-                serialize(args.session_id)
-            }
+            DomainCommand::TerminalClose => self.close_terminal(args).await,
+            DomainCommand::TerminalAttach => self.attach_terminal(args).await,
             DomainCommand::AgentManagementDetail => {
                 let args: AgentIdArgs = parse(args)?;
                 let views =
@@ -1114,18 +1097,17 @@ impl ServerApplicationDomains {
 
     async fn create_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: CreateTerminalArgs = parse(args)?;
-        let workspace = self.require_workspace(args.workspace_id).await?;
-        let container = self
-            .deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await
-            .map_err(internal_error)?;
-        let (session_id, _rx) = self
+        if args.shell.as_deref() == Some("warp") {
+            return Err(ApplicationError::bad_request(
+                "Warp is an external terminal; use open_external_terminal".to_string(),
+            ));
+        }
+        let working_dir = self.resolve_terminal_working_dir(args.workspace_id).await?;
+        let (session_id, output_rx) = self
             .deployment
             .pty()
             .create_session(
-                PathBuf::from(container),
+                working_dir,
                 args.cols.unwrap_or(80),
                 args.rows.unwrap_or(24),
                 args.shell,
@@ -1133,11 +1115,42 @@ impl ServerApplicationDomains {
             )
             .await
             .map_err(internal_error)?;
+        crate::host::events::spawn_terminal_output_bridge(session_id, output_rx);
         serialize(session_id)
+    }
+
+    async fn attach_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: TerminalSessionArgs = parse(args)?;
+        if self.deployment.pty().session_exists(&args.session_id) {
+            let output_rx = self
+                .deployment
+                .pty()
+                .subscribe_output(args.session_id)
+                .await
+                .map_err(internal_error)?;
+            crate::host::events::spawn_terminal_output_bridge(args.session_id, output_rx);
+            return serialize(args.session_id);
+        }
+
+        let terminal_id = AgentTerminalId(args.session_id);
+        let output_rx = agent_terminal_registry()
+            .subscribe_output(terminal_id)
+            .await
+            .ok_or_else(|| ApplicationError::not_found(format!("terminal {}", args.session_id)))?;
+        crate::host::events::spawn_terminal_output_bridge(args.session_id, output_rx);
+        serialize(args.session_id)
     }
 
     async fn write_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: WriteTerminalArgs = parse(args)?;
+        if agent_terminal_registry()
+            .exists(AgentTerminalId(args.session_id))
+            .await
+        {
+            return Err(ApplicationError::bad_request(
+                "Agent terminal is read-only in the embedded terminal panel".to_string(),
+            ));
+        }
         let bytes = BASE64
             .decode(args.data.as_bytes())
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
@@ -1151,12 +1164,77 @@ impl ServerApplicationDomains {
 
     async fn resize_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ResizeTerminalArgs = parse(args)?;
+        if agent_terminal_registry()
+            .exists(AgentTerminalId(args.session_id))
+            .await
+        {
+            return Ok(Value::Null);
+        }
         self.deployment
             .pty()
             .resize(args.session_id, args.cols, args.rows)
             .await
             .map_err(internal_error)?;
         Ok(Value::Null)
+    }
+
+    async fn close_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: TerminalSessionArgs = parse(args)?;
+        if agent_terminal_registry()
+            .exists(AgentTerminalId(args.session_id))
+            .await
+        {
+            return Ok(Value::Null);
+        }
+        self.deployment
+            .pty()
+            .close_session(args.session_id)
+            .await
+            .map_err(internal_error)?;
+        Ok(Value::Null)
+    }
+
+    async fn resolve_terminal_working_dir(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<PathBuf, ApplicationError> {
+        let workspace = self.require_workspace(workspace_id).await?;
+        let container = self
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(internal_error)?;
+        let base_dir = PathBuf::from(&container);
+        if !base_dir.exists() {
+            return Err(ApplicationError::bad_request(
+                "Workspace directory does not exist".to_string(),
+            ));
+        }
+        match WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace_id).await {
+            Ok(_) => {
+                if let Some(working_dir) = workspace
+                    .agent_working_dir
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|dir| !dir.is_empty())
+                {
+                    let candidate = base_dir.join(working_dir);
+                    if candidate.exists() {
+                        return Ok(candidate);
+                    }
+                }
+                Ok(base_dir)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to resolve repos for workspace {}: {}",
+                    workspace_id,
+                    error
+                );
+                Ok(base_dir)
+            }
+        }
     }
 
     async fn ensure_root_workspace(
@@ -2093,7 +2171,7 @@ mod tests {
 
     #[test]
     fn create_project_session_payload_accepts_host_camel_case() {
-        let parsed: PayloadArgs<CreateProjectSessionPayload> = serde_json::from_value(json!({
+        let parsed: PayloadArgs<CreateProjectSessionPayload> = parse(json!({
             "payload": {
                 "projectId": "11111111-1111-1111-1111-111111111111",
                 "createWorkspace": true,
@@ -2114,7 +2192,7 @@ mod tests {
 
     #[test]
     fn create_project_session_payload_accepts_legacy_snake_case() {
-        let parsed: PayloadArgs<CreateProjectSessionPayload> = serde_json::from_value(json!({
+        let parsed: PayloadArgs<CreateProjectSessionPayload> = parse(json!({
             "payload": {
                 "project_id": "11111111-1111-1111-1111-111111111111",
                 "workspace_id": null,
@@ -2173,6 +2251,31 @@ mod tests {
         .expect("request wrap");
         assert_eq!(parsed.conversation_id, "c-1");
         assert_eq!(parsed.after_sequence, 4);
+    }
+
+    #[test]
+    fn create_terminal_args_accept_frontend_camel_case() {
+        let parsed: CreateTerminalArgs = application::decode_command_args(json!({
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "cols": 120,
+            "rows": 32,
+            "shell": null,
+            "sessionId": "22222222-2222-2222-2222-222222222222"
+        }))
+        .expect("create terminal args");
+        assert_eq!(parsed.cols, Some(120));
+        assert_eq!(parsed.rows, Some(32));
+        assert_eq!(parsed.shell.as_deref(), None);
+    }
+
+    #[test]
+    fn warp_is_an_external_terminal_not_a_pty_shell() {
+        let parsed: CreateTerminalArgs = application::decode_command_args(json!({
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "shell": "warp"
+        }))
+        .expect("warp shell");
+        assert_eq!(parsed.shell.as_deref(), Some("warp"));
     }
 
     #[test]

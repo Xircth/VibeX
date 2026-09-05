@@ -10,7 +10,7 @@ use deployment::{Deployment, DeploymentError};
 use git::GitService;
 use services::services::{
     approvals::Approvals,
-    config::{Config, load_config_from_file, save_config_to_file},
+    config::{Config, load_config_from_file, publish_config_runtime, save_config_to_file},
     container::ContainerService,
     events::EventService,
     file_search::FileSearchService,
@@ -102,6 +102,7 @@ impl LocalDeployment {
 
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &settings_file).await?;
+        publish_config_runtime(&raw_config).await;
 
         let workspace_dir_override = raw_config
             .workspace_dir

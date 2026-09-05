@@ -3,8 +3,10 @@ use std::sync::{
     atomic::{AtomicI64, Ordering},
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::Serialize;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
 
 const BUS_CAPACITY: usize = 4096;
 static GLOBAL_BUS: OnceLock<HostEventBus> = OnceLock::new();
@@ -84,11 +86,30 @@ impl HostEventBus {
             "local-history-import-progress",
             "local-history-scan-progress",
             "agent-events",
+            "terminal-output",
         ];
         PREFIXES
             .iter()
             .any(|prefix| channel == *prefix || channel.starts_with(&format!("{prefix}:")))
     }
+}
+
+pub fn terminal_output_channel(session_id: Uuid) -> String {
+    format!("terminal-output:{session_id}")
+}
+
+/// Forward PTY (or Agent terminal) bytes onto the Host Event Bus as base64,
+/// matching the desktop `terminal-output:{id}` listener contract.
+pub fn spawn_terminal_output_bridge(
+    session_id: Uuid,
+    mut output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
+    let channel = terminal_output_channel(session_id);
+    tokio::spawn(async move {
+        while let Some(data) = output_rx.recv().await {
+            global_host_events().emit(&channel, BASE64.encode(&data));
+        }
+    });
 }
 
 /// Map a `patch_stream` resource name to the Host Event Bus channel the
@@ -193,12 +214,41 @@ mod tests {
             "agent-management-snapshot-invalidated",
             "agent-events",
             "slash-commands-stream:codex:default:none:none",
+            "terminal-output:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         ] {
             assert!(
                 HostEventBus::channel_allowed(channel),
                 "{channel} must be forwarded"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn terminal_output_bridge_emits_base64_on_the_host_bus() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let session_id = uuid::Uuid::from_u128(0x1111_2222_3333_4444_5555_6666_7777_8888);
+        let mut events = super::global_host_events().subscribe();
+        super::spawn_terminal_output_bridge(session_id, rx);
+        tx.send(b"prompt>\n".to_vec()).unwrap();
+        let channel = super::terminal_output_channel(session_id);
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let event = events.recv().await.expect("bus open");
+                if event.channel == channel {
+                    return event;
+                }
+            }
+        })
+        .await
+        .expect("terminal output reached the Host Event Bus");
+        assert_eq!(
+            event.payload.as_str(),
+            Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                b"prompt>\n"
+            ))
+            .as_deref()
+        );
     }
 
     #[test]

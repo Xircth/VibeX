@@ -6,6 +6,7 @@ export type TerminalShellValue =
   | 'powershell.exe'
   | 'pwsh.exe'
   | 'cmd.exe'
+  | 'bash.exe'
   | 'zsh'
   | 'bash'
   | 'sh'
@@ -27,6 +28,7 @@ export const TERMINAL_SHELL_OPTIONS: TerminalShellOption[] = [
   { value: 'powershell.exe', label: 'PowerShell', platforms: ['windows'] },
   { value: 'pwsh.exe', label: 'PowerShell 7', platforms: ['windows'] },
   { value: 'cmd.exe', label: 'CMD', platforms: ['windows'] },
+  { value: 'bash.exe', label: 'Git Bash', platforms: ['windows'] },
   { value: 'zsh', label: 'Zsh', platforms: ['macos', 'linux'] },
   { value: 'bash', label: 'Bash', platforms: ['macos', 'linux'] },
   { value: 'sh', label: 'sh', platforms: ['macos', 'linux'] },

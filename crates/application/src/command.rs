@@ -127,6 +127,64 @@ impl RegisteredCommand {
             Self::Domain(command) => command.as_str(),
         }
     }
+
+    pub fn host_command_names() -> Vec<&'static str> {
+        const CORE: &[RegisteredCommand] = &[
+            RegisteredCommand::ConversationList,
+            RegisteredCommand::ConversationListRecent,
+            RegisteredCommand::ConversationCatalog,
+            RegisteredCommand::ConversationArchive,
+            RegisteredCommand::ConversationSetPinned,
+            RegisteredCommand::ConversationDelete,
+            RegisteredCommand::ConversationRename,
+            RegisteredCommand::ConversationSetStatus,
+            RegisteredCommand::ConversationSetSessionMode,
+            RegisteredCommand::ConversationSetSessionConfig,
+            RegisteredCommand::ConversationWorkspaceCreate,
+            RegisteredCommand::ConversationWorkspaceEntries,
+            RegisteredCommand::ConversationSlashCommands,
+            RegisteredCommand::ConversationCreate,
+            RegisteredCommand::ConversationChildCreate,
+            RegisteredCommand::ConversationOutput,
+            RegisteredCommand::ConversationStartTurn,
+            RegisteredCommand::ConversationSteer,
+            RegisteredCommand::ConversationSubmitFeedback,
+            RegisteredCommand::ConversationListFeedback,
+            RegisteredCommand::ConversationInputSubmit,
+            RegisteredCommand::ConversationInputList,
+            RegisteredCommand::ConversationRelationList,
+            RegisteredCommand::ConversationInputUpdate,
+            RegisteredCommand::ConversationInputReorder,
+            RegisteredCommand::ConversationInputCancel,
+            RegisteredCommand::ConversationRespondPermission,
+            RegisteredCommand::ConversationRespondQuestion,
+            RegisteredCommand::ConversationCancelTurn,
+            RegisteredCommand::WorkflowPublish,
+            RegisteredCommand::WorkflowValidate,
+            RegisteredCommand::WorkflowStart,
+            RegisteredCommand::WorkflowDebug,
+            RegisteredCommand::WorkflowShow,
+            RegisteredCommand::WorkflowVersion,
+            RegisteredCommand::WorkflowList,
+            RegisteredCommand::WorkflowVersions,
+            RegisteredCommand::WorkflowSteps,
+            RegisteredCommand::WorkflowEvents,
+            RegisteredCommand::WorkflowCompleteStep,
+            RegisteredCommand::WorkflowDecide,
+            RegisteredCommand::WorkflowCancel,
+            RegisteredCommand::WorkflowResume,
+            RegisteredCommand::WorkflowPause,
+            RegisteredCommand::WorkflowResumeRun,
+            RegisteredCommand::WorkflowAcceptCandidate,
+            RegisteredCommand::WorkflowPauseStep,
+            RegisteredCommand::WorkflowStepInput,
+            RegisteredCommand::WorkflowFork,
+        ];
+        CORE.iter()
+            .map(|command| command.as_str())
+            .chain(DomainCommand::ALL.iter().map(|command| command.as_str()))
+            .collect()
+    }
 }
 
 impl FromStr for RegisteredCommand {
@@ -1258,7 +1316,7 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
     operation_id: OperationId,
     args: serde_json::Value,
 ) -> Result<T, ErrorEnvelope> {
-    serde_json::from_value(args).map_err(|error| {
+    crate::decode_command_args(args).map_err(|error| {
         ErrorEnvelope::new(
             ErrorCode::BadRequest,
             format!("invalid arguments for {}: {error}", command.as_str()),

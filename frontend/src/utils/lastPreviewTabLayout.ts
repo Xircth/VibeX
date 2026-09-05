@@ -57,6 +57,19 @@ export function collapsedEditorColumnWidths(input: {
   return { dock, session };
 }
 
+/**
+ * Toolbar "hide editor and terminal" collapses the editor column and the
+ * terminal strip. The file-tree dock and session column stay as they are.
+ */
+export function groupsHiddenWhenEditorAreaCollapsed<T>(groups: {
+  dock?: T;
+  workspace: readonly T[];
+  terminal?: T;
+  session?: T;
+}): T[] {
+  return [...groups.workspace, ...(groups.terminal ? [groups.terminal] : [])];
+}
+
 /** Kept so Vite HMR can resolve modules still bound to the previous export name. */
 export function lastPreviewTabWidths(input: {
   gridWidth: number;

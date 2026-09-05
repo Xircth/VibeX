@@ -1078,6 +1078,10 @@ export function PluginsSettings({
   const canSurface = backendCapabilities.has('plugin.surface');
   const canManagePackage = canWrite;
   const canUseLocalPluginFiles = canWrite;
+  const canUseCliImport =
+    canUseLocalPluginFiles &&
+    (transport.environment === 'desktop' ||
+      backendCapabilities.has('desktop.tauri'));
 
   useEffect(() => {
     let active = true;
@@ -1276,7 +1280,7 @@ export function PluginsSettings({
 
   const runCliImport = async () => {
     if (
-      !canUseLocalPluginFiles ||
+      !canUseCliImport ||
       importEcosystem === 'vibex' ||
       !cliCommand.trim()
     ) {
@@ -1901,7 +1905,7 @@ export function PluginsSettings({
               </div>
             ) : null}
 
-            {importEcosystem !== 'vibex' ? (
+            {importEcosystem !== 'vibex' && canUseCliImport ? (
               <div className="plugin-cli-import">
                 <div className="plugin-cli-import-heading">
                   <Command aria-hidden="true" />

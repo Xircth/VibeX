@@ -77,7 +77,10 @@ describe('TauriTransport application command adapter', () => {
   });
 
   it('preserves the desktop companion-aware question adapter', async () => {
-    tauriInvoke.mockResolvedValue(undefined);
+    tauriInvoke.mockResolvedValue({
+      operation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      data: null,
+    });
     const request = {
       conversationId: 'conversation-1',
       questionId: 'question-1',
@@ -88,8 +91,10 @@ describe('TauriTransport application command adapter', () => {
       request,
     });
 
-    expect(tauriInvoke).toHaveBeenCalledWith('conversation_respond_question', {
-      request,
+    expect(tauriInvoke).toHaveBeenCalledWith('application_call', {
+      command: 'conversation_respond_question',
+      operationId: expect.any(String),
+      args: { request },
     });
   });
 

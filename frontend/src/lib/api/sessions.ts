@@ -62,15 +62,19 @@ export const sessionsApi = {
   }): Promise<Session> => {
     return backendCall<Session>('create_project_session', {
       payload: {
-        session_id: data.session_id ?? null,
-        project_id: data.project_id,
-        workspace_id: data.workspace_id ?? null,
+        sessionId: data.session_id ?? null,
+        projectId: data.project_id,
+        workspaceId: data.workspace_id ?? null,
         branch: data.branch ?? null,
         executor: data.executor ?? null,
         name: data.name ?? null,
-        initial_prompt: data.initial_prompt ?? null,
-        create_workspace: data.create_workspace ?? null,
-        repos: data.repos ?? null,
+        initialPrompt: data.initial_prompt ?? null,
+        createWorkspace: data.create_workspace ?? null,
+        repos:
+          data.repos?.map((repo) => ({
+            repoId: repo.repo_id,
+            targetBranch: repo.target_branch,
+          })) ?? null,
       },
     });
   },

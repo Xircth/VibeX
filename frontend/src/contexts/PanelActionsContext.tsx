@@ -21,6 +21,10 @@ import {
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { backendCall } from '@/lib/backendTransport';
+import {
+  useBackendCapabilities,
+  useBackendTransport,
+} from '@/lib/transport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   editorTerminalPanelId,
@@ -191,6 +195,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const setSelectedFilePath = useFileTreeStore(
     (state) => state.setSelectedFilePath
   );
+  const transport = useBackendTransport();
+  const { supports } = useBackendCapabilities();
+  const canOpenWebPreview =
+    transport.environment === 'desktop' || supports('desktop.tauri');
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
     imagePanelRemovalDisposableRef.current?.dispose();
@@ -462,6 +470,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openWebPreview = useCallback(
     (url?: string | null) => {
+      if (!canOpenWebPreview) return;
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -485,7 +494,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       panel?.api.setActive();
     },
-    [addPanelToActiveEditorGroup]
+    [addPanelToActiveEditorGroup, canOpenWebPreview]
   );
 
   const syncDiffPreviewPanelQueue = useCallback(() => {

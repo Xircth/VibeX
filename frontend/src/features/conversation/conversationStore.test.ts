@@ -131,6 +131,36 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('hydrates session-config summary fields from conversation detail', () => {
+    const state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: {
+        ...emptyDetail(),
+        session_modes: {
+          current: 'plan',
+          modes: [{ id: 'plan', label: 'Plan' }],
+        },
+        session_config_options: [
+          {
+            key: 'model',
+            label: 'Model',
+            category: 'model',
+            value: 'grok-4',
+            choices: [{ value: 'grok-4', label: 'Grok 4' }],
+          },
+        ],
+      },
+    });
+    expect(entryOf(state).sessionModes).toEqual({
+      current: 'plan',
+      modes: [{ id: 'plan', label: 'Plan' }],
+    });
+    expect(entryOf(state).sessionConfigOptions).toEqual([
+      expect.objectContaining({ key: 'model', value: 'grok-4' }),
+    ]);
+  });
+
   it('upserts a user message-turn row from a row-op batch', () => {
     let state = loaded();
     state = conversationStoreReducer(state, {

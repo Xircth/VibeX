@@ -94,7 +94,9 @@ export function useConversationTimeline(
         }
         dispatch({ type: 'load_success', conversationId, detail });
         const needsAuthoritativeZeroTurnControls =
-          detail.summary.message_count === 0n;
+          detail.summary.message_count === 0n ||
+          ((detail.session_config_options?.length ?? 0) === 0 &&
+            !detail.session_modes);
         if (detail.summary.agent_id && needsAuthoritativeZeroTurnControls) {
           return conversationApi
             .ensureSessionControls(conversationId)
@@ -224,7 +226,14 @@ export function useConversationTimeline(
               lastSequence: toBigInt(page.last_sequence),
             });
           })
-          .catch(() => {});
+          .catch((error: unknown) => {
+            if (!active) return;
+            dispatch({
+              type: 'load_error',
+              conversationId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
       })
       .catch((error: unknown) => {
         dispatch({
@@ -269,7 +278,14 @@ export function useConversationTimeline(
             lastSequence: toBigInt(page.last_sequence),
           });
         })
-        .catch(() => {});
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          dispatch({
+            type: 'load_error',
+            conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
     };
     const timer = window.setInterval(tick, 1_000);
     return () => {
@@ -302,7 +318,14 @@ export function useConversationTimeline(
           lastSequence: toBigInt(page.last_sequence),
         });
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        dispatch({
+          type: 'load_error',
+          conversationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     return () => {
       cancelled = true;
     };

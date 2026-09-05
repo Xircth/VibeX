@@ -27,7 +27,7 @@ export function useProjects(): UseProjectsResult {
       subscribeCommand: 'subscribe_projects_stream',
       eventChannel: 'projects-stream',
       initialData,
-      enabled: !remote,
+      enabled: true,
     });
   const remoteProjects = useQuery({
     queryKey: ['projects', transport.environment],

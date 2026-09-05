@@ -4,7 +4,6 @@ import type {
   ServerCapabilities,
   SubscriptionRequest,
 } from './backendTransport';
-import { WebTransport } from './webTransport';
 
 export type RemoteDesktopProfile = {
   profileId: string;
@@ -22,6 +21,15 @@ export interface RemoteDesktopBridge {
     operationId?: string
   ): Promise<unknown>;
   capabilities(profileId: string): Promise<ServerCapabilities>;
+  listen(
+    profileId: string,
+    event: string,
+    handler: (payload: unknown) => void
+  ): Promise<() => void>;
+  subscribe(
+    profileId: string,
+    request: SubscriptionRequest
+  ): AsyncIterable<RemoteEvent>;
 }
 
 const tauriBridge: RemoteDesktopBridge = {
@@ -46,7 +54,57 @@ const tauriBridge: RemoteDesktopBridge = {
     const { tauriInvoke } = await import('@/lib/tauriApi');
     return tauriInvoke('remote_desktop_capabilities', { profileId });
   },
+  async listen(profileId, event, handler) {
+    const { tauriInvoke, tauriListen } = await import('@/lib/tauriApi');
+    await tauriInvoke('remote_desktop_listen', { profileId, event });
+    return tauriListen(`remote-desktop:${profileId}:${event}`, handler);
+  },
+  subscribe(profileId, request) {
+    return subscribeRemoteDesktop(profileId, request);
+  },
 };
+
+async function* subscribeRemoteDesktop(
+  profileId: string,
+  request: SubscriptionRequest
+): AsyncIterable<RemoteEvent> {
+  const [{ Channel }, { tauriInvoke }] = await Promise.all([
+    import('@tauri-apps/api/core'),
+    import('@/lib/tauriApi'),
+  ]);
+  const queue: RemoteEvent[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  const channel = new Channel<RemoteEvent>();
+  channel.onmessage = (event) => {
+    queue.push(event);
+    wake?.();
+    wake = undefined;
+  };
+  await tauriInvoke('remote_desktop_subscribe', {
+    profileId,
+    request: {
+      ...request,
+      after_sequence: Number(request.after_sequence),
+    },
+    onEvent: channel,
+  });
+  try {
+    while (!closed) {
+      if (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+      const next = queue.shift();
+      if (next) {
+        yield next;
+      }
+    }
+  } finally {
+    closed = true;
+  }
+}
 
 /**
  * A window-owned remote connection. Credentials cross the WebView boundary
@@ -56,22 +114,17 @@ export class RemoteDesktopTransport implements BackendTransport {
   readonly environment = 'remote-desktop' as const;
   readonly profileId: string;
   private readonly baseUrl: string;
-  private readonly token: string;
   private readonly bridge: RemoteDesktopBridge;
-  private readonly live: WebTransport;
   private destroyed = false;
 
   private constructor(
     profileId: string,
     baseUrl: string,
-    token: string,
     bridge: RemoteDesktopBridge
   ) {
     this.profileId = profileId;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.token = token;
     this.bridge = bridge;
-    this.live = new WebTransport({ baseUrl: this.baseUrl, token });
   }
 
   static async connect(
@@ -82,7 +135,6 @@ export class RemoteDesktopTransport implements BackendTransport {
     return new RemoteDesktopTransport(
       profile.profileId,
       profile.baseUrl,
-      profile.token,
       bridge
     );
   }
@@ -108,11 +160,13 @@ export class RemoteDesktopTransport implements BackendTransport {
     if (this.destroyed) {
       return Promise.resolve(() => undefined);
     }
-    return this.live.listen(event, handler);
+    return this.bridge.listen(this.profileId, event, (payload) =>
+      handler(payload as T)
+    );
   }
 
   subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
-    return this.live.subscribe(request);
+    return this.bridge.subscribe(this.profileId, request);
   }
 
   artifactPreviewUrl(lease: {
@@ -128,7 +182,6 @@ export class RemoteDesktopTransport implements BackendTransport {
   async destroy(): Promise<void> {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.live.destroy();
     await this.bridge.disconnect(this.profileId);
   }
 

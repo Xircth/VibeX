@@ -11,6 +11,8 @@ describe('RemoteDesktopTransport', () => {
     const bridge: RemoteDesktopBridge = {
       connect: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => undefined),
+      subscribe: vi.fn(),
       capabilities: vi.fn().mockResolvedValue({
         server_version: '1',
         protocol_version: '1.0',

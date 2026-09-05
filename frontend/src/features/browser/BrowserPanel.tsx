@@ -637,8 +637,9 @@ export function BrowserPanel({
           unlisten();
           return;
         }
+        const requestedUrl = normalizeBrowserUrl(tabBootstrapUrl);
         const createdTab = await browserApi.createTab({
-          initialUrl: normalizeBrowserUrl(tabBootstrapUrl),
+          initialUrl: requestedUrl,
           profile: browserProfile(workspaceId),
           surface: { ...currentSurfaceRef.current!, visible: false },
         });
@@ -650,20 +651,25 @@ export function BrowserPanel({
         tabIdRef.current = createdTab.id;
         attachDevToolsSession(createdTab.id);
         setTab(createdTab);
-        updateBlankPageVisibility(createdTab.url === BLANK_PAGE);
-        setAddress(browserAddress(createdTab.url));
+        const showPage = requestedUrl !== BLANK_PAGE;
+        updateBlankPageVisibility(!showPage);
+        setAddress(browserAddress(requestedUrl));
         onTitleChange?.(createdTab.title);
         onFaviconChange?.(createdTab.faviconUrl);
+        if (showPage && createdTab.url === BLANK_PAGE) {
+          await browserApi.applyIntent(createdTab.id, {
+            type: 'navigate',
+            url: requestedUrl,
+          });
+        }
         await browserApi.applyIntent(createdTab.id, {
           type: 'setSurface',
           surface: {
             ...currentSurfaceRef.current!,
-            visible:
-              currentSurfaceRef.current!.visible &&
-              createdTab.url !== BLANK_PAGE,
+            visible: showPage,
           },
         });
-        if (createdTab.url === BLANK_PAGE) {
+        if (!showPage) {
           requestAnimationFrame(() => addressInputRef.current?.focus());
         }
         pendingEvents.splice(0).forEach(acceptEvent);

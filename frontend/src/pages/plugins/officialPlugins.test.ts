@@ -39,6 +39,9 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.host-surface', 'fallback', t)).toBe(
       '结构面示例'
     );
+    expect(officialPluginName('vibex.remote-ssh', 'fallback', t)).toBe(
+      'Remote SSH'
+    );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
       'VibeX Office'
@@ -63,6 +66,9 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.host-surface', 'fallback', en)).toBe(
       'Host surface sample'
+    );
+    expect(officialPluginName('vibex.remote-ssh', 'fallback', en)).toBe(
+      'Remote SSH'
     );
   });
 

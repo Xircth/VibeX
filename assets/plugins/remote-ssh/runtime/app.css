@@ -1,0 +1,135 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: canvastext;
+  background: transparent;
+}
+
+.ssh {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ssh h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  gap: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'] {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, canvastext 16%, transparent);
+  background: color-mix(in srgb, canvas 88%, canvastext 4%);
+  color: canvastext;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.86;
+}
+
+button {
+  height: 32px;
+  border-radius: 8px;
+  border: 0;
+  background: AccentColor;
+  color: AccentColorText;
+  font: inherit;
+  font-weight: 600;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+button[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.ghost {
+  background: color-mix(in srgb, canvastext 10%, transparent);
+  color: canvastext;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 14px 72px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, canvastext 28%, transparent);
+}
+
+.steps li.running .dot {
+  background: AccentColor;
+}
+
+.steps li.done .dot {
+  background: color-mix(in srgb, AccentColor 70%, canvastext);
+}
+
+.steps li.failed .dot {
+  background: #c43;
+}
+
+.detail {
+  opacity: 0.62;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  margin: 0;
+  color: #c43;
+  font-size: 12px;
+}

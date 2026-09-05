@@ -63,6 +63,14 @@
       "summary": "官方样例插件，用公开 SDK 贡献一个顶级 Tab、一个面板和一个看板视图。",
       "packageDigest": "builtin:vibex.host-surface",
       "archive": "builtin://vibex.host-surface"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.remote-ssh",
+      "version": "1.0.0",
+      "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
+      "packageDigest": "builtin:vibex.remote-ssh",
+      "archive": "builtin://vibex.remote-ssh"
     }
   ]
 }

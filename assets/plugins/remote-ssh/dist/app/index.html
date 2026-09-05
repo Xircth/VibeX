@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remote SSH</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  <style>:root{color-scheme:light dark}body{margin:0;font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:canvastext;background:transparent}.ssh{display:flex;flex-direction:column;gap:14px;padding:16px}.ssh h1{margin:0;font-size:13px;font-weight:600}.grid{display:grid;grid-template-columns:1fr 88px;gap:10px}label{display:flex;flex-direction:column;gap:4px;font-size:12px;opacity:0.78}input[type=text],input[type=password],input[type=number]{height:32px;border-radius:8px;border:1px solid color-mix(in srgb,canvastext 16%,transparent);background:color-mix(in srgb,canvas 88%,canvastext 4%);color:canvastext;padding:0 10px;font:inherit}.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.remember{display:flex;align-items:center;gap:8px;font-size:12px;opacity:0.86}button{height:32px;border-radius:8px;border:0;background:AccentColor;color:AccentColorText;font:inherit;font-weight:600;padding:0 14px;cursor:pointer}button[disabled]{opacity:0.55;cursor:default}button.ghost{background:color-mix(in srgb,canvastext 10%,transparent);color:canvastext}.steps{list-style:none;margin:0;padding:0;display:grid;gap:6px}.steps li{display:grid;grid-template-columns:14px 72px 1fr;gap:8px;align-items:baseline;font-size:12px}.dot{width:8px;height:8px;margin-top:4px;border-radius:999px;background:color-mix(in srgb,canvastext 28%,transparent)}.steps li.running .dot{background:AccentColor}.steps li.done .dot{background:color-mix(in srgb,AccentColor 70%,canvastext)}.steps li.failed .dot{background:#c43}.detail{opacity:0.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.error{margin:0;color:#c43;font-size:12px}
+</style><script type="module">function definePluginApp(mount){return{apiVersion:"1.0",mount}}var STEP_LABELS={zh:{probe:"\u63A2\u6D4B",install:"\u5B89\u88C5",start:"\u542F\u52A8",tunnel:"\u96A7\u9053",pair:"\u914D\u5BF9",save:"\u4FDD\u5B58",connect:"\u63A5\u5165"},en:{probe:"Probe",install:"Install",start:"Start",tunnel:"Tunnel",pair:"Pair",save:"Save",connect:"Connect"}};function zh(){return String(navigator.language||"").toLowerCase().startsWith("zh")}function copy(){return zh()?{title:"SSH \u8FDC\u7AEF Host",host:"\u4E3B\u673A",port:"\u7AEF\u53E3",user:"\u7528\u6237",password:"\u5BC6\u7801",jump:"\u8DF3\u677F\uFF08\u53EF\u9009\uFF09",remember:"\u542F\u7528\u671F\u95F4\u8BB0\u4F4F\u5BC6\u7801",connect:"\u8FDE\u63A5",cancel:"\u53D6\u6D88",connecting:"\u8FDE\u63A5\u4E2D"}:{title:"SSH remote Host",host:"Host",port:"Port",user:"User",password:"Password",jump:"Jump host",remember:"Remember while enabled",connect:"Connect",cancel:"Cancel",connecting:"Connecting"}}function escapeText(value){return String(value??"").replace(/[&<>"']/g,character=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character])}var app_default=definePluginApp(async({bridge:bridge2,root:root2,signal})=>{const text=copy();const labels=zh()?STEP_LABELS.zh:STEP_LABELS.en;const state={host:"",port:22,user:"",password:"",jump:"",rememberPassword:false,jobId:null,job:null,busy:false};const render=()=>{const job=state.job;const steps=job?.steps??[];root2.innerHTML=`
+      <section class="ssh">
+        <h1>${escapeText(text.title)}</h1>
+        <div class="grid">
+          <label>${escapeText(text.host)}
+            <input id="host" type="text" autocomplete="off" value="${escapeText(state.host)}" />
+          </label>
+          <label>${escapeText(text.port)}
+            <input id="port" type="number" min="1" max="65535" value="${escapeText(state.port)}" />
+          </label>
+        </div>
+        <label>${escapeText(text.user)}
+          <input id="user" type="text" autocomplete="off" value="${escapeText(state.user)}" />
+        </label>
+        <label>${escapeText(text.password)}
+          <input id="password" type="password" value="${escapeText(state.password)}" />
+        </label>
+        <label>${escapeText(text.jump)}
+          <input id="jump" type="text" autocomplete="off" value="${escapeText(state.jump)}" />
+        </label>
+        <div class="row">
+          <label class="remember">
+            <input id="remember" type="checkbox" ${state.rememberPassword?"checked":""} />
+            ${escapeText(text.remember)}
+          </label>
+          <div class="row">
+            ${state.busy?`<button class="ghost" id="cancel" type="button">${escapeText(text.cancel)}</button>`:""}
+            <button id="connect" type="button" ${state.busy?"disabled":""}>
+              ${escapeText(state.busy?text.connecting:text.connect)}
+            </button>
+          </div>
+        </div>
+        ${steps.length?`<ul class="steps">${steps.map(step=>`<li class="${escapeText(step.state)}"><span class="dot"></span><span>${escapeText(labels[step.id]??step.id)}</span><span class="detail">${escapeText(step.detail)}</span></li>`).join("")}</ul>`:""}
+        ${job?.error?`<p class="error">${escapeText(job.error)}</p>`:""}
+      </section>
+    `;bind()};const readFields=()=>{state.host=root2.querySelector("#host")?.value.trim()??"";state.port=Number(root2.querySelector("#port")?.value??22);state.user=root2.querySelector("#user")?.value.trim()??"";state.password=root2.querySelector("#password")?.value??"";state.jump=root2.querySelector("#jump")?.value.trim()??"";state.rememberPassword=Boolean(root2.querySelector("#remember")?.checked)};const poll=async()=>{if(!state.jobId||signal.aborted)return;const job=await bridge2.invoke("session.status",{jobId:state.jobId});state.job=job;state.busy=job?.status==="running";render();if(state.busy)window.setTimeout(()=>void poll(),700)};const bind=()=>{root2.querySelector("#connect")?.addEventListener("click",()=>{void(async()=>{readFields();state.busy=true;render();const started=await bridge2.invoke("session.start",{host:state.host,port:state.port,user:state.user,password:state.password,jump:state.jump,rememberPassword:state.rememberPassword});state.jobId=started.jobId;state.job=started.job;render();await poll()})().catch(error=>{state.busy=false;state.job={status:"failed",error:error?.message??String(error),steps:[]};render()})});root2.querySelector("#cancel")?.addEventListener("click",()=>{void bridge2.invoke("session.cancel",{jobId:state.jobId}).then(()=>{state.busy=false;render()})})};try{const saved=await bridge2.invoke("session.load");state.host=saved?.host??"";state.port=saved?.port??22;state.user=saved?.user??"";state.jump=saved?.jump??"";state.rememberPassword=Boolean(saved?.rememberPassword)}catch{}render();bridge2.ready()});var root=document.querySelector("#app")??document.body;var controller=new AbortController;var surface=globalThis.vibexSurface;if(!surface)throw new Error("vibex_app_surface_unavailable");var bootstrap=await surface.ready;var artifact=bootstrap.artifact?Object.freeze({name:bootstrap.artifact.name,readText:()=>surface.request("artifact.readText",null),writeText:(content,expectedRevision)=>surface.request("artifact.writeText",{content,expectedRevision})}):void 0;var bridge=Object.freeze({pluginId:bootstrap.pluginId,generation:bootstrap.generation,artifact,invoke:(handler,input=null)=>surface.request(handler,input),subscribe:(channel,listener)=>{if(channel!=="context")throw new Error("app_subscription_unsupported");const receive=event=>listener(event.detail);addEventListener("vibexsurfacecontext",receive);return()=>removeEventListener("vibexsurfacecontext",receive)},ready:()=>{void surface.request("surface.ready")}});var dispose=await app_default.mount({root,bridge,signal:controller.signal});addEventListener("pagehide",()=>{controller.abort();if(typeof dispose==="function")void dispose()},{once:true});
+</script></body>
+</html>

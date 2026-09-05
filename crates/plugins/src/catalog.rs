@@ -22,6 +22,7 @@ const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.host-chrome", "other"),
     ("vibex.provider-import", "other"),
     ("vibex.host-surface", "other"),
+    ("vibex.remote-ssh", "other"),
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

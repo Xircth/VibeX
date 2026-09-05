@@ -19,6 +19,7 @@ const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 const CODEX_CATALOG_FILE: &str = "vibex-model-catalog.json";
 const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
 type CodexCatalogFiles = (bool, Option<Vec<u8>>, Option<Vec<u8>>);
+#[cfg(test)]
 const IMPORT_SKIP_KEYS: &[&str] = &[
     "slug",
     "display_name",
@@ -326,6 +327,7 @@ fn resolve_codex_catalog_path(reference: &str, codex_home: &Path) -> Result<Path
     })
 }
 
+#[cfg(test)]
 fn import_codex_catalog(
     catalog: &Value,
     root_model: Option<&str>,
@@ -528,6 +530,107 @@ fn validate_codex_config(
         }
     }
     Ok(())
+}
+
+pub fn expand_provider_codex_catalog(
+    request: &CodexModelCatalogConfigRequest,
+    official: &[Value],
+) -> Result<Value, String> {
+    let mut models = Vec::new();
+    let mut seen = HashSet::new();
+    for custom in &request.customs {
+        let slug = custom.slug.trim();
+        if slug.is_empty() {
+            continue;
+        }
+        if slug.chars().any(char::is_whitespace) {
+            return Err("Codex 自定义模型 ID 不能为空或包含空格".to_string());
+        }
+        if !seen.insert(slug.to_string()) {
+            return Err(format!("自定义模型 `{slug}` 重复"));
+        }
+        models.push(materialize_provider_catalog_model(custom, slug, official));
+    }
+    if let Some(default) = request
+        .default_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && seen.insert(default.to_string())
+    {
+        models.push(materialize_provider_catalog_model(
+            &api_types::CodexCustomModelRequest {
+                slug: default.to_string(),
+                display_name: None,
+                context_window: None,
+                base: default.to_string(),
+                overrides: None,
+            },
+            default,
+            official,
+        ));
+    }
+    for (index, model) in models.iter_mut().enumerate() {
+        if let Some(model) = model.as_object_mut() {
+            model.insert("priority".to_string(), Value::from(index as u64));
+        }
+    }
+    Ok(serde_json::json!({ "models": models }))
+}
+
+pub async fn cached_official_models(cache_path: &Path) -> Vec<Value> {
+    read_codex_cache(cache_path, false)
+        .await
+        .and_then(|document| document.get("models").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+}
+
+fn materialize_provider_catalog_model(
+    custom: &api_types::CodexCustomModelRequest,
+    slug: &str,
+    official: &[Value],
+) -> Value {
+    let mut model = official
+        .iter()
+        .find(|model| model.get("slug").and_then(Value::as_str) == Some(custom.base.trim()))
+        .or_else(|| official.first())
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_else(|| {
+            let mut map = serde_json::Map::new();
+            map.insert("visibility".to_string(), Value::String("list".to_string()));
+            map.insert("supported_in_api".to_string(), Value::Bool(true));
+            map.insert("context_window".to_string(), Value::from(128_000));
+            map.insert("max_context_window".to_string(), Value::from(128_000));
+            map
+        });
+    if let Some(overrides) = custom.overrides.as_ref().and_then(Value::as_object) {
+        model.extend(overrides.clone());
+    }
+    model.insert("slug".to_string(), Value::String(slug.to_string()));
+    model.insert(
+        "display_name".to_string(),
+        Value::String(
+            custom
+                .display_name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| slug.to_string()),
+        ),
+    );
+    if let Some(context_window) = custom.context_window {
+        model.insert("context_window".to_string(), Value::from(context_window));
+        let maximum = model
+            .get("max_context_window")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .max(u64::from(context_window));
+        model.insert("max_context_window".to_string(), Value::from(maximum));
+    }
+    model.insert("visibility".to_string(), Value::String("list".to_string()));
+    model.insert("supported_in_api".to_string(), Value::Bool(true));
+    model.insert("upgrade".to_string(), Value::Null);
+    Value::Object(model)
 }
 
 fn expand_codex_catalog(
@@ -1004,6 +1107,28 @@ mod tests {
         assert_eq!(models[0]["default_verbosity"], "high");
         assert_eq!(models[0]["supports_parallel_tool_calls"], false);
         assert_eq!(models[1]["slug"], "official-a");
+    }
+
+    #[test]
+    fn provider_catalog_keeps_custom_slugs_without_an_official_template() {
+        let request = CodexModelCatalogConfigRequest {
+            customs: vec![api_types::CodexCustomModelRequest {
+                slug: "gpt-5.6-sol".to_string(),
+                display_name: Some("GPT-5.6-Sol".to_string()),
+                context_window: None,
+                base: "gpt-5.5".to_string(),
+                overrides: None,
+            }],
+            excluded_officials: Vec::new(),
+            default_model: Some("gpt-5.6-sol".to_string()),
+        };
+        let expanded = expand_provider_codex_catalog(&request, &[]).unwrap();
+        let models = expanded["models"].as_array().unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0]["slug"], "gpt-5.6-sol");
+        assert_eq!(models[0]["display_name"], "GPT-5.6-Sol");
+        assert_eq!(models[0]["visibility"], "list");
+        assert_eq!(models[0]["supported_in_api"], true);
     }
 
     #[test]

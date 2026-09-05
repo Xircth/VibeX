@@ -79,21 +79,17 @@ pub struct HostConversationCurrentTurn {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SessionIdArgs {
-    #[serde(alias = "conversationId")]
-    session_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct ConversationIdArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
     conversation_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EventsSinceArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
     conversation_id: String,
+    #[serde(alias = "after_sequence")]
     after_sequence: i64,
     #[serde(default)]
     limit: Option<i64>,
@@ -101,8 +97,8 @@ struct EventsSinceArgs {
 
 impl ServerApplicationDomains {
     pub(crate) async fn conversation_detail(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: SessionIdArgs = parse(args)?;
-        let id = parse_uuid(&args.session_id)?;
+        let args: ConversationIdArgs = parse(args)?;
+        let id = parse_uuid(&args.conversation_id)?;
         serialize(load_conversation_detail(&self.pool, id).await?)
     }
 
@@ -779,6 +775,31 @@ mod tests {
         assert!(value.get("activeBinding").is_none());
         assert_eq!(value["active_binding"]["agent_type"], "grok");
         assert!(value["active_binding"].get("agentType").is_none());
+    }
+
+    #[test]
+    fn conversation_id_args_accept_open_path_session_id() {
+        let from_session: ConversationIdArgs = crate::domains::parse(serde_json::json!({
+            "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        }))
+        .expect("sessionId");
+        assert_eq!(
+            from_session.conversation_id,
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        );
+        let from_request: EventsSinceArgs = crate::domains::parse(serde_json::json!({
+            "request": {
+                "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "afterSequence": 0,
+                "limit": 500
+            }
+        }))
+        .expect("events since sessionId");
+        assert_eq!(
+            from_request.conversation_id,
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        );
+        assert_eq!(from_request.after_sequence, 0);
     }
 
     #[test]

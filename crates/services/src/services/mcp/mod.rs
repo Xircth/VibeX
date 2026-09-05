@@ -88,9 +88,10 @@ pub enum McpAppType {
     KimiCode,
     Grok,
     Cursor,
+    Qoder,
 }
 
-const ALL_APPS: [McpAppType; 11] = [
+const ALL_APPS: [McpAppType; 12] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -102,12 +103,13 @@ const ALL_APPS: [McpAppType; 11] = [
     McpAppType::KimiCode,
     McpAppType::Grok,
     McpAppType::Cursor,
+    McpAppType::Qoder,
 ];
 
 /// Targets that Codeg exposes for new MCP assignments. OpenClaw remains in
 /// `ALL_APPS` so legacy entries can be scanned and removed, but is not offered
 /// for new assignments because its ACP implementation rejects MCP entries.
-const ASSIGNABLE_APPS: [McpAppType; 10] = [
+const ASSIGNABLE_APPS: [McpAppType; 11] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -118,6 +120,7 @@ const ASSIGNABLE_APPS: [McpAppType; 10] = [
     McpAppType::KimiCode,
     McpAppType::Grok,
     McpAppType::Cursor,
+    McpAppType::Qoder,
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -686,6 +689,10 @@ fn cursor_mcp_json_path() -> PathBuf {
     // Cursor's CLI hard-codes the user MCP file even when its chat/config roots
     // are relocated with CURSOR_CONFIG_DIR or XDG_CONFIG_HOME.
     home_dir_or_default().join(".cursor").join("mcp.json")
+}
+
+fn qoder_settings_path() -> PathBuf {
+    configured_dir("QODER_CONFIG_DIR", home_dir_or_default().join(".qoder")).join("settings.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -2707,6 +2714,51 @@ fn remove_kimi_code_server(id: &str) -> Result<bool, McpError> {
     remove_json_mcp_server_at(&kimi_code_mcp_json_path(), id)
 }
 
+fn read_qoder_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_json_file(path)?;
+    let mut out = BTreeMap::new();
+    let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
+        return Ok(out);
+    };
+    for (id, spec) in servers {
+        if let Ok(normalized) = canonicalize_spec(spec, "Qoder config") {
+            out.insert(id.clone(), normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn read_qoder_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_qoder_servers_at(&qoder_settings_path())
+}
+
+fn upsert_qoder_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    let mut root = read_json_file(path)?;
+    if !root.is_object() {
+        root = json!({});
+    }
+    let canonical = canonicalize_spec(spec, "Qoder write")?;
+    let obj = root
+        .as_object_mut()
+        .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
+    if !obj.get("mcpServers").map(Value::is_object).unwrap_or(false) {
+        obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    obj.get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| bad(format!("invalid mcpServers in {}", path.display())))?
+        .insert(id.to_string(), canonical);
+    write_json_file(path, &root)
+}
+
+fn upsert_qoder_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_qoder_server_at(&qoder_settings_path(), id, spec)
+}
+
+fn remove_qoder_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&qoder_settings_path(), id)
+}
+
 fn read_grok_root_toml_at(path: &Path) -> Result<toml::Value, McpError> {
     if !path.exists() {
         return Ok(toml::Value::Table(toml::map::Map::new()));
@@ -2965,6 +3017,7 @@ fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), 
         McpAppType::KimiCode => upsert_kimi_code_server(id, spec),
         McpAppType::Grok => upsert_grok_server(id, spec),
         McpAppType::Cursor => upsert_cursor_server(id, spec),
+        McpAppType::Qoder => upsert_qoder_server(id, spec),
     }
 }
 
@@ -2981,6 +3034,7 @@ fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, McpError> {
         McpAppType::KimiCode => remove_kimi_code_server(id),
         McpAppType::Grok => remove_grok_server(id),
         McpAppType::Cursor => remove_cursor_server(id),
+        McpAppType::Qoder => remove_qoder_server(id),
     }
 }
 
@@ -2997,6 +3051,7 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
         McpAppType::KimiCode => read_kimi_code_servers(),
         McpAppType::Grok => read_grok_servers(),
         McpAppType::Cursor => read_cursor_servers(),
+        McpAppType::Qoder => read_qoder_servers(),
     }
 }
 
@@ -4219,7 +4274,7 @@ mod tests {
             .into_iter()
             .map(|app| serde_json::to_value(app).expect("serialize app"))
             .collect::<Vec<_>>();
-        assert_eq!(targets.len(), 11);
+        assert_eq!(targets.len(), 12);
         for expected in [
             "claude_code",
             "codex",
@@ -4232,11 +4287,12 @@ mod tests {
             "kimi_code",
             "grok",
             "cursor",
+            "qoder",
         ] {
             assert!(targets.contains(&Value::String(expected.to_string())));
         }
         assert!(!targets.contains(&Value::String("pi".to_string())));
-        assert_eq!(ASSIGNABLE_APPS.len(), 10);
+        assert_eq!(ASSIGNABLE_APPS.len(), 11);
         assert!(!ASSIGNABLE_APPS.contains(&McpAppType::OpenClaw));
     }
 
@@ -4400,6 +4456,55 @@ mod tests {
         assert!(canonical_to_codex_entry(&sse).is_err());
         assert!(!app_can_host_spec(McpAppType::Codex, &sse));
         assert!(app_can_host_spec(McpAppType::KimiCode, &sse));
+        assert!(app_can_host_spec(McpAppType::Qoder, &sse));
+    }
+
+    #[test]
+    fn qoder_settings_json_round_trips_and_preserves_foreign_keys() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("settings.json");
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "securityScan": true,
+                "security": { "auth": { "selectedType": "qoder-browser" } },
+                "model": { "name": "qmodel_38max" },
+                "mcpServers": {
+                    "existing": { "command": "uvx", "args": ["mcp-existing"] }
+                }
+            }))
+            .expect("seed json"),
+        )
+        .expect("seed settings.json");
+
+        upsert_qoder_server_at(
+            &path,
+            "ctx7",
+            &json!({
+                "command": "npx",
+                "args": ["-y", "ctx7-mcp"],
+            }),
+        )
+        .expect("upsert");
+        let servers = read_qoder_servers_at(&path).expect("read back");
+        assert!(servers.contains_key("existing"));
+        assert!(servers.contains_key("ctx7"));
+        let root: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("re-read")).expect("parse");
+        assert_eq!(
+            root.pointer("/security/auth/selectedType"),
+            Some(&json!("qoder-browser"))
+        );
+        assert_eq!(root.pointer("/model/name"), Some(&json!("qmodel_38max")));
+        assert!(remove_json_mcp_server_at(&path, "ctx7").expect("remove"));
+        assert!(
+            !read_qoder_servers_at(&path)
+                .expect("after remove")
+                .contains_key("ctx7")
+        );
+        let after: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("re-read")).expect("parse");
+        assert_eq!(after.pointer("/model/name"), Some(&json!("qmodel_38max")));
     }
 
     #[tokio::test]

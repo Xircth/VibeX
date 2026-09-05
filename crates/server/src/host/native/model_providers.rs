@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{
+    catalog_cache_dir, model_catalogs,
     model_provider_import::{
         ImportDraft, annotate_duplicate, drafts_to_preview, preview_cc_switch,
     },
@@ -136,6 +137,16 @@ impl ProviderNativeHomes {
             _ => &self.codex,
         }
     }
+}
+
+pub fn provider_native_home(
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: &AgentId,
+) -> PathBuf {
+    ProviderNativeHomes::resolve(home, environment)
+        .native_list_home(agent_id)
+        .to_path_buf()
 }
 
 fn resolve_gemini_home(home: &Path, environment: &HashMap<String, String>) -> PathBuf {
@@ -1314,7 +1325,7 @@ async fn read_store(path: &Path) -> Result<ProviderStore, super::NativeError> {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|error| format!("Model Provider 存储文件无效：{error}").into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(ProviderStore::default()),
-        Err(error) => Err((format!("读取 Model Provider 失败：{error}").into())),
+        Err(error) => Err(format!("读取 Model Provider 失败：{error}").into()),
     }
 }
 
@@ -1748,7 +1759,7 @@ async fn native_hermes_draft(hermes_home: &Path) -> Result<Vec<ImportDraft>, Str
     let text = match tokio::fs::read_to_string(&path).await {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
+        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display()).into()),
     };
     if text.trim().is_empty() {
         return Ok(Vec::new());
@@ -2287,7 +2298,7 @@ async fn capture_text_file(
     let value = match tokio::fs::read_to_string(path).await {
         Ok(value) => Some(value),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
+        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display()).into()),
     };
     backup.file_values.insert(key.to_string(), value);
     Ok(())
@@ -2549,7 +2560,7 @@ async fn read_toml_table(path: &Path) -> Result<toml::Table, super::NativeError>
     let text = match tokio::fs::read_to_string(path).await {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err((format!("读取 {} 失败：{error}", path.display()).into())),
+        Err(error) => return Err(format!("读取 {} 失败：{error}", path.display()).into()),
     };
     if text.trim().is_empty() {
         Ok(toml::Table::new())
@@ -2566,6 +2577,7 @@ async fn write_toml_table(path: &Path, table: &toml::Table) -> Result<(), super:
     write_bytes_document(path, &bytes, false).await
 }
 
+#[cfg(test)]
 fn codex_catalog_cache(store_path: &Path) -> std::path::PathBuf {
     store_path
         .parent()
@@ -2724,12 +2736,31 @@ async fn apply_codex(
     } else {
         table.insert("model".to_string(), toml::Value::String(default_model));
     }
+    let official =
+        model_catalogs::cached_official_models(&catalog_cache_dir().join("codex-bundled.json"))
+            .await;
+    let catalog_document = structured
+        .as_ref()
+        .map(|request| model_catalogs::expand_provider_codex_catalog(request, &official))
+        .transpose()?;
+    let catalog_models = catalog_document
+        .as_ref()
+        .and_then(|document| document.get("models"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !catalog_models.is_empty() {
+        table.insert(
+            "model_catalog_json".to_string(),
+            toml::Value::String(CODEX_CATALOG_FILE.to_string()),
+        );
+    }
     let auth_bytes = serde_json::to_vec_pretty(&auth)
         .map_err(|error| format!("序列化 Codex auth.json 失败：{error}"))?;
     let config_bytes = toml::to_string_pretty(&table)
         .map(String::into_bytes)
         .map_err(|error| format!("序列化 Codex config.toml 失败：{error}"))?;
-    apply_projection_mutations(&[
+    let mut mutations = vec![
         NativeFileMutation {
             path: auth_path,
             expected: auth_original,
@@ -2742,8 +2773,31 @@ async fn apply_codex(
             replacement: Some(config_bytes),
             sensitive: false,
         },
-    ])
-    .await
+    ];
+    if !catalog_models.is_empty() {
+        let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
+        let source_path = codex_home.join(CODEX_SOURCE_FILE);
+        let catalog_original = filesystem.read(&catalog_path).await?;
+        let source_original = filesystem.read(&source_path).await?;
+        let catalog_bytes = serde_json::to_vec_pretty(catalog_document.as_ref().expect("catalog"))
+            .map_err(|error| format!("序列化 Codex 模型目录失败：{error}"))?;
+        let source_bytes =
+            serde_json::to_vec_pretty(structured.as_ref().expect("structured model"))
+                .map_err(|error| format!("序列化 Codex 模型目录源文件失败：{error}"))?;
+        mutations.push(NativeFileMutation {
+            path: catalog_path,
+            expected: catalog_original,
+            replacement: Some(catalog_bytes),
+            sensitive: false,
+        });
+        mutations.push(NativeFileMutation {
+            path: source_path,
+            expected: source_original,
+            replacement: Some(source_bytes),
+            sensitive: false,
+        });
+    }
+    apply_projection_mutations(&mutations).await
 }
 
 async fn remove_native_codex_provider(
@@ -3486,7 +3540,7 @@ fn parse_json_object_bytes(path: &Path, bytes: Option<&[u8]>) -> Result<Value, s
     if value.is_object() {
         Ok(value)
     } else {
-        Err((format!("{} 顶层必须是对象", path.display()).into()))
+        Err(format!("{} 顶层必须是对象", path.display()).into())
     }
 }
 
@@ -4223,13 +4277,24 @@ mod tests {
             config.get("model").and_then(toml::Value::as_str),
             Some("gateway-a")
         );
-        assert!(config.get("model_catalog_json").is_none());
+        assert_eq!(
+            config
+                .get("model_catalog_json")
+                .and_then(toml::Value::as_str),
+            Some(CODEX_CATALOG_FILE)
+        );
         assert_eq!(
             config.get("keep").and_then(toml::Value::as_bool),
             Some(true)
         );
-        assert!(!codex_home.join(CODEX_CATALOG_FILE).exists());
-        assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
+        let catalog: Value = serde_json::from_slice(
+            &tokio::fs::read(codex_home.join(CODEX_CATALOG_FILE))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(catalog["models"][0]["slug"], "gateway-a");
+        assert!(codex_home.join(CODEX_SOURCE_FILE).exists());
         let store = read_store(&store_path).await.unwrap();
         assert!(!store.bindings.is_empty());
         assert!(!store.projection_backups.is_empty());
@@ -4333,12 +4398,13 @@ mod tests {
                 .and_then(toml::Value::as_str),
             Some("vibex-model-catalog.json")
         );
-        assert_eq!(
-            tokio::fs::read_to_string(codex_home.join(CODEX_CATALOG_FILE))
+        let bound_catalog: Value = serde_json::from_slice(
+            &tokio::fs::read(codex_home.join(CODEX_CATALOG_FILE))
                 .await
                 .unwrap(),
-            r#"{"models":[{"slug":"old-custom"}]}"#
-        );
+        )
+        .unwrap();
+        assert_eq!(bound_catalog["models"][0]["slug"], "gateway-a");
 
         let mut externally_changed = read_toml_table(&codex_home.join("config.toml"))
             .await

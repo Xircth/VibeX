@@ -6,11 +6,12 @@ use std::{
 };
 
 use agents::{
-    AgentId, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider, NativeFileSystem,
-    ProfileComponent, ProfileManagementActionKind, TokioNativeFileSystem,
+    AgentId, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider, NativeConfigSnapshot,
+    NativeFileSystem, ProfileComponent, ProfileManagementActionKind, TokioNativeFileSystem,
     apply_built_in_auth_mode_policy, apply_codex_auth_mode, auth_mode_credential_env,
     auth_mode_kind, authentication_from_account_command, built_in_auth_mode_policy,
-    official_api_url, project_codex_auth_mode, resolve_account_label, version_at_least,
+    native_uses_custom_endpoint, official_api_url, project_codex_auth_mode, resolve_account_label,
+    resolve_built_in_auth_mode, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -30,7 +31,10 @@ use services::services::agent_management::AgentManagementApplicationService;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
-use super::account_flow;
+use super::{
+    account_flow,
+    native::{model_providers, provider_store_path},
+};
 use crate::domains::{internal_error, parse, serialize};
 
 const DIAGNOSTIC_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -189,7 +193,7 @@ pub async fn preflight(
     let env = read_agent_environment(pool, &agent_id).await?;
     if scope == Some("authentication") {
         let authentication = observed_authentication(pool, &agent_id, &env).await;
-        let item = auth_mode_preflight_item(&agent_id, &env, authentication).await?;
+        let item = auth_mode_preflight_item(pool, &agent_id, &env, authentication).await?;
         return Ok(AgentPreflightView {
             agent_id,
             checked_at: Utc::now().to_rfc3339(),
@@ -242,7 +246,7 @@ pub async fn preflight(
         .profile(&agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
     let (auth_mode_item, auth_mode_ready, auth_satisfies) =
-        match auth_mode_preflight_item(&agent_id, &env, authentication).await? {
+        match auth_mode_preflight_item(pool, &agent_id, &env, authentication).await? {
             Some(item) => {
                 let ready = item.status == "pass";
                 let satisfies = ready
@@ -951,43 +955,65 @@ pub async fn discovery_progress(
 }
 
 async fn project_auth_mode_view(
-    pool: &SqlitePool,
+    _pool: &SqlitePool,
     agent_id: AgentId,
     env: &HashMap<String, String>,
 ) -> Result<AgentAuthModeView, ApplicationError> {
+    let home =
+        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+    project_auth_mode_view_at(&home, &provider_store_path(), agent_id, env).await
+}
+
+async fn project_auth_mode_view_at(
+    home: &Path,
+    store_path: &Path,
+    agent_id: AgentId,
+    env: &HashMap<String, String>,
+) -> Result<AgentAuthModeView, ApplicationError> {
+    let native_home = model_providers::provider_native_home(home, env, &agent_id);
+    let providers =
+        match model_providers::list_with_native(store_path, agent_id.clone(), Some(&native_home))
+            .await
+        {
+            Ok(view) => view,
+            Err(error) if error.contains("不支持可复用 Model Provider") => {
+                api_types::AgentModelProvidersView {
+                    agent_id: agent_id.clone(),
+                    providers: Vec::new(),
+                    bound_provider_id: None,
+                }
+            }
+            Err(error) => return Err(ApplicationError::internal(error.to_string())),
+        };
+    let bound = providers.bound_provider_id.is_some();
     if agent_id.as_str() == "codex" {
-        return read_codex_auth_mode(pool, env).await;
+        return read_codex_auth_mode(home, env, bound, &providers).await;
     }
     let policy = built_in_auth_mode_policy(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    Ok(project_policy_auth_mode(agent_id, policy, env))
-}
-
-fn project_policy_auth_mode(
-    agent_id: AgentId,
-    policy: agents::BuiltInAuthModePolicy,
-    env: &HashMap<String, String>,
-) -> AgentAuthModeView {
-    let fallback_credential_present = env
-        .get(policy.credential_env)
-        .is_some_and(|value| !value.trim().is_empty());
-    let mode = env
-        .get(policy.mode_env)
-        .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .cloned()
-        .or_else(|| {
-            fallback_credential_present
-                .then(|| policy.credential_modes.first().copied())
-                .flatten()
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| policy.default_mode.to_string());
+    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
+    let native_custom = snapshot
+        .as_ref()
+        .is_some_and(|snapshot| native_uses_custom_endpoint(&agent_id, snapshot));
+    let mode = resolve_built_in_auth_mode(
+        &agent_id,
+        policy,
+        env,
+        bound,
+        native_custom,
+        snapshot.as_ref(),
+    );
     let credential_env =
         auth_mode_credential_env(&agent_id, &mode).unwrap_or(policy.credential_env);
-    let credential_present = env
-        .get(credential_env)
-        .is_some_and(|value| !value.trim().is_empty());
-    AgentAuthModeView {
+    let credential_present = credential_present_for_mode(
+        &agent_id,
+        &mode,
+        env,
+        credential_env,
+        &providers,
+        snapshot.as_ref(),
+    );
+    Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, policy.modes),
         agent_id,
         mode,
@@ -999,20 +1025,72 @@ fn project_policy_auth_mode(
         credential_env: credential_env.to_string(),
         credential_present,
         account_label: None,
+    })
+}
+
+fn credential_present_for_mode(
+    agent_id: &AgentId,
+    mode: &str,
+    env: &HashMap<String, String>,
+    credential_env: &str,
+    providers: &api_types::AgentModelProvidersView,
+    snapshot: Option<&NativeConfigSnapshot>,
+) -> bool {
+    match (agent_id.as_str(), mode) {
+        (_, "model_provider") => providers
+            .providers
+            .iter()
+            .find(|provider| Some(&provider.id) == providers.bound_provider_id.as_ref())
+            .is_some_and(|provider| provider.credential_present),
+        ("claude_code", "official_api" | "custom") => {
+            snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key"))
+        }
+        ("grok", "api_key" | "custom") => {
+            snapshot.is_some_and(|snapshot| snapshot.field_present("grok_api_key"))
+        }
+        ("antigravity" | "gemini", "gemini-api-key") => {
+            snapshot.is_some_and(|snapshot| snapshot.field_present("antigravity_api_key"))
+        }
+        ("antigravity" | "gemini", "agent-platform") => snapshot.is_some_and(|snapshot| {
+            snapshot.field_present("antigravity_google_api_key")
+                || (snapshot.field_text("antigravity_cloud_project").is_some()
+                    && snapshot.field_text("antigravity_cloud_location").is_some())
+        }),
+        _ => env
+            .get(credential_env)
+            .is_some_and(|value| !value.trim().is_empty()),
     }
 }
 
-async fn read_codex_auth_mode(
-    pool: &SqlitePool,
+async fn read_native_auth_snapshot(
+    home: &Path,
     env: &HashMap<String, String>,
+    agent_id: &AgentId,
+) -> Option<NativeConfigSnapshot> {
+    NativeConfigProvider::with_environment(
+        Arc::new(TokioNativeFileSystem),
+        home.to_path_buf(),
+        env.clone().into_iter().collect(),
+    )
+    .read(agent_id, false)
+    .await
+    .ok()
+}
+
+async fn read_codex_auth_mode(
+    home: &Path,
+    env: &HashMap<String, String>,
+    bound: bool,
+    providers: &api_types::AgentModelProvidersView,
 ) -> Result<AgentAuthModeView, ApplicationError> {
     let agent_id = AgentId::parse("codex").map_err(internal_error)?;
-    let home =
-        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    let codex_home = resolve_agent_home(&home, env, "CODEX_HOME", ".codex");
+    let codex_home = resolve_agent_home(home, env, "CODEX_HOME", ".codex");
     let auth = read_json_object_or_empty(&codex_home.join("auth.json")).await?;
-    let bound = bound_provider_id(pool, &agent_id).await?.is_some();
     let projection = project_codex_auth_mode(&auth, bound);
+    let mut credential_present = projection.credential_present;
+    if let Some(bound_provider) = providers.providers.iter().find(|provider| provider.bound) {
+        credential_present = credential_present || bound_provider.credential_present;
+    }
     Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, agents::CODEX_AUTH_MODES),
         agent_id,
@@ -1022,7 +1100,7 @@ async fn read_codex_auth_mode(
             .map(|mode| (*mode).to_string())
             .collect(),
         credential_env: "OPENAI_API_KEY".to_string(),
-        credential_present: projection.credential_present,
+        credential_present,
         account_label: None,
     })
 }
@@ -1058,7 +1136,7 @@ async fn set_codex_auth_mode(
             .await
             .map_err(internal_error)?;
     }
-    with_account_label(read_codex_auth_mode(pool, &env).await?).await
+    with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
 }
 
 async fn with_account_label(
@@ -1219,6 +1297,10 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescCodebuddySubscription",
         ),
+        ("qoder", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescQoderSubscription",
+        ),
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")
         }
@@ -1227,65 +1309,30 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
 }
 
 async fn auth_mode_preflight_item(
+    pool: &SqlitePool,
     agent_id: &AgentId,
     env: &HashMap<String, String>,
     authentication: AgentAuthenticationStatus,
 ) -> Result<Option<AgentPreflightItemView>, ApplicationError> {
-    if agent_id.as_str() == "codex" {
-        let home = dirs::home_dir();
-        let Some(home) = home else {
+    if built_in_auth_mode_policy(agent_id).is_none() && agent_id.as_str() != "codex" {
+        return Ok(None);
+    }
+    let view = match project_auth_mode_view(pool, agent_id.clone(), env).await {
+        Ok(view) => view,
+        Err(_) => {
             return Ok(Some(preflight_auth_item(
                 false,
-                "无法读取本机用户目录。".to_string(),
-                "chatgpt_subscription",
+                "无法读取鉴权模式。".to_string(),
+                "unknown",
             )));
-        };
-        let auth = read_json_object_or_empty(
-            &resolve_agent_home(&home, env, "CODEX_HOME", ".codex").join("auth.json"),
-        )
-        .await?;
-        let projection = project_codex_auth_mode(&auth, false);
-        let ready = match projection.mode {
-            "api_key" => projection.credential_present,
-            "model_provider" => false,
-            _ => {
-                matches!(
-                    authentication,
-                    AgentAuthenticationStatus::Account | AgentAuthenticationStatus::NotRequired
-                ) || auth
-                    .get("tokens")
-                    .and_then(Value::as_object)
-                    .is_some_and(|tokens| !tokens.is_empty())
-            }
-        };
-        return Ok(Some(preflight_auth_item(
-            ready,
-            if ready {
-                String::new()
-            } else {
-                format!("当前鉴权模式 `{}` 尚未就绪。", projection.mode)
-            },
-            projection.mode,
-        )));
-    }
-    let Some(policy) = built_in_auth_mode_policy(agent_id) else {
-        return Ok(None);
-    };
-    let view = project_policy_auth_mode(agent_id.clone(), policy, env);
-    let ready = match auth_mode_kind(agent_id, &view.mode) {
-        AgentAuthModeKind::OfficialApi => view.credential_present,
-        AgentAuthModeKind::Provider => view.credential_present,
-        AgentAuthModeKind::Subscription => {
-            !matches!(
-                authentication,
-                AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
-            ) || !policy.credential_modes.is_empty()
-                && view.mode == policy.default_mode
-                && matches!(
-                    authentication,
-                    AgentAuthenticationStatus::Account | AgentAuthenticationStatus::NotRequired
-                )
         }
+    };
+    let ready = match auth_mode_kind(agent_id, &view.mode) {
+        AgentAuthModeKind::OfficialApi | AgentAuthModeKind::Provider => view.credential_present,
+        AgentAuthModeKind::Subscription => !matches!(
+            authentication,
+            AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
+        ),
     };
     let ready = ready
         || matches!(
@@ -1828,36 +1875,21 @@ fn is_secret_environment_name(name: &str) -> bool {
 }
 
 async fn bound_provider_id(
-    _pool: &SqlitePool,
+    pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<Option<String>, ApplicationError> {
-    let path = utils::assets::host_data_dir().join("agent-model-providers.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let body = tokio::fs::read_to_string(path)
-        .await
-        .map_err(internal_error)?;
-    let parsed: Value = serde_json::from_str(&body).unwrap_or(json!({}));
-    let Some(items) = parsed.get("providers").and_then(Value::as_array) else {
-        return Ok(None);
-    };
-    Ok(items.iter().find_map(|item| {
-        let id = item
-            .get("agentId")
-            .or_else(|| item.get("agent_id"))?
-            .as_str()?;
-        if id != agent_id.as_str() {
-            return None;
-        }
-        let enabled = item
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        enabled
-            .then(|| item.get("id").and_then(Value::as_str).map(str::to_string))
-            .flatten()
-    }))
+    let home =
+        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+    let env = read_agent_environment(pool, agent_id).await?;
+    let native_home = model_providers::provider_native_home(&home, &env, agent_id);
+    let view = model_providers::list_with_native(
+        &provider_store_path(),
+        agent_id.clone(),
+        Some(&native_home),
+    )
+    .await
+    .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    Ok(view.bound_provider_id)
 }
 
 fn resolve_agent_home(
@@ -2096,6 +2128,17 @@ mod tests {
     }
 
     #[test]
+    fn qoder_auth_options_are_subscription_only() {
+        let agent_id = AgentId::parse("qoder").unwrap();
+        let policy = built_in_auth_mode_policy(&agent_id).unwrap();
+        let options = project_auth_mode_options(&agent_id, policy.modes);
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].value, "official_subscription");
+        assert_eq!(options[0].kind, AgentAuthModeKind::Subscription);
+        assert!(!options[0].credential_required);
+    }
+
+    #[test]
     fn copied_diagnostics_include_only_declared_checks_and_path() {
         let agent_id = AgentId::parse("codex").unwrap();
         let sections = vec![section(
@@ -2158,5 +2201,95 @@ mod tests {
         assert_eq!(secret.value, None);
         assert!(secret.secret);
         assert_eq!(secret.masked_value.as_deref(), Some("••••••••"));
+    }
+
+    #[tokio::test]
+    async fn native_codex_provider_selects_the_provider_auth_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let codex_home = home.join(".codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"sk-native"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model_provider = \"custom\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://api.custom.example/v1\"\n",
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("codex").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
+        assert_eq!(
+            view.options
+                .iter()
+                .find(|option| option.value == "model_provider")
+                .map(|option| option.kind),
+            Some(AgentAuthModeKind::Provider)
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_custom_endpoint_selects_the_provider_auth_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let claude_home = home.join(".claude");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&claude_home).await.unwrap();
+        tokio::fs::write(
+            claude_home.join("settings.json"),
+            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com","ANTHROPIC_AUTH_TOKEN":"sk-gateway","ANTHROPIC_MODEL":"deepseek-chat"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("claude_code").unwrap(),
+            &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
+    }
+
+    #[tokio::test]
+    async fn official_claude_api_key_stays_on_the_official_api_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let claude_home = home.join(".claude");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&claude_home).await.unwrap();
+        tokio::fs::write(
+            claude_home.join("settings.json"),
+            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com","ANTHROPIC_API_KEY":"sk-ant"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("claude_code").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "official_api");
     }
 }

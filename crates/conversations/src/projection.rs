@@ -1,16 +1,16 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
 use agents::conversation::{
     ContentBlock, ConversationAgentConnectionStatus, ConversationDelegationResult,
     ConversationDelegationView, ConversationError, ConversationErrorView, ConversationEvent,
-    ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-    PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, TimelineRow, TimelineTextStream,
-    TurnRole, TurnUsage, cap_preview_bytes, cap_timeline_preview_fields,
-    cap_timeline_row_preview_fields,
+    ConversationInputEvent, ConversationPermissionView, ConversationRowOp,
+    ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
+    ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
+    SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 use db::models::{
     conversation::ConversationAgentBindingRecord,
@@ -825,6 +825,12 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
+        // Durable input Submitted/Claimed events have no turn_id, so they sit
+        // before the turn-owned cut. If they survive, rebuild re-queues the
+        // truncated prompt and a reset-to-here resend submits it a second time.
+        let drop_input_ids =
+            Self::durable_inputs_undone_by_truncate(conn, conversation_id, ordinal).await?;
+
         // The first event sequence owned by the target turn (or any later turn) is the
         // truncation cut: dropping events at/after it removes the target turn and
         // everything that followed, while turn-less infra events before it stay put.
@@ -850,6 +856,8 @@ impl ConversationProjector {
             .await?;
         }
 
+        Self::delete_durable_input_events(conn, conversation_id, &drop_input_ids).await?;
+
         sqlx::query(
             r#"DELETE FROM conversation_turns
                WHERE conversation_id = ? AND ordinal >= ?"#,
@@ -873,6 +881,99 @@ impl ConversationProjector {
         .await;
         if let Err(error) = reindex {
             tracing::warn!("conversation FTS reindex on truncate failed: {error}");
+        }
+        Ok(())
+    }
+
+    async fn durable_inputs_undone_by_truncate(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        ordinal: i64,
+    ) -> Result<HashSet<Uuid>, sqlx::Error> {
+        let mut ids: HashSet<Uuid> = sqlx::query_scalar(
+            r#"SELECT id
+               FROM conversation_inputs
+               WHERE conversation_id = ?
+                 AND (
+                   status IN ('queued', 'claimed')
+                   OR (
+                       status = 'dispatched'
+                       AND (
+                           turn_id IS NULL
+                           OR turn_id IN (
+                               SELECT id
+                               FROM conversation_turns
+                               WHERE conversation_id = ? AND ordinal >= ?
+                           )
+                       )
+                   )
+                 )"#,
+        )
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+
+        let truncated_turn_ids: HashSet<Uuid> = sqlx::query_scalar(
+            r#"SELECT id
+               FROM conversation_turns
+               WHERE conversation_id = ? AND ordinal >= ?"#,
+        )
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+        if truncated_turn_ids.is_empty() {
+            return Ok(ids);
+        }
+
+        let events =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        for record in events {
+            if let ParsedEvent::Known(ConversationEvent::ConversationInput {
+                event:
+                    ConversationInputEvent::Dispatched {
+                        input_id, turn_id, ..
+                    },
+            }) = conversation_event_from_record(&record)
+                && truncated_turn_ids.contains(&turn_id)
+            {
+                ids.insert(input_id);
+            }
+        }
+        Ok(ids)
+    }
+
+    async fn delete_durable_input_events(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        drop_input_ids: &HashSet<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        if drop_input_ids.is_empty() {
+            return Ok(());
+        }
+        let events =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        for record in events {
+            if record.event_kind != "conversation_input" {
+                continue;
+            }
+            let ParsedEvent::Known(ConversationEvent::ConversationInput { event }) =
+                conversation_event_from_record(&record)
+            else {
+                continue;
+            };
+            if drop_input_ids.contains(&conversation_input_event_id(&event)) {
+                sqlx::query("DELETE FROM conversation_events WHERE id = ?")
+                    .bind(record.id)
+                    .execute(&mut *conn)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -2162,6 +2263,18 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
     Some(format!("{reason}: {requested}"))
 }
 
+fn conversation_input_event_id(event: &ConversationInputEvent) -> Uuid {
+    match event {
+        ConversationInputEvent::Submitted { input_id, .. }
+        | ConversationInputEvent::Updated { input_id, .. }
+        | ConversationInputEvent::Reordered { input_id, .. }
+        | ConversationInputEvent::Claimed { input_id, .. }
+        | ConversationInputEvent::ClaimReleased { input_id, .. }
+        | ConversationInputEvent::Dispatched { input_id, .. }
+        | ConversationInputEvent::Cancelled { input_id, .. } => *input_id,
+    }
+}
+
 fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEvent {
     match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
         Ok(event) => ParsedEvent::Known(event),
@@ -2224,9 +2337,10 @@ mod tests {
             ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
             ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
             ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
-            ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
-            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
-            ConversationToolCallPatch, ConversationUsage, SessionRecoveryStrategy,
+            ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
+            ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
+            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
+            ConversationUsage, SessionRecoveryStrategy,
         },
     };
     use db::models::{
@@ -5368,6 +5482,178 @@ mod tests {
             .await
             .expect("project after");
         assert_eq!(after.last_sequence, 3);
+    }
+
+    fn test_input_payload(text: &str) -> ConversationInputPayload {
+        ConversationInputPayload {
+            agent_id: AgentId::parse("codex").expect("agent id"),
+            workspace_id: Uuid::new_v4(),
+            executor_profile_id: None,
+            text: text.to_string(),
+            display_text: None,
+            images: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
+        }
+    }
+
+    async fn seed_durable_input_turn(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        text: &str,
+    ) -> (Uuid, Uuid) {
+        let input_id = Uuid::new_v4();
+        let claim_token = Uuid::new_v4();
+        let payload = test_input_payload(text);
+        append_event(
+            pool,
+            conversation_id,
+            None,
+            "user",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Submitted {
+                    input_id,
+                    operation_id: Uuid::new_v4(),
+                    revision: 1,
+                    sort_key: ConversationInputRecord::next_sort_key(pool, conversation_id)
+                        .await
+                        .expect("sort key"),
+                    payload_digest: format!("digest-{input_id}"),
+                    payload,
+                    principal: serde_json::json!({ "kind": "test" }),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            pool,
+            conversation_id,
+            None,
+            "system",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Claimed {
+                    input_id,
+                    claim_token,
+                    claim_deadline: chrono::Utc::now() + chrono::Duration::seconds(30),
+                },
+            },
+            None,
+        )
+        .await;
+        let turn = ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt"),
+                text_preview: Some(text),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        append_event(
+            pool,
+            conversation_id,
+            Some(turn.id),
+            "system",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Dispatched {
+                    input_id,
+                    claim_token,
+                    turn_id: turn.id,
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            pool,
+            conversation_id,
+            Some(turn.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: text.into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        (input_id, turn.id)
+    }
+
+    #[tokio::test]
+    async fn truncate_to_turn_does_not_requeue_the_truncated_turn_input() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let (kept_input_id, _) = seed_durable_input_turn(&pool, conversation_id, "first").await;
+        let (resent_input_id, _) = seed_durable_input_turn(&pool, conversation_id, "hello").await;
+        let queued_follow_up = Uuid::new_v4();
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "user",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Submitted {
+                    input_id: queued_follow_up,
+                    operation_id: Uuid::new_v4(),
+                    revision: 1,
+                    sort_key: ConversationInputRecord::next_sort_key(&pool, conversation_id)
+                        .await
+                        .expect("sort key"),
+                    payload_digest: format!("digest-{queued_follow_up}"),
+                    payload: test_input_payload("follow-up"),
+                    principal: serde_json::json!({ "kind": "test" }),
+                },
+            },
+            None,
+        )
+        .await;
+
+        ConversationProjector::truncate_to_turn_ordinal(&pool, conversation_id, 2)
+            .await
+            .expect("truncate");
+
+        let remaining = ConversationInputRecord::list_for_conversation(&pool, conversation_id)
+            .await
+            .expect("list inputs");
+        assert_eq!(
+            remaining.iter().map(|input| input.id).collect::<Vec<_>>(),
+            vec![kept_input_id],
+            "reset-to-here must drop the truncated turn input and later queued follow-ups, or resend submits a duplicate"
+        );
+        assert_eq!(remaining[0].status, "dispatched");
+        assert!(
+            ConversationInputRecord::find_by_id(&pool, resent_input_id)
+                .await
+                .expect("lookup resent input")
+                .is_none()
+        );
+        assert!(
+            ConversationInputRecord::find_by_id(&pool, queued_follow_up)
+                .await
+                .expect("lookup follow-up")
+                .is_none()
+        );
     }
 
     #[tokio::test]

@@ -7,19 +7,26 @@ use serde_json::{Map, Value};
 /// sibling id with a nested `payload` object. Try the value as-is, then unwrap,
 /// then merge, so a single Host DTO can serve every caller.
 pub fn decode_command_args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
+    let mut wrapper_error = None;
     for key in ["request", "payload"] {
-        if let Some(inner) = value.get(key).cloned().filter(|inner| inner.is_object()) {
-            if let Ok(parsed) = serde_json::from_value::<T>(inner) {
-                return Ok(parsed);
-            }
-            if let Some(merged) = merge_nested_object(&value, key)
-                && let Ok(parsed) = serde_json::from_value::<T>(merged)
-            {
-                return Ok(parsed);
+        let Some(inner) = value.get(key).cloned().filter(Value::is_object) else {
+            continue;
+        };
+        match serde_json::from_value::<T>(inner) {
+            Ok(parsed) => return Ok(parsed),
+            Err(error) => wrapper_error = Some(error.to_string()),
+        }
+        if let Some(merged) = merge_nested_object(&value, key) {
+            match serde_json::from_value::<T>(merged) {
+                Ok(parsed) => return Ok(parsed),
+                Err(error) => wrapper_error = Some(error.to_string()),
             }
         }
     }
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    match serde_json::from_value(value) {
+        Ok(parsed) => Ok(parsed),
+        Err(error) => Err(wrapper_error.unwrap_or_else(|| error.to_string())),
+    }
 }
 
 fn merge_nested_object(value: &Value, nested_key: &str) -> Option<Value> {
@@ -46,7 +53,9 @@ mod tests {
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(rename_all = "camelCase")]
     struct Flat {
+        #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
         conversation_id: String,
+        #[serde(alias = "after_sequence")]
         after_sequence: i64,
     }
 
@@ -92,5 +101,27 @@ mod tests {
         assert_eq!(parsed.workspace_id, "ws-1");
         assert_eq!(parsed.archived, Some(true));
         assert_eq!(parsed.name.as_deref(), Some("Done"));
+    }
+
+    #[test]
+    fn accepts_session_id_as_conversation_id() {
+        let parsed: Flat = decode_command_args(serde_json::json!({
+            "sessionId": "abc",
+            "afterSequence": 4
+        }))
+        .expect("sessionId");
+        assert_eq!(parsed.conversation_id, "abc");
+    }
+
+    #[test]
+    fn request_wrapper_keeps_the_inner_error() {
+        let error = decode_command_args::<Flat>(serde_json::json!({
+            "request": { "conversationId": "abc" }
+        }))
+        .expect_err("inner type error");
+        assert!(
+            error.contains("afterSequence") || error.contains("after_sequence"),
+            "masked as {error}"
+        );
     }
 }

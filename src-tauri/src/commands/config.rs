@@ -325,7 +325,6 @@ pub async fn clear_local_app_data(
 
     state.file_tree_watchers.lock().await.clear();
     state.conversation_streams.lock().await.clear();
-    state.local_usage_cache.lock().await.clear();
     state.agent_management_runtime.reset().await;
     let agent_management_runtime = state.agent_management_runtime.clone();
     tauri::async_runtime::spawn(async move {

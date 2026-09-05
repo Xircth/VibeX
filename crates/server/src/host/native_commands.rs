@@ -17,7 +17,7 @@ use sqlx::SqlitePool;
 use super::{
     management,
     native::{
-        self, apply_native_file_mutations, catalog_cache_dir, codex_device_auth, dsh_configuration,
+        apply_native_file_mutations, catalog_cache_dir, codex_device_auth, dsh_configuration,
         grok_plugins, json_document_mutation, model_catalogs, model_provider_import,
         model_providers, opencode_catalog, opencode_plugins, opencode_providers, pi_configuration,
         pi_plugins, provider_store_path, read_json_object_or_empty, read_json_object_state,
@@ -96,13 +96,6 @@ struct PluginSpecArgs {
 #[serde(rename_all = "camelCase")]
 struct ProviderIdArgs {
     provider_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OpenCodeEnabledArgs {
-    provider_id: String,
-    enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -1024,14 +1017,7 @@ fn native_home_for(
     env: &HashMap<String, String>,
     agent_id: &AgentId,
 ) -> PathBuf {
-    match agent_id.as_str() {
-        "codex" => resolve_agent_home(home, env, "CODEX_HOME", ".codex"),
-        "claude_code" => resolve_agent_home(home, env, "CLAUDE_CONFIG_DIR", ".claude"),
-        "pi" => resolve_agent_home(home, env, "PI_CODING_AGENT_DIR", ".pi"),
-        "opencode" => resolve_agent_home(home, env, "OPENCODE_CONFIG_DIR", ".opencode"),
-        "deepseek_harness" => resolve_agent_home(home, env, "DEEPSEEK_HOME", ".deepseek"),
-        _ => home.to_path_buf(),
-    }
+    model_providers::provider_native_home(home, env, agent_id)
 }
 
 struct OpenCodePaths {

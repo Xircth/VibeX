@@ -17,7 +17,6 @@ use serde_json::Value;
 use services::services::{
     container_actions,
     git_host::{GitHostError, GitHostProvider, GitHostService, ProviderKind},
-    usage::scan_vendor_usage_logs,
 };
 use utils::approvals::ApprovalResponse;
 use uuid::Uuid;
@@ -466,30 +465,36 @@ pub(super) async fn project_usage(
         "30d" => now_ms - 30 * 24 * 60 * 60 * 1000,
         _ => 0,
     };
-    let (scope, project_id, project_name, project_uuid) = if let Some(project_id) = args
-        .project_id
-        .as_deref()
-        .and_then(|value| Uuid::parse_str(value).ok())
-    {
-        let project = Project::find_by_id(&domains.pool, project_id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| ApplicationError::not_found("project not found"))?;
-        (
-            "project".to_string(),
-            project.id.to_string(),
-            project.name,
-            Some(project.id),
-        )
-    } else {
-        (
+    let (scope, project_id, project_name, project_uuid) = match args.scope.as_deref() {
+        Some("project") => {
+            let project_id = args
+                .project_id
+                .as_deref()
+                .and_then(|value| Uuid::parse_str(value).ok())
+                .ok_or_else(|| ApplicationError::bad_request("Project scope requires projectId"))?;
+            let project = Project::find_by_id(&domains.pool, project_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found("project not found"))?;
+            (
+                "project".to_string(),
+                project.id.to_string(),
+                project.name,
+                Some(project.id),
+            )
+        }
+        Some("global") | None => (
             "global".to_string(),
             "global".to_string(),
             "全局".to_string(),
             None,
-        )
+        ),
+        Some(other) => {
+            return Err(ApplicationError::bad_request(format!(
+                "Unsupported usage scope: {other}"
+            )));
+        }
     };
-    let (vendor_logs, provider_status) = scan_vendor_usage_logs();
     serialize(
         conversations::assemble_project_usage_statistics(
             &domains.pool,
@@ -499,8 +504,6 @@ pub(super) async fn project_usage(
             project_uuid,
             cutoff,
             now_ms,
-            &vendor_logs,
-            provider_status,
         )
         .await
         .map_err(internal_error)?,

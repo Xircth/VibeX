@@ -12,20 +12,12 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
     desktop_toast::DesktopToastPayload, local_history::LocalHistoryImportRuntime,
-    local_usage::ProjectUsageProviderStatus,
 };
 
 #[derive(Default)]
 pub struct DesktopToastRuntimeState {
     pub ready: bool,
     pub pending: Vec<DesktopToastPayload>,
-}
-
-#[derive(Clone, Default)]
-pub struct LocalUsageCacheEntry {
-    pub vendor_sessions: Vec<services::services::usage::VendorLogUsage>,
-    pub provider_status: Vec<ProjectUsageProviderStatus>,
-    pub scanned_at_ms: i64,
 }
 
 #[derive(Default)]
@@ -190,7 +182,6 @@ pub struct AppState {
     pub file_tree_watchers: Arc<Mutex<HashSet<String>>>,
     pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
-    pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
     pub conversation_agent_events: StdMutex<Option<mpsc::Receiver<AgentEventEnvelope>>>,
@@ -369,7 +360,6 @@ impl AppState {
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
-            local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
             agent_management_runtime: Arc::new(AgentManagementRuntimeState::default()),
             agent_runtime,
             conversation_agent_events: StdMutex::new(Some(conversation_agent_events)),

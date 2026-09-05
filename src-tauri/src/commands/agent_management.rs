@@ -574,6 +574,7 @@ mod tests {
             "grok",
             "cursor",
             "deepseek_harness",
+            "qoder",
         ] {
             let agent_id = AgentId::parse(agent).unwrap();
             let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
@@ -585,6 +586,22 @@ mod tests {
                 assert_eq!(option.credential_required, option.credential_env.is_some());
             }
         }
+    }
+
+    #[test]
+    fn qoder_auth_options_are_subscription_only() {
+        let agent_id = AgentId::parse("qoder").unwrap();
+        let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
+        let options = project_auth_mode_options(&agent_id, policy.modes);
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].value, "official_subscription");
+        assert_eq!(options[0].kind, api_types::AgentAuthModeKind::Subscription);
+        assert!(!options[0].credential_required);
+        assert!(options[0].credential_env.is_none());
+        assert_eq!(
+            options[0].description_key,
+            "agents.authDescQoderSubscription"
+        );
     }
 
     #[test]
@@ -2428,10 +2445,9 @@ use api_types::{
     CodexModelCatalogConfigView, DshPluginSummaryView, DshProviderDiscoverRequest,
     DshProviderModelView, DshProviderSaveRequest, DshProvidersView, GrokPluginSummaryView,
     OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodeProviderCatalogView,
-    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
-    OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
-    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView,
-    PiRuntimeSaveRequest, UserAgentDefinitionRequest, UserAgentDefinitionView,
+    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionsView, PiCommandValidationView,
+    PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView, PiRuntimeSaveRequest,
+    UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
 use db::models::{
@@ -10312,35 +10328,14 @@ fn resolve_profile_auth_mode(
     native_custom_endpoint: bool,
     snapshot: Option<&agents::NativeConfigSnapshot>,
 ) -> String {
-    if policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint) {
-        return "model_provider".to_string();
-    }
-    if let Some(mode) = env
-        .get(policy.mode_env)
-        .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .filter(|mode| mode.as_str() != "model_provider")
-    {
-        return mode.clone();
-    }
-    if agent_id.as_str() == "claude_code" {
-        if snapshot.is_some_and(|snapshot| native_field_present(snapshot, "anthropic_api_key")) {
-            return "official_api".to_string();
-        }
-        return "official_subscription".to_string();
-    }
-    if snapshot.is_some_and(|snapshot| native_field_present(snapshot, "antigravity_api_key")) {
-        return "gemini-api-key".to_string();
-    }
-    if snapshot.is_some_and(|snapshot| {
-        native_field_present(snapshot, "antigravity_google_api_key")
-            || native_field_text(snapshot, "antigravity_cloud_project").is_some()
-    }) {
-        return "agent-platform".to_string();
-    }
-    if policy.modes.contains(&"oauth-personal") {
-        return "oauth-personal".to_string();
-    }
-    policy.default_mode.to_string()
+    agents::resolve_built_in_auth_mode(
+        agent_id,
+        policy,
+        env,
+        bound_provider,
+        native_custom_endpoint,
+        snapshot,
+    )
 }
 
 fn authentication_with_bound_provider(
@@ -10662,44 +10657,18 @@ fn native_uses_custom_endpoint(
     agent_id: &AgentId,
     snapshot: &agents::NativeConfigSnapshot,
 ) -> bool {
-    let Some(url) = (match agent_id.as_str() {
-        "claude_code" => native_field_text(snapshot, "anthropic_base_url"),
-        _ => None,
-    }) else {
-        return false;
-    };
-    let normalized = url.trim().trim_end_matches('/').to_ascii_lowercase();
-    let official = agents::official_api_url(agent_id, "official_api")
-        .or_else(|| agents::official_api_url(agent_id, "custom"))
-        .or_else(|| agents::official_api_url(agent_id, "api_key"))
-        .unwrap_or("")
-        .trim_end_matches('/')
-        .to_ascii_lowercase();
-    !normalized.is_empty()
-        && (official.is_empty()
-            || (normalized != official
-                && normalized.strip_suffix("/v1").unwrap_or(&normalized) != official.as_str()))
+    agents::native_uses_custom_endpoint(agent_id, snapshot)
 }
 
 fn native_field_present(snapshot: &agents::NativeConfigSnapshot, field_id: &str) -> bool {
-    snapshot
-        .fields
-        .iter()
-        .find(|field| field.field_id == field_id)
-        .is_some_and(|field| field.present)
+    snapshot.field_present(field_id)
 }
 
 fn native_field_text<'a>(
     snapshot: &'a agents::NativeConfigSnapshot,
     field_id: &str,
 ) -> Option<&'a str> {
-    snapshot
-        .fields
-        .iter()
-        .find(|field| field.field_id == field_id)
-        .and_then(|field| field.value.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    snapshot.field_text(field_id)
 }
 
 async fn set_profile_auth_mode(
@@ -11358,6 +11327,10 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("codebuddy", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescCodebuddySubscription",
+        ),
+        ("qoder", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescQoderSubscription",
         ),
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")

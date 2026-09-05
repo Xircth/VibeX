@@ -208,7 +208,7 @@ pub async fn uninstall(
         if detail.contains("not found") {
             Ok(())
         } else if detail.is_empty() {
-            Err((format!("bun remove 退出码为 {}", output.status).into()))
+            Err(format!("bun remove 退出码为 {}", output.status).into())
         } else {
             Err(detail.into())
         }
@@ -218,7 +218,7 @@ pub async fn uninstall(
         if let Err(rollback) =
             super::write_bytes_document(&config_path, &original_config, false).await
         {
-            return Err((format!("{error}；恢复 opencode.json 失败：{}", rollback.message).into()));
+            return Err(format!("{error}；恢复 opencode.json 失败：{}", rollback.message).into());
         }
         return Err(error);
     }

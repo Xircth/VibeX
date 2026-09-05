@@ -249,21 +249,6 @@ struct ChatWebhooksArgs {
     webhooks: Value,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderStoreItem {
-    id: String,
-    name: String,
-    agent_id: AgentId,
-    api_url: String,
-    #[serde(default)]
-    api_key: String,
-    #[serde(default)]
-    model: String,
-    #[serde(default)]
-    enabled: bool,
-}
-
 fn parse_uuid(field: &str, value: &str) -> Result<Uuid, ApplicationError> {
     Uuid::parse_str(value)
         .map_err(|_| ApplicationError::bad_request(format!("{field} is not a valid UUID")))
@@ -287,10 +272,6 @@ fn parse_permission_id(value: &str) -> Result<AgentPermissionId, ApplicationErro
 
 fn text_blocks(text: String) -> Vec<AgentContentBlock> {
     vec![AgentContentBlock::Text { text }]
-}
-
-fn provider_store_path() -> PathBuf {
-    utils::assets::host_data_dir().join("agent-model-providers.json")
 }
 
 impl ServerApplicationDomains {
@@ -1726,98 +1707,6 @@ impl ServerApplicationDomains {
         Ok(view)
     }
 
-    async fn load_provider_store(&self) -> Result<Vec<ProviderStoreItem>, ApplicationError> {
-        let path = provider_store_path();
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let body = tokio::fs::read_to_string(path)
-            .await
-            .map_err(internal_error)?;
-        let parsed: Value = serde_json::from_str(&body).unwrap_or(json!({}));
-        let items = parsed.get("providers").cloned().unwrap_or(json!([]));
-        serde_json::from_value(items).map_err(|error| ApplicationError::internal(error.to_string()))
-    }
-
-    async fn save_provider_store(
-        &self,
-        providers: &[ProviderStoreItem],
-    ) -> Result<(), ApplicationError> {
-        let path = provider_store_path();
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(internal_error)?;
-        }
-        let body = serde_json::to_string_pretty(&json!({ "providers": providers }))
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        tokio::fs::write(path, body).await.map_err(internal_error)
-    }
-
-    async fn agent_model_providers(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: AgentIdArgs = parse(args).unwrap_or(AgentIdArgs {
-            agent_id: AgentId::parse("codex").unwrap_or_else(|_| args_agent_fallback()),
-        });
-        let providers = self
-            .load_provider_store()
-            .await?
-            .into_iter()
-            .filter(|item| item.agent_id == args.agent_id)
-            .collect::<Vec<_>>();
-        serialize(json!({ "providers": providers }))
-    }
-
-    async fn agent_model_provider_save(&self, args: Value) -> Result<Value, ApplicationError> {
-        let item: ProviderStoreItem = parse_payload(args)?;
-        let mut providers = self.load_provider_store().await?;
-        if let Some(existing) = providers.iter_mut().find(|row| row.id == item.id) {
-            *existing = item.clone();
-        } else {
-            providers.push(item.clone());
-        }
-        self.save_provider_store(&providers).await?;
-        self.agent_model_providers(json!({ "agentId": item.agent_id.to_string() }))
-            .await
-    }
-
-    async fn agent_model_provider_delete(&self, args: Value) -> Result<Value, ApplicationError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct DeleteArgs {
-            agent_id: AgentId,
-            provider_id: String,
-        }
-        let args: DeleteArgs = parse(args)?;
-        let providers = self
-            .load_provider_store()
-            .await?
-            .into_iter()
-            .filter(|item| !(item.agent_id == args.agent_id && item.id == args.provider_id))
-            .collect::<Vec<_>>();
-        self.save_provider_store(&providers).await?;
-        self.agent_model_providers(json!({ "agentId": args.agent_id.to_string() }))
-            .await
-    }
-
-    async fn agent_model_provider_bind(&self, args: Value) -> Result<Value, ApplicationError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct BindArgs {
-            agent_id: AgentId,
-            provider_id: String,
-        }
-        let args: BindArgs = parse(args)?;
-        let mut providers = self.load_provider_store().await?;
-        for item in &mut providers {
-            if item.agent_id == args.agent_id {
-                item.enabled = item.id == args.provider_id;
-            }
-        }
-        self.save_provider_store(&providers).await?;
-        self.agent_model_providers(json!({ "agentId": args.agent_id.to_string() }))
-            .await
-    }
-
     async fn create_workflow_debug_workspace(
         &self,
         args: Value,
@@ -2229,10 +2118,6 @@ fn parse_payload<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, Appli
         return parse(request.clone());
     }
     parse(args)
-}
-
-fn args_agent_fallback() -> AgentId {
-    AgentId::parse("claude_code").expect("built-in agent id")
 }
 
 fn parse_operation_kind(value: &str) -> Option<AgentOperationKind> {

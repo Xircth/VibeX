@@ -24,7 +24,6 @@ $InstallDir = if ($env:VIBEX_INSTALL_DIR) { $env:VIBEX_INSTALL_DIR } else { Join
 $SupportedPlatforms = @(
     "linux-x86_64",
     "linux-aarch64",
-    "darwin-x86_64",
     "darwin-aarch64",
     "windows-x86_64",
     "windows-aarch64"

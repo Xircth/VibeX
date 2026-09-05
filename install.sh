@@ -24,7 +24,7 @@ REPO="${VIBEX_GITHUB_REPO:-$DEFAULT_REPO}"
 CACHE_ROOT="${HOME}/.vibex/host-family"
 INSTALL_DIR="${VIBEX_INSTALL_DIR:-${HOME}/.local/bin}"
 # Kept in step with npx-cli/bin/release-assets.js by scripts/release-assets.test.js.
-SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-x86_64 darwin-aarch64 windows-x86_64 windows-aarch64"
+SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-aarch64 windows-x86_64 windows-aarch64"
 
 TEMP_DIR=""
 

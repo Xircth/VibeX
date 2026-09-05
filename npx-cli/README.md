@@ -21,7 +21,7 @@ the LAN and prints the long-lived host token. Use `--local` to keep loopback, or
 
 Artifacts:
 
-- `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-x86_64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
+- `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
 - matching `.tar.gz.sha256`
 
 Pin a tag with `VIBEX_HOST_FAMILY_TAG=v0.1.3`. Point at an already extracted

@@ -33,14 +33,13 @@ test('every published platform maps from Node and uname', () => {
   assert.deepEqual(PLATFORMS, [
     'linux-x86_64',
     'linux-aarch64',
-    'darwin-x86_64',
     'darwin-aarch64',
     'windows-x86_64',
     'windows-aarch64',
   ]);
   assert.equal(platformFromNode('linux', 'x64'), 'linux-x86_64');
   assert.equal(platformFromNode('linux', 'arm64'), 'linux-aarch64');
-  assert.equal(platformFromNode('darwin', 'x64'), 'darwin-x86_64');
+  assert.equal(platformFromNode('darwin', 'x64'), null);
   assert.equal(platformFromNode('darwin', 'arm64'), 'darwin-aarch64');
   assert.equal(platformFromNode('win32', 'x64'), 'windows-x86_64');
   assert.equal(platformFromNode('win32', 'arm64'), 'windows-aarch64');
@@ -50,6 +49,7 @@ test('every published platform maps from Node and uname', () => {
   assert.equal(platformFromUname('Linux', 'amd64'), 'linux-x86_64');
   assert.equal(platformFromUname('Darwin', 'arm64'), 'darwin-aarch64');
   assert.equal(platformFromUname('Darwin', 'aarch64'), 'darwin-aarch64');
+  assert.equal(platformFromUname('Darwin', 'x86_64'), null);
   assert.equal(platformFromUname('SunOS', 'x86_64'), null);
 });
 
@@ -72,7 +72,7 @@ test('npx, install.sh, and install.ps1 all ask for the CI archive name', () => {
 
   const installSh = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');
   assert.match(installSh, /archive="VibeX-\$\{version\}-\$\{platform\}-server\.tar\.gz"/);
-  assert.match(installSh, /SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-x86_64 darwin-aarch64 windows-x86_64 windows-aarch64"/);
+  assert.match(installSh, /SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-aarch64 windows-x86_64 windows-aarch64"/);
 
   const installPs1 = fs.readFileSync(path.join(ROOT, 'install.ps1'), 'utf8');
   assert.match(installPs1, /\$archive = "VibeX-\$version-\$platform-server\.tar\.gz"/);

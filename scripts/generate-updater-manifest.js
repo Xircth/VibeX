@@ -51,16 +51,6 @@ const updaterTargets = [
     },
   },
   {
-    artifactName: "VibeX-macos-x64",
-    platform: "darwin-x86_64",
-    assetName(version) {
-      return `VibeX-${version}-darwin-x86_64.app.tar.gz`;
-    },
-    matches(filePath) {
-      return filePath.endsWith(".app.tar.gz");
-    },
-  },
-  {
     artifactName: "VibeX-macos-arm64",
     platform: "darwin-aarch64",
     assetName(version) {
@@ -73,15 +63,6 @@ const updaterTargets = [
 ];
 
 const installerTargets = [
-  {
-    artifactName: "VibeX-macos-x64",
-    assetName(version) {
-      return `VibeX-${version}-darwin-x86_64.dmg`;
-    },
-    matches(filePath) {
-      return filePath.endsWith(".dmg");
-    },
-  },
   {
     artifactName: "VibeX-macos-arm64",
     assetName(version) {

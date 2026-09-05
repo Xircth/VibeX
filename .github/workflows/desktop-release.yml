@@ -173,10 +173,6 @@ jobs:
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             bundles: appimage
-          - artifact_name: macos-x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: app
           - artifact_name: macos-arm64
             runner: macos-15
             target: aarch64-apple-darwin
@@ -258,11 +254,11 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Setup sccache
-        if: runner.os != 'Windows' && matrix.artifact_name != 'macos-x64'
+        if: runner.os != 'Windows'
         uses: BloopAI/sccache-action@main
 
-      - name: Disable sccache on Windows and Intel macOS
-        if: runner.os == 'Windows' || matrix.artifact_name == 'macos-x64'
+      - name: Disable sccache on Windows
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"

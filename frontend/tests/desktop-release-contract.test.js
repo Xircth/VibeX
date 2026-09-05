@@ -83,7 +83,6 @@ test('desktop release builds every supported OS and CPU architecture', () => {
     'aarch64-pc-windows-msvc',
     'x86_64-unknown-linux-gnu',
     'aarch64-unknown-linux-gnu',
-    'x86_64-apple-darwin',
     'aarch64-apple-darwin',
   ];
 
@@ -95,11 +94,11 @@ test('desktop release builds every supported OS and CPU architecture', () => {
     'windows-aarch64',
     'linux-x86_64',
     'linux-aarch64',
-    'darwin-x86_64',
     'darwin-aarch64',
   ]) {
     assert.match(updater, new RegExp(`platform: ['"]${platform}['"]`));
   }
+  assert.doesNotMatch(updater, /darwin-x86_64/);
 });
 
 test('local Apple signing is loaded from gitignored env without committing secrets', () => {
@@ -199,25 +198,16 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
   assert.match(workflow, /VIBEX_SKIP_FRONTEND_BUILD:\s*"1"/);
   assert.match(workflow, /SCCACHE_GHA_ENABLED:\s*"true"/);
   assert.match(workflow, /BloopAI\/sccache-action@main/);
-  assert.match(workflow, /Disable sccache on Windows and Intel macOS/);
-  assert.match(
-    workflow,
-    /if: runner\.os != 'Windows' && matrix\.artifact_name != 'macos-x64'/
-  );
-  assert.match(
-    workflow,
-    /if: runner\.os == 'Windows' \|\| matrix\.artifact_name == 'macos-x64'/
-  );
+  assert.match(workflow, /Disable sccache on Windows/);
+  assert.match(workflow, /if: runner\.os != 'Windows'/);
   assert.match(workflow, /cache-targets:\s*false/);
   assert.match(
     workflow,
     /CEF_PATH:\s*\$\{\{\s*github\.workspace\s*\}\}\/\.cef/
   );
   assert.match(workflow, /name: Cache CEF downloads/);
-  assert.match(
-    workflow,
-    /artifact_name: macos-x64[\s\S]*runner: macos-15-intel/
-  );
+  assert.doesNotMatch(workflow, /macos-15-intel/);
+  assert.doesNotMatch(workflow, /x86_64-apple-darwin/);
   assert.match(
     workflow,
     /artifact_name: macos-arm64[\s\S]*runner: macos-15$/m

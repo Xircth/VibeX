@@ -24,7 +24,7 @@ Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
 present.
 
 `npx vibex`, `install.sh`, and `install.ps1` download
-`VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-x86_64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
+`VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
 from the matching GitHub Release, verify the sidecar `.sha256` and the inner
 `SHA256SUMS`, then run `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
 Those names are produced by `npx-cli/bin/release-assets.js`; CI and the

@@ -133,13 +133,13 @@ npx vibex
 # 或: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibex` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-x86_64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
+`npx vibex` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
 
 解压后的目录包含 `vibex-server`、`vibex-mcp`、`web/` 与 `plugins/bundled/`。
 
 | 平台 | 系统基线 | 发行物 |
 | --- | --- | --- |
-| macOS | 12 或更高版本 | darwin-x86_64 / darwin-aarch64 |
+| macOS | 12 或更高版本 | darwin-aarch64 |
 | Windows | 10 / 11 | windows-x86_64 / windows-aarch64 |
 | Linux | Ubuntu 22.04 同等基线 | linux-x86_64 / linux-aarch64，也可使用 Docker |
 

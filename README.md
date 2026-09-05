@@ -133,13 +133,13 @@ npx vibex
 # or: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibex` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-x86_64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
+`npx vibex` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
 
 The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `plugins/bundled/`.
 
 | Platform | Baseline | Artifacts |
 | --- | --- | --- |
-| macOS | 12 or later | darwin-x86_64 / darwin-aarch64 |
+| macOS | 12 or later | darwin-aarch64 |
 | Windows | 10 / 11 | windows-x86_64 / windows-aarch64 |
 | Linux | Ubuntu 22.04 equivalent | linux-x86_64 / linux-aarch64; Docker is also available |
 

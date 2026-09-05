@@ -38,7 +38,6 @@ triggers `.github/workflows/desktop-release.yml`, which builds these artifacts:
 - `VibeX-windows-arm64`
 - `VibeX-linux-x64`
 - `VibeX-linux-arm64`
-- `VibeX-macos-x64`
 - `VibeX-macos-arm64`
 
 The generated installers are available from the workflow run's artifacts.
@@ -65,8 +64,7 @@ same inputs there.
 
 ## Runtime contract
 
-- macOS bundles target macOS 12 or newer and are built for Intel and Apple
-  Silicon.
+- macOS bundles target macOS 12 or newer and are built for Apple Silicon.
 - Windows bundles target x64 and ARM64, use the GUI PE subsystem, and include
   the offline WebView2 installer. Background commands use hidden-process
   creation flags and must not open a console window.

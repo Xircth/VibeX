@@ -542,8 +542,7 @@ export function AgentSettings() {
             : 'settings:agents.runtimeAcpUpdateComplete'
       )
     );
-    void management
-      .refresh()
+    void refreshManagement()
       .then((agents) => {
         const agent = agents.find((item) => item.agent_id === selectedAgentId);
         if (!agent) return;
@@ -558,8 +557,8 @@ export function AgentSettings() {
       .catch(() => undefined);
   }, [
     liveOperation?.kind,
-    management,
     operationActive,
+    refreshManagement,
     registryOpen,
     selectedAgent?.lifecycle,
     selectedAgentId,

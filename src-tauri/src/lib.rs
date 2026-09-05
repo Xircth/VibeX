@@ -17,7 +17,6 @@ use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
 mod app_icon;
-mod app_surface;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;

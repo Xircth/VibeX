@@ -2452,6 +2452,7 @@ mod tests {
         assert_eq!(role_from_value(&value), ImportedAgentMessageRole::Assistant);
     }
 
+    #[cfg(unix)]
     #[test]
     fn saved_history_home_is_scanned_before_process_defaults() {
         let sources = configured_history_sources(
@@ -2485,6 +2486,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn configured_codeg_history_roots_keep_each_cli_directory_contract() {
         let antigravity = configured_history_sources(

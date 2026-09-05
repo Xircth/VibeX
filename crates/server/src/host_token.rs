@@ -50,7 +50,7 @@ pub fn resolve_console_token(data_dir: impl AsRef<Path>, rotate: bool) -> Server
     issue_host_token()
 }
 
-fn restrict_host_token_permissions(path: &Path) {
+fn restrict_host_token_permissions(#[cfg_attr(not(unix), allow(unused_variables))] path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

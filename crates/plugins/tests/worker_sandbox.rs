@@ -2,7 +2,11 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use plugins::{DenyCapabilityBroker, PluginPackage, PluginSourceKind, WorkerHost};
 use serde_json::json;
-use tokio::{io::AsyncWriteExt, net::TcpListener, time::timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    time::timeout,
+};
 
 fn node_executable() -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
@@ -132,10 +136,16 @@ async fn trusted_worker_can_read_host_files_spawn_children_and_reach_loopback() 
     let address = listener.local_addr().unwrap();
     let response = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
+        // Drain the request first. Closing a socket that still holds unread
+        // inbound data makes Windows send an RST, which aborts the response
+        // before the client can read it and fails the probe.
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request).await;
         stream
             .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
             .await
             .unwrap();
+        stream.flush().await.unwrap();
     });
     let network_result = worker
         .invoke(

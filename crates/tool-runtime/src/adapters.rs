@@ -322,8 +322,8 @@ impl ProcessProbe for CommandProcessProbe {
 
 #[cfg(windows)]
 fn hide_process_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
+    // tokio's Command has its own inherent creation_flags on Windows, so the
+    // std CommandExt trait is not needed here.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }

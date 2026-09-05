@@ -196,10 +196,10 @@ async fn execute_lifecycle_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ProjectWorktreeSettings, execute_lifecycle_command, normalize_settings,
-        should_prompt_cleanup,
-    };
+    // Only the POSIX-gated lifecycle test below runs a shell command.
+    #[cfg(unix)]
+    use super::execute_lifecycle_command;
+    use super::{ProjectWorktreeSettings, normalize_settings, should_prompt_cleanup};
 
     #[test]
     fn cleanup_prompt_appears_only_when_the_next_worktree_exceeds_the_limit() {

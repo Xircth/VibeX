@@ -381,25 +381,25 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
     if let Some(static_root) = static_root {
         server_config = server_config.with_static_root(static_root);
     }
-    let core = server::host_application_core(
-        state.deployment.db().pool.clone(),
-        state.conversation_context(),
-        state.plugin_control_plane.clone(),
-        Some(state.delegation.features.clone()),
-        state.plugin_preview_host.clone(),
-        state.plugin_capability_broker.clone(),
-        state.plugin_app_surfaces.clone(),
-        server::PreviewProxyRegistry::default(),
-        server::HeadlessAutomationRuntime::new(
+    let core = server::host_application_core(server::HostApplicationCoreDeps {
+        pool: state.deployment.db().pool.clone(),
+        conversations: state.conversation_context(),
+        plugin_control_plane: state.plugin_control_plane.clone(),
+        companion_memory: Some(state.delegation.features.clone()),
+        preview_host: state.plugin_preview_host.clone(),
+        capability_broker: state.plugin_capability_broker.clone(),
+        app_surfaces: state.plugin_app_surfaces.clone(),
+        preview_proxy: server::PreviewProxyRegistry::default(),
+        automation: server::HeadlessAutomationRuntime::new(
             state.local_deployment.clone(),
             state.conversation_context(),
             state.plugin_control_plane.clone(),
         ),
-        false,
-        state.local_deployment.clone(),
-        utils::assets::asset_dir().join("plugins/runtimes"),
-        state.plugin_worker_runtime.clone(),
-    );
+        owns_automation_engine: false,
+        deployment: state.local_deployment.clone(),
+        runtime_root: utils::assets::asset_dir().join("plugins/runtimes"),
+        worker_runtime: state.plugin_worker_runtime.clone(),
+    });
     let runtime = server::ServerRuntime::from_sqlite_auth_with_preview_proxy_and_pty(
         server_config,
         state.deployment.db().pool.clone(),

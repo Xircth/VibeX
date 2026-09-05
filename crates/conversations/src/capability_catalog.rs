@@ -453,4 +453,48 @@ mod tests {
         };
         assert!(catalog_controls_if_fresh(record, now).is_none());
     }
+
+    #[test]
+    fn capability_probe_cleanup_failure_does_not_hide_a_persisted_catalog() {
+        assert!(
+            capability_probe_result(
+                Ok(()),
+                Ok(()),
+                Err(ConversationServiceError::Internal(
+                    "failed to remove capability probe directory: os error 32".to_string()
+                )),
+            )
+            .is_ok()
+        );
+        assert!(
+            capability_probe_result(
+                Ok(()),
+                Err(ConversationServiceError::Internal(
+                    "session discard failed".to_string()
+                )),
+                Err(ConversationServiceError::Internal(
+                    "failed to remove capability probe directory: os error 32".to_string()
+                )),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn capability_probe_still_returns_persist_errors() {
+        let error = capability_probe_result(
+            Err(ConversationServiceError::Internal(
+                "ACP session preparation failed".to_string(),
+            )),
+            Ok(()),
+            Err(ConversationServiceError::Internal(
+                "failed to remove capability probe directory: os error 32".to_string(),
+            )),
+        );
+        assert!(matches!(
+            error,
+            Err(ConversationServiceError::Internal(message))
+                if message.contains("ACP session preparation failed")
+        ));
+    }
 }

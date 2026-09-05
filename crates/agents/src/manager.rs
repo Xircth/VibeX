@@ -2446,6 +2446,7 @@ impl AgentConnectionRunner {
     /// back to a vendor `_meta` extension when the agent advertised neither
     /// (Grok currently). The returned wire marker tells the apply path which
     /// non-standard method (if any) the agent expects for changes.
+    #[allow(clippy::too_many_arguments)]
     async fn emit_session_controls(
         &self,
         conn: &ConnectionTo<Agent>,

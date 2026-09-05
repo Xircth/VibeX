@@ -238,14 +238,10 @@ describe('AgentRegistryViewPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: '手动添加' }));
     expect(screen.getByText('预设 ACP')).toBeInTheDocument();
+    // The agent icon carries the same name in an SVG <title> for screen
+    // readers, so match the visible row label rather than every text node.
     expect(
-      screen.getByText((_, element) => {
-        return (
-          element?.tagName === 'SPAN' &&
-          element.classList.contains('truncate') &&
-          element.textContent === 'DeepSeek Harness'
-        );
-      })
+      screen.getByText('DeepSeek Harness', { selector: 'span' })
     ).toBeInTheDocument();
     expect(screen.getByRole('status', { name: '已内置' })).toBeInTheDocument();
     expect(onAddUserDefinition).not.toHaveBeenCalled();

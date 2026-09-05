@@ -325,12 +325,11 @@ pub async fn load_compact_transcript(
                         .or(tool_call.kind)
                         .unwrap_or_else(|| "tool".to_string());
                     let name = truncate_chars(&name, MAX_TOOL_NAME_CHARS);
-                    if let Some(current) = messages.last_mut() {
-                        if current.tools.len() < MAX_TOOLS_PER_TURN
-                            && !current.tools.contains(&name)
-                        {
-                            current.tools.push(name);
-                        }
+                    if let Some(current) = messages.last_mut()
+                        && current.tools.len() < MAX_TOOLS_PER_TURN
+                        && !current.tools.contains(&name)
+                    {
+                        current.tools.push(name);
                     }
                 }
                 ConversationEvent::UsageUpdated { usage } => {

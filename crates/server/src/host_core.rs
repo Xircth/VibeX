@@ -136,22 +136,42 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     }
 }
 
+/// Everything the shared Application Core needs from its host.
+pub struct HostApplicationCoreDeps {
+    pub pool: SqlitePool,
+    pub conversations: ConversationContext,
+    pub plugin_control_plane: Arc<PluginControlPlane>,
+    pub companion_memory: Option<std::sync::Arc<delegation::InMemoryCompanionFeatures>>,
+    pub preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    pub capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    pub preview_proxy: crate::PreviewProxyRegistry,
+    pub automation: HeadlessAutomationRuntime,
+    pub owns_automation_engine: bool,
+    pub deployment: Arc<local_deployment::LocalDeployment>,
+    pub runtime_root: std::path::PathBuf,
+    pub worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+}
+
 /// Shared Application Core used by `vibex-server` and the desktop remote listener.
 pub fn host_application_core(
-    pool: SqlitePool,
-    conversations: ConversationContext,
-    plugin_control_plane: Arc<PluginControlPlane>,
-    companion_memory: Option<std::sync::Arc<delegation::InMemoryCompanionFeatures>>,
-    preview_host: Arc<dyn plugins::PluginPreviewHost>,
-    capability_broker: Arc<plugins::HostCapabilityBroker>,
-    app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
-    preview_proxy: crate::PreviewProxyRegistry,
-    automation: HeadlessAutomationRuntime,
-    owns_automation_engine: bool,
-    deployment: Arc<local_deployment::LocalDeployment>,
-    runtime_root: std::path::PathBuf,
-    worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    deps: HostApplicationCoreDeps,
 ) -> ApplicationCore<SqliteConversationRepository> {
+    let HostApplicationCoreDeps {
+        pool,
+        conversations,
+        plugin_control_plane,
+        companion_memory,
+        preview_host,
+        capability_broker,
+        app_surfaces,
+        preview_proxy,
+        automation,
+        owns_automation_engine,
+        deployment,
+        runtime_root,
+        worker_runtime,
+    } = deps;
     let domains = Arc::new(ServerApplicationDomains::new(ServerDomainDependencies {
         pool: pool.clone(),
         plugin_control_plane: plugin_control_plane.clone(),

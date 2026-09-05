@@ -140,13 +140,16 @@ pub fn new_hidden_tokio_command(
         let mut command = tokio::process::Command::new(&program);
         configure_tokio_command_no_window(&mut command);
         command.args(args);
-        return command;
+        command
     }
 
-    let mut command = tokio::process::Command::new(program);
-    configure_tokio_command_no_window(&mut command);
-    command.args(args);
-    command
+    #[cfg(not(windows))]
+    {
+        let mut command = tokio::process::Command::new(program);
+        configure_tokio_command_no_window(&mut command);
+        command.args(args);
+        command
+    }
 }
 
 /// Build a std command that stays hidden on Windows, including `.cmd`/`.bat`
@@ -182,13 +185,16 @@ pub fn new_hidden_std_command(
         let mut command = std::process::Command::new(&program);
         configure_std_command_no_window(&mut command);
         command.args(args);
-        return command;
+        command
     }
 
-    let mut command = std::process::Command::new(program);
-    configure_std_command_no_window(&mut command);
-    command.args(args);
-    command
+    #[cfg(not(windows))]
+    {
+        let mut command = std::process::Command::new(program);
+        configure_std_command_no_window(&mut command);
+        command.args(args);
+        command
+    }
 }
 
 /// Spawn a tokio Command as a process group with CREATE_NO_WINDOW on Windows.

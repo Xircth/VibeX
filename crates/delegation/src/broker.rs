@@ -274,6 +274,20 @@ pub struct DelegationBroker {
     workspace_write_locks: Arc<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>>,
 }
 
+/// Everything `start_delegation` hands to the finishing step, which runs
+/// inline under test and on a spawned task in production.
+struct StartDelegationHandoff {
+    req: DelegationRequest,
+    call_id: String,
+    parent_tool_use_id: String,
+    has_real_tool_call: bool,
+    child_session_id: Uuid,
+    link: DelegationLink,
+    scope: DelegationScope,
+    parent_setup_lease: ParentSetupLease,
+    config: DelegationConfig,
+}
+
 impl DelegationBroker {
     pub fn new(
         spawner: Arc<dyn ConnectionSpawner>,
@@ -536,7 +550,7 @@ impl DelegationBroker {
         // the parent can poll instead of hanging on child process start.
         #[cfg(test)]
         {
-            self.finish_start_delegation(
+            self.finish_start_delegation(StartDelegationHandoff {
                 req,
                 call_id,
                 parent_tool_use_id,
@@ -546,19 +560,19 @@ impl DelegationBroker {
                 scope,
                 parent_setup_lease,
                 config,
-            )
+            })
             .await;
             if let Some(done) = self.completed_report(&ack_call_id) {
                 return done;
             }
-            return running_report(&ack_call_id, Some(child_session_id), ack_agent);
+            running_report(&ack_call_id, Some(child_session_id), ack_agent)
         }
         #[cfg(not(test))]
         {
             let broker = self.clone();
             tokio::spawn(async move {
                 broker
-                    .finish_start_delegation(
+                    .finish_start_delegation(StartDelegationHandoff {
                         req,
                         call_id,
                         parent_tool_use_id,
@@ -568,25 +582,25 @@ impl DelegationBroker {
                         scope,
                         parent_setup_lease,
                         config,
-                    )
+                    })
                     .await;
             });
             running_report(&ack_call_id, Some(child_session_id), ack_agent)
         }
     }
 
-    async fn finish_start_delegation(
-        &self,
-        req: DelegationRequest,
-        call_id: String,
-        mut parent_tool_use_id: String,
-        mut has_real_tool_call: bool,
-        child_session_id: Uuid,
-        mut link: DelegationLink,
-        scope: DelegationScope,
-        parent_setup_lease: ParentSetupLease,
-        config: DelegationConfig,
-    ) {
+    async fn finish_start_delegation(&self, handoff: StartDelegationHandoff) {
+        let StartDelegationHandoff {
+            req,
+            call_id,
+            mut parent_tool_use_id,
+            mut has_real_tool_call,
+            child_session_id,
+            mut link,
+            scope,
+            parent_setup_lease,
+            config,
+        } = handoff;
         if parent_tool_use_id.starts_with("delegation-") {
             tokio::time::sleep(PARENT_TOOL_CALL_CLAIM_WAIT).await;
             let key = crate::DelegationMatchKey {

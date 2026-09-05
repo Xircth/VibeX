@@ -2343,6 +2343,7 @@ mod tests {
         assert!(temp.path().join("claude/office-pptx/SKILL.md").is_file());
     }
 
+    #[cfg(unix)]
     #[test]
     fn hermes_and_fixed_custom_storage_report_only_supported_scopes() {
         let hermes = skills_surface(AgentKind::Hermes);

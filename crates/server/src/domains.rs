@@ -801,18 +801,14 @@ impl ServerApplicationDomains {
             for root in roots {
                 if let Ok(package) =
                     plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                    && (package.id.as_str() == args.plugin_name
+                        || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name))
                 {
-                    if package.id.as_str() == args.plugin_name
-                        || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name)
-                    {
-                        let snapshot = listing
-                            .take()
-                            .unwrap_or_else(|| plugins::listing_from_package(&package, true));
-                        return serde_json::to_value(plugins::detail_from_package(
-                            &package, snapshot,
-                        ))
+                    let snapshot = listing
+                        .take()
+                        .unwrap_or_else(|| plugins::listing_from_package(&package, true));
+                    return serde_json::to_value(plugins::detail_from_package(&package, snapshot))
                         .map_err(|error| ApplicationError::internal(error.to_string()));
-                    }
                 }
             }
         }

@@ -50,7 +50,7 @@ pub use host::{
     HostEvent, HostEventBus, account_flow, events::global_host_events, native,
     patch_stream_channel, patch_stream_subscribe_command,
 };
-pub use host_core::host_application_core;
+pub use host_core::{HostApplicationCoreDeps, host_application_core};
 pub use host_token::{
     HOST_TOKEN_FILE, host_token_path, issue_host_token, read_host_token, resolve_console_token,
     write_host_token,

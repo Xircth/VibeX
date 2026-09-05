@@ -7,6 +7,17 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// A path that does not exist but *is* absolute for the host. A leading `/` is
+/// only rooted on Windows, not absolute, so POSIX-style literals here would be
+/// rejected as NonAbsolutePath before the missing-file check is reached.
+fn absent_absolute(tail: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(format!(r"C:\definitely\missing\{tail}"))
+    } else {
+        PathBuf::from(format!("/definitely/missing/{tail}"))
+    }
+}
+
 #[tokio::test]
 async fn launch_gate_integrity_rejects_tampered_components_before_spawn() {
     let temp = tempfile::tempdir().unwrap();
@@ -53,7 +64,7 @@ async fn launch_gate_integrity_rejects_tampered_components_before_spawn() {
 async fn launch_gate_integrity_rejects_missing_or_relative_components() {
     let lock = SessionLaunchLock {
         agent_id: AgentId::parse("vendor.fixture").unwrap(),
-        absolute_acp_program: PathBuf::from("/fixture/acp"),
+        absolute_acp_program: absent_absolute("fixture-acp"),
         args: Vec::new(),
         env: BTreeMap::new(),
         runtime_version: "1.0.0".to_string(),
@@ -62,7 +73,7 @@ async fn launch_gate_integrity_rejects_missing_or_relative_components() {
 
     let missing = LaunchComponentEvidence {
         component_kind: "acp_adapter".to_string(),
-        absolute_path: PathBuf::from("/definitely/missing/vibex-acp"),
+        absolute_path: absent_absolute("vibex-acp"),
         expected_sha256: digest(b"trusted"),
     };
     assert!(matches!(

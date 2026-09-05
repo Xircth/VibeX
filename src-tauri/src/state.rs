@@ -280,19 +280,20 @@ impl AppState {
                 "enabled plugin Worker could not be restored"
             );
         }
-        if let Ok(node) = plugin_worker_runtime.resolve().await {
-            if let Ok(candidate_root) = app_handle
+        if let Ok(node) = plugin_worker_runtime.resolve().await
+            && let Ok(candidate_root) = app_handle
                 .path()
                 .app_data_dir()
                 .map(|dir| dir.join("plugins").join("dev-candidates"))
-            {
-                let _ = plugins::PluginControlPlane::spawn_developer_link_refresh(
-                    plugin_control_plane.clone(),
-                    node,
-                    candidate_root,
-                    plugin_capability_broker.clone(),
-                );
-            }
+        {
+            // Fire and forget: the refresh task manages its own lifetime, so
+            // the join handle is dropped rather than awaited here.
+            drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
+                plugin_control_plane.clone(),
+                node,
+                candidate_root,
+                plugin_capability_broker.clone(),
+            ));
         }
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()

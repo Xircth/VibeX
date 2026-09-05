@@ -157,7 +157,7 @@ where
         "list" => {
             let mut json = false;
             let mut refresh = false;
-            while let Some(token) = tokens.next() {
+            for token in tokens.by_ref() {
                 match token.as_str() {
                     "--json" => json = true,
                     "--refresh" => refresh = true,
@@ -174,7 +174,7 @@ where
         "install" => {
             let mut agent_id = None;
             let mut yes = false;
-            while let Some(token) = tokens.next() {
+            for token in tokens.by_ref() {
                 match token.as_str() {
                     "--yes" | "-y" => yes = true,
                     "-g" | "--global" => {}

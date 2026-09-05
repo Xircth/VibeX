@@ -66,6 +66,22 @@ pub struct PortableWorkspaceRef {
     pub isolation: IsolationSpec,
 }
 
+/// Whether a path would be rooted on *any* host, not just the current one.
+///
+/// `Path::is_absolute` is host-dependent: `/tmp/flow.json` is absolute on Unix
+/// but merely rooted on Windows. A portable spec is validated on one machine
+/// and replayed on another, so it has to be rejected the same way everywhere,
+/// otherwise a POSIX-authored absolute path slips through the check on Windows.
+fn is_rooted_on_any_host(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if matches!(bytes.first(), Some(b'/' | b'\\')) {
+        return true;
+    }
+    // Drive-qualified, e.g. `C:\flow.json` or the drive-relative `C:flow.json`.
+    matches!(bytes.first(), Some(byte) if byte.is_ascii_alphabetic())
+        && matches!(bytes.get(1), Some(b':'))
+}
+
 impl AutomationSpec {
     pub fn validate(&self) -> Result<(), AutomationError> {
         if self.format_version != PORTABLE_AUTOMATION_SPEC_VERSION {
@@ -92,7 +108,7 @@ impl AutomationSpec {
             }
             PortableAutomationTarget::Workflow(spec) => {
                 let source = std::path::Path::new(&spec.source_path);
-                if source.is_absolute()
+                if is_rooted_on_any_host(&spec.source_path)
                     || source
                         .components()
                         .any(|component| matches!(component, std::path::Component::ParentDir))
@@ -106,7 +122,7 @@ impl AutomationSpec {
         };
         if workspace.project_name.trim().is_empty()
             || workspace.root_folder_name.trim().is_empty()
-            || std::path::Path::new(&workspace.root_folder_name).is_absolute()
+            || is_rooted_on_any_host(&workspace.root_folder_name)
             || workspace.root_folder_name.contains('/')
             || workspace.root_folder_name.contains('\\')
         {

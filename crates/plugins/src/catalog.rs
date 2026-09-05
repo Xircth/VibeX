@@ -486,21 +486,20 @@ pub async fn github_latest_tag(origin: &str) -> Result<String, PluginError> {
         .header("user-agent", "VibeX")
         .send()
         .await
+        && response.status().is_success()
     {
-        if response.status().is_success() {
-            let body: Vec<serde_json::Value> = response
-                .json()
-                .await
-                .map_err(|error| PluginError::io("github tags json", error))?;
-            let mut tags: Vec<String> = body
-                .iter()
-                .filter_map(|item| item.get("name").and_then(|value| value.as_str()))
-                .map(str::to_owned)
-                .collect();
-            if !tags.is_empty() {
-                tags.sort_by(|left, right| compare_version_desc(left, right));
-                return Ok(tags[0].clone());
-            }
+        let body: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|error| PluginError::io("github tags json", error))?;
+        let mut tags: Vec<String> = body
+            .iter()
+            .filter_map(|item| item.get("name").and_then(|value| value.as_str()))
+            .map(str::to_owned)
+            .collect();
+        if !tags.is_empty() {
+            tags.sort_by(|left, right| compare_version_desc(left, right));
+            return Ok(tags[0].clone());
         }
     }
     let api = format!("https://api.github.com/repos/{rest}/releases/latest");

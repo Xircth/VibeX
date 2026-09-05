@@ -1461,11 +1461,13 @@ fn workspace_adapter_error(error: impl std::fmt::Display) -> WorkspaceError {
 mod tests {
     use super::*;
 
-    static OWNERSHIP_TEST_LOCK: Mutex<()> = Mutex::new(());
+    // Async-aware so the guard may be held across the awaits below without
+    // risking a runtime deadlock.
+    static OWNERSHIP_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[tokio::test]
     async fn engine_status_is_active_when_this_host_holds_the_host_data_dir_lease() {
-        let _guard = OWNERSHIP_TEST_LOCK.lock().expect("ownership test lock");
+        let _guard = OWNERSHIP_TEST_LOCK.lock().await;
         let _marker = EngineOwnershipMarker::register(automation_engine_data_dir_key());
         let status = automation_engine_status().await.expect("engine status");
         assert!(status.active);
@@ -1474,7 +1476,7 @@ mod tests {
 
     #[tokio::test]
     async fn engine_status_ignores_a_lease_registered_on_a_foreign_data_dir() {
-        let _guard = OWNERSHIP_TEST_LOCK.lock().expect("ownership test lock");
+        let _guard = OWNERSHIP_TEST_LOCK.lock().await;
         let _marker =
             EngineOwnershipMarker::register("/tmp/com.vibex.app-app-data-dir".to_string());
         let status = automation_engine_status().await.expect("engine status");

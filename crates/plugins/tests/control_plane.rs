@@ -394,7 +394,12 @@ async fn enabled_portable_action_resolves_from_the_unified_catalog() {
         }
     );
     let plugins::PromptBlock::Text { text } = &action.prompt_blocks[1];
-    assert!(text.contains("skills/test/SKILL.md"));
+    // The resolved path is native, so compare on the logical suffix.
+    assert!(
+        text.replace('\\', "/").contains("skills/test/SKILL.md"),
+        "{text}"
+    );
+    assert!(!text.contains(r"\\?\"), "verbatim prefix leaked: {text}");
 }
 
 #[tokio::test]

@@ -1095,8 +1095,8 @@ impl ConversationRepository for SqliteConversationRepository {
                     .modes_json
                     .filter(|value| !value.is_empty() && value != "[]");
             }
-            if agent.session_config.is_none() {
-                if let Ok(Some(controls)) = sqlx::query_scalar::<_, String>(
+            if agent.session_config.is_none()
+                && let Ok(Some(controls)) = sqlx::query_scalar::<_, String>(
                     r#"SELECT controls_json
                        FROM agent_capability_catalog
                        WHERE agent_type = ?
@@ -1106,22 +1106,20 @@ impl ConversationRepository for SqliteConversationRepository {
                 .bind(&agent.id)
                 .fetch_optional(&self.pool)
                 .await
-                {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&controls) {
-                        let modes = value
-                            .get("modes")
-                            .cloned()
-                            .filter(|item| item != &serde_json::json!([]));
-                        let options = value
-                            .get("config_options")
-                            .cloned()
-                            .filter(|item| item != &serde_json::json!([]));
-                        if agent.session_modes.is_none() {
-                            agent.session_modes = modes;
-                        }
-                        agent.session_config = options;
-                    }
+                && let Ok(value) = serde_json::from_str::<serde_json::Value>(&controls)
+            {
+                let modes = value
+                    .get("modes")
+                    .cloned()
+                    .filter(|item| item != &serde_json::json!([]));
+                let options = value
+                    .get("config_options")
+                    .cloned()
+                    .filter(|item| item != &serde_json::json!([]));
+                if agent.session_modes.is_none() {
+                    agent.session_modes = modes;
                 }
+                agent.session_config = options;
             }
         }
         let mut tags = builtin_catalog_tags();

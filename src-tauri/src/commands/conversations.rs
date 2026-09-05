@@ -413,25 +413,25 @@ pub async fn application_call(
 ) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
     use application::{CommandRegistry, Principal};
 
-    let core = server::host_application_core(
-        state.deployment.db().pool.clone(),
-        state.conversation_context(),
-        state.plugin_control_plane.clone(),
-        Some(state.delegation.features.clone()),
-        state.plugin_preview_host.clone(),
-        state.plugin_capability_broker.clone(),
-        state.plugin_app_surfaces.clone(),
-        preview_proxy.registry(),
-        server::HeadlessAutomationRuntime::new(
+    let core = server::host_application_core(server::HostApplicationCoreDeps {
+        pool: state.deployment.db().pool.clone(),
+        conversations: state.conversation_context(),
+        plugin_control_plane: state.plugin_control_plane.clone(),
+        companion_memory: Some(state.delegation.features.clone()),
+        preview_host: state.plugin_preview_host.clone(),
+        capability_broker: state.plugin_capability_broker.clone(),
+        app_surfaces: state.plugin_app_surfaces.clone(),
+        preview_proxy: preview_proxy.registry(),
+        automation: server::HeadlessAutomationRuntime::new(
             state.local_deployment.clone(),
             state.conversation_context(),
             state.plugin_control_plane.clone(),
         ),
-        crate::commands::automation::this_host_owns_automation_engine(),
-        state.local_deployment.clone(),
-        utils::assets::asset_dir().join("plugins/runtimes"),
-        state.plugin_worker_runtime.clone(),
-    );
+        owns_automation_engine: crate::commands::automation::this_host_owns_automation_engine(),
+        deployment: state.local_deployment.clone(),
+        runtime_root: utils::assets::asset_dir().join("plugins/runtimes"),
+        worker_runtime: state.plugin_worker_runtime.clone(),
+    });
     CommandRegistry::new(core)
         .execute_name(&Principal::local_desktop(), &command, operation_id, args)
         .await
@@ -1022,19 +1022,17 @@ pub async fn conversation_fork(
     let summary = DbConversationSummary::find_by_id(pool, source_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
-    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await? {
-        if let Some(active_turn_id) = conversation.active_turn_id
-            && let Some(active_turn) =
-                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
-            && matches!(
-                active_turn.status.as_str(),
-                "pending" | "queued" | "running" | "blocked"
-            )
-        {
-            return Err(AppError::Conflict(
-                "Cannot fork a conversation while a turn is in flight".to_string(),
-            ));
-        }
+    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await?
+        && let Some(active_turn_id) = conversation.active_turn_id
+        && let Some(active_turn) = ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+        && matches!(
+            active_turn.status.as_str(),
+            "pending" | "queued" | "running" | "blocked"
+        )
+    {
+        return Err(AppError::Conflict(
+            "Cannot fork a conversation while a turn is in flight".to_string(),
+        ));
     }
 
     // Full non-destructive copy with fresh ids via the tested export→import path.

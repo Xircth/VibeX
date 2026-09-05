@@ -113,7 +113,10 @@ fn search_repo_blocking(
             SearchMatchType::FullPath => 1,
         };
         results.push(SearchResult {
-            path: relative.to_string_lossy().to_string(),
+            // Repo-relative paths cross into the UI beside git and diff paths,
+            // which are always forward-slashed, so normalize the Windows
+            // separator here rather than leaving the two styles to be compared.
+            path: relative.to_string_lossy().replace('\\', "/"),
             is_file: path.is_file(),
             match_type,
             score,

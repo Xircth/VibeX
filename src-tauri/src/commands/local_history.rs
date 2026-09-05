@@ -546,7 +546,7 @@ mod tests {
         let pool = migrated_pool().await;
         let workspace_id = Uuid::new_v4();
         insert_workspace(&pool, workspace_id).await;
-        let sessions = vec![imported_session("codex-1"), imported_session("codex-2")];
+        let sessions = [imported_session("codex-1"), imported_session("codex-2")];
         let agent_id = AgentId::parse("codex").expect("codex id");
         let first = import_selected_local_history(
             &pool,
@@ -648,7 +648,7 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         insert_workspace(&pool, workspace_id).await;
         let agent_id = AgentId::parse("codex").expect("codex id");
-        let sessions = vec![imported_session("codex-1"), imported_session("codex-2")];
+        let sessions = [imported_session("codex-1"), imported_session("codex-2")];
         let selections = [
             LocalHistoryImportSelection {
                 agent_id: agent_id.clone(),

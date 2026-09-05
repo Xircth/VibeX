@@ -173,8 +173,18 @@ struct IsolatedLaunch {
     _retain: Option<std::fs::File>,
 }
 
+/// The spawned child plus the streams the protocol loop talks over.
+type HostedTransport = (
+    HostedChild,
+    Box<dyn AsyncWrite + Unpin + Send>,
+    Box<dyn AsyncRead + Unpin + Send>,
+    Option<tokio::process::ChildStderr>,
+);
+
 enum HostedChild {
-    Command(Child),
+    // Boxed so the variants stay close in size: a tokio Child is an order of
+    // magnitude larger than the AppContainer handle.
+    Command(Box<Child>),
     #[cfg(windows)]
     AppContainer(crate::isolated::WindowsAppContainerProcess),
 }
@@ -571,15 +581,7 @@ fn spawn_hosted_worker(
     runtime: &str,
     isolated: bool,
     grants: &[CapabilityGrant],
-) -> Result<
-    (
-        HostedChild,
-        Box<dyn AsyncWrite + Unpin + Send>,
-        Box<dyn AsyncRead + Unpin + Send>,
-        Option<tokio::process::ChildStderr>,
-    ),
-    WorkerHostError,
-> {
+) -> Result<HostedTransport, WorkerHostError> {
     #[cfg(windows)]
     if isolated {
         let launched = crate::isolated::spawn_windows_appcontainer(
@@ -649,7 +651,7 @@ fn spawn_hosted_worker(
     })?;
     let stderr = child.stderr.take();
     Ok((
-        HostedChild::Command(child),
+        HostedChild::Command(Box::new(child)),
         Box::new(stdin),
         Box::new(stdout),
         stderr,
@@ -986,7 +988,12 @@ fn apply_linux_landlock(
     Ok(())
 }
 
+// Not yet reachable: `isolated_launch` has macOS and Linux branches but no
+// Windows one, so isolated packages still report `plugin_class_unsupported`
+// there even though this AppContainer launcher exists. Wiring it up is a
+// product decision about when Windows isolation is considered publishable.
 #[cfg(windows)]
+#[allow(dead_code)]
 fn windows_isolated_command(
     runtime_bin: &Path,
     worker_path: &Path,
@@ -1053,7 +1060,10 @@ fn assign_windows_job(child: &tokio::process::Child) -> Result<(), WorkerHostErr
             ));
         }
         CloseHandle(process);
-        std::mem::forget(job);
+        // The job handle is deliberately left open: closing it would tear the
+        // job down and release the child. It is a raw Copy handle with no Drop,
+        // so simply not closing it is what keeps the job alive -- the previous
+        // `mem::forget` here was a no-op that only looked load-bearing.
     }
     Ok(())
 }
@@ -1251,7 +1261,11 @@ fn confined_path(root: &Path, relative: &str) -> Result<PathBuf, WorkerHostError
             "Worker entrypoint escapes package root",
         ));
     }
-    Ok(path)
+    // Containment is checked against the canonical form, but the result is
+    // handed to the runtime as a module specifier. `canonicalize` yields a
+    // `\\?\` verbatim path on Windows, which Node cannot resolve: it exits
+    // non-zero without writing to stdout, surfacing as "Worker closed stdout".
+    Ok(utils::path::normalize_windows_extended_path_prefix(path))
 }
 
 #[cfg(test)]

@@ -89,7 +89,10 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     assert_eq!(installed["id"], "vibex.office");
 
     let product_plugins = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
-    assert_eq!(product_plugins["plugins"][0]["id"], "vibex.office");
+    assert_eq!(
+        product_plugins["plugins"][0]["id"], "vibex.office",
+        "{product_plugins}"
+    );
     assert_eq!(
         product_plugins["plugins"][0]["description"],
         "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
@@ -223,10 +226,18 @@ async fn host_coding_loop_commands_are_registered_on_the_authenticated_surface()
     let agents = call(app.clone(), "agent_management_bar", serde_json::json!({})).await;
     assert!(agents.is_array() || agents.is_object());
 
+    // Must be absolute for the host: a bare `/...` is only rooted on Windows,
+    // so the request would be rejected as non-absolute before the file is
+    // looked up, answering 400 instead of the 404 under test.
+    let missing_path = if cfg!(windows) {
+        r"C:\definitely\missing\file.rs"
+    } else {
+        "/definitely/missing/file.rs"
+    };
     let missing_file = call_status(
         app,
         "read_file_content",
-        serde_json::json!({ "path": "/definitely/missing/file.rs" }),
+        serde_json::json!({ "path": missing_path }),
     )
     .await;
     assert_eq!(missing_file, StatusCode::NOT_FOUND);

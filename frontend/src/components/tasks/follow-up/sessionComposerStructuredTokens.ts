@@ -387,10 +387,15 @@ function slashInvocationValue(
     return { type: '$', name: trimmed.replace(/^\/?\$/, '') };
   }
   if (trimmed.startsWith('/skill:') || key.startsWith('skill:')) {
-    return {
-      type: '/',
-      name: lastCommandSegment(key.startsWith('skill:') ? key : trimmed),
-    };
+    // Legacy skill keys carry the on-disk skill location, either
+    // `skill:<dir>:<command>` or `skill:<dir>/<command>`. Peel the `skill:`
+    // marker first so a path that holds no extra `:` cannot fall through to
+    // the whole absolute path being used as the command label.
+    const skillPath = key.startsWith('skill:')
+      ? key.slice('skill:'.length)
+      : trimmed.slice('/skill:'.length);
+    const commandSegment = lastCommandSegment(skillPath);
+    return { type: '/', name: getFileName(commandSegment) || commandSegment };
   }
   const displayCommandName = trimmed.match(/^\/([^\s]+)/u)?.[1];
   return {

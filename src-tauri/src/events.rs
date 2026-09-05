@@ -175,16 +175,15 @@ pub async fn emit_conversation_row_ops_after(
                 | "user_turn_created"
         )
     });
-    if workbench_changed {
-        if let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await {
-            server::global_host_events().emit(
-                "workspace-sessions-changed",
-                WorkspaceSessionsChangedPayload {
-                    workspace_id: session.workspace_id,
-                    conversation_id,
-                },
-            );
-        }
+    if workbench_changed && let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await
+    {
+        server::global_host_events().emit(
+            "workspace-sessions-changed",
+            WorkspaceSessionsChangedPayload {
+                workspace_id: session.workspace_id,
+                conversation_id,
+            },
+        );
     }
 }
 
@@ -436,13 +435,12 @@ fn attention_from_event(
             Some(error.message.clone()),
             None,
         )),
-        ConversationEvent::TurnBlocked { reason } => match reason {
-            agents::conversation::TurnBlockedReason::Authentication { message }
-            | agents::conversation::TurnBlockedReason::Other { message } => {
-                Some((DesktopAttentionKind::Error, Some(message.clone()), None))
-            }
-            _ => None,
-        },
+        ConversationEvent::TurnBlocked {
+            reason:
+                agents::conversation::TurnBlockedReason::Authentication { message }
+                | agents::conversation::TurnBlockedReason::Other { message },
+        } => Some((DesktopAttentionKind::Error, Some(message.clone()), None)),
+        ConversationEvent::TurnBlocked { .. } => None,
         ConversationEvent::AgentBindingRecoveryFailed { reason } => {
             Some((DesktopAttentionKind::Error, Some(reason.clone()), None))
         }

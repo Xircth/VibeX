@@ -1,11 +1,17 @@
 //! Isolated Worker spawn: Linux seccomp-bpf + Windows AppContainer.
-#![cfg_attr(not(any(target_os = "linux", windows, test)), allow(dead_code))]
+//!
+//! This module holds two mutually exclusive platform implementations, so on any
+//! single target the other half is legitimately unreachable. The previous
+//! condition listed `windows` as a platform that keeps the whole module live,
+//! which left every Linux-only syscall table and BPF helper reported as dead
+//! code on Windows.
 //!
 //! Allowlists are the recorded files in `packages/plugin-contract/isolated/`.
 //! Default profiles never allow `socket`/`connect`/`accept`/`bind` or
 //! Windows `internetClient`. A `network.fetch` grant adds only `socket` and
 //! `connect` (Linux) or `internetClient` (Windows). The Host Broker still
 //! performs the fetch.
+#![allow(dead_code)]
 
 use std::path::Path;
 
@@ -720,14 +726,14 @@ pub(crate) fn spawn_windows_appcontainer(
             return Ok(());
         }
         let mut path_wide = wide(path);
-        let mut trustee = TRUSTEE_W {
+        let trustee = TRUSTEE_W {
             pMultipleTrustee: std::ptr::null_mut(),
             MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
             TrusteeForm: TRUSTEE_IS_SID,
             TrusteeType: TRUSTEE_IS_USER,
             ptstrName: sid as *mut u16,
         };
-        let mut explicit = EXPLICIT_ACCESS_W {
+        let explicit = EXPLICIT_ACCESS_W {
             grfAccessPermissions: access,
             grfAccessMode: GRANT_ACCESS,
             grfInheritance: SUB_CONTAINERS_AND_OBJECTS_INHERIT,
@@ -754,7 +760,7 @@ pub(crate) fn spawn_windows_appcontainer(
             ));
         }
         let mut new_dacl = std::ptr::null_mut();
-        let acl_status = unsafe { SetEntriesInAclW(1, &mut explicit, old_dacl, &mut new_dacl) };
+        let acl_status = unsafe { SetEntriesInAclW(1, &explicit, old_dacl, &mut new_dacl) };
         if acl_status != 0 {
             unsafe { LocalFree(security as _) };
             return Err(WorkerHostError::new(

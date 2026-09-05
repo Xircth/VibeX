@@ -703,9 +703,13 @@ mod tests {
 
     use super::{
         AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
-        HARD_OUTPUT_BYTE_LIMIT, ShellFamily, can_retry_command_through_shell,
-        classify_shell_family, default_platform_shell, effective_output_byte_limit,
-        is_utf8_boundary_byte, resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
+        HARD_OUTPUT_BYTE_LIMIT, effective_output_byte_limit, is_utf8_boundary_byte,
+        resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
+    };
+    // Only the POSIX-gated tests below reach the shell-family helpers.
+    #[cfg(unix)]
+    use super::{
+        ShellFamily, can_retry_command_through_shell, classify_shell_family, default_platform_shell,
     };
     use crate::ids::AgentSessionId;
 
@@ -765,6 +769,7 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
     #[test]
     fn posix_wrap_passes_the_line_as_one_argument() {
         let (program, args) = wrapped_argv("/bin/sh", "echo hello world");
@@ -802,6 +807,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn whitespace_command_without_args_retries_through_posix_shell() {
         assert!(can_retry_command_through_shell(
@@ -818,6 +824,7 @@ mod tests {
         assert!(can_retry_command_through_shell("dir", &[], "cmd.exe"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn unknown_unix_shells_are_posix() {
         assert_eq!(classify_shell_family("/bin/sh"), ShellFamily::Posix);
@@ -876,6 +883,7 @@ mod tests {
         assert_eq!(resolved.as_deref(), Some(dir.path()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn explicit_cwd_is_kept_even_when_missing() {
         let missing = Path::new("/vibex-nonexistent-cwd/does/not/exist");

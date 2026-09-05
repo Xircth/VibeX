@@ -23,7 +23,13 @@ fn snapshot(id: &str, lifecycle: AgentLifecycleState, enabled: bool) -> AgentMan
 fn lock(id: &str) -> SessionLaunchLock {
     SessionLaunchLock {
         agent_id: AgentId::parse(id).unwrap(),
-        absolute_acp_program: PathBuf::from("/managed/acp"),
+        // The gate requires a host-absolute program path, and a leading `/` is
+        // only rooted on Windows rather than absolute.
+        absolute_acp_program: if cfg!(windows) {
+            PathBuf::from(r"C:\managed\acp.exe")
+        } else {
+            PathBuf::from("/managed/acp")
+        },
         args: vec!["serve".to_string()],
         env: BTreeMap::new(),
         runtime_version: "2.0.0".to_string(),

@@ -18,7 +18,7 @@ pub(crate) fn windows_caption_icon(bytes: &[u8]) -> Result<Image<'static>, Strin
 pub(crate) fn icon_from_png_bytes(bytes: &[u8]) -> Result<Image<'static>, String> {
     #[cfg(target_os = "windows")]
     {
-        return windows_caption_icon(bytes);
+        windows_caption_icon(bytes)
     }
     #[cfg(not(target_os = "windows"))]
     {

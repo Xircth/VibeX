@@ -777,17 +777,20 @@ impl ConversationAgentBindingRecord {
     pub async fn update_negotiated_capabilities<'e, E>(
         executor: E,
         conversation_id: Uuid,
-        load_supported: bool,
-        resume_supported: bool,
-        close_supported: bool,
-        terminal_supported: bool,
-        additional_directories_supported: bool,
-        prompt_capabilities_json: &str,
-        session_capabilities_json: &str,
+        capabilities: NegotiatedCapabilities<'_>,
     ) -> Result<(), sqlx::Error>
     where
         E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
     {
+        let NegotiatedCapabilities {
+            load_supported,
+            resume_supported,
+            close_supported,
+            terminal_supported,
+            additional_directories_supported,
+            prompt_capabilities_json,
+            session_capabilities_json,
+        } = capabilities;
         sqlx::query(
             r#"UPDATE conversation_agent_bindings
                SET load_supported = ?,
@@ -817,6 +820,17 @@ impl ConversationAgentBindingRecord {
         .await?;
         Ok(())
     }
+}
+
+/// The ACP capabilities negotiated for a conversation's agent binding.
+pub struct NegotiatedCapabilities<'a> {
+    pub load_supported: bool,
+    pub resume_supported: bool,
+    pub close_supported: bool,
+    pub terminal_supported: bool,
+    pub additional_directories_supported: bool,
+    pub prompt_capabilities_json: &'a str,
+    pub session_capabilities_json: &'a str,
 }
 
 #[cfg(test)]

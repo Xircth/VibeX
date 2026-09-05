@@ -642,9 +642,8 @@ impl PluginPackage {
             })?;
             let preserved = incoming
                 .adopt_installed_config(&previous)
-                .map_err(|error| {
+                .inspect_err(|_| {
                     let _ = remove_snapshot_path(&staging);
-                    error
                 })?;
             fs::write(
                 staging.join("config.json"),
@@ -1185,10 +1184,19 @@ fn read_readme_summary(readme: &str) -> Result<String, PluginError> {
 }
 
 fn strip_readme_frontmatter(readme: &str) -> &str {
+    // The delimiters have to tolerate CRLF. A Windows checkout stores the
+    // README with \r\n, so matching only LF leaves the whole YAML block in the
+    // README that the plugin's product page renders to the user.
+    for (open, close) in [("---\n", "\n---\n"), ("---\r\n", "\r\n---\r\n")] {
+        if let Some(rest) = readme.strip_prefix(open)
+            && let Some((_, body)) = rest.split_once(close)
+        {
+            // Frontmatter is followed by a blank line; the product page should
+            // start at the first heading, not at that gap.
+            return body.trim_start_matches(['\r', '\n']);
+        }
+    }
     readme
-        .strip_prefix("---\n")
-        .and_then(|rest| rest.split_once("\n---\n").map(|(_, body)| body))
-        .unwrap_or(readme)
 }
 
 fn adopt_config_value(

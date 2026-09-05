@@ -548,13 +548,15 @@ impl ConversationStateApplier {
                 ConversationAgentBindingRecord::update_negotiated_capabilities(
                     &mut *conn,
                     record.conversation_id,
-                    capabilities.load_session,
-                    capabilities.resume_session,
-                    capabilities.close_session,
-                    capabilities.terminal,
-                    capabilities.additional_directories,
-                    &prompt_json,
-                    &session_json,
+                    db::models::conversation::NegotiatedCapabilities {
+                        load_supported: capabilities.load_session,
+                        resume_supported: capabilities.resume_session,
+                        close_supported: capabilities.close_session,
+                        terminal_supported: capabilities.terminal,
+                        additional_directories_supported: capabilities.additional_directories,
+                        prompt_capabilities_json: &prompt_json,
+                        session_capabilities_json: &session_json,
+                    },
                 )
                 .await?;
             }
@@ -1851,25 +1853,24 @@ impl ProjectionFold {
                     });
                 }
             }
-            ConversationEvent::TurnBlocked { reason } => {
-                if let agents::conversation::TurnBlockedReason::Authentication { message } = reason
-                {
-                    side_rows.push(side_row(
-                        record.sequence,
-                        ConversationTimelineRow::TurnError {
-                            error: ConversationErrorView {
-                                turn_id: record.turn_id,
-                                error: ConversationError {
-                                    message,
-                                    code: Some("auth_required".into()),
-                                    raw: None,
-                                    kind: Default::default(),
-                                    plan_usage: None,
-                                },
+            ConversationEvent::TurnBlocked {
+                reason: agents::conversation::TurnBlockedReason::Authentication { message },
+            } => {
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::TurnError {
+                        error: ConversationErrorView {
+                            turn_id: record.turn_id,
+                            error: ConversationError {
+                                message,
+                                code: Some("auth_required".into()),
+                                raw: None,
+                                kind: Default::default(),
+                                plan_usage: None,
                             },
                         },
-                    ));
-                }
+                    },
+                ));
             }
             _ => {}
         }
@@ -2573,16 +2574,18 @@ mod tests {
         .await
         .expect("create conservative binding");
 
-        let mut capabilities = AcpCapabilitySnapshot::default();
-        capabilities.load_session = false;
-        capabilities.resume_session = true;
-        capabilities.close_session = false;
-        capabilities.terminal = true;
-        capabilities.additional_directories = true;
+        let mut capabilities = AcpCapabilitySnapshot {
+            load_session: false,
+            resume_session: true,
+            close_session: false,
+            terminal: true,
+            additional_directories: true,
+            mcp_stdio: true,
+            ..AcpCapabilitySnapshot::default()
+        };
         capabilities.prompt.text = true;
         capabilities.prompt.image = false;
         capabilities.prompt.resource_link = true;
-        capabilities.mcp_stdio = true;
 
         append_event(
             &pool,

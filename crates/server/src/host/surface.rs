@@ -1023,7 +1023,6 @@ impl ServerApplicationDomains {
         .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
         .unwrap_or_default();
         let bus = crate::host::events::global_host_events();
-        let agent_id = args.agent_id.clone();
         let entries = tokio::task::spawn_blocking(move || {
             scan_configured_history_with_progress(kind, &configured_env, |progress| {
                 bus.emit("local-history-scan-progress", progress);
@@ -1052,10 +1051,6 @@ impl ServerApplicationDomains {
             &[] as &[HistoryPathDestination],
             Vec::<LocalHistoryDestination>::new(),
         ))
-        .map(|page| {
-            let _ = agent_id;
-            page
-        })
     }
 
     async fn agent_list_local_history(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1443,10 +1438,8 @@ impl ServerApplicationDomains {
                 false,
             ),
         };
-        if should_save {
-            if let Some(snapshot) = cache.snapshot() {
-                store.save(snapshot).await.map_err(internal_error)?;
-            }
+        if should_save && let Some(snapshot) = cache.snapshot() {
+            store.save(snapshot).await.map_err(internal_error)?;
         }
         Ok((freshness, refresh_error))
     }
@@ -1740,12 +1733,12 @@ impl ServerApplicationDomains {
         let status = weixin_check_qrcode(&args.qrcode)
             .await
             .map_err(internal_error)?;
-        if status.status == "confirmed" {
-            if let Some(token) = status.bot_token.as_deref() {
-                save_channel_token(&args.channel_id, token)
-                    .await
-                    .map_err(internal_error)?;
-            }
+        if status.status == "confirmed"
+            && let Some(token) = status.bot_token.as_deref()
+        {
+            save_channel_token(&args.channel_id, token)
+                .await
+                .map_err(internal_error)?;
         }
         serialize(json!({ "status": status.status }))
     }

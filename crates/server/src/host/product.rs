@@ -701,7 +701,7 @@ impl ServerApplicationDomains {
                         repo_id: args.repo_id,
                     })
                     .await?;
-                let remote = repo_remote(&self.deployment.git(), &path, args.remote.as_deref())?;
+                let remote = repo_remote(self.deployment.git(), &path, args.remote.as_deref())?;
                 let state_filter = args.issue_state.unwrap_or_else(|| "open".to_string());
                 let remote_url = remote.url.clone();
                 let issues = tokio::task::spawn_blocking(move || {
@@ -724,7 +724,7 @@ impl ServerApplicationDomains {
                         repo_id: args.repo_id,
                     })
                     .await?;
-                let remote = repo_remote(&self.deployment.git(), &path, args.remote.as_deref())?;
+                let remote = repo_remote(self.deployment.git(), &path, args.remote.as_deref())?;
                 let host = GitHostService::from_url(&remote.url).map_err(internal_error)?;
                 serialize(
                     host.list_open_prs(&path, &remote.url)
@@ -1492,10 +1492,10 @@ fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError>
             ApplicationError::internal("Unable to resolve the user home directory")
         })?;
         let expanded = home.join(path.trim_start_matches("~/"));
-        if path.starts_with("~/.vibex/workflows/") {
-            if let Some(parent) = expanded.parent() {
-                std::fs::create_dir_all(parent).map_err(internal_error)?;
-            }
+        if path.starts_with("~/.vibex/workflows/")
+            && let Some(parent) = expanded.parent()
+        {
+            std::fs::create_dir_all(parent).map_err(internal_error)?;
         }
         expanded
     } else {

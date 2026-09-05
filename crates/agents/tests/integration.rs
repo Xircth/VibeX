@@ -321,7 +321,13 @@ async fn missing_acp_program_fails_with_actionable_error_not_raw_enoent() {
     // `driver_enabled = true` so `connect` actually spawns the ACP program.
     let runtime = AgentRuntime::new_with_driver(Arc::new(TestSink { tx }), true);
 
-    let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+    // The launch lock is rejected before the spawn unless the path is absolute
+    // for the host, and a leading `/` is not absolute on Windows.
+    let missing = if cfg!(windows) {
+        PathBuf::from(r"C:\definitely\not\here\vibex-acp.exe")
+    } else {
+        PathBuf::from("/definitely/not/here/vibex-acp")
+    };
     let result = runtime
         .connect(ConnectAgentInput {
             agent_id: AgentId::parse("grok").unwrap(),

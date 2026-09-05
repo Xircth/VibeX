@@ -2,7 +2,6 @@
 mod tests {
     use std::{
         collections::{BTreeMap, HashMap},
-        io::Cursor,
         path::{Path, PathBuf},
         sync::{
             Arc,
@@ -20,9 +19,12 @@ mod tests {
     };
     use sha2::Digest;
 
+    // Only the symlink tests below exercise it, and those are Unix-only.
+    #[cfg(unix)]
+    use super::extract_binary_archive;
     use super::{
-        AgentManagementRuntimeState, ArtifactTrust, BuiltInProbeAction, LockedInstallSource,
-        MANAGED_UV_VERSION, NativeFileRollback, OperationCancellationRegistry,
+        AgentManagementRuntimeState, ArtifactTrust, BuiltInProbeAction, LockedInstall,
+        LockedInstallSource, MANAGED_UV_VERSION, NativeFileRollback, OperationCancellationRegistry,
         PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, RuntimeSource,
         agent_process_command, apply_codex_auth_document, apply_config_transition_then,
         apply_custom_version_override, apply_opencode_provider_connection,
@@ -30,8 +32,8 @@ mod tests {
         build_launch_environment, built_in_probe_action, cancellable_command_output,
         codex_provider_config_is_projected, compare_and_set_agent_environment,
         configure_uv_tool_install_command, dependency_version_satisfied, detect_account_login,
-        extract_binary_archive, install_locked_plan, managed_artifacts_directory,
-        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        install_locked_plan, managed_artifacts_directory, managed_install_root,
+        managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
         opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
@@ -579,8 +581,16 @@ mod tests {
             let agent_id = AgentId::parse(agent).unwrap();
             let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
             let options = project_auth_mode_options(&agent_id, policy.modes);
-            assert_eq!(options.len(), policy.modes.len());
+            // The projection deliberately hides `custom` for some agents, so it
+            // is a subset of the declared modes rather than a 1:1 mapping. What
+            // must hold is that it invents nothing and every key resolves.
+            assert!(!options.is_empty());
             for option in options {
+                assert!(
+                    policy.modes.contains(&option.value.as_str()),
+                    "{agent} projected an undeclared auth mode {}",
+                    option.value
+                );
                 assert!(!option.label_key.ends_with("Unknown"));
                 assert!(!option.description_key.ends_with("Unknown"));
                 assert_eq!(option.credential_required, option.credential_env.is_some());
@@ -973,6 +983,8 @@ wire_api = "responses"
         assert!(safe_archive_executable(root, "/absolute/agent").is_err());
     }
 
+    // Only the POSIX-gated archive tests build a symlink entry.
+    #[cfg(unix)]
     fn zip_with_symlink(link_target: &str) -> Vec<u8> {
         use std::io::Write;
 
@@ -1376,13 +1388,13 @@ wire_api = "responses"
 
         let mut env = BTreeMap::new();
         bind_profile_runtime_executable(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
-        assert!(env.get("CLAUDE_CODE_EXECUTABLE").is_none());
+        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
 
         let exe = dir.path().join("codex.exe");
         std::fs::write(&exe, b"").unwrap();
         let mut env = BTreeMap::new();
         bind_profile_runtime_executable(&AgentId::parse("codex").unwrap(), &exe, &mut env);
-        assert!(env.get("CODEX_PATH").is_none());
+        assert!(!env.contains_key("CODEX_PATH"));
     }
 
     #[test]
@@ -1927,8 +1939,10 @@ base_url = "https://example.test/v1"
         let (node, npm) = {
             let node = runtime_dir.join("node.cmd");
             let npm = runtime_dir.join("npm.cmd");
-            std::fs::write(&node, "@echo off\r\n<nul set /p =v24.19.0\r\n").unwrap();
-            std::fs::write(&npm, "@echo off\r\n<nul set /p =11.17.0\r\n").unwrap();
+            // `set /p` reports errorlevel 1 when it cannot read stdin, so the
+            // stub must exit explicitly or the probe reads a failed process.
+            std::fs::write(&node, "@echo off\r\n<nul set /p =v24.19.0\r\nexit /b 0\r\n").unwrap();
+            std::fs::write(&npm, "@echo off\r\n<nul set /p =11.17.0\r\nexit /b 0\r\n").unwrap();
             (node, npm)
         };
 
@@ -1968,8 +1982,8 @@ base_url = "https://example.test/v1"
         let (node, npm) = {
             let node = temp.path().join("node.cmd");
             let npm = temp.path().join("npm.cmd");
-            std::fs::write(&node, "@echo off\r\n<nul set /p =v20.18.0\r\n").unwrap();
-            std::fs::write(&npm, "@echo off\r\n<nul set /p =10.8.2\r\n").unwrap();
+            std::fs::write(&node, "@echo off\r\n<nul set /p =v20.18.0\r\nexit /b 0\r\n").unwrap();
+            std::fs::write(&npm, "@echo off\r\n<nul set /p =10.8.2\r\nexit /b 0\r\n").unwrap();
             (node, npm)
         };
 
@@ -2004,7 +2018,7 @@ base_url = "https://example.test/v1"
         let (node, npm) = {
             let node = temp.path().join("node.cmd");
             let npm = temp.path().join("npm.cmd");
-            std::fs::write(&node, "@echo off\r\n<nul set /p =v22.22.3\r\n").unwrap();
+            std::fs::write(&node, "@echo off\r\n<nul set /p =v22.22.3\r\nexit /b 0\r\n").unwrap();
             std::fs::write(&npm, "@echo off\r\nexit /b 1\r\n").unwrap();
             (node, npm)
         };
@@ -2160,16 +2174,16 @@ base_url = "https://example.test/v1"
         };
         let cancellation = tokio_util::sync::CancellationToken::new();
         let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
-        let installation = install_locked_plan(
-            &plan,
-            temp.path(),
-            &user_env,
-            &cancellation,
-            &std::collections::HashMap::new(),
-            None,
-            None,
-            None,
-        )
+        let installation = install_locked_plan(LockedInstall {
+            plan: &plan,
+            staging: temp.path(),
+            user_env: &user_env,
+            cancellation: &cancellation,
+            previous_tofu_fingerprints: &std::collections::HashMap::new(),
+            log: None,
+            node_runtime: None,
+            managed_uv: None,
+        })
         .await
         .unwrap();
 
@@ -2272,16 +2286,16 @@ base_url = "https://example.test/v1"
             };
             let cancellation = tokio_util::sync::CancellationToken::new();
             let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
-            let installation = install_locked_plan(
-                &plan,
-                temp.path(),
-                &user_env,
-                &cancellation,
-                &std::collections::HashMap::new(),
-                None,
-                None,
-                None,
-            )
+            let installation = install_locked_plan(LockedInstall {
+                plan: &plan,
+                staging: temp.path(),
+                user_env: &user_env,
+                cancellation: &cancellation,
+                previous_tofu_fingerprints: &std::collections::HashMap::new(),
+                log: None,
+                node_runtime: None,
+                managed_uv: None,
+            })
             .await
             .unwrap();
 
@@ -2319,16 +2333,16 @@ base_url = "https://example.test/v1"
         };
         let cancellation = tokio_util::sync::CancellationToken::new();
         let user_env = agents::UserEnvironmentLayout::for_home(temp.path());
-        let installation = install_locked_plan(
-            &plan,
-            temp.path(),
-            &user_env,
-            &cancellation,
-            &std::collections::HashMap::new(),
-            None,
-            None,
-            None,
-        )
+        let installation = install_locked_plan(LockedInstall {
+            plan: &plan,
+            staging: temp.path(),
+            user_env: &user_env,
+            cancellation: &cancellation,
+            previous_tofu_fingerprints: &std::collections::HashMap::new(),
+            log: None,
+            node_runtime: None,
+            managed_uv: None,
+        })
         .await
         .unwrap();
 
@@ -2878,7 +2892,7 @@ fn app_managed_artifacts_directory(app: &AppHandle) -> anyhow::Result<PathBuf> {
 fn configured_shell_family() -> ShellFamily {
     #[cfg(windows)]
     {
-        return ShellFamily::Windows;
+        ShellFamily::Windows
     }
     #[cfg(not(windows))]
     ShellFamily::from_shell_path(std::env::var_os("SHELL").as_deref().map(Path::new))
@@ -6095,16 +6109,16 @@ async fn run_install_operation(
                 live_npm_global_prefix(node_runtime.as_ref()).await,
             );
             prepare_user_environment(&user_env).await?;
-            install_locked_plan(
-                &plan,
-                &staging,
-                &user_env,
-                &cancellation,
-                &tofu_fingerprints,
-                Some(&install_log),
-                node_runtime.as_ref(),
-                managed_uv.as_deref(),
-            )
+            install_locked_plan(LockedInstall {
+                plan: &plan,
+                staging: &staging,
+                user_env: &user_env,
+                cancellation: &cancellation,
+                previous_tofu_fingerprints: &tofu_fingerprints,
+                log: Some(&install_log),
+                node_runtime: node_runtime.as_ref(),
+                managed_uv: managed_uv.as_deref(),
+            })
             .await
         }
         .await;
@@ -7202,16 +7216,29 @@ async fn probe_installed_component_version(executable: &Path) -> Option<String> 
     }
 }
 
-async fn install_locked_plan(
-    plan: &ResolvedInstallPlan,
-    staging: &Path,
-    user_env: &UserEnvironmentLayout,
-    cancellation: &CancellationToken,
-    previous_tofu_fingerprints: &HashMap<String, String>,
-    log: Option<&OperationLogEmitter<'_>>,
-    node_runtime: Option<&NodeRuntime>,
-    managed_uv: Option<&Path>,
-) -> anyhow::Result<InstalledPlan> {
+/// Inputs for one locked installation attempt.
+struct LockedInstall<'a> {
+    plan: &'a ResolvedInstallPlan,
+    staging: &'a Path,
+    user_env: &'a UserEnvironmentLayout,
+    cancellation: &'a CancellationToken,
+    previous_tofu_fingerprints: &'a HashMap<String, String>,
+    log: Option<&'a OperationLogEmitter<'a>>,
+    node_runtime: Option<&'a NodeRuntime>,
+    managed_uv: Option<&'a Path>,
+}
+
+async fn install_locked_plan(install: LockedInstall<'_>) -> anyhow::Result<InstalledPlan> {
+    let LockedInstall {
+        plan,
+        staging,
+        user_env,
+        cancellation,
+        previous_tofu_fingerprints,
+        log,
+        node_runtime,
+        managed_uv,
+    } = install;
     let mut user_env = user_env.clone();
     let mut components = Vec::new();
     let mut path_entries = user_env.path_entries();
@@ -7272,7 +7299,7 @@ async fn install_locked_plan(
                         output
                     } else {
                         if let Some(log) = log {
-                            log.emit("Permission denied, retrying with user prefix...".to_string());
+                            log.emit("Permission denied, retrying with user prefix...");
                         }
                         user_env = user_env.with_npm_prefix(fallback);
                         prepare_user_environment(&user_env).await?;
@@ -11622,8 +11649,26 @@ fn opencode_provider_paths(
                 .map(|value| expand_agent_home_path(&home, &value.to_string_lossy()))
         })
         .unwrap_or_else(|| home.join(".cache"));
-    let config_dir =
-        agents::metadata::opencode_config_dir().ok_or_else(|| internal_error("用户目录不可用"))?;
+    // The saved agent environment has to win for data and config too, not just
+    // for the cache: reading the auth file from the real user directory while
+    // the agent itself runs against an overridden XDG root inspects a file the
+    // agent never writes.
+    let xdg_root = |key: &str| -> Option<PathBuf> {
+        environment
+            .get(key)
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| expand_agent_home_path(&home, value))
+            .or_else(|| {
+                std::env::var_os(key)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| expand_agent_home_path(&home, &value.to_string_lossy()))
+            })
+    };
+    let config_dir = match xdg_root("XDG_CONFIG_HOME") {
+        Some(root) => root.join("opencode"),
+        None => agents::metadata::opencode_config_dir()
+            .ok_or_else(|| internal_error("用户目录不可用"))?,
+    };
     let primary_config = config_dir.join("opencode.json");
     let legacy_config = config_dir.join("config.json");
     let config_path = if !primary_config.is_file() && legacy_config.is_file() {
@@ -11631,9 +11676,13 @@ fn opencode_provider_paths(
     } else {
         primary_config
     };
-    Ok(OpenCodeNativePaths {
-        auth_path: agents::metadata::opencode_auth_path()
+    let auth_path = match xdg_root("XDG_DATA_HOME") {
+        Some(root) => root.join("opencode").join("auth.json"),
+        None => agents::metadata::opencode_auth_path()
             .ok_or_else(|| internal_error("用户目录不可用"))?,
+    };
+    Ok(OpenCodeNativePaths {
+        auth_path,
         config_path,
         cache_dir: cache_root.join("opencode"),
     })
@@ -11716,15 +11765,6 @@ where
         return Err(operation_error);
     }
     Ok(())
-}
-
-async fn write_json_document(
-    path: &Path,
-    value: &serde_json::Value,
-    sensitive: bool,
-) -> Result<(), AgentManagementErrorView> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(internal_error)?;
-    write_bytes_document(path, &bytes, sensitive).await
 }
 
 #[tauri::command]

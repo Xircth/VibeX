@@ -86,7 +86,10 @@ impl HeadlessServer {
             config.server.reachability =
                 utils::net::advertised_http_origins(config.server.listen_addr.port(), allow_lan)
                     .into_iter()
-                    .filter(|origin| !remote_protocol::is_loopback_origin(origin))
+                    .filter(|origin| {
+                        !remote_protocol::is_loopback_origin(origin)
+                            && !remote_protocol::is_public_plaintext_http_origin(origin)
+                    })
                     .map(remote_protocol::ReachabilityOrigin::lan)
                     .collect();
         }
@@ -102,6 +105,7 @@ impl HeadlessServer {
         )));
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
         let row_projectors = Arc::new(Mutex::new(HashMap::new()));
+        let events = Arc::new(crate::HostEventBus::new());
         let conversation_context = ConversationContext {
             deployment: application_deployment,
             agent_runtime: agent_runtime.clone(),
@@ -113,11 +117,12 @@ impl HeadlessServer {
                 std::sync::Arc::new(move || gate.product_mcp_names())
             })),
             event_publisher: Arc::new(crate::chat_notify::ChatDeliveryPublisher::new(Arc::new(
-                crate::host::HostRowOpPublisher::new(pool.clone(), row_projectors),
+                crate::host::HostRowOpPublisher::new(pool.clone(), row_projectors, events.clone()),
             ))),
         };
         let agent_event_task = {
             let context = conversation_context.clone();
+            let events = events.clone();
             tokio::spawn(async move {
                 let mut recorder = ConversationAgentEventRecorder::with_context(context);
                 while let Some(envelope) = agent_events.recv().await {
@@ -136,13 +141,14 @@ impl HeadlessServer {
                             | agents::AgentEvent::TerminalOutput { .. }
                             | agents::AgentEvent::RawAcpDiagnostic { .. }
                     ) {
-                        crate::host::events::global_host_events().emit("agent-events", &envelope);
+                        events.emit("agent-events", &envelope);
                     }
                 }
             })
         };
         let _terminal_task = {
             let pool = pool.clone();
+            let events = events.clone();
             tokio::spawn(async move {
                 use agents::terminal::AgentTerminalLifecycleEvent;
                 use db::models::session::Session;
@@ -155,7 +161,7 @@ impl HeadlessServer {
                                 .ok()
                                 .flatten()
                                 .map(|session| session.workspace_id);
-                            crate::host::events::global_host_events().emit(
+                            events.emit(
                                 "agent-terminal-events",
                                 serde_json::json!({
                                     "Created": {
@@ -172,7 +178,7 @@ impl HeadlessServer {
                             );
                         }
                         Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
-                            crate::host::events::global_host_events().emit(
+                            events.emit(
                                 "agent-terminal-events",
                                 serde_json::json!({
                                     "Exited": {
@@ -184,7 +190,7 @@ impl HeadlessServer {
                             );
                         }
                         Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
-                            crate::host::events::global_host_events().emit(
+                            events.emit(
                                 "agent-terminal-events",
                                 serde_json::json!({
                                     "Released": {
@@ -315,21 +321,24 @@ impl HeadlessServer {
             conversation_context.clone(),
             plugin_control_plane.official_product_mcp_gate(),
         );
-        let core = crate::host_application_core(
-            pool.clone(),
-            conversation_context.clone(),
+        let host = crate::HostRuntime::build(crate::HostRuntimeParts {
+            pool: pool.clone(),
+            conversations: conversation_context.clone(),
             plugin_control_plane,
-            Some(companion_memory),
+            companion_memory: Some(companion_memory),
             preview_host,
             capability_broker,
             app_surfaces,
-            preview_proxy.clone(),
-            automation_runtime.clone(),
-            automation_owner.is_some(),
-            deployment.clone(),
-            config.data_dir.join("plugins/runtimes"),
+            preview_proxy: preview_proxy.clone(),
+            automation: automation_runtime.clone(),
+            automation_ownership: crate::AutomationOwnership::fixed(automation_owner.is_some()),
+            deployment: deployment.clone(),
+            runtime_root: config.data_dir.join("plugins/runtimes"),
             worker_runtime,
-        );
+            adapter: application::AdapterCapabilities::server_http(),
+            events: Some(events),
+            terminal_bridges: None,
+        });
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {
@@ -344,11 +353,10 @@ impl HeadlessServer {
                 }
             }
         });
-        let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy_and_pty(
+        let runtime = ServerRuntime::from_host(
             config.server,
-            pool.clone(),
-            core,
-            preview_proxy,
+            Arc::new(crate::SqliteServerAuth::new(pool.clone())),
+            host,
             deployment.pty().clone(),
         );
 

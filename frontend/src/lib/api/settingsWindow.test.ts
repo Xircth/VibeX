@@ -2,17 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
 
-const backendCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const desktopShellCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
-vi.mock('./base', () => ({
-  backendCall,
+vi.mock('@/lib/desktopShell', () => ({
+  desktopShellCall,
 }));
 
 import { settingsWindowApi } from './settingsWindow';
 
 describe('settingsWindowApi', () => {
   beforeEach(() => {
-    backendCall.mockClear();
+    desktopShellCall.mockClear();
   });
 
   it('opens the settings window with the Chinese title', async () => {
@@ -20,7 +20,7 @@ describe('settingsWindowApi', () => {
 
     await settingsWindowApi.open();
 
-    expect(backendCall).toHaveBeenCalledWith('open_settings_window', {
+    expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
       title: '设置',
     });
   });
@@ -30,7 +30,7 @@ describe('settingsWindowApi', () => {
 
     await settingsWindowApi.open();
 
-    expect(backendCall).toHaveBeenCalledWith('open_settings_window', {
+    expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
       title: 'Settings',
     });
   });

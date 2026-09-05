@@ -349,7 +349,7 @@ export interface BackendTransport {
   artifactPreviewUrl?(lease: {
     leaseId: string;
     capabilityToken: string;
-    loopbackPort: number;
+    loopbackPort?: number;
   }): string;
 }
 

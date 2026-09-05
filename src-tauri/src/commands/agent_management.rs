@@ -2560,7 +2560,7 @@ async fn emit_local_runtime_discovery_progress(
 ) {
     let progress =
         local_runtime_discovery_progress_view(runtime.local_runtime_discovery_progress().await);
-    server::global_host_events().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
+    crate::host_bus::bus().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
 }
 
 struct ManagedNodeArtifact {
@@ -3570,7 +3570,7 @@ pub(crate) async fn warm_agent_management(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_agent_management_warmup(app, pool, runtime).await;
-    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 pub(crate) async fn warm_local_runtime_discovery(
@@ -3579,7 +3579,7 @@ pub(crate) async fn warm_local_runtime_discovery(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_local_runtime_discovery(app, pool, runtime).await;
-    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 async fn normalize_optional_profile_authentication(pool: &sqlx::SqlitePool) {
@@ -4119,7 +4119,7 @@ fn emit_operation(
         progress_percent,
         message,
     );
-    server::global_host_events().emit(MANAGEMENT_EVENT, event);
+    crate::host_bus::bus().emit(MANAGEMENT_EVENT, event);
 }
 
 async fn overlay_local_runtime_evidence(
@@ -5636,7 +5636,7 @@ async fn revalidate_external_installation(
     .fetch_one(pool)
     .await
     .map_err(internal_error)?;
-    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     if lifecycle != "ready" {
         return Err(management_error(
             AgentManagementErrorCode::InvalidState,
@@ -5711,7 +5711,7 @@ async fn try_adopt_user_environment(
     {
         return Ok(None);
     }
-    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     Ok(Some(AgentOperationReceipt {
         operation_id: Uuid::new_v4().to_string(),
         agent_id: agent_id.clone(),
@@ -9161,7 +9161,7 @@ pub async fn codex_poll_device_code(
             AgentAuthenticationStatus::Account,
         )
         .await?;
-        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(result)
 }
@@ -11924,7 +11924,7 @@ pub async fn agent_management_account_flow(
         sync_authentication_probe(&state.deployment.db().pool, &agent_id, authentication).await?;
     }
     if exit_code == 0 {
-        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(AgentAccountFlowView {
         agent_id,

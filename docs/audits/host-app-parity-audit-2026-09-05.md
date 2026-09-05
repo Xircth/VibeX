@@ -8,7 +8,7 @@
 
 当前实现**不能证明，也尚未达到“Host + APP 壳与纯桌面完全一致”**。Host 命令注册表、共享 Application Core、远程 WebSocket、Host Event Bus 和主机文件选择器已经落地了相当一部分，但实现仍是迁移中的混合态：有些路径走统一 Host 接缝，有些路径仍走桌面专属命令；有些流具备持久序列，有些流只有进程内广播；声明的命令集合很大，但端到端验证覆盖很小。
 
-按两轮证据，存在 6 个 P0 阻断问题、8 个 P1 高风险问题和若干 P2 完整性问题。只要任一 P0 存在，就不能把远程 Workstation 视为纯桌面的等价替代，也不能把“命令已经列入 `HOST_COMMANDS`”当作能力已接管。
+按四轮证据，存在 8 个 P0 阻断问题、9 个 P1 高风险问题和若干 P2 完整性问题。只要任一 P0 存在，就不能把远程 Workstation 视为纯桌面的等价替代，也不能把“命令已经列入 `HOST_COMMANDS`”当作能力已接管。
 
 ## 审计基线与方法
 
@@ -40,6 +40,22 @@
 | IM / chat channel | Host 侧代码存在 | 本轮未完成 Telegram/飞书/微信真实闭环验证，不能宣称通过 |
 
 ## P0 阻断问题
+
+### P0-8：Headless Server 自定义 `data_dir` 与 Host 设置文件根不一致
+
+第四轮检查确认，`HeadlessServer::bootstrap` 使用 `ServerBootstrapConfig.data_dir` 初始化 SQLite、Host identity、插件和运行时目录（[crates/server/src/composition.rs:82](/Users/mac/Projects/VibeX/crates/server/src/composition.rs:82) 到 104），但 Host 命令中的聊天、版本控制、系统、Agent 与项目设置仍通过 `utils::assets::settings_path()` 读写。该函数只依据 `VIBEX_DATA_DIR` 或编译环境的默认 `asset_dir()`，不接收 `ServerBootstrapConfig.data_dir`（[crates/utils/src/assets.rs:38](/Users/mac/Projects/VibeX/crates/utils/src/assets.rs:38) 到 65）。
+
+影响：以自定义数据目录启动多个 Headless Host 时，数据库和 Host identity 可以属于 A 目录，而设置、聊天通道、模型配置或工作区设置落到默认目录；重启、迁移、备份、并行 Host 和远程客户端看到的事实会不一致，甚至发生跨 Host 配置泄漏。这违反“一个数据目录对应一个 Host”的基本边界。
+
+验收要求：所有 Host 侧持久化 API 显式接收并使用 Host data root/deployment；禁止 Host domain 依赖全局环境推导设置路径；用两个临时 data_dir 并行启动，分别写入设置、聊天通道、Agent 配置和项目设置，验证完全隔离且重启后保持。
+
+### P0-7：桌面壳命令仍被普通业务 API 通过 `backendCall` 调用
+
+第三轮反向检查发现，`projectsApi.openEditor`、`attemptsApi.openEditor`、`reposApi.openEditor`、`desktopApi.revealInFileManager`、终端外部打开以及文件树 `trash_item` 等前端 facade 都调用通用 `backendCall`。但这些命令同时位于 `DESKTOP_SHELL_COMMANDS`（生成源 [src-tauri/src/bin/generate_types.rs:274](/Users/mac/Projects/VibeX/src-tauri/src/bin/generate_types.rs:274) 到 338；共享清单 [shared/hostCommands.ts:498](/Users/mac/Projects/VibeX/shared/hostCommands.ts:498) 到 559），不在 Host Registry 的 `HOST_COMMANDS` 中。`TauriTransport` 只对清单内命令做 `application_call`/直接 invoke 的分流；`WebTransport` 对同一 facade 会直接 POST `/api/v1/call/{command}`。
+
+影响：同一个业务按钮在桌面可能调用本机壳命令，在 Web/Remote Desktop 则把壳命令当成 Host 命令发送，通常得到未知命令/权限错误；即使服务端偶然存在同名实现，也无法保证它是在 Host 上执行还是在客户端执行。尤其 `trash_item` 和编辑器入口位于普通项目、文件和工作区旅程，不能默认为桌面专属而不做 UI gate。这暴露出命令清单、transport 分流和 API facade 三者没有单一契约。
+
+验收要求：逐项决定命令是 Host 能力还是明确桌面能力；Host 能力必须进入 Registry 并由三种 transport 共享 typed DTO，桌面能力必须通过显式 environment/capability gate，Web/Remote 必须显示不可用或提供 Host 等价替代；增加静态规则禁止 `backendCall` 调用 `DESKTOP_SHELL_COMMANDS`，并为编辑器、删除/回收站、外部终端和文件管理器分别验证桌面、Web、Remote 行为。
 
 ### P0-1：桌面 `application_call` 每次请求重建 Application Core
 
@@ -90,6 +106,14 @@
 验收要求：模板内容通过 Host Registry 的文件写入/项目创建用例在 Host 侧原子完成；客户端只提交模板选项和文本；失败时项目记录与模板文件不能处于半完成状态。
 
 ## P1 高风险问题
+
+### P1-9：远程设备凭据以明文 JSON 持久化在客户端配置文件
+
+第四轮检查发现，`HostClientRuntime` 的 `StoredProfile.access_token` 是可序列化的 `Option<String>`，并直接写入 `host-client-profiles.json`（[src-tauri/src/host_client.rs:42](/Users/mac/Projects/VibeX/src-tauri/src/host_client.rs:42) 到 56、[src-tauri/src/host_client.rs:450](/Users/mac/Projects/VibeX/src-tauri/src/host_client.rs:450) 到 460）。虽然 `restrict_store` 尝试限制文件权限，但凭据仍以可恢复明文存在，且不使用系统钥匙串或独立安全存储。
+
+影响：读取客户端配置文件的本地进程、备份或诊断收集都可能取得长期 device credential；这与 ADR-0059 要求的“访问凭据独立受保护”不一致，也使 Forget server、撤销和 token 轮换的安全边界依赖文件权限。
+
+验收要求：凭据移入系统安全存储，配置文件只保存 profile 元数据和安全存储引用；迁移旧文件后擦除明文；日志、备份、导出和错误路径均不得包含 token；增加权限不足、迁移、撤销和多 profile 隔离测试。
 
 ### P1-1：`HostEventBus` 使用全进程全局实例，无法表达 Host/数据目录隔离
 

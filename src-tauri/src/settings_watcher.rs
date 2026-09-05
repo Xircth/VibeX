@@ -40,7 +40,7 @@ pub fn start(_app: AppHandle) {
                 {
                     continue;
                 }
-                server::global_host_events().emit(SETTINGS_CHANGED_EVENT, ());
+                crate::host_bus::bus().emit(SETTINGS_CHANGED_EVENT, ());
             }
         })
     {

@@ -14,10 +14,7 @@ use tokio::sync::Mutex;
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
 
-use crate::{
-    domains::{ServerApplicationDomains, internal_error, parse},
-    host::events::global_host_events,
-};
+use crate::domains::{ServerApplicationDomains, internal_error, parse};
 
 static FILE_TREE_WATCHERS: OnceLock<Arc<Mutex<HashSet<String>>>> = OnceLock::new();
 static CONVERSATION_STREAMS: OnceLock<Arc<Mutex<HashSet<String>>>> = OnceLock::new();
@@ -135,12 +132,13 @@ impl ServerApplicationDomains {
             })?;
         let channel = format!("diff-stream:{}", args.workspace_id);
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         let stats = args.stats_only.unwrap_or(false);
         tokio::spawn(async move {
             match deployment.container().stream_diff(&workspace, stats).await {
                 Ok(mut stream) => {
                     while let Some(Ok(msg)) = stream.next().await {
-                        global_host_events().emit(&channel, &msg);
+                        host_events.emit(&channel, &msg);
                     }
                 }
                 Err(error) => tracing::error!(%error, "failed to start diff stream"),
@@ -171,6 +169,7 @@ impl ServerApplicationDomains {
             streams.insert(stream_key.clone());
         }
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         let use_normalized = args.normalized.unwrap_or(true);
         let process_id = args.execution_process_id;
         tokio::spawn(async move {
@@ -184,10 +183,10 @@ impl ServerApplicationDomains {
             };
             if let Some(mut stream) = stream_opt {
                 while let Some(Ok(msg)) = stream.next().await {
-                    global_host_events().emit(&channel, &msg);
+                    host_events.emit(&channel, &msg);
                 }
             }
-            global_host_events().emit(&channel, &LogMsg::Finished);
+            host_events.emit(&channel, &LogMsg::Finished);
             let registry = conversation_streams();
             registry.lock().await.remove(&stream_key);
         });
@@ -201,6 +200,7 @@ impl ServerApplicationDomains {
         let args: ExecutionProcessesStreamArgs = parse(args)?;
         let channel = format!("execution-processes-stream:{}", args.session_id);
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         let soft_deleted = args.show_soft_deleted.unwrap_or(false);
         tokio::spawn(async move {
             match deployment
@@ -210,7 +210,7 @@ impl ServerApplicationDomains {
             {
                 Ok(mut stream) => {
                     while let Some(Ok(msg)) = stream.next().await {
-                        global_host_events().emit(&channel, &msg);
+                        host_events.emit(&channel, &msg);
                     }
                 }
                 Err(error) => tracing::error!(%error, "failed to start execution processes stream"),
@@ -226,6 +226,7 @@ impl ServerApplicationDomains {
         let args: ProjectStreamArgs = parse(args)?;
         let channel = format!("project-workspaces-stream:{}", args.project_id);
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             match deployment
                 .events()
@@ -234,7 +235,7 @@ impl ServerApplicationDomains {
             {
                 Ok(mut stream) => {
                     while let Some(Ok(msg)) = stream.next().await {
-                        global_host_events().emit(&channel, &msg);
+                        host_events.emit(&channel, &msg);
                     }
                 }
                 Err(error) => tracing::error!(%error, "failed to start project workspaces stream"),
@@ -245,11 +246,12 @@ impl ServerApplicationDomains {
 
     async fn subscribe_projects_stream(&self) -> Result<Value, ApplicationError> {
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             match deployment.events().stream_projects_raw().await {
                 Ok(mut stream) => {
                     while let Some(Ok(msg)) = stream.next().await {
-                        global_host_events().emit("projects-stream", &msg);
+                        host_events.emit("projects-stream", &msg);
                     }
                 }
                 Err(error) => tracing::error!(%error, "failed to start projects stream"),
@@ -275,6 +277,7 @@ impl ServerApplicationDomains {
             }
             watchers.insert(canonical_root_str.clone());
         }
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             match services::services::filesystem_watcher::async_watcher(canonical_root) {
                 Ok((_watcher, mut receiver, normalized_root)) => {
@@ -282,7 +285,7 @@ impl ServerApplicationDomains {
                     while let Some(result) = receiver.next().await {
                         match result {
                             Ok(events) if !events.is_empty() => {
-                                global_host_events().emit(
+                                host_events.emit(
                                     "file-tree-stream",
                                     &FileTreeChangedPayload {
                                         root_path: normalized_root_str.clone(),
@@ -310,6 +313,7 @@ impl ServerApplicationDomains {
         let args: ScratchStreamArgs = parse(args)?;
         let channel = format!("scratch-stream:{}", args.scratch_id);
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             match deployment
                 .events()
@@ -318,7 +322,7 @@ impl ServerApplicationDomains {
             {
                 Ok(mut stream) => {
                     while let Some(Ok(msg)) = stream.next().await {
-                        global_host_events().emit(&channel, &msg);
+                        host_events.emit(&channel, &msg);
                     }
                 }
                 Err(error) => tracing::error!(%error, "failed to start scratch stream"),
@@ -331,6 +335,7 @@ impl ServerApplicationDomains {
         let args: LogStreamArgs = parse(args)?;
         let channel = format!("log-stream:{}", args.process_id);
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             if let Some(mut stream) = deployment
                 .container()
@@ -338,7 +343,7 @@ impl ServerApplicationDomains {
                 .await
             {
                 while let Some(Ok(msg)) = stream.next().await {
-                    global_host_events().emit(&channel, &msg);
+                    host_events.emit(&channel, &msg);
                 }
             }
         });
@@ -368,6 +373,7 @@ impl ServerApplicationDomains {
             args.executor_profile_id.executor, variant_str, ws_str, repo_str
         );
         let deployment = self.deployment.clone();
+        let host_events = self.events.clone();
         tokio::spawn(async move {
             match deployment
                 .container()
@@ -380,16 +386,16 @@ impl ServerApplicationDomains {
             {
                 Ok(Some(mut stream)) => {
                     while let Some(patch) = stream.next().await {
-                        global_host_events().emit(&channel, &LogMsg::JsonPatch(patch));
+                        host_events.emit(&channel, &LogMsg::JsonPatch(patch));
                     }
-                    global_host_events().emit(&channel, &LogMsg::Finished);
+                    host_events.emit(&channel, &LogMsg::Finished);
                 }
                 Ok(None) => {
-                    global_host_events().emit(&channel, &LogMsg::Finished);
+                    host_events.emit(&channel, &LogMsg::Finished);
                 }
                 Err(error) => {
                     tracing::error!(%error, "failed to start slash commands stream");
-                    global_host_events().emit(&channel, &LogMsg::Finished);
+                    host_events.emit(&channel, &LogMsg::Finished);
                 }
             }
         });

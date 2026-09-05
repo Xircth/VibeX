@@ -235,6 +235,9 @@ pub fn merge_host_reachability(
 ) -> Vec<ReachabilityOrigin> {
     let mut items: Vec<ReachabilityOrigin> = Vec::new();
     for origin in published {
+        if remote_protocol::is_public_plaintext_http_origin(&origin.origin) {
+            continue;
+        }
         if !items.iter().any(|item| item.origin == origin.origin) {
             items.push(origin);
         }
@@ -734,6 +737,24 @@ mod tests {
     use super::{
         HostTunnelStore, SavedTunnel, merge_host_reachability, relay_token_for, remember_relay,
     };
+
+    #[test]
+    fn published_plaintext_public_origins_are_dropped() {
+        let merged = merge_host_reachability(
+            &["http://192.168.1.20:17891".to_string()],
+            vec![
+                remote_protocol::ReachabilityOrigin::published("http://203.0.113.10:13630"),
+                remote_protocol::ReachabilityOrigin::published("https://gate.example.ts.net"),
+            ],
+        );
+        assert_eq!(
+            merged
+                .iter()
+                .map(|item| item.origin.as_str())
+                .collect::<Vec<_>>(),
+            vec!["https://gate.example.ts.net", "http://192.168.1.20:17891"]
+        );
+    }
 
     #[test]
     fn published_origins_join_lan_and_drop_loopback() {

@@ -3,8 +3,9 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use remote_protocol::{CommandResponse, ErrorEnvelope, OperationId, ServerCapabilities};
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, oneshot};
 use url::Url;
+use uuid::Uuid;
 
 use crate::error::AppError;
 
@@ -23,9 +24,16 @@ struct RemoteProfile {
     token: RemoteCredential,
 }
 
+struct RemotePump {
+    window_label: String,
+    profile_id: String,
+    cancel: Option<oneshot::Sender<()>>,
+}
+
 #[derive(Clone)]
 pub struct RemoteDesktopRegistry {
     profiles: Arc<RwLock<HashMap<(String, String), RemoteProfile>>>,
+    pumps: Arc<RwLock<HashMap<Uuid, RemotePump>>>,
     client: reqwest::Client,
 }
 
@@ -34,6 +42,7 @@ impl RemoteDesktopRegistry {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         Ok(Self {
             profiles: Arc::new(RwLock::new(HashMap::new())),
+            pumps: Arc::new(RwLock::new(HashMap::new())),
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(60))
@@ -71,6 +80,10 @@ impl RemoteDesktopRegistry {
     }
 
     pub async fn disconnect(&self, window_label: &str, profile_id: &str) {
+        self.cancel_pumps(|pump| {
+            pump.window_label == window_label && pump.profile_id == profile_id
+        })
+        .await;
         self.profiles
             .write()
             .await
@@ -78,6 +91,8 @@ impl RemoteDesktopRegistry {
     }
 
     pub async fn disconnect_window(&self, window_label: &str) {
+        self.cancel_pumps(|pump| pump.window_label == window_label)
+            .await;
         self.profiles
             .write()
             .await
@@ -85,10 +100,36 @@ impl RemoteDesktopRegistry {
     }
 
     pub async fn disconnect_profile(&self, profile_id: &str) {
+        self.cancel_pumps(|pump| pump.profile_id == profile_id)
+            .await;
         self.profiles
             .write()
             .await
             .retain(|(_, connected_profile), _| connected_profile != profile_id);
+    }
+
+    async fn cancel_pumps(&self, predicate: impl Fn(&RemotePump) -> bool) {
+        let mut pumps = self.pumps.write().await;
+        let ids = pumps
+            .iter()
+            .filter(|(_, pump)| predicate(pump))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        for id in ids {
+            if let Some(mut pump) = pumps.remove(&id)
+                && let Some(cancel) = pump.cancel.take()
+            {
+                let _ = cancel.send(());
+            }
+        }
+    }
+
+    pub async fn cancel_subscription(&self, subscription_id: Uuid) {
+        if let Some(mut pump) = self.pumps.write().await.remove(&subscription_id)
+            && let Some(cancel) = pump.cancel.take()
+        {
+            let _ = cancel.send(());
+        }
     }
 
     pub async fn call(
@@ -168,7 +209,8 @@ impl RemoteDesktopRegistry {
         window_label: &str,
         profile_id: &str,
         event: String,
-    ) -> Result<(), AppError> {
+        subscription_id: Uuid,
+    ) -> Result<Uuid, AppError> {
         let profile = self
             .profiles
             .read()
@@ -177,15 +219,26 @@ impl RemoteDesktopRegistry {
             .cloned()
             .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
         let channel = format!("remote-desktop:{profile_id}:{event}");
-        let subscription_id = uuid::Uuid::new_v4().to_string();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        self.pumps.write().await.insert(
+            subscription_id,
+            RemotePump {
+                window_label: window_label.to_string(),
+                profile_id: profile_id.to_string(),
+                cancel: Some(cancel_tx),
+            },
+        );
+        let pumps = self.pumps.clone();
         tokio::spawn(async move {
-            if let Err(error) =
-                pump_host_event_socket(app, profile, event, channel, subscription_id).await
-            {
+            let result =
+                pump_host_event_socket(app, profile, event, channel, subscription_id, cancel_rx)
+                    .await;
+            pumps.write().await.remove(&subscription_id);
+            if let Err(error) = result {
                 tracing::warn!(%error, "remote desktop host event listen failed");
             }
         });
-        Ok(())
+        Ok(subscription_id)
     }
 
     pub async fn subscribe_events(
@@ -194,7 +247,8 @@ impl RemoteDesktopRegistry {
         profile_id: &str,
         request: serde_json::Value,
         on_event: tauri::ipc::Channel<serde_json::Value>,
-    ) -> Result<(), AppError> {
+        subscription_id: Uuid,
+    ) -> Result<Uuid, AppError> {
         let profile = self
             .profiles
             .read()
@@ -202,12 +256,26 @@ impl RemoteDesktopRegistry {
             .get(&(window_label.to_string(), profile_id.to_string()))
             .cloned()
             .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        self.pumps.write().await.insert(
+            subscription_id,
+            RemotePump {
+                window_label: window_label.to_string(),
+                profile_id: profile_id.to_string(),
+                cancel: Some(cancel_tx),
+            },
+        );
+        let pumps = self.pumps.clone();
         tokio::spawn(async move {
-            if let Err(error) = pump_subscription_socket(profile, request, on_event).await {
+            let result =
+                pump_subscription_socket(profile, request, on_event, subscription_id, cancel_rx)
+                    .await;
+            pumps.write().await.remove(&subscription_id);
+            if let Err(error) = result {
                 tracing::warn!(%error, "remote desktop subscription failed");
             }
         });
-        Ok(())
+        Ok(subscription_id)
     }
 }
 
@@ -252,7 +320,13 @@ pub(crate) fn validate_base_url(value: &str) -> Result<String, AppError> {
                 .to_string(),
         ));
     }
-    Ok(url.as_str().trim_end_matches('/').to_string())
+    let origin = url.as_str().trim_end_matches('/').to_string();
+    if url.scheme() == "http" && !remote_protocol::origin_allows_plaintext_http(&origin) {
+        return Err(AppError::BadRequest(
+            "public Server origins must use HTTPS".to_string(),
+        ));
+    }
+    Ok(origin)
 }
 
 fn internal(error: impl std::fmt::Display) -> AppError {
@@ -294,7 +368,8 @@ async fn pump_host_event_socket(
     profile: RemoteProfile,
     event: String,
     channel: String,
-    subscription_id: String,
+    subscription_id: Uuid,
+    cancel_rx: oneshot::Receiver<()>,
 ) -> Result<(), AppError> {
     use futures::{SinkExt, StreamExt};
     use tauri::Emitter;
@@ -313,18 +388,32 @@ async fn pump_host_event_socket(
         .send(Message::Text(attach.to_string().into()))
         .await
         .map_err(internal)?;
-    while let Some(frame) = stream.next().await {
-        let Message::Text(text) = frame.map_err(internal)? else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            continue;
-        };
-        if value.get("type").and_then(Value::as_str) != Some("event") {
-            continue;
-        }
-        if let Some(payload) = value.pointer("/event/payload") {
-            let _ = app.emit(&channel, payload);
+    tokio::pin!(cancel_rx);
+    loop {
+        tokio::select! {
+            _ = &mut cancel_rx => {
+                let detach = serde_json::json!({
+                    "type": "detach",
+                    "subscription_id": subscription_id,
+                });
+                let _ = stream.send(Message::Text(detach.to_string().into())).await;
+                break;
+            }
+            frame = stream.next() => {
+                let Some(frame) = frame else { break };
+                let Message::Text(text) = frame.map_err(internal)? else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                if value.get("type").and_then(Value::as_str) != Some("event") {
+                    continue;
+                }
+                if let Some(payload) = value.pointer("/event/payload") {
+                    let _ = app.emit(&channel, payload);
+                }
+            }
         }
     }
     Ok(())
@@ -334,10 +423,19 @@ async fn pump_subscription_socket(
     profile: RemoteProfile,
     request: Value,
     on_event: tauri::ipc::Channel<Value>,
+    subscription_id: Uuid,
+    cancel_rx: oneshot::Receiver<()>,
 ) -> Result<(), AppError> {
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
     let mut stream = connect_remote_socket(&profile).await?;
+    let mut request = request;
+    if let Some(object) = request.as_object_mut() {
+        object.insert(
+            "subscription_id".to_string(),
+            serde_json::json!(subscription_id),
+        );
+    }
     let attach = serde_json::json!({
         "type": "attach",
         "request": request,
@@ -346,30 +444,53 @@ async fn pump_subscription_socket(
         .send(Message::Text(attach.to_string().into()))
         .await
         .map_err(internal)?;
-    while let Some(frame) = stream.next().await {
-        let Message::Text(text) = frame.map_err(internal)? else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            continue;
-        };
-        match value.get("type").and_then(Value::as_str) {
-            Some("event") => {
-                if let Some(event) = value.get("event") {
-                    let _ = on_event.send(event.clone());
+    tokio::pin!(cancel_rx);
+    loop {
+        tokio::select! {
+            _ = &mut cancel_rx => {
+                let detach = serde_json::json!({
+                    "type": "detach",
+                    "subscription_id": subscription_id,
+                });
+                let _ = stream.send(Message::Text(detach.to_string().into())).await;
+                break;
+            }
+            frame = stream.next() => {
+                let Some(frame) = frame else { break };
+                let Message::Text(text) = frame.map_err(internal)? else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match value.get("type").and_then(Value::as_str) {
+                    Some("event") => {
+                        if let Some(event) = value.get("event") {
+                            let _ = on_event.send(event.clone());
+                        }
+                    }
+                    Some("snapshot") => {
+                        if let Some(snapshot) = value.get("snapshot") {
+                            let _ = on_event.send(serde_json::json!({
+                                "kind": "subscription_snapshot",
+                                "payload": snapshot.get("payload"),
+                                "sequence": snapshot.get("through_sequence"),
+                            }));
+                        }
+                    }
+                    Some("error") => {
+                        if let Some(error) = value.get("error") {
+                            let _ = on_event.send(serde_json::json!({
+                                "kind": "subscription_error",
+                                "payload": error,
+                                "sequence": 0,
+                            }));
+                        }
+                    }
+                    Some("detached") => break,
+                    _ => {}
                 }
             }
-            Some("snapshot") => {
-                if let Some(snapshot) = value.get("snapshot") {
-                    let _ = on_event.send(serde_json::json!({
-                        "kind": "subscription_snapshot",
-                        "payload": snapshot.get("payload"),
-                        "sequence": snapshot.get("through_sequence"),
-                    }));
-                }
-            }
-            Some("detached") => break,
-            _ => {}
         }
     }
     Ok(())
@@ -396,7 +517,11 @@ mod tests {
         assert!(validate_base_url("http://127.0.0.1:17891").is_ok());
         assert!(validate_base_url("http://192.168.1.20:17891").is_ok());
         assert!(validate_base_url("http://studio.local:17891").is_ok());
-        assert!(validate_base_url("http://203.0.113.10:443").is_ok());
+        assert!(validate_base_url("http://[::1]:17891").is_ok());
+        assert!(validate_base_url("http://10.8.0.2:17891").is_ok());
+        assert!(validate_base_url("http://203.0.113.10:443").is_err());
+        assert!(validate_base_url("http://example.com").is_err());
+        assert!(validate_base_url("https://203.0.113.10").is_ok());
         assert!(validate_base_url("ftp://server.example").is_err());
         assert!(validate_base_url("https://user@server.example").is_err());
         assert!(validate_base_url("https://server.example/path").is_err());
@@ -504,5 +629,23 @@ mod tests {
             "RemoteCredential([REDACTED])"
         );
         task.abort();
+    }
+
+    #[tokio::test]
+    async fn cancel_subscription_stops_the_owned_pump() {
+        let registry = RemoteDesktopRegistry::new().expect("registry");
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let id = uuid::Uuid::new_v4();
+        registry.pumps.write().await.insert(
+            id,
+            super::RemotePump {
+                window_label: "window-a".into(),
+                profile_id: "profile".into(),
+                cancel: Some(tx),
+            },
+        );
+        registry.cancel_subscription(id).await;
+        assert!(rx.await.is_ok());
+        assert!(registry.pumps.read().await.get(&id).is_none());
     }
 }

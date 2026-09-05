@@ -39,6 +39,7 @@ import {
 } from '@/stores/useDiffViewStore';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
 
 type Props = {
@@ -117,6 +118,7 @@ export default function DiffCard({
   selectedAttempt,
 }: Props) {
   const { t } = useTranslation(['app', 'common']);
+  const localDesktopHost = useLocalDesktopHost();
   const { config } = useUserSystem();
   const theme = getActualTheme(config?.theme);
   const { comments, drafts, setDraft } = useReview();
@@ -446,7 +448,7 @@ export default function DiffCard({
       return;
     }
 
-    if (!selectedAttempt?.id) return;
+    if (!localDesktopHost || !selectedAttempt?.id) return;
 
     try {
       const response = await attemptsApi.openEditor(selectedAttempt.id, {
@@ -484,18 +486,20 @@ export default function DiffCard({
           </Button>
         )}
         {title}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenDiffInTab();
-          }}
-          className="h-6 w-6 p-0 ml-2"
-          title="Open diff in tab"
-        >
-          <ExternalLink className="h-3 w-3" aria-hidden />
-        </Button>
+        {panelActions?.openDiffPreviewAtPath || localDesktopHost ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleOpenDiffInTab();
+            }}
+            className="h-6 w-6 p-0 ml-2"
+            title="Open diff in tab"
+          >
+            <ExternalLink className="h-3 w-3" aria-hidden />
+          </Button>
+        ) : null}
       </div>
 
       {expanded && diffFile && (
@@ -546,14 +550,17 @@ export default function DiffCard({
                       >
                         {t('diffCard.reload')}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleOpenDiffInTab}
-                        className="h-7 text-xs"
-                      >
-                        {t('diffCard.openInTab')}
-                      </Button>
+                      {panelActions?.openDiffPreviewAtPath ||
+                      localDesktopHost ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleOpenDiffInTab()}
+                          className="h-7 text-xs"
+                        >
+                          {t('diffCard.openInTab')}
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 )}

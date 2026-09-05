@@ -58,7 +58,10 @@ impl PairingInvitationPayload {
             pairing_token: challenge.pairing_token.clone(),
             reachability: reachability
                 .into_iter()
-                .filter(|item| !is_loopback_origin(&item.origin))
+                .filter(|item| {
+                    !is_loopback_origin(&item.origin)
+                        && !is_public_plaintext_http_origin(&item.origin)
+                })
                 .collect(),
         }
     }
@@ -125,9 +128,91 @@ pub fn is_connection_code(value: &str) -> bool {
 }
 
 pub fn is_loopback_origin(origin: &str) -> bool {
-    let lowered = origin.to_ascii_lowercase();
-    lowered.contains("127.0.0.1")
-        || lowered.contains("localhost")
-        || lowered.contains("[::1]")
-        || lowered.contains("://[::1]")
+    let Some((_, host)) = origin_scheme_and_host(origin) else {
+        let lowered = origin.to_ascii_lowercase();
+        return lowered.contains("127.0.0.1")
+            || lowered.contains("localhost")
+            || lowered.contains("[::1]");
+    };
+    host_is_loopback(&host)
+}
+
+/// Public HTTP origins cannot carry device credentials. Loopback, RFC1918,
+/// link-local, unique-local, CGNAT/tailnet, and `.local` mDNS may use HTTP.
+pub fn origin_allows_plaintext_http(origin: &str) -> bool {
+    let Some((scheme, host)) = origin_scheme_and_host(origin) else {
+        return false;
+    };
+    scheme == "http" && host_is_private_or_loopback(&host)
+}
+
+pub fn is_public_plaintext_http_origin(origin: &str) -> bool {
+    let Some((scheme, host)) = origin_scheme_and_host(origin) else {
+        return false;
+    };
+    scheme == "http" && !host_is_private_or_loopback(&host)
+}
+
+fn origin_scheme_and_host(origin: &str) -> Option<(&'static str, String)> {
+    let origin = origin.trim();
+    let (scheme, rest) = if let Some(rest) = origin.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = origin.strip_prefix("http://") {
+        ("http", rest)
+    } else {
+        return None;
+    };
+    let hostport = rest.split('/').next().unwrap_or(rest);
+    let host = if let Some(rest) = hostport.strip_prefix('[') {
+        let end = rest.find(']')?;
+        rest[..end].to_string()
+    } else {
+        match hostport.rsplit_once(':') {
+            Some((host, port)) if port.bytes().all(|byte| byte.is_ascii_digit()) => {
+                host.to_string()
+            }
+            _ => hostport.to_string(),
+        }
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some((scheme, host))
+    }
+}
+
+fn host_is_loopback(host: &str) -> bool {
+    let lowered = host.to_ascii_lowercase();
+    if lowered == "localhost" || lowered.ends_with(".localhost") {
+        return true;
+    }
+    if let Ok(ip) = lowered.parse::<std::net::Ipv4Addr>() {
+        return ip.is_loopback();
+    }
+    if let Ok(ip) = lowered.parse::<std::net::Ipv6Addr>() {
+        return ip.is_loopback();
+    }
+    false
+}
+
+fn host_is_private_or_loopback(host: &str) -> bool {
+    if host_is_loopback(host) {
+        return true;
+    }
+    let lowered = host.to_ascii_lowercase();
+    if lowered.ends_with(".local") {
+        return true;
+    }
+    if let Ok(ip) = lowered.parse::<std::net::Ipv4Addr>() {
+        return ip.is_private() || ip.is_link_local() || is_cgnat_v4(ip);
+    }
+    if let Ok(ip) = lowered.parse::<std::net::Ipv6Addr>() {
+        return ip.is_unique_local() || ip.is_unicast_link_local();
+    }
+    false
+}
+
+fn is_cgnat_v4(ip: std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 100 && octets[1] & 0xc0 == 64
 }

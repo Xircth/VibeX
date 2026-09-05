@@ -13,9 +13,9 @@ use db::models::{
     conversation_turn::ConversationTurnRecord,
 };
 use remote_protocol::{
-    ConversationId, NotificationOutcome, NotificationSource, OfflineConversationCache, OperationId,
-    RemoteEvent, SubscriptionBootstrap, SubscriptionId, SubscriptionSnapshot,
-    TerminalNotificationSummary,
+    ConversationId, EventDurability, NotificationOutcome, NotificationSource,
+    OfflineConversationCache, OperationId, RemoteEvent, SubscriptionBootstrap, SubscriptionId,
+    SubscriptionSnapshot, TerminalNotificationSummary,
 };
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -898,6 +898,19 @@ pub trait ConversationSubscriptionRegistrar: Send + Sync {
     ) -> Result<(), ApplicationError>;
 }
 
+pub struct NoopConversationSubscriptions;
+
+#[async_trait::async_trait]
+impl ConversationSubscriptionRegistrar for NoopConversationSubscriptions {
+    async fn register(
+        &self,
+        _subscription_id: SubscriptionId,
+        _conversation_id: ConversationId,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct SqliteConversationRepository {
     pool: SqlitePool,
@@ -1470,6 +1483,7 @@ impl ConversationRepository for SqliteConversationRepository {
                 }),
                 replay: Vec::new(),
                 high_water_mark,
+                durability: EventDurability::Durable,
             });
         }
 
@@ -1512,6 +1526,7 @@ impl ConversationRepository for SqliteConversationRepository {
             snapshot,
             replay,
             high_water_mark: delivered_through,
+            durability: EventDurability::Durable,
         })
     }
 
@@ -1897,6 +1912,7 @@ where
                 }),
                 replay: Vec::new(),
                 high_water_mark: run.last_sequence,
+                durability: EventDurability::Durable,
             });
         }
         if after_sequence >= run.last_sequence {
@@ -1906,6 +1922,7 @@ where
                 snapshot: None,
                 replay: Vec::new(),
                 high_water_mark: run.last_sequence,
+                durability: EventDurability::Durable,
             });
         }
         let records = self
@@ -1933,6 +1950,7 @@ where
             snapshot: None,
             replay,
             high_water_mark,
+            durability: EventDurability::Durable,
         })
     }
 

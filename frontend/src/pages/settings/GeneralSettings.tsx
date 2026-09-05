@@ -40,6 +40,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import {
   getDefaultTerminalShell,
@@ -75,6 +76,7 @@ function cloneConfig(config: Config): Config {
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
+  const localDesktopHost = useLocalDesktopHost();
 
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
@@ -192,16 +194,18 @@ export function GeneralSettings() {
           </div>
         </SettingsSection>
 
-        <SettingsSection
-          icon={Code2}
-          title={t('general.externalEditorTitle')}
-          description={t('general.externalEditorDescription')}
-        >
-          <ExternalEditorPicker
-            value={draft.editor}
-            onChange={(editor) => updateDraft({ editor })}
-          />
-        </SettingsSection>
+        {localDesktopHost ? (
+          <SettingsSection
+            icon={Code2}
+            title={t('general.externalEditorTitle')}
+            description={t('general.externalEditorDescription')}
+          >
+            <ExternalEditorPicker
+              value={draft.editor}
+              onChange={(editor) => updateDraft({ editor })}
+            />
+          </SettingsSection>
+        ) : null}
 
         <SettingsSection
           icon={Lightbulb}

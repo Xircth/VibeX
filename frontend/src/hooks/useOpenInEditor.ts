@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { attemptsApi } from '@/lib/api';
 import { EditorSelectionDialog } from '@/components/dialogs/tasks/EditorSelectionDialog';
+import { isLocalDesktopHost } from '@/lib/desktopShell';
 import type { EditorType } from 'shared/types';
 
 type OpenEditorOptions = {
@@ -14,7 +15,7 @@ export function useOpenInEditor(
 ) {
   return useCallback(
     async (options?: OpenEditorOptions): Promise<void> => {
-      if (!attemptId) return;
+      if (!attemptId || !isLocalDesktopHost()) return;
 
       const { editorType, filePath } = options ?? {};
 

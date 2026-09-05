@@ -21,7 +21,7 @@ use uuid::Uuid;
 use super::unwrap_named;
 use crate::{
     domains::{ServerApplicationDomains, internal_error, parse, serialize},
-    host::events::global_host_events,
+    host::events::current_host_events,
 };
 
 const SYSTEM_SECTION: &str = "system";
@@ -291,7 +291,7 @@ pub(super) fn set_log_settings(args: Value) -> Result<Value, ApplicationError> {
         serde_json::to_vec_pretty(&settings).map_err(internal_error)?,
     )
     .map_err(internal_error)?;
-    global_host_events().emit("log-settings://changed", &settings);
+    current_host_events().emit("log-settings://changed", &settings);
     serialize(settings)
 }
 

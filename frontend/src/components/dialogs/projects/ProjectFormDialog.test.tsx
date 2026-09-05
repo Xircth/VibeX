@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ComponentType } from 'react';
 import NiceModal, { type NiceModalHocProps } from '@ebay/nice-modal-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -31,6 +33,17 @@ function renderDialog(props: ProjectFormDialogProps = {}) {
 }
 
 describe('ProjectFormDialog', () => {
+  it('creates new projects through the Host command, not the client filesystem', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, 'ProjectFormDialog.tsx'),
+      'utf8'
+    );
+    expect(source).not.toContain('writeTextFile');
+    expect(source).not.toContain('@tauri-apps/plugin-fs');
+    expect(source).toContain('parentPath');
+    expect(source).toContain('folderName');
+  });
+
   it('uses an Astryx multiline field for the project description', async () => {
     renderDialog();
 

@@ -19,6 +19,7 @@ import {
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 import { desktopApi } from '@/lib/api';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 
 import {
   AgentConfigFieldsCard,
@@ -64,28 +65,31 @@ export function AgentConfigPathMeta({
   saving: boolean;
 }) {
   const { t } = useTranslation('settings');
+  const localDesktopHost = useLocalDesktopHost();
   if (paths.length === 0) return null;
   return (
     <div className="agent-config-path-meta">
       {paths.map((path) => (
         <div className="agent-config-path-item" key={path}>
           <span title={path}>{fileName(path)}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="agent-config-open-folder h-7 w-7 p-0"
-            aria-label={t('agents.openConfigFolderAria', {
-              file: fileName(path),
-            })}
-            disabled={saving}
-            onClick={() => {
-              void desktopApi
-                .revealInFileManager(parentDirectory(path))
-                .catch(() => toast.error(t('agents.openConfigFolderFailed')));
-            }}
-          >
-            <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
+          {localDesktopHost ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="agent-config-open-folder h-7 w-7 p-0"
+              aria-label={t('agents.openConfigFolderAria', {
+                file: fileName(path),
+              })}
+              disabled={saving}
+              onClick={() => {
+                void desktopApi
+                  .revealInFileManager(parentDirectory(path))
+                  .catch(() => toast.error(t('agents.openConfigFolderFailed')));
+              }}
+            >
+              <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
         </div>
       ))}
     </div>

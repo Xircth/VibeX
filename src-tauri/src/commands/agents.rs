@@ -1554,6 +1554,23 @@ mod tests {
 
     use super::*;
 
+    fn capability_probe_result(
+        persist: Result<(), AppError>,
+        discard: Result<(), AppError>,
+        directory: Result<(), AppError>,
+    ) -> Result<(), AppError> {
+        if let Err(error) = &directory {
+            tracing::warn!("{error}");
+        }
+        if persist.is_ok() {
+            if let Err(error) = &discard {
+                tracing::warn!("{error}");
+            }
+            return Ok(());
+        }
+        persist
+    }
+
     async fn authentication_projection_pool() -> sqlx::SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
             .unwrap()

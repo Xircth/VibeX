@@ -114,10 +114,13 @@ describe('TauriTransport application command adapter', () => {
 
   it('rejects an unsafe sequence returned by the desktop wire', async () => {
     tauriInvoke.mockResolvedValue({
-      subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
-      ready: true,
-      replay: [],
-      high_water_mark: Number.MAX_SAFE_INTEGER + 1,
+      operation_id: 'op',
+      data: {
+        subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+        ready: true,
+        replay: [],
+        high_water_mark: Number.MAX_SAFE_INTEGER + 1,
+      },
     });
     const events = new TauriTransport().subscribe({
       subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',

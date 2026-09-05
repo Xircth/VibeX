@@ -1,22 +1,39 @@
 use std::{str::FromStr, sync::Arc};
 
-use remote_protocol::{CommandResponse, ErrorCode, ErrorEnvelope, OperationId};
+use remote_protocol::{
+    CommandResponse, ErrorCode, ErrorEnvelope, OperationId, SubscriptionRequest,
+    SubscriptionResource,
+};
 use serde::Deserialize;
 
 use crate::{
-    AcceptWorkflowCandidateRequest, ApplicationCore, CancelConversationInputRequest,
+    AcceptWorkflowCandidateRequest, ApplicationCore, ArgShape, CancelConversationInputRequest,
     CancelConversationTurn, CancelWorkflowRequest, CompleteWorkflowStepRequest,
     ConversationRepository, CreateChildConversationRequest, CreateConversation,
     CreateConversationWorkspace, DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand,
     ForkWorkflowRequest, ListConversationFeedbackRequest, ListConversationInputsRequest,
     ListConversationRelationsRequest, ListConversations, ListRecentConversations,
-    PauseWorkflowRequest, PauseWorkflowStepRequest, Principal, PublishWorkflowRequest,
-    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
-    ResumePausedWorkflowRequest, ResumeWorkflowRequest, StartConversationTurn,
-    StartWorkflowRequest, SteerConversationTurnRequest, SubmitConversationFeedback,
-    SubmitConversationInputRequest, SubmitWorkflowStepInputRequest, UpdateConversationInputRequest,
-    ValidateWorkflowRequest,
+    NoopConversationSubscriptions, PauseWorkflowRequest, PauseWorkflowStepRequest, Principal,
+    PublishWorkflowRequest, ReorderConversationInputRequest, RespondConversationPermission,
+    RespondConversationQuestion, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
+    StartConversationTurn, StartWorkflowRequest, SteerConversationTurnRequest,
+    SubmitConversationFeedback, SubmitConversationInputRequest, SubmitWorkflowStepInputRequest,
+    UpdateConversationInputRequest, ValidateWorkflowRequest,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HostCommandKind {
+    Core,
+    Domain,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostCommandDescriptor {
+    pub name: &'static str,
+    pub scope: &'static str,
+    pub kind: HostCommandKind,
+    pub arg_shape: ArgShape,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegisteredCommand {
@@ -49,6 +66,7 @@ pub enum RegisteredCommand {
     ConversationRespondPermission,
     ConversationRespondQuestion,
     ConversationCancelTurn,
+    ConversationAttach,
     WorkflowPublish,
     WorkflowValidate,
     WorkflowStart,
@@ -104,6 +122,7 @@ impl RegisteredCommand {
             Self::ConversationRespondPermission => "conversation_respond_permission",
             Self::ConversationRespondQuestion => "conversation_respond_question",
             Self::ConversationCancelTurn => "conversation_cancel_turn",
+            Self::ConversationAttach => "conversation_attach",
             Self::WorkflowPublish => "workflow_publish",
             Self::WorkflowValidate => "workflow_validate",
             Self::WorkflowStart => "workflow_start",
@@ -159,6 +178,7 @@ impl RegisteredCommand {
             RegisteredCommand::ConversationRespondPermission,
             RegisteredCommand::ConversationRespondQuestion,
             RegisteredCommand::ConversationCancelTurn,
+            RegisteredCommand::ConversationAttach,
             RegisteredCommand::WorkflowPublish,
             RegisteredCommand::WorkflowValidate,
             RegisteredCommand::WorkflowStart,
@@ -184,6 +204,95 @@ impl RegisteredCommand {
             .map(|command| command.as_str())
             .chain(DomainCommand::ALL.iter().map(|command| command.as_str()))
             .collect()
+    }
+
+    pub fn all() -> Vec<Self> {
+        Self::host_command_names()
+            .into_iter()
+            .filter_map(|name| Self::from_str(name).ok())
+            .collect()
+    }
+
+    pub const fn required_scope(self) -> &'static str {
+        match self {
+            Self::ConversationList
+            | Self::ConversationListRecent
+            | Self::ConversationCatalog
+            | Self::ConversationOutput
+            | Self::ConversationListFeedback
+            | Self::ConversationInputList
+            | Self::ConversationRelationList => "conversation.read",
+            Self::ConversationArchive
+            | Self::ConversationSetPinned
+            | Self::ConversationDelete
+            | Self::ConversationRename
+            | Self::ConversationSetStatus
+            | Self::ConversationSetSessionMode
+            | Self::ConversationSetSessionConfig
+            | Self::ConversationWorkspaceCreate
+            | Self::ConversationWorkspaceEntries
+            | Self::ConversationSlashCommands
+            | Self::ConversationCreate
+            | Self::ConversationChildCreate
+            | Self::ConversationStartTurn
+            | Self::ConversationSubmitFeedback
+            | Self::ConversationInputSubmit
+            | Self::ConversationInputUpdate
+            | Self::ConversationInputReorder
+            | Self::ConversationInputCancel => "conversation.write",
+            Self::ConversationSteer => "conversation.steer",
+            Self::ConversationRespondPermission => "conversation.permission",
+            Self::ConversationRespondQuestion => "conversation.question",
+            Self::ConversationCancelTurn => "conversation.cancel",
+            Self::ConversationAttach => "conversation.attach",
+            Self::WorkflowShow
+            | Self::WorkflowVersion
+            | Self::WorkflowList
+            | Self::WorkflowVersions
+            | Self::WorkflowSteps
+            | Self::WorkflowEvents => "workflow.read",
+            Self::WorkflowPublish | Self::WorkflowValidate => "workflow.write",
+            Self::WorkflowStart
+            | Self::WorkflowDebug
+            | Self::WorkflowCompleteStep
+            | Self::WorkflowCancel
+            | Self::WorkflowResume
+            | Self::WorkflowPause
+            | Self::WorkflowResumeRun
+            | Self::WorkflowPauseStep
+            | Self::WorkflowStepInput
+            | Self::WorkflowFork => "workflow.run",
+            Self::WorkflowDecide | Self::WorkflowAcceptCandidate => "workflow.approve",
+            Self::Domain(command) => command.required_scope(),
+        }
+    }
+
+    pub const fn arg_shape(self) -> ArgShape {
+        match self {
+            Self::ConversationAttach => ArgShape::Request,
+            Self::Domain(_) => ArgShape::Compat,
+            _ => ArgShape::Compat,
+        }
+    }
+
+    pub const fn kind(self) -> HostCommandKind {
+        match self {
+            Self::Domain(_) => HostCommandKind::Domain,
+            _ => HostCommandKind::Core,
+        }
+    }
+
+    pub fn descriptor(self) -> HostCommandDescriptor {
+        HostCommandDescriptor {
+            name: self.as_str(),
+            scope: self.required_scope(),
+            kind: self.kind(),
+            arg_shape: self.arg_shape(),
+        }
+    }
+
+    pub fn descriptors() -> Vec<HostCommandDescriptor> {
+        Self::all().into_iter().map(Self::descriptor).collect()
     }
 }
 
@@ -221,6 +330,7 @@ impl FromStr for RegisteredCommand {
             "conversation_respond_permission" => Ok(Self::ConversationRespondPermission),
             "conversation_respond_question" => Ok(Self::ConversationRespondQuestion),
             "conversation_cancel_turn" => Ok(Self::ConversationCancelTurn),
+            "conversation_attach" => Ok(Self::ConversationAttach),
             "workflow_publish" => Ok(Self::WorkflowPublish),
             "workflow_validate" => Ok(Self::WorkflowValidate),
             "workflow_start" => Ok(Self::WorkflowStart),
@@ -515,6 +625,14 @@ pub struct CommandRegistry<R> {
     core: Arc<ApplicationCore<R>>,
 }
 
+impl<R> Clone for CommandRegistry<R> {
+    fn clone(&self) -> Self {
+        Self {
+            core: Arc::clone(&self.core),
+        }
+    }
+}
+
 impl<R> CommandRegistry<R>
 where
     R: ConversationRepository,
@@ -527,6 +645,10 @@ where
 
     pub fn from_core(core: Arc<ApplicationCore<R>>) -> Self {
         Self { core }
+    }
+
+    pub fn core(&self) -> &Arc<ApplicationCore<R>> {
+        &self.core
     }
 
     pub async fn execute_name(
@@ -1296,6 +1418,13 @@ where
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?
             }
+            RegisteredCommand::ConversationAttach => {
+                let args = parse_args::<ConversationAttachArgs>(command, operation_id, args)?;
+                let result = attach_registered_subscription(&self.core, principal, args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
             RegisteredCommand::Domain(command) => self
                 .core
                 .execute_domain(principal, command, args)
@@ -1316,7 +1445,7 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
     operation_id: OperationId,
     args: serde_json::Value,
 ) -> Result<T, ErrorEnvelope> {
-    crate::decode_command_args(args).map_err(|error| {
+    crate::decode_command_args_shaped(args, command.arg_shape()).map_err(|error| {
         ErrorEnvelope::new(
             ErrorCode::BadRequest,
             format!("invalid arguments for {}: {error}", command.as_str()),
@@ -1324,6 +1453,48 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
             operation_id,
         )
     })
+}
+
+#[derive(Deserialize)]
+struct ConversationAttachArgs {
+    request: SubscriptionRequest,
+}
+
+async fn attach_registered_subscription<R>(
+    core: &ApplicationCore<R>,
+    principal: &Principal,
+    request: SubscriptionRequest,
+) -> Result<remote_protocol::SubscriptionBootstrap, crate::ApplicationError>
+where
+    R: ConversationRepository,
+{
+    match request.resource {
+        SubscriptionResource::Conversation {
+            conversation_id,
+            after_sequence,
+        } => {
+            core.attach_conversation(
+                principal,
+                request.subscription_id,
+                conversation_id,
+                after_sequence,
+                &NoopConversationSubscriptions,
+            )
+            .await
+        }
+        SubscriptionResource::WorkflowRun {
+            run_id,
+            after_sequence,
+        } => {
+            core.attach_workflow_run(principal, request.subscription_id, run_id, after_sequence)
+                .await
+        }
+        SubscriptionResource::HostEvent { .. } | SubscriptionResource::PatchStream { .. } => {
+            Err(crate::ApplicationError::bad_request(
+                "host_event and patch_stream attach over the Host WebSocket",
+            ))
+        }
+    }
 }
 
 fn with_operation_id(error: crate::ApplicationError, operation_id: OperationId) -> ErrorEnvelope {
@@ -1345,4 +1516,57 @@ fn serialize_result(
             operation_id,
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HostCommandKind, RegisteredCommand};
+    use crate::ArgShape;
+
+    #[test]
+    fn host_command_names_are_unique_and_parseable() {
+        let names = RegisteredCommand::host_command_names();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len());
+        for name in &names {
+            let command = name.parse::<RegisteredCommand>().expect(name);
+            assert_eq!(command.as_str(), *name);
+            assert!(!command.required_scope().is_empty());
+        }
+        assert!(
+            names.contains(&"conversation_attach"),
+            "conversation_attach must be a Host command"
+        );
+        assert!(
+            names.contains(&"trash_item"),
+            "trash_item must be a Host command"
+        );
+    }
+
+    #[test]
+    fn conversation_attach_is_core_with_request_shape() {
+        let command: RegisteredCommand = "conversation_attach".parse().expect("command");
+        let descriptor = command.descriptor();
+        assert_eq!(descriptor.kind, HostCommandKind::Core);
+        assert_eq!(descriptor.scope, "conversation.attach");
+        assert_eq!(descriptor.arg_shape, ArgShape::Request);
+    }
+
+    #[tokio::test]
+    async fn command_registry_shares_the_core_arc() {
+        use std::sync::Arc;
+
+        use crate::{ApplicationCore, CommandRegistry, SqliteConversationRepository};
+
+        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("pool");
+        let core = Arc::new(ApplicationCore::new(SqliteConversationRepository::new(
+            pool,
+        )));
+        let registry = CommandRegistry::from_core(core.clone());
+        assert!(Arc::ptr_eq(registry.core(), &core));
+        let cloned = registry.clone();
+        assert!(Arc::ptr_eq(cloned.core(), &core));
+    }
 }

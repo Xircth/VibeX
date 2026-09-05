@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
 import type { CreateProject, Project } from 'shared/types';
@@ -101,11 +100,6 @@ function toFolderName(projectName: string): string {
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '');
-}
-
-function joinLocalPath(parent: string, child: string): string {
-  const separator = parent.includes('\\') ? '\\' : '/';
-  return `${parent.replace(/[\\/]+$/, '')}${separator}${child}`;
 }
 
 function createReadme(projectName: string, projectDescription: string): string {
@@ -257,39 +251,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       modal.hide();
     };
 
-    const writeTemplateFiles = async (repoPath: string) => {
-      const writes: Array<Promise<void>> = [];
-
-      if (includeReadme) {
-        writes.push(
-          writeTextFile(
-            joinLocalPath(repoPath, 'README.md'),
-            createReadme(projectName.trim(), projectDescription)
-          )
-        );
-      }
-
-      if (includeGitignore) {
-        writes.push(
-          writeTextFile(
-            joinLocalPath(repoPath, '.gitignore'),
-            GITIGNORE_TEMPLATE
-          )
-        );
-      }
-
-      if (includeLicense) {
-        writes.push(
-          writeTextFile(
-            joinLocalPath(repoPath, 'LICENSE'),
-            MIT_LICENSE_TEMPLATE
-          )
-        );
-      }
-
-      await Promise.all(writes);
-    };
-
     const createProjectRecord = async (
       finalProjectName: string,
       repoPathForProject: string
@@ -329,12 +290,25 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       setIsSubmitting(true);
 
       try {
-        const repo = await repoApi.init({
-          parent_path: parentFolderPath,
-          folder_name: folderName,
+        const templates = {
+          ...(includeReadme
+            ? {
+                readme: createReadme(finalProjectName, projectDescription),
+              }
+            : {}),
+          ...(includeGitignore ? { gitignore: GITIGNORE_TEMPLATE } : {}),
+          ...(includeLicense ? { license: MIT_LICENSE_TEMPLATE } : {}),
+        };
+        const project = await createProject.mutateAsync({
+          name: finalProjectName,
+          repositories: [],
+          init: {
+            parentPath: parentFolderPath,
+            folderName,
+            templates:
+              Object.keys(templates).length > 0 ? templates : undefined,
+          },
         });
-        await writeTemplateFiles(repo.path);
-        const project = await createProjectRecord(finalProjectName, repo.path);
         modal.resolve({ status: 'saved', project } as ProjectFormDialogResult);
         modal.hide();
       } catch (err) {

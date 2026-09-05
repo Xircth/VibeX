@@ -367,3 +367,86 @@ async fn websocket_rejects_an_oversized_frame_before_json_processing() {
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn websocket_keeps_the_connection_when_one_subscription_is_invalid() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("focused event fixture");
+    let conversation_id = Uuid::new_v4();
+    append(&pool, conversation_id, "turn_started").await;
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool.clone()));
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("websocket-secret-with-at-least-32-bytes"),
+        core,
+    )
+    .router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut socket = connect(address, "websocket-secret-with-at-least-32-bytes").await;
+    let bad_id = SubscriptionId::new();
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&SubscriptionClientMessage::Attach {
+                request: SubscriptionRequest {
+                    subscription_id: bad_id,
+                    resource: SubscriptionResource::HostEvent {
+                        channel: "not-a-real-channel".to_string(),
+                        after_sequence: 0,
+                    },
+                },
+            })
+            .expect("attach")
+            .into(),
+        ))
+        .await
+        .expect("send bad attach");
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Error {
+            subscription_id: Some(error_id),
+            error
+        } if error_id == bad_id && error.code == remote_protocol::ErrorCode::NotFound
+    ));
+    let good_id = SubscriptionId::new();
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&SubscriptionClientMessage::Attach {
+                request: SubscriptionRequest {
+                    subscription_id: good_id,
+                    resource: SubscriptionResource::Conversation {
+                        conversation_id: ConversationId::from_uuid(conversation_id),
+                        after_sequence: 0,
+                    },
+                },
+            })
+            .expect("attach")
+            .into(),
+        ))
+        .await
+        .expect("send good attach");
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Ready {
+            subscription_id
+        } if subscription_id == good_id
+    ));
+    server.abort();
+}

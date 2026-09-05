@@ -144,7 +144,7 @@ pub async fn emit_conversation_row_ops_after(
             session_config_options,
             available_commands,
         };
-        let bus = server::global_host_events();
+        let bus = crate::host_bus::bus();
         bus.emit(
             format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
             &batch,
@@ -177,7 +177,7 @@ pub async fn emit_conversation_row_ops_after(
     });
     if workbench_changed {
         if let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await {
-            server::global_host_events().emit(
+            crate::host_bus::bus().emit(
                 "workspace-sessions-changed",
                 WorkspaceSessionsChangedPayload {
                     workspace_id: session.workspace_id,
@@ -235,7 +235,7 @@ pub enum AgentTerminalUiEvent {
 pub fn start_host_event_forwarding(app: &AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut rx = server::global_host_events().subscribe();
+        let mut rx = crate::host_bus::bus().subscribe();
         loop {
             match rx.recv().await {
                 Ok(event) => {
@@ -321,7 +321,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                             }
                             if should_emit_agent_event(&event.event)
                             {
-                                server::global_host_events()
+                                crate::host_bus::bus()
                                     .emit(channels::AGENT_EVENTS, &event);
                             }
                         }
@@ -507,7 +507,7 @@ async fn emit_desktop_session_attention(
         title,
         message,
     };
-    server::global_host_events().emit(channels::DESKTOP_SESSION_ATTENTION, &payload);
+    crate::host_bus::bus().emit(channels::DESKTOP_SESSION_ATTENTION, &payload);
     Ok(())
 }
 
@@ -602,7 +602,7 @@ pub fn start_agent_terminal_forwarding(_app: &AppHandle, state: &AppState) {
                         cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
                     };
 
-                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
+                    crate::host_bus::bus().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
                     let workspace_id = workspace_by_session.get(&terminal_id.0).copied().flatten();
@@ -611,7 +611,7 @@ pub fn start_agent_terminal_forwarding(_app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
+                    crate::host_bus::bus().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
                     let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
@@ -620,7 +620,7 @@ pub fn start_agent_terminal_forwarding(_app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
+                    crate::host_bus::bus().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

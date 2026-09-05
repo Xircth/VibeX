@@ -26,7 +26,12 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{PreviewProxyRegistry, automation_runtime::HeadlessAutomationRuntime};
+use crate::{
+    PreviewProxyRegistry,
+    automation_runtime::HeadlessAutomationRuntime,
+    host::events::{HostEventBus, TerminalBridgeRegistry},
+    host_runtime::AutomationOwnership,
+};
 
 #[derive(Clone)]
 pub struct ServerApplicationDomains {
@@ -37,11 +42,13 @@ pub struct ServerApplicationDomains {
     app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     preview_proxy: PreviewProxyRegistry,
     automation: HeadlessAutomationRuntime,
-    owns_automation_engine: bool,
+    automation_ownership: AutomationOwnership,
     pub(crate) conversations: ConversationContext,
     pub(crate) deployment: Arc<LocalDeployment>,
     pub(crate) runtime_root: std::path::PathBuf,
     pub(crate) worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    pub(crate) events: Arc<HostEventBus>,
+    pub(crate) terminal_bridges: Arc<TerminalBridgeRegistry>,
 }
 
 pub struct ServerDomainDependencies {
@@ -52,11 +59,13 @@ pub struct ServerDomainDependencies {
     pub app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub preview_proxy: PreviewProxyRegistry,
     pub automation: HeadlessAutomationRuntime,
-    pub owns_automation_engine: bool,
+    pub automation_ownership: AutomationOwnership,
     pub conversations: ConversationContext,
     pub deployment: Arc<LocalDeployment>,
     pub runtime_root: std::path::PathBuf,
     pub worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    pub events: Arc<HostEventBus>,
+    pub terminal_bridges: Arc<TerminalBridgeRegistry>,
 }
 
 impl ServerApplicationDomains {
@@ -69,11 +78,13 @@ impl ServerApplicationDomains {
             app_surfaces,
             preview_proxy,
             automation,
-            owns_automation_engine,
+            automation_ownership,
             conversations,
             deployment,
             runtime_root,
             worker_runtime,
+            events,
+            terminal_bridges,
         } = dependencies;
         Self {
             pool,
@@ -83,11 +94,13 @@ impl ServerApplicationDomains {
             app_surfaces,
             preview_proxy,
             automation,
-            owns_automation_engine,
+            automation_ownership,
             conversations,
             deployment,
             runtime_root,
             worker_runtime,
+            events,
+            terminal_bridges,
         }
     }
 
@@ -146,7 +159,7 @@ impl ServerApplicationDomains {
             DomainCommand::ArtifactClosePreview => self.close_preview(args).await,
             DomainCommand::AutomationList => self.automation_list().await,
             DomainCommand::AutomationEngineStatus => {
-                Ok(json!({ "active": self.owns_automation_engine }))
+                Ok(json!({ "active": self.automation_ownership.current() }))
             }
             DomainCommand::AutomationCreate => self.automation_create(args).await,
             DomainCommand::AutomationCreateWorkflow => self.automation_create_workflow(args).await,
@@ -1439,8 +1452,8 @@ impl ServerApplicationDomains {
     }
 
     async fn automation_run_now(&self, args: Value) -> Result<Value, ApplicationError> {
-        if !self.owns_automation_engine {
-            return Err(ApplicationError::conflict(
+        if !self.automation_ownership.current() {
+            return Err(ApplicationError::capability_unavailable(
                 "this host does not own the Automation Engine lease",
             ));
         }
@@ -1821,7 +1834,11 @@ impl ApplicationDomainPort for ServerApplicationDomains {
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        self.execute_command(command, args).await
+        crate::host::events::bind_host_events(
+            self.events.clone(),
+            self.execute_command(command, args),
+        )
+        .await
     }
 }
 

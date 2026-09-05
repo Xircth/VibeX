@@ -38,6 +38,7 @@ pub(crate) struct ServerState<R> {
     pub(crate) preview_proxy: crate::PreviewProxyRegistry,
     pub(crate) preview_client: reqwest::Client,
     pub(crate) pty: PtyService,
+    pub(crate) events: Arc<crate::HostEventBus>,
 }
 
 pub struct ServerRuntime<R> {
@@ -133,6 +134,26 @@ where
         preview_proxy: crate::PreviewProxyRegistry,
         pty: PtyService,
     ) -> Self {
+        Self::from_auth_with_events(
+            config,
+            auth,
+            core,
+            preview_proxy,
+            pty,
+            Arc::new(crate::HostEventBus::new()),
+            application::AdapterCapabilities::server_http(),
+        )
+    }
+
+    fn from_auth_with_events(
+        config: ServerConfig,
+        auth: Arc<dyn ServerAuth>,
+        core: ApplicationCore<R>,
+        preview_proxy: crate::PreviewProxyRegistry,
+        pty: PtyService,
+        events: Arc<crate::HostEventBus>,
+        adapter: application::AdapterCapabilities,
+    ) -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let capabilities = ServerCapabilities {
             server_version: config.server_version.clone(),
@@ -140,7 +161,7 @@ where
             minimum_client_version: config.minimum_client_version.clone(),
             host_id: config.host_id.clone(),
             reachability: config.reachability.clone(),
-            capabilities: application::DomainCommand::capability_scopes()
+            capabilities: application::DomainCommand::derived_capability_scopes(adapter)
                 .into_iter()
                 .map(CapabilityId::new)
                 .collect(),
@@ -158,10 +179,54 @@ where
                 preview_client: crate::preview_proxy::preview_client()
                     .expect("build loopback-only preview client"),
                 pty,
+                events,
             }),
         }
     }
+}
 
+impl ServerRuntime<application::SqliteConversationRepository> {
+    pub fn from_host(
+        config: ServerConfig,
+        auth: Arc<dyn ServerAuth>,
+        host: crate::HostRuntime,
+        pty: PtyService,
+    ) -> Self {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let capabilities = ServerCapabilities {
+            server_version: config.server_version.clone(),
+            protocol_version: remote_protocol::PROTOCOL_VERSION.to_string(),
+            minimum_client_version: config.minimum_client_version.clone(),
+            host_id: config.host_id.clone(),
+            reachability: config.reachability.clone(),
+            capabilities: host
+                .capability_scopes()
+                .into_iter()
+                .map(CapabilityId::new)
+                .collect(),
+        };
+        Self {
+            config: config.clone(),
+            state: Arc::new(ServerState {
+                auth,
+                capabilities,
+                commands: host.commands.clone(),
+                core: host.core.clone(),
+                config,
+                preview_proxy: host.preview_proxy.clone(),
+                preview_client: crate::preview_proxy::preview_client()
+                    .expect("build loopback-only preview client"),
+                pty,
+                events: host.events.clone(),
+            }),
+        }
+    }
+}
+
+impl<R> ServerRuntime<R>
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
     pub const fn config(&self) -> &ServerConfig {
         &self.config
     }

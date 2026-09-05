@@ -16,6 +16,8 @@ import type {
   Diff,
 } from 'shared/types';
 
+import { desktopShellCall } from '@/lib/desktopShell';
+
 import { backendCall, invokeAsResult } from './base';
 import type { Result, PullResult } from './base';
 
@@ -115,7 +117,7 @@ export const repoApi = {
     repoId: string,
     data: OpenEditorRequest
   ): Promise<OpenEditorResponse> => {
-    return backendCall<OpenEditorResponse>('open_repo_in_editor', {
+    return desktopShellCall<OpenEditorResponse>('open_repo_in_editor', {
       repoId,
       payload: data,
     });

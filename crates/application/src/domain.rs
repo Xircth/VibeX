@@ -4,6 +4,48 @@ use async_trait::async_trait;
 
 use crate::{ApplicationError, Principal};
 
+/// Adapter-provided capabilities that are not Host command scopes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AdapterCapabilities {
+    pub preview_proxy: bool,
+    pub offline_read: bool,
+    pub notification_summary: bool,
+    pub device_admin: bool,
+    pub desktop_tauri: bool,
+}
+
+impl AdapterCapabilities {
+    pub const fn registry_only() -> Self {
+        Self {
+            preview_proxy: false,
+            offline_read: false,
+            notification_summary: false,
+            device_admin: false,
+            desktop_tauri: false,
+        }
+    }
+
+    pub const fn server_http() -> Self {
+        Self {
+            preview_proxy: true,
+            offline_read: true,
+            notification_summary: true,
+            device_admin: true,
+            desktop_tauri: false,
+        }
+    }
+
+    pub const fn desktop_host() -> Self {
+        Self {
+            preview_proxy: true,
+            offline_read: true,
+            notification_summary: true,
+            device_admin: true,
+            desktop_tauri: true,
+        }
+    }
+}
+
 macro_rules! domain_commands {
     ($($variant:ident => $name:literal / $scope:literal),+ $(,)?) => {
         /// Closed set of non-Conversation product commands supported by remote hosts.
@@ -16,6 +58,12 @@ macro_rules! domain_commands {
             pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
 
             pub fn capability_scopes() -> Vec<&'static str> {
+                Self::derived_capability_scopes(AdapterCapabilities::registry_only())
+            }
+
+            pub fn derived_capability_scopes(
+                adapter: AdapterCapabilities,
+            ) -> Vec<&'static str> {
                 let mut scopes = std::collections::BTreeSet::new();
                 for command in Self::ALL {
                     scopes.insert(command.required_scope());
@@ -32,14 +80,25 @@ macro_rules! domain_commands {
                     "workflow.write",
                     "workflow.run",
                     "workflow.approve",
-                    "device.pair",
-                    "device.revoke",
-                    "notification.summary",
-                    "offline.read",
-                    "preview.proxy",
                     "delegation.read",
                 ] {
                     scopes.insert(scope);
+                }
+                if adapter.device_admin {
+                    scopes.insert("device.pair");
+                    scopes.insert("device.revoke");
+                }
+                if adapter.notification_summary {
+                    scopes.insert("notification.summary");
+                }
+                if adapter.offline_read {
+                    scopes.insert("offline.read");
+                }
+                if adapter.preview_proxy {
+                    scopes.insert("preview.proxy");
+                }
+                if adapter.desktop_tauri {
+                    scopes.insert("desktop.tauri");
                 }
                 scopes.into_iter().collect()
             }
@@ -185,6 +244,7 @@ domain_commands! {
     FileRead => "read_file_content" / "application.call",
     FileSave => "save_file_content" / "application.call",
     FileDelete => "delete_file" / "application.call",
+    FileTrash => "trash_item" / "application.call",
     FileListChildren => "list_directory_children" / "application.call",
     FileReadTruncated => "read_file_with_truncation" / "application.call",
     FileCopy => "copy_item" / "application.call",
@@ -577,5 +637,29 @@ mod tests {
         }
         assert!(!scopes.contains(&"workspace.write"));
         assert!(!scopes.contains(&"desktop.tauri"));
+        assert!(!scopes.contains(&"preview.proxy"));
+        assert!(!scopes.contains(&"offline.read"));
+        assert!(!scopes.contains(&"device.pair"));
+        let server = super::DomainCommand::derived_capability_scopes(
+            super::AdapterCapabilities::server_http(),
+        );
+        assert!(server.contains(&"preview.proxy"));
+        assert!(server.contains(&"offline.read"));
+        assert!(server.contains(&"device.pair"));
+        assert!(!server.contains(&"desktop.tauri"));
+        let desktop = super::DomainCommand::derived_capability_scopes(
+            super::AdapterCapabilities::desktop_host(),
+        );
+        assert!(desktop.contains(&"desktop.tauri"));
+    }
+
+    #[test]
+    fn trash_item_is_a_host_file_command() {
+        assert_eq!(
+            "trash_item".parse::<DomainCommand>().expect("trash_item"),
+            DomainCommand::FileTrash
+        );
+        assert_eq!(DomainCommand::FileTrash.as_str(), "trash_item");
+        assert!(DomainCommand::ALL.contains(&DomainCommand::FileTrash));
     }
 }

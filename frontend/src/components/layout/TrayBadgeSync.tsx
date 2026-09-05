@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { backendCall } from '@/lib/backendTransport';
+import { desktopShellCall, isTauriClient } from '@/lib/desktopShell';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 /**
@@ -15,7 +15,10 @@ export function TrayBadgeSync() {
   );
 
   useEffect(() => {
-    void backendCall('update_tray_badge', { count: unread }).catch(() => {});
+    if (!isTauriClient()) return;
+    void desktopShellCall('update_tray_badge', { count: unread }).catch(
+      () => {}
+    );
   }, [unread]);
 
   return null;

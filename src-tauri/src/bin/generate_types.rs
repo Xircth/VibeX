@@ -105,9 +105,9 @@ use git::{
     WriteConflictResolutionResult,
 };
 use remote_protocol::{
-    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, ReachabilityOrigin,
-    RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
-    SubscriptionResource, SubscriptionSnapshot,
+    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, EventDurability, OperationId,
+    ReachabilityOrigin, RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId,
+    SubscriptionRequest, SubscriptionResource, SubscriptionSnapshot,
 };
 use services::services::{
     config::{CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen},
@@ -261,11 +261,50 @@ fn render_host_commands() -> String {
         .map(|scope| format!("  '{scope}',"))
         .collect::<Vec<_>>()
         .join("\n");
+    let mut descriptors = application::RegisteredCommand::descriptors();
+    descriptors.sort_by_key(|descriptor| descriptor.name);
+    let descriptor_rows = descriptors
+        .into_iter()
+        .map(|descriptor| {
+            let kind = match descriptor.kind {
+                application::HostCommandKind::Core => "core",
+                application::HostCommandKind::Domain => "domain",
+            };
+            let shape = match descriptor.arg_shape {
+                application::ArgShape::Canonical => "canonical",
+                application::ArgShape::Request => "request",
+                application::ArgShape::Payload => "payload",
+                application::ArgShape::Compat => "compat",
+            };
+            format!(
+                "  {{ name: '{}', scope: '{}', kind: '{}', argShape: '{}' }},",
+                descriptor.name, descriptor.scope, kind, shape
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let events = server::HOST_EVENT_CHANNELS
+        .iter()
+        .map(|channel| {
+            let durability = match channel.durability {
+                remote_protocol::EventDurability::Durable => "durable",
+                remote_protocol::EventDurability::Invalidation => "invalidation",
+                remote_protocol::EventDurability::BestEffort => "best_effort",
+            };
+            format!(
+                "  {{ prefix: '{}', durability: '{durability}', scope: '{}' }},",
+                channel.prefix, channel.required_scope
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "/* Generated from RegisteredCommand + DomainCommand. Do not hand-edit. */\n\n\
 export const HOST_COMMANDS = [\n{host}\n] as const;\n\n\
 export const DESKTOP_SHELL_COMMANDS = [\n{shell}\n] as const;\n\n\
 export const HOST_CAPABILITY_SCOPES = [\n{scopes}\n] as const;\n\n\
+export const HOST_COMMAND_DESCRIPTORS = [\n{descriptor_rows}\n] as const;\n\n\
+export const HOST_EVENT_CHANNELS = [\n{events}\n] as const;\n\n\
 export type HostCommand = (typeof HOST_COMMANDS)[number];\n\
 export type DesktopShellCommand = (typeof DESKTOP_SHELL_COMMANDS)[number];\n"
     )
@@ -286,6 +325,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "remote_desktop_capabilities",
     "remote_desktop_listen",
     "remote_desktop_subscribe",
+    "remote_desktop_cancel_subscription",
     "create_ssh_tunnel",
     "close_ssh_tunnel",
     "backup_create",
@@ -297,7 +337,6 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "update_tray_badge",
     "host_client_delete",
     "revoke_host_device",
-    "conversation_attach",
     "fixture_delegate",
     "fixture_reset",
     "backup_cancel",
@@ -336,7 +375,6 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "set_host_tunnel_enabled",
     "start_create_host_tunnel",
     "take_tauri_inspector_capture",
-    "trash_item",
     "update_web_service_config",
     "plugin_control_import_cli",
 ];
@@ -849,6 +887,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SubscriptionResource>(&mut decls);
     insert_declaration::<RemoteEvent>(&mut decls);
     insert_declaration::<SubscriptionSnapshot>(&mut decls);
+    insert_declaration::<EventDurability>(&mut decls);
     insert_declaration::<SubscriptionBootstrap>(&mut decls);
     decls
 }

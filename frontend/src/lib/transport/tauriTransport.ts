@@ -89,7 +89,15 @@ export class TauriTransport implements BackendTransport {
       server_version: 'desktop',
       protocol_version: '1.0',
       minimum_client_version: '0.1.0',
-      capabilities: [...HOST_CAPABILITY_SCOPES, 'desktop.tauri'],
+      capabilities: [
+        ...HOST_CAPABILITY_SCOPES,
+        'desktop.tauri',
+        'preview.proxy',
+        'offline.read',
+        'notification.summary',
+        'device.pair',
+        'device.revoke',
+      ],
     };
   }
 

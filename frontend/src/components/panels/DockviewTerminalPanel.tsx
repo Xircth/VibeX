@@ -21,6 +21,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { backendCall } from '@/lib/backendTransport';
+import { desktopShellCall } from '@/lib/desktopShell';
 import {
   getDefaultTerminalShell,
   getPlatformDefaultTerminalShell,
@@ -256,7 +257,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     if (!workspaceId) return;
     if (isExternalTerminalShell(selectedShell)) {
       try {
-        await backendCall<void>('open_external_terminal', {
+        await desktopShellCall<void>('open_external_terminal', {
           workspaceId,
           terminal: selectedShell,
         });

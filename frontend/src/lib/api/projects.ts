@@ -10,7 +10,23 @@ import type {
   UpdateProject,
 } from 'shared/types';
 
+import { desktopShellCall } from '@/lib/desktopShell';
+
 import { backendCall } from './base';
+
+export type HostCreateProject = {
+  name: string;
+  repositories?: CreateProjectRepo[];
+  init?: {
+    parentPath: string;
+    folderName: string;
+    templates?: {
+      readme?: string;
+      gitignore?: string;
+      license?: string;
+    };
+  };
+};
 
 // Project Management APIs
 export const projectsApi = {
@@ -18,7 +34,7 @@ export const projectsApi = {
     return backendCall<Project[]>('get_projects');
   },
 
-  create: async (data: CreateProject): Promise<Project> => {
+  create: async (data: HostCreateProject | CreateProject): Promise<Project> => {
     return backendCall<Project>('create_project', { payload: data });
   },
 
@@ -34,7 +50,7 @@ export const projectsApi = {
     id: string,
     data: OpenEditorRequest
   ): Promise<OpenEditorResponse> => {
-    return backendCall<OpenEditorResponse>('open_project_in_editor', {
+    return desktopShellCall<OpenEditorResponse>('open_project_in_editor', {
       id,
       payload: data,
     });

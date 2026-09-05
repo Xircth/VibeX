@@ -109,7 +109,7 @@ impl LogHub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(rec.clone());
-        server::global_host_events().emit(LOG_APPENDED_EVENT, &rec);
+        crate::host_bus::bus().emit(LOG_APPENDED_EVENT, &rec);
     }
 
     pub fn snapshot(&self) -> Vec<LogRecord> {

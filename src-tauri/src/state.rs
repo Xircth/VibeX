@@ -201,6 +201,7 @@ pub struct AppState {
     pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
     pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
+    pub host: server::HostRuntime,
 }
 
 impl AppState {
@@ -352,6 +353,68 @@ impl AppState {
         )
         .await
         .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string())))?;
+        let preview_proxy = server::PreviewProxyRegistry::default();
+        let events = std::sync::Arc::new(server::HostEventBus::new());
+        crate::host_bus::install(events.clone());
+        let host_conversations = conversations::ConversationContext {
+            deployment: deployment.clone(),
+            agent_runtime: agent_runtime.clone(),
+            turn_locks: conversation_turn_locks.clone(),
+            runtime_states: conversation_runtime_states.clone(),
+            row_projectors: conversation_row_projectors.clone(),
+            host: Arc::new(crate::conversation_service::AppConversationHost {
+                deployment: deployment.clone(),
+                official_mcp: plugin_control_plane.official_product_mcp_gate(),
+            }),
+            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                crate::conversation_service::AppConversationEventPublisher {
+                    app_handle: app_handle.clone(),
+                    deployment: deployment.clone(),
+                    row_projectors: conversation_row_projectors.clone(),
+                },
+            ))),
+        };
+        let host = server::HostRuntime::build(server::HostRuntimeParts {
+            pool: deployment.db().pool.clone(),
+            conversations: host_conversations,
+            plugin_control_plane: plugin_control_plane.clone(),
+            companion_memory: Some(delegation.features.clone()),
+            preview_host: plugin_preview_host.clone(),
+            capability_broker: plugin_capability_broker.clone(),
+            app_surfaces: plugin_app_surfaces.clone(),
+            preview_proxy: preview_proxy.clone(),
+            automation: server::HeadlessAutomationRuntime::new(
+                local_deployment.clone(),
+                conversations::ConversationContext {
+                    deployment: deployment.clone(),
+                    agent_runtime: agent_runtime.clone(),
+                    turn_locks: conversation_turn_locks.clone(),
+                    runtime_states: conversation_runtime_states.clone(),
+                    row_projectors: conversation_row_projectors.clone(),
+                    host: Arc::new(crate::conversation_service::AppConversationHost {
+                        deployment: deployment.clone(),
+                        official_mcp: plugin_control_plane.official_product_mcp_gate(),
+                    }),
+                    event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                        crate::conversation_service::AppConversationEventPublisher {
+                            app_handle: app_handle.clone(),
+                            deployment: deployment.clone(),
+                            row_projectors: conversation_row_projectors.clone(),
+                        },
+                    ))),
+                },
+                plugin_control_plane.clone(),
+            ),
+            automation_ownership: server::AutomationOwnership::from_fn(
+                crate::commands::automation::this_host_owns_automation_engine,
+            ),
+            deployment: local_deployment.clone(),
+            runtime_root: utils::assets::asset_dir().join("plugins/runtimes"),
+            worker_runtime: plugin_worker_runtime.clone(),
+            adapter: application::AdapterCapabilities::desktop_host(),
+            events: Some(events),
+            terminal_bridges: None,
+        });
         Ok(Self {
             app_handle,
             local_deployment,
@@ -374,6 +437,7 @@ impl AppState {
             plugin_app_surfaces,
             remote_desktop,
             local_history_import: Arc::new(StdMutex::new(LocalHistoryImportRuntime::default())),
+            host,
         })
     }
 

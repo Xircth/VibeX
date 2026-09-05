@@ -4,6 +4,20 @@ use ts_rs::TS;
 
 use crate::{ConversationId, ErrorEnvelope, SubscriptionId};
 
+/// How a Host Event Bus / subscription resource may be recovered after a gap.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum EventDurability {
+    /// Persistent sequence with snapshot/replay from an event log.
+    #[default]
+    Durable,
+    /// Client must refetch. Attach may send the latest invalidation snapshot,
+    /// never a reconstructed replay of missed broadcasts.
+    Invalidation,
+    /// Live-only. Sequence is not a recoverable cursor.
+    BestEffort,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]
 pub struct SubscriptionRequest {
     pub subscription_id: SubscriptionId,
@@ -102,6 +116,8 @@ pub struct SubscriptionBootstrap {
     #[serde(default)]
     pub replay: Vec<RemoteEvent>,
     pub high_water_mark: i64,
+    #[serde(default)]
+    pub durability: EventDurability,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]
@@ -129,6 +145,8 @@ pub enum SubscriptionServerMessage {
     Pong,
     Error {
         error: ErrorEnvelope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subscription_id: Option<SubscriptionId>,
     },
 }
 

@@ -62,7 +62,7 @@ type WireServerMessage =
     }
   | { type: 'detached'; subscription_id: string; reason: string }
   | { type: 'pong' }
-  | { type: 'error'; error: unknown };
+  | { type: 'error'; error: unknown; subscription_id?: string };
 
 class AsyncEventQueue {
   private readonly values: RemoteEvent[] = [];
@@ -311,7 +311,19 @@ export class WebTransport implements BackendTransport {
   }
 
   private handleServerMessage(message: WireServerMessage): void {
-    if (message.type === 'pong' || message.type === 'error') {
+    if (message.type === 'pong') {
+      return;
+    }
+    if (message.type === 'error') {
+      if (!message.subscription_id) {
+        return;
+      }
+      const failed = this.subscriptions.get(message.subscription_id);
+      if (!failed) {
+        return;
+      }
+      this.subscriptions.delete(message.subscription_id);
+      failed.queue.close();
       return;
     }
     const subscription = this.subscriptions.get(message.subscription_id);

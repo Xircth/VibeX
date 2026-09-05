@@ -7,16 +7,25 @@ use conversations::{
 use db::models::conversation_event::ConversationEventRecord;
 use sqlx::SqlitePool;
 
-use crate::host::events::global_host_events;
+use crate::host::events::HostEventBus;
 
 pub struct HostRowOpPublisher {
     pool: SqlitePool,
     projectors: ConversationRowProjectors,
+    events: std::sync::Arc<HostEventBus>,
 }
 
 impl HostRowOpPublisher {
-    pub fn new(pool: SqlitePool, projectors: ConversationRowProjectors) -> Self {
-        Self { pool, projectors }
+    pub fn new(
+        pool: SqlitePool,
+        projectors: ConversationRowProjectors,
+        events: std::sync::Arc<HostEventBus>,
+    ) -> Self {
+        Self {
+            pool,
+            projectors,
+            events,
+        }
     }
 }
 
@@ -88,8 +97,8 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             session_config_options,
             available_commands,
         };
-        let bus = global_host_events();
-        bus.emit(format!("conversation-events:{conversation_id}"), &batch);
-        bus.emit("conversation-events", &batch);
+        self.events
+            .emit(format!("conversation-events:{conversation_id}"), &batch);
+        self.events.emit("conversation-events", &batch);
     }
 }

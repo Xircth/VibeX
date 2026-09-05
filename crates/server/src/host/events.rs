@@ -1,33 +1,188 @@
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicI64, Ordering},
+use std::{
+    collections::HashMap,
+    future::Future,
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicI64, Ordering},
+    },
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use remote_protocol::{
+    EventDurability, SubscriptionBootstrap, SubscriptionId, SubscriptionSnapshot,
+};
 use serde::Serialize;
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 const BUS_CAPACITY: usize = 4096;
-static GLOBAL_BUS: OnceLock<HostEventBus> = OnceLock::new();
 
-pub fn global_host_events() -> &'static HostEventBus {
-    GLOBAL_BUS.get_or_init(HostEventBus::new)
+tokio::task_local! {
+    static CURRENT_BUS: Arc<HostEventBus>;
 }
+
+pub fn bind_host_events<F: Future>(
+    bus: Arc<HostEventBus>,
+    fut: F,
+) -> impl Future<Output = F::Output> {
+    CURRENT_BUS.scope(bus, fut)
+}
+
+pub fn current_host_events() -> Arc<HostEventBus> {
+    CURRENT_BUS
+        .try_with(Arc::clone)
+        .expect("Host Event Bus is not bound to this task")
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostEventChannel {
+    pub prefix: &'static str,
+    pub durability: EventDurability,
+    pub required_scope: &'static str,
+}
+
+/// Catalog of Host push channels. Prefix match is longest-first.
+pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
+    HostEventChannel {
+        prefix: "conversation-events",
+        durability: EventDurability::Invalidation,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
+        prefix: "workspace-sessions-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "agent-management-event",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "agent-management-snapshot-invalidated",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "agent-management-discovery-progress",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "agent-terminal-events",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "desktop-session-attention",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "file-tree-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "projects-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "project-workspaces-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "execution-processes-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "diff-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "conversation-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "scratch-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "slash-commands-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "log-stream",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "vibex://settings-file-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "theme-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "log-settings://changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "logs://appended",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "local-history-import-progress",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "local-history-scan-progress",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "agent-events",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "terminal-output",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+];
 
 #[derive(Clone, Debug)]
 pub struct HostEvent {
     pub channel: String,
     pub payload: serde_json::Value,
     pub sequence: i64,
+    pub durability: EventDurability,
 }
 
-/// Process-wide push surface for Host-originated UI events.
-/// Desktop forwards matching channels to Tauri; Server WS attaches as `host_event`.
+/// Per-Host push surface. Desktop forwards matching channels to Tauri; Server WS
+/// attaches as `host_event`. Instances are isolated — never process-global.
 #[derive(Clone)]
 pub struct HostEventBus {
     tx: broadcast::Sender<HostEvent>,
     sequence: Arc<AtomicI64>,
+    last_invalidation: Arc<RwLock<HashMap<String, HostEvent>>>,
 }
 
 impl Default for HostEventBus {
@@ -42,55 +197,95 @@ impl HostEventBus {
         Self {
             tx,
             sequence: Arc::new(AtomicI64::new(0)),
+            last_invalidation: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn current_sequence(&self) -> i64 {
+        self.sequence.load(Ordering::SeqCst)
     }
 
     pub fn emit(&self, channel: impl Into<String>, payload: impl Serialize) {
         let Ok(payload) = serde_json::to_value(payload) else {
             return;
         };
-        let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.tx.send(HostEvent {
-            channel: channel.into(),
+        let channel = channel.into();
+        let durability = Self::descriptor(&channel)
+            .map(|descriptor| descriptor.durability)
+            .unwrap_or(EventDurability::BestEffort);
+        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let event = HostEvent {
+            channel: channel.clone(),
             payload,
             sequence,
-        });
+            durability,
+        };
+        if durability == EventDurability::Invalidation
+            && let Ok(mut last) = self.last_invalidation.write()
+        {
+            last.insert(channel, event.clone());
+        }
+        let _ = self.tx.send(event);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HostEvent> {
         self.tx.subscribe()
     }
 
-    pub fn channel_allowed(channel: &str) -> bool {
-        const PREFIXES: &[&str] = &[
-            "conversation-events",
-            "workspace-sessions-changed",
-            "agent-management-event",
-            "agent-management-snapshot-invalidated",
-            "agent-management-discovery-progress",
-            "agent-terminal-events",
-            "desktop-session-attention",
-            "file-tree-stream",
-            "projects-stream",
-            "project-workspaces-stream",
-            "execution-processes-stream",
-            "diff-stream",
-            "conversation-stream",
-            "scratch-stream",
-            "slash-commands-stream",
-            "log-stream",
-            "vibex://settings-file-changed",
-            "theme-changed",
-            "log-settings://changed",
-            "logs://appended",
-            "local-history-import-progress",
-            "local-history-scan-progress",
-            "agent-events",
-            "terminal-output",
-        ];
-        PREFIXES
+    pub fn descriptor(channel: &str) -> Option<&'static HostEventChannel> {
+        HOST_EVENT_CHANNELS
             .iter()
-            .any(|prefix| channel == *prefix || channel.starts_with(&format!("{prefix}:")))
+            .filter(|candidate| {
+                channel == candidate.prefix
+                    || channel.starts_with(&format!("{}:", candidate.prefix))
+            })
+            .max_by_key(|candidate| candidate.prefix.len())
+    }
+
+    pub fn channel_allowed(channel: &str) -> bool {
+        Self::descriptor(channel).is_some()
+    }
+
+    pub fn required_scope(channel: &str) -> Option<&'static str> {
+        Self::descriptor(channel).map(|descriptor| descriptor.required_scope)
+    }
+
+    pub fn durability(channel: &str) -> Option<EventDurability> {
+        Self::descriptor(channel).map(|descriptor| descriptor.durability)
+    }
+
+    /// Attach a Host Event channel. Non-durable channels never replay missed
+    /// broadcasts from `after_sequence`. Invalidation attach returns the latest
+    /// snapshot so the client can refetch; best-effort is live-only.
+    pub fn attach_bootstrap(
+        &self,
+        subscription_id: SubscriptionId,
+        channel: &str,
+        _after_sequence: i64,
+    ) -> Result<SubscriptionBootstrap, String> {
+        let descriptor = Self::descriptor(channel)
+            .ok_or_else(|| format!("host event channel `{channel}` is not registered"))?;
+        let high_water_mark = self.current_sequence();
+        let snapshot = match descriptor.durability {
+            EventDurability::Invalidation => self
+                .last_invalidation
+                .read()
+                .ok()
+                .and_then(|last| last.get(channel).cloned())
+                .map(|event| SubscriptionSnapshot {
+                    through_sequence: event.sequence,
+                    payload: event.payload,
+                }),
+            EventDurability::BestEffort | EventDurability::Durable => None,
+        };
+        Ok(SubscriptionBootstrap {
+            subscription_id,
+            ready: true,
+            snapshot,
+            replay: Vec::new(),
+            high_water_mark,
+            durability: descriptor.durability,
+        })
     }
 }
 
@@ -98,18 +293,99 @@ pub fn terminal_output_channel(session_id: Uuid) -> String {
     format!("terminal-output:{session_id}")
 }
 
-/// Forward PTY (or Agent terminal) bytes onto the Host Event Bus as base64,
-/// matching the desktop `terminal-output:{id}` listener contract.
-pub fn spawn_terminal_output_bridge(
-    session_id: Uuid,
-    mut output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-) {
-    let channel = terminal_output_channel(session_id);
-    tokio::spawn(async move {
-        while let Some(data) = output_rx.recv().await {
-            global_host_events().emit(&channel, BASE64.encode(&data));
+struct TerminalBridge {
+    subscribers: usize,
+    task: JoinHandle<()>,
+}
+
+/// One output pump per Host terminal session, refcounted by attach/close.
+#[derive(Default)]
+pub struct TerminalBridgeRegistry {
+    inner: Mutex<HashMap<Uuid, TerminalBridge>>,
+}
+
+impl TerminalBridgeRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn subscriber_count(&self, session_id: Uuid) -> usize {
+        self.inner
+            .lock()
+            .map(|inner| {
+                inner
+                    .get(&session_id)
+                    .map(|bridge| bridge.subscribers)
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn ensure(
+        &self,
+        bus: Arc<HostEventBus>,
+        session_id: Uuid,
+        output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    ) {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("terminal bridge registry poisoned");
+        if let Some(existing) = inner.get_mut(&session_id) {
+            existing.subscribers = existing.subscribers.saturating_add(1);
+            drop(output_rx);
+            return;
         }
-    });
+        let channel = terminal_output_channel(session_id);
+        let task = tokio::spawn(async move {
+            let mut output_rx = output_rx;
+            while let Some(data) = output_rx.recv().await {
+                bus.emit(&channel, BASE64.encode(&data));
+            }
+        });
+        inner.insert(
+            session_id,
+            TerminalBridge {
+                subscribers: 1,
+                task,
+            },
+        );
+    }
+
+    pub fn release(&self, session_id: Uuid) {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("terminal bridge registry poisoned");
+        let Some(existing) = inner.get_mut(&session_id) else {
+            return;
+        };
+        existing.subscribers = existing.subscribers.saturating_sub(1);
+        if existing.subscribers == 0 {
+            existing.task.abort();
+            inner.remove(&session_id);
+        }
+    }
+
+    pub fn abort_all(&self) {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("terminal bridge registry poisoned");
+        for (_, bridge) in inner.drain() {
+            bridge.task.abort();
+        }
+    }
+}
+
+/// Forward PTY (or Agent terminal) bytes onto the Host Event Bus as base64.
+pub fn spawn_terminal_output_bridge(
+    bus: Arc<HostEventBus>,
+    bridges: &TerminalBridgeRegistry,
+    session_id: Uuid,
+    output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
+    bridges.ensure(bus, session_id, output_rx);
 }
 
 /// Map a `patch_stream` resource name to the Host Event Bus channel the
@@ -193,7 +469,11 @@ pub fn patch_stream_subscribe_command(stream: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{HostEventBus, patch_stream_channel, patch_stream_subscribe_command};
+    use remote_protocol::EventDurability;
+
+    use super::{
+        HostEventBus, TerminalBridgeRegistry, patch_stream_channel, patch_stream_subscribe_command,
+    };
 
     #[test]
     fn conversation_channel_is_allowed() {
@@ -223,12 +503,87 @@ mod tests {
         }
     }
 
+    #[test]
+    fn durability_is_classified_from_the_catalog() {
+        assert_eq!(
+            HostEventBus::durability("conversation-events:abc"),
+            Some(EventDurability::Invalidation)
+        );
+        assert_eq!(
+            HostEventBus::durability("terminal-output:abc"),
+            Some(EventDurability::BestEffort)
+        );
+        assert_eq!(
+            HostEventBus::durability("agent-management-discovery-progress"),
+            Some(EventDurability::BestEffort)
+        );
+        assert_eq!(
+            HostEventBus::durability("theme-changed"),
+            Some(EventDurability::Invalidation)
+        );
+    }
+
+    #[test]
+    fn buses_do_not_share_events_across_hosts() {
+        let first = HostEventBus::new();
+        let second = HostEventBus::new();
+        let mut first_rx = first.subscribe();
+        let mut second_rx = second.subscribe();
+        first.emit("theme-changed", "host-a");
+        second.emit("theme-changed", "host-b");
+        let first_event = first_rx.try_recv().expect("host-a event");
+        let second_event = second_rx.try_recv().expect("host-b event");
+        assert_eq!(first_event.payload, serde_json::json!("host-a"));
+        assert_eq!(second_event.payload, serde_json::json!("host-b"));
+        assert!(first_rx.try_recv().is_err());
+        assert!(second_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn best_effort_attach_does_not_replay() {
+        let bus = HostEventBus::new();
+        bus.emit("logs://appended", "one");
+        bus.emit("logs://appended", "two");
+        let bootstrap = bus
+            .attach_bootstrap(remote_protocol::SubscriptionId::new(), "logs://appended", 0)
+            .expect("attach");
+        assert_eq!(bootstrap.durability, EventDurability::BestEffort);
+        assert!(bootstrap.replay.is_empty());
+        assert!(bootstrap.snapshot.is_none());
+        assert!(bootstrap.high_water_mark >= 2);
+    }
+
+    #[test]
+    fn invalidation_attach_returns_latest_snapshot_not_replay() {
+        let bus = HostEventBus::new();
+        bus.emit("theme-changed", "light");
+        bus.emit("theme-changed", "dark");
+        let bootstrap = bus
+            .attach_bootstrap(remote_protocol::SubscriptionId::new(), "theme-changed", 0)
+            .expect("attach");
+        assert_eq!(bootstrap.durability, EventDurability::Invalidation);
+        assert!(bootstrap.replay.is_empty());
+        assert_eq!(
+            bootstrap.snapshot.expect("snapshot").payload,
+            serde_json::json!("dark")
+        );
+    }
+
     #[tokio::test]
     async fn terminal_output_bridge_emits_base64_on_the_host_bus() {
+        let bus = std::sync::Arc::new(HostEventBus::new());
+        let bridges = TerminalBridgeRegistry::new();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let session_id = uuid::Uuid::from_u128(0x1111_2222_3333_4444_5555_6666_7777_8888);
-        let mut events = super::global_host_events().subscribe();
-        super::spawn_terminal_output_bridge(session_id, rx);
+        let mut events = bus.subscribe();
+        super::spawn_terminal_output_bridge(bus.clone(), &bridges, session_id, rx);
+        super::spawn_terminal_output_bridge(
+            bus.clone(),
+            &bridges,
+            session_id,
+            tokio::sync::mpsc::unbounded_channel().1,
+        );
+        assert_eq!(bridges.subscriber_count(session_id), 2);
         tx.send(b"prompt>\n".to_vec()).unwrap();
         let channel = super::terminal_output_channel(session_id);
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -249,6 +604,10 @@ mod tests {
             ))
             .as_deref()
         );
+        bridges.release(session_id);
+        assert_eq!(bridges.subscriber_count(session_id), 1);
+        bridges.release(session_id);
+        assert_eq!(bridges.subscriber_count(session_id), 0);
     }
 
     #[test]

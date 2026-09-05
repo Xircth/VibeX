@@ -82,7 +82,7 @@ pub(super) async fn reconcile_external_component_changes(
         }
     }
     if adopted_any {
-        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(())
 }

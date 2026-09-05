@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const persistFrontendPreference = vi.hoisted(() => vi.fn());
-const backendCall = vi.hoisted(() => vi.fn());
+const desktopShellCall = vi.hoisted(() => vi.fn());
+const isTauriClient = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock('@/lib/frontendPreferences', () => ({
   persistFrontendPreference,
 }));
 
-vi.mock('@/lib/backendTransport', () => ({
-  backendCall,
-  configuredBackendTransport: { environment: 'tauri' },
+vi.mock('@/lib/desktopShell', () => ({
+  desktopShellCall,
+  isTauriClient,
 }));
 
 import {
@@ -24,7 +25,9 @@ describe('app icon preference', () => {
   beforeEach(() => {
     localStorage.clear();
     persistFrontendPreference.mockReset();
-    backendCall.mockReset();
+    desktopShellCall.mockReset();
+    isTauriClient.mockReset();
+    isTauriClient.mockReturnValue(true);
   });
 
   it('defaults to the standard icon and ignores unknown stored values', () => {
@@ -63,11 +66,11 @@ describe('app icon preference', () => {
   });
 
   it('applies the resolved style and theme to the native application icon', async () => {
-    backendCall.mockResolvedValue(undefined);
+    desktopShellCall.mockResolvedValue(undefined);
 
     await applyNativeAppIcon('lite', 'dark');
 
-    expect(backendCall).toHaveBeenCalledWith('set_app_icon', {
+    expect(desktopShellCall).toHaveBeenCalledWith('set_app_icon', {
       style: 'lite',
       theme: 'dark',
     });

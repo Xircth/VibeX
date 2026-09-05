@@ -716,7 +716,9 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(agent_ids.len(), 13);
+        // Deliberately pinned so adding or dropping an agent is a visible
+        // decision; update alongside `BuiltInProfileCatalog::bundled()`.
+        assert_eq!(agent_ids.len(), 14);
         assert!(agent_ids.iter().any(|agent_id| agent_id == "claude_code"));
         assert!(agent_ids.iter().any(|agent_id| agent_id == "codex"));
         assert!(agent_ids.iter().any(|agent_id| agent_id == "cursor"));

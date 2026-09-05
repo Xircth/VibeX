@@ -551,18 +551,6 @@ pub async fn read_file_with_truncation(
     Ok(ReadFileResponse { content, truncated })
 }
 
-/// Move file/directory to system trash (recycle bin).
-#[tauri::command]
-pub async fn trash_item(path: String) -> Result<(), AppError> {
-    let item_path = sanitize_file_path(&path)?;
-    if !item_path.exists() {
-        return Err(AppError::NotFound(format!("Item not found: {}", path)));
-    }
-
-    trash::delete(&item_path)
-        .map_err(|e| AppError::Internal(format!("Failed to move to trash {}: {}", path, e)))
-}
-
 /// Copy a file or directory, returning the new path.
 #[tauri::command]
 pub async fn copy_item(path: String) -> Result<String, AppError> {

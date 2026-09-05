@@ -99,7 +99,7 @@ pub async fn agent_import_local_history_batch(
                     && let (Some(workspace_id), Some(conversation_id)) =
                         (progress.workspace_id, progress.conversation_id)
                 {
-                    server::global_host_events().emit(
+                    crate::host_bus::bus().emit(
                         WORKSPACE_SESSIONS_CHANGED_EVENT,
                         WorkspaceSessionsChanged {
                             workspace_id,
@@ -112,7 +112,7 @@ pub async fn agent_import_local_history_batch(
                     runtime.snapshot.apply_progress(progress);
                     runtime.snapshot.clone()
                 };
-                server::global_host_events().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+                crate::host_bus::bus().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
             },
         )
         .await;
@@ -125,7 +125,7 @@ pub async fn agent_import_local_history_batch(
             }
             runtime.snapshot.clone()
         };
-        server::global_host_events().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+        crate::host_bus::bus().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
     });
     Ok(snapshot)
 }

@@ -9,8 +9,10 @@ import type {
   ChatChannelMessageLog,
 } from 'shared/types';
 
-import { backendCall } from './base';
+import { desktopShellCall } from '@/lib/desktopShell';
 import { getBackendTransport } from '@/lib/transport';
+
+import { backendCall } from './base';
 
 export interface PromptEnhancementContextMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -359,20 +361,20 @@ export const systemSettingsApi = {
 
 export const backupApi = {
   create: async (options: BackupCreateOptions): Promise<BackupPreview> => {
-    return backendCall<BackupPreview>('backup_create', { options });
+    return desktopShellCall<BackupPreview>('backup_create', { options });
   },
   inspect: async (options: BackupInspectOptions): Promise<BackupPreview> => {
-    return backendCall<BackupPreview>('backup_inspect', { options });
+    return desktopShellCall<BackupPreview>('backup_inspect', { options });
   },
   restoreStage: async (
     payload: BackupRestoreStagePayload
   ): Promise<BackupRestoreResult> => {
-    return backendCall<BackupRestoreResult>('backup_restore_stage', {
+    return desktopShellCall<BackupRestoreResult>('backup_restore_stage', {
       payload,
     });
   },
   cancel: async (opId?: string | null): Promise<void> => {
-    return backendCall<void>('backup_cancel', { opId: opId ?? null });
+    return desktopShellCall<void>('backup_cancel', { opId: opId ?? null });
   },
 };
 
@@ -461,23 +463,25 @@ export interface ConnectHostResult {
 
 export const hostClientApi = {
   status: async (): Promise<HostClientStatus> => {
-    return backendCall<HostClientStatus>('host_client_status');
+    return desktopShellCall<HostClientStatus>('host_client_status');
   },
   discover: async (): Promise<DiscoveredHost[]> => {
-    return backendCall<DiscoveredHost[]>('host_client_discover');
+    return desktopShellCall<DiscoveredHost[]>('host_client_discover');
   },
   connect: async (request: {
     origin?: string;
     token?: string;
     profile_id?: string;
   }): Promise<ConnectHostResult> => {
-    return backendCall<ConnectHostResult>('host_client_connect', { request });
+    return desktopShellCall<ConnectHostResult>('host_client_connect', {
+      request,
+    });
   },
   disconnect: async (): Promise<void> => {
-    await backendCall('host_client_disconnect');
+    await desktopShellCall('host_client_disconnect');
   },
   delete: async (profileId: string): Promise<void> => {
-    await backendCall('host_client_delete', {
+    await desktopShellCall('host_client_delete', {
       request: { profile_id: profileId },
     });
   },
@@ -507,74 +511,83 @@ export type TunnelCheckResult = {
 
 export const hostTunnelApi = {
   get: async (): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('get_host_tunnel');
+    return desktopShellCall<HostTunnelStatus>('get_host_tunnel');
   },
   setEnabled: async (enabled: boolean): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('set_host_tunnel_enabled', {
+    return desktopShellCall<HostTunnelStatus>('set_host_tunnel_enabled', {
       enabled,
     });
   },
   checkExisting: async (address: string): Promise<TunnelCheckResult> => {
-    return backendCall<TunnelCheckResult>('check_existing_host_tunnel', {
+    return desktopShellCall<TunnelCheckResult>('check_existing_host_tunnel', {
       address,
     });
   },
   selectSaved: async (id: string): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('select_saved_host_tunnel', { id });
+    return desktopShellCall<HostTunnelStatus>('select_saved_host_tunnel', {
+      id,
+    });
   },
   startCreate: async (address: string): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('start_create_host_tunnel', {
+    return desktopShellCall<HostTunnelStatus>('start_create_host_tunnel', {
       address,
     });
   },
   confirmCreate: async (): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('confirm_create_host_tunnel');
+    return desktopShellCall<HostTunnelStatus>('confirm_create_host_tunnel');
   },
   cancelCreate: async (): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('cancel_create_host_tunnel');
+    return desktopShellCall<HostTunnelStatus>('cancel_create_host_tunnel');
   },
   removeSaved: async (id: string): Promise<HostTunnelStatus> => {
-    return backendCall<HostTunnelStatus>('remove_saved_host_tunnel', { id });
+    return desktopShellCall<HostTunnelStatus>('remove_saved_host_tunnel', {
+      id,
+    });
   },
 };
 
 export const webServiceApi = {
   getConfig: async (): Promise<WebServiceConfig> => {
-    return backendCall<WebServiceConfig>('get_web_service_config');
+    return desktopShellCall<WebServiceConfig>('get_web_service_config');
   },
   updateConfig: async (config: WebServiceConfig): Promise<WebServiceConfig> => {
-    return backendCall<WebServiceConfig>('update_web_service_config', {
+    return desktopShellCall<WebServiceConfig>('update_web_service_config', {
       config,
     });
   },
   getStatus: async (): Promise<WebServerStatus> => {
-    return backendCall<WebServerStatus>('get_web_server_status');
+    return desktopShellCall<WebServerStatus>('get_web_server_status');
   },
   start: async (): Promise<WebServerStatus> => {
-    return backendCall<WebServerStatus>('start_web_server');
+    return desktopShellCall<WebServerStatus>('start_web_server');
   },
   stop: async (): Promise<WebServerStatus> => {
-    return backendCall<WebServerStatus>('stop_web_server');
+    return desktopShellCall<WebServerStatus>('stop_web_server');
   },
   probePort: async (port: number): Promise<PortProbeResult> => {
-    return backendCall<PortProbeResult>('probe_web_service_port', { port });
+    return desktopShellCall<PortProbeResult>('probe_web_service_port', {
+      port,
+    });
   },
   generateToken: async (): Promise<WebServiceConfig> => {
-    return backendCall<WebServiceConfig>('generate_web_service_token');
+    return desktopShellCall<WebServiceConfig>('generate_web_service_token');
   },
   createPairing: async (
     preset: 'companion' | 'workstation' = 'companion',
     ttlSeconds?: number
   ): Promise<HostPairingChallenge> => {
-    return backendCall<HostPairingChallenge>('create_host_device_pairing', {
-      request: { preset, ttl_seconds: ttlSeconds },
-    });
+    return desktopShellCall<HostPairingChallenge>(
+      'create_host_device_pairing',
+      {
+        request: { preset, ttl_seconds: ttlSeconds },
+      }
+    );
   },
   listDevices: async (): Promise<HostPairedDevice[]> => {
-    return backendCall<HostPairedDevice[]>('list_host_devices');
+    return desktopShellCall<HostPairedDevice[]>('list_host_devices');
   },
   revokeDevice: async (deviceId: string): Promise<void> => {
-    await backendCall('revoke_host_device', {
+    await desktopShellCall('revoke_host_device', {
       request: { device_id: deviceId },
     });
   },

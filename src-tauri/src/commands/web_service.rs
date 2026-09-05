@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, sync::LazyLock};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
 
 use axum::Router;
 use chrono::Utc;
@@ -381,30 +385,12 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
     if let Some(static_root) = static_root {
         server_config = server_config.with_static_root(static_root);
     }
-    let core = server::host_application_core(
-        state.deployment.db().pool.clone(),
-        state.conversation_context(),
-        state.plugin_control_plane.clone(),
-        Some(state.delegation.features.clone()),
-        state.plugin_preview_host.clone(),
-        state.plugin_capability_broker.clone(),
-        state.plugin_app_surfaces.clone(),
-        server::PreviewProxyRegistry::default(),
-        server::HeadlessAutomationRuntime::new(
-            state.local_deployment.clone(),
-            state.conversation_context(),
-            state.plugin_control_plane.clone(),
-        ),
-        false,
-        state.local_deployment.clone(),
-        utils::assets::asset_dir().join("plugins/runtimes"),
-        state.plugin_worker_runtime.clone(),
-    );
-    let runtime = server::ServerRuntime::from_sqlite_auth_with_preview_proxy_and_pty(
+    let runtime = server::ServerRuntime::from_host(
         server_config,
-        state.deployment.db().pool.clone(),
-        core,
-        server::PreviewProxyRegistry::default(),
+        Arc::new(server::SqliteServerAuth::new(
+            state.deployment.db().pool.clone(),
+        )),
+        state.host.clone(),
         state.local_deployment.pty().clone(),
     );
     start_web_server_with_router(config, runtime.router(), serves_web_ui).await

@@ -1045,7 +1045,7 @@ impl ServerApplicationDomains {
         .flatten()
         .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
         .unwrap_or_default();
-        let bus = crate::host::events::global_host_events();
+        let bus = crate::host::events::current_host_events();
         let agent_id = args.agent_id.clone();
         let entries = tokio::task::spawn_blocking(move || {
             scan_configured_history_with_progress(kind, &configured_env, |progress| {
@@ -1254,7 +1254,7 @@ impl ServerApplicationDomains {
                 job.snapshot.finish(result);
                 job.snapshot.clone()
             };
-            crate::host::events::global_host_events()
+            crate::host::events::current_host_events()
                 .emit("local-history-import-progress", snapshot);
         });
         serialize(snapshot)
@@ -1583,7 +1583,7 @@ impl ServerApplicationDomains {
         if changed == 0 {
             return Err(ApplicationError::conflict("回滚未能应用到安装记录"));
         }
-        crate::host::events::global_host_events().emit(
+        crate::host::events::current_host_events().emit(
             "agent-management-snapshot-invalidated",
             json!({ "agentId": args.agent_id }),
         );
@@ -1657,7 +1657,7 @@ impl ServerApplicationDomains {
             kind,
             status,
         };
-        crate::host::events::global_host_events().emit(
+        crate::host::events::current_host_events().emit(
             "agent-management-event",
             json!({
                 "agentId": args.agent_id,
@@ -1666,7 +1666,7 @@ impl ServerApplicationDomains {
                 "status": status,
             }),
         );
-        crate::host::events::global_host_events().emit(
+        crate::host::events::current_host_events().emit(
             "agent-management-snapshot-invalidated",
             json!({ "agentId": args.agent_id }),
         );
@@ -2094,7 +2094,7 @@ fn apply_history_progress(progress: agents::LocalHistoryImportProgress) {
         job.snapshot.apply_progress(progress);
         job.snapshot.clone()
     };
-    crate::host::events::global_host_events().emit("local-history-import-progress", snapshot);
+    crate::host::events::current_host_events().emit("local-history-import-progress", snapshot);
 }
 
 async fn import_one_history_selection(

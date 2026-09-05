@@ -29,7 +29,7 @@ use tokio::sync::broadcast::error::RecvError;
 use super::unwrap_named;
 use crate::{
     domains::{ServerApplicationDomains, internal_error, parse, serialize},
-    host::events::global_host_events,
+    host::events::current_host_events,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,7 +109,7 @@ pub(super) async fn update_config(
             .map(|workspace_dir| utils::path::expand_tilde(workspace_dir)),
     );
     if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
-        global_host_events().emit(
+        current_host_events().emit(
             "theme-changed",
             json!({ "theme": new_config.theme.clone() }),
         );

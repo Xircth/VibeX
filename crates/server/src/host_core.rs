@@ -13,6 +13,8 @@ use sqlx::SqlitePool;
 use crate::{
     ServerApplicationDomains, ServerDomainDependencies,
     automation_runtime::HeadlessAutomationRuntime,
+    host::events::{HostEventBus, TerminalBridgeRegistry},
+    host_runtime::AutomationOwnership,
 };
 
 struct PluginAwareConversationExecution {
@@ -147,10 +149,12 @@ pub fn host_application_core(
     app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     preview_proxy: crate::PreviewProxyRegistry,
     automation: HeadlessAutomationRuntime,
-    owns_automation_engine: bool,
+    automation_ownership: AutomationOwnership,
     deployment: Arc<local_deployment::LocalDeployment>,
     runtime_root: std::path::PathBuf,
     worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    events: Arc<HostEventBus>,
+    terminal_bridges: Arc<TerminalBridgeRegistry>,
 ) -> ApplicationCore<SqliteConversationRepository> {
     let domains = Arc::new(ServerApplicationDomains::new(ServerDomainDependencies {
         pool: pool.clone(),
@@ -160,11 +164,13 @@ pub fn host_application_core(
         app_surfaces,
         preview_proxy,
         automation,
-        owns_automation_engine,
+        automation_ownership,
         conversations: conversations.clone(),
         deployment,
         runtime_root,
         worker_runtime,
+        events,
+        terminal_bridges,
     }));
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(

@@ -2,11 +2,8 @@ import darkDefaultLogo from '@/assets/app-logo-dark.png';
 import darkLiteLogo from '@/assets/app-logo-dark-lite.png';
 import lightDefaultLogo from '@/assets/app-logo-light-default.png';
 import lightLiteLogo from '@/assets/app-logo-light-lite.png';
+import { desktopShellCall, isTauriClient } from '@/lib/desktopShell';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
-import {
-  backendCall,
-  configuredBackendTransport,
-} from '@/lib/backendTransport';
 
 export const APP_ICON_STYLES = ['default', 'lite'] as const;
 export type AppIconStyle = (typeof APP_ICON_STYLES)[number];
@@ -58,6 +55,6 @@ export async function applyNativeAppIcon(
   style: AppIconStyle,
   theme: AppIconTheme
 ): Promise<void> {
-  if (configuredBackendTransport.environment === 'web') return;
-  await backendCall('set_app_icon', { style, theme });
+  if (!isTauriClient()) return;
+  await desktopShellCall('set_app_icon', { style, theme });
 }

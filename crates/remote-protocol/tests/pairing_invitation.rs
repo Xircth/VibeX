@@ -1,7 +1,7 @@
 use remote_protocol::{
     CONNECTION_CODE_LEN, DevicePermissionPreset, PairingChallenge, PairingId,
     PairingInvitationPayload, ReachabilityOrigin, is_connection_code, is_loopback_origin,
-    issue_connection_code,
+    is_public_plaintext_http_origin, issue_connection_code, origin_allows_plaintext_http,
 };
 
 #[test]
@@ -50,7 +50,7 @@ fn loopback_origin_detection_covers_ipv4_and_localhost() {
 }
 
 #[test]
-fn invitation_includes_published_http_origin() {
+fn invitation_drops_published_plaintext_http_origin() {
     let challenge = PairingChallenge {
         pairing_id: PairingId::from_uuid(
             uuid::Uuid::parse_str("0195d6f4-8c37-7b28-a982-6a9e60142f55").expect("id"),
@@ -65,11 +65,33 @@ fn invitation_includes_published_http_origin() {
         &challenge,
         [
             ReachabilityOrigin::published("http://47.109.140.92:13630"),
+            ReachabilityOrigin::published("https://gate.example.ts.net"),
             ReachabilityOrigin::lan("http://192.168.1.20:17891"),
         ],
     );
     let invitation = payload.encode();
-    assert!(invitation.contains("http://47.109.140.92:13630"));
-    assert!(invitation.contains("\"kind\":\"published\""));
+    assert!(!invitation.contains("http://47.109.140.92:13630"));
+    assert!(invitation.contains("https://gate.example.ts.net"));
+    assert!(invitation.contains("http://192.168.1.20:17891"));
     assert!(is_connection_code(&payload.pairing_token));
+}
+
+#[test]
+fn plaintext_http_is_limited_to_loopback_and_private_hosts() {
+    assert!(origin_allows_plaintext_http("http://127.0.0.1:17891"));
+    assert!(origin_allows_plaintext_http("http://localhost:17891"));
+    assert!(origin_allows_plaintext_http("http://[::1]:17891"));
+    assert!(origin_allows_plaintext_http("http://192.168.1.20:17891"));
+    assert!(origin_allows_plaintext_http("http://10.0.0.8:17891"));
+    assert!(origin_allows_plaintext_http("http://172.16.4.2:17891"));
+    assert!(origin_allows_plaintext_http("http://studio.local:17891"));
+    assert!(origin_allows_plaintext_http("http://100.64.1.8:17891"));
+    assert!(!origin_allows_plaintext_http("http://203.0.113.10:443"));
+    assert!(!origin_allows_plaintext_http("http://47.109.140.92:13630"));
+    assert!(!origin_allows_plaintext_http("http://example.com"));
+    assert!(!is_public_plaintext_http_origin("https://example.com"));
+    assert!(is_public_plaintext_http_origin("http://203.0.113.10:443"));
+    assert!(!is_public_plaintext_http_origin(
+        "http://192.168.1.20:17891"
+    ));
 }

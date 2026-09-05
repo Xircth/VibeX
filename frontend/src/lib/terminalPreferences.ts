@@ -1,5 +1,6 @@
 import type { Config } from 'shared/types';
 
+import { isLocalDesktopHost } from '@/lib/desktopShell';
 import { getHostPlatform, type HostPlatform } from '@/utils/platform';
 
 export type TerminalShellValue =
@@ -36,14 +37,19 @@ export const TERMINAL_SHELL_OPTIONS: TerminalShellOption[] = [
 ];
 
 export function getTerminalShellOptions(
-  platform = getHostPlatform()
+  platform = getHostPlatform(),
+  includeExternal = isLocalDesktopHost()
 ): TerminalShellOption[] {
-  const options = TERMINAL_SHELL_OPTIONS.filter((option) =>
-    option.platforms.includes(platform)
+  const options = TERMINAL_SHELL_OPTIONS.filter(
+    (option) =>
+      option.platforms.includes(platform) &&
+      (includeExternal || !isExternalTerminalShell(option.value))
   );
 
   if (options.length > 0) return options;
-  return TERMINAL_SHELL_OPTIONS;
+  return TERMINAL_SHELL_OPTIONS.filter(
+    (option) => includeExternal || !isExternalTerminalShell(option.value)
+  );
 }
 
 export function getPlatformDefaultTerminalShell(

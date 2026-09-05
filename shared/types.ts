@@ -1781,7 +1781,7 @@ export type RemoteEvent = { sequence: bigint, kind: string, payload: JsonValue, 
 
 export type ServerCapabilities = { server_version: string, protocol_version: string, minimum_client_version: string, capabilities: Array<CapabilityId>, host_id?: string, reachability?: Array<ReachabilityOrigin>, };
 
-export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: boolean, snapshot?: SubscriptionSnapshot | null, replay: Array<RemoteEvent>, high_water_mark: bigint, };
+export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: boolean, snapshot?: SubscriptionSnapshot | null, replay: Array<RemoteEvent>, high_water_mark: bigint, durability: EventDurability, };
 
 export type SubscriptionId = string;
 
@@ -2147,3 +2147,5 @@ export type ConflictHunk = { index: number, ours: string, theirs: string, };
 export type ConflictStageContent = { present: boolean, content?: string | null, };
 
 export type WriteConflictResolutionResult = { path: string, is_resolved: boolean, };
+
+export type EventDurability = "durable" | "invalidation" | "best_effort";

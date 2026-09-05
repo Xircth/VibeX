@@ -839,7 +839,8 @@ pub async fn account_flow_status(
             .map_err(internal_error)?;
     }
     if exit_code == 0 {
-        crate::host::events::global_host_events().emit("agent-management-snapshot-invalidated", ());
+        crate::host::events::current_host_events()
+            .emit("agent-management-snapshot-invalidated", ());
     }
     Ok(AgentAccountFlowView {
         agent_id,

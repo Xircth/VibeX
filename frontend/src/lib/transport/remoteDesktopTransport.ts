@@ -56,8 +56,22 @@ const tauriBridge: RemoteDesktopBridge = {
   },
   async listen(profileId, event, handler) {
     const { tauriInvoke, tauriListen } = await import('@/lib/tauriApi');
-    await tauriInvoke('remote_desktop_listen', { profileId, event });
-    return tauriListen(`remote-desktop:${profileId}:${event}`, handler);
+    const unlisten = await tauriListen(
+      `remote-desktop:${profileId}:${event}`,
+      handler
+    );
+    const subscriptionId = globalThis.crypto.randomUUID();
+    await tauriInvoke('remote_desktop_listen', {
+      profileId,
+      event,
+      subscriptionId,
+    });
+    return () => {
+      unlisten();
+      void tauriInvoke('remote_desktop_cancel_subscription', {
+        subscriptionId,
+      });
+    };
   },
   subscribe(profileId, request) {
     return subscribeRemoteDesktop(profileId, request);
@@ -81,10 +95,13 @@ async function* subscribeRemoteDesktop(
     wake?.();
     wake = undefined;
   };
+  const subscriptionId = globalThis.crypto.randomUUID();
   await tauriInvoke('remote_desktop_subscribe', {
     profileId,
+    subscriptionId,
     request: {
       ...request,
+      subscription_id: subscriptionId,
       ...('after_sequence' in request
         ? { after_sequence: Number(request.after_sequence) }
         : {}),
@@ -105,6 +122,9 @@ async function* subscribeRemoteDesktop(
     }
   } finally {
     closed = true;
+    await tauriInvoke('remote_desktop_cancel_subscription', {
+      subscriptionId,
+    });
   }
 }
 
@@ -174,7 +194,7 @@ export class RemoteDesktopTransport implements BackendTransport {
   artifactPreviewUrl(lease: {
     leaseId: string;
     capabilityToken: string;
-    loopbackPort: number;
+    loopbackPort?: number;
   }): string {
     return `${this.baseUrl}/api/v1/previews/${encodeURIComponent(
       lease.leaseId

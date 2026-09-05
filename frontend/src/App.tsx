@@ -30,6 +30,7 @@ import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
+import { useTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
 import {
   SequenceIndicator,
@@ -267,18 +268,23 @@ function AppContent() {
 }
 
 function GlobalShortcutActionBridge() {
+  const navigate = useNavigate();
+  const tauriClient = useTauriClient();
   useEffect(() => {
     const handleShortcut = (event: Event) => {
       const { actionId } = (event as CustomEvent<ShortcutActionEventDetail>)
         .detail;
-      if (actionId === 'settings') {
+      if (actionId !== 'settings') return;
+      if (tauriClient) {
         void settingsWindowApi.open();
+        return;
       }
+      navigate('/settings');
     };
     window.addEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
     return () =>
       window.removeEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
-  }, []);
+  }, [navigate, tauriClient]);
   return null;
 }
 

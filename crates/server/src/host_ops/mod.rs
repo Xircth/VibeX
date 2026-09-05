@@ -420,6 +420,7 @@ impl ServerApplicationDomains {
                 }
                 Ok(Value::Null)
             }
+            DomainCommand::FileTrash => self.trash_item(args).await,
             DomainCommand::FileListChildren => self.list_directory_children(args).await,
             DomainCommand::FileReadTruncated => self.read_file_truncated(args).await,
             DomainCommand::FileCopy => self.copy_item(args).await,
@@ -544,14 +545,90 @@ impl ServerApplicationDomains {
     }
 
     async fn create_project(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: PayloadArgs<CreateProject> = parse(args)?;
+        let args: PayloadArgs<HostCreateProject> = parse(args)?;
+        if let Some(init) = args.payload.init {
+            return self
+                .create_project_from_new_folder(args.payload.name, init)
+                .await;
+        }
+        if args.payload.repositories.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "repositories are required unless init is provided",
+            ));
+        }
         serialize(
             self.deployment
                 .project()
-                .create_project(&self.pool, self.deployment.repo(), args.payload)
+                .create_project(
+                    &self.pool,
+                    self.deployment.repo(),
+                    CreateProject {
+                        name: args.payload.name,
+                        repositories: args.payload.repositories,
+                    },
+                )
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
         )
+    }
+
+    async fn create_project_from_new_folder(
+        &self,
+        name: String,
+        init: HostCreateProjectInit,
+    ) -> Result<Value, ApplicationError> {
+        let parent = PathBuf::from(&init.parent_path);
+        let repo_path = parent.join(&init.folder_name);
+        let created_directory = !repo_path.exists();
+        let repo = self
+            .deployment
+            .repo()
+            .init_repo(
+                &self.pool,
+                self.deployment.git(),
+                &init.parent_path,
+                &init.folder_name,
+            )
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        if let Err(error) = write_repo_templates(&repo.path, init.templates.as_ref()).await {
+            self.rollback_initialized_repo(&repo, created_directory)
+                .await;
+            return Err(error);
+        }
+        match self
+            .deployment
+            .project()
+            .create_project(
+                &self.pool,
+                self.deployment.repo(),
+                CreateProject {
+                    name: name.clone(),
+                    repositories: vec![CreateProjectRepo {
+                        display_name: name,
+                        git_repo_path: repo.path.to_string_lossy().into_owned(),
+                    }],
+                },
+            )
+            .await
+        {
+            Ok(project) => serialize(project),
+            Err(error) => {
+                self.rollback_initialized_repo(&repo, created_directory)
+                    .await;
+                Err(ApplicationError::bad_request(error.to_string()))
+            }
+        }
+    }
+
+    async fn rollback_initialized_repo(&self, repo: &Repo, created_directory: bool) {
+        let _ = sqlx::query("DELETE FROM repos WHERE id = ?")
+            .bind(repo.id)
+            .execute(&self.pool)
+            .await;
+        if created_directory {
+            let _ = tokio::fs::remove_dir_all(&repo.path).await;
+        }
     }
 
     async fn update_project(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1042,6 +1119,13 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
+    async fn trash_item(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PathArgs = parse(args)?;
+        let path = self.sandbox_existing_path(&args.path).await?;
+        trash_path(path).await?;
+        Ok(Value::Null)
+    }
+
     async fn copy_item(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PathArgs = parse(args)?;
         let source = self.sandbox_existing_path(&args.path).await?;
@@ -1115,7 +1199,12 @@ impl ServerApplicationDomains {
             )
             .await
             .map_err(internal_error)?;
-        crate::host::events::spawn_terminal_output_bridge(session_id, output_rx);
+        crate::host::events::spawn_terminal_output_bridge(
+            self.events.clone(),
+            &self.terminal_bridges,
+            session_id,
+            output_rx,
+        );
         serialize(session_id)
     }
 
@@ -1128,7 +1217,12 @@ impl ServerApplicationDomains {
                 .subscribe_output(args.session_id)
                 .await
                 .map_err(internal_error)?;
-            crate::host::events::spawn_terminal_output_bridge(args.session_id, output_rx);
+            crate::host::events::spawn_terminal_output_bridge(
+                self.events.clone(),
+                &self.terminal_bridges,
+                args.session_id,
+                output_rx,
+            );
             return serialize(args.session_id);
         }
 
@@ -1137,7 +1231,12 @@ impl ServerApplicationDomains {
             .subscribe_output(terminal_id)
             .await
             .ok_or_else(|| ApplicationError::not_found(format!("terminal {}", args.session_id)))?;
-        crate::host::events::spawn_terminal_output_bridge(args.session_id, output_rx);
+        crate::host::events::spawn_terminal_output_bridge(
+            self.events.clone(),
+            &self.terminal_bridges,
+            args.session_id,
+            output_rx,
+        );
         serialize(args.session_id)
     }
 
@@ -1191,6 +1290,7 @@ impl ServerApplicationDomains {
             .close_session(args.session_id)
             .await
             .map_err(internal_error)?;
+        self.terminal_bridges.release(args.session_id);
         Ok(Value::Null)
     }
 
@@ -1915,6 +2015,55 @@ struct InitRepoArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct HostCreateProject {
+    name: String,
+    #[serde(default)]
+    repositories: Vec<CreateProjectRepo>,
+    #[serde(default)]
+    init: Option<HostCreateProjectInit>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HostCreateProjectInit {
+    parent_path: String,
+    folder_name: String,
+    #[serde(default)]
+    templates: Option<HostRepoTemplates>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct HostRepoTemplates {
+    readme: Option<String>,
+    gitignore: Option<String>,
+    license: Option<String>,
+}
+
+async fn write_repo_templates(
+    root: &Path,
+    templates: Option<&HostRepoTemplates>,
+) -> Result<(), ApplicationError> {
+    let Some(templates) = templates else {
+        return Ok(());
+    };
+    for (name, content) in [
+        ("README.md", templates.readme.as_deref()),
+        (".gitignore", templates.gitignore.as_deref()),
+        ("LICENSE", templates.license.as_deref()),
+    ] {
+        let Some(content) = content else {
+            continue;
+        };
+        tokio::fs::write(root.join(name), content)
+            .await
+            .map_err(internal_error)?;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CloneRepoArgs {
     clone_url: String,
     target_path: String,
@@ -2163,11 +2312,90 @@ struct AgentEnabledArgs {
     enabled: bool,
 }
 
+async fn trash_path(path: PathBuf) -> Result<(), ApplicationError> {
+    let display = path.display().to_string();
+    tokio::task::spawn_blocking(move || trash::delete(&path))
+        .await
+        .map_err(internal_error)?
+        .map_err(|error| {
+            ApplicationError::internal(format!("Failed to move to trash {display}: {error}"))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn create_project_accepts_host_init_templates() {
+        let parsed: PayloadArgs<HostCreateProject> = parse(json!({
+            "payload": {
+                "name": "Demo",
+                "init": {
+                    "parentPath": "/tmp/host",
+                    "folderName": "demo",
+                    "templates": { "readme": "# Demo\n", "gitignore": "node_modules/\n" }
+                }
+            }
+        }))
+        .expect("init project payload");
+        assert!(parsed.payload.repositories.is_empty());
+        let init = parsed.payload.init.expect("init");
+        assert_eq!(init.parent_path, "/tmp/host");
+        assert_eq!(init.folder_name, "demo");
+        assert_eq!(
+            init.templates.expect("templates").readme.as_deref(),
+            Some("# Demo\n")
+        );
+    }
+
+    #[test]
+    fn create_project_still_accepts_existing_repository_payload() {
+        let parsed: PayloadArgs<HostCreateProject> = parse(json!({
+            "payload": {
+                "name": "Existing",
+                "repositories": [{
+                    "display_name": "Existing",
+                    "git_repo_path": "/tmp/existing"
+                }]
+            }
+        }))
+        .expect("existing project payload");
+        assert_eq!(parsed.payload.repositories.len(), 1);
+        assert!(parsed.payload.init.is_none());
+    }
+
+    #[test]
+    fn trash_item_payload_accepts_host_camel_case_path() {
+        let parsed: PathArgs = parse(json!({ "path": "/tmp/gone.txt" })).expect("path");
+        assert_eq!(parsed.path, "/tmp/gone.txt");
+    }
+
+    #[tokio::test]
+    async fn repo_templates_write_only_selected_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_repo_templates(
+            dir.path(),
+            Some(&HostRepoTemplates {
+                readme: Some("# Hi\n".into()),
+                gitignore: None,
+                license: Some("MIT\n".into()),
+            }),
+        )
+        .await
+        .expect("write");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("README.md")).expect("readme"),
+            "# Hi\n"
+        );
+        assert!(!dir.path().join(".gitignore").exists());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("LICENSE")).expect("license"),
+            "MIT\n"
+        );
+    }
 
     #[test]
     fn create_project_session_payload_accepts_host_camel_case() {

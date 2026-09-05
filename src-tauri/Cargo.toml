@@ -35,7 +35,6 @@ notify = "8.2.0"
 rustls = { workspace = true }
 base64 = "0.22"
 futures = { workspace = true }
-trash = "5"
 ignore = "0.4"
 regex = { workspace = true }
 semver = "1"

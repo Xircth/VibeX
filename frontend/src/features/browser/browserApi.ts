@@ -1,4 +1,5 @@
-import { backendCall, backendListen } from '@/lib/backendTransport';
+import { backendListen } from '@/lib/backendTransport';
+import { desktopShellCall } from '@/lib/desktopShell';
 import type {
   BrowserEvent,
   BrowserIntent,
@@ -9,19 +10,19 @@ import type {
 
 export const browserApi = {
   createTab(request: CreateBrowserTab): Promise<BrowserTab> {
-    return backendCall<BrowserTab>('browser_create_tab', { request });
+    return desktopShellCall<BrowserTab>('browser_create_tab', { request });
   },
 
   applyIntent(tabId: BrowserTabId, intent: BrowserIntent): Promise<void> {
-    return backendCall<void>('browser_apply_intent', { tabId, intent });
+    return desktopShellCall<void>('browser_apply_intent', { tabId, intent });
   },
 
   closeTab(tabId: BrowserTabId): Promise<void> {
-    return backendCall<void>('browser_close_tab', { tabId });
+    return desktopShellCall<void>('browser_close_tab', { tabId });
   },
 
   getTab(tabId: BrowserTabId): Promise<BrowserTab | null> {
-    return backendCall<BrowserTab | null>('browser_get_tab', { tabId });
+    return desktopShellCall<BrowserTab | null>('browser_get_tab', { tabId });
   },
 
   listen(listener: (event: BrowserEvent) => void) {

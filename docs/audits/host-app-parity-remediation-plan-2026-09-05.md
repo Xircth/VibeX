@@ -12,8 +12,11 @@
 4. 为 `application_call` 建立长期 HostContext/Core；禁止每次 Tauri 调用重新构造 Core。验证缓存、automation owner、plugin runtime、preview lease、并发调用和关闭窗口行为。
 5. 让生成的 `shared/hostCommands.ts`、scope 描述和前端扫描测试成为 CI 门禁；不允许新增未登记命令或 Host/壳重叠命令。
 6. 清点并移除普通产品流程中的直接 Tauri 文件 API：会话导出必须提供 Web/Remote 下载路径；项目 README、`.gitignore`、LICENSE 模板必须由 Host 侧项目用例写入。
+7. 清点所有 `backendCall` 调用与 `DESKTOP_SHELL_COMMANDS` 的交集；编辑器、`trash_item`、外部终端、文件管理器等必须逐项改为 Host command 或显式桌面能力 gate，禁止让 Web/Remote 将桌面壳命令 POST 到 Host `/call`。
+8. 统一 Headless/desktop Host 的 data-root 注入：Host domain、设置、聊天通道、Agent 配置和项目设置不得再从全局 `asset_dir()` 推导路径；自定义 `ServerBootstrapConfig.data_dir` 必须成为所有持久化事实的唯一根。
+9. 迁移远程 device credential 到系统安全存储；`host-client-profiles.json` 只保存 profile 元数据和引用，不得保存长期 token 明文。
 
-验收：所有 492 个 Host 命令均有 descriptor、scope、typed args/result、实现状态和至少一个 contract test；桌面与 Server 对同一 command 的 response/error envelope 字节级等价。
+验收：所有 492 个 Host 命令均有 descriptor、scope、typed args/result、实现状态和至少一个 contract test；桌面与 Server 对同一 command 的 response/error envelope 字节级等价；`backendCall` 与桌面壳命令交集为零，或每个例外都有明确 environment gate 和跨环境测试；两个自定义 data_dir 与两个远程 profile 的设置、凭据和运行状态完全隔离。
 
 ## 批次 1：先修实时一致性和生命周期
 

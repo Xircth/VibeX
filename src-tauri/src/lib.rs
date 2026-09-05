@@ -26,6 +26,7 @@ mod deeplink;
 mod delegation;
 mod error;
 mod events;
+mod host_bus;
 mod host_client;
 pub mod linux_display;
 mod logging;
@@ -438,7 +439,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             commands::plugin_control::refresh_enabled_plugin_projections(&state),
         );
         let preview_proxy = tauri::async_runtime::block_on(
-            plugin_dev_server::DesktopPreviewProxy::start(),
+            plugin_dev_server::DesktopPreviewProxy::start_with_registry(
+                state.host.preview_proxy.clone(),
+            ),
         )
         .expect("Failed to start the capability-checked Desktop preview proxy");
         app.manage(preview_proxy);
@@ -670,13 +673,13 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::tauri_inspector::control_tauri_inspector,
         commands::tauri_inspector::take_tauri_inspector_capture,
         commands::conversations::application_call,
-        commands::conversations::conversation_attach,
         commands::remote_desktop::remote_desktop_connect,
         commands::remote_desktop::remote_desktop_disconnect,
         commands::remote_desktop::remote_desktop_call,
         commands::remote_desktop::remote_desktop_capabilities,
         commands::remote_desktop::remote_desktop_listen,
         commands::remote_desktop::remote_desktop_subscribe,
+        commands::remote_desktop::remote_desktop_cancel_subscription,
         commands::terminal::open_external_terminal,
         commands::filesystem::reveal_in_file_manager,
         tray::update_tray_badge,
@@ -713,7 +716,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::host_client::host_client_disconnect,
         commands::host_client::host_client_delete,
         commands::settings_window::open_settings_window,
-        commands::file_tree::trash_item,
         commands::plugin_control::plugin_control_import_cli,
         plugin_dev_server::plugin_dev_connection,
     ])

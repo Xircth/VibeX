@@ -160,7 +160,7 @@ pub async fn update_config(
     WorktreeManager::set_workspace_dir_override(workspace_dir_override);
 
     if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
-        server::global_host_events().emit(
+        crate::host_bus::bus().emit(
             "theme-changed",
             json!({ "theme": new_config.theme.clone() }),
         );

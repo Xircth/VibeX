@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { projectsApi } from '@/lib/api';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
+import { isLocalDesktopHost } from '@/lib/desktopShell';
 import type { EditorType, Project } from 'shared/types';
 
 export function useOpenProjectInEditor(
@@ -9,7 +10,7 @@ export function useOpenProjectInEditor(
 ) {
   return useCallback(
     async (editorType?: EditorType) => {
-      if (!project) return;
+      if (!project || !isLocalDesktopHost()) return;
 
       try {
         const response = await projectsApi.openEditor(project.id, {

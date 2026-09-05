@@ -58,6 +58,7 @@ import {
   toggleFileTreeFolder,
 } from './file-tree-utils';
 import { ConfirmDialog } from '@/components/dialogs';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import '@/styles/file-tree.css';
 import type { FileTreeRevealTarget } from '@/stores/useFileTreeStore';
 
@@ -95,6 +96,7 @@ export function FileTreePanel({
   revealTarget = null,
 }: FileTreePanelProps) {
   const { t } = useTranslation(['panels', 'common']);
+  const localDesktopHost = useLocalDesktopHost();
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
@@ -1622,19 +1624,21 @@ export function FileTreePanel({
                   </div>
                 ) : null}
               </div>
-              <button
-                type="button"
-                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onClick={() => {
-                  closeContextMenu();
-                  void openInFileManager(
-                    contextMenu.relativePath,
-                    contextMenu.isFolder
-                  );
-                }}
-              >
-                <span>{t('fileTreeMenu.openInFileManager')}</span>
-              </button>
+              {localDesktopHost ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                  onClick={() => {
+                    closeContextMenu();
+                    void openInFileManager(
+                      contextMenu.relativePath,
+                      contextMenu.isFolder
+                    );
+                  }}
+                >
+                  <span>{t('fileTreeMenu.openInFileManager')}</span>
+                </button>
+              ) : null}
               {contextMenu.relativePath ? (
                 <button
                   type="button"

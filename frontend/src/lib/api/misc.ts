@@ -19,6 +19,8 @@ import type {
   UpdateTag,
 } from 'shared/types';
 
+import { desktopShellCall } from '@/lib/desktopShell';
+
 import { backendCall } from './base';
 import { backendListen } from '@/lib/backendTransport';
 
@@ -258,13 +260,13 @@ export const fileTreeApi = {
 
 export const desktopApi = {
   revealInFileManager: async (path: string): Promise<void> => {
-    return backendCall<void>('reveal_in_file_manager', { path });
+    return desktopShellCall<void>('reveal_in_file_manager', { path });
   },
   isMainWindowFocused: async (): Promise<boolean> => {
-    return backendCall<boolean>('is_main_window_focused');
+    return desktopShellCall<boolean>('is_main_window_focused');
   },
   exitApp: async (): Promise<void> => {
-    return backendCall<void>('exit_app');
+    return desktopShellCall<void>('exit_app');
   },
   getLogSettings: async (): Promise<LogSettingsView> => {
     return backendCall<LogSettingsView>('get_log_settings');

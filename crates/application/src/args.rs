@@ -1,6 +1,43 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
+/// Declared argument envelope for a Host command. Compat remains only for
+/// Domain commands whose callers still mix `request`/`payload` wrappers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArgShape {
+    Canonical,
+    Request,
+    Payload,
+    Compat,
+}
+
+pub fn decode_command_args_shaped<T: DeserializeOwned>(
+    value: Value,
+    shape: ArgShape,
+) -> Result<T, String> {
+    match shape {
+        ArgShape::Canonical => serde_json::from_value(value).map_err(|error| error.to_string()),
+        ArgShape::Request => decode_named_wrapper(value, "request"),
+        ArgShape::Payload => decode_named_wrapper(value, "payload"),
+        ArgShape::Compat => decode_command_args(value),
+    }
+}
+
+fn decode_named_wrapper<T: DeserializeOwned>(value: Value, key: &str) -> Result<T, String> {
+    if let Some(inner) = value.get(key).cloned() {
+        match serde_json::from_value::<T>(inner) {
+            Ok(parsed) => return Ok(parsed),
+            Err(error) => {
+                if let Ok(parsed) = serde_json::from_value::<T>(value) {
+                    return Ok(parsed);
+                }
+                return Err(error.to_string());
+            }
+        }
+    }
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 /// Decode Host/Application command arguments as the frontend actually sends them.
 ///
 /// Product calls wrap some payloads in `request` or `payload`, and some mix a
@@ -216,5 +253,41 @@ mod tests {
         .expect("unwrapped create session");
         assert_eq!(parsed.project_id, "11111111-1111-1111-1111-111111111111");
         assert_eq!(parsed.create_workspace, Some(false));
+    }
+
+    #[test]
+    fn request_shape_does_not_merge_siblings() {
+        let parsed: Flat = decode_command_args_shaped(
+            serde_json::json!({
+                "request": {
+                    "conversationId": "abc",
+                    "afterSequence": 4
+                },
+                "afterSequence": 99
+            }),
+            ArgShape::Request,
+        )
+        .expect("request shape");
+        assert_eq!(parsed.after_sequence, 4);
+    }
+
+    #[test]
+    fn canonical_shape_rejects_request_wrapper() {
+        let error = decode_command_args_shaped::<Flat>(
+            serde_json::json!({
+                "request": {
+                    "conversationId": "abc",
+                    "afterSequence": 4
+                }
+            }),
+            ArgShape::Canonical,
+        )
+        .expect_err("wrapper is not canonical");
+        assert!(
+            error.contains("conversationId")
+                || error.contains("conversation_id")
+                || error.contains("missing field"),
+            "masked as {error}"
+        );
     }
 }

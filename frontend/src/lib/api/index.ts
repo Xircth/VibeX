@@ -17,6 +17,7 @@ export { invokeAsResult } from './base';
 
 // Projects
 export { projectsApi } from './projects';
+export type { HostCreateProject } from './projects';
 
 // Tasks
 export { tasksApi } from './tasks';

@@ -1,6 +1,6 @@
 use remote_protocol::{
-    ConversationId, OfflineConversationCache, RemoteEvent, SubscriptionBootstrap, SubscriptionId,
-    SubscriptionRequest, SubscriptionResource,
+    ConversationId, EventDurability, OfflineConversationCache, RemoteEvent, SubscriptionBootstrap,
+    SubscriptionId, SubscriptionRequest, SubscriptionResource,
 };
 use serde_json::json;
 
@@ -28,6 +28,7 @@ fn subscription_fixture_preserves_unknown_conversation_events() {
         snapshot: None,
         replay: vec![unknown],
         high_water_mark: 5,
+        durability: EventDurability::Durable,
     };
 
     let encoded = serde_json::to_value((&request, &bootstrap)).expect("serialize subscription");

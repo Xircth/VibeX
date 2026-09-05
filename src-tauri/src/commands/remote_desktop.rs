@@ -72,11 +72,19 @@ pub async fn remote_desktop_listen(
     state: tauri::State<'_, AppState>,
     profile_id: String,
     event: String,
-) -> Result<(), AppError> {
+    subscription_id: Option<String>,
+) -> Result<String, AppError> {
+    let subscription_id = subscription_id
+        .as_deref()
+        .map(uuid::Uuid::parse_str)
+        .transpose()
+        .map_err(|error| AppError::BadRequest(format!("invalid subscription id: {error}")))?
+        .unwrap_or_else(uuid::Uuid::new_v4);
     state
         .remote_desktop
-        .listen_host_event(app, window.label(), &profile_id, event)
+        .listen_host_event(app, window.label(), &profile_id, event, subscription_id)
         .await
+        .map(|id| id.to_string())
 }
 
 #[tauri::command]
@@ -86,9 +94,37 @@ pub async fn remote_desktop_subscribe(
     profile_id: String,
     request: Value,
     on_event: Channel<Value>,
-) -> Result<(), AppError> {
+    subscription_id: Option<String>,
+) -> Result<String, AppError> {
+    let subscription_id = subscription_id
+        .as_deref()
+        .map(uuid::Uuid::parse_str)
+        .transpose()
+        .map_err(|error| AppError::BadRequest(format!("invalid subscription id: {error}")))?
+        .unwrap_or_else(uuid::Uuid::new_v4);
     state
         .remote_desktop
-        .subscribe_events(window.label(), &profile_id, request, on_event)
+        .subscribe_events(
+            window.label(),
+            &profile_id,
+            request,
+            on_event,
+            subscription_id,
+        )
         .await
+        .map(|id| id.to_string())
+}
+
+#[tauri::command]
+pub async fn remote_desktop_cancel_subscription(
+    state: tauri::State<'_, AppState>,
+    subscription_id: String,
+) -> Result<(), AppError> {
+    let subscription_id = uuid::Uuid::parse_str(&subscription_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid subscription id: {error}")))?;
+    state
+        .remote_desktop
+        .cancel_subscription(subscription_id)
+        .await;
+    Ok(())
 }

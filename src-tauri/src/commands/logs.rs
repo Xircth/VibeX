@@ -36,7 +36,7 @@ pub async fn set_log_settings(
             hub.apply_settings(&settings);
         }
     }
-    server::global_host_events().emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
+    crate::host_bus::bus().emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
     Ok(settings)
 }
 

@@ -12,8 +12,8 @@ mod principal;
 mod workflow;
 
 pub use agents::ConversationWorkflowRef;
-pub use args::decode_command_args;
-pub use command::{CommandRegistry, RegisteredCommand};
+pub use args::{ArgShape, decode_command_args, decode_command_args_shaped};
+pub use command::{CommandRegistry, HostCommandDescriptor, HostCommandKind, RegisteredCommand};
 pub use conversation::{
     ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, CompanionSessionPort,
     ConversationCatalog, ConversationCatalogAgent, ConversationCatalogProject,
@@ -23,9 +23,10 @@ pub use conversation::{
     CreateChildConversationRequest, CreateConversation, CreateConversationWorkspace,
     ListConversationFeedbackRequest, ListConversationInputsRequest,
     ListConversationRelationsRequest, ListConversations, ListRecentConversations,
-    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
-    SqliteConversationRepository, StartConversationTurn, SteerConversationTurnRequest,
-    SubmitConversationFeedback, SubmitConversationInputRequest, UpdateConversationInputRequest,
+    NoopConversationSubscriptions, ReorderConversationInputRequest, RespondConversationPermission,
+    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
+    SteerConversationTurnRequest, SubmitConversationFeedback, SubmitConversationInputRequest,
+    UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
@@ -35,7 +36,7 @@ pub use conversations::{
     ConversationTurnSnapshot,
 };
 pub use db::models::conversation::DbConversationSummary as ConversationSummary;
-pub use domain::{ApplicationDomainPort, DomainCommand};
+pub use domain::{AdapterCapabilities, ApplicationDomainPort, DomainCommand};
 pub use error::ApplicationError;
 pub use notification::{NotificationProjector, TerminalNotificationEvidence};
 pub use principal::Principal;

@@ -24,6 +24,7 @@ import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { projectsApi } from '@/lib/api';
@@ -45,6 +46,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   const handleOpenInEditor = useOpenProjectInEditor(project);
   const { data: repos } = useProjectRepos(project.id);
   const isSingleRepoProject = repos?.length === 1;
+  const localDesktopHost = useLocalDesktopHost();
 
   useEffect(() => {
     if (isFocused && ref.current) {
@@ -114,7 +116,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   <ExternalLink className="mr-2 h-4 w-4" />
                   {t('projectCard.viewDetails')}
                 </DropdownMenuItem>
-                {isSingleRepoProject && (
+                {isSingleRepoProject && localDesktopHost ? (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
@@ -124,7 +126,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                     <FolderOpen className="mr-2 h-4 w-4" />
                     {t('projectCard.openInIde')}
                   </DropdownMenuItem>
-                )}
+                ) : null}
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();

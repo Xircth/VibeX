@@ -35,7 +35,12 @@ pub struct DesktopPreviewProxy {
 
 impl DesktopPreviewProxy {
     pub async fn start() -> anyhow::Result<Self> {
-        let registry = server::PreviewProxyRegistry::default();
+        Self::start_with_registry(server::PreviewProxyRegistry::default()).await
+    }
+
+    pub async fn start_with_registry(
+        registry: server::PreviewProxyRegistry,
+    ) -> anyhow::Result<Self> {
         let endpoint = server::start_loopback_preview_proxy(registry.clone()).await?;
         Ok(Self {
             endpoint: Arc::from(endpoint),

@@ -406,103 +406,17 @@ pub async fn conversation_list(
 #[tauri::command]
 pub async fn application_call(
     state: tauri::State<'_, AppState>,
-    preview_proxy: tauri::State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
     command: String,
     operation_id: remote_protocol::OperationId,
     args: serde_json::Value,
 ) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
-    use application::{CommandRegistry, Principal};
+    use application::Principal;
 
-    let core = server::host_application_core(
-        state.deployment.db().pool.clone(),
-        state.conversation_context(),
-        state.plugin_control_plane.clone(),
-        Some(state.delegation.features.clone()),
-        state.plugin_preview_host.clone(),
-        state.plugin_capability_broker.clone(),
-        state.plugin_app_surfaces.clone(),
-        preview_proxy.registry(),
-        server::HeadlessAutomationRuntime::new(
-            state.local_deployment.clone(),
-            state.conversation_context(),
-            state.plugin_control_plane.clone(),
-        ),
-        crate::commands::automation::this_host_owns_automation_engine(),
-        state.local_deployment.clone(),
-        utils::assets::asset_dir().join("plugins/runtimes"),
-        state.plugin_worker_runtime.clone(),
-    );
-    CommandRegistry::new(core)
+    state
+        .host
+        .commands
         .execute_name(&Principal::local_desktop(), &command, operation_id, args)
         .await
-}
-
-#[tauri::command]
-pub async fn conversation_attach(
-    state: tauri::State<'_, AppState>,
-    request: remote_protocol::SubscriptionRequest,
-) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
-    use application::{
-        ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
-        SqliteConversationRepository, WorkflowStoreExecutionPort,
-    };
-    use remote_protocol::SubscriptionResource;
-
-    struct TauriConversationSubscriptions;
-
-    #[async_trait::async_trait]
-    impl ConversationSubscriptionRegistrar for TauriConversationSubscriptions {
-        async fn register(
-            &self,
-            _subscription_id: remote_protocol::SubscriptionId,
-            _conversation_id: remote_protocol::ConversationId,
-        ) -> Result<(), ApplicationError> {
-            // Tauri's process-wide event channel is already active; the desktop
-            // transport installs its listener before invoking this command.
-            Ok(())
-        }
-    }
-
-    let core = ApplicationCore::with_workflows(
-        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
-        std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
-            state.deployment.db().pool.clone(),
-            state.conversation_context(),
-        )),
-    );
-    match request.resource {
-        SubscriptionResource::Conversation {
-            conversation_id,
-            after_sequence,
-        } => {
-            core.attach_conversation(
-                &Principal::local_desktop(),
-                request.subscription_id,
-                conversation_id,
-                after_sequence,
-                &TauriConversationSubscriptions,
-            )
-            .await
-        }
-        SubscriptionResource::WorkflowRun {
-            run_id,
-            after_sequence,
-        } => {
-            core.attach_workflow_run(
-                &Principal::local_desktop(),
-                request.subscription_id,
-                run_id,
-                after_sequence,
-            )
-            .await
-        }
-        SubscriptionResource::HostEvent { .. } | SubscriptionResource::PatchStream { .. } => {
-            Err(ApplicationError::bad_request(
-                "host_event and patch_stream attach over the Host WebSocket",
-            ))
-        }
-    }
-    .map_err(application::ApplicationError::into_envelope)
 }
 
 pub async fn conversation_events_since_core(

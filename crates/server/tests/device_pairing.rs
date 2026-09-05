@@ -269,7 +269,7 @@ async fn revoking_a_device_invalidates_http_and_an_existing_websocket() {
         serde_json::from_slice(&frame.into_data()).expect("protocol error message");
     assert!(matches!(
         message,
-        SubscriptionServerMessage::Error { error }
+        SubscriptionServerMessage::Error { error, .. }
             if error.code == ErrorCode::Unauthorized
     ));
     server.abort();

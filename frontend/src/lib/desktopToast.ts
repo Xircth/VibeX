@@ -1,4 +1,4 @@
-import { backendCall } from '@/lib/backendTransport';
+import { desktopShellCall } from '@/lib/desktopShell';
 
 export type DesktopToastPayload = {
   projectId: string;
@@ -13,5 +13,5 @@ export type DesktopToastPayload = {
 export async function showDesktopToast(
   payload: DesktopToastPayload
 ): Promise<void> {
-  await backendCall('show_desktop_toast', { payload });
+  await desktopShellCall('show_desktop_toast', { payload });
 }

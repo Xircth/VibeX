@@ -53,7 +53,7 @@ impl Principal {
         }
     }
 
-    pub(crate) fn allows(&self, required_scope: &str) -> bool {
+    pub fn allows(&self, required_scope: &str) -> bool {
         match self {
             Self::LocalDesktop => true,
             Self::Remote { scopes, .. } => scopes.contains(required_scope),

@@ -48,6 +48,7 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { useProjects } from '@/hooks/useProjects';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
+import { useLocalDesktopHost, useTauriClient } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
@@ -384,8 +385,7 @@ function WorkspaceTabSwitcher() {
       const fallbackWorktree = resolveFallbackWorktree();
       const immediateTarget = resolveWorkspaceTabNavigation({
         projectId,
-        rightSession:
-          effectiveActiveTab === 'kanban' ? rightSession : null,
+        rightSession: effectiveActiveTab === 'kanban' ? rightSession : null,
         fallbackWorkspaceId: fallbackWorktree?.workspace.id ?? null,
         fallbackTaskId: fallbackWorktree?.workspace.task_id ?? null,
       });
@@ -477,6 +477,8 @@ export function Toolbar() {
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
+  const localDesktopHost = useLocalDesktopHost();
+  const tauriClient = useTauriClient();
   const switchProject = useProjectSwitcher();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
@@ -529,8 +531,12 @@ export function Toolbar() {
   };
 
   const handleOpenSettings = useCallback(() => {
-    settingsWindowApi.open();
-  }, []);
+    if (tauriClient) {
+      void settingsWindowApi.open();
+      return;
+    }
+    navigate('/settings');
+  }, [navigate, tauriClient]);
 
   const handleOpenHome = useCallback(() => {
     navigate(paths.projects());
@@ -752,12 +758,12 @@ export function Toolbar() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom">New Session</TooltipContent>
                 </Tooltip>
-                {isSingleRepoProject && (
+                {isSingleRepoProject && localDesktopHost ? (
                   <OpenInIdeButton
                     onClick={handleOpenInIDE}
                     className="workspace-toolbar-button h-7 w-7"
                   />
-                )}
+                ) : null}
                 <ToolbarDivider />
               </>
             )}

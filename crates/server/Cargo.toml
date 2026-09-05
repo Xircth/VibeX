@@ -44,6 +44,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 toml = "0.8"
+trash = "5"
 tool-runtime = { path = "../tool-runtime" }
 url = { workspace = true }
 uuid = { workspace = true }

@@ -26,6 +26,7 @@ import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useProjectRepos } from '@/hooks';
 import { useProjects } from '@/hooks/useProjects';
@@ -70,6 +71,7 @@ export function Navbar() {
   const { projectId, project } = useProject();
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
+  const localDesktopHost = useLocalDesktopHost();
   const { projects } = useProjects();
   const switchProject = useProjectSwitcher();
 
@@ -191,12 +193,12 @@ export function Navbar() {
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
-                  {isSingleRepoProject && (
+                  {isSingleRepoProject && localDesktopHost ? (
                     <OpenInIdeButton
                       onClick={handleOpenInIDE}
                       className="h-9 w-9"
                     />
-                  )}
+                  ) : null}
                 </div>
                 <NavDivider />
               </>

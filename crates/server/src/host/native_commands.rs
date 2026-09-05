@@ -75,7 +75,7 @@ async fn sync_model_provider_auth_overlay(
 }
 
 fn invalidate(channel: &str) {
-    crate::host::events::global_host_events().emit(channel, ());
+    crate::host::events::current_host_events().emit(channel, ());
 }
 
 #[derive(Deserialize)]

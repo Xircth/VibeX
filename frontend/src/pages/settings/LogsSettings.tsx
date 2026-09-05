@@ -30,6 +30,8 @@ import {
   type LogRecord,
   type TargetDirective,
 } from '@/lib/api';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
+
 import { applyLogBatch } from './logBuffer';
 import { SettingsSection } from './SettingsUi';
 
@@ -195,6 +197,7 @@ const LogRow = memo(function LogRow({ record }: { record: LogRecord }) {
 
 export function LogsSettings() {
   const { t } = useTranslation('settings');
+  const localDesktopHost = useLocalDesktopHost();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [captureLevel, setCaptureLevel] = useState<LogLevel>('info');
@@ -535,14 +538,16 @@ export function LogsSettings() {
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('logs.clear')}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void openFolder()}
-              >
-                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-                {t('logs.openFolder')}
-              </Button>
+              {localDesktopHost ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void openFolder()}
+                >
+                  <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                  {t('logs.openFolder')}
+                </Button>
+              ) : null}
             </div>
           }
         >

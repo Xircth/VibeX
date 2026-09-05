@@ -1,8 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use application::{
-    ApplicationCore, ApplicationError, CommandRegistry, ConversationRepository,
-    ConversationSubscriptionRegistrar, Principal,
+    ApplicationError, ConversationRepository, ConversationSubscriptionRegistrar, Principal,
 };
 use async_trait::async_trait;
 use axum::{
@@ -100,7 +99,7 @@ async fn handle_socket<R>(
     let mut revocation_ticker = tokio::time::interval(REVOCATION_POLL_INTERVAL);
     revocation_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let principal = credential.principal();
-    let mut host_events = crate::global_host_events().subscribe();
+    let mut host_events = state.events.subscribe();
 
     loop {
         tokio::select! {
@@ -123,6 +122,7 @@ async fn handle_socket<R>(
                                     false,
                                     OperationId::new(),
                                 ),
+                                subscription_id: None,
                             },
                         )
                         .await
@@ -134,8 +134,7 @@ async fn handle_socket<R>(
                     }
                 };
                 if handle_client_message(
-                    &state.core,
-                    &state.commands,
+                    state.as_ref(),
                     &principal,
                     message,
                     &mut subscriptions,
@@ -160,6 +159,7 @@ async fn handle_socket<R>(
                                     false,
                                     OperationId::new(),
                                 ),
+                                subscription_id: None,
                             },
                         )
                         .await;
@@ -267,8 +267,7 @@ async fn handle_socket<R>(
 }
 
 async fn handle_client_message<R, S>(
-    core: &ApplicationCore<R>,
-    commands: &CommandRegistry<R>,
+    state: &ServerState<R>,
     principal: &Principal,
     message: SubscriptionClientMessage,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
@@ -280,102 +279,30 @@ where
 {
     match message {
         SubscriptionClientMessage::Attach { request } => {
-            let (bootstrap, active) = match request.resource {
-                SubscriptionResource::Conversation {
-                    conversation_id,
-                    after_sequence,
-                } => (
-                    core.attach_conversation(
-                        principal,
-                        request.subscription_id,
-                        conversation_id,
-                        after_sequence,
-                        &DurablePollingRegistration,
-                    )
-                    .await
-                    .map_err(|_| ())?,
-                    ActiveSubscription::Conversation {
-                        conversation_id,
-                        after_sequence,
-                    },
-                ),
-                SubscriptionResource::WorkflowRun {
-                    run_id,
-                    after_sequence,
-                } => (
-                    core.attach_workflow_run(
-                        principal,
-                        request.subscription_id,
-                        run_id,
-                        after_sequence,
-                    )
-                    .await
-                    .map_err(|_| ())?,
-                    ActiveSubscription::WorkflowRun {
-                        run_id,
-                        after_sequence,
-                    },
-                ),
-                SubscriptionResource::HostEvent {
-                    channel,
-                    after_sequence,
-                } => {
-                    if !crate::HostEventBus::channel_allowed(&channel) {
-                        return Err(());
-                    }
-                    (
-                        SubscriptionBootstrap {
-                            subscription_id: request.subscription_id,
-                            ready: true,
-                            snapshot: None,
-                            replay: Vec::new(),
-                            high_water_mark: after_sequence,
-                        },
-                        ActiveSubscription::HostEvent {
-                            channel,
-                            after_sequence,
+            let subscription_id = request.subscription_id;
+            let attached = attach_resource(state, principal, request, subscriptions).await;
+            let (bootstrap, active) = match attached {
+                Ok(attached) => attached,
+                Err(error) => {
+                    send_message(
+                        sender,
+                        SubscriptionServerMessage::Error {
+                            error,
+                            subscription_id: Some(subscription_id),
                         },
                     )
-                }
-                SubscriptionResource::PatchStream { stream, args } => {
-                    let command = crate::patch_stream_subscribe_command(&stream).ok_or(())?;
-                    let channel = crate::patch_stream_channel(&stream, &args).map_err(|_| ())?;
-                    if !crate::HostEventBus::channel_allowed(&channel) {
-                        return Err(());
-                    }
-                    commands
-                        .execute_name(principal, command, OperationId::new(), args)
-                        .await
-                        .map_err(|_| ())?;
-                    (
-                        SubscriptionBootstrap {
-                            subscription_id: request.subscription_id,
-                            ready: true,
-                            snapshot: None,
-                            replay: Vec::new(),
-                            high_water_mark: 0,
-                        },
-                        ActiveSubscription::HostEvent {
-                            channel,
-                            after_sequence: 0,
-                        },
-                    )
+                    .await?;
+                    return Ok(());
                 }
             };
-            send_message(
-                sender,
-                SubscriptionServerMessage::Ready {
-                    subscription_id: request.subscription_id,
-                },
-            )
-            .await?;
+            send_message(sender, SubscriptionServerMessage::Ready { subscription_id }).await?;
             let mut cursor = active.after_sequence();
             if let Some(snapshot) = bootstrap.snapshot {
                 cursor = cursor.max(snapshot.through_sequence);
                 send_message(
                     sender,
                     SubscriptionServerMessage::Snapshot {
-                        subscription_id: request.subscription_id,
+                        subscription_id,
                         snapshot,
                     },
                 )
@@ -386,7 +313,7 @@ where
                 send_message(
                     sender,
                     SubscriptionServerMessage::Event {
-                        subscription_id: request.subscription_id,
+                        subscription_id,
                         event,
                     },
                 )
@@ -395,12 +322,12 @@ where
             send_message(
                 sender,
                 SubscriptionServerMessage::Live {
-                    subscription_id: request.subscription_id,
+                    subscription_id,
                     high_water_mark: bootstrap.high_water_mark,
                 },
             )
             .await?;
-            subscriptions.insert(request.subscription_id, {
+            subscriptions.insert(subscription_id, {
                 let mut active = active;
                 active.advance(cursor.max(bootstrap.high_water_mark));
                 active
@@ -412,6 +339,142 @@ where
         SubscriptionClientMessage::Ping => {
             send_message(sender, SubscriptionServerMessage::Pong).await?;
         }
+    }
+    Ok(())
+}
+
+async fn attach_resource<R>(
+    state: &ServerState<R>,
+    principal: &Principal,
+    request: remote_protocol::SubscriptionRequest,
+    subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
+) -> Result<(SubscriptionBootstrap, ActiveSubscription), ErrorEnvelope>
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    match request.resource {
+        SubscriptionResource::Conversation {
+            conversation_id,
+            after_sequence,
+        } => {
+            let bootstrap = state
+                .core
+                .attach_conversation(
+                    principal,
+                    request.subscription_id,
+                    conversation_id,
+                    after_sequence,
+                    &DurablePollingRegistration,
+                )
+                .await
+                .map_err(application::ApplicationError::into_envelope)?;
+            Ok((
+                bootstrap,
+                ActiveSubscription::Conversation {
+                    conversation_id,
+                    after_sequence,
+                },
+            ))
+        }
+        SubscriptionResource::WorkflowRun {
+            run_id,
+            after_sequence,
+        } => {
+            let bootstrap = state
+                .core
+                .attach_workflow_run(principal, request.subscription_id, run_id, after_sequence)
+                .await
+                .map_err(application::ApplicationError::into_envelope)?;
+            Ok((
+                bootstrap,
+                ActiveSubscription::WorkflowRun {
+                    run_id,
+                    after_sequence,
+                },
+            ))
+        }
+        SubscriptionResource::HostEvent {
+            channel,
+            after_sequence,
+        } => {
+            authorize_host_channel(principal, &channel)?;
+            let bootstrap = state
+                .events
+                .attach_bootstrap(request.subscription_id, &channel, after_sequence)
+                .map_err(|message| {
+                    ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
+                })?;
+            let after_sequence = bootstrap.high_water_mark;
+            Ok((
+                bootstrap,
+                ActiveSubscription::HostEvent {
+                    channel,
+                    after_sequence,
+                },
+            ))
+        }
+        SubscriptionResource::PatchStream { stream, args } => {
+            let command = crate::patch_stream_subscribe_command(&stream).ok_or_else(|| {
+                ErrorEnvelope::new(
+                    ErrorCode::BadRequest,
+                    format!("unknown patch stream `{stream}`"),
+                    false,
+                    OperationId::new(),
+                )
+            })?;
+            let channel = crate::patch_stream_channel(&stream, &args).map_err(|message| {
+                ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
+            })?;
+            authorize_host_channel(principal, &channel)?;
+            subscriptions.insert(
+                request.subscription_id,
+                ActiveSubscription::HostEvent {
+                    channel: channel.clone(),
+                    after_sequence: state.events.current_sequence(),
+                },
+            );
+            if let Err(error) = state
+                .commands
+                .execute_name(principal, command, OperationId::new(), args)
+                .await
+            {
+                subscriptions.remove(&request.subscription_id);
+                return Err(error);
+            }
+            let bootstrap = state
+                .events
+                .attach_bootstrap(request.subscription_id, &channel, 0)
+                .map_err(|message| {
+                    ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
+                })?;
+            let after_sequence = bootstrap.high_water_mark;
+            Ok((
+                bootstrap,
+                ActiveSubscription::HostEvent {
+                    channel,
+                    after_sequence,
+                },
+            ))
+        }
+    }
+}
+
+fn authorize_host_channel(principal: &Principal, channel: &str) -> Result<(), ErrorEnvelope> {
+    let Some(scope) = crate::HostEventBus::required_scope(channel) else {
+        return Err(ErrorEnvelope::new(
+            ErrorCode::NotFound,
+            format!("host event channel `{channel}` is not registered"),
+            false,
+            OperationId::new(),
+        ));
+    };
+    if !principal.allows(scope) {
+        return Err(ErrorEnvelope::new(
+            ErrorCode::Forbidden,
+            format!("principal lacks {scope}"),
+            false,
+            OperationId::new(),
+        ));
     }
     Ok(())
 }

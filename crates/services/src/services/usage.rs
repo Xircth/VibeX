@@ -748,11 +748,12 @@ fn tokens_disagree(
     }
 }
 
+pub fn preferred_counts(tokens: &ProjectUsageSourcedTokens) -> Option<&ProjectUsageTokenCounts> {
+    tokens.protocol.as_ref().or(tokens.vendor_log.as_ref())
+}
+
 pub fn preferred_total(tokens: &ProjectUsageSourcedTokens) -> Option<i64> {
-    tokens
-        .protocol
-        .as_ref()
-        .and_then(|counts| counts.total_tokens)
+    preferred_counts(tokens).and_then(|counts| counts.total_tokens)
 }
 
 fn optional_cost_cmp(left: Option<f64>, right: Option<f64>) -> std::cmp::Ordering {
@@ -1051,6 +1052,53 @@ pub fn scan_codex_sessions() -> Result<Vec<VendorLogUsage>, String> {
     Ok(sessions)
 }
 
+pub fn scan_vendor_usage_logs() -> (Vec<VendorLogUsage>, Vec<ProjectUsageProviderStatus>) {
+    let mut sessions = Vec::new();
+    let mut provider_status = Vec::new();
+
+    match scan_claude_sessions() {
+        Ok(scanned) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "claude".to_string(),
+                success: true,
+                error: None,
+                sessions_scanned: scanned.len() as i64,
+            });
+            sessions.extend(scanned);
+        }
+        Err(error) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "claude".to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    match scan_codex_sessions() {
+        Ok(scanned) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "codex".to_string(),
+                success: true,
+                error: None,
+                sessions_scanned: scanned.len() as i64,
+            });
+            sessions.extend(scanned);
+        }
+        Err(error) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "codex".to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    (sessions, provider_status)
+}
+
 fn collect_jsonl_files(root: &Path, output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
@@ -1084,11 +1132,7 @@ fn parse_codex_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let mut model: Option<String> = None;
     let mut first_timestamp = 0_i64;
     let mut previous_totals: Option<UsageTotals> = None;
-    let mut session_id = path
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_string();
+    let mut session_id = session_id_from_codex_path(path);
 
     for line in reader.lines() {
         let line = match line {
@@ -1343,11 +1387,41 @@ fn string_at(value: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn extract_codex_session_id(value: &Value) -> Option<String> {
-    if let Some(id) = string_at(value, &["session_id", "sessionId", "id"]) {
+    if let Some(id) = string_at(value, &["session_id", "sessionId"]) {
         return Some(id);
     }
     let payload = value.get("payload")?;
-    string_at(payload, &["session_id", "sessionId", "id"])
+    string_at(payload, &["session_id", "sessionId"])
+}
+
+fn session_id_from_codex_path(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    uuid_suffix(stem).unwrap_or_else(|| stem.to_string())
+}
+
+fn uuid_suffix(stem: &str) -> Option<String> {
+    const UUID_LEN: usize = 36;
+    if stem.len() < UUID_LEN {
+        return None;
+    }
+    let candidate = &stem[stem.len() - UUID_LEN..];
+    looks_like_uuid(candidate).then(|| candidate.to_string())
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[8] == b'-'
+        && bytes[13] == b'-'
+        && bytes[18] == b'-'
+        && bytes[23] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 8 | 13 | 18 | 23) || byte.is_ascii_hexdigit())
 }
 
 fn extract_model_from_turn_context(value: &Value) -> Option<String> {
@@ -1645,6 +1719,116 @@ mod tests {
                 .and_then(|t| t.total_tokens),
             Some(100)
         );
+    }
+
+    #[test]
+    fn preferred_total_falls_back_to_vendor_log_when_protocol_is_missing() {
+        let tokens = ProjectUsageSourcedTokens {
+            protocol: None,
+            vendor_log: Some(ProjectUsageTokenCounts {
+                input_tokens: Some(80),
+                output_tokens: Some(40),
+                cache_write_tokens: Some(0),
+                cache_read_tokens: Some(20),
+                total_tokens: Some(140),
+            }),
+            sources_disagree: false,
+        };
+
+        assert_eq!(preferred_total(&tokens), Some(140));
+    }
+
+    #[test]
+    fn build_statistics_surfaces_vendor_tokens_when_protocol_is_missing() {
+        let now = 1_725_000_000_000;
+        let mut tokens = ProjectUsageSourcedTokens::default();
+        tokens.vendor_log = Some(ProjectUsageTokenCounts {
+            input_tokens: Some(80),
+            output_tokens: Some(40),
+            cache_write_tokens: Some(0),
+            cache_read_tokens: Some(20),
+            total_tokens: Some(140),
+        });
+        let sessions = vec![attributed_session(
+            "codex-1",
+            "ws-1",
+            "/repo",
+            "codex",
+            Some("gpt-5.1"),
+            tokens,
+            Some(0.2),
+            now,
+        )];
+
+        let result = build_project_usage_statistics(
+            "project".to_string(),
+            "project-1".to_string(),
+            "Demo".to_string(),
+            sessions,
+            Vec::new(),
+            0,
+            now,
+        );
+
+        assert_eq!(preferred_total(&result.total_tokens), Some(140));
+        assert_eq!(result.total_tokens.protocol, None);
+        assert_eq!(
+            result
+                .total_tokens
+                .vendor_log
+                .as_ref()
+                .and_then(|tokens| tokens.total_tokens),
+            Some(140)
+        );
+        assert_eq!(result.weekly_comparison.current_week.tokens, Some(140));
+    }
+
+    #[test]
+    fn codex_vendor_session_id_stays_session_meta_not_message_id() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_id = "01a0567c-b1b8-7e62-a50c-590751c6f760";
+        let path = dir
+            .path()
+            .join(format!("rollout-2026-08-31T14-23-27-{session_id}.jsonl"));
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-08-31T14:23:27Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "session_id": session_id,
+                        "id": session_id,
+                    }
+                }),
+                serde_json::json!({
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "id": "msg_01a0567d-423f-7ed2-ac30-73f7702b9ef3"
+                    }
+                }),
+                serde_json::json!({
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {
+                                "input_tokens": 80,
+                                "cached_input_tokens": 20,
+                                "output_tokens": 40
+                            }
+                        }
+                    }
+                })
+            ),
+        )
+        .expect("write fixture");
+
+        let parsed = parse_codex_session(&path).expect("parse").expect("session");
+        assert_eq!(parsed.external_session_id, session_id);
+        assert_eq!(parsed.tokens.total_tokens, Some(140));
     }
 
     #[test]

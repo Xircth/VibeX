@@ -227,8 +227,8 @@ pub use runtime::{
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{
     SessionBinding, SessionDefaultValidation, SessionGate, SessionGateError, SessionGateInput,
-    SessionLaunchAuthorization, SessionLaunchLock, session_launch_rejection_message,
-    validate_session_defaults,
+    SessionLaunchAuthorization, SessionLaunchLock, resolve_session_defaults,
+    session_launch_rejection_message, validate_session_defaults,
 };
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{

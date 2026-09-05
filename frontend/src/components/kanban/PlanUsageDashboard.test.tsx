@@ -119,6 +119,20 @@ describe('PlanUsageDashboard', () => {
     mocks.runAction.mockResolvedValue({});
   });
 
+  it('shows the settings surface skeleton while agent list is loading', () => {
+    mocks.useAgentManagement.mockReturnValue({
+      loading: true,
+      state: { agents: [] },
+    });
+
+    renderDashboard();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveClass('agent-settings-loading');
+    expect(status.querySelectorAll('.settings-surface')).toHaveLength(2);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('renders every enabled signed-in subscription agent as its own card', async () => {
     mocks.useAgentManagement.mockReturnValue({
       loading: false,

@@ -245,9 +245,13 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
-        // Qoder CLI's session store location and format are not documented.
-        // An invented path would list a source that can never yield sessions.
-        AgentKind::Qoder => Vec::new(),
+        AgentKind::Qoder => env_or_home_sources(agent_type, "QODER_CONFIG_DIR", ".qoder")
+            .into_iter()
+            .map(|source| AgentHistorySource {
+                path: source.path.join("projects"),
+                ..source
+            })
+            .collect(),
         // In-process mock agent: no on-disk history to import.
         AgentKind::QaMock => Vec::new(),
     }
@@ -260,47 +264,49 @@ pub fn configured_history_sources(
     agent_type: AgentKind,
     configured_env: &HashMap<String, String>,
 ) -> Vec<AgentHistorySource> {
-    let configured = match agent_type {
-        AgentKind::ClaudeCode => {
-            configured_root(configured_env, "CLAUDE_CONFIG_DIR").map(|path| path.join("projects"))
+    let configured =
+        match agent_type {
+            AgentKind::ClaudeCode => configured_root(configured_env, "CLAUDE_CONFIG_DIR")
+                .map(|path| path.join("projects")),
+            AgentKind::Codex => None,
+            AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
+                .map(|path| path.join("opencode").join("opencode.db")),
+            AgentKind::Antigravity => configured_root(configured_env, "GEMINI_HOME")
+                .map(|path| path.join("antigravity-acp").join("conversations")),
+            AgentKind::Openclaw => {
+                configured_root(configured_env, "OPENCLAW_HOME").map(|path| path.join("agents"))
+            }
+            AgentKind::Cline => {
+                configured_root(configured_env, "CLINE_DIR").map(|path| path.join("tasks"))
+            }
+            AgentKind::Hermes => {
+                configured_root(configured_env, "HERMES_HOME").map(|path| path.join("state.db"))
+            }
+            AgentKind::Codebuddy => configured_root(configured_env, "CODEBUDDY_CONFIG_DIR")
+                .map(|path| path.join("projects")),
+            AgentKind::KimiCode => {
+                configured_root(configured_env, "KIMI_CODE_HOME").map(|path| path.join("sessions"))
+            }
+            AgentKind::Pi => configured_root(configured_env, "PI_CODING_AGENT_SESSION_DIR")
+                .or_else(|| {
+                    configured_root(configured_env, "PI_CODING_AGENT_DIR")
+                        .map(|path| path.join("sessions"))
+                }),
+            AgentKind::Grok => {
+                configured_root(configured_env, "GROK_HOME").map(|path| path.join("sessions"))
+            }
+            AgentKind::Cursor => configured_root(configured_env, "CURSOR_CONFIG_DIR"),
+            AgentKind::DeepseekHarness => {
+                configured_root(configured_env, "DEEPSEEK_ACP_SESSIONS_ROOT").or_else(|| {
+                    configured_root(configured_env, "DSH_HOME").map(|path| path.join("sessions"))
+                })
+            }
+            AgentKind::Qoder => configured_root(configured_env, "QODER_CONFIG_DIR")
+                .map(|path| path.join("projects")),
+            AgentKind::QaMock => None,
         }
-        AgentKind::Codex => None,
-        AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
-            .map(|path| path.join("opencode").join("opencode.db")),
-        AgentKind::Antigravity => configured_root(configured_env, "GEMINI_HOME")
-            .map(|path| path.join("antigravity-acp").join("conversations")),
-        AgentKind::Openclaw => {
-            configured_root(configured_env, "OPENCLAW_HOME").map(|path| path.join("agents"))
-        }
-        AgentKind::Cline => {
-            configured_root(configured_env, "CLINE_DIR").map(|path| path.join("tasks"))
-        }
-        AgentKind::Hermes => {
-            configured_root(configured_env, "HERMES_HOME").map(|path| path.join("state.db"))
-        }
-        AgentKind::Codebuddy => configured_root(configured_env, "CODEBUDDY_CONFIG_DIR")
-            .map(|path| path.join("projects")),
-        AgentKind::KimiCode => {
-            configured_root(configured_env, "KIMI_CODE_HOME").map(|path| path.join("sessions"))
-        }
-        AgentKind::Pi => {
-            configured_root(configured_env, "PI_CODING_AGENT_SESSION_DIR").or_else(|| {
-                configured_root(configured_env, "PI_CODING_AGENT_DIR")
-                    .map(|path| path.join("sessions"))
-            })
-        }
-        AgentKind::Grok => {
-            configured_root(configured_env, "GROK_HOME").map(|path| path.join("sessions"))
-        }
-        AgentKind::Cursor => configured_root(configured_env, "CURSOR_CONFIG_DIR"),
-        AgentKind::DeepseekHarness => configured_root(configured_env, "DEEPSEEK_ACP_SESSIONS_ROOT")
-            .or_else(|| {
-                configured_root(configured_env, "DSH_HOME").map(|path| path.join("sessions"))
-            }),
-        AgentKind::Qoder | AgentKind::QaMock => None,
-    }
-    .into_iter()
-    .collect::<Vec<_>>();
+        .into_iter()
+        .collect::<Vec<_>>();
 
     let configured = if agent_type == AgentKind::Codex {
         configured_root(configured_env, "CODEX_HOME")
@@ -695,9 +701,10 @@ pub(super) fn parse_history_file(
         path.extension().and_then(|extension| extension.to_str()),
     ) {
         (AgentKind::Pi, Some("jsonl")) => parse_pi_session(path, &raw),
-        (AgentKind::ClaudeCode | AgentKind::Openclaw | AgentKind::Codebuddy, Some("jsonl")) => {
-            parse_structured_jsonl(agent_type, path, &raw)
-        }
+        (
+            AgentKind::ClaudeCode | AgentKind::Openclaw | AgentKind::Codebuddy | AgentKind::Qoder,
+            Some("jsonl"),
+        ) => parse_structured_jsonl(agent_type, path, &raw),
         (AgentKind::Antigravity, Some("jsonl")) => parse_gemini_jsonl_chat(path, &raw),
         (AgentKind::Antigravity, Some("json")) => parse_gemini_chat(path, &raw),
         (AgentKind::Cline, Some("json")) => parse_cline_task(path, &raw),
@@ -1082,7 +1089,7 @@ fn parse_structured_jsonl(
     let mut messages = Vec::new();
     for value in &values {
         messages.extend(match agent_type {
-            AgentKind::ClaudeCode => claude_code_messages(value),
+            AgentKind::ClaudeCode | AgentKind::Qoder => claude_code_messages(value),
             AgentKind::Openclaw => openclaw_messages(value),
             AgentKind::Codebuddy => codebuddy_messages(value),
             _ => Vec::new(),
@@ -1091,10 +1098,9 @@ fn parse_structured_jsonl(
     if messages.is_empty() {
         return parse_jsonl_history(agent_type, path, raw);
     }
-    let explicit_title = values.iter().find_map(|value| {
-        string_at_any(value, &["title", "summary", "aiTitle", "topic"])
-            .filter(|title| !title.trim().is_empty() && title != "/compact")
-    });
+    let explicit_title = first_explicit_title(&values, &["customTitle"])
+        .or_else(|| first_explicit_title(&values, &["aiTitle"]))
+        .or_else(|| first_explicit_title(&values, &["title", "summary", "topic"]));
     Ok(vec![ImportedAgentSession {
         source_agent: agent_type,
         external_session_id: session_id,
@@ -1115,6 +1121,11 @@ fn claude_code_messages(value: &serde_json::Value) -> Vec<ImportedAgentMessage> 
         .get("isSidechain")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
+        || value.get("isMeta").and_then(serde_json::Value::as_bool) == Some(true)
+        || value
+            .get("isCompactSummary")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
     {
         return Vec::new();
     }
@@ -2360,6 +2371,12 @@ fn image_placeholder(item: &serde_json::Value) -> String {
     format!("[image: {label}]")
 }
 
+fn first_explicit_title(values: &[serde_json::Value], keys: &[&str]) -> Option<String> {
+    values.iter().find_map(|value| {
+        string_at_any(value, keys).filter(|title| !title.trim().is_empty() && title != "/compact")
+    })
+}
+
 fn string_at_any(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .filter_map(|key| value.get(*key))
@@ -2413,6 +2430,7 @@ mod tests {
             AgentKind::Grok,
             AgentKind::Cursor,
             AgentKind::DeepseekHarness,
+            AgentKind::Qoder,
         ] {
             assert!(
                 !default_history_sources(agent_type).is_empty(),
@@ -2498,6 +2516,36 @@ mod tests {
             codebuddy[0].path,
             PathBuf::from("/profiles/codebuddy/projects")
         );
+
+        let qoder = configured_history_sources(
+            AgentKind::Qoder,
+            &HashMap::from([(
+                "QODER_CONFIG_DIR".to_string(),
+                "/profiles/qoder".to_string(),
+            )]),
+        );
+        assert_eq!(qoder[0].path, PathBuf::from("/profiles/qoder/projects"));
+    }
+
+    #[test]
+    fn qoder_custom_title_outranks_ai_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","uuid":"u1","message":{"role":"user","content":"read NOTES.md"},"sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"ai-title","sessionId":"s1","aiTitle":"Reading project notes"}"#,
+                "\n",
+                r#"{"type":"custom-title","sessionId":"s1","customTitle":"notes probe"}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = parse_history_file(AgentKind::Qoder, &path).unwrap();
+        assert_eq!(sessions[0].title.as_deref(), Some("notes probe"));
     }
 
     #[cfg(unix)]

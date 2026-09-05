@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   RefreshCw,
@@ -21,6 +21,8 @@ import {
   Zap,
   Package,
 } from 'lucide-react';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
 import {
@@ -31,11 +33,16 @@ import {
   type ProjectUsageStatistics,
   type ProjectUsageTokenCounts,
 } from '@/lib/api';
-import { AstryxSelect } from '@/components/ui/astryx-select';
 import { cn } from '@/lib/utils';
 import { PlanUsageDashboard } from './PlanUsageDashboard';
 
-type UsageTab = 'overview' | 'folders' | 'agents' | 'models' | 'sessions' | 'plan';
+type UsageTab =
+  | 'overview'
+  | 'folders'
+  | 'agents'
+  | 'models'
+  | 'sessions'
+  | 'plan';
 type DateRange = '7d' | '30d' | 'all';
 
 const SESSIONS_PER_PAGE = 15;
@@ -152,9 +159,7 @@ function preferredTokenCounts(
   return tokens.protocol ?? tokens.vendor_log ?? null;
 }
 
-function preferredTokenTotal(
-  tokens: ProjectUsageSourcedTokens
-): number | null {
+function preferredTokenTotal(tokens: ProjectUsageSourcedTokens): number | null {
   return preferredTokenCounts(tokens)?.total_tokens ?? null;
 }
 
@@ -412,7 +417,6 @@ function getUsageStatisticsQueryOptions(target: string, dateRange: DateRange) {
 
 export function KanbanUsageDashboard() {
   const { t } = useTranslation(['tasks', 'common']);
-  const queryClient = useQueryClient();
   const { projectId } = useProject();
   const { projects } = useProjects();
   const preferredProjectTarget = projectId ? `project:${projectId}` : 'global';
@@ -452,10 +456,6 @@ export function KanbanUsageDashboard() {
       cacheReadTokens: 0,
     },
   });
-  const availableTargets = useMemo(
-    () => (projectId ? [preferredProjectTarget, 'global'] : ['global']),
-    [preferredProjectTarget, projectId]
-  );
   const targetOptions = useMemo(
     () => [
       { value: 'global', label: t('usageDashboard.global') },
@@ -496,20 +496,6 @@ export function KanbanUsageDashboard() {
       prev === 'global' ? prev : preferredProjectTarget
     );
   }, [preferredProjectTarget, projectId]);
-
-  useEffect(() => {
-    if (availableTargets.length === 0) {
-      return;
-    }
-
-    const prefetches = availableTargets.flatMap((target) =>
-      DATE_RANGE_OPTIONS.map((range) =>
-        queryClient.prefetchQuery(getUsageStatisticsQueryOptions(target, range))
-      )
-    );
-
-    void Promise.allSettled(prefetches);
-  }, [availableTargets, queryClient]);
 
   useEffect(() => {
     setSessionPage(1);
@@ -626,16 +612,16 @@ export function KanbanUsageDashboard() {
     () =>
       Math.max(
         1,
-        ...filteredDailyUsage.map(
-          (day) => preferredTokenTotal(day.tokens) ?? 0
-        )
+        ...filteredDailyUsage.map((day) => preferredTokenTotal(day.tokens) ?? 0)
       ),
     [filteredDailyUsage]
   );
 
   const getTokenPercentage = useCallback(
     (value: number | null | undefined): number => {
-      const total = preferredTokenTotal(statistics?.total_tokens ?? { sources_disagree: false });
+      const total = preferredTokenTotal(
+        statistics?.total_tokens ?? { sources_disagree: false }
+      );
       if (total == null || total === 0 || value == null) return 0;
       return (value / total) * 100;
     },
@@ -853,9 +839,7 @@ export function KanbanUsageDashboard() {
               </span>
               <button
                 type="button"
-                onClick={() =>
-                  setDismissedUnattributedCount(unattributedCount)
-                }
+                onClick={() => setDismissedUnattributedCount(unattributedCount)}
                 className="shrink-0 rounded p-0.5 transition-colors hover:bg-[var(--surface-control-hover)]"
                 aria-label={t('common:close')}
                 title={t('common:close')}
@@ -880,10 +864,7 @@ export function KanbanUsageDashboard() {
           ) : null}
 
           {activeTab !== 'plan' && loading ? (
-            <div className="flex items-center justify-center py-16 text-muted-foreground">
-              <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-              <span className="text-base">{t('usageDashboard.loading')}</span>
-            </div>
+            <SurfaceLoading label={t('usageDashboard.loading')} />
           ) : null}
 
           {activeTab !== 'plan' && !loading && !statistics && !error ? (
@@ -1080,7 +1061,8 @@ export function KanbanUsageDashboard() {
                         }}
                       >
                         {filteredDailyUsage.map((day) => {
-                          const totalTokens = preferredTokenTotal(day.tokens) ?? 0;
+                          const totalTokens =
+                            preferredTokenTotal(day.tokens) ?? 0;
                           const cacheReadTokens = Math.min(
                             totalTokens,
                             Math.max(

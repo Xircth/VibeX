@@ -123,6 +123,8 @@ token 没有可加关系。`PlanUsageDashboard` 保持独立标签页，不并�
   [ADR-0061](0061-host-local-safety-and-performance-baseline.md) 的性能基线相关，
   实现时必须有聚合读模型而不是即席扫描。
 - 厂商日志扫描器保留但缩小职责，只做分项 token 补充。它不再决定报表里有哪些行。
+  jsonl 按文件 mtime/size 增量解析并写入 `vendor_usage_sessions`；仪表盘打开只读
+  该表与 `conversation_usage_snapshots`，不在请求路径上重扫全部 transcript。
 - `external_session_id` 成为对齐的关键列，它为空的会话拿不到 `vendor_log` 补充。
 
 ## Considered Options

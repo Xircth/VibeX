@@ -199,6 +199,41 @@ pub struct VendorLogUsage {
     pub provider: String,
 }
 
+/// Local directories that hold Claude / Codex jsonl transcripts.
+#[derive(Debug, Clone, Default)]
+pub struct VendorLogRoots {
+    pub claude_projects: Option<PathBuf>,
+    pub codex_sessions: Option<PathBuf>,
+}
+
+impl VendorLogRoots {
+    pub fn local() -> Self {
+        Self {
+            claude_projects: dirs::home_dir().map(|home| home.join(".claude").join("projects")),
+            codex_sessions: dirs::home_dir().map(|home| home.join(".codex").join("sessions")),
+        }
+    }
+}
+
+/// One jsonl that changed (or was seen for the first time) during an incremental scan.
+#[derive(Debug, Clone)]
+pub struct VendorLogFileUpdate {
+    pub path: String,
+    pub provider: String,
+    pub mtime_ms: i64,
+    pub size: i64,
+    pub session: Option<VendorLogUsage>,
+}
+
+/// Result of walking vendor log directories against stored file stamps.
+#[derive(Debug, Clone, Default)]
+pub struct VendorLogScan {
+    pub updates: Vec<VendorLogFileUpdate>,
+    pub live_paths: Vec<String>,
+    pub successful_providers: Vec<String>,
+    pub provider_status: Vec<ProjectUsageProviderStatus>,
+}
+
 // ============= Internal Types =============
 
 #[derive(Default, Clone, Copy)]
@@ -823,57 +858,6 @@ fn calculate_trend(current: f64, last: f64) -> f64 {
 
 // ============= Claude Sessions Scanning =============
 
-fn claude_projects_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".claude").join("projects"))
-}
-
-pub fn scan_claude_sessions() -> Result<Vec<VendorLogUsage>, String> {
-    let projects_dir = match claude_projects_dir() {
-        Some(dir) if dir.exists() => dir,
-        _ => return Ok(Vec::new()),
-    };
-
-    let mut sessions = Vec::new();
-    let entries = match fs::read_dir(&projects_dir) {
-        Ok(entries) => entries,
-        Err(_) => return Ok(Vec::new()),
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            scan_claude_project_sessions(&path, &mut sessions)?;
-        }
-    }
-
-    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(sessions)
-}
-
-fn scan_claude_project_sessions(
-    project_dir: &Path,
-    sessions: &mut Vec<VendorLogUsage>,
-) -> Result<(), String> {
-    let entries = match fs::read_dir(project_dir) {
-        Ok(entries) => entries,
-        Err(_) => return Ok(()),
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        if !name.ends_with(".jsonl") || name.starts_with("agent-") {
-            continue;
-        }
-        if let Some(summary) = parse_claude_session(&path)? {
-            sessions.push(summary);
-        }
-    }
-
-    Ok(())
-}
-
 fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let file = match File::open(path) {
         Ok(file) => file,
@@ -1020,83 +1004,148 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     }))
 }
 
-// ============= Codex Sessions Scanning =============
+// ============= Incremental vendor log scan =============
 
-fn resolve_codex_home() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".codex"))
+/// Walk vendor jsonl trees and parse only files whose mtime or size changed.
+pub fn scan_changed_vendor_logs(
+    roots: &VendorLogRoots,
+    known: &HashMap<String, (i64, i64)>,
+) -> VendorLogScan {
+    let mut scan = VendorLogScan::default();
+
+    match collect_claude_files(roots.claude_projects.as_deref()) {
+        Ok(files) => {
+            scan_provider_files("claude", &files, known, parse_claude_session, &mut scan);
+            scan.successful_providers.push("claude".to_string());
+        }
+        Err(error) => {
+            scan.provider_status.push(ProjectUsageProviderStatus {
+                provider: "claude".to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    match collect_codex_files(roots.codex_sessions.as_deref()) {
+        Ok(files) => {
+            scan_provider_files("codex", &files, known, parse_codex_session, &mut scan);
+            scan.successful_providers.push("codex".to_string());
+        }
+        Err(error) => {
+            scan.provider_status.push(ProjectUsageProviderStatus {
+                provider: "codex".to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    for provider in &scan.successful_providers {
+        let sessions_scanned = scan
+            .updates
+            .iter()
+            .filter(|update| update.provider == *provider && update.session.is_some())
+            .count() as i64;
+        scan.provider_status.push(ProjectUsageProviderStatus {
+            provider: provider.clone(),
+            success: true,
+            error: None,
+            sessions_scanned,
+        });
+    }
+
+    scan
 }
 
-pub fn scan_codex_sessions() -> Result<Vec<VendorLogUsage>, String> {
-    let codex_home = match resolve_codex_home() {
-        Some(home) if home.exists() => home,
-        _ => return Ok(Vec::new()),
-    };
+fn scan_provider_files(
+    provider: &str,
+    files: &[PathBuf],
+    known: &HashMap<String, (i64, i64)>,
+    parse: fn(&Path) -> Result<Option<VendorLogUsage>, String>,
+    scan: &mut VendorLogScan,
+) {
+    for path in files {
+        let path_key = path.to_string_lossy().into_owned();
+        scan.live_paths.push(path_key.clone());
+        let Some((mtime_ms, size)) = file_stamp(path) else {
+            continue;
+        };
+        if known.get(&path_key) == Some(&(mtime_ms, size)) {
+            continue;
+        }
+        let session = match parse(path) {
+            Ok(session) => session,
+            Err(error) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    provider,
+                    error,
+                    "skipping unreadable vendor log"
+                );
+                None
+            }
+        };
+        scan.updates.push(VendorLogFileUpdate {
+            path: path_key,
+            provider: provider.to_string(),
+            mtime_ms,
+            size,
+            session,
+        });
+    }
+}
 
-    let sessions_dir = codex_home.join("sessions");
-    if !sessions_dir.exists() {
+fn file_stamp(path: &Path) -> Option<(i64, i64)> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?;
+    let mtime_ms = modified.duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
+    Some((mtime_ms, metadata.len() as i64))
+}
+
+fn collect_claude_files(projects_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    let Some(projects_dir) = projects_dir.filter(|dir| dir.exists()) else {
         return Ok(Vec::new());
-    }
-
+    };
+    let entries = fs::read_dir(projects_dir).map_err(|error| error.to_string())?;
     let mut files = Vec::new();
-    let mut seen_files = HashSet::new();
-    collect_jsonl_files(&sessions_dir, &mut files, &mut seen_files);
-
-    let mut sessions = Vec::new();
-    for file in files {
-        if let Some(summary) = parse_codex_session(&file)? {
-            sessions.push(summary);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
         }
+        collect_claude_project_files(&path, &mut files);
     }
-
-    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(sessions)
+    Ok(files)
 }
 
-pub fn scan_vendor_usage_logs() -> (Vec<VendorLogUsage>, Vec<ProjectUsageProviderStatus>) {
-    let mut sessions = Vec::new();
-    let mut provider_status = Vec::new();
-
-    match scan_claude_sessions() {
-        Ok(scanned) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "claude".to_string(),
-                success: true,
-                error: None,
-                sessions_scanned: scanned.len() as i64,
-            });
-            sessions.extend(scanned);
+fn collect_claude_project_files(project_dir: &Path, files: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(project_dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".jsonl") || name.starts_with("agent-") {
+            continue;
         }
-        Err(error) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "claude".to_string(),
-                success: false,
-                error: Some(error),
-                sessions_scanned: 0,
-            });
-        }
+        files.push(path);
     }
+}
 
-    match scan_codex_sessions() {
-        Ok(scanned) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "codex".to_string(),
-                success: true,
-                error: None,
-                sessions_scanned: scanned.len() as i64,
-            });
-            sessions.extend(scanned);
-        }
-        Err(error) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "codex".to_string(),
-                success: false,
-                error: Some(error),
-                sessions_scanned: 0,
-            });
-        }
-    }
-
-    (sessions, provider_status)
+fn collect_codex_files(sessions_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    let Some(sessions_dir) = sessions_dir.filter(|dir| dir.exists()) else {
+        return Ok(Vec::new());
+    };
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    collect_jsonl_files(sessions_dir, &mut files, &mut seen);
+    Ok(files)
 }
 
 fn collect_jsonl_files(root: &Path, output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
@@ -1829,6 +1878,61 @@ mod tests {
         let parsed = parse_codex_session(&path).expect("parse").expect("session");
         assert_eq!(parsed.external_session_id, session_id);
         assert_eq!(parsed.tokens.total_tokens, Some(140));
+    }
+
+    #[test]
+    fn incremental_vendor_scan_skips_unchanged_files_and_reparses_on_size_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions_dir = dir.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+        let path = sessions_dir.join("rollout-session.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"timestamp":"2026-08-31T14:23:27Z","type":"session_meta","payload":{"session_id":"s-1"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}}}
+"#,
+        )
+        .expect("write");
+
+        let roots = VendorLogRoots {
+            claude_projects: None,
+            codex_sessions: Some(sessions_dir.clone()),
+        };
+        let first = scan_changed_vendor_logs(&roots, &HashMap::new());
+        assert_eq!(first.updates.len(), 1);
+        assert_eq!(first.live_paths.len(), 1);
+        assert_eq!(
+            first.updates[0]
+                .session
+                .as_ref()
+                .and_then(|session| session.tokens.total_tokens),
+            Some(15)
+        );
+
+        let known = HashMap::from([(
+            first.updates[0].path.clone(),
+            (first.updates[0].mtime_ms, first.updates[0].size),
+        )]);
+        let skipped = scan_changed_vendor_logs(&roots, &known);
+        assert!(skipped.updates.is_empty());
+        assert_eq!(skipped.live_paths.len(), 1);
+
+        std::fs::write(
+            &path,
+            r#"{"timestamp":"2026-08-31T14:23:27Z","type":"session_meta","payload":{"session_id":"s-1"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80,"cached_input_tokens":0,"output_tokens":40}}}}
+"#,
+        )
+        .expect("rewrite");
+        let changed = scan_changed_vendor_logs(&roots, &known);
+        assert_eq!(changed.updates.len(), 1);
+        assert_eq!(
+            changed.updates[0]
+                .session
+                .as_ref()
+                .and_then(|session| session.tokens.total_tokens),
+            Some(120)
+        );
     }
 
     #[test]

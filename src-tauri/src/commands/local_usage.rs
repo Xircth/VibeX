@@ -14,12 +14,9 @@ pub use services::services::usage::{
     ProjectUsageSourcedTokens, ProjectUsageStatistics, ProjectUsageTokenCounts, ProjectUsageTrends,
     ProjectUsageUsageData, ProjectUsageWeekData, ProjectUsageWeeklyComparison,
 };
-use services::services::usage::{VendorLogUsage, scan_vendor_usage_logs};
 use uuid::Uuid;
 
 use crate::state::AppState;
-
-const LOCAL_USAGE_SCAN_CACHE_TTL_MS: i64 = 2 * 60_000;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UsageScope {
@@ -39,34 +36,6 @@ fn current_time_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
-}
-
-async fn scan_vendor_logs(
-    state: &tauri::State<'_, AppState>,
-    now_ms: i64,
-) -> (Vec<VendorLogUsage>, Vec<ProjectUsageProviderStatus>) {
-    {
-        let cache = state.local_usage_cache.lock().await;
-        if let Some(entry) = cache.get("vendor")
-            && now_ms - entry.scanned_at_ms <= LOCAL_USAGE_SCAN_CACHE_TTL_MS
-        {
-            return (entry.vendor_sessions.clone(), entry.provider_status.clone());
-        }
-    }
-
-    let (all_sessions, provider_status) = scan_vendor_usage_logs();
-
-    let mut cache = state.local_usage_cache.lock().await;
-    cache.insert(
-        "vendor".to_string(),
-        crate::state::LocalUsageCacheEntry {
-            vendor_sessions: all_sessions.clone(),
-            provider_status: provider_status.clone(),
-            scanned_at_ms: now_ms,
-        },
-    );
-
-    (all_sessions, provider_status)
 }
 
 async fn resolve_usage_scope(
@@ -124,7 +93,6 @@ pub async fn get_project_usage_statistics(
     };
 
     let pool = &state.deployment.db().pool;
-    let (vendor_logs, provider_status) = scan_vendor_logs(&state, now_ms).await;
     assemble_project_usage_statistics(
         pool,
         match scope_ctx.scope {
@@ -136,8 +104,6 @@ pub async fn get_project_usage_statistics(
         scope_ctx.project_uuid,
         cutoff_time,
         now_ms,
-        &vendor_logs,
-        provider_status,
     )
     .await
     .map_err(|error| error.to_string())

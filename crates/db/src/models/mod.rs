@@ -30,5 +30,6 @@ pub mod session;
 pub mod session_checkpoint;
 pub mod tag;
 pub mod task;
+pub mod vendor_usage;
 pub mod workspace;
 pub mod workspace_repo;

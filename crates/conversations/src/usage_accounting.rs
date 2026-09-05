@@ -5,17 +5,30 @@
 //! the Agent did not provide a breakdown. `context_used` is occupancy and is
 //! never written into token totals.
 
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use agents::conversation::{ConversationEvent, ConversationUsage};
-use db::models::conversation_usage::{
-    ConversationUsageAttributionRow, ConversationUsageSnapshotRecord, StaleUsageEventRow,
+use db::models::{
+    conversation_usage::{
+        ConversationUsageAttributionRow, ConversationUsageSnapshotRecord, StaleUsageEventRow,
+    },
+    vendor_usage::{
+        VendorUsageFileRecord, VendorUsageFileUpdate, VendorUsageSessionRecord,
+        apply_vendor_usage_scan,
+    },
 };
 use services::services::usage::{
     ProjectUsageProviderStatus, ProjectUsageSessionSummary, ProjectUsageSourcedTokens,
-    ProjectUsageStatistics, ProjectUsageTokenCounts, VendorLogUsage, align_vendor_usage,
-    build_project_usage_statistics,
+    ProjectUsageStatistics, ProjectUsageTokenCounts, VendorLogRoots, VendorLogUsage,
+    align_vendor_usage, build_project_usage_statistics, scan_changed_vendor_logs,
 };
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
+
+static VENDOR_SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn apply_usage_updated(
     conn: &mut SqliteConnection,
@@ -204,13 +217,13 @@ pub async fn assemble_project_usage_statistics(
     project_uuid: Option<Uuid>,
     cutoff_time: i64,
     now_ms: i64,
-    vendor_logs: &[VendorLogUsage],
-    provider_status: Vec<ProjectUsageProviderStatus>,
 ) -> Result<ProjectUsageStatistics, sqlx::Error> {
     catch_up_usage_snapshots(pool).await?;
+    let provider_status = sync_vendor_usage_logs(pool).await?;
+    let vendor_logs = load_vendor_usage_logs(pool).await?;
     let rows = ConversationUsageSnapshotRecord::list_attributed(pool, project_uuid).await?;
     let mut sessions = attributed_sessions_from_rows(rows, cutoff_time);
-    let unattributed_vendor_sessions = align_vendor_usage(&mut sessions, vendor_logs);
+    let unattributed_vendor_sessions = align_vendor_usage(&mut sessions, &vendor_logs);
     sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     Ok(build_project_usage_statistics(
         scope,
@@ -221,6 +234,98 @@ pub async fn assemble_project_usage_statistics(
         unattributed_vendor_sessions,
         now_ms,
     ))
+}
+
+pub async fn sync_vendor_usage_logs(
+    pool: &SqlitePool,
+) -> Result<Vec<ProjectUsageProviderStatus>, sqlx::Error> {
+    sync_vendor_usage_logs_with_roots(pool, VendorLogRoots::local()).await
+}
+
+pub async fn sync_vendor_usage_logs_with_roots(
+    pool: &SqlitePool,
+    roots: VendorLogRoots,
+) -> Result<Vec<ProjectUsageProviderStatus>, sqlx::Error> {
+    let _guard = VENDOR_SYNC.lock().await;
+    let known = VendorUsageFileRecord::list(pool).await?;
+    let known_map: HashMap<String, (i64, i64)> = known
+        .into_iter()
+        .map(|row| (row.path, (row.mtime_ms, row.size)))
+        .collect();
+    let scan = tokio::task::spawn_blocking(move || scan_changed_vendor_logs(&roots, &known_map))
+        .await
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let updates: Vec<VendorUsageFileUpdate> = scan
+        .updates
+        .into_iter()
+        .map(|update| VendorUsageFileUpdate {
+            path: update.path,
+            provider: update.provider,
+            mtime_ms: update.mtime_ms,
+            size: update.size,
+            session: update.session.map(|session| VendorUsageSessionRecord {
+                provider: session.provider,
+                external_session_id: session.external_session_id,
+                source_path: String::new(),
+                timestamp: session.timestamp,
+                model: (!session.model.is_empty()).then_some(session.model),
+                input_tokens: session.tokens.input_tokens,
+                output_tokens: session.tokens.output_tokens,
+                cache_write_tokens: session.tokens.cache_write_tokens,
+                cache_read_tokens: session.tokens.cache_read_tokens,
+                total_tokens: session.tokens.total_tokens,
+                cost: session.cost,
+                summary: session.summary,
+                scanned_at_ms: now_ms,
+            }),
+        })
+        .collect();
+    apply_vendor_usage_scan(
+        pool,
+        &updates,
+        &scan.live_paths,
+        &scan.successful_providers,
+        now_ms,
+    )
+    .await?;
+
+    let counts: HashMap<String, i64> = VendorUsageSessionRecord::count_by_provider(pool)
+        .await?
+        .into_iter()
+        .collect();
+    let mut provider_status = scan.provider_status;
+    for status in &mut provider_status {
+        if status.success {
+            status.sessions_scanned = counts.get(&status.provider).copied().unwrap_or(0);
+        }
+    }
+    Ok(provider_status)
+}
+
+async fn load_vendor_usage_logs(pool: &SqlitePool) -> Result<Vec<VendorLogUsage>, sqlx::Error> {
+    Ok(VendorUsageSessionRecord::list_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| VendorLogUsage {
+            external_session_id: row.external_session_id,
+            timestamp: row.timestamp,
+            model: row.model.unwrap_or_default(),
+            tokens: ProjectUsageTokenCounts {
+                input_tokens: row.input_tokens,
+                output_tokens: row.output_tokens,
+                cache_write_tokens: row.cache_write_tokens,
+                cache_read_tokens: row.cache_read_tokens,
+                total_tokens: row.total_tokens,
+            },
+            cost: row.cost,
+            summary: row.summary,
+            provider: row.provider,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -330,5 +435,86 @@ mod tests {
         assert_eq!(sessions[0].tokens.protocol, None);
         assert_eq!(sessions[0].context_used, Some(12_000));
         assert_eq!(sessions[0].cost, None);
+    }
+}
+
+#[cfg(test)]
+mod vendor_sync_tests {
+    use std::str::FromStr;
+
+    use db::models::vendor_usage::VendorUsageSessionRecord;
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
+
+    use super::*;
+
+    async fn pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn vendor_sync_persists_sessions_and_skips_unchanged_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions_dir = dir.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+        let path = sessions_dir.join("rollout.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"timestamp":"2026-08-31T14:23:27Z","type":"session_meta","payload":{"session_id":"persist-1"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}}}
+"#,
+        )
+        .expect("write");
+
+        let pool = pool().await;
+        let roots = VendorLogRoots {
+            claude_projects: None,
+            codex_sessions: Some(sessions_dir),
+        };
+        let first = sync_vendor_usage_logs_with_roots(&pool, roots.clone())
+            .await
+            .expect("sync");
+        let stored = VendorUsageSessionRecord::list_all(&pool)
+            .await
+            .expect("list");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].external_session_id, "persist-1");
+        assert_eq!(stored[0].total_tokens, Some(15));
+        assert_eq!(
+            first
+                .iter()
+                .find(|status| status.provider == "codex")
+                .map(|status| status.sessions_scanned),
+            Some(1)
+        );
+
+        let second = sync_vendor_usage_logs_with_roots(&pool, roots)
+            .await
+            .expect("second sync");
+        assert_eq!(
+            VendorUsageSessionRecord::list_all(&pool)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            second
+                .iter()
+                .find(|status| status.provider == "codex")
+                .map(|status| status.sessions_scanned),
+            Some(1)
+        );
     }
 }

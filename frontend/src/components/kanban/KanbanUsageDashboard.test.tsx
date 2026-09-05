@@ -137,6 +137,69 @@ describe('KanbanUsageDashboard', () => {
     );
   });
 
+  it('loads the selected range once instead of prefetching every target', async () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
+      scope: 'project',
+      project_id: 'project-1',
+      project_name: 'VibeX',
+      total_sessions: 0,
+      total_tokens: {
+        protocol: null,
+        vendor_log: null,
+        sources_disagree: false,
+      },
+      estimated_cost: null,
+      sessions: [],
+      daily_usage: [],
+      weekly_comparison: {
+        current_week: { sessions: 0, cost: null, tokens: null },
+        last_week: { sessions: 0, cost: null, tokens: null },
+        trends: { sessions: 0, cost: 0, tokens: 0 },
+      },
+      by_model: [],
+      by_folder: [],
+      by_agent: [],
+      provider_status: [],
+      unattributed_vendor_sessions: 0,
+      last_updated: Date.now(),
+      pricing_notice: null,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByRole('region', { name: '用量摘要' })
+    ).toBeVisible();
+    expect(localUsageApi.getProjectStatistics).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the settings surface skeleton while usage statistics load', () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockReturnValue(
+      new Promise(() => undefined)
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    const status = screen.getByRole('status', { name: '加载中...' });
+    expect(status).toHaveClass('agent-settings-loading');
+    expect(status.querySelectorAll('.settings-surface')).toHaveLength(2);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
   it('keeps plan usage available in the left navigation', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

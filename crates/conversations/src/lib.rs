@@ -77,4 +77,5 @@ pub use session_info::{
 };
 pub use usage_accounting::{
     assemble_project_usage_statistics, attributed_sessions_from_rows, catch_up_usage_snapshots,
+    sync_vendor_usage_logs,
 };

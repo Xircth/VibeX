@@ -10,6 +10,7 @@ import type {
   PlanUsageWindow,
 } from 'shared/types';
 import { PlanUsageUnavailableReason } from 'shared/types';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { toast } from '@/components/ui/toast';
 import {
   agentManagementApi,
@@ -251,9 +252,7 @@ function AgentPlanSection({
       </div>
 
       {query.isLoading ? (
-        <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
-          {pt('loading')}
-        </div>
+        <SurfaceLoading label={pt('loading')} sections={1} />
       ) : result?.type === 'OK' ? (
         <UsageBody usage={result.usage} />
       ) : result?.type === 'UNAVAILABLE' ? (
@@ -317,9 +316,7 @@ export function PlanUsageDashboard() {
   return (
     <div className="plan-usage-page mx-auto flex w-full max-w-4xl flex-col gap-4">
       {management.loading || authLoading ? (
-        <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
-          {pt('loading')}
-        </div>
+        <SurfaceLoading label={pt('loading')} />
       ) : subscribedPlanAgents.length === 0 ? (
         <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
           {pt('emptySignedIn')}

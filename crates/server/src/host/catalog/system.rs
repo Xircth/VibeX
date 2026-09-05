@@ -10,7 +10,7 @@ use executors::profile::ExecutorConfigs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::services::{
-    config::{Config, load_config_from_file, save_config_to_file},
+    config::{Config, load_config_from_file, publish_config_runtime, save_config_to_file},
     settings_store::{read_section, write_section},
     worktree_manager::WorktreeManager,
     worktree_settings::{load_project_settings, should_prompt_cleanup},
@@ -579,6 +579,7 @@ pub(super) async fn clear_local_app_data(
     save_config_to_file(&default_config, &utils::assets::settings_path())
         .await
         .map_err(internal_error)?;
+    publish_config_runtime(&default_config).await;
     {
         let mut config = domains.deployment.config().write().await;
         *config = default_config;

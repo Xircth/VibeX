@@ -134,6 +134,62 @@ export function findCurrentProjectBranchOption(
   return options.find((option) => option.isCurrentProjectBranch) ?? null;
 }
 
+/**
+ * Workspace-scoped create surfaces bind to the workspace the user is looking
+ * at. Kanban create still prefers the current project branch first.
+ */
+export function resolveCreateWorkspaceDefault({
+  options,
+  preferredWorkspaceIds = [],
+  lastActiveWorkspaceId,
+  mainlineWorkspaceValue,
+  preferCurrentProjectBranch = false,
+}: {
+  options: WorkspaceBranchOption[];
+  preferredWorkspaceIds?: Array<string | null | undefined>;
+  lastActiveWorkspaceId?: string | null;
+  mainlineWorkspaceValue?: string | null;
+  preferCurrentProjectBranch?: boolean;
+}): string {
+  for (const workspaceId of preferredWorkspaceIds) {
+    const preferred = findWorkspaceBranchOptionByWorkspaceId(
+      options,
+      workspaceId
+    );
+    if (preferred) {
+      return preferred.value;
+    }
+  }
+
+  if (preferCurrentProjectBranch) {
+    const currentProjectBranchOption = findCurrentProjectBranchOption(options);
+    if (currentProjectBranchOption) {
+      return currentProjectBranchOption.value;
+    }
+  }
+
+  const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(
+    options,
+    lastActiveWorkspaceId
+  );
+  if (lastActiveOption) {
+    return lastActiveOption.value;
+  }
+
+  if (!preferCurrentProjectBranch) {
+    const currentProjectBranchOption = findCurrentProjectBranchOption(options);
+    if (currentProjectBranchOption) {
+      return currentProjectBranchOption.value;
+    }
+  }
+
+  if (mainlineWorkspaceValue) {
+    return mainlineWorkspaceValue;
+  }
+
+  return options[0]?.value ?? '';
+}
+
 export function matchesWorkspaceBranch(
   left: string | null | undefined,
   right: string | null | undefined

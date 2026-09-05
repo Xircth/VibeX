@@ -15,7 +15,7 @@ use services::services::{
     config::{
         Config, SoundFile,
         editor::{EditorConfig, EditorType},
-        load_config_from_file, save_config_to_file,
+        load_config_from_file, publish_config_runtime, save_config_to_file,
     },
     prompt_enhancement::{
         PROMPT_ENHANCE_TIMEOUT_SECS, PromptEnhancementRequest, PromptEnhancementResponse,
@@ -97,6 +97,7 @@ pub(super) async fn update_config(
     save_config_to_file(&new_config, &path)
         .await
         .map_err(internal_error)?;
+    publish_config_runtime(&new_config).await;
     {
         let mut config = domains.deployment.config().write().await;
         *config = new_config.clone();
@@ -120,6 +121,7 @@ pub(crate) async fn user_system_info(
     domains: &ServerApplicationDomains,
 ) -> Result<Value, ApplicationError> {
     let config = load_config_from_file(&utils::assets::settings_path()).await;
+    publish_config_runtime(&config).await;
     {
         let mut current = domains.deployment.config().write().await;
         *current = config.clone();

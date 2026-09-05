@@ -3,6 +3,7 @@ import type { GitBranch, Workspace } from 'shared/types';
 import {
   buildWorkspaceBranchOptions,
   getWorkspaceBranchCheckoutHint,
+  resolveCreateWorkspaceDefault,
   resolveWorkspaceBranchSelection,
 } from './workspaceBranchOptions';
 
@@ -220,5 +221,45 @@ describe('buildWorkspaceBranchOptions', () => {
         existingWorkspaceId: null,
       })
     );
+  });
+});
+
+describe('resolveCreateWorkspaceDefault', () => {
+  const options = buildWorkspaceBranchOptions({
+    workspaces: [
+      createWorkspace({
+        id: 'root-main',
+        branch: 'main',
+        use_worktree: false,
+      }),
+      createWorkspace({
+        id: 'wt-feature',
+        branch: 'feature/worktree',
+        use_worktree: true,
+      }),
+    ],
+    repoBranches: [
+      createBranch({ name: 'main', is_current: true }),
+      createBranch({ name: 'feature/worktree', is_worktree: true }),
+    ],
+  });
+
+  it('keeps Kanban create on the current project branch', () => {
+    expect(
+      resolveCreateWorkspaceDefault({
+        options,
+        lastActiveWorkspaceId: 'wt-feature',
+        preferCurrentProjectBranch: true,
+      })
+    ).toBe('branch:main');
+  });
+
+  it('binds Workspace create to the workspace currently in view', () => {
+    expect(
+      resolveCreateWorkspaceDefault({
+        options,
+        preferredWorkspaceIds: ['wt-feature', 'root-main'],
+      })
+    ).toBe('workspace:wt-feature');
   });
 });

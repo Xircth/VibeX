@@ -160,8 +160,14 @@ struct TargetBranchArgs {
 struct ScratchArgs {
     scratch_type: ScratchType,
     id: Uuid,
-    #[serde(default)]
-    payload: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScratchWriteArgs<T> {
+    scratch_type: ScratchType,
+    id: Uuid,
+    payload: T,
 }
 
 #[derive(Deserialize)]
@@ -464,19 +470,25 @@ impl ServerApplicationDomains {
                 )
             }
             DomainCommand::ScratchCreate => {
-                let args: ScratchArgs = parse(args)?;
-                let payload: CreateScratch = parse(args.payload.unwrap_or(Value::Null))?;
+                let args: ScratchWriteArgs<CreateScratch> = parse(args)?;
+                args.payload
+                    .payload
+                    .validate_type(args.scratch_type)
+                    .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
                 serialize(
-                    Scratch::create(&self.pool, args.id, &payload)
+                    Scratch::create(&self.pool, args.id, &args.payload)
                         .await
                         .map_err(internal_error)?,
                 )
             }
             DomainCommand::ScratchUpdate => {
-                let args: ScratchArgs = parse(args)?;
-                let payload: UpdateScratch = parse(args.payload.unwrap_or(Value::Null))?;
+                let args: ScratchWriteArgs<UpdateScratch> = parse(args)?;
+                args.payload
+                    .payload
+                    .validate_type(args.scratch_type)
+                    .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
                 serialize(
-                    Scratch::update(&self.pool, args.id, &args.scratch_type, &payload)
+                    Scratch::update(&self.pool, args.id, &args.scratch_type, &args.payload)
                         .await
                         .map_err(internal_error)?,
                 )
@@ -1653,5 +1665,51 @@ mod tests {
             .expect("plan usage");
         assert_eq!(value["type"], "UNAVAILABLE");
         assert_ne!(value, Value::Null);
+    }
+
+    #[test]
+    fn scratch_update_accepts_frontend_nested_payload_wrapper() {
+        let args: ScratchWriteArgs<UpdateScratch> = parse(json!({
+            "scratchType": "DRAFT_FOLLOW_UP",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "payload": {
+                "payload": {
+                    "type": "DRAFT_FOLLOW_UP",
+                    "data": {
+                        "message": "",
+                        "images": [],
+                        "executor_config": { "executor": "codex" },
+                        "queued": false,
+                        "config_overrides": {}
+                    }
+                }
+            }
+        }))
+        .expect("frontend update_scratch args");
+        assert_eq!(args.scratch_type, ScratchType::DraftFollowUp);
+        assert!(matches!(
+            args.payload.payload,
+            db::models::scratch::ScratchPayload::DraftFollowUp(_)
+        ));
+    }
+
+    #[test]
+    fn scratch_create_accepts_frontend_nested_payload_wrapper() {
+        let args: ScratchWriteArgs<CreateScratch> = parse(json!({
+            "scratchType": "WORKSPACE_NOTES",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "payload": {
+                "payload": {
+                    "type": "WORKSPACE_NOTES",
+                    "data": { "content": "hello" }
+                }
+            }
+        }))
+        .expect("frontend create_scratch args");
+        assert_eq!(args.scratch_type, ScratchType::WorkspaceNotes);
+        assert!(matches!(
+            args.payload.payload,
+            db::models::scratch::ScratchPayload::WorkspaceNotes(_)
+        ));
     }
 }

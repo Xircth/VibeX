@@ -64,6 +64,11 @@ pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
 pub type CommitReminderMode = versions::v9::CommitReminderMode;
 pub type NotificationWhen = versions::v9::NotificationWhen;
 
+/// Push settings that live processes read without a restart.
+pub async fn publish_config_runtime(config: &Config) {
+    agents::apply_configured_terminal_shell(config.default_terminal_shell.clone()).await;
+}
+
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &Path) -> Config {
     match read_section::<serde_json::Value>(config_path, APPLICATION_SETTINGS_SECTION).await {

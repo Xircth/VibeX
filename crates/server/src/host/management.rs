@@ -1719,7 +1719,7 @@ fn parse_agent_env(value: Option<&str>) -> Result<HashMap<String, String>, serde
         .map(Option::unwrap_or_default)
 }
 
-async fn persist_agent_environment(
+pub(crate) async fn persist_agent_environment(
     pool: &SqlitePool,
     agent_id: &AgentId,
     env: &HashMap<String, String>,

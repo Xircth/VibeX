@@ -37,7 +37,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Logo } from '@/components/Logo';
-import { resolveCreateSessionHref } from '@/lib/createSessionHref';
+import {
+  resolveCreateSessionHref,
+  resolveWorkspaceTabNavigation,
+} from '@/lib/createSessionHref';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -378,8 +381,21 @@ function WorkspaceTabSwitcher() {
         return;
       }
 
+      const fallbackWorktree = resolveFallbackWorktree();
+      const immediateTarget = resolveWorkspaceTabNavigation({
+        projectId,
+        rightSession:
+          effectiveActiveTab === 'kanban' ? rightSession : null,
+        fallbackWorkspaceId: fallbackWorktree?.workspace.id ?? null,
+        fallbackTaskId: fallbackWorktree?.workspace.task_id ?? null,
+      });
+      if (immediateTarget) {
+        setActiveWorktree(immediateTarget.workspaceId, immediateTarget.taskId);
+        navigate(immediateTarget.href);
+        return;
+      }
+
       const navigateToFallbackWorkspace = async () => {
-        const fallbackWorktree = resolveFallbackWorktree();
         let targetWorkspace = fallbackWorktree?.workspace ?? null;
         if (
           !targetWorkspace ||
@@ -409,18 +425,7 @@ function WorkspaceTabSwitcher() {
         navigate(paths.projectSessions(projectId));
       };
 
-      if (effectiveActiveTab === 'kanban' && rightSession) {
-        navigate(
-          paths.projectSession(
-            projectId,
-            rightSession.workspaceId,
-            rightSession.sessionId
-          )
-        );
-        return;
-      }
-
-      navigateToFallbackWorkspace();
+      void navigateToFallbackWorkspace();
     },
     [
       activeWorktreeId,

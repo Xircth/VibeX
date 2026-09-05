@@ -424,13 +424,26 @@ impl ServerApplicationDomains {
                 super::native_commands::dispatch_model_providers(&self.pool, args).await
             }
             DomainCommand::AgentModelProviderSave => {
-                super::native_commands::dispatch_model_provider_save(&self.pool, args).await
+                self.agent_model_provider_mutated(
+                    super::native_commands::dispatch_model_provider_save(&self.pool, args).await?,
+                    "Model Provider 已更改",
+                )
+                .await
             }
             DomainCommand::AgentModelProviderDelete => {
-                super::native_commands::dispatch_model_provider_delete(&self.pool, args).await
+                self.agent_model_provider_mutated(
+                    super::native_commands::dispatch_model_provider_delete(&self.pool, args)
+                        .await?,
+                    "Model Provider 已删除",
+                )
+                .await
             }
             DomainCommand::AgentModelProviderBind => {
-                super::native_commands::dispatch_model_provider_bind(&self.pool, args).await
+                self.agent_model_provider_mutated(
+                    super::native_commands::dispatch_model_provider_bind(&self.pool, args).await?,
+                    "Model Provider 绑定已更改",
+                )
+                .await
             }
             DomainCommand::AgentModelProviderCatalog => {
                 super::native_commands::dispatch_model_catalog(
@@ -472,13 +485,23 @@ impl ServerApplicationDomains {
                     .await
             }
             DomainCommand::AgentModelProviderImport => {
-                super::native_commands::dispatch_model_provider_import(&self.pool, args).await
+                self.agent_model_provider_mutated(
+                    super::native_commands::dispatch_model_provider_import(&self.pool, args)
+                        .await?,
+                    "Model Provider 已导入",
+                )
+                .await
             }
             DomainCommand::CodexModelCatalogConfig => {
                 super::native_commands::dispatch_codex_catalog_config(&self.pool).await
             }
             DomainCommand::CodexModelCatalogApply => {
-                super::native_commands::dispatch_codex_catalog_apply(&self.pool, args).await
+                let view =
+                    super::native_commands::dispatch_codex_catalog_apply(&self.pool, args).await?;
+                let agent_id = AgentId::parse("codex").map_err(internal_error)?;
+                self.after_agent_native_model_change(&agent_id, "Codex 模型清单已更改")
+                    .await;
+                Ok(view)
             }
             DomainCommand::CodexRequestDeviceCode => {
                 super::native_commands::dispatch_codex_request_device_code().await
@@ -1241,6 +1264,7 @@ impl ServerApplicationDomains {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct TerminalArgs {
+            #[serde(alias = "terminal_id")]
             terminal_id: String,
         }
         let args: TerminalArgs = parse(args)?;
@@ -1660,6 +1684,37 @@ impl ServerApplicationDomains {
             .find(|view| view.agent_id == args.agent_id)
             .ok_or_else(|| ApplicationError::not_found("agent not found"))?;
         serialize(view)
+    }
+
+    async fn agent_model_provider_mutated(
+        &self,
+        (agent_id, view): (AgentId, Value),
+        message: &'static str,
+    ) -> Result<Value, ApplicationError> {
+        self.after_agent_native_model_change(&agent_id, message)
+            .await;
+        Ok(view)
+    }
+
+    async fn after_agent_native_model_change(&self, agent_id: &AgentId, message: &'static str) {
+        self.conversations
+            .agent_runtime
+            .mark_agent_sessions_config_stale(agent_id, message)
+            .await;
+        if let Err(error) =
+            conversations::invalidate_open_capability_catalog(&self.pool, agent_id).await
+        {
+            tracing::warn!(%error, "failed to invalidate capability catalog");
+        }
+        if let Err(error) = conversations::refresh_open_capability_catalog(
+            &self.pool,
+            &self.conversations.agent_runtime,
+            agent_id,
+        )
+        .await
+        {
+            tracing::warn!(%error, "failed to refresh capability catalog");
+        }
     }
 
     async fn agent_environment(&self, args: Value) -> Result<Value, ApplicationError> {

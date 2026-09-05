@@ -28,7 +28,9 @@ import {
 } from '@/features/agents/sessionControlsError';
 import {
   loadAgentSessionControlsCatalog,
+  mergeCreateSessionControls,
   sessionControlsQueryKey,
+  sessionControlsSchemaQueryKey,
 } from '@/features/agents/sessionControlsQuery';
 import { useUserSystem } from '@/components/ConfigProvider';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
@@ -153,22 +155,38 @@ export function SessionCreationForm({
     mode === 'existing_workspace'
       ? (selectedWorkspaceOption?.existingWorkspaceId ?? null)
       : null;
-  const controlsQuery = useQuery({
-    // Every create surface shares a per-Agent/workspace cache. A live composer
-    // can seed the exact workspace entry; a new workspace falls back to the
-    // verified global catalog without starting a temporary user session.
-    queryKey: sessionControlsQueryKey(executor!, controlsWorkspaceId),
-    // First run after install/login builds the verified catalog once. Every
-    // creation surface reuses this exact query and cache entry.
+  const catalogQuery = useQuery({
+    queryKey: sessionControlsQueryKey(executor!, null),
     queryFn: () => loadAgentSessionControlsCatalog(executor!),
     enabled: Boolean(executor),
-    // Keep data resident so opening the form is immediate, but periodically
-    // re-check the backend fingerprint so install/login/config changes cannot
-    // leave a process-lifetime stale catalog.
     staleTime: 60_000,
     gcTime: Infinity,
     retry: false,
   });
+  const liveQuery = useQuery({
+    queryKey: sessionControlsQueryKey(
+      executor ?? '',
+      controlsWorkspaceId ?? ''
+    ),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const schemaQuery = useQuery({
+    queryKey: sessionControlsSchemaQueryKey(executor ?? ''),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const activeControls = mergeCreateSessionControls([
+    liveQuery.data,
+    catalogQuery.data,
+    schemaQuery.data,
+  ]);
   const defaultsQuery = useQuery({
     queryKey: ['agentSessionDefaults', executor],
     queryFn: () => agentsApi.sessionDefaults(executor!),
@@ -179,7 +197,7 @@ export function SessionCreationForm({
   const catalogFreshnessQuery = useQuery({
     queryKey: ['agentCapabilityCatalogFreshness', executor],
     queryFn: () => agentsApi.capabilityCatalogFresh(executor!),
-    enabled: Boolean(executor && controlsQuery.data),
+    enabled: Boolean(executor && activeControls),
     staleTime: 0,
     retry: false,
   });
@@ -238,11 +256,11 @@ export function SessionCreationForm({
           return;
         }
         setCatalogRefreshFailed(false);
-        await controlsQuery.refetch();
+        await catalogQuery.refetch();
         await catalogFreshnessQuery.refetch();
       })
       .catch(() => setCatalogRefreshFailed(true));
-  }, [catalogFreshnessQuery, controlsQuery, executor]);
+  }, [catalogFreshnessQuery, catalogQuery, executor]);
   useEffect(() => {
     if (!executor || !defaultsQuery.isFetched) return;
     const savedValues = defaultsQuery.data?.values;
@@ -264,7 +282,6 @@ export function SessionCreationForm({
     setDefaultsHydratedAgent(executor);
   }, [defaultsQuery.data, defaultsQuery.isFetched, executor]);
 
-  const activeControls = controlsQuery.data ?? null;
   const supportsRemoteSessionList =
     activeControls?.capabilities?.list_sessions === true;
   const previousSessionContinuationEnabled =
@@ -438,9 +455,9 @@ export function SessionCreationForm({
             sanitizedConfigValues
           ).length > 1
       ));
-  const controlsPending = Boolean(executor) && controlsQuery.isPending;
-  const preparationError = controlsQuery.error
-    ? formatSessionControlsError(t, executor, controlsQuery.error)
+  const controlsPending = Boolean(executor) && catalogQuery.isPending;
+  const preparationError = catalogQuery.error
+    ? formatSessionControlsError(t, executor, catalogQuery.error)
     : null;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(

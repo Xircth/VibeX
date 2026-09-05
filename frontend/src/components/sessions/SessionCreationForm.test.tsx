@@ -9,6 +9,7 @@ import {
   SessionCreationForm,
   type SessionControlsPreset,
 } from './SessionCreationForm';
+import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 
 const capabilityCatalog = vi.fn();
 const capabilityCatalogFresh = vi.fn();
@@ -282,6 +283,86 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       modeOverride: 'default',
       configOverrides: { model: 'grok-4.6', effort: 'high' },
     });
+  });
+
+  it('shows effort and fast mode on Kanban create after any live session advertised them', async () => {
+    capabilityCatalog.mockResolvedValue({
+      modes: CONTROLS.modes,
+      current_mode: 'auto',
+      config_options: [CONTROLS.config_options[0]],
+    });
+    const { client } = renderForm('codex', vi.fn(), 'new_workspace');
+    publishLiveSessionControls(client, {
+      agentType: 'codex',
+      workspaceId: 'workspace-other',
+      controls: {
+        modes: CONTROLS.modes,
+        current_mode: 'auto',
+        config_options: [
+          CONTROLS.config_options[0],
+          {
+            key: 'reasoning_effort',
+            label: '思考强度',
+            category: 'thought_level',
+            value: 'high',
+            choices: [
+              { value: 'low', label: '低', description: null },
+              { value: 'high', label: '高', description: null },
+            ],
+          },
+          CONTROLS.config_options[1],
+        ],
+      },
+    });
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    await waitFor(() =>
+      expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/高/))
+    );
+    const user = userEvent.setup();
+    await user.click(summary);
+    expect(screen.getByText('思考强度')).toBeInTheDocument();
+    expect(screen.getByText('Fast mode')).toBeInTheDocument();
+  });
+
+  it('prefers live workspace controls so effort and fast mode stay selectable', async () => {
+    capabilityCatalog.mockResolvedValue({
+      modes: CONTROLS.modes,
+      current_mode: 'auto',
+      config_options: [CONTROLS.config_options[0]],
+    });
+    const { client } = renderForm('codex', vi.fn());
+    publishLiveSessionControls(client, {
+      agentType: 'codex',
+      workspaceId: 'workspace-1',
+      controls: {
+        modes: CONTROLS.modes,
+        current_mode: 'auto',
+        config_options: [
+          CONTROLS.config_options[0],
+          {
+            key: 'reasoning_effort',
+            label: '思考强度',
+            category: 'thought_level',
+            value: 'high',
+            choices: [
+              { value: 'low', label: '低', description: null },
+              { value: 'high', label: '高', description: null },
+            ],
+          },
+          CONTROLS.config_options[1],
+        ],
+      },
+    });
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    await waitFor(() =>
+      expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/高/))
+    );
+    const user = userEvent.setup();
+    await user.click(summary);
+    expect(screen.getByText('思考强度')).toBeInTheDocument();
+    expect(screen.getByText('Fast mode')).toBeInTheDocument();
   });
 
   it('loads editable controls for the first session in a new workspace', async () => {

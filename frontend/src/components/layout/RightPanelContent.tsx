@@ -22,9 +22,8 @@ import { useProject } from '@/contexts/ProjectContext';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import {
   buildWorkspaceBranchOptions,
-  findCurrentProjectBranchOption,
   findWorkspaceBranchOption,
-  findWorkspaceBranchOptionByWorkspaceId,
+  resolveCreateWorkspaceDefault,
   resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
@@ -246,41 +245,31 @@ export function RightPanelContent() {
       )?.value ?? null,
     [preferredMainBranch, workspaceBranchOptions]
   );
-  const defaultWorkspaceValue = useMemo(() => {
-    const activeOption = findWorkspaceBranchOptionByWorkspaceId(
+  const defaultWorkspaceValue = useMemo(
+    () =>
+      resolveCreateWorkspaceDefault({
+        options: workspaceBranchOptions,
+        preferredWorkspaceIds:
+          effectiveActiveTab === 'workspace'
+            ? [
+                workspaceId,
+                activeWorktreeId,
+                visibleRightSession?.workspaceId,
+              ]
+            : [activeWorktreeId],
+        lastActiveWorkspaceId,
+        mainlineWorkspaceValue,
+      }),
+    [
+      activeWorktreeId,
+      effectiveActiveTab,
+      lastActiveWorkspaceId,
+      mainlineWorkspaceValue,
+      visibleRightSession?.workspaceId,
       workspaceBranchOptions,
-      activeWorktreeId
-    );
-    if (activeOption) {
-      return activeOption.value;
-    }
-
-    const currentProjectBranchOption = findCurrentProjectBranchOption(
-      workspaceBranchOptions
-    );
-    if (currentProjectBranchOption) {
-      return currentProjectBranchOption.value;
-    }
-
-    const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(
-      workspaceBranchOptions,
-      lastActiveWorkspaceId
-    );
-    if (lastActiveOption) {
-      return lastActiveOption.value;
-    }
-
-    if (mainlineWorkspaceValue) {
-      return mainlineWorkspaceValue;
-    }
-
-    return workspaceBranchOptions[0]?.value ?? '';
-  }, [
-    activeWorktreeId,
-    lastActiveWorkspaceId,
-    mainlineWorkspaceValue,
-    workspaceBranchOptions,
-  ]);
+      workspaceId,
+    ]
+  );
 
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
 

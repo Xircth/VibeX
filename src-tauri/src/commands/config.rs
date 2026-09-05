@@ -11,7 +11,7 @@ use services::services::{
     config::{
         Config, SoundFile,
         editor::{EditorConfig, EditorType},
-        load_config_from_file, save_config_to_file,
+        load_config_from_file, publish_config_runtime, save_config_to_file,
     },
     worktree_manager::WorktreeManager,
 };
@@ -100,6 +100,7 @@ pub async fn get_user_system_info(
     // Re-read on every public settings query so direct edits made by a user or
     // agent become visible without restarting VibeX.
     let config = load_config_from_file(&utils::assets::settings_path()).await;
+    publish_config_runtime(&config).await;
     {
         let mut current = state.deployment.config().write().await;
         *current = config.clone();
@@ -146,6 +147,7 @@ pub async fn update_config(
     }
 
     save_config_to_file(&new_config, &config_path).await?;
+    publish_config_runtime(&new_config).await;
 
     let mut config = state.deployment.config().write().await;
     *config = new_config.clone();
@@ -317,6 +319,7 @@ pub async fn clear_local_app_data(
     let default_config = Config::default();
     remove_path_if_exists(&utils::assets::settings_path())?;
     save_config_to_file(&default_config, &utils::assets::settings_path()).await?;
+    publish_config_runtime(&default_config).await;
     {
         let mut config = state.deployment.config().write().await;
         *config = default_config;

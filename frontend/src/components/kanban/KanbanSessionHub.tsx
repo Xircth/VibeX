@@ -50,9 +50,8 @@ import { useLayoutStore } from '@/stores/useLayoutStore';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import {
   buildWorkspaceBranchOptions,
-  findCurrentProjectBranchOption,
   findWorkspaceBranchOption,
-  findWorkspaceBranchOptionByWorkspaceId,
+  resolveCreateWorkspaceDefault,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { areProfilesEqual, getFirstAvailableProfile } from '@/utils/executor';
@@ -230,28 +229,16 @@ export function KanbanSessionHub({
     [config?.executor_profile, profiles]
   );
 
-  const defaultWorkspaceValue = useMemo(() => {
-    const currentProjectBranchOption = findCurrentProjectBranchOption(
-      workspaceBranchOptions
-    );
-    if (currentProjectBranchOption) {
-      return currentProjectBranchOption.value;
-    }
-
-    const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(
-      workspaceBranchOptions,
-      lastActiveWorkspaceId
-    );
-    if (lastActiveOption) {
-      return lastActiveOption.value;
-    }
-
-    if (mainlineWorkspaceValue) {
-      return mainlineWorkspaceValue;
-    }
-
-    return workspaceBranchOptions[0]?.value ?? '';
-  }, [lastActiveWorkspaceId, mainlineWorkspaceValue, workspaceBranchOptions]);
+  const defaultWorkspaceValue = useMemo(
+    () =>
+      resolveCreateWorkspaceDefault({
+        options: workspaceBranchOptions,
+        lastActiveWorkspaceId,
+        mainlineWorkspaceValue,
+        preferCurrentProjectBranch: true,
+      }),
+    [lastActiveWorkspaceId, mainlineWorkspaceValue, workspaceBranchOptions]
+  );
 
   const [createWorkspaceValue, setCreateWorkspaceValue] = useState(
     defaultWorkspaceValue

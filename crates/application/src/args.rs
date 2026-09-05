@@ -4,17 +4,28 @@ use serde_json::{Map, Value};
 /// Decode Host/Application command arguments as the frontend actually sends them.
 ///
 /// Product calls wrap some payloads in `request` or `payload`, and some mix a
-/// sibling id with a nested `payload` object. Try the value as-is, then unwrap,
-/// then merge, so a single Host DTO can serve every caller.
+/// sibling id with a nested `payload` object. Try unwrap, then merge, then the
+/// value as-is, so a single Host DTO can serve every caller.
+///
+/// Merge is skipped when the nested object itself contains the same wrapper
+/// key. Otherwise `{ scratchType, id, payload: { payload: body } }` would
+/// flatten into `{ scratchType, id, payload: body }` and drop the inner
+/// payload wrapper that typed bodies such as `UpdateScratch` require.
 pub fn decode_command_args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
     let mut wrapper_error = None;
     for key in ["request", "payload"] {
         let Some(inner) = value.get(key).cloned().filter(Value::is_object) else {
             continue;
         };
+        let nested_is_wrapper = inner
+            .as_object()
+            .is_some_and(|nested| nested.contains_key(key));
         match serde_json::from_value::<T>(inner) {
             Ok(parsed) => return Ok(parsed),
             Err(error) => wrapper_error = Some(error.to_string()),
+        }
+        if nested_is_wrapper {
+            continue;
         }
         if let Some(merged) = merge_nested_object(&value, key) {
             match serde_json::from_value::<T>(merged) {
@@ -123,5 +134,87 @@ mod tests {
             error.contains("afterSequence") || error.contains("after_sequence"),
             "masked as {error}"
         );
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct ScratchLikeArgs {
+        scratch_type: String,
+        id: String,
+        #[serde(default)]
+        payload: Option<Value>,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct UpdateScratchLike {
+        payload: Value,
+        #[serde(default)]
+        expected_revision: Option<u64>,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct PayloadWrapper<T> {
+        payload: T,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct CreateSessionLike {
+        project_id: String,
+        #[serde(default)]
+        create_workspace: Option<bool>,
+    }
+
+    #[test]
+    fn keeps_nested_payload_wrapper_for_typed_body() {
+        let args: ScratchLikeArgs = decode_command_args(serde_json::json!({
+            "scratchType": "DRAFT_FOLLOW_UP",
+            "id": "11111111-1111-1111-1111-111111111111",
+            "payload": {
+                "payload": {
+                    "type": "DRAFT_FOLLOW_UP",
+                    "data": { "message": "" }
+                }
+            }
+        }))
+        .expect("scratch args");
+
+        let update: UpdateScratchLike = decode_command_args(
+            args.payload
+                .clone()
+                .expect("frontend sends UpdateScratch as payload"),
+        )
+        .expect("update scratch body");
+        assert_eq!(update.payload["type"], "DRAFT_FOLLOW_UP");
+        assert_eq!(update.payload["data"]["message"], "");
+    }
+
+    #[test]
+    fn payload_wrapper_dto_accepts_host_create_session_shape() {
+        let parsed: PayloadWrapper<CreateSessionLike> = decode_command_args(serde_json::json!({
+            "payload": {
+                "projectId": "11111111-1111-1111-1111-111111111111",
+                "createWorkspace": true
+            }
+        }))
+        .expect("payload wrapper");
+        assert_eq!(
+            parsed.payload.project_id,
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(parsed.payload.create_workspace, Some(true));
+    }
+
+    #[test]
+    fn unwraps_payload_when_inner_is_the_dto() {
+        let parsed: CreateSessionLike = decode_command_args(serde_json::json!({
+            "payload": {
+                "projectId": "11111111-1111-1111-1111-111111111111",
+                "createWorkspace": false
+            }
+        }))
+        .expect("unwrapped create session");
+        assert_eq!(parsed.project_id, "11111111-1111-1111-1111-111111111111");
+        assert_eq!(parsed.create_workspace, Some(false));
     }
 }

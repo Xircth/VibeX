@@ -161,6 +161,54 @@ impl RemoteDesktopRegistry {
         }
         Err(remote_error(response).await)
     }
+
+    pub async fn listen_host_event(
+        &self,
+        app: tauri::AppHandle,
+        window_label: &str,
+        profile_id: &str,
+        event: String,
+    ) -> Result<(), AppError> {
+        let profile = self
+            .profiles
+            .read()
+            .await
+            .get(&(window_label.to_string(), profile_id.to_string()))
+            .cloned()
+            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let channel = format!("remote-desktop:{profile_id}:{event}");
+        let subscription_id = uuid::Uuid::new_v4().to_string();
+        tokio::spawn(async move {
+            if let Err(error) =
+                pump_host_event_socket(app, profile, event, channel, subscription_id).await
+            {
+                tracing::warn!(%error, "remote desktop host event listen failed");
+            }
+        });
+        Ok(())
+    }
+
+    pub async fn subscribe_events(
+        &self,
+        window_label: &str,
+        profile_id: &str,
+        request: serde_json::Value,
+        on_event: tauri::ipc::Channel<serde_json::Value>,
+    ) -> Result<(), AppError> {
+        let profile = self
+            .profiles
+            .read()
+            .await
+            .get(&(window_label.to_string(), profile_id.to_string()))
+            .cloned()
+            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        tokio::spawn(async move {
+            if let Err(error) = pump_subscription_socket(profile, request, on_event).await {
+                tracing::warn!(%error, "remote desktop subscription failed");
+            }
+        });
+        Ok(())
+    }
 }
 
 async fn decode_command_response(response: reqwest::Response) -> Result<Value, AppError> {
@@ -209,6 +257,122 @@ pub(crate) fn validate_base_url(value: &str) -> Result<String, AppError> {
 
 fn internal(error: impl std::fmt::Display) -> AppError {
     AppError::Internal(error.to_string())
+}
+
+fn websocket_url(base_url: &str) -> String {
+    format!("{}/api/v1/ws", base_url.replacen("http", "ws", 1))
+}
+
+fn token_protocol(token: &str) -> String {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    format!("vibex.token.{}", URL_SAFE_NO_PAD.encode(token.as_bytes()))
+}
+
+async fn connect_remote_socket(
+    profile: &RemoteProfile,
+) -> Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    AppError,
+> {
+    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue};
+    let mut request = websocket_url(&profile.base_url)
+        .into_client_request()
+        .map_err(internal)?;
+    let protocol = format!("vibex.v1, {}", token_protocol(&profile.token.0));
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&protocol).map_err(internal)?,
+    );
+    let (stream, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .map_err(internal)?;
+    Ok(stream)
+}
+
+async fn pump_host_event_socket(
+    app: tauri::AppHandle,
+    profile: RemoteProfile,
+    event: String,
+    channel: String,
+    subscription_id: String,
+) -> Result<(), AppError> {
+    use futures::{SinkExt, StreamExt};
+    use tauri::Emitter;
+    use tokio_tungstenite::tungstenite::Message;
+    let mut stream = connect_remote_socket(&profile).await?;
+    let attach = serde_json::json!({
+        "type": "attach",
+        "request": {
+            "subscription_id": subscription_id,
+            "resource": "host_event",
+            "channel": event,
+            "after_sequence": 0,
+        }
+    });
+    stream
+        .send(Message::Text(attach.to_string().into()))
+        .await
+        .map_err(internal)?;
+    while let Some(frame) = stream.next().await {
+        let Message::Text(text) = frame.map_err(internal)? else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some("event") {
+            continue;
+        }
+        if let Some(payload) = value.pointer("/event/payload") {
+            let _ = app.emit(&channel, payload);
+        }
+    }
+    Ok(())
+}
+
+async fn pump_subscription_socket(
+    profile: RemoteProfile,
+    request: Value,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<(), AppError> {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let mut stream = connect_remote_socket(&profile).await?;
+    let attach = serde_json::json!({
+        "type": "attach",
+        "request": request,
+    });
+    stream
+        .send(Message::Text(attach.to_string().into()))
+        .await
+        .map_err(internal)?;
+    while let Some(frame) = stream.next().await {
+        let Message::Text(text) = frame.map_err(internal)? else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        match value.get("type").and_then(Value::as_str) {
+            Some("event") => {
+                if let Some(event) = value.get("event") {
+                    let _ = on_event.send(event.clone());
+                }
+            }
+            Some("snapshot") => {
+                if let Some(snapshot) = value.get("snapshot") {
+                    let _ = on_event.send(serde_json::json!({
+                        "kind": "subscription_snapshot",
+                        "payload": snapshot.get("payload"),
+                        "sequence": snapshot.get("through_sequence"),
+                    }));
+                }
+            }
+            Some("detached") => break,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

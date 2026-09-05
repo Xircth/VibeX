@@ -49,7 +49,7 @@ struct FrozenLockPayload {
 /// 成功采纳的组件哈希已随新 lock 更新,剩余不匹配仍由完整性刷新置
 /// `needs_repair`,保持 fail-closed。
 pub(super) async fn reconcile_external_component_changes(
-    app: &AppHandle,
+    _app: &AppHandle,
     pool: &sqlx::SqlitePool,
 ) -> anyhow::Result<()> {
     let installs = sqlx::query_as::<_, (String, String, String, String)>(
@@ -82,7 +82,7 @@ pub(super) async fn reconcile_external_component_changes(
         }
     }
     if adopted_any {
-        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(())
 }

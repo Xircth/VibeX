@@ -2358,15 +2358,18 @@ base_url = "https://example.test/v1"
     }
 }
 
-use server::account_flow;
-use server::native::{
-    codex_device_auth, dsh_configuration, grok_plugins, model_catalogs, model_provider_import,
-    model_providers, opencode_catalog, opencode_plugins, pi_configuration, pi_plugins,
-};
-use server::native::opencode_providers::{
-    apply_opencode_provider_connection, project_opencode_provider_connections,
-    remove_opencode_provider_state, set_opencode_provider_enabled, slug_provider_id,
-    validate_opencode_provider_id,
+use server::{
+    account_flow,
+    native::{
+        codex_device_auth, dsh_configuration, grok_plugins, model_catalogs, model_provider_import,
+        model_providers, opencode_catalog, opencode_plugins,
+        opencode_providers::{
+            apply_opencode_provider_connection, project_opencode_provider_connections,
+            remove_opencode_provider_state, set_opencode_provider_enabled, slug_provider_id,
+            validate_opencode_provider_id,
+        },
+        pi_configuration, pi_plugins,
+    },
 };
 #[path = "agent_management/environment_diagnostics.rs"]
 mod environment_diagnostics;
@@ -2443,7 +2446,7 @@ use services::services::{
     agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
 };
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -2535,14 +2538,12 @@ fn local_runtime_discovery_progress_view(
 }
 
 async fn emit_local_runtime_discovery_progress(
-    app: &AppHandle,
+    _app: &AppHandle,
     runtime: &AgentManagementRuntimeState,
 ) {
     let progress =
         local_runtime_discovery_progress_view(runtime.local_runtime_discovery_progress().await);
-    if let Err(error) = app.emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress) {
-        tracing::warn!(%error, "failed to emit local Agent discovery progress");
-    }
+    server::global_host_events().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
 }
 
 struct ManagedNodeArtifact {
@@ -3552,9 +3553,7 @@ pub(crate) async fn warm_agent_management(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_agent_management_warmup(app, pool, runtime).await;
-    if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
-        tracing::warn!(%error, "failed to emit Agent management snapshot invalidation");
-    }
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 pub(crate) async fn warm_local_runtime_discovery(
@@ -3563,9 +3562,7 @@ pub(crate) async fn warm_local_runtime_discovery(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_local_runtime_discovery(app, pool, runtime).await;
-    if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
-        tracing::warn!(%error, "failed to emit local Agent discovery invalidation");
-    }
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 async fn normalize_optional_profile_authentication(pool: &sqlx::SqlitePool) {
@@ -4088,7 +4085,7 @@ fn internal_error(error: impl std::fmt::Display) -> AgentManagementErrorView {
 }
 
 fn emit_operation(
-    app: &AppHandle,
+    _app: &AppHandle,
     agent_id: AgentId,
     operation_id: &str,
     kind: AgentOperationKind,
@@ -4105,9 +4102,7 @@ fn emit_operation(
         progress_percent,
         message,
     );
-    if let Err(error) = app.emit(MANAGEMENT_EVENT, event) {
-        tracing::warn!(%error, "failed to emit Agent management operation event");
-    }
+    server::global_host_events().emit(MANAGEMENT_EVENT, event);
 }
 
 async fn overlay_local_runtime_evidence(
@@ -5624,7 +5619,7 @@ async fn revalidate_external_installation(
     .fetch_one(pool)
     .await
     .map_err(internal_error)?;
-    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     if lifecycle != "ready" {
         return Err(management_error(
             AgentManagementErrorCode::InvalidState,
@@ -5699,7 +5694,7 @@ async fn try_adopt_user_environment(
     {
         return Ok(None);
     }
-    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     Ok(Some(AgentOperationReceipt {
         operation_id: Uuid::new_v4().to_string(),
         agent_id: agent_id.clone(),
@@ -9149,7 +9144,7 @@ pub async fn codex_poll_device_code(
             AgentAuthenticationStatus::Account,
         )
         .await?;
-        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(result)
 }
@@ -11539,7 +11534,6 @@ pub async fn opencode_provider_import(
     Ok(project_opencode_provider_connections(&auth, &config))
 }
 
-
 #[tauri::command]
 pub async fn opencode_provider_disconnect(
     state: tauri::State<'_, AppState>,
@@ -11760,7 +11754,6 @@ async fn write_json_document(
     write_bytes_document(path, &bytes, sensitive).await
 }
 
-
 #[tauri::command]
 pub async fn agent_management_actions(
     state: tauri::State<'_, AppState>,
@@ -11911,7 +11904,7 @@ pub async fn agent_management_run_action(
 
 #[tauri::command]
 pub async fn agent_management_account_flow(
-    app: AppHandle,
+    _app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentAccountFlowView, AgentManagementErrorView> {
@@ -11939,7 +11932,7 @@ pub async fn agent_management_account_flow(
         sync_authentication_probe(&state.deployment.db().pool, &agent_id, authentication).await?;
     }
     if exit_code == 0 {
-        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(AgentAccountFlowView {
         agent_id,

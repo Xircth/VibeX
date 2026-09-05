@@ -40,7 +40,7 @@ pub use conversations::ConversationRowProjectors;
 /// subscribe-time row backfill (`rows_since`) and by a full reload (`conversation_detail`),
 /// both of which reproject from the same fold.
 pub async fn emit_conversation_row_ops_after(
-    app: &AppHandle,
+    _app: &AppHandle,
     projectors: &ConversationRowProjectors,
     pool: &SqlitePool,
     conversation_id: Uuid,
@@ -144,15 +144,6 @@ pub async fn emit_conversation_row_ops_after(
             session_config_options,
             available_commands,
         };
-        if let Err(error) = app.emit(
-            &format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
-            &batch,
-        ) {
-            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
-        }
-        if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
-            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
-        }
         let bus = server::global_host_events();
         bus.emit(
             format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
@@ -186,7 +177,7 @@ pub async fn emit_conversation_row_ops_after(
     });
     if workbench_changed {
         if let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await {
-            let _ = app.emit(
+            server::global_host_events().emit(
                 "workspace-sessions-changed",
                 WorkspaceSessionsChangedPayload {
                     workspace_id: session.workspace_id,
@@ -237,6 +228,29 @@ pub enum AgentTerminalUiEvent {
         session_id: Uuid,
         workspace_id: Option<Uuid>,
     },
+}
+
+/// Forward Host Event Bus channels onto Tauri so desktop `listen` matches
+/// the single Host push surface (ADR-0078).
+pub fn start_host_event_forwarding(app: &AppHandle) {
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut rx = server::global_host_events().subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if !server::HostEventBus::channel_allowed(&event.channel) {
+                        continue;
+                    }
+                    if app_handle.emit(&event.channel, event.payload).is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// Start forwarding global events from EventService to Tauri Events.
@@ -306,9 +320,9 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                 }
                             }
                             if should_emit_agent_event(&event.event)
-                                && app_handle.emit(channels::AGENT_EVENTS, &event).is_err()
                             {
-                                break;
+                                server::global_host_events()
+                                    .emit(channels::AGENT_EVENTS, &event);
                             }
                         }
                         None => {
@@ -471,7 +485,7 @@ fn diagnostic_attention(
 
 async fn emit_desktop_session_attention(
     pool: &SqlitePool,
-    app_handle: &AppHandle,
+    _app_handle: &AppHandle,
     conversation_id: Uuid,
     turn_id: Option<Uuid>,
     kind: DesktopAttentionKind,
@@ -493,7 +507,7 @@ async fn emit_desktop_session_attention(
         title,
         message,
     };
-    app_handle.emit(channels::DESKTOP_SESSION_ATTENTION, &payload)?;
+    server::global_host_events().emit(channels::DESKTOP_SESSION_ATTENTION, &payload);
     Ok(())
 }
 
@@ -525,8 +539,7 @@ fn terminal_title(source: AgentTerminalSource, command: &str) -> String {
     }
 }
 
-pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
-    let acp_app_handle = app.clone();
+pub fn start_agent_terminal_forwarding(_app: &AppHandle, state: &AppState) {
     let acp_pool = state.deployment.db().pool.clone();
     let mut acp_lifecycle_rx = agent_terminal_registry().subscribe_lifecycle();
 
@@ -589,12 +602,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
                     };
 
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
                     let workspace_id = workspace_by_session.get(&terminal_id.0).copied().flatten();
@@ -603,12 +611,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
                     let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
@@ -617,12 +620,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

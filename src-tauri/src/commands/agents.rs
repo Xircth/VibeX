@@ -17,7 +17,6 @@ use agents::{
 };
 use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
 use db::models::{
-    agent_capability_catalog::AgentCapabilityCatalogRecord,
     agent_management::{SessionDefaultRecord, SessionDefaultRepository},
     conversation::DbConversationSummary,
     session::{CreateSession, Session, SessionStatus},
@@ -27,9 +26,7 @@ use db::models::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::services::agent_management::AgentManagementApplicationService;
-use sha2::{Digest, Sha256};
 use sqlx::Row;
-use utils::path::remove_dir_all_retrying;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -208,8 +205,6 @@ pub struct AgentSessionDefaultsView {
     pub stale_ids: Vec<String>,
 }
 
-const CAPABILITY_CATALOG_TTL: chrono::Duration = chrono::Duration::minutes(10);
-
 /// Read the matching persisted capability catalog. This command is deliberately
 /// side-effect free: opening a selector must never start an ACP process.
 #[tauri::command]
@@ -226,132 +221,18 @@ pub async fn agent_capability_catalog_fresh(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<bool, AppError> {
-    let pool = &state.deployment.db().pool;
-    let launch = match agent_runtime_launch_settings_from_pool(pool, &agent_id).await {
-        Ok(launch) => launch,
-        Err(_) => return Ok(false),
-    };
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
-    Ok(
-        match AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
-            .await?
-        {
-            Some(record) => !record.is_stale_at(chrono::Utc::now(), CAPABILITY_CATALOG_TTL),
-            None => false,
-        },
-    )
-}
-
-fn catalog_controls_if_fresh(
-    record: AgentCapabilityCatalogRecord,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Option<AgentSessionControlsSnapshot> {
-    if record.is_stale_at(now, CAPABILITY_CATALOG_TTL) {
-        return None;
-    }
-    serde_json::from_str(&record.controls_json).ok()
+    conversations::capability_catalog_is_fresh(&state.deployment.db().pool, &agent_id)
+        .await
+        .map_err(AppError::from)
 }
 
 async fn read_matching_open_capability_catalog_for_pool(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, AppError> {
-    let launch = match agent_runtime_launch_settings_from_pool(pool, agent_id).await {
-        Ok(launch) => launch,
-        Err(_) => return Ok(None),
-    };
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
-    let Some(record) =
-        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint).await?
-    else {
-        return Ok(None);
-    };
-    Ok(catalog_controls_if_fresh(record, chrono::Utc::now()))
-}
-
-async fn open_capability_catalog_fingerprint(
-    pool: &sqlx::SqlitePool,
-    launch_lock: &SessionLaunchLock,
-) -> Result<String, AppError> {
-    let mut digest = Sha256::new();
-    // v3 invalidates catalogs captured before effort/permission were merged
-    // from Grok's vendor `_meta` into the standard session-control snapshot.
-    digest.update(b"open-agent-capability-catalog-v3:");
-    digest.update(launch_lock.agent_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(
-        launch_lock
-            .absolute_acp_program
-            .to_string_lossy()
-            .as_bytes(),
-    );
-    for argument in &launch_lock.args {
-        digest.update(b"\0arg:");
-        digest.update(argument.as_bytes());
-    }
-    for (key, value) in &launch_lock.env {
-        digest.update(b"\0env:");
-        digest.update(key.as_bytes());
-        digest.update(b"=");
-        digest.update(value.as_bytes());
-    }
-    digest.update(b"\0runtime:");
-    digest.update(launch_lock.runtime_version.as_bytes());
-    digest.update(b"\0acp:");
-    digest.update(launch_lock.acp_version.as_bytes());
-    if let Some(row) = sqlx::query(
-        r#"SELECT updated_at, COALESCE(config_json, ''), COALESCE(env_json, '')
-           FROM agent_setting WHERE agent_type = ?"#,
-    )
-    .bind(launch_lock.agent_id.as_str())
-    .fetch_optional(pool)
-    .await?
-    {
-        digest.update(b"\0setting:");
-        digest.update(row.try_get::<String, _>(0)?.as_bytes());
-        digest.update(row.try_get::<String, _>(1)?.as_bytes());
-        digest.update(row.try_get::<String, _>(2)?.as_bytes());
-    }
-    for row in sqlx::query(
-        r#"SELECT provider_id, revision, fingerprint, updated_at
-           FROM agent_config_binding
-           WHERE agent_id = ?
-           ORDER BY provider_id"#,
-    )
-    .bind(launch_lock.agent_id.as_str())
-    .fetch_all(pool)
-    .await?
-    {
-        digest.update(b"\0config:");
-        for index in 0..4 {
-            digest.update(row.try_get::<String, _>(index)?.as_bytes());
-            digest.update(b"\0");
-        }
-    }
-    if let Some(row) = sqlx::query(
-        r#"SELECT authentication, observation_generation,
-                  runtime_available, acp_handshake, authentication_required
-           FROM agent_probe WHERE agent_id = ?"#,
-    )
-    .bind(launch_lock.agent_id.as_str())
-    .fetch_optional(pool)
-    .await?
-    {
-        digest.update(b"\0auth:");
-        digest.update(row.try_get::<String, _>(0)?.as_bytes());
-        digest.update(b"\0");
-        digest.update(row.try_get::<i64, _>(1)?.to_le_bytes());
-        digest.update(b"\0");
-        for index in 2..5 {
-            digest.update(if row.try_get::<bool, _>(index)? {
-                b"1"
-            } else {
-                b"0"
-            });
-            digest.update(b"\0");
-        }
-    }
-    Ok(format!("{:x}", digest.finalize()))
+    conversations::read_matching_open_capability_catalog(pool, agent_id)
+        .await
+        .map_err(AppError::from)
 }
 
 /// Prompt enhancement uses the exact persisted catalogs used by session
@@ -455,121 +336,13 @@ async fn refresh_capability_catalog_for_agent(
     state: &AppState,
     agent_id: AgentId,
 ) -> Result<bool, AppError> {
-    let pool = &state.deployment.db().pool;
-    let launch = agent_runtime_launch_settings_for_session_from_pool(pool, &agent_id).await?;
-    let launch_lock = launch.launch_lock;
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch_lock).await?;
-    let expected_generation =
-        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
-            .await?
-            .map(|record| record.generation);
-    let session_id = AgentSessionId(Uuid::new_v4());
-    let working_dir = std::env::temp_dir()
-        .join("vibex-agent-capability-probe")
-        .join(agent_id.as_str())
-        .join(session_id.to_string());
-    std::fs::create_dir_all(&working_dir).map_err(|error| {
-        AppError::Internal(format!(
-            "failed to create capability probe directory: {error}"
-        ))
-    })?;
-
-    let discovery = settle_session_authentication(
-        pool,
+    conversations::refresh_open_capability_catalog(
+        &state.deployment.db().pool,
+        &state.agent_runtime,
         &agent_id,
-        state
-            .agent_runtime
-            .prepare_session(agents::EnsureAgentSessionInput {
-                agent_id: agent_id.clone(),
-                launch_lock: launch_lock.clone(),
-                workspace_id: Uuid::new_v4(),
-                working_dir: working_dir.clone(),
-                additional_directories: Vec::new(),
-                session_id,
-                acp_session_id: format!("vibex-capability-probe-{}", session_id),
-                auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
-                preferences: Default::default(),
-            })
-            .await,
     )
-    .await;
-    let persist_result = match discovery {
-        Ok(prepared) => {
-            async {
-                // Authentication settlement can change the management projection.
-                // Persist under the post-handshake fingerprint so the catalog is
-                // immediately readable rather than born stale.
-                let persist_fingerprint =
-                    open_capability_catalog_fingerprint(pool, &launch_lock).await?;
-                let persist_expected_generation = AgentCapabilityCatalogRecord::find_matching(
-                    pool,
-                    agent_id.as_str(),
-                    &persist_fingerprint,
-                )
-                .await?
-                .map(|record| record.generation);
-                let controls_json = serde_json::to_string(&prepared.controls)?;
-                AgentCapabilityCatalogRecord::replace_if_generation(
-                    pool,
-                    agent_id.as_str(),
-                    &persist_fingerprint,
-                    &controls_json,
-                    persist_expected_generation,
-                )
-                .await?;
-                Ok::<(), AppError>(())
-            }
-            .await
-        }
-        Err(error) => {
-            if let Some(expected_generation) = expected_generation {
-                let _ = AgentCapabilityCatalogRecord::record_refresh_error_if_generation(
-                    pool,
-                    agent_id.as_str(),
-                    &fingerprint,
-                    expected_generation,
-                    "probe_failed",
-                )
-                .await;
-            }
-            Err(error)
-        }
-    };
-    let discard_result = state
-        .agent_runtime
-        .discard_prepared_session(session_id)
-        .await
-        .map_err(AppError::from);
-    let directory_result = remove_dir_all_retrying(&working_dir)
-        .await
-        .map_err(|error| {
-            AppError::Internal(format!(
-                "failed to remove capability probe directory: {error}"
-            ))
-        });
-    capability_probe_result(persist_result, discard_result, directory_result)?;
-    Ok(true)
-}
-
-/// Catalog persistence is the user-visible outcome. Session teardown and the
-/// throwaway working directory are best-effort: Windows commonly holds the
-/// probe cwd after the ACP process exits (os error 32).
-fn capability_probe_result(
-    persist: Result<(), AppError>,
-    discard: Result<(), AppError>,
-    directory: Result<(), AppError>,
-) -> Result<(), AppError> {
-    if let Err(error) = &directory {
-        tracing::warn!("{error}");
-    }
-    if persist.is_ok() {
-        if let Err(error) = &discard {
-            tracing::warn!("{error}");
-        }
-        return Ok(());
-    }
-    persist
+    .await
+    .map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -637,23 +410,17 @@ pub async fn agent_session_defaults(
             Err(_) => stale_ids.push(record.option_id),
         }
     }
-    let Some(catalog) = read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?
-    else {
-        stale_ids.extend(requested.into_keys());
-        stale_ids.sort();
-        stale_ids.dedup();
-        return Ok(AgentSessionDefaultsView {
-            values: BTreeMap::new(),
-            stale_ids,
-        });
-    };
-    let validation = agents::validate_session_defaults(requested, &catalog.config_options);
-    stale_ids.extend(validation.stale_ids);
-    stale_ids.sort();
-    stale_ids.dedup();
+    let catalog = read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?;
+    let validation = agents::resolve_session_defaults(
+        requested,
+        stale_ids,
+        catalog
+            .as_ref()
+            .map(|snapshot| snapshot.config_options.as_slice()),
+    );
     Ok(AgentSessionDefaultsView {
         values: validation.valid,
-        stale_ids,
+        stale_ids: validation.stale_ids,
     })
 }
 
@@ -1783,7 +1550,6 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
 mod tests {
     use std::{collections::BTreeMap, path::PathBuf, str::FromStr};
 
-    use chrono::{Duration, Utc};
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
@@ -1824,106 +1590,6 @@ mod tests {
         .await
         .unwrap();
         pool
-    }
-
-    async fn capability_fingerprint_pool() -> sqlx::SqlitePool {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .unwrap()
-            .create_if_missing(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(options)
-            .await
-            .unwrap();
-        for statement in [
-            r#"CREATE TABLE agent_setting (
-                 agent_type TEXT PRIMARY KEY,
-                 updated_at TEXT NOT NULL,
-                 config_json TEXT,
-                 env_json TEXT
-               )"#,
-            r#"CREATE TABLE agent_config_binding (
-                 agent_id TEXT NOT NULL,
-                 provider_id TEXT NOT NULL,
-                 revision TEXT NOT NULL,
-                 fingerprint TEXT NOT NULL,
-                 updated_at TEXT NOT NULL
-               )"#,
-            r#"CREATE TABLE agent_probe (
-                 agent_id TEXT PRIMARY KEY,
-                 authentication TEXT NOT NULL,
-                 probed_at TEXT NOT NULL,
-                 observation_generation INTEGER NOT NULL DEFAULT 0,
-                 runtime_available INTEGER NOT NULL,
-                 acp_handshake INTEGER NOT NULL,
-                 authentication_required INTEGER NOT NULL
-               )"#,
-        ] {
-            sqlx::query(statement).execute(&pool).await.unwrap();
-        }
-        pool
-    }
-
-    fn capability_launch_lock() -> SessionLaunchLock {
-        SessionLaunchLock {
-            agent_id: AgentId::parse("catalog-agent").unwrap(),
-            absolute_acp_program: PathBuf::from("/managed/catalog-agent"),
-            args: vec!["acp".to_string()],
-            env: BTreeMap::new(),
-            runtime_version: "1.0.0".to_string(),
-            acp_version: "0.8".to_string(),
-        }
-    }
-
-    #[tokio::test]
-    async fn capability_fingerprint_ignores_probe_observation_time() {
-        let pool = capability_fingerprint_pool().await;
-        let lock = capability_launch_lock();
-        sqlx::query(
-            r#"INSERT INTO agent_probe
-               VALUES (?, 'not_required', '2026-07-30T01:00:00Z', 7, 1, 1, 0)"#,
-        )
-        .bind(lock.agent_id.as_str())
-        .execute(&pool)
-        .await
-        .unwrap();
-        let before = open_capability_catalog_fingerprint(&pool, &lock)
-            .await
-            .unwrap();
-
-        sqlx::query("UPDATE agent_probe SET probed_at = '2026-07-30T02:00:00Z'")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let after = open_capability_catalog_fingerprint(&pool, &lock)
-            .await
-            .unwrap();
-        assert_eq!(before, after);
-
-        sqlx::query("UPDATE agent_probe SET observation_generation = 8")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let next_observation = open_capability_catalog_fingerprint(&pool, &lock)
-            .await
-            .unwrap();
-        assert_ne!(after, next_observation);
-    }
-
-    #[test]
-    fn stale_capability_catalog_controls_are_not_read() {
-        let now = Utc::now();
-        let record = AgentCapabilityCatalogRecord {
-            agent_type: "catalog-agent".to_string(),
-            fingerprint: "fingerprint".to_string(),
-            generation: 1,
-            controls_json: serde_json::to_string(&AgentSessionControlsSnapshot::default()).unwrap(),
-            retrieved_at: (now - Duration::minutes(11)).to_rfc3339(),
-            refresh_error_code: None,
-        };
-
-        assert!(catalog_controls_if_fresh(record, now).is_none());
     }
 
     #[test]

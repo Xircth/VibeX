@@ -18,7 +18,7 @@ use db::models::{
 };
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use tauri::{Emitter, ipc::Channel};
+use tauri::ipc::Channel;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -59,7 +59,7 @@ pub async fn agent_scan_local_history(
 
 #[tauri::command]
 pub async fn agent_import_local_history_batch(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: AgentImportLocalHistoryBatchRequest,
 ) -> Result<LocalHistoryImportJobSnapshot, AppError> {
@@ -99,7 +99,7 @@ pub async fn agent_import_local_history_batch(
                     && let (Some(workspace_id), Some(conversation_id)) =
                         (progress.workspace_id, progress.conversation_id)
                 {
-                    let _ = app.emit(
+                    server::global_host_events().emit(
                         WORKSPACE_SESSIONS_CHANGED_EVENT,
                         WorkspaceSessionsChanged {
                             workspace_id,
@@ -112,7 +112,7 @@ pub async fn agent_import_local_history_batch(
                     runtime.snapshot.apply_progress(progress);
                     runtime.snapshot.clone()
                 };
-                let _ = app.emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+                server::global_host_events().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
             },
         )
         .await;
@@ -125,7 +125,7 @@ pub async fn agent_import_local_history_batch(
             }
             runtime.snapshot.clone()
         };
-        let _ = app.emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
+        server::global_host_events().emit(LOCAL_HISTORY_IMPORT_PROGRESS_EVENT, snapshot);
     });
     Ok(snapshot)
 }

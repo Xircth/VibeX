@@ -1,5 +1,6 @@
 use remote_protocol::{OperationId, ServerCapabilities};
 use serde_json::Value;
+use tauri::ipc::Channel;
 
 use crate::{error::AppError, remote_desktop::RemoteDesktopProfileInput, state::AppState};
 
@@ -61,5 +62,33 @@ pub async fn remote_desktop_capabilities(
     state
         .remote_desktop
         .capabilities(window.label(), &profile_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn remote_desktop_listen(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    profile_id: String,
+    event: String,
+) -> Result<(), AppError> {
+    state
+        .remote_desktop
+        .listen_host_event(app, window.label(), &profile_id, event)
+        .await
+}
+
+#[tauri::command]
+pub async fn remote_desktop_subscribe(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    profile_id: String,
+    request: Value,
+    on_event: Channel<Value>,
+) -> Result<(), AppError> {
+    state
+        .remote_desktop
+        .subscribe_events(window.label(), &profile_id, request, on_event)
         .await
 }

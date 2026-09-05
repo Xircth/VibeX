@@ -1,6 +1,6 @@
 //! Commands backing Settings → Logs.
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::{
     error::AppError,
@@ -27,7 +27,7 @@ pub async fn get_log_settings() -> Result<LogSettingsView, AppError> {
 #[tauri::command]
 pub async fn set_log_settings(
     settings: LogSettings,
-    app: AppHandle,
+    _app: AppHandle,
 ) -> Result<LogSettings, AppError> {
     let settings = sanitize_settings(settings);
     persist_settings(&settings).map_err(AppError::Internal)?;
@@ -36,7 +36,7 @@ pub async fn set_log_settings(
             hub.apply_settings(&settings);
         }
     }
-    let _ = app.emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
+    server::global_host_events().emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
     Ok(settings)
 }
 

@@ -72,6 +72,10 @@ impl DesktopPreviewProxy {
             .await?;
         Ok(())
     }
+
+    pub fn registry(&self) -> server::PreviewProxyRegistry {
+        self.registry.clone()
+    }
 }
 
 #[tauri::command]

@@ -406,6 +406,7 @@ pub async fn conversation_list(
 #[tauri::command]
 pub async fn application_call(
     state: tauri::State<'_, AppState>,
+    preview_proxy: tauri::State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
     command: String,
     operation_id: remote_protocol::OperationId,
     args: serde_json::Value,
@@ -420,13 +421,13 @@ pub async fn application_call(
         state.plugin_preview_host.clone(),
         state.plugin_capability_broker.clone(),
         state.plugin_app_surfaces.clone(),
-        server::PreviewProxyRegistry::default(),
+        preview_proxy.registry(),
         server::HeadlessAutomationRuntime::new(
             state.local_deployment.clone(),
             state.conversation_context(),
             state.plugin_control_plane.clone(),
         ),
-        false,
+        crate::commands::automation::this_host_owns_automation_engine(),
         state.local_deployment.clone(),
         utils::assets::asset_dir().join("plugins/runtimes"),
         state.plugin_worker_runtime.clone(),

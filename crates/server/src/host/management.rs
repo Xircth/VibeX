@@ -17,7 +17,8 @@ use api_types::{
     AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
     AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
     AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
-    AgentEnvironmentDiagnosticsView, AgentLifecycleState, AgentManagementActionKind,
+    AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
+    AgentEnvironmentView, AgentLifecycleState, AgentManagementActionKind,
     AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
     AgentPreflightItemView, AgentPreflightView, AgentUpdateCheckView,
 };
@@ -26,12 +27,17 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use services::services::agent_management::AgentManagementApplicationService;
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use super::account_flow;
 use crate::domains::{internal_error, parse, serialize};
 
 const DIAGNOSTIC_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_AGENT_ENVIRONMENT_ENTRIES: usize = 256;
+const MAX_AGENT_ENVIRONMENT_NAME_BYTES: usize = 128;
+const MAX_AGENT_ENVIRONMENT_VALUE_BYTES: usize = 64 * 1024;
+const MAX_AGENT_ENVIRONMENT_BYTES: usize = 256 * 1024;
 const SAFE_ENVIRONMENT_KEYS: &[&str] = &[
     "SHELL",
     "LANG",
@@ -1685,6 +1691,142 @@ async fn persist_agent_environment(
     Ok(())
 }
 
+pub(crate) async fn dispatch_environment(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let args: AgentIdArgs = parse(args)?;
+    serialize(project_agent_environment(
+        args.agent_id.clone(),
+        &read_agent_environment(pool, &args.agent_id).await?,
+    ))
+}
+
+pub(crate) async fn dispatch_environment_write(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<(AgentId, Value), ApplicationError> {
+    #[derive(Deserialize)]
+    struct EnvironmentWriteArgs {
+        request: AgentEnvironmentPatchRequest,
+    }
+    let EnvironmentWriteArgs { request } = if args.get("request").is_some() {
+        parse(args)?
+    } else {
+        EnvironmentWriteArgs {
+            request: parse(args)?,
+        }
+    };
+    if request.values.len() > MAX_AGENT_ENVIRONMENT_ENTRIES {
+        return Err(ApplicationError::bad_request("单次环境变量更新项过多"));
+    }
+    let mut environment = read_agent_environment(pool, &request.agent_id).await?;
+    if environment_revision(&environment) != request.base_revision {
+        return Err(ApplicationError::conflict(
+            "Agent 环境变量已被其它操作修改，请重新读取后再保存",
+        ));
+    }
+    for (name, value) in request.values {
+        validate_agent_environment_name(&name)
+            .map_err(|message| ApplicationError::bad_request(message))?;
+        match value {
+            Some(value) => {
+                if value.len() > MAX_AGENT_ENVIRONMENT_VALUE_BYTES {
+                    return Err(ApplicationError::bad_request(format!(
+                        "环境变量 `{name}` 的值超过 64 KiB"
+                    )));
+                }
+                environment.insert(name, value);
+            }
+            None => {
+                environment.remove(&name);
+            }
+        }
+    }
+    if environment.len() > MAX_AGENT_ENVIRONMENT_ENTRIES {
+        return Err(ApplicationError::bad_request(
+            "Agent 环境变量不能超过 256 项",
+        ));
+    }
+    let serialized = serde_json::to_string(&environment).map_err(internal_error)?;
+    if serialized.len() > MAX_AGENT_ENVIRONMENT_BYTES {
+        return Err(ApplicationError::bad_request(
+            "Agent 环境变量总大小超过 256 KiB",
+        ));
+    }
+    persist_agent_environment(pool, &request.agent_id, &environment).await?;
+    let view = serialize(project_agent_environment(
+        request.agent_id.clone(),
+        &environment,
+    ))?;
+    Ok((request.agent_id, view))
+}
+
+fn project_agent_environment(
+    agent_id: AgentId,
+    environment: &HashMap<String, String>,
+) -> AgentEnvironmentView {
+    let ordered: BTreeMap<_, _> = environment
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    AgentEnvironmentView {
+        agent_id,
+        entries: ordered
+            .iter()
+            .map(|(name, value)| {
+                let secret = is_secret_environment_name(name);
+                AgentEnvironmentEntryView {
+                    name: name.clone(),
+                    value: (!secret).then(|| value.clone()),
+                    secret,
+                    present: true,
+                    masked_value: secret.then(|| "••••••••".to_string()),
+                }
+            })
+            .collect(),
+        revision: environment_revision(environment),
+    }
+}
+
+fn environment_revision(environment: &HashMap<String, String>) -> String {
+    let ordered: BTreeMap<_, _> = environment
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let bytes = serde_json::to_vec(&ordered).expect("environment map is serializable");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn validate_agent_environment_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > MAX_AGENT_ENVIRONMENT_NAME_BYTES {
+        return Err("环境变量名称长度必须为 1 到 128 字节".to_string());
+    }
+    let mut bytes = name.bytes();
+    let first = bytes.next().expect("non-empty environment name");
+    if !(first == b'_' || first.is_ascii_alphabetic())
+        || !bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+    {
+        return Err(format!("环境变量名称 `{name}` 不合法"));
+    }
+    Ok(())
+}
+
+fn is_secret_environment_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    [
+        "API_KEY",
+        "TOKEN",
+        "SECRET",
+        "PASSWORD",
+        "CREDENTIAL",
+        "PRIVATE_KEY",
+        "ACCESS_KEY",
+    ]
+    .iter()
+    .any(|marker| upper.contains(marker))
+}
+
 async fn bound_provider_id(
     _pool: &SqlitePool,
     agent_id: &AgentId,
@@ -1984,5 +2126,37 @@ mod tests {
     fn dependency_requirement_uses_minimum_version() {
         assert!(dependency_version_ok(">=18.0.0", "v20.11.0"));
         assert!(!dependency_version_ok(">=20.0.0", "v18.0.0"));
+    }
+
+    #[test]
+    fn empty_environment_projects_entries_array_not_raw_object() {
+        let view = project_agent_environment(AgentId::parse("codex").unwrap(), &HashMap::new());
+        let value = serde_json::to_value(&view).expect("serialize");
+        assert!(value.get("entries").and_then(Value::as_array).is_some());
+        assert_eq!(view.entries.len(), 0);
+        assert!(!view.revision.is_empty());
+    }
+
+    #[test]
+    fn secret_environment_values_are_masked() {
+        let mut environment = HashMap::new();
+        environment.insert("MODEL".to_string(), "gpt-5".to_string());
+        environment.insert("OPENAI_API_KEY".to_string(), "sk-secret".to_string());
+        let view = project_agent_environment(AgentId::parse("codex").unwrap(), &environment);
+        let model = view
+            .entries
+            .iter()
+            .find(|entry| entry.name == "MODEL")
+            .expect("model");
+        let secret = view
+            .entries
+            .iter()
+            .find(|entry| entry.name == "OPENAI_API_KEY")
+            .expect("secret");
+        assert_eq!(model.value.as_deref(), Some("gpt-5"));
+        assert!(!model.secret);
+        assert_eq!(secret.value, None);
+        assert!(secret.secret);
+        assert_eq!(secret.masked_value.as_deref(), Some("••••••••"));
     }
 }

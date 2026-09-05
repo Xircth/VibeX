@@ -92,7 +92,10 @@ fn decode_image(payload: &UploadImageRequest) -> Result<Vec<u8>, ApplicationErro
         .map_err(|error| ApplicationError::bad_request(format!("Invalid image payload: {error}")))
 }
 
-fn metadata_for(image_service: &services::services::image::ImageService, image: Option<Image>) -> ImageMetadataResponse {
+fn metadata_for(
+    image_service: &services::services::image::ImageService,
+    image: Option<Image>,
+) -> ImageMetadataResponse {
     if let Some(image) = image {
         let absolute_path = image_service.get_absolute_path(&image);
         ImageMetadataResponse {
@@ -171,7 +174,9 @@ pub(super) async fn upload_for_workspace(
     let workspace = Workspace::find_by_id(&domains.pool, workspace_id)
         .await
         .map_err(internal_error)?
-        .ok_or_else(|| ApplicationError::not_found(format!("Workspace {workspace_id} not found")))?;
+        .ok_or_else(|| {
+            ApplicationError::not_found(format!("Workspace {workspace_id} not found"))
+        })?;
     let bytes = decode_image(&args.payload)?;
     let image = domains
         .deployment
@@ -278,7 +283,11 @@ pub(super) async fn workspace_metadata(
             domains
                 .deployment
                 .image()
-                .copy_images_by_task_to_worktree(&PathBuf::from(container_ref), workspace.task_id, None)
+                .copy_images_by_task_to_worktree(
+                    &PathBuf::from(container_ref),
+                    workspace.task_id,
+                    None,
+                )
                 .await
                 .map_err(internal_error)?;
         }

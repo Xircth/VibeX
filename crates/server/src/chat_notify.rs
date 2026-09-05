@@ -161,10 +161,7 @@ pub async fn set_chat_event_webhooks(webhooks: Value) -> Result<Value, String> {
             if url.starts_with("http://") || url.starts_with("https://") {
                 Some(EventWebhook {
                     url,
-                    enabled: hook
-                        .get("enabled")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true),
+                    enabled: hook.get("enabled").and_then(Value::as_bool).unwrap_or(true),
                 })
             } else {
                 None

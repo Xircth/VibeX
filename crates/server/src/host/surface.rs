@@ -1,25 +1,47 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use agents::{
     AgentConnectionId, AgentContentBlock, AgentId, AgentKind, AgentPermissionId,
-    AgentPermissionResponse, AgentPromptId, AgentSessionId, AgentTerminalId,
-    CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput, RegistryCacheFreshness,
-    RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput,
-    scan_configured_history, terminal::agent_terminal_registry,
+    AgentPermissionResponse, AgentPromptId, AgentSessionControlsSnapshot, AgentSessionId,
+    AgentTerminalId, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
+    HistoryPathDestination, ImportedAgentMessageRole, LocalHistoryDestination,
+    LocalHistoryImportJobSnapshot, OfficialRegistryHttpFetcher, REGISTRY_REFRESH_TIMEOUT,
+    RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, SendAgentPromptInput, SystemClock,
+    conversation::{ConversationEvent, ConversationInputBlock},
+    load_configured_history_session, scan_configured_history,
+    scan_configured_history_with_progress,
+    terminal::agent_terminal_registry,
 };
-use api_types::UserAgentDefinitionRequest;
+use api_types::{
+    AgentOperationKind, AgentOperationReceipt, AgentOperationStatus, UserAgentDefinitionRequest,
+};
 use application::{ApplicationError, DomainCommand};
+use chrono::Utc;
+use conversations::ConversationEventAppender;
 use db::models::{
-    agent_management::{AgentMembershipRepository, SessionDefaultRecord, SessionDefaultRepository},
+    agent_management::{
+        AgentMembershipRepository, InstallationOperationRepository, RegistrySnapshotRepository,
+        SessionDefaultRecord, SessionDefaultRepository,
+    },
+    conversation::DbConversationSummary,
+    conversation_event::AppendConversationEvent,
+    conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::{CreateSession, Session, SessionStatus},
     task::Task,
+    workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::{
-    agent_management::AgentManagementApplicationService, chat_delivery::save_channel_token,
+    agent_management::AgentManagementApplicationService,
+    agent_registry::AgentRegistrySnapshotStore, chat_delivery::save_channel_token,
 };
 use uuid::Uuid;
 
@@ -169,6 +191,13 @@ struct AgentInstallVersionArgs {
 struct SessionDefaultsArgs {
     agent_id: AgentId,
     defaults: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentSessionDefaultsView {
+    values: BTreeMap<String, Value>,
+    stale_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -323,19 +352,23 @@ impl ServerApplicationDomains {
             DomainCommand::AgentImportRemoteSession => self.agent_import_remote_session(args).await,
             DomainCommand::AgentResetToCheckpoint => self.agent_reset_to_checkpoint(args).await,
             DomainCommand::AgentListLocalHistory => self.agent_list_local_history(args).await,
-            DomainCommand::AgentImportLocalHistory
-            | DomainCommand::AgentImportLocalHistoryBatch => {
-                self.agent_import_local_history(args).await
+            DomainCommand::AgentScanLocalHistory => self.agent_scan_local_history(args).await,
+            DomainCommand::AgentImportLocalHistory => self.agent_import_local_history(args).await,
+            DomainCommand::AgentImportLocalHistoryBatch => {
+                self.agent_import_local_history_batch(args).await
             }
-            DomainCommand::AgentLocalHistoryImportSnapshot => Ok(json!({
-                "jobs": [],
-                "status": "idle"
-            })),
+            DomainCommand::AgentLocalHistoryImportSnapshot => serialize(
+                local_history_job()
+                    .lock()
+                    .expect("history job")
+                    .snapshot
+                    .clone(),
+            ),
             DomainCommand::AgentTerminalSnapshot => self.agent_terminal_snapshot(args).await,
             DomainCommand::AgentSessionDefaults => self.agent_session_defaults(args).await,
             DomainCommand::AgentSetSessionDefaults => self.agent_set_session_defaults(args).await,
             DomainCommand::AgentRegistryView => self.agent_registry_view().await,
-            DomainCommand::AgentRegistryRefresh => self.agent_registry_view().await,
+            DomainCommand::AgentRegistryRefresh => self.agent_registry_refresh().await,
             DomainCommand::AgentRegistryAddAndInstall => {
                 self.agent_registry_add_and_install(args).await
             }
@@ -357,13 +390,13 @@ impl ServerApplicationDomains {
             DomainCommand::AgentManagementUninstall | DomainCommand::AgentManagementRemove => {
                 self.agent_management_remove(args).await
             }
-            DomainCommand::AgentManagementRollback => {
-                self.agent_management_detail_value(args).await
-            }
+            DomainCommand::AgentManagementRollback => self.agent_management_rollback(args).await,
             DomainCommand::AgentManagementCheckUpdate => {
                 super::management::dispatch_check_update(&self.pool, args).await
             }
-            DomainCommand::AgentManagementCancelOperation => Ok(Value::Null),
+            DomainCommand::AgentManagementCancelOperation => {
+                self.agent_management_cancel_operation(args).await
+            }
             DomainCommand::AgentManagementPreflight => {
                 super::management::dispatch_preflight(&self.pool, args).await
             }
@@ -402,7 +435,7 @@ impl ServerApplicationDomains {
                 super::native_commands::dispatch_native_config_write(&self.pool, args).await
             }
             DomainCommand::AgentManagementConfigFileWrite => {
-                self.agent_environment_write(args).await
+                super::native_commands::dispatch_native_config_file_write(&self.pool, args).await
             }
             DomainCommand::AgentAuthMode => self.agent_auth_mode(args).await,
             DomainCommand::AgentAuthModeSet => self.agent_auth_mode_set(args).await,
@@ -630,6 +663,10 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        let working_dir = PathBuf::from(&args.working_dir);
+        let additional_directories = self
+            .workspace_additional_directories(&workspace, &working_dir)
+            .await?;
         let launch = self
             .conversations
             .host
@@ -643,8 +680,8 @@ impl ServerApplicationDomains {
                     agent_id: args.agent_id,
                     launch_lock: launch.launch_lock,
                     workspace_id,
-                    working_dir: PathBuf::from(args.working_dir),
-                    additional_directories: Vec::new(),
+                    working_dir,
+                    additional_directories,
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
                 })
@@ -659,6 +696,9 @@ impl ServerApplicationDomains {
         let session_id = parse_session_id(&args.session_id)?;
         let workspace = self.require_workspace(workspace_id).await?;
         let working_dir = self.workspace_working_dir(&workspace).await?;
+        let additional_directories = self
+            .workspace_additional_directories(&workspace, &working_dir)
+            .await?;
         let launch = self
             .conversations
             .host
@@ -673,11 +713,12 @@ impl ServerApplicationDomains {
                     launch_lock: launch.launch_lock,
                     workspace_id,
                     working_dir,
-                    additional_directories: Vec::new(),
+                    additional_directories,
                     session_id,
                     acp_session_id: format!("pending-{session_id}"),
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
+                    preferences: Default::default(),
                 })
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
@@ -705,6 +746,9 @@ impl ServerApplicationDomains {
         let session_id = parse_session_id(&args.session_id)?;
         let workspace = self.require_workspace(workspace_id).await?;
         let working_dir = self.workspace_working_dir(&workspace).await?;
+        let additional_directories = self
+            .workspace_additional_directories(&workspace, &working_dir)
+            .await?;
         let launch = self
             .conversations
             .host
@@ -719,11 +763,12 @@ impl ServerApplicationDomains {
                     launch_lock: launch.launch_lock,
                     workspace_id,
                     working_dir,
-                    additional_directories: Vec::new(),
+                    additional_directories,
                     session_id,
                     external_session_id: args.external_session_id,
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
+                    preferences: Default::default(),
                 })
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
@@ -844,6 +889,9 @@ impl ServerApplicationDomains {
         let workspace_id = parse_uuid("workspace_id", workspace_id)?;
         let workspace = self.require_workspace(workspace_id).await?;
         let working_dir = self.workspace_working_dir(&workspace).await?;
+        let additional_directories = self
+            .workspace_additional_directories(&workspace, &working_dir)
+            .await?;
         let launch = self
             .conversations
             .host
@@ -858,7 +906,7 @@ impl ServerApplicationDomains {
                 launch_lock: launch.launch_lock,
                 workspace_id,
                 working_dir: working_dir.clone(),
-                additional_directories: Vec::new(),
+                additional_directories,
                 auto_approve_mode: launch.auto_approve_mode,
                 env: launch.env,
             })
@@ -912,7 +960,51 @@ impl ServerApplicationDomains {
     }
 
     async fn agent_import_remote_session(&self, args: Value) -> Result<Value, ApplicationError> {
-        self.agent_import_local_history(args).await
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ImportArgs {
+            agent_id: AgentId,
+            workspace_id: String,
+            acp_session_id: String,
+            title: Option<String>,
+        }
+        let args: ImportArgs = parse(args)?;
+        let workspace_id = parse_uuid("workspace_id", &args.workspace_id)?;
+        let workspace = self.require_workspace(workspace_id).await?;
+        if let Some(existing) = DbConversationSummary::find_by_external_id(
+            &self.pool,
+            &args.acp_session_id,
+            &args.agent_id,
+        )
+        .await
+        .map_err(internal_error)?
+        {
+            return serialize(self.require_session(existing.id).await?);
+        }
+        let session = Session::create(
+            &self.pool,
+            &CreateSession {
+                executor: Some(args.agent_id.to_string()),
+                agent_id: Some(args.agent_id.clone()),
+                task_id: Some(workspace.task_id),
+                name: args.title,
+                initial_prompt: None,
+                status: Some(SessionStatus::Todo),
+            },
+            Uuid::new_v4(),
+            workspace_id,
+        )
+        .await
+        .map_err(internal_error)?;
+        Session::update_agent_metadata(
+            &self.pool,
+            session.id,
+            Some(&args.acp_session_id),
+            Some(&args.agent_id),
+        )
+        .await
+        .map_err(internal_error)?;
+        serialize(self.require_session(session.id).await?)
     }
 
     async fn agent_reset_to_checkpoint(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -929,6 +1021,60 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         Ok(Value::Null)
+    }
+
+    async fn agent_scan_local_history(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: AgentIdArgs = parse(args)?;
+        let kind = AgentKind::from_lenient(args.agent_id.as_str()).ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "Agent `{}` does not expose local history",
+                args.agent_id
+            ))
+        })?;
+        let configured_env = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+        )
+        .bind(args.agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal_error)?
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
+        .unwrap_or_default();
+        let bus = crate::host::events::global_host_events();
+        let agent_id = args.agent_id.clone();
+        let entries = tokio::task::spawn_blocking(move || {
+            scan_configured_history_with_progress(kind, &configured_env, |progress| {
+                bus.emit("local-history-scan-progress", progress);
+            })
+        })
+        .await
+        .map_err(internal_error)?
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let imported = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            r#"SELECT agent_id, external_session_id
+               FROM sessions
+               WHERE deleted_at IS NULL
+                 AND agent_id IS NOT NULL
+                 AND external_session_id IS NOT NULL"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(internal_error)?;
+        let imported_keys = imported
+            .into_iter()
+            .filter_map(|(agent, external)| Some((agent?, external?)))
+            .collect::<std::collections::BTreeSet<_>>();
+        serialize(agents::build_local_history_scan_page(
+            entries,
+            &imported_keys,
+            &[] as &[HistoryPathDestination],
+            Vec::<LocalHistoryDestination>::new(),
+        ))
+        .map(|page| {
+            let _ = agent_id;
+            page
+        })
     }
 
     async fn agent_list_local_history(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -966,22 +1112,148 @@ impl ServerApplicationDomains {
         let args: ImportArgs = parse(args)?;
         let workspace_id = parse_uuid("workspace_id", &args.workspace_id)?;
         let workspace = self.require_workspace(workspace_id).await?;
+        let kind = AgentKind::from_lenient(args.agent_id.as_str()).ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "Agent `{}` does not expose local history",
+                args.agent_id
+            ))
+        })?;
+        let configured_env = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+        )
+        .bind(args.agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal_error)?
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
+        .unwrap_or_default();
+        let external_session_id = args.acp_session_id.clone();
+        let imported = tokio::task::spawn_blocking(move || {
+            load_configured_history_session(kind, &configured_env, &external_session_id)
+        })
+        .await
+        .map_err(internal_error)?
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let title = args
+            .title
+            .or_else(|| imported.title.clone())
+            .or_else(|| Some(args.acp_session_id.clone()));
         let session = Session::create(
             &self.pool,
             &CreateSession {
                 executor: Some(args.agent_id.to_string()),
                 agent_id: Some(args.agent_id.clone()),
                 task_id: Some(workspace.task_id),
-                name: args.title.or_else(|| Some(args.acp_session_id.clone())),
-                initial_prompt: None,
-                status: Some(SessionStatus::Todo),
+                name: title,
+                initial_prompt: imported.messages.iter().find_map(|message| {
+                    matches!(message.role, ImportedAgentMessageRole::User)
+                        .then(|| message.content.trim().to_string())
+                        .filter(|value| !value.is_empty())
+                }),
+                status: Some(SessionStatus::Done),
             },
             Uuid::new_v4(),
             workspace.id,
         )
         .await
         .map_err(internal_error)?;
+        DbConversationSummary::bind_external_id(
+            &self.pool,
+            session.id,
+            &args.acp_session_id,
+            &args.agent_id,
+        )
+        .await
+        .map_err(internal_error)?;
+        append_imported_history_events(&self.pool, session.id, &imported).await?;
         serialize(session)
+    }
+
+    async fn agent_import_local_history_batch(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BatchArgs {
+            selections: Vec<agents::LocalHistoryImportSelection>,
+        }
+        let args: BatchArgs = parse(args)?;
+        if args.selections.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "Select at least one local conversation to import",
+            ));
+        }
+        let snapshot = {
+            let mut job = local_history_job().lock().expect("history job");
+            if job.running {
+                return Err(ApplicationError::conflict(
+                    "A local conversation import is already running",
+                ));
+            }
+            job.running = true;
+            job.snapshot = LocalHistoryImportJobSnapshot::begin_running();
+            job.snapshot.clone()
+        };
+        let pool = self.pool.clone();
+        let selections = args.selections;
+        tokio::spawn(async move {
+            let total = selections.len() as u32;
+            let mut result = agents::LocalHistoryImportResult {
+                imported: 0,
+                skipped: 0,
+                failed: 0,
+                conversation_ids: Vec::new(),
+                errors: Vec::new(),
+            };
+            for (index, selection) in selections.iter().enumerate() {
+                let progress = agents::LocalHistoryImportProgress::for_selection(
+                    index as u32 + 1,
+                    total,
+                    selection,
+                    None,
+                    agents::LocalHistoryImportPhase::Loading,
+                    &result,
+                );
+                apply_history_progress(progress);
+                match import_one_history_selection(&pool, selection).await {
+                    Ok(conversation_id) => {
+                        result.imported += 1;
+                        result.conversation_ids.push(conversation_id);
+                        apply_history_progress(agents::LocalHistoryImportProgress::for_selection(
+                            index as u32 + 1,
+                            total,
+                            selection,
+                            None,
+                            agents::LocalHistoryImportPhase::Imported,
+                            &result,
+                        ));
+                    }
+                    Err(error) => {
+                        result.failed += 1;
+                        result.errors.push(error.to_string());
+                        apply_history_progress(agents::LocalHistoryImportProgress::for_selection(
+                            index as u32 + 1,
+                            total,
+                            selection,
+                            None,
+                            agents::LocalHistoryImportPhase::Failed,
+                            &result,
+                        ));
+                    }
+                }
+            }
+            let snapshot = {
+                let mut job = local_history_job().lock().expect("history job");
+                job.running = false;
+                job.snapshot.finish(result);
+                job.snapshot.clone()
+            };
+            crate::host::events::global_host_events()
+                .emit("local-history-import-progress", snapshot);
+        });
+        serialize(snapshot)
     }
 
     async fn agent_terminal_snapshot(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1005,32 +1277,96 @@ impl ServerApplicationDomains {
             .list_for_agent(&args.agent_id)
             .await
             .map_err(internal_error)?;
-        let mut defaults = HashMap::new();
+        let mut requested = BTreeMap::new();
+        let mut stale_ids = Vec::new();
         for row in rows {
-            if let Ok(value) = serde_json::from_str::<Value>(&row.value_json) {
-                defaults.insert(row.option_id, value);
+            match serde_json::from_str(&row.value_json) {
+                Ok(value) => {
+                    requested.insert(row.option_id, value);
+                }
+                Err(_) => stale_ids.push(row.option_id),
             }
         }
-        serialize(defaults)
+        let catalog = self
+            .agent_capability_catalog(json!({ "agentId": args.agent_id }))
+            .await?;
+        let options = serde_json::from_value::<AgentSessionControlsSnapshot>(catalog)
+            .ok()
+            .map(|snapshot| snapshot.config_options);
+        let validation = agents::resolve_session_defaults(requested, stale_ids, options.as_deref());
+        serialize(AgentSessionDefaultsView {
+            values: validation.valid,
+            stale_ids: validation.stale_ids,
+        })
     }
 
     async fn agent_set_session_defaults(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: SessionDefaultsArgs = parse(args)?;
-        let defaults = args
+        let args: SessionDefaultsArgs = parse_payload(args)?;
+        let requested = args
             .defaults
             .unwrap_or_default()
             .into_iter()
-            .map(|(option_id, value)| SessionDefaultRecord {
-                option_id,
-                value_json: value.to_string(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
+            .collect::<BTreeMap<_, _>>();
+        let valid = if requested.is_empty() {
+            BTreeMap::new()
+        } else {
+            let catalog = self
+                .agent_capability_catalog(json!({ "agentId": args.agent_id }))
+                .await?;
+            let snapshot = serde_json::from_value::<AgentSessionControlsSnapshot>(catalog)
+                .map_err(|_| {
+                    ApplicationError::conflict(
+                        "Agent capability catalog is unavailable; refresh it before saving defaults",
+                    )
+                })?;
+            let validation = agents::validate_session_defaults(requested, &snapshot.config_options);
+            if !validation.stale_ids.is_empty() {
+                return Err(ApplicationError::conflict(format!(
+                    "Agent session defaults are no longer advertised: {}",
+                    validation.stale_ids.join(", ")
+                )));
+            }
+            validation.valid
+        };
+        let updated_at = chrono::Utc::now().to_rfc3339();
+        let defaults = valid
+            .into_iter()
+            .map(|(option_id, value)| {
+                Ok(SessionDefaultRecord {
+                    option_id,
+                    value_json: serde_json::to_string(&value)
+                        .map_err(|error| ApplicationError::internal(error.to_string()))?,
+                    updated_at: updated_at.clone(),
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, ApplicationError>>()?;
         SessionDefaultRepository::new(self.pool.clone())
             .replace_for_agent(&args.agent_id, &defaults)
             .await
             .map_err(internal_error)?;
         Ok(Value::Null)
+    }
+
+    async fn workspace_additional_directories(
+        &self,
+        workspace: &db::models::workspace::Workspace,
+        working_dir: &Path,
+    ) -> Result<Vec<PathBuf>, ApplicationError> {
+        let container = self
+            .deployment
+            .container()
+            .ensure_container_exists(workspace)
+            .await
+            .map_err(internal_error)?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?;
+        Ok(self.conversations.host.resolve_additional_directories(
+            workspace,
+            &container,
+            &repos,
+            &working_dir.to_string_lossy(),
+        ))
     }
 
     async fn workspace_working_dir(
@@ -1064,6 +1400,74 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(internal_error)?,
         )
+    }
+
+    async fn agent_registry_refresh(&self) -> Result<Value, ApplicationError> {
+        let (freshness, refresh_error) = self.refresh_registry_snapshot(true).await?;
+        serialize(
+            self.management()
+                .registry_view(freshness, refresh_error)
+                .await
+                .map_err(internal_error)?,
+        )
+    }
+
+    async fn refresh_registry_snapshot(
+        &self,
+        force: bool,
+    ) -> Result<(RegistryCacheFreshness, Option<String>), ApplicationError> {
+        let store =
+            AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(self.pool.clone()));
+        let mut cache = store
+            .load()
+            .await
+            .map_err(internal_error)?
+            .map(RegistryCache::from_snapshot)
+            .unwrap_or_default();
+        let cached_freshness = cache
+            .snapshot()
+            .map(|snapshot| {
+                if Utc::now().signed_duration_since(snapshot.fetched_at)
+                    <= chrono::Duration::hours(24)
+                {
+                    RegistryCacheFreshness::Fresh
+                } else {
+                    RegistryCacheFreshness::Stale
+                }
+            })
+            .unwrap_or(RegistryCacheFreshness::Empty);
+        if !force && cached_freshness == RegistryCacheFreshness::Fresh {
+            return Ok((cached_freshness, None));
+        }
+        let client = RegistrySnapshotClient::new(
+            Arc::new(OfficialRegistryHttpFetcher::default()),
+            Arc::new(SystemClock),
+        );
+        let (freshness, refresh_error, should_save) = match tokio::time::timeout(
+            REGISTRY_REFRESH_TIMEOUT,
+            client.refresh(&mut cache),
+        )
+        .await
+        {
+            Ok(view) => {
+                let should_save = view.refresh_error.is_none();
+                (view.freshness, view.refresh_error, should_save)
+            }
+            Err(_) => (
+                cached_freshness,
+                Some(format!(
+                    "Registry refresh timed out after {} seconds",
+                    REGISTRY_REFRESH_TIMEOUT.as_secs()
+                )),
+                false,
+            ),
+        };
+        if should_save {
+            if let Some(snapshot) = cache.snapshot() {
+                store.save(snapshot).await.map_err(internal_error)?;
+            }
+        }
+        Ok((freshness, refresh_error))
     }
 
     async fn agent_registry_add_and_install(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1140,6 +1544,130 @@ impl ServerApplicationDomains {
         serialize(self.management().list().await.map_err(internal_error)?)
     }
 
+    async fn agent_management_rollback(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: AgentIdArgs = parse(args)?;
+        let installation = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            r#"SELECT active_operation, current_lock_id, rollback_lock_id
+               FROM agent_installation
+               WHERE agent_id = ?"#,
+        )
+        .bind(args.agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApplicationError::not_found(format!("agent {}", args.agent_id)))?;
+        if installation.0.is_some() {
+            return Err(ApplicationError::conflict("Agent 已有正在执行的管理操作"));
+        }
+        if installation.2.is_none() {
+            return Err(ApplicationError::bad_request("Agent 没有可回滚的上一版本"));
+        }
+        let changed = sqlx::query(
+            r#"UPDATE agent_installation
+               SET current_lock_id = rollback_lock_id,
+                   rollback_lock_id = current_lock_id,
+                   lifecycle = 'ready',
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE agent_id = ? AND rollback_lock_id IS NOT NULL"#,
+        )
+        .bind(args.agent_id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(internal_error)?
+        .rows_affected();
+        if changed == 0 {
+            return Err(ApplicationError::conflict("回滚未能应用到安装记录"));
+        }
+        crate::host::events::global_host_events().emit(
+            "agent-management-snapshot-invalidated",
+            json!({ "agentId": args.agent_id }),
+        );
+        self.agent_management_detail_value(json!({ "agentId": args.agent_id.to_string() }))
+            .await
+    }
+
+    async fn agent_management_cancel_operation(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CancelArgs {
+            agent_id: AgentId,
+            operation_id: String,
+        }
+        let args: CancelArgs = parse(args)?;
+        let repository = InstallationOperationRepository::new(self.pool.clone());
+        let operation = if let Ok(id) = Uuid::parse_str(&args.operation_id) {
+            repository.find(id).await.map_err(internal_error)?
+        } else {
+            None
+        };
+        let operation = match operation {
+            Some(operation) if operation.agent_id == args.agent_id => operation,
+            _ => repository
+                .active_for_agent(&args.agent_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| {
+                    ApplicationError::not_found(format!(
+                        "Agent `{}` 没有可取消的管理操作",
+                        args.agent_id
+                    ))
+                })?,
+        };
+        let kind = parse_operation_kind(&operation.kind)
+            .ok_or_else(|| ApplicationError::conflict("持久化管理操作类型无效"))?;
+        let status = if matches!(operation.status.as_str(), "queued" | "running") {
+            repository
+                .finish(operation.id, "cancelled")
+                .await
+                .map_err(internal_error)?;
+            sqlx::query(
+                r#"UPDATE agent_installation
+                   SET lifecycle = 'idle',
+                       active_operation = NULL,
+                       active_operation_id = NULL,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE agent_id = ? AND active_operation_id = ?"#,
+            )
+            .bind(args.agent_id.as_str())
+            .bind(operation.id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(internal_error)?;
+            AgentOperationStatus::Canceled
+        } else {
+            match operation.status.as_str() {
+                "succeeded" => AgentOperationStatus::Succeeded,
+                "failed" => AgentOperationStatus::Failed,
+                "cancelled" => AgentOperationStatus::Canceled,
+                "interrupted" => AgentOperationStatus::Interrupted,
+                _ => AgentOperationStatus::Failed,
+            }
+        };
+        let receipt = AgentOperationReceipt {
+            operation_id: operation.id.to_string(),
+            agent_id: args.agent_id.clone(),
+            kind,
+            status,
+        };
+        crate::host::events::global_host_events().emit(
+            "agent-management-event",
+            json!({
+                "agentId": args.agent_id,
+                "operationId": receipt.operation_id,
+                "kind": kind,
+                "status": status,
+            }),
+        );
+        crate::host::events::global_host_events().emit(
+            "agent-management-snapshot-invalidated",
+            json!({ "agentId": args.agent_id }),
+        );
+        serialize(receipt)
+    }
+
     async fn agent_management_detail_value(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentIdArgs = parse(args)?;
         let view = self
@@ -1154,37 +1682,17 @@ impl ServerApplicationDomains {
     }
 
     async fn agent_environment(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: AgentIdArgs = parse(args)?;
-        let env: Option<Value> =
-            sqlx::query_scalar("SELECT env_json FROM agent_setting WHERE agent_type = ?")
-                .bind(args.agent_id.as_str())
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(internal_error)?;
-        Ok(env.unwrap_or(json!({})))
+        super::management::dispatch_environment(&self.pool, args).await
     }
 
     async fn agent_environment_write(&self, args: Value) -> Result<Value, ApplicationError> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct EnvWrite {
-            agent_id: AgentId,
-            env: Option<Value>,
-            patch: Option<Value>,
-        }
-        let args: EnvWrite = parse(args)?;
-        let env = args.env.or(args.patch).unwrap_or(json!({}));
-        sqlx::query(
-            r#"INSERT INTO agent_setting (agent_type, env_json)
-               VALUES (?, ?)
-               ON CONFLICT(agent_type) DO UPDATE SET env_json = excluded.env_json"#,
-        )
-        .bind(args.agent_id.as_str())
-        .bind(env.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(internal_error)?;
-        Ok(env)
+        let (agent_id, view) =
+            super::management::dispatch_environment_write(&self.pool, args).await?;
+        self.conversations
+            .agent_runtime
+            .mark_agent_sessions_config_stale(&agent_id, "Agent 环境变量已更改")
+            .await;
+        Ok(view)
     }
 
     async fn agent_auth_mode(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1524,6 +2032,195 @@ impl ServerApplicationDomains {
     }
 }
 
+async fn append_imported_history_events(
+    pool: &sqlx::SqlitePool,
+    conversation_id: Uuid,
+    session: &agents::ImportedAgentSession,
+) -> Result<(), ApplicationError> {
+    let mut current_turn_id = None;
+    for (index, message) in session.messages.iter().enumerate() {
+        match message.role {
+            ImportedAgentMessageRole::User => {
+                let blocks = vec![ConversationInputBlock::Text {
+                    text: message.content.clone(),
+                }];
+                let turn = ConversationTurnRecord::create_pending(
+                    pool,
+                    Uuid::new_v4(),
+                    CreateConversationTurn {
+                        conversation_id,
+                        prompt_id: None,
+                        text_preview: Some(message.content.as_str()),
+                        input_blocks_json: &serde_json::to_string(&blocks)
+                            .map_err(internal_error)?,
+                    },
+                )
+                .await
+                .map_err(internal_error)?;
+                append_history_event(
+                    pool,
+                    conversation_id,
+                    Some(turn.id),
+                    ConversationEvent::UserTurnCreated {
+                        blocks,
+                        workflow_refs: Vec::new(),
+                    },
+                    &format!("import-user-{index}"),
+                )
+                .await?;
+                current_turn_id = Some(turn.id);
+            }
+            ImportedAgentMessageRole::Assistant => {
+                let turn_id = match current_turn_id {
+                    Some(turn_id) => turn_id,
+                    None => continue,
+                };
+                append_history_event(
+                    pool,
+                    conversation_id,
+                    Some(turn_id),
+                    ConversationEvent::AssistantTextDelta {
+                        text: message.content.clone(),
+                        message_id: Some(format!("imported-message-{index}")),
+                    },
+                    &format!("import-assistant-{index}"),
+                )
+                .await?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+async fn append_history_event(
+    pool: &sqlx::SqlitePool,
+    conversation_id: Uuid,
+    turn_id: Option<Uuid>,
+    event: ConversationEvent,
+    idempotency_key: &str,
+) -> Result<(), ApplicationError> {
+    let event_kind = serde_json::to_value(&event)
+        .map_err(internal_error)?
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let normalized_json = serde_json::to_string(&event).map_err(internal_error)?;
+    ConversationEventAppender::append(
+        pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id,
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            source: "import",
+            event_kind: &event_kind,
+            normalized_json: &normalized_json,
+            raw_json: None,
+            idempotency_key: Some(idempotency_key),
+        },
+    )
+    .await
+    .map_err(internal_error)?;
+    Ok(())
+}
+
+struct LocalHistoryImportRuntime {
+    running: bool,
+    snapshot: LocalHistoryImportJobSnapshot,
+}
+
+fn local_history_job() -> &'static std::sync::Mutex<LocalHistoryImportRuntime> {
+    static JOB: std::sync::OnceLock<std::sync::Mutex<LocalHistoryImportRuntime>> =
+        std::sync::OnceLock::new();
+    JOB.get_or_init(|| {
+        std::sync::Mutex::new(LocalHistoryImportRuntime {
+            running: false,
+            snapshot: LocalHistoryImportJobSnapshot::default(),
+        })
+    })
+}
+
+fn apply_history_progress(progress: agents::LocalHistoryImportProgress) {
+    let snapshot = {
+        let mut job = local_history_job().lock().expect("history job");
+        job.snapshot.apply_progress(progress);
+        job.snapshot.clone()
+    };
+    crate::host::events::global_host_events().emit("local-history-import-progress", snapshot);
+}
+
+async fn import_one_history_selection(
+    pool: &sqlx::SqlitePool,
+    selection: &agents::LocalHistoryImportSelection,
+) -> Result<Uuid, ApplicationError> {
+    if let Some(existing) = DbConversationSummary::find_by_external_id(
+        pool,
+        &selection.external_session_id,
+        &selection.agent_id,
+    )
+    .await
+    .map_err(internal_error)?
+    {
+        return Ok(existing.id);
+    }
+    let kind = AgentKind::from_lenient(selection.agent_id.as_str()).ok_or_else(|| {
+        ApplicationError::bad_request(format!(
+            "Agent `{}` does not expose local history",
+            selection.agent_id
+        ))
+    })?;
+    let configured_env = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(selection.agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .flatten()
+    .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
+    .unwrap_or_default();
+    let external_session_id = selection.external_session_id.clone();
+    let imported = tokio::task::spawn_blocking(move || {
+        load_configured_history_session(kind, &configured_env, &external_session_id)
+    })
+    .await
+    .map_err(internal_error)?
+    .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let workspace = Workspace::find_by_id(pool, selection.workspace_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApplicationError::not_found("workspace not found"))?;
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor: Some(selection.agent_id.to_string()),
+            agent_id: Some(selection.agent_id.clone()),
+            task_id: Some(workspace.task_id),
+            name: imported.title.clone(),
+            initial_prompt: None,
+            status: Some(SessionStatus::Done),
+        },
+        Uuid::new_v4(),
+        workspace.id,
+    )
+    .await
+    .map_err(internal_error)?;
+    DbConversationSummary::bind_external_id(
+        pool,
+        session.id,
+        &selection.external_session_id,
+        &selection.agent_id,
+    )
+    .await
+    .map_err(internal_error)?;
+    append_imported_history_events(pool, session.id, &imported).await?;
+    Ok(session.id)
+}
+
 fn parse_payload<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, ApplicationError> {
     if let Some(payload) = args.get("payload") {
         return parse(payload.clone());
@@ -1536,4 +2233,34 @@ fn parse_payload<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, Appli
 
 fn args_agent_fallback() -> AgentId {
     AgentId::parse("claude_code").expect("built-in agent id")
+}
+
+fn parse_operation_kind(value: &str) -> Option<AgentOperationKind> {
+    match value {
+        "install" => Some(AgentOperationKind::Install),
+        "update" => Some(AgentOperationKind::Update),
+        "repair" => Some(AgentOperationKind::Repair),
+        "rollback" => Some(AgentOperationKind::Rollback),
+        "uninstall" => Some(AgentOperationKind::Uninstall),
+        "remove" => Some(AgentOperationKind::Remove),
+        "check" => Some(AgentOperationKind::Check),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_defaults_view_uses_values_not_a_raw_map() {
+        let view = AgentSessionDefaultsView {
+            values: BTreeMap::from([("model".into(), json!("opus"))]),
+            stale_ids: vec!["gone".into()],
+        };
+        let value = serde_json::to_value(view).expect("session defaults view");
+        assert_eq!(value["values"]["model"], json!("opus"));
+        assert_eq!(value["staleIds"], json!(["gone"]));
+        assert!(value.get("model").is_none());
+    }
 }

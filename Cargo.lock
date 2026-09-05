@@ -6081,6 +6081,8 @@ dependencies = [
  "executors",
  "futures",
  "git",
+ "git2",
+ "ignore",
  "local-deployment",
  "plugins",
  "prost",

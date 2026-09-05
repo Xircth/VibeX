@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use application::{
-    ApplicationCore, ApplicationError, ConversationRepository, ConversationSubscriptionRegistrar,
-    Principal,
+    ApplicationCore, ApplicationError, CommandRegistry, ConversationRepository,
+    ConversationSubscriptionRegistrar, Principal,
 };
 use async_trait::async_trait;
 use axum::{
@@ -135,6 +135,7 @@ async fn handle_socket<R>(
                 };
                 if handle_client_message(
                     &state.core,
+                    &state.commands,
                     &principal,
                     message,
                     &mut subscriptions,
@@ -267,6 +268,7 @@ async fn handle_socket<R>(
 
 async fn handle_client_message<R, S>(
     core: &ApplicationCore<R>,
+    commands: &CommandRegistry<R>,
     principal: &Principal,
     message: SubscriptionClientMessage,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
@@ -336,7 +338,15 @@ where
                     )
                 }
                 SubscriptionResource::PatchStream { stream, args } => {
-                    let _ = args;
+                    let command = crate::patch_stream_subscribe_command(&stream).ok_or(())?;
+                    let channel = crate::patch_stream_channel(&stream, &args).map_err(|_| ())?;
+                    if !crate::HostEventBus::channel_allowed(&channel) {
+                        return Err(());
+                    }
+                    commands
+                        .execute_name(principal, command, OperationId::new(), args)
+                        .await
+                        .map_err(|_| ())?;
                     (
                         SubscriptionBootstrap {
                             subscription_id: request.subscription_id,
@@ -346,7 +356,7 @@ where
                             high_water_mark: 0,
                         },
                         ActiveSubscription::HostEvent {
-                            channel: format!("patch-stream:{stream}"),
+                            channel,
                             after_sequence: 0,
                         },
                     )

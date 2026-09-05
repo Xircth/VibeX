@@ -19,8 +19,8 @@ use services::services::{
     },
     prompt_enhancement::{
         PROMPT_ENHANCE_TIMEOUT_SECS, PromptEnhancementRequest, PromptEnhancementResponse,
-        build_prompt_enhancement_payload, extract_enhanced_prompt, selected_prompt_enhancement_agent,
-        validate_prompt_enhancement_request,
+        build_prompt_enhancement_payload, extract_enhanced_prompt,
+        selected_prompt_enhancement_agent, validate_prompt_enhancement_request,
     },
     worktree_manager::WorktreeManager,
 };
@@ -108,7 +108,10 @@ pub(super) async fn update_config(
             .map(|workspace_dir| utils::path::expand_tilde(workspace_dir)),
     );
     if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
-        global_host_events().emit("theme-changed", json!({ "theme": new_config.theme.clone() }));
+        global_host_events().emit(
+            "theme-changed",
+            json!({ "theme": new_config.theme.clone() }),
+        );
     }
     serialize(new_config)
 }
@@ -170,8 +173,9 @@ pub(super) fn get_profiles() -> Result<Value, ApplicationError> {
 
 pub(super) async fn update_profiles(args: Value) -> Result<Value, ApplicationError> {
     let args: UpdateProfilesArgs = parse(args)?;
-    let profiles: ExecutorConfigs = serde_json::from_str(&args.body)
-        .map_err(|error| ApplicationError::bad_request(format!("Invalid executor profiles format: {error}")))?;
+    let profiles: ExecutorConfigs = serde_json::from_str(&args.body).map_err(|error| {
+        ApplicationError::bad_request(format!("Invalid executor profiles format: {error}"))
+    })?;
     profiles.save_overrides().map_err(internal_error)?;
     ExecutorConfigs::reload();
     serialize("Executor profiles updated successfully".to_string())
@@ -210,16 +214,12 @@ pub(super) async fn enhance_prompt(
 ) -> Result<Value, ApplicationError> {
     let payload: PromptEnhancementRequest = unwrap_named(args, &["payload"])?;
     let config = domains.deployment.config().read().await.clone();
-    validate_prompt_enhancement_request(&config, &payload).map_err(|error| {
-        ApplicationError::bad_request(error.to_string())
-    })?;
+    validate_prompt_enhancement_request(&config, &payload)
+        .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
     let prompt_text = build_prompt_enhancement_payload(&config, &payload)
         .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-    let agent_id = validated_enabled_agent(
-        selected_prompt_enhancement_agent(&config),
-        &domains.pool,
-    )
-    .await?;
+    let agent_id =
+        validated_enabled_agent(selected_prompt_enhancement_agent(&config), &domains.pool).await?;
     let config_overrides = config
         .prompt_enhancement_session_config
         .iter()
@@ -250,6 +250,7 @@ pub(super) async fn enhance_prompt(
             acp_session_id: String::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: launch.env,
+            preferences: Default::default(),
         })
         .await
         .map_err(internal_error)?;
@@ -385,18 +386,19 @@ async fn validated_enabled_agent(
 pub(super) async fn list_prompt_enhancement_models(
     domains: &ServerApplicationDomains,
 ) -> Result<Value, ApplicationError> {
-    let documents = sqlx::query_scalar::<_, String>(
-        "SELECT controls_json FROM agent_capability_catalog",
-    )
-    .fetch_all(&domains.pool)
-    .await
-    .map_err(internal_error)?;
+    let documents =
+        sqlx::query_scalar::<_, String>("SELECT controls_json FROM agent_capability_catalog")
+            .fetch_all(&domains.pool)
+            .await
+            .map_err(internal_error)?;
     let mut models = Vec::new();
     for document in documents {
         let Ok(value) = serde_json::from_str::<Value>(&document) else {
             continue;
         };
-        let Some(options) = value.get("configOptions").or_else(|| value.get("config_options"))
+        let Some(options) = value
+            .get("configOptions")
+            .or_else(|| value.get("config_options"))
         else {
             continue;
         };
@@ -429,9 +431,8 @@ pub(super) async fn list_prompt_enhancement_models(
 }
 
 pub(super) async fn get_claude_settings() -> Result<Value, ApplicationError> {
-    let path = claude_settings_path().ok_or_else(|| {
-        ApplicationError::internal("Could not determine home directory")
-    })?;
+    let path = claude_settings_path()
+        .ok_or_else(|| ApplicationError::internal("Could not determine home directory"))?;
     if !path.exists() {
         return serialize(ClaudeSettings::default());
     }
@@ -464,9 +465,8 @@ pub(super) async fn get_claude_settings() -> Result<Value, ApplicationError> {
 
 pub(super) async fn update_claude_settings(args: Value) -> Result<Value, ApplicationError> {
     let settings: ClaudeSettings = unwrap_named(args, &["settings"])?;
-    let path = claude_settings_path().ok_or_else(|| {
-        ApplicationError::internal("Could not determine home directory")
-    })?;
+    let path = claude_settings_path()
+        .ok_or_else(|| ApplicationError::internal("Could not determine home directory"))?;
     let mut existing: Value = if path.exists() {
         let content = tokio::fs::read_to_string(&path)
             .await
@@ -478,7 +478,10 @@ pub(super) async fn update_claude_settings(args: Value) -> Result<Value, Applica
     let obj = existing.as_object_mut().ok_or_else(|| {
         ApplicationError::internal("Claude settings JSON must contain an object at the root")
     })?;
-    obj.insert("env".to_string(), serde_json::to_value(&settings.env).map_err(internal_error)?);
+    obj.insert(
+        "env".to_string(),
+        serde_json::to_value(&settings.env).map_err(internal_error)?,
+    );
     obj.insert(
         "enabledPlugins".to_string(),
         serde_json::to_value(&settings.enabled_plugins).map_err(internal_error)?,
@@ -508,5 +511,9 @@ pub(super) fn claude_settings_path_value() -> Result<Value, ApplicationError> {
 fn claude_settings_path() -> Option<std::path::PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
-        .map(|home| std::path::PathBuf::from(home).join(".claude").join("settings.json"))
+        .map(|home| {
+            std::path::PathBuf::from(home)
+                .join(".claude")
+                .join("settings.json")
+        })
 }

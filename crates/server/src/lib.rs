@@ -46,7 +46,10 @@ pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
-pub use host::{HostEvent, HostEventBus, account_flow, events::global_host_events, native};
+pub use host::{
+    HostEvent, HostEventBus, account_flow, events::global_host_events, native,
+    patch_stream_channel, patch_stream_subscribe_command,
+};
 pub use host_core::host_application_core;
 pub use host_token::{
     HOST_TOKEN_FILE, host_token_path, issue_host_token, read_host_token, resolve_console_token,

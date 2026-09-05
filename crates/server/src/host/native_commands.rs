@@ -871,6 +871,43 @@ pub async fn dispatch_native_config_write(
     serialize(map_native_config_view(request.agent_id, result.snapshot))
 }
 
+pub async fn dispatch_native_config_file_write(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let request: api_types::AgentNativeConfigFileWriteRequest = parse(args)?;
+    let home = require_home()?;
+    let env = env_for(pool, &request.agent_id).await?;
+    let recorded = sqlx::query_scalar::<_, String>(
+        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
+    )
+    .bind(request.agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let logged_in = recorded.as_deref() == Some("account");
+    let provider = NativeConfigProvider::with_environment(
+        Arc::new(TokioNativeFileSystem),
+        home,
+        env.into_iter().collect(),
+    );
+    let result = provider
+        .save_file(
+            &request.agent_id,
+            agents::NativeConfigFilePatch {
+                path: PathBuf::from(&request.path),
+                base_revision: request.base_revision,
+                content: request.content,
+            },
+            logged_in,
+        )
+        .await
+        .map_err(|error| bad(error.to_string()))?;
+    invalidate("agent-management-snapshot-invalidated");
+    serialize(map_native_config_view(request.agent_id, result.snapshot))
+}
+
 async fn native_config_view(
     pool: &SqlitePool,
     agent_id: AgentId,

@@ -1,25 +1,21 @@
-use std::{collections::HashMap, sync::Arc};
-
-use agents::conversation::ConversationRowOpBatch;
+use agents::conversation::{ConversationEvent, ConversationRowOpBatch, ConversationSessionModes};
 use async_trait::async_trait;
-use conversations::{ConversationEventPublisher, IncrementalRowProjector};
+use conversations::{
+    CachedRowProjector, ConversationEventPublisher, ConversationRowProjectors,
+    IncrementalRowProjector, evict_least_recently_used_projectors,
+};
 use db::models::conversation_event::ConversationEventRecord;
 use sqlx::SqlitePool;
-use tokio::sync::Mutex;
-use uuid::Uuid;
 
 use crate::host::events::global_host_events;
 
 pub struct HostRowOpPublisher {
     pool: SqlitePool,
-    projectors: Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>,
+    projectors: ConversationRowProjectors,
 }
 
 impl HostRowOpPublisher {
-    pub fn new(
-        pool: SqlitePool,
-        projectors: Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>,
-    ) -> Self {
+    pub fn new(pool: SqlitePool, projectors: ConversationRowProjectors) -> Self {
         Self { pool, projectors }
     }
 }
@@ -33,7 +29,7 @@ impl ConversationEventPublisher for HostRowOpPublisher {
         if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
             match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
                 Ok(projector) => {
-                    entry.insert(projector);
+                    entry.insert(CachedRowProjector::new(projector));
                 }
                 Err(error) => {
                     tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
@@ -41,39 +37,56 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                 }
             }
         }
-        let projector = map
+        let entry = map
             .get_mut(&conversation_id)
             .expect("projector present after insert");
-        if record.sequence <= projector.last_sequence() {
+        entry.touch();
+        if record.sequence <= entry.projector.last_sequence() {
             return;
         }
-        let ops = match projector.apply(record) {
+        let ops = match entry.projector.apply(record) {
             Ok(ops) => ops,
             Err(error) => {
                 tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed");
                 return;
             }
         };
-        if ops.is_empty() {
+        let last_sequence = entry.projector.last_sequence();
+        evict_least_recently_used_projectors(&mut map, conversation_id);
+        drop(map);
+
+        let mut session_modes = None;
+        let mut session_config_options = None;
+        let mut available_commands = None;
+        if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+            match event {
+                ConversationEvent::SessionModeUpdated { current, modes } => {
+                    session_modes = Some(ConversationSessionModes { current, modes });
+                }
+                ConversationEvent::SessionConfigOptionsUpdated { options } => {
+                    session_config_options = Some(options);
+                }
+                ConversationEvent::AvailableCommandsUpdated { commands } => {
+                    available_commands = Some(commands);
+                }
+                _ => {}
+            }
+        }
+        if ops.is_empty()
+            && session_modes.is_none()
+            && session_config_options.is_none()
+            && available_commands.is_none()
+        {
             return;
         }
-        let last_sequence = projector.last_sequence();
-        let settled = matches!(
-            record.event_kind.as_str(),
-            "turn_completed" | "turn_failed" | "turn_cancelled"
-        );
-        if settled {
-            map.remove(&conversation_id);
-        }
-        drop(map);
 
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence,
             ops,
-            session_modes: None,
-            session_config_options: None,
-            available_commands: None,
+            session_modes,
+            session_config_options,
+            available_commands,
         };
         let bus = global_host_events();
         bus.emit(format!("conversation-events:{conversation_id}"), &batch);

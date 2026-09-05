@@ -23,6 +23,8 @@ deployment = { path = "../deployment" }
 executors = { path = "../executors" }
 futures = { workspace = true }
 git = { path = "../git" }
+git2 = { workspace = true }
+ignore = "0.4"
 local-deployment = { path = "../local-deployment" }
 prost = "0.13"
 plugins = { path = "../plugins" }
@@ -47,10 +49,10 @@ url = { workspace = true }
 uuid = { workspace = true }
 utils = { path = "../utils" }
 which = "8.0.0"
+workflows = { path = "../workflows" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 futures = { workspace = true }
 tempfile = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
-workflows = { path = "../workflows" }

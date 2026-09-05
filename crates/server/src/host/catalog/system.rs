@@ -2,10 +2,8 @@ use std::{path::Path, time::Duration};
 
 use application::ApplicationError;
 use db::models::{
-    agent_management::legacy_migration::LegacyAgentMigration,
-    execution_process::ExecutionProcess,
-    project::Project,
-    workspace::Workspace,
+    agent_management::legacy_migration::LegacyAgentMigration, execution_process::ExecutionProcess,
+    project::Project, workspace::Workspace,
 };
 use deployment::Deployment;
 use executors::profile::ExecutorConfigs;
@@ -288,8 +286,11 @@ pub(super) fn set_log_settings(args: Value) -> Result<Value, ApplicationError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(internal_error)?;
     }
-    std::fs::write(&path, serde_json::to_vec_pretty(&settings).map_err(internal_error)?)
-        .map_err(internal_error)?;
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&settings).map_err(internal_error)?,
+    )
+    .map_err(internal_error)?;
     global_host_events().emit("log-settings://changed", &settings);
     serialize(settings)
 }
@@ -347,9 +348,15 @@ pub(super) async fn update_proxy(args: Value) -> Result<Value, ApplicationError>
             "Proxy URL is required when proxy is set to manual",
         ));
     }
-    if let Some(url) = settings.proxy_url.as_deref().map(str::trim).filter(|url| !url.is_empty()) {
-        reqwest::Proxy::all(url)
-            .map_err(|error| ApplicationError::bad_request(format!("Invalid proxy URL: {error}")))?;
+    if let Some(url) = settings
+        .proxy_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        reqwest::Proxy::all(url).map_err(|error| {
+            ApplicationError::bad_request(format!("Invalid proxy URL: {error}"))
+        })?;
     }
     let persisted = PersistedProxy {
         mode: settings.mode,
@@ -416,7 +423,10 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
                 repository: Some(repository),
                 checked: true,
                 error: None,
-                body: body.get("body").and_then(Value::as_str).map(ToOwned::to_owned),
+                body: body
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
                 published_at: body
                     .get("published_at")
                     .and_then(Value::as_str)
@@ -459,7 +469,9 @@ pub(super) async fn worktree_cleanup(
     Project::find_by_id(&domains.pool, args.project_id)
         .await
         .map_err(internal_error)?
-        .ok_or_else(|| ApplicationError::not_found(format!("Project {} not found", args.project_id)))?;
+        .ok_or_else(|| {
+            ApplicationError::not_found(format!("Project {} not found", args.project_id))
+        })?;
     let settings = load_project_settings(&utils::assets::settings_path(), args.project_id)
         .await
         .map_err(internal_error)?;
@@ -521,7 +533,9 @@ pub(super) async fn crash_report_read(args: Value) -> Result<Value, ApplicationE
     let args: CrashIdArgs = parse(args)?;
     let content = tokio::fs::read_to_string(checked_crash_path(&args.id)?)
         .await
-        .map_err(|error| ApplicationError::not_found(format!("Crash report unavailable: {error}")))?;
+        .map_err(|error| {
+            ApplicationError::not_found(format!("Crash report unavailable: {error}"))
+        })?;
     serialize(content)
 }
 

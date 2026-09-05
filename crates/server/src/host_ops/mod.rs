@@ -1,37 +1,33 @@
+mod file_listing;
+mod file_search;
+
 use std::{
     collections::HashSet,
     path::{Component, Path, PathBuf},
 };
 
+use agents::{AgentId, AgentSessionId};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
     conversation::DbConversationSummary,
+    conversation_turn::ConversationTurnRecord,
     project::{CreateProject, Project, UpdateProject},
     project_repo::{CreateProjectRepo, ProjectRepo},
     repo::Repo,
     session::{CreateSession, Session, SessionStatus},
-    task::Task,
-    workspace::Workspace,
-    workspace_repo::WorkspaceRepo,
+    task::{CreateTask, Task, TaskStatus},
+    workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
+use file_listing::{build_git_status_map, list_directory_children_at_path, walk_file_tree};
+use file_search::{TextSearchOptions, search_workspace_text_at_path};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::domains::{ServerApplicationDomains, internal_error, parse, serialize};
-
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    ".next",
-    ".cache",
-    "__pycache__",
-];
 
 impl ServerApplicationDomains {
     pub(crate) async fn host_ops(
@@ -174,7 +170,7 @@ impl ServerApplicationDomains {
                         repo_id: args.repo_id,
                     })
                     .await?,
-                    |git, path| git.create_branch(path, &args.branch, None),
+                    |git, path| git.create_branch(path, &args.branch, args.from_ref.as_deref()),
                 )
                 .await
             }
@@ -331,7 +327,7 @@ impl ServerApplicationDomains {
                         repo_id: args.repo_id,
                     })
                     .await?,
-                    |git, path| git.create_branch(path, &args.branch, None),
+                    |git, path| git.create_branch(path, &args.branch, args.from_ref.as_deref()),
                 )
                 .await
             }
@@ -394,21 +390,21 @@ impl ServerApplicationDomains {
                     .map_err(internal_error)?;
                 serialize(self.require_session(args.session_id).await?)
             }
-            DomainCommand::SessionDelete => {
-                let args: SessionIdArgs = parse(args)?;
-                Session::delete(&self.pool, args.session_id)
-                    .await
-                    .map_err(internal_error)?;
-                Ok(Value::Null)
-            }
+            DomainCommand::SessionDelete => self.delete_session(args).await,
             DomainCommand::FileTree => self.file_tree(args).await,
             DomainCommand::FileRead => {
                 let args: PathArgs = parse(args)?;
                 let path = self.sandbox_existing_file(&args.path).await?;
+                let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
+                if bytes.contains(&0) {
+                    return Err(ApplicationError::bad_request(
+                        "Binary files cannot be opened as text",
+                    ));
+                }
                 serialize(
-                    tokio::fs::read_to_string(path)
-                        .await
-                        .map_err(internal_error)?,
+                    String::from_utf8(bytes).map_err(|_| {
+                        ApplicationError::bad_request("File is not valid UTF-8 text")
+                    })?,
                 )
             }
             DomainCommand::FileSave => self.save_file(args).await,
@@ -459,18 +455,7 @@ impl ServerApplicationDomains {
             }
             DomainCommand::FileAtHead => {
                 let args: FileAtHeadArgs = parse(args)?;
-                let path = sanitize_absolute(&args.file_path)?;
-                let parent = path
-                    .parent()
-                    .ok_or_else(|| ApplicationError::bad_request("file has no parent"))?;
-                let relative = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .ok_or_else(|| ApplicationError::bad_request("invalid file name"))?;
-                let content = git::GitCli::new()
-                    .git(parent, ["show", &format!("HEAD:{relative}")])
-                    .map_err(internal_error)?;
-                serialize(content)
+                serialize(file_at_head_content(&args.file_path)?)
             }
             DomainCommand::TerminalCreate => self.create_terminal(args).await,
             DomainCommand::TerminalWrite => self.write_terminal(args).await,
@@ -528,7 +513,20 @@ impl ServerApplicationDomains {
                         args.agent_id
                     )));
                 }
-                Ok(Value::Null)
+                let views =
+                    services::services::agent_management::AgentManagementApplicationService::new(
+                        self.pool.clone(),
+                    )
+                    .list()
+                    .await
+                    .map_err(internal_error)?;
+                let view = views
+                    .into_iter()
+                    .find(|view| view.agent_id.as_str() == args.agent_id)
+                    .ok_or_else(|| {
+                        ApplicationError::not_found(format!("agent {}", args.agent_id))
+                    })?;
+                serialize(view)
             }
             DomainCommand::AgentManagementRefresh => {
                 let _ =
@@ -737,27 +735,54 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         let workspace = self.require_workspace(args.workspace_id).await?;
+        let in_flight = ConversationTurnRecord::in_flight_conversation_ids_for_workspace(
+            &self.pool,
+            args.workspace_id,
+        )
+        .await
+        .map_err(internal_error)?;
+        let pinned_rows: Vec<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as(r#"SELECT id, pinned_at FROM sessions WHERE workspace_id = ?"#)
+                .bind(args.workspace_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(internal_error)?;
+        let pinned_at_by_id = pinned_rows
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut fallback_number = 0usize;
         serialize(
             sessions
                 .into_iter()
-                .enumerate()
-                .map(|(index, session)| {
+                .map(|session| {
+                    let first_prompt = session.initial_prompt.clone();
+                    let needs_fallback = session
+                        .name
+                        .as_deref()
+                        .is_none_or(|value| value.trim().is_empty())
+                        && first_prompt
+                            .as_deref()
+                            .is_none_or(|value| value.trim().is_empty());
+                    if needs_fallback {
+                        fallback_number += 1;
+                    }
                     json!({
                         "id": session.id,
                         "workspace_id": session.workspace_id,
                         "task_id": session.task_id,
                         "name": session.name,
-                        "display_name": session.name.clone().unwrap_or_else(|| format!("会话{}", index + 1)),
+                        "display_name": session_display_name(&session, first_prompt.as_deref(), fallback_number),
                         "status": session.status,
                         "executor": session.executor,
+                        "agent_id": session.agent_id,
                         "workspace_name": workspace.name,
                         "workspace_branch": workspace.branch,
                         "created_at": session.created_at,
                         "updated_at": session.updated_at,
-                        "first_prompt": session.initial_prompt,
-                        "is_running": false,
+                        "first_prompt": first_prompt,
+                        "is_running": in_flight.contains(&session.id),
                         "continuity_mode": "new_session",
-                        "pinned_at": Value::Null,
+                        "pinned_at": pinned_at_by_id.get(&session.id).copied().flatten(),
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -767,6 +792,11 @@ impl ServerApplicationDomains {
     async fn create_session(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: CreateSessionArgs = parse(args)?;
         let workspace = self.require_workspace(args.workspace_id).await?;
+        self.deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(internal_error)?;
         serialize(
             Session::create(
                 &self.pool,
@@ -789,6 +819,11 @@ impl ServerApplicationDomains {
     async fn create_project_root_session(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: CreateProjectRootSessionArgs = parse(args)?;
         let workspace = self.ensure_root_workspace(args.project_id, None).await?;
+        self.deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(internal_error)?;
         serialize(
             Session::create(
                 &self.pool,
@@ -808,17 +843,68 @@ impl ServerApplicationDomains {
         )
     }
 
+    async fn delete_session(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: SessionIdArgs = parse(args)?;
+        let session = self.require_session(args.session_id).await?;
+        if db::models::execution_process::ExecutionProcess::has_running_non_dev_server_processes_for_session(
+            &self.pool,
+            session.id,
+        )
+        .await
+        .map_err(internal_error)?
+        {
+            return Err(ApplicationError::conflict("会话仍在执行，无法删除"));
+        }
+        let _ = db::models::scratch::Scratch::delete_all_by_id(&self.pool, session.id).await;
+        let deleted = Session::delete(&self.pool, session.id)
+            .await
+            .map_err(internal_error)?;
+        if deleted == 0 {
+            return Err(ApplicationError::not_found(format!(
+                "session {}",
+                session.id
+            )));
+        }
+        if let Ok(mut conn) = self.pool.acquire().await
+            && let Err(error) =
+                conversations::search::delete_from_index(&mut conn, session.id).await
+        {
+            tracing::warn!("failed to remove conversation from search index: {error}");
+        }
+        Ok(Value::Null)
+    }
+
     async fn create_project_session(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PayloadArgs<CreateProjectSessionPayload> = parse(args)?;
         let payload = args.payload;
-        let workspace = if let Some(workspace_id) = payload.workspace_id {
+        let workspace = if payload.create_workspace.unwrap_or(false) {
+            self.create_worktree_workspace_for_project_session(
+                payload.project_id,
+                payload.name.as_deref(),
+                payload.initial_prompt.as_deref(),
+                payload.repos.as_deref().unwrap_or(&[]),
+            )
+            .await?
+        } else if let Some(workspace_id) = payload.workspace_id {
             let workspace = self.require_workspace(workspace_id).await?;
             if workspace.project_id != payload.project_id {
                 return Err(ApplicationError::bad_request(
                     "workspace does not belong to project",
                 ));
             }
-            workspace
+            let repos = ProjectRepo::find_repos_for_project(&self.pool, payload.project_id)
+                .await
+                .map_err(internal_error)?;
+            if payload.session_id.is_some() {
+                workspace
+            } else if workspace_container_overlaps_repo(&workspace, &repos)
+                || !workspace.use_worktree
+            {
+                self.ensure_root_workspace(payload.project_id, Some(workspace.branch.as_str()))
+                    .await?
+            } else {
+                workspace
+            }
         } else {
             self.ensure_root_workspace(payload.project_id, payload.branch.as_deref())
                 .await?
@@ -828,23 +914,53 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
-        serialize(
-            Session::create(
+        let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
+        let prepared_identity = if payload.session_id.is_some() {
+            let agent_id = prepared_session_agent_id(payload.executor.as_deref())?;
+            let prepared = self
+                .conversations
+                .agent_runtime
+                .claim_prepared_session(AgentSessionId(session_id), workspace.id, agent_id.clone())
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+            Some((agent_id, prepared))
+        } else {
+            None
+        };
+        let mut session = Session::create(
+            &self.pool,
+            &CreateSession {
+                executor: payload.executor,
+                agent_id: prepared_identity
+                    .as_ref()
+                    .map(|(agent_id, _)| agent_id.clone()),
+                task_id: Some(workspace.task_id),
+                name: payload.name,
+                initial_prompt: payload.initial_prompt,
+                status: Some(SessionStatus::Todo),
+            },
+            session_id,
+            workspace.id,
+        )
+        .await
+        .map_err(internal_error)?;
+        if let Some((agent_id, prepared)) = prepared_identity {
+            Session::update_agent_metadata(
                 &self.pool,
-                &CreateSession {
-                    executor: payload.executor,
-                    agent_id: None,
-                    task_id: Some(workspace.task_id),
-                    name: payload.name,
-                    initial_prompt: payload.initial_prompt,
-                    status: Some(SessionStatus::Todo),
-                },
-                payload.session_id.unwrap_or_else(Uuid::new_v4),
-                workspace.id,
+                session.id,
+                Some(&prepared.acp_session_id),
+                Some(&agent_id),
             )
             .await
-            .map_err(internal_error)?,
-        )
+            .map_err(internal_error)?;
+            session.external_session_id = Some(prepared.acp_session_id);
+            session.agent_id = Some(agent_id);
+        }
+        self.conversations
+            .agent_runtime
+            .commit_prepared_session(AgentSessionId(session_id))
+            .await;
+        serialize(session)
     }
 
     async fn ensure_project_workspace(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -883,45 +999,39 @@ impl ServerApplicationDomains {
                 "root path is not a directory",
             ));
         }
-        serialize(walk_tree(&root, args.depth.unwrap_or(4), 0)?)
+        let git_map = build_git_status_map(&root);
+        serialize(walk_file_tree(
+            &root,
+            args.depth.unwrap_or(10),
+            0,
+            &git_map,
+        )?)
     }
 
     async fn list_directory_children(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: DirectoryChildrenArgs = parse(args)?;
         let root = self.sandbox_existing_path(&args.root_path).await?;
-        let target = if args.relative_path.is_empty() {
-            root
-        } else {
-            self.sandbox_existing_path(&root.join(args.relative_path).to_string_lossy())
-                .await?
-        };
-        let mut files = Vec::new();
-        let mut directories = Vec::new();
-        let mut entries = tokio::fs::read_dir(&target).await.map_err(internal_error)?;
-        while let Some(entry) = entries.next_entry().await.map_err(internal_error)? {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if SKIP_DIRS.contains(&name.as_str()) {
-                continue;
-            }
-            if entry.file_type().await.map_err(internal_error)?.is_dir() {
-                directories.push(name);
-            } else {
-                files.push(name);
-            }
+        if !args.relative_path.is_empty() {
+            self.sandbox_existing_path(&root.join(&args.relative_path).to_string_lossy())
+                .await?;
         }
-        Ok(json!({
-            "files": files,
-            "directories": directories,
-            "gitignored_files": [],
-            "gitignored_directories": [],
-            "truncated": false,
-        }))
+        let listing = tokio::task::spawn_blocking(move || {
+            list_directory_children_at_path(&root, &args.relative_path)
+        })
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))??;
+        serialize(listing)
     }
 
     async fn read_file_truncated(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ReadTruncatedArgs = parse(args)?;
         let path = self.sandbox_existing_file(&args.path).await?;
         let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
+        if bytes.contains(&0) {
+            return Err(ApplicationError::bad_request(
+                "Binary files cannot be opened as text",
+            ));
+        }
         let max = args.max_bytes.unwrap_or(512 * 1024) as usize;
         let truncated = bytes.len() > max;
         let slice = if truncated { &bytes[..max] } else { &bytes };
@@ -936,9 +1046,12 @@ impl ServerApplicationDomains {
         let args: SaveFileArgs = parse(args)?;
         let path = sanitize_absolute(&args.path)?;
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(internal_error)?;
+            if !parent.exists() {
+                return Err(ApplicationError::not_found(format!(
+                    "Parent directory does not exist: {}",
+                    parent.display()
+                )));
+            }
         }
         tokio::fs::write(path, args.content)
             .await
@@ -964,6 +1077,29 @@ impl ServerApplicationDomains {
         let args: MoveArgs = parse(args)?;
         let source = self.sandbox_existing_path(&args.path).await?;
         let dest = sanitize_absolute(&args.new_path)?;
+        if source == dest {
+            return serialize(dest.to_string_lossy().into_owned());
+        }
+        if dest.exists() {
+            return Err(ApplicationError::conflict(format!(
+                "Destination already exists: {}",
+                dest.display()
+            )));
+        }
+        let dest_parent = dest.parent().ok_or_else(|| {
+            ApplicationError::bad_request("Destination must include a parent directory")
+        })?;
+        if !dest_parent.exists() {
+            return Err(ApplicationError::not_found(format!(
+                "Destination parent does not exist: {}",
+                dest_parent.display()
+            )));
+        }
+        if source.is_dir() && dest.starts_with(&source) {
+            return Err(ApplicationError::bad_request(
+                "Cannot move a directory into itself",
+            ));
+        }
         tokio::fs::rename(&source, &dest)
             .await
             .map_err(internal_error)?;
@@ -973,10 +1109,7 @@ impl ServerApplicationDomains {
     async fn search_workspace_text(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: TextSearchArgs = parse(args)?;
         let root = self.sandbox_existing_path(&args.root_path).await?;
-        let query = args.options.query.to_lowercase();
-        let mut files = Vec::new();
-        search_text(&root, &query, &mut files, 40)?;
-        Ok(json!({ "files": files }))
+        serialize(search_workspace_text_at_path(&root, args.options)?)
     }
 
     async fn create_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1031,69 +1164,285 @@ impl ServerApplicationDomains {
         project_id: Uuid,
         branch: Option<&str>,
     ) -> Result<Workspace, ApplicationError> {
-        let workspaces = Workspace::fetch_by_project_id(&self.pool, project_id)
-            .await
-            .map_err(internal_error)?;
-        if let Some(existing) = select_project_root_workspace(&workspaces, branch).cloned() {
-            let _ = self
-                .deployment
-                .container()
-                .ensure_container_exists(&existing)
-                .await;
-            return Ok(existing);
-        }
         let repos = ProjectRepo::find_repos_for_project(&self.pool, project_id)
             .await
             .map_err(internal_error)?;
         let primary = repos
             .into_iter()
             .next()
-            .ok_or_else(|| ApplicationError::bad_request("project has no repository"))?;
-        let current = self
+            .ok_or_else(|| ApplicationError::bad_request("Project has no repositories"))?;
+        let current_branch = self
             .deployment
             .git()
             .get_current_branch(&primary.path)
             .map_err(internal_error)?;
-        let branch = branch.unwrap_or(&current).to_string();
-        let task = Task::find_by_id(&self.pool, {
-            // Seed a workspace from the first project task if one exists.
-            sqlx::query_scalar::<_, Uuid>("SELECT id FROM tasks WHERE project_id = ? LIMIT 1")
-                .bind(project_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(internal_error)?
-                .ok_or_else(|| {
-                    ApplicationError::bad_request("project has no task to host a workspace")
-                })?
-        })
+        let desired_branch = branch
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| current_branch.clone());
+        if desired_branch != current_branch {
+            self.deployment
+                .git()
+                .checkout_branch(&primary.path, &desired_branch)
+                .map_err(|error| {
+                    if git_checkout_error_is_local_changes(&error.to_string()) {
+                        ApplicationError::bad_request(format!(
+                            "当前分支{current_branch}中存在未提交更改，无法切换到{desired_branch}分支，请先提交或放弃更改。"
+                        ))
+                    } else {
+                        ApplicationError::internal(format!(
+                            "Failed to checkout project root branch '{desired_branch}': {error}"
+                        ))
+                    }
+                })?;
+        }
+        let workspace_repos = vec![CreateWorkspaceRepo {
+            repo_id: primary.id,
+            target_branch: desired_branch.clone(),
+        }];
+        if let Some(workspace_id) = WorkspaceRepo::find_reusable_non_worktree_workspace_id(
+            &self.pool,
+            project_id,
+            &workspace_repos,
+        )
         .await
         .map_err(internal_error)?
-        .ok_or_else(|| ApplicationError::not_found("project task"))?;
-        Workspace::create(
+        {
+            if let Some(mut workspace) = Workspace::find_by_id(&self.pool, workspace_id)
+                .await
+                .map_err(internal_error)?
+            {
+                let expected_container_ref = primary.path.to_string_lossy().into_owned();
+                if workspace.container_ref.as_deref() != Some(expected_container_ref.as_str()) {
+                    Workspace::update_container_ref(
+                        &self.pool,
+                        workspace.id,
+                        &expected_container_ref,
+                    )
+                    .await
+                    .map_err(internal_error)?;
+                    workspace.container_ref = Some(expected_container_ref);
+                }
+                if workspace.agent_working_dir != primary.default_working_dir {
+                    sqlx::query(
+                        "UPDATE workspaces SET agent_working_dir = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
+                    )
+                    .bind(primary.default_working_dir.as_deref())
+                    .bind(workspace.id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal_error)?;
+                    workspace.agent_working_dir = primary.default_working_dir.clone();
+                }
+                let _ = self
+                    .deployment
+                    .container()
+                    .ensure_container_exists(&workspace)
+                    .await;
+                return Ok(workspace);
+            }
+        }
+        let owner_task = if let Some(task) =
+            Task::find_by_project_id_with_attempt_status(&self.pool, project_id)
+                .await
+                .map_err(internal_error)?
+                .into_iter()
+                .map(|task| task.task)
+                .next()
+        {
+            task
+        } else {
+            Task::create(
+                &self.pool,
+                &CreateTask {
+                    project_id,
+                    title: format!("Project Root Workspace ({})", primary.name),
+                    description: Some(
+                        "Auto-created to support sessions on the project root branch.".to_string(),
+                    ),
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                },
+                Uuid::new_v4(),
+            )
+            .await
+            .map_err(internal_error)?
+        };
+        let workspace = Workspace::create(
             &self.pool,
-            &db::models::workspace::CreateWorkspace {
+            &CreateWorkspace {
+                project_id,
+                parent_workspace_id: None,
+                branch: desired_branch.clone(),
+                container_ref: Some(primary.path.to_string_lossy().into_owned()),
+                use_worktree: false,
+                agent_working_dir: primary.default_working_dir.clone(),
+            },
+            Uuid::new_v4(),
+            owner_task.id,
+        )
+        .await
+        .map_err(internal_error)?;
+        WorkspaceRepo::create_many(&self.pool, workspace.id, &workspace_repos)
+            .await
+            .map_err(internal_error)?;
+        let workspace_display_name = if primary.display_name.trim().is_empty() {
+            primary.name.as_str()
+        } else {
+            primary.display_name.as_str()
+        };
+        let workspace_name = format!("{workspace_display_name} · {desired_branch}");
+        Workspace::update(
+            &self.pool,
+            workspace.id,
+            Some(false),
+            None,
+            Some(workspace_name.as_str()),
+        )
+        .await
+        .map_err(internal_error)?;
+        let workspace = Workspace::find_by_id(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))?;
+        let _ = self
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await;
+        Ok(workspace)
+    }
+
+    async fn create_worktree_workspace_for_project_session(
+        &self,
+        project_id: Uuid,
+        name: Option<&str>,
+        initial_prompt: Option<&str>,
+        repos: &[ProjectSessionRepoInput],
+    ) -> Result<Workspace, ApplicationError> {
+        if repos.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "At least one repository is required",
+            ));
+        }
+        let workspace_title = derive_workspace_seed_title(name, initial_prompt);
+        let task = Task::create(
+            &self.pool,
+            &CreateTask {
+                project_id,
+                title: workspace_title.clone(),
+                description: initial_prompt.map(ToOwned::to_owned),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .map_err(internal_error)?;
+        let agent_working_dir = if repos.len() == 1 {
+            let repo = Repo::find_by_id(&self.pool, repos[0].repo_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
+            Some(match repo.default_working_dir {
+                Some(subdir) => PathBuf::from(&repo.name)
+                    .join(subdir)
+                    .to_string_lossy()
+                    .into_owned(),
+                None => repo.name,
+            })
+        } else {
+            None
+        };
+        let workspace_id = Uuid::new_v4();
+        let branch = self
+            .deployment
+            .container()
+            .git_branch_from_workspace(&workspace_id, &workspace_title)
+            .await;
+        let workspace = Workspace::create(
+            &self.pool,
+            &CreateWorkspace {
                 project_id,
                 parent_workspace_id: None,
                 branch,
-                container_ref: Some(primary.path.to_string_lossy().into_owned()),
-                use_worktree: false,
-                agent_working_dir: None,
+                container_ref: None,
+                use_worktree: true,
+                agent_working_dir,
             },
-            Uuid::new_v4(),
+            workspace_id,
             task.id,
         )
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+        Workspace::update(
+            &self.pool,
+            workspace.id,
+            None,
+            None,
+            Some(workspace_title.as_str()),
+        )
+        .await
+        .map_err(internal_error)?;
+        let mut workspace_repos = Vec::with_capacity(repos.len());
+        for input in repos {
+            let target_branch = if input.target_branch.trim().is_empty() {
+                let repo = Repo::find_by_id(&self.pool, input.repo_id)
+                    .await
+                    .map_err(internal_error)?
+                    .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
+                self.deployment
+                    .git()
+                    .get_current_branch(&repo.path)
+                    .map_err(|error| {
+                        ApplicationError::internal(format!(
+                            "Could not resolve the default branch of repo {}: {error}",
+                            repo.name
+                        ))
+                    })?
+            } else {
+                input.target_branch.clone()
+            };
+            workspace_repos.push(CreateWorkspaceRepo {
+                repo_id: input.repo_id,
+                target_branch,
+            });
+        }
+        WorkspaceRepo::create_many(&self.pool, workspace.id, &workspace_repos)
+            .await
+            .map_err(internal_error)?;
+        let workspace = Workspace::find_by_id(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))?;
+        self.deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(internal_error)?;
+        Workspace::find_by_id(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))
     }
 
-    pub(crate) async fn require_workspace(&self, workspace_id: Uuid) -> Result<Workspace, ApplicationError> {
+    pub(crate) async fn require_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Workspace, ApplicationError> {
         Workspace::find_by_id(&self.pool, workspace_id)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("workspace {workspace_id}")))
     }
 
-    async fn require_session(&self, session_id: Uuid) -> Result<Session, ApplicationError> {
+    pub(crate) async fn require_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Session, ApplicationError> {
         Session::find_by_id(&self.pool, session_id)
             .await
             .map_err(internal_error)?
@@ -1130,7 +1479,10 @@ impl ServerApplicationDomains {
             .path)
     }
 
-    pub(crate) async fn worktree_path(&self, args: WorkspaceRepoArgs) -> Result<PathBuf, ApplicationError> {
+    pub(crate) async fn worktree_path(
+        &self,
+        args: WorkspaceRepoArgs,
+    ) -> Result<PathBuf, ApplicationError> {
         let workspace = self.require_workspace(args.workspace_id).await?;
         let repo = self
             .deployment
@@ -1149,7 +1501,10 @@ impl ServerApplicationDomains {
             .unwrap_or_else(|| PathBuf::from(container)))
     }
 
-    pub(crate) async fn sandbox_existing_file(&self, path: &str) -> Result<PathBuf, ApplicationError> {
+    pub(crate) async fn sandbox_existing_file(
+        &self,
+        path: &str,
+    ) -> Result<PathBuf, ApplicationError> {
         let path = self.sandbox_existing_path(path).await?;
         if !path.is_file() {
             return Err(ApplicationError::not_found(format!(
@@ -1201,25 +1556,117 @@ impl ServerApplicationDomains {
     }
 }
 
-fn select_project_root_workspace<'a>(
-    workspaces: &'a [Workspace],
-    branch: Option<&str>,
-) -> Option<&'a Workspace> {
-    let active = workspaces
-        .iter()
-        .filter(|workspace| !workspace.archived)
-        .collect::<Vec<_>>();
-    let matches_branch =
-        |workspace: &&Workspace| branch.is_none_or(|wanted| workspace.branch == wanted);
-    active
-        .iter()
-        .copied()
-        .find(|workspace| !workspace.use_worktree && matches_branch(workspace))
-        .or_else(|| {
-            active
-                .iter()
-                .copied()
-                .find(|workspace| !workspace.use_worktree)
+const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";
+
+fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>) -> String {
+    if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+    if let Some(prompt) = initial_prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        return prompt.chars().take(40).collect();
+    }
+    NEW_SESSION_WORKSPACE_TITLE.to_string()
+}
+
+fn prepared_session_agent_id(executor: Option<&str>) -> Result<AgentId, ApplicationError> {
+    let executor = executor
+        .map(str::trim)
+        .filter(|executor| !executor.is_empty())
+        .ok_or_else(|| {
+            ApplicationError::bad_request("A prepared session requires an Agent executor")
+        })?;
+    AgentId::parse(executor).map_err(|error| {
+        ApplicationError::bad_request(format!(
+            "Prepared session Agent executor is invalid: {error}"
+        ))
+    })
+}
+
+fn canonicalize_for_workspace_safety(path: &Path) -> PathBuf {
+    if let Ok(path) = std::fs::canonicalize(path) {
+        return path;
+    }
+    let mut missing_segments = Vec::new();
+    let mut cursor = path;
+    while !cursor.exists() {
+        let Some(name) = cursor.file_name() else {
+            break;
+        };
+        missing_segments.push(name.to_os_string());
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent;
+    }
+    let mut resolved = std::fs::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+    for segment in missing_segments.iter().rev() {
+        resolved.push(segment);
+    }
+    resolved
+}
+
+fn workspace_container_overlaps_repo(workspace: &Workspace, repos: &[Repo]) -> bool {
+    if !workspace.use_worktree {
+        return false;
+    }
+    let Some(container_ref) = workspace.container_ref.as_deref() else {
+        return false;
+    };
+    let container_path = canonicalize_for_workspace_safety(Path::new(container_ref));
+    repos.iter().any(|repo| {
+        let repo_path = canonicalize_for_workspace_safety(&repo.path);
+        container_path == repo_path
+            || container_path.starts_with(&repo_path)
+            || repo_path.starts_with(&container_path)
+    })
+}
+
+fn git_checkout_error_is_local_changes(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("local changes") && normalized.contains("would be overwritten by checkout")
+}
+
+fn file_at_head_content(file_path: &str) -> Result<String, ApplicationError> {
+    let path = sanitize_absolute(file_path)?;
+    let repo = git2::Repository::discover(&path)
+        .map_err(|error| ApplicationError::internal(format!("Failed to open git repo: {error}")))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| ApplicationError::internal("Bare repository has no working directory"))?;
+    let workdir = workdir.canonicalize().map_err(internal_error)?;
+    let relative = path.strip_prefix(&workdir).map_err(|_| {
+        ApplicationError::bad_request(format!(
+            "File {file_path} is not within the repository working directory"
+        ))
+    })?;
+    let commit = repo
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(|error| ApplicationError::internal(format!("Failed to get HEAD: {error}")))?;
+    let tree = commit.tree().map_err(|error| {
+        ApplicationError::internal(format!("Failed to get commit tree: {error}"))
+    })?;
+    let git_path = relative.to_string_lossy().replace('\\', "/");
+    let tree_entry = tree
+        .get_path(Path::new(&git_path))
+        .map_err(|_| ApplicationError::not_found(format!("File not found in HEAD: {git_path}")))?;
+    let blob = repo
+        .find_blob(tree_entry.id())
+        .map_err(|error| ApplicationError::internal(format!("Failed to read blob: {error}")))?;
+    if blob.is_binary() {
+        return Err(ApplicationError::bad_request(format!(
+            "Binary file cannot be opened as text: {git_path}"
+        )));
+    }
+    std::str::from_utf8(blob.content())
+        .map(str::to_string)
+        .map_err(|_| {
+            ApplicationError::bad_request(format!(
+                "Binary file cannot be opened as text: {git_path}"
+            ))
         })
 }
 
@@ -1241,31 +1688,23 @@ pub(crate) fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError>
     Ok(path)
 }
 
-fn walk_tree(root: &Path, max_depth: u32, depth: u32) -> Result<Vec<Value>, ApplicationError> {
-    let mut entries = Vec::new();
-    let read = std::fs::read_dir(root).map_err(internal_error)?;
-    for entry in read {
-        let entry = entry.map_err(internal_error)?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if SKIP_DIRS.contains(&name.as_str()) {
-            continue;
-        }
-        let path = entry.path();
-        let is_dir = path.is_dir();
-        let children = if is_dir && depth + 1 < max_depth {
-            Some(walk_tree(&path, max_depth, depth + 1)?)
-        } else {
-            None
-        };
-        entries.push(json!({
-            "name": name,
-            "path": path.to_string_lossy(),
-            "is_dir": is_dir,
-            "children": children,
-            "git_status": Value::Null,
-        }));
-    }
-    Ok(entries)
+fn session_display_name(
+    session: &Session,
+    first_prompt: Option<&str>,
+    fallback_number: usize,
+) -> String {
+    session
+        .name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            first_prompt
+                .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|value| !value.is_empty())
+                .map(|value| value.chars().take(8).collect())
+        })
+        .unwrap_or_else(|| format!("新会话{fallback_number}"))
 }
 
 fn unique_copy_path(source: &Path) -> Result<PathBuf, ApplicationError> {
@@ -1304,53 +1743,6 @@ fn copy_dir(source: &Path, dest: &Path) -> Result<(), ApplicationError> {
             copy_dir(&entry.path(), &to)?;
         } else {
             std::fs::copy(entry.path(), to).map_err(internal_error)?;
-        }
-    }
-    Ok(())
-}
-
-fn search_text(
-    root: &Path,
-    query: &str,
-    files: &mut Vec<Value>,
-    remaining: usize,
-) -> Result<(), ApplicationError> {
-    if remaining == 0 || query.is_empty() {
-        return Ok(());
-    }
-    let mut leftover = remaining;
-    let read = std::fs::read_dir(root).map_err(internal_error)?;
-    for entry in read {
-        if leftover == 0 {
-            break;
-        }
-        let entry = entry.map_err(internal_error)?;
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if SKIP_DIRS.contains(&name.as_str()) {
-            continue;
-        }
-        if path.is_dir() {
-            search_text(&path, query, files, leftover)?;
-            leftover = remaining.saturating_sub(files.len());
-            continue;
-        }
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let matches = content
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.to_lowercase().contains(query))
-            .take(8)
-            .map(|(line, text)| json!({ "line": line + 1, "text": text }))
-            .collect::<Vec<_>>();
-        if !matches.is_empty() {
-            files.push(json!({
-                "path": path.to_string_lossy(),
-                "matches": matches,
-            }));
-            leftover = leftover.saturating_sub(1);
         }
     }
     Ok(())
@@ -1469,7 +1861,10 @@ struct RepoCommitArgs {
 #[serde(rename_all = "camelCase")]
 struct RepoBranchArgs {
     repo_id: Uuid,
+    #[serde(alias = "branchName")]
     branch: String,
+    #[serde(default)]
+    from_ref: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1508,7 +1903,10 @@ struct WorkspaceCommitDetailArgs {
 struct WorkspaceBranchArgs {
     workspace_id: Uuid,
     repo_id: Uuid,
+    #[serde(alias = "branchName")]
     branch: String,
+    #[serde(default)]
+    from_ref: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1532,13 +1930,33 @@ struct CreateProjectRootSessionArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateProjectSessionPayload {
+    #[serde(default, alias = "session_id")]
     session_id: Option<Uuid>,
+    #[serde(alias = "project_id")]
     project_id: Uuid,
+    #[serde(default, alias = "workspace_id")]
     workspace_id: Option<Uuid>,
+    #[serde(default)]
     branch: Option<String>,
+    #[serde(default)]
     executor: Option<String>,
+    #[serde(default)]
     name: Option<String>,
+    #[serde(default, alias = "initial_prompt")]
     initial_prompt: Option<String>,
+    #[serde(default, alias = "create_workspace")]
+    create_workspace: Option<bool>,
+    #[serde(default)]
+    repos: Option<Vec<ProjectSessionRepoInput>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectSessionRepoInput {
+    #[serde(alias = "repo_id")]
+    repo_id: Uuid,
+    #[serde(alias = "target_branch")]
+    target_branch: String,
 }
 
 #[derive(Deserialize)]
@@ -1630,11 +2048,6 @@ struct TextSearchArgs {
 }
 
 #[derive(Deserialize)]
-struct TextSearchOptions {
-    query: String,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateTerminalArgs {
     workspace_id: Uuid,
@@ -1670,4 +2083,100 @@ struct ResizeTerminalArgs {
 struct AgentEnabledArgs {
     agent_id: String,
     enabled: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn create_project_session_payload_accepts_host_camel_case() {
+        let parsed: PayloadArgs<CreateProjectSessionPayload> = serde_json::from_value(json!({
+            "payload": {
+                "projectId": "11111111-1111-1111-1111-111111111111",
+                "createWorkspace": true,
+                "repos": [{
+                    "repoId": "22222222-2222-2222-2222-222222222222",
+                    "targetBranch": "main"
+                }]
+            }
+        }))
+        .expect("camelCase create session payload");
+        assert_eq!(
+            parsed.payload.project_id.to_string(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(parsed.payload.create_workspace, Some(true));
+        assert_eq!(parsed.payload.repos.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn create_project_session_payload_accepts_legacy_snake_case() {
+        let parsed: PayloadArgs<CreateProjectSessionPayload> = serde_json::from_value(json!({
+            "payload": {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "workspace_id": null,
+                "create_workspace": false,
+                "repos": [{
+                    "repo_id": "22222222-2222-2222-2222-222222222222",
+                    "target_branch": "main"
+                }]
+            }
+        }))
+        .expect("snake_case create session payload");
+        assert_eq!(
+            parsed.payload.project_id.to_string(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(parsed.payload.create_workspace, Some(false));
+        assert_eq!(parsed.payload.repos.unwrap()[0].target_branch, "main");
+    }
+
+    #[test]
+    fn prepared_sessions_accept_open_registry_agent_ids() {
+        let agent_id = prepared_session_agent_id(Some("registry.example-agent")).unwrap();
+        assert_eq!(agent_id.as_str(), "registry.example-agent");
+    }
+
+    #[test]
+    fn prepared_sessions_reject_missing_or_invalid_agent_ids() {
+        assert!(prepared_session_agent_id(None).is_err());
+    }
+
+    #[test]
+    fn repo_branch_args_accept_branch_name_alias() {
+        let parsed: RepoBranchArgs = application::decode_command_args(json!({
+            "repoId": "11111111-1111-1111-1111-111111111111",
+            "branchName": "feat/host"
+        }))
+        .expect("branchName");
+        assert_eq!(parsed.branch, "feat/host");
+    }
+
+    #[test]
+    fn events_since_unwraps_request() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct EventsSince {
+            conversation_id: String,
+            after_sequence: i64,
+        }
+        let parsed: EventsSince = application::decode_command_args(json!({
+            "request": {
+                "conversationId": "c-1",
+                "afterSequence": 4,
+                "limit": 100
+            }
+        }))
+        .expect("request wrap");
+        assert_eq!(parsed.conversation_id, "c-1");
+        assert_eq!(parsed.after_sequence, 4);
+    }
+
+    #[test]
+    fn prepared_sessions_reject_invalid_agent_display_names() {
+        assert!(prepared_session_agent_id(Some("Registry Agent")).is_err());
+    }
 }

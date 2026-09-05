@@ -1,18 +1,20 @@
 use std::{collections::HashSet, sync::Arc};
 
-use agents::{AgentId, SessionLaunchLock};
+use agents::AgentId;
 use application::{ApplicationDomainPort, ApplicationError, DomainCommand, Principal};
 use artifacts::{ArtifactRepository, SqliteArtifactRepository};
 use async_trait::async_trait;
 use automation::{
-    AutomationDraft, AutomationDraftInput, AutomationTarget, BuiltinTemplateCatalog, ClaimedRun,
-    PluginActionCatalogPort, RunStatus, ScheduleService, ScheduleSpec, SystemClock, TurnLaunchSpec,
-    WorkflowAutomationDraft,
+    AutomationDraft, AutomationDraftInput, AutomationSpec, AutomationTarget,
+    BuiltinTemplateCatalog, ClaimedRun, PORTABLE_AUTOMATION_SPEC_VERSION, PluginActionCatalogPort,
+    PortableAutomationTarget, PortableTurnLaunchSpec, PortableWorkflowLaunchSpec,
+    PortableWorkspaceRef, RunStatus, ScheduleService, ScheduleSpec, SystemClock, TurnLaunchSpec,
+    TurnLaunchSpecInput, WORKFLOW_AUTOMATION_SPEC_VERSION, WorkflowAutomationDraft,
+    WorkflowLaunchSpec, WorkspaceTarget,
 };
 use chrono::{DateTime, Utc};
 use conversations::{ConversationContext, ConversationSessionService};
 use db::models::{
-    agent_capability_catalog::AgentCapabilityCatalogRecord,
     automation_v2::{AutomationRecord, AutomationRunRecord, SqliteAutomationStore},
     project::Project,
     project_repo::ProjectRepo,
@@ -21,7 +23,6 @@ use deployment::Deployment;
 use local_deployment::LocalDeployment;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -132,6 +133,12 @@ impl ServerApplicationDomains {
             DomainCommand::RepoBranches => self.repo_branches(args).await,
             DomainCommand::AgentManagementBar => self.agent_management_bar().await,
             DomainCommand::AgentCapabilityCatalog => self.agent_capability_catalog(args).await,
+            DomainCommand::AgentCapabilityCatalogFresh => {
+                self.agent_capability_catalog_fresh(args).await
+            }
+            DomainCommand::AgentRefreshCapabilityCatalog => {
+                self.agent_refresh_capability_catalog(args).await
+            }
             DomainCommand::AgentSkillsList => self.agent_skills(args).await,
             DomainCommand::UserSystemInfo => self.user_system_info().await,
             DomainCommand::ArtifactList => self.artifact_list(args).await,
@@ -153,12 +160,46 @@ impl ServerApplicationDomains {
             DomainCommand::AutomationTemplates => self.automation_templates(),
             DomainCommand::AutomationUnseenFailures => self.automation_unseen_failures().await,
             DomainCommand::AutomationMarkSeen => self.automation_mark_seen().await,
+            DomainCommand::AutomationExportSpec => self.automation_export_spec(args).await,
+            DomainCommand::AutomationImportSpec => self.automation_import_spec(args).await,
             DomainCommand::DelegationCancel => self.delegation_cancel(args).await,
             DomainCommand::ConversationDetail => self.conversation_detail(args).await,
             DomainCommand::ConversationEventsSince => self.conversation_events_since(args).await,
             DomainCommand::ConversationEnsureSessionControls => {
                 self.conversation_ensure_session_controls(args).await
             }
+            DomainCommand::ConversationTimelinePage => self.conversation_timeline_page(args).await,
+            DomainCommand::ConversationRebindSession => {
+                self.conversation_rebind_session(args).await
+            }
+            DomainCommand::ConversationTruncateToTurn => {
+                self.conversation_truncate_to_turn(args).await
+            }
+            DomainCommand::ConversationSearch => self.conversation_search_host(args).await,
+            DomainCommand::ConversationExportMarkdown => {
+                self.conversation_export_text(args, false).await
+            }
+            DomainCommand::ConversationExportHtml => {
+                self.conversation_export_text(args, true).await
+            }
+            DomainCommand::ConversationExport => self.conversation_export_bundle(args).await,
+            DomainCommand::ConversationClose => self.conversation_close_host(args).await,
+            DomainCommand::ConversationCheckpointPreview => {
+                self.conversation_checkpoint_preview(args).await
+            }
+            DomainCommand::ConversationImport => self.conversation_import_host(args).await,
+            DomainCommand::ConversationFork => self.conversation_fork_host(args).await,
+            DomainCommand::WorkspaceContinueConflicts
+            | DomainCommand::WorkspaceConflictFile
+            | DomainCommand::WorkspaceWriteConflictResolution
+            | DomainCommand::WorkspaceShowStash
+            | DomainCommand::WorkspaceCreatePr
+            | DomainCommand::WorkspaceAttachPr
+            | DomainCommand::WorkspaceCreateFromPr
+            | DomainCommand::WorkspaceRunSetupScript
+            | DomainCommand::WorkspaceRunCleanupScript
+            | DomainCommand::WorkspaceRunArchiveScript => self.product_command(command, args).await,
+            DomainCommand::AgentScanLocalHistory => self.surface_command(command, args).await,
             DomainCommand::WorkspaceCreate
             | DomainCommand::WorkspaceUpdate
             | DomainCommand::WorkspaceDelete
@@ -183,8 +224,6 @@ impl ServerApplicationDomains {
             | DomainCommand::WorkspaceStashDrop
             | DomainCommand::WorkspaceRenameBranch
             | DomainCommand::WorkspaceChangeTargetBranch
-            | DomainCommand::AutomationExportSpec
-            | DomainCommand::AutomationImportSpec
             | DomainCommand::AutomationUpdateWorkflow
             | DomainCommand::AttentionInboxList
             | DomainCommand::ScratchGet
@@ -215,15 +254,13 @@ impl ServerApplicationDomains {
             | DomainCommand::RepoOpenPrs
             | DomainCommand::WorkflowSourceRead
             | DomainCommand::WorkflowSourceWrite
-            | DomainCommand::AgentRefreshCapabilityCatalog
-            | DomainCommand::AgentCapabilityCatalogFresh
             | DomainCommand::AgentListLiveTerminals
             | DomainCommand::AgentPlanUsage
             | DomainCommand::FrontendPreferencesGet
             | DomainCommand::FrontendPreferencesUpdate
             | DomainCommand::ProjectWorktreeSettingsGet
             | DomainCommand::ProjectWorktreeSettingsUpdate
-            |             DomainCommand::ReadBinaryAsset => self.product_command(command, args).await,
+            | DomainCommand::ReadBinaryAsset => self.product_command(command, args).await,
             DomainCommand::SubscribeDiffStream
             | DomainCommand::SubscribeConversationStream
             | DomainCommand::SubscribeExecutionProcessesStream
@@ -352,7 +389,7 @@ impl ServerApplicationDomains {
             | DomainCommand::OpenCodeProviderConnections
             | DomainCommand::OpenCodeProviderDisconnect
             | DomainCommand::OpenCodeProviderImport
-            |             DomainCommand::OpenCodeProviderSetEnabled => {
+            | DomainCommand::OpenCodeProviderSetEnabled => {
                 self.surface_command(command, args).await
             }
             other if crate::host::catalog::handles(other) => {
@@ -628,7 +665,10 @@ impl ServerApplicationDomains {
         Ok(installation)
     }
 
-    pub(crate) async fn plugin_control_import(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_control_import(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PluginImportArgs {
@@ -724,7 +764,10 @@ impl ServerApplicationDomains {
         Ok(plugin_control_item(&imported.plugin))
     }
 
-    pub(crate) async fn plugin_marketplace_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_marketplace_catalog(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct CatalogArgs {
@@ -887,7 +930,10 @@ impl ServerApplicationDomains {
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
-    pub(crate) async fn plugin_control_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_control_uninstall(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PluginUninstallArgs {
@@ -953,7 +999,10 @@ impl ServerApplicationDomains {
         )
     }
 
-    pub(crate) async fn plugin_surface_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn plugin_surface_invoke(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         self.app_surfaces
             .invoke(parse(args)?)
             .await
@@ -1169,36 +1218,50 @@ impl ServerApplicationDomains {
         )
     }
 
-    pub(crate) async fn agent_capability_catalog(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(crate) async fn agent_capability_catalog(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
-        let launch =
-            match conversations::resolve_agent_runtime_launch_settings(&self.pool, &agent_id).await
-            {
-                Ok(launch) => launch,
-                Err(_) => return Ok(Value::Null),
-            };
-        let fingerprint = capability_catalog_fingerprint(&launch.launch_lock);
-        let record = AgentCapabilityCatalogRecord::find_matching(
-            &self.pool,
-            agent_id.as_str(),
-            &fingerprint,
+        serialize(
+            conversations::read_matching_open_capability_catalog(&self.pool, &agent_id)
+                .await
+                .map_err(conversation_error)?,
         )
-        .await
-        .map_err(internal_error)?;
-        record
-            .and_then(|record| serde_json::from_str(&record.controls_json).ok())
-            .map_or(Ok(Value::Null), Ok)
+    }
+
+    async fn agent_capability_catalog_fresh(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: AgentIdArgs = parse(args)?;
+        let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
+        serialize(
+            conversations::capability_catalog_is_fresh(&self.pool, &agent_id)
+                .await
+                .map_err(conversation_error)?,
+        )
+    }
+
+    async fn agent_refresh_capability_catalog(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: AgentIdArgs = parse(args)?;
+        let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
+        serialize(
+            conversations::refresh_open_capability_catalog(
+                &self.pool,
+                &self.conversations.agent_runtime,
+                &agent_id,
+            )
+            .await
+            .map_err(conversation_error)?,
+        )
     }
 
     async fn agent_skills(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentSkillsArgs = parse(args)?;
-        crate::host::catalog::skills::list_agent_skills(
-            self,
-            args.agent_type,
-            args.workspace_path,
-        )
-        .await
+        crate::host::catalog::skills::list_agent_skills(self, args.agent_type, args.workspace_path)
+            .await
     }
 
     async fn user_system_info(&self) -> Result<Value, ApplicationError> {
@@ -1500,6 +1563,187 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
+    async fn automation_export_spec(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: IdArgs = parse(args)?;
+        let record = self
+            .automation_store()
+            .find(args.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found("Automation not found"))?;
+        let target = match record.target {
+            AutomationTarget::Turn(spec) => {
+                PortableAutomationTarget::Turn(PortableTurnLaunchSpec {
+                    prompt_blocks: spec.prompt_blocks,
+                    display_text: spec.display_text,
+                    agent: spec.agent,
+                    mode_id: spec.mode_id,
+                    config_values: spec.config_values,
+                    plugin_actions: spec.plugin_actions,
+                    skills: spec.skills,
+                    workspace: self.portable_workspace(&spec.workspace).await?,
+                    label_snapshot: spec.label_snapshot,
+                })
+            }
+            AutomationTarget::Workflow(spec) => {
+                let version = workflows::WorkflowStore::new(self.pool.clone())
+                    .version(spec.definition_version_id)
+                    .await
+                    .map_err(|error| ApplicationError::internal(error.to_string()))?;
+                let source_path = version.source_path.ok_or_else(|| {
+                    ApplicationError::conflict(
+                        "Workflow version has no portable source identity; publish it from Studio first",
+                    )
+                })?;
+                PortableAutomationTarget::Workflow(PortableWorkflowLaunchSpec {
+                    source_path,
+                    version_digest: version.digest,
+                    input: spec.input,
+                    policy_override: spec.policy_override,
+                    workspace: self.portable_workspace(&spec.workspace).await?,
+                })
+            }
+        };
+        let spec = AutomationSpec {
+            format_version: PORTABLE_AUTOMATION_SPEC_VERSION,
+            name: record.name,
+            trigger: record.trigger,
+            target,
+        };
+        spec.validate()
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        serialize(
+            serde_json::to_string_pretty(&spec)
+                .map_err(|error| ApplicationError::internal(error.to_string()))?,
+        )
+    }
+
+    async fn automation_import_spec(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: AutomationImportArgs = parse(args)?;
+        let spec: AutomationSpec = serde_json::from_str(&args.json).map_err(|error| {
+            ApplicationError::bad_request(format!("Invalid Automation JSON: {error}"))
+        })?;
+        spec.validate()
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let record = match spec.target {
+            PortableAutomationTarget::Turn(launch) => {
+                let workspace = self.resolve_portable_workspace(&launch.workspace).await?;
+                let draft = AutomationDraft {
+                    name: spec.name,
+                    enabled: false,
+                    trigger: spec.trigger,
+                    launch: AutomationDraftInput(TurnLaunchSpecInput {
+                        prompt_blocks: launch.prompt_blocks,
+                        display_text: launch.display_text,
+                        agent: launch.agent,
+                        mode_id: launch.mode_id,
+                        config_values: launch.config_values,
+                        plugin_actions: launch.plugin_actions,
+                        skills: launch.skills,
+                        workspace,
+                        label_snapshot: launch.label_snapshot,
+                    }),
+                };
+                self.automation_store()
+                    .create(draft, Utc::now())
+                    .await
+                    .map_err(internal_error)?
+            }
+            PortableAutomationTarget::Workflow(launch) => {
+                let workspace = self.resolve_portable_workspace(&launch.workspace).await?;
+                let version = workflows::WorkflowStore::new(self.pool.clone())
+                    .version_by_source_digest(&launch.source_path, &launch.version_digest)
+                    .await
+                    .map_err(|error| ApplicationError::conflict(error.to_string()))?;
+                self.automation_store()
+                    .create_workflow(
+                        WorkflowAutomationDraft {
+                            name: spec.name,
+                            enabled: false,
+                            trigger: spec.trigger,
+                            launch: WorkflowLaunchSpec {
+                                spec_version: WORKFLOW_AUTOMATION_SPEC_VERSION,
+                                definition_version_id: version.id,
+                                input: launch.input,
+                                policy_override: launch.policy_override,
+                                workspace,
+                            },
+                        },
+                        Utc::now(),
+                    )
+                    .await
+                    .map_err(internal_error)?
+            }
+        };
+        serialize(automation_view(record))
+    }
+
+    async fn portable_workspace(
+        &self,
+        workspace: &WorkspaceTarget,
+    ) -> Result<PortableWorkspaceRef, ApplicationError> {
+        let project = Project::find_by_id(&self.pool, workspace.project_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found("Automation project not found"))?;
+        let root_folder_name = std::path::Path::new(&workspace.root_folder)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| ApplicationError::conflict("Automation workspace root is not portable"))?
+            .to_string();
+        Ok(PortableWorkspaceRef {
+            project_name: project.name,
+            root_folder_name,
+            branch: workspace.branch.clone(),
+            isolation: workspace.isolation.clone(),
+        })
+    }
+
+    async fn resolve_portable_workspace(
+        &self,
+        reference: &PortableWorkspaceRef,
+    ) -> Result<WorkspaceTarget, ApplicationError> {
+        let projects = Project::find_all(&self.pool)
+            .await
+            .map_err(internal_error)?;
+        let matches = projects
+            .into_iter()
+            .filter(|project| project.name == reference.project_name)
+            .collect::<Vec<_>>();
+        let [project] = matches.as_slice() else {
+            return Err(ApplicationError::conflict(format!(
+                "Project `{}` is missing or ambiguous",
+                reference.project_name
+            )));
+        };
+        let repos = ProjectRepo::find_repos_for_project(&self.pool, project.id)
+            .await
+            .map_err(internal_error)?;
+        let roots = repos
+            .into_iter()
+            .filter(|repo| {
+                repo.name == reference.root_folder_name
+                    || std::path::Path::new(&repo.path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        == Some(reference.root_folder_name.as_str())
+            })
+            .collect::<Vec<_>>();
+        let [repo] = roots.as_slice() else {
+            return Err(ApplicationError::conflict(format!(
+                "Workspace root `{}` is missing or ambiguous in project `{}`",
+                reference.root_folder_name, reference.project_name
+            )));
+        };
+        Ok(WorkspaceTarget {
+            project_id: project.id,
+            root_folder: repo.path.to_string_lossy().into_owned(),
+            branch: reference.branch.clone(),
+            isolation: reference.isolation.clone(),
+        })
+    }
+
     async fn delegation_cancel(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: DelegationCancelArgs = parse(args)?;
         ConversationSessionService::new(self.conversations.clone())
@@ -1697,6 +1941,11 @@ struct AutomationUpdateArgs {
 struct AutomationEnabledArgs {
     id: Uuid,
     enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct AutomationImportArgs {
+    json: String,
 }
 
 #[derive(Deserialize)]
@@ -2031,7 +2280,7 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {
-    serde_json::from_value(value).map_err(|error| ApplicationError::bad_request(error.to_string()))
+    application::decode_command_args(value).map_err(ApplicationError::bad_request)
 }
 
 pub(crate) fn serialize(value: impl Serialize) -> Result<Value, ApplicationError> {
@@ -2089,32 +2338,23 @@ fn store_error(error: sqlx::Error) -> ApplicationError {
     }
 }
 
-fn capability_catalog_fingerprint(launch_lock: &SessionLaunchLock) -> String {
-    let mut digest = Sha256::new();
-    // v3 invalidates catalogs captured before effort/permission were merged
-    // from Grok's vendor `_meta` into the standard session-control snapshot.
-    digest.update(b"open-agent-capability-catalog-v3:");
-    digest.update(launch_lock.agent_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(
-        launch_lock
-            .absolute_acp_program
-            .to_string_lossy()
-            .as_bytes(),
-    );
-    for argument in &launch_lock.args {
-        digest.update(b"\0arg:");
-        digest.update(argument.as_bytes());
+fn conversation_error(error: conversations::ConversationServiceError) -> ApplicationError {
+    match error {
+        conversations::ConversationServiceError::NotFound(message) => {
+            ApplicationError::not_found(message)
+        }
+        conversations::ConversationServiceError::BadRequest(message) => {
+            ApplicationError::bad_request(message)
+        }
+        conversations::ConversationServiceError::Conflict(message) => {
+            ApplicationError::conflict(message)
+        }
+        conversations::ConversationServiceError::AuthenticationRequired(message)
+        | conversations::ConversationServiceError::SessionUnavailable { message, .. } => {
+            ApplicationError::bad_request(message)
+        }
+        conversations::ConversationServiceError::Internal(message) => {
+            ApplicationError::internal(message)
+        }
     }
-    for (key, value) in &launch_lock.env {
-        digest.update(b"\0env:");
-        digest.update(key.as_bytes());
-        digest.update(b"=");
-        digest.update(value.as_bytes());
-    }
-    digest.update(b"\0runtime:");
-    digest.update(launch_lock.runtime_version.as_bytes());
-    digest.update(b"\0acp:");
-    digest.update(launch_lock.acp_version.as_bytes());
-    format!("{:x}", digest.finalize())
 }

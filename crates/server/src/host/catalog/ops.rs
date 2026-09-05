@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use application::{ApplicationError, DomainCommand};
@@ -18,9 +17,7 @@ use serde_json::Value;
 use services::services::{
     container_actions,
     git_host::{GitHostError, GitHostProvider, GitHostService, ProviderKind},
-    usage::{
-        build_project_usage_statistics, scan_claude_sessions, scan_codex_sessions,
-    },
+    usage::scan_vendor_usage_logs,
 };
 use utils::approvals::ApprovalResponse;
 use uuid::Uuid;
@@ -151,14 +148,11 @@ pub(super) async fn workspace_pr_comments(
 ) -> Result<Value, ApplicationError> {
     let args: WorkspaceRepoArgs = parse(args)?;
     let workspace = domains.require_workspace(args.workspace_id).await?;
-    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(
-        &domains.pool,
-        workspace.id,
-        args.repo_id,
-    )
-    .await
-    .map_err(internal_error)?
-    .ok_or_else(|| ApplicationError::not_found("workspace repository not found"))?;
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(&domains.pool, workspace.id, args.repo_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found("workspace repository not found"))?;
     let repo = Repo::find_by_id(&domains.pool, workspace_repo.repo_id)
         .await
         .map_err(internal_error)?
@@ -301,7 +295,11 @@ pub(super) async fn stop_workspace_execution(
 ) -> Result<Value, ApplicationError> {
     let args: WorkspaceIdArgs = parse(args)?;
     let workspace = domains.require_workspace(args.workspace_id).await?;
-    domains.deployment.container().try_stop(&workspace, false).await;
+    domains
+        .deployment
+        .container()
+        .try_stop(&workspace, false)
+        .await;
     Ok(Value::Null)
 }
 
@@ -361,7 +359,11 @@ pub(super) async fn start_dev_server(
         .map_err(internal_error)?;
     let repos_with_script: Vec<_> = repos
         .iter()
-        .filter(|repo| repo.dev_server_script.as_ref().is_some_and(|script| !script.is_empty()))
+        .filter(|repo| {
+            repo.dev_server_script
+                .as_ref()
+                .is_some_and(|script| !script.is_empty())
+        })
         .collect();
     if repos_with_script.is_empty() {
         return Err(ApplicationError::bad_request(
@@ -464,7 +466,7 @@ pub(super) async fn project_usage(
         "30d" => now_ms - 30 * 24 * 60 * 60 * 1000,
         _ => 0,
     };
-    let (scope, project_id, project_name, workspace_paths) = if let Some(project_id) = args
+    let (scope, project_id, project_name, project_uuid) = if let Some(project_id) = args
         .project_id
         .as_deref()
         .and_then(|value| Uuid::parse_str(value).ok())
@@ -473,29 +475,34 @@ pub(super) async fn project_usage(
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found("project not found"))?;
-        let workspaces = Workspace::fetch_by_project_id(&domains.pool, project_id)
-            .await
-            .map_err(internal_error)?;
-        let paths = workspaces
-            .into_iter()
-            .filter_map(|workspace| workspace.container_ref.map(PathBuf::from))
-            .collect::<Vec<_>>();
-        ("project".to_string(), project.id.to_string(), project.name, paths)
+        (
+            "project".to_string(),
+            project.id.to_string(),
+            project.name,
+            Some(project.id),
+        )
     } else {
-        ("global".to_string(), String::new(), String::new(), Vec::new())
+        (
+            "global".to_string(),
+            "global".to_string(),
+            "全局".to_string(),
+            None,
+        )
     };
-    let mut sessions = scan_claude_sessions(&workspace_paths).unwrap_or_default();
-    sessions.extend(scan_codex_sessions(&workspace_paths).unwrap_or_default());
-    if cutoff > 0 {
-        sessions.retain(|session| session.timestamp >= cutoff);
-    }
-    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    serialize(build_project_usage_statistics(
-        scope,
-        project_id,
-        project_name,
-        sessions,
-        Vec::new(),
-        now_ms,
-    ))
+    let (vendor_logs, provider_status) = scan_vendor_usage_logs();
+    serialize(
+        conversations::assemble_project_usage_statistics(
+            &domains.pool,
+            scope,
+            project_id,
+            project_name,
+            project_uuid,
+            cutoff,
+            now_ms,
+            &vendor_logs,
+            provider_status,
+        )
+        .await
+        .map_err(internal_error)?,
+    )
 }

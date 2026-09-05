@@ -152,7 +152,10 @@ impl ServerApplicationDomains {
     async fn subscribe_conversation_stream(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ConversationStreamArgs = parse(args)?;
         let channel = match args.stream_id.as_deref().filter(|id| !id.is_empty()) {
-            Some(stream_id) => format!("conversation-stream:{}:{stream_id}", args.execution_process_id),
+            Some(stream_id) => format!(
+                "conversation-stream:{}:{stream_id}",
+                args.execution_process_id
+            ),
             None => format!("conversation-stream:{}", args.execution_process_id),
         };
         let stream_key = match args.stream_id.as_deref().filter(|id| !id.is_empty()) {
@@ -342,7 +345,10 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
-    async fn subscribe_slash_commands_stream(&self, args: Value) -> Result<Value, ApplicationError> {
+    async fn subscribe_slash_commands_stream(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: SlashCommandsStreamArgs = parse(args)?;
         let variant_str = args
             .executor_profile_id

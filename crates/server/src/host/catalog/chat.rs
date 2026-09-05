@@ -136,11 +136,13 @@ fn default_command_prefix() -> String {
 }
 
 async fn load_store() -> Result<ChatChannelStore, ApplicationError> {
-    let mut store: ChatChannelStore =
-        services::services::settings_store::read_section(&utils::assets::settings_path(), SETTINGS_SECTION)
-            .await
-            .map_err(internal_error)?
-            .unwrap_or_default();
+    let mut store: ChatChannelStore = services::services::settings_store::read_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+    )
+    .await
+    .map_err(internal_error)?
+    .unwrap_or_default();
     if store.event_filter.is_empty() {
         store.event_filter = default_event_filter();
     }
@@ -211,14 +213,16 @@ fn normalize_payload(payload: ChatChannelPayload) -> Result<ChatChannelPayload, 
         },
         "qq" => {
             let base_url = require_field(&config, "base_url", "OneBot 服务地址")?;
-            reqwest::Url::parse(&base_url)
-                .map_err(|error| ApplicationError::bad_request(format!("OneBot 服务地址无效：{error}")))?;
+            reqwest::Url::parse(&base_url).map_err(|error| {
+                ApplicationError::bad_request(format!("OneBot 服务地址无效：{error}"))
+            })?;
             require_field(&config, "target_id", "QQ 群号/QQ 号")?;
         }
         "webhook" => {
             let url = require_field(&config, "webhook_url", "Webhook URL")?;
-            reqwest::Url::parse(&url)
-                .map_err(|error| ApplicationError::bad_request(format!("Webhook URL 无效：{error}")))?;
+            reqwest::Url::parse(&url).map_err(|error| {
+                ApplicationError::bad_request(format!("Webhook URL 无效：{error}"))
+            })?;
         }
         _ => {}
     }
@@ -267,7 +271,11 @@ fn hydrate_channel(record: &ChatChannelRecord, has_token: bool) -> ChatChannel {
 
 pub(super) async fn list_channels() -> Result<Value, ApplicationError> {
     let store = load_store().await?;
-    let ids: Vec<String> = store.channels.iter().map(|channel| channel.id.clone()).collect();
+    let ids: Vec<String> = store
+        .channels
+        .iter()
+        .map(|channel| channel.id.clone())
+        .collect();
     let tokens = load_channel_tokens(&ids).await;
     serialize(
         store
@@ -295,7 +303,11 @@ pub(super) async fn create_channel(args: Value) -> Result<Value, ApplicationErro
         updated_at: now,
     };
     let mut has_token = false;
-    if let Some(token) = token.as_deref().map(str::trim).filter(|token| !token.is_empty()) {
+    if let Some(token) = token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
         save_channel_token(&record.id, token)
             .await
             .map_err(internal_error)?;
@@ -330,7 +342,11 @@ pub(super) async fn update_channel(args: Value) -> Result<Value, ApplicationErro
         record.webhook_url = String::new();
         record.updated_at = Utc::now().to_rfc3339();
     }
-    if let Some(token) = token.as_deref().map(str::trim).filter(|token| !token.is_empty()) {
+    if let Some(token) = token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
         save_channel_token(&args.channel_id, token)
             .await
             .map_err(internal_error)?;
@@ -349,7 +365,9 @@ pub(super) async fn delete_channel(args: Value) -> Result<Value, ApplicationErro
     let args: ChannelIdArgs = parse(args)?;
     let mut store = load_store().await?;
     let original_len = store.channels.len();
-    store.channels.retain(|channel| channel.id != args.channel_id);
+    store
+        .channels
+        .retain(|channel| channel.id != args.channel_id);
     if original_len == store.channels.len() {
         return Err(ApplicationError::not_found(format!(
             "Chat channel not found: {}",
@@ -412,7 +430,15 @@ pub(super) async fn test_channel(args: Value) -> Result<Value, ApplicationError>
     let msg = RichMessage::info("这是一条来自 VibeX 设置页的测试消息。")
         .with_title("🔔 VibeX 测试通知")
         .with_field("渠道", channel.name.clone());
-    match deliver_rich(&channel.id, &channel.kind, &channel.config, token.as_deref(), &msg).await {
+    match deliver_rich(
+        &channel.id,
+        &channel.kind,
+        &channel.config,
+        token.as_deref(),
+        &msg,
+    )
+    .await
+    {
         Ok(status) => serialize(ChatChannelTestResult {
             ok: true,
             status,
@@ -509,7 +535,11 @@ pub(super) async fn list_statuses() -> Result<Value, ApplicationError> {
 pub(super) async fn connect(args: Value) -> Result<Value, ApplicationError> {
     let args: ChannelIdArgs = parse(args)?;
     let store = load_store().await?;
-    if !store.channels.iter().any(|channel| channel.id == args.channel_id) {
+    if !store
+        .channels
+        .iter()
+        .any(|channel| channel.id == args.channel_id)
+    {
         return Err(ApplicationError::not_found(format!(
             "Chat channel not found: {}",
             args.channel_id
@@ -522,7 +552,11 @@ pub(super) async fn connect(args: Value) -> Result<Value, ApplicationError> {
 pub(super) async fn disconnect(args: Value) -> Result<Value, ApplicationError> {
     let args: ChannelIdArgs = parse(args)?;
     let store = load_store().await?;
-    if !store.channels.iter().any(|channel| channel.id == args.channel_id) {
+    if !store
+        .channels
+        .iter()
+        .any(|channel| channel.id == args.channel_id)
+    {
         return Err(ApplicationError::not_found(format!(
             "Chat channel not found: {}",
             args.channel_id

@@ -245,10 +245,11 @@ export function SessionCreationForm({
   }, [catalogFreshnessQuery, controlsQuery, executor]);
   useEffect(() => {
     if (!executor || !defaultsQuery.isFetched) return;
-    if (defaultsQuery.data) {
+    const savedValues = defaultsQuery.data?.values;
+    if (savedValues) {
       setSelectedConfigValues(
         Object.fromEntries(
-          Object.entries(defaultsQuery.data.values).flatMap(([key, value]) => {
+          Object.entries(savedValues).flatMap(([key, value]) => {
             const serialized =
               value === null
                 ? ''

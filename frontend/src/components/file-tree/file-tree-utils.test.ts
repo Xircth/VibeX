@@ -854,6 +854,60 @@ describe('deriveFolderGitStatusMap', () => {
   });
 });
 
+describe('buildTree', () => {
+  it('nests complete-scan children so ordinary folders can expand', () => {
+    const { nodes } = deriveTestTree({
+      files: ['assets/logo.png', 'README.md'],
+      directories: ['assets', 'assets/icons', '.claude'],
+    });
+
+    const assets = nodes.find((node) => node.path === 'assets');
+    expect(assets?.type).toBe('folder');
+    expect(assets?.children.map((child) => child.path)).toEqual([
+      'assets/icons',
+      'assets/logo.png',
+    ]);
+    expect(
+      deriveFileTreeNodeViewState({
+        node: assets!,
+        expandedFolders: new Set(),
+        loadingLazyDirectories: new Set(),
+        lazyDirectoryLoadErrors: new Map(),
+        folderGitStatusMap: new Map(),
+        gitStatusMap: new Map(),
+        mergedGitignoredDirectories: new Set(),
+        mergedGitignoredFiles: new Set(),
+        selectedNodePath: null,
+        dropTargetPath: null,
+      }).canExpand
+    ).toBe(true);
+  });
+
+  it('cannot expand a folder that has no children and is not lazy', () => {
+    const { nodes } = deriveTestTree({
+      files: ['README.md'],
+      directories: ['assets'],
+    });
+
+    const assets = nodes.find((node) => node.path === 'assets');
+    expect(assets?.children).toEqual([]);
+    expect(
+      deriveFileTreeNodeViewState({
+        node: assets!,
+        expandedFolders: new Set(),
+        loadingLazyDirectories: new Set(),
+        lazyDirectoryLoadErrors: new Map(),
+        folderGitStatusMap: new Map(),
+        gitStatusMap: new Map(),
+        mergedGitignoredDirectories: new Set(),
+        mergedGitignoredFiles: new Set(),
+        selectedNodePath: null,
+        dropTargetPath: null,
+      }).canExpand
+    ).toBe(false);
+  });
+});
+
 function deriveTestTree({
   files,
   directories,

@@ -1,8 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localUsageApi } from '@/lib/api';
-import { KanbanUsageDashboard } from './KanbanUsageDashboard';
+import {
+  KanbanUsageDashboard,
+  UNATTRIBUTED_VENDOR_NOTICE_MS,
+} from './KanbanUsageDashboard';
 
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({ projectId: 'project-1' }),
@@ -99,8 +102,36 @@ const sourced = (total: number) => ({
   sources_disagree: false,
 });
 
+const unattributedStatistics = {
+  scope: 'project' as const,
+  project_id: 'project-1',
+  project_name: 'VibeX',
+  total_sessions: 0,
+  total_tokens: {
+    protocol: null,
+    vendor_log: null,
+    sources_disagree: false,
+  },
+  estimated_cost: null,
+  sessions: [],
+  daily_usage: [],
+  weekly_comparison: {
+    current_week: { sessions: 0, cost: null, tokens: null },
+    last_week: { sessions: 0, cost: null, tokens: null },
+    trends: { sessions: 0, cost: 0, tokens: 0 },
+  },
+  by_model: [],
+  by_folder: [],
+  by_agent: [],
+  provider_status: [],
+  unattributed_vendor_sessions: 132,
+  last_updated: Date.now(),
+  pricing_notice: null,
+};
+
 describe('KanbanUsageDashboard', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
       null as never
     );
@@ -228,6 +259,21 @@ describe('KanbanUsageDashboard', () => {
       await screen.findByRole('img', { name: '缓存命中率: 40%' })
     ).toBeVisible();
 
+    const summary = screen.getByRole('region', { name: '用量摘要' });
+    expect(within(summary).getByText('250')).toHaveClass(
+      'kanban-usage-stat__value'
+    );
+    expect(within(summary).getByText('$0.4200')).toHaveClass(
+      'kanban-usage-stat__value--compact'
+    );
+    expect(within(summary).getByText('总 Token')).toBeVisible();
+    expect(within(summary).getByText('总费用')).toBeVisible();
+    expect(within(summary).getByText('总会话')).toBeVisible();
+    expect(within(summary).getByText('平均/会话')).toBeVisible();
+    expect(within(summary).getByText('活跃天数')).toBeVisible();
+    expect(within(summary).getByText('$0.4200')).toBeVisible();
+    expect(within(summary).getByText('平均每次 125 Token')).toBeVisible();
+
     const dailyBar = screen.getByRole('button', {
       name: '09-02，共 100 Token',
     });
@@ -315,5 +361,154 @@ describe('KanbanUsageDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
     expect(screen.getByText('kimi')).toBeVisible();
     expect(screen.getAllByText('未提供').length).toBeGreaterThan(0);
+  });
+
+  it('shows vendor log tokens when protocol breakdown is missing', async () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
+      scope: 'project',
+      project_id: 'project-1',
+      project_name: 'VibeX',
+      total_sessions: 1,
+      total_tokens: {
+        protocol: null,
+        vendor_log: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_write_tokens: 20,
+          cache_read_tokens: 80,
+          total_tokens: 250,
+        },
+        sources_disagree: false,
+      },
+      estimated_cost: 0.2,
+      sessions: [
+        {
+          session_id: 'codex-1',
+          workspace_id: 'ws-1',
+          timestamp: new Date(2026, 8, 1, 15).getTime(),
+          model: 'gpt-5.1',
+          tokens: {
+            protocol: null,
+            vendor_log: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_write_tokens: 20,
+              cache_read_tokens: 80,
+              total_tokens: 250,
+            },
+            sources_disagree: false,
+          },
+          cost: 0.2,
+          summary: 'Codex session',
+        },
+      ],
+      daily_usage: [
+        {
+          date: '2026-09-01',
+          sessions: 1,
+          tokens: {
+            protocol: null,
+            vendor_log: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_write_tokens: 20,
+              cache_read_tokens: 80,
+              total_tokens: 250,
+            },
+            sources_disagree: false,
+          },
+          cost: 0.2,
+          models_used: ['gpt-5.1'],
+        },
+      ],
+      weekly_comparison: {
+        current_week: { sessions: 1, cost: 0.2, tokens: 250 },
+        last_week: { sessions: 0, cost: null, tokens: null },
+        trends: { sessions: 0, cost: 0, tokens: 0 },
+      },
+      by_model: [],
+      by_folder: [],
+      by_agent: [],
+      provider_status: [],
+      unattributed_vendor_sessions: 0,
+      last_updated: Date.now(),
+      pricing_notice: null,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByRole('img', { name: '缓存命中率: 40%' })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('img', { name: '二 15:00，250 Token' })
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('region', { name: '用量摘要' })).getByText('250')
+    ).toBeVisible();
+  });
+
+  it('lets the user close the unattributed vendor notice', async () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
+      unattributedStatistics
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    const notice = await screen.findByText('132 条厂商日志未能对齐会话');
+    fireEvent.click(
+      within(notice.closest('div') as HTMLElement).getByRole('button', {
+        name: '关闭',
+      })
+    );
+
+    expect(
+      screen.queryByText('132 条厂商日志未能对齐会话')
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides the unattributed vendor notice after 10 seconds', () => {
+    vi.useFakeTimers();
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
+      unattributedStatistics
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      ['kanbanUsageStatistics', 'project:project-1', '7d'],
+      unattributedStatistics
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText('132 条厂商日志未能对齐会话')).toBeVisible();
+
+    act(() => {
+      vi.advanceTimersByTime(UNATTRIBUTED_VENDOR_NOTICE_MS);
+    });
+
+    expect(
+      screen.queryByText('132 条厂商日志未能对齐会话')
+    ).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

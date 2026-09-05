@@ -3,6 +3,7 @@ import {
   getNextKanbanPanelView,
   getPreviousKanbanPanelView,
   getKanbanPanelTranslateX,
+  shouldHideKanbanSessionSlot,
   shouldShowLeftArrow,
   shouldShowRightArrow,
 } from './kanbanPanelView';
@@ -79,6 +80,22 @@ describe('kanbanPanelView', () => {
 
     it('hides right arrow on usageDashboard', () => {
       expect(shouldShowRightArrow('usageDashboard')).toBe(false);
+    });
+  });
+
+  describe('shouldHideKanbanSessionSlot', () => {
+    it('hides the execution column on the usage dashboard in fixed layout', () => {
+      expect(shouldHideKanbanSessionSlot('usageDashboard', false)).toBe(true);
+    });
+
+    it('keeps the execution column on the board and session hub in fixed layout', () => {
+      expect(shouldHideKanbanSessionSlot('board', false)).toBe(false);
+      expect(shouldHideKanbanSessionSlot('sessionHub', false)).toBe(false);
+    });
+
+    it('hides the execution column on canvas session views', () => {
+      expect(shouldHideKanbanSessionSlot('sessionHub', true)).toBe(true);
+      expect(shouldHideKanbanSessionSlot('usageDashboard', true)).toBe(true);
     });
   });
 });

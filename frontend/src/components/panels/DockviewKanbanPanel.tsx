@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { KanbanNavArrow } from '@/components/kanban/KanbanNavArrow';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   DndContext,
@@ -29,6 +29,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   shouldShowLeftArrow,
   shouldShowRightArrow,
+  shouldHideKanbanSessionSlot,
   getKanbanPanelTranslateX,
 } from '@/lib/kanbanPanelView';
 import type { SessionStatus } from '@/lib/api';
@@ -94,16 +95,14 @@ export function KanbanBoard() {
     }
   }, [canvasMode, goToSessionHub, panelView]);
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
-  const canvasSessionView =
-    canvasMode &&
-    (panelView === 'sessionHub' || panelView === 'usageDashboard');
+  const hideSessionSlot = shouldHideKanbanSessionSlot(panelView, canvasMode);
   // The center slot only exists inside the session hub; on the other views
-  // the session column docks to the outer edge instead. Infinite canvas
-  // absorbs the execution column entirely.
+  // the session column docks to the outer edge instead. Usage statistics and
+  // infinite canvas absorb the execution column entirely.
   const outerSessionSide: 'left' | 'right' =
     sessionSlotSide === 'left' ? 'left' : 'right';
   const outerSessionActive =
-    !canvasSessionView &&
+    !hideSessionSlot &&
     (sessionSlotSide !== 'center' || panelView !== 'sessionHub');
 
   const showLeftArrow = canvasMode
@@ -141,49 +140,11 @@ export function KanbanBoard() {
   };
 
   return (
-    <div className="flex h-full w-full" data-panel="kanban">
-      {!canvasSessionView && outerSessionSide === 'left' && (
+    <div className="relative flex h-full w-full" data-panel="kanban">
+      {!hideSessionSlot && outerSessionSide === 'left' && (
         <KanbanSessionSlot side="left" active={outerSessionActive} />
       )}
-      <div className="kanban-shell group relative h-full min-w-0 flex-1 overflow-hidden">
-        {/* Left arrow button */}
-        {showLeftArrow && (
-          <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
-            <div className="flex h-24 w-full items-center">
-              <button
-                type="button"
-                onClick={handleLeftArrowClick}
-                aria-label={getLeftArrowLabel()}
-                className={cn(
-                  'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
-                  'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
-                )}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Right arrow button */}
-        {showRightArrow && (
-          <div className="absolute inset-y-0 right-0 z-20 flex w-10 items-center">
-            <div className="flex h-24 w-full items-center justify-end">
-              <button
-                type="button"
-                onClick={handleRightArrowClick}
-                aria-label={getRightArrowLabel()}
-                className={cn(
-                  'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
-                  'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
-                )}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
+      <div className="kanban-shell relative h-full min-w-0 flex-1 overflow-hidden">
         <div
           className="flex h-full w-[300%] transition-transform duration-300 ease-out"
           style={{
@@ -215,8 +176,22 @@ export function KanbanBoard() {
           </div>
         </div>
       </div>
-      {!canvasSessionView && outerSessionSide === 'right' && (
+      {!hideSessionSlot && outerSessionSide === 'right' && (
         <KanbanSessionSlot side="right" active={outerSessionActive} />
+      )}
+      {showLeftArrow && (
+        <KanbanNavArrow
+          side="left"
+          label={getLeftArrowLabel()}
+          onClick={handleLeftArrowClick}
+        />
+      )}
+      {showRightArrow && (
+        <KanbanNavArrow
+          side="right"
+          label={getRightArrowLabel()}
+          onClick={handleRightArrowClick}
+        />
       )}
     </div>
   );

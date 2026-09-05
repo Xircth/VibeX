@@ -25,10 +25,14 @@ Install the Agent Runtime and ACP into the user environment
   --yes, -y         Do not prompt
 `,
 
-  plugin: `Usage: vibex plugin pack [dir] [--output file.vxp]
+  plugin: `Usage: vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
+       vibex plugin run dev [dir]
+       vibex plugin run build [dir]
+       vibex plugin run test [dir] [--host]
+       vibex plugin pack [dir] [--output file.vxp]
        vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
        vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
-       vibex plugin add --dev <dir> [--yes] [--detach]
+       vibex plugin add --dev <dir> [--yes]
        vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
        vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
        vibex plugin list [--json]
@@ -37,15 +41,19 @@ Install the Agent Runtime and ACP into the user environment
        vibex plugin gc-runtimes
        vibex plugin test --host [dir]
 
+run     Developer scripts. Bind a Host once, then work from a plugin directory.
+  server          Save Host URL and token to ~/.vibex/pluginrc
+  dev             Link if needed and start remote HMR
+  build           Build the package
+  test            Run harness tests; --host walks the Host journey
 pack    Validate and write a .vxp
 add     Install onto the local Desktop or Server Host
   --web URL       Git repository, GitHub, marketplace, or archive URL
                   Pin with #tag, #branch, or #commit
   --profile FILE  Local .vxp / .zip / archive
-  --dev DIR       Link a development directory; Host reloads on change
+  --dev DIR       Link a development directory and return
   --plugin ID     Choose one package when the archive has several
   --yes, -y       Install without a prompt
-  --detach        With --dev, return after linking
 publish Submit a packed .vxp or GitHub repo to marketplace review
   --web URL       GitHub owner/repo[#tag]; GitHub owner must match marketplace user
   --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
@@ -59,7 +67,7 @@ remove  Uninstall a non-built-in plugin
   --delete-data   Delete snapshot and config; reclaim unreferenced Runtimes
 gc-runtimes  Delete managed Runtimes with no plugin references
 test --host  Install, Skill-reload, and uninstall against the running Host
-        Looks up a local Host token if VIBEX_TOKEN is unset.
+        Bind a Host with \`vibex plugin run server\` first.
         If no Host is running, .vxp and --dev links stay in ~/.vibex/imports
         and Desktop or Server imports them on the next launch.
 `,
@@ -139,6 +147,8 @@ Control (needs a running Host, VIBEX_URL, VIBEX_TOKEN)
   file, git, agent
 
 Other
+  plugin run server       Bind Host URL and token
+  plugin run dev          Link and start remote HMR
   plugin pack             Package a .vxp
   plugin add              Install from --web, --profile, or --dev onto the local Host
   plugin publish          Submit a packed .vxp or GitHub repo to marketplace review

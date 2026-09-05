@@ -235,18 +235,19 @@ Host 校验 opener/surface/generation 绑定，保管文件路径并执行 revis
 
 ## 6. CLI
 
-当前 CLI 命令与预期结果（以 `vibex-plugin --help` 为准）：
+当前 CLI 命令与预期结果（以 `vibex plugin --help` 为准）：
 
 ```text
-vibex-plugin init [dir] [--publisher id] [--template full|app|agent]
+vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
+vibex plugin run dev [dir]
+vibex plugin run build [dir]
+vibex plugin run test [dir] [--host]
+vibex-plugin init [dir] [--publisher id] [--template full|panel|kanban-view|…]
 vibex-plugin validate [dir] [--json]
-vibex-plugin build [dir]
-vibex-plugin test [dir]
-vibex-plugin dev [dir] --host <loopback-url> --token <dev-token>
-vibex-plugin install --link [dir] --host <loopback-url> --token <dev-token>
-vibex-plugin uninstall [dir] [--delete-data] --host <loopback-url> --token <dev-token>
-vibex-plugin pack [dir] [--output file.vxp]
-vibex-plugin doctor [dir] --host <loopback-url> --token <dev-token>
+vibex plugin add --dev [dir]
+vibex-plugin uninstall [dir] [--delete-data]
+vibex plugin pack [dir] [--output file.vxp]
+vibex-plugin doctor [dir]
 ```
 
 普通 `.vxp` 产品安装仍由 VibeX UI 完成。registry publish、签名和独立

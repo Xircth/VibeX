@@ -46,13 +46,15 @@ VibeX v4 executes installed plugin code with the user's trust. There is no permi
 Run from the plugin root:
 
 ```text
+vibex plugin run server --http://127.0.0.1:17891 --token <token>
 vibex-plugin init . --template host-chrome   # or provider-import / full / …
-vibex-plugin build
+vibex plugin run build
 vibex-plugin validate
-vibex-plugin test
+vibex plugin run test
 vibex plugin add --dev .
-vibex-plugin test --host
-vibex-plugin pack
+vibex plugin run dev
+vibex plugin run test --host
+vibex plugin pack
 vibex plugin publish
 ```
 
@@ -61,7 +63,7 @@ vibex plugin publish
 `app.settings.section`). `panel` / `kanban-view` write one structure surface
 each with a Vite Module Federation remote. `provider-import` writes one
 `provider.model.importSource`. Chrome slots refresh through the activation
-generation. Structure remotes use `vibex-plugin dev` HMR (host `loadRemote`
+generation. Structure remotes use `vibex plugin run dev` HMR (host `loadRemote`
 points at Vite; leaving dev falls back to `dist/remoteEntry.js`).
 
 `vibex-plugin test --host` against a chrome or structure package: install →
@@ -69,12 +71,16 @@ enable → declared kinds appear in `plugin_contribution_catalog` → disable �
 they vanish → enable again → uninstall, source directory kept. A Skill-bearing
 package still also reloads `SKILL.md`.
 
-Prefer `vibex plugin add --dev .` against a running Desktop or `vibex serve`.
-`vibex-plugin install --link` is only an alias of that Host import when it still exists.
+Prefer `vibex plugin run server` then `vibex plugin run dev` from the plugin
+directory. `add --dev` only links. `vibex-plugin install --link` is an alias
+of that Host import when it still exists.
 
 The product CLI also exposes `vibex plugin pack` and `vibex plugin publish`.
 
-When developing VibeX itself, build the local SDK and CLI and invoke `node <repo>/packages/plugin-cli/dist/cli.js`. Verify a real linked install and reload against the running Host; harness-only success is insufficient for App mounting, file editing, Runtime processes, or remote behavior.
+When developing VibeX itself, build the local CLI and use `npx-cli`
+(`vibex plugin …`). Verify a real linked install and `run dev` against the
+running Host; harness-only success is insufficient for App mounting, file
+editing, Runtime processes, or remote behavior.
 
 ## Completion gate
 

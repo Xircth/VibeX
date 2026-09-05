@@ -57,7 +57,11 @@ export function migrateKanbanViewId(
   if (typeof panelView === 'string' && panelView.startsWith('plugin:')) {
     return panelView;
   }
-  if (boardStyle === 'canvas' && panelView !== 'board' && panelView !== 'usageDashboard') {
+  if (
+    boardStyle === 'canvas' &&
+    panelView !== 'board' &&
+    panelView !== 'usageDashboard'
+  ) {
     return 'builtin:canvas';
   }
   switch (panelView) {
@@ -99,6 +103,20 @@ export function kanbanViewIndex(
 ): number {
   const index = views.findIndex((view) => view.id === viewId);
   return index < 0 ? 0 : index;
+}
+
+/** Apply only when the board-style preference changes, never during arrow rotation. */
+export function viewIdForBoardStyleChange(
+  boardStyle: string,
+  activeViewId: string
+): string {
+  if (boardStyle === 'canvas' && activeViewId === 'builtin:sessions') {
+    return 'builtin:canvas';
+  }
+  if (boardStyle === 'fixed' && activeViewId === 'builtin:canvas') {
+    return 'builtin:sessions';
+  }
+  return activeViewId;
 }
 
 export function adjacentKanbanViewId(

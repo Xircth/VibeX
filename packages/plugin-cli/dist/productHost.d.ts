@@ -1,7 +1,6 @@
-export declare function discoverProductHost(environment?: Record<string, string | undefined>): {
-    url: string;
-    token: string;
-};
+import { type HostSession } from "./hostSession.js";
+export declare function discoverProductHost(environment?: Record<string, string | undefined>): HostSession;
+export declare function pingProductHost(session?: HostSession): Promise<boolean>;
 export declare function callProductHost<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 export declare function importLinkedOnProductHost(sourcePath: string, plugin: {
     publisher: string;

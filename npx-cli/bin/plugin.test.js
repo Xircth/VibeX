@@ -123,6 +123,20 @@ test("plugin add resolves marketplace and GitHub sources", async () => {
   }
 });
 
+test("plugin parseArgs accepts Host bind flags", () => {
+  const { parseArgs } = require("./plugin");
+  const bare = parseArgs([
+    "--http://127.0.0.1:17891",
+    "--token",
+    "vbx_test",
+  ]);
+  assert.equal(bare.flags.host, "http://127.0.0.1:17891");
+  assert.equal(bare.flags.token, "vbx_test");
+  const equals = parseArgs(["--host=http://127.0.0.1:9", "--token=abc"]);
+  assert.equal(equals.flags.host, "http://127.0.0.1:9");
+  assert.equal(equals.flags.token, "abc");
+});
+
 test("plugin add parses --web, --profile, and --dev", () => {
   const { parseAddArgs, parseGitSource, inferAddMode } = require("./plugin");
   const web = parseAddArgs(["--web", "https://github.com/acme/office", "-y"]);

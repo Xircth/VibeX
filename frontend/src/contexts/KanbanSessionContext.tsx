@@ -33,6 +33,7 @@ import {
   DEFAULT_KANBAN_VIEW_ID,
   legacyKanbanPanelView,
   migrateKanbanViewId,
+  viewIdForBoardStyleChange,
 } from '@/lib/kanbanViews';
 import {
   getKanbanBoardStyle,
@@ -142,15 +143,14 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (hydratedProjectKey !== projectKey) return;
-    if (boardStyle === 'canvas' && activeViewId === 'builtin:sessions') {
-      setActiveViewIdState('builtin:canvas');
-      setPanelViewState('sessionHub');
-    }
-    if (boardStyle === 'fixed' && activeViewId === 'builtin:canvas') {
-      setActiveViewIdState('builtin:sessions');
-      setPanelViewState('sessionHub');
-    }
-  }, [activeViewId, boardStyle, hydratedProjectKey, projectKey]);
+    setActiveViewIdState((current) => {
+      const next = viewIdForBoardStyleChange(boardStyle, current);
+      if (next !== current) {
+        setPanelViewState(legacyKanbanPanelView(next));
+      }
+      return next;
+    });
+  }, [boardStyle, hydratedProjectKey, projectKey]);
 
   useEffect(() => {
     if (!projectId) {
@@ -250,9 +250,12 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setSessionHubVisible = useCallback((visible: boolean) => {
-    setActiveViewId(visible ? 'builtin:sessions' : 'builtin:columns');
-  }, [setActiveViewId]);
+  const setSessionHubVisible = useCallback(
+    (visible: boolean) => {
+      setActiveViewId(visible ? 'builtin:sessions' : 'builtin:columns');
+    },
+    [setActiveViewId]
+  );
 
   const openSessionFromList = useCallback(
     (session: KanbanSessionPlacement) => {

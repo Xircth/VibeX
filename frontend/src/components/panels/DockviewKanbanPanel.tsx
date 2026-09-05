@@ -43,9 +43,7 @@ import {
 } from '@/lib/kanbanViews';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import { PluginSurfacePlaceholder } from '@/components/plugins/PluginSurfacePlaceholder';
-import {
-  usePluginHostContributions,
-} from '@/hooks/usePluginHostContributions';
+import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import type { SessionStatus } from '@/lib/api';
 import {
   kanbanSlotOfZone,
@@ -132,7 +130,9 @@ export function KanbanBoard() {
 
   const getLeftArrowLabel = () => {
     const previous = views[currentIndex - 1];
-    return previous ? t(previous.titleKey, { defaultValue: previous.titleKey }) : '';
+    return previous
+      ? t(previous.titleKey, { defaultValue: previous.titleKey })
+      : '';
   };
 
   const getRightArrowLabel = () => {
@@ -180,11 +180,11 @@ export function KanbanBoard() {
                   }
                   pluginItem={
                     view.pluginId
-                      ? pluginViews.find(
+                      ? (pluginViews.find(
                           (item) =>
                             item.pluginId === view.pluginId &&
                             item.id === view.contributionId
-                        ) ?? null
+                        ) ?? null)
                       : null
                   }
                 />

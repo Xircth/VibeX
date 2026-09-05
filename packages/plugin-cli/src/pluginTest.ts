@@ -76,7 +76,9 @@ async function testPluginOnHost(root: string) {
   const plugin = await inspectLinkedPackage(root);
   const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
   if (installed.queued) {
-    throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
+    throw new Error(
+      "No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.",
+    );
   }
   await enableOnProductHost(plugin.identity.id);
   const hostKinds = hostJourneyKindsFromIntegrations(

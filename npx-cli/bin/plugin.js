@@ -5,10 +5,14 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
-const HELP = `Usage: vibex plugin pack [dir] [--output file.vxp]
+const HELP = `Usage: vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
+       vibex plugin run dev [dir]
+       vibex plugin run build [dir]
+       vibex plugin run test [dir] [--host]
+       vibex plugin pack [dir] [--output file.vxp]
        vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
        vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
-       vibex plugin add --dev <dir> [--yes] [--detach]
+       vibex plugin add --dev <dir> [--yes]
        vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
        vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
        vibex plugin list [--json]
@@ -17,16 +21,19 @@ const HELP = `Usage: vibex plugin pack [dir] [--output file.vxp]
        vibex plugin gc-runtimes
        vibex plugin test --host [dir]
 
-pack    Validate a plugin directory and write a .vxp.
+run     Developer scripts. Bind a Host once, then work from a plugin directory.
+        server          Save Host URL and token to ~/.vibex/pluginrc
+        dev             Link if needed and start remote HMR
+        build           Build the package
+        test            Run harness tests; --host walks the Host journey
 add     Install a Plugin onto the local Desktop or Server Host.
         --web URL       Git repository, GitHub, marketplace, or archive URL
                         Pin with #tag, #branch, or #commit (also github:owner/repo#tag)
         --profile FILE  Local .vxp, .zip, or other plugin archive
-        --dev DIR       Link a development directory and reload it as it changes.
-                        Prints worker logs from the running Host until Ctrl+C.
+        --dev DIR       Link a development directory and return
         --plugin ID     Plugin id when the archive contains more than one package
         --yes, -y       Skip the Host install prompt
-        --detach        With --dev, link and return; Host keeps watching the directory
+pack    Validate a plugin directory and write a .vxp.
 publish Submit a packed .vxp or GitHub repository to the official marketplace review queue.
         --web URL       GitHub owner/repo, optionally #tag. Owner must match marketplace user.
         --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
@@ -47,6 +54,10 @@ async function run(args) {
   const [command = "help", ...rest] = args;
   if (command === "help" || command === "--help" || command === "-h") {
     process.stdout.write(`${HELP.trimEnd()}\n`);
+    return;
+  }
+  if (command === "run") {
+    await runPluginScript(rest);
     return;
   }
   if (command === "add") {
@@ -98,6 +109,37 @@ async function run(args) {
 
 function log(message) {
   process.stdout.write(`${message}\n`);
+}
+
+async function runPluginScript(args) {
+  const {
+    bindHostServer,
+    parseRunInvocation,
+    runPluginBuild,
+    runPluginDev,
+    runPluginTest,
+  } = await load("pluginRun.js");
+  const invocation = parseRunInvocation(args);
+  if (invocation.script === "server") {
+    const session = await bindHostServer({
+      flags: invocation.host,
+      ping: (host) => hostAccepts(host.url, host.token),
+    });
+    log(`Host ${session.url} ready`);
+    return;
+  }
+  if (invocation.script === "dev") {
+    await runPluginDev(path.resolve(invocation.positional[0] || "."));
+    return;
+  }
+  if (invocation.script === "build") {
+    const root = await runPluginBuild(invocation.positional[0] || ".");
+    log(`Built ${root}`);
+    return;
+  }
+  await runPluginTest(invocation.positional[0] || ".", {
+    host: invocation.hostJourney,
+  });
 }
 
 async function addPlugin(args) {
@@ -202,7 +244,9 @@ function pluginSourceLabel(plugin) {
 async function requireRunningHost() {
   const host = discoverHost();
   if (!host.token || !(await hostAccepts(host.url, host.token))) {
-    throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
+    throw new Error(
+      "No running VibeX Host. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.",
+    );
   }
   return host;
 }
@@ -357,79 +401,9 @@ async function addDevPlugin(source, flags) {
   const enabled = await enableOnHost(identity.id);
   log(`Linked ${identity.publisher}/${identity.id} as a development plugin.`);
   if (enabled) {
-    log("Enabled on the Host. Edits reload into the running generation.");
+    log("Enabled on the Host. Run `vibex plugin run dev` to start HMR.");
   } else {
-    log("Enable it in Settings → Plugins to load it into sessions.");
-  }
-  if (flags.detach) {
-    log("Host will keep watching this directory.");
-    return;
-  }
-  log("Watching for changes. Ctrl+C stops the watcher; the link stays.");
-  await watchDevPlugin(root, identity.id);
-}
-
-async function watchDevPlugin(root, pluginId) {
-  const { watchPluginSources } = await load("dev.js");
-  const { buildPlugin } = await load("build.js");
-  const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
-  const logs = pluginId ? streamPluginLogs(pluginId, controller.signal) : Promise.resolve();
-  try {
-    await watchPluginSources(root, {
-      signal: controller.signal,
-      async reload() {
-        try {
-          await buildPlugin(root);
-        } catch (error) {
-          log(`Build failed (${error instanceof Error ? error.message : error}).`);
-        }
-        log("Rebuilt package. Host reloads when the digest changes.");
-      },
-      onError(error) {
-        log(`Reload failed (${error instanceof Error ? error.message : error}).`);
-      },
-    });
-  } finally {
-    process.removeListener("SIGINT", stop);
-    process.removeListener("SIGTERM", stop);
-    controller.abort();
-    await logs.catch(() => {});
-  }
-}
-
-async function streamPluginLogs(pluginId, signal) {
-  const host = discoverHost();
-  if (!host.token) return;
-  let after = 0;
-  log("Streaming plugin worker logs from the Host.");
-  while (!signal.aborted) {
-    try {
-      const page = await hostCall(host, "plugin_control_logs", { pluginId, after });
-      const lines = Array.isArray(page?.lines) ? page.lines : [];
-      for (const line of lines) {
-        const seq = Number(line.seq) || 0;
-        if (seq > after) after = seq;
-        const text = String(line.text || "");
-        if (text) process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
-      }
-    } catch {
-      /* older Hosts omit the log command */
-    }
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, 500);
-      const onAbort = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener("abort", onAbort, { once: true });
-    });
+    log("Enable it in Settings → Plugins, then run `vibex plugin run dev`.");
   }
 }
 
@@ -1124,16 +1098,23 @@ function hostDataDirs() {
   if (process.env.VIBEX_DATA_DIR) dirs.push(process.env.VIBEX_DATA_DIR);
   if (process.platform === "darwin") {
     dirs.push(
+      path.join(home, "Library", "Application Support", "com.vibex.app.dev"),
       path.join(home, "Library", "Application Support", "com.vibex.app"),
+      path.join(home, "Library", "Application Support", "com.xircth.vibex"),
       path.join(home, "Library", "Application Support", "vibex"),
       path.join(home, "Library", "Application Support", "app.vibex.vibex"),
     );
   } else if (process.platform === "win32") {
     const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
-    dirs.push(path.join(appData, "com.vibex.app"), path.join(appData, "vibex"));
+    dirs.push(
+      path.join(appData, "com.vibex.app.dev"),
+      path.join(appData, "com.vibex.app"),
+      path.join(appData, "vibex"),
+    );
   } else {
     const dataHome = process.env.XDG_DATA_HOME || path.join(home, ".local", "share");
     dirs.push(
+      path.join(dataHome, "com.vibex.app.dev"),
       path.join(dataHome, "com.vibex.app"),
       path.join(dataHome, "vibex"),
     );
@@ -1159,10 +1140,29 @@ function tokenFromSettings(raw) {
   return { token, port };
 }
 
+function readPluginrc() {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(os.homedir(), ".vibex", "pluginrc"), "utf8"),
+    );
+    const url =
+      typeof raw.url === "string"
+        ? raw.url
+        : typeof raw.host === "string"
+          ? raw.host
+          : "";
+    const token = typeof raw.token === "string" ? raw.token.trim() : "";
+    return { url: url.replace(/\/+$/, ""), token };
+  } catch {
+    return { url: "", token: "" };
+  }
+}
+
 function discoverHost() {
   const envUrl = (process.env.VIBEX_URL || "").replace(/\/+$/, "");
   const envToken = (process.env.VIBEX_TOKEN || "").trim();
-  let token = envToken;
+  const saved = readPluginrc();
+  let token = envToken || saved.token;
   let port = 17891;
   if (!token) {
     for (const dir of hostDataDirs()) {
@@ -1183,7 +1183,7 @@ function discoverHost() {
     }
   }
   return {
-    url: envUrl || `http://127.0.0.1:${port}`,
+    url: envUrl || saved.url || `http://127.0.0.1:${port}`,
     token,
   };
 }
@@ -1328,6 +1328,16 @@ function parseArgs(args) {
     else if (token === "--web") flags.web = requireValue(args, ++index, "--web");
     else if (token === "--profile") flags.profile = requireValue(args, ++index, "--profile");
     else if (token === "--dev") flags.dev = requireValue(args, ++index, "--dev");
+    else if (token === "--host" || token === "--http") {
+      flags.host = requireValue(args, ++index, token);
+    }
+    else if (token === "--token") flags.token = requireValue(args, ++index, "--token");
+    else if (token.startsWith("--http://") || token.startsWith("--https://")) {
+      flags.host = token.slice(2);
+    }
+    else if (token.startsWith("--host=")) flags.host = token.slice("--host=".length);
+    else if (token.startsWith("--http=")) flags.host = token.slice("--http=".length);
+    else if (token.startsWith("--token=")) flags.token = token.slice("--token=".length);
     else if (token === "--output") flags.output = requireValue(args, ++index, "--output");
     else if (token === "--owner") flags.owner = requireValue(args, ++index, "--owner");
     else if (token === "--password") flags.password = requireValue(args, ++index, "--password");

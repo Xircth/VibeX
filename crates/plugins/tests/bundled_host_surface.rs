@@ -1,9 +1,12 @@
 //! The Batch 2 gate is a public-SDK sample, not a migrated built-in.
 
+use std::sync::Arc;
+
 use plugins::{
-    APP_PANEL_SLOT, APP_TAB_SLOT, KANBAN_VIEW_SLOT, PackageFormat, PluginPackage, PluginSourceKind,
-    SETTINGS_PAGE_SLOT,
+    APP_PANEL_SLOT, APP_TAB_SLOT, DenyCapabilityBroker, KANBAN_VIEW_SLOT, PackageFormat,
+    PluginPackage, PluginSourceKind, SETTINGS_PAGE_SLOT, WorkerHost,
 };
+use serde_json::json;
 
 fn bundled() -> PluginPackage {
     let root =
@@ -42,4 +45,29 @@ fn its_surfaces_are_addressable() {
     ] {
         assert!(slots.contains(&slot), "missing {slot}: {slots:?}");
     }
+}
+
+#[tokio::test]
+async fn the_sample_worker_activates_with_only_declared_handlers() {
+    let Some(node) = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|directory| directory.join(if cfg!(windows) { "node.exe" } else { "node" }))
+            .find(|candidate| candidate.is_file())
+    }) else {
+        return;
+    };
+    let package = bundled();
+    let worker = WorkerHost::spawn(&node, &package, 1, &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .expect("Host surface Worker activates");
+    assert_eq!(
+        worker.activation().handlers,
+        vec!["surface.createSession".to_owned()]
+    );
+    let result = worker
+        .invoke("surface.createSession", json!({}))
+        .await
+        .expect("declared session handler");
+    assert_eq!(result["ready"], true);
+    worker.dispose("test complete").await.unwrap();
 }

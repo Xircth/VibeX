@@ -25,6 +25,8 @@ test('help topics cover serve and control commands', () => {
   assert.match(text('list'), /--refresh/);
   assert.match(text('install'), /--yes/);
   assert.match(text('conversation'), /send\s+--conversation/);
+  assert.match(text('plugin'), /plugin run server/);
+  assert.match(text('plugin'), /plugin run dev/);
   assert.match(text('plugin'), /plugin add --web/);
   assert.match(text('plugin'), /--profile/);
   assert.match(text('plugin'), /--dev/);
@@ -33,6 +35,7 @@ test('help topics cover serve and control commands', () => {
   assert.match(text('plugin'), /plugin remove/);
   assert.match(text('plugin'), /gc-runtimes/);
   assert.match(text('plugin'), /#tag/);
+  assert.match(text(), /plugin run server/);
   assert.match(text(), /plugin add/);
   assert.match(text(), /plugin list/);
   assert.match(text(), /plugin remove/);

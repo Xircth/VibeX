@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from 'react';
 import type { DockviewApi } from 'dockview-react';
@@ -21,6 +22,14 @@ import {
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { backendCall } from '@/lib/backendTransport';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import {
+  pluginSurfaceId,
+  shouldOpenContributedPanel,
+} from '@/lib/hostSurfaceIds';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
@@ -176,6 +185,7 @@ export interface PanelActions {
     pluginId: string;
     contributionId: string;
     icon?: string | null;
+    activate?: boolean;
   }) => void;
   setDockviewApi: (api: DockviewApi | null) => void;
 }
@@ -184,6 +194,9 @@ const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const apiRef = useRef<DockviewApi | null>(null);
+  const [dockviewEpoch, setDockviewEpoch] = useState(0);
+  const offeredPluginPanelsRef = useRef(new Set<string>());
+  const pluginPanels = usePluginHostContributions('app_panel');
   const imagePanelRemovalDisposableRef = useRef<{
     dispose: () => void;
   } | null>(null);
@@ -209,6 +222,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     imagePanelRemovalDisposableRef.current?.dispose();
     imagePanelRemovalDisposableRef.current = null;
     apiRef.current = api;
+    setDockviewEpoch((epoch) => epoch + 1);
     if (!api) {
       diffPreviewPanelQueueRef.current = [];
       clearImagePreviewSources();
@@ -1290,9 +1304,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       pluginId: string;
       contributionId: string;
       icon?: string | null;
+      activate?: boolean;
     }) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
+      const activate = options.activate !== false;
       const existing = dockviewApi.getPanel(options.panelId);
       if (existing) {
         existing.api.setTitle(options.title);
@@ -1302,7 +1318,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           icon: options.icon ?? null,
         });
         existing.group.api.setVisible(true);
-        existing.api.setActive();
+        if (activate) existing.api.setActive();
         return;
       }
       const panel = addPanelToActiveEditorGroup({
@@ -1314,11 +1330,43 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           contributionId: options.contributionId,
           icon: options.icon ?? null,
         },
+        inactive: !activate,
       });
-      panel?.api.setActive();
+      if (activate) panel?.api.setActive();
     },
     [addPanelToActiveEditorGroup]
   );
+
+  useEffect(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    const liveIds = new Set(
+      pluginPanels.map((item) => pluginSurfaceId(item.pluginId, item.id))
+    );
+    for (const id of [...offeredPluginPanelsRef.current]) {
+      if (!liveIds.has(id)) offeredPluginPanelsRef.current.delete(id);
+    }
+    for (const item of pluginPanels) {
+      const panelId = pluginSurfaceId(item.pluginId, item.id);
+      const existing = Boolean(dockviewApi.getPanel(panelId));
+      const offered = offeredPluginPanelsRef.current.has(panelId);
+      if (!shouldOpenContributedPanel(existing, offered)) {
+        if (existing) offeredPluginPanelsRef.current.add(panelId);
+        continue;
+      }
+      const metadata = contributionMetadata(item);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      offeredPluginPanelsRef.current.add(panelId);
+      openPluginPanel({
+        panelId,
+        title: item.label,
+        pluginId: item.pluginId,
+        contributionId: item.id,
+        icon,
+        activate: false,
+      });
+    }
+  }, [dockviewEpoch, openPluginPanel, pluginPanels]);
 
   const value = useMemo<PanelActions>(
     () => ({

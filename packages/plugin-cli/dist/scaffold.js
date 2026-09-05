@@ -104,7 +104,7 @@ export async function scaffoldPlugin(target, publisher = "local", template = "fu
     if (spec.nodeWorker)
         await writeNodeWorker(root, template, spec);
     if (spec.hasApp)
-        await writeAppSurface(root);
+        await writeAppSurface(root, spec.nodeHandlers);
     if (template === "panel" || template === "kanban-view") {
         await writeFederationScaffold(root, template);
     }
@@ -330,7 +330,7 @@ function templateSpec(template) {
                     },
                 ],
                 contentItems: [],
-                nodeHandlers: ["hello", "surface.createSession"],
+                nodeHandlers: ["surface.createSession"],
                 nodeWorker: true,
                 usesJsSdk: true,
                 hasApp: true,
@@ -358,7 +358,7 @@ function templateSpec(template) {
                     },
                 ],
                 contentItems: [],
-                nodeHandlers: ["hello", "surface.createSession"],
+                nodeHandlers: ["surface.createSession"],
                 nodeWorker: true,
                 usesJsSdk: true,
                 hasApp: true,
@@ -662,10 +662,13 @@ export default defineConfig({
 });
 `);
 }
-async function writeAppSurface(root) {
+async function writeAppSurface(root, handlers) {
     await mkdir(join(root, "runtime"), { recursive: true });
-    await writeFile(join(root, "runtime", "app.mjs"), `import { definePluginApp } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default definePluginApp(({ root, bridge }) => {\n  const button = document.createElement('button');\n  button.textContent = 'Hello from VibeX';\n  button.addEventListener('click', () => void bridge.invoke('hello'));
-  root.append(button);\n  bridge.ready();\n  return () => button.remove();\n});\n`);
+    const app = handlers?.includes("hello")
+        ? `import { definePluginApp } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default definePluginApp(({ root, bridge }) => {\n  const button = document.createElement('button');\n  button.textContent = 'Hello from VibeX';\n  button.addEventListener('click', () => void bridge.invoke('hello'));
+  root.append(button);\n  bridge.ready();\n  return () => button.remove();\n});\n`
+        : `import { definePluginApp } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default definePluginApp(({ root, bridge }) => {\n  root.innerHTML = '<section class="surface"><p>Ready.</p></section>';\n  bridge.ready();\n  return () => {\n    root.innerHTML = '';\n  };\n});\n`;
+    await writeFile(join(root, "runtime", "app.mjs"), app);
     await writeFile(join(root, "runtime", "app.css"), `:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }\nbody { margin: 0; }\nbutton { font: inherit; }\n`);
     await writeFile(join(root, "runtime", "app.html"), '<!doctype html><html><body><main id="app"></main><script type="module" src="./app.mjs"></script></body></html>\n');
 }

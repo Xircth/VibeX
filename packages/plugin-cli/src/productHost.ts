@@ -1,33 +1,46 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import {
+  type HostSession,
+  resolveHostSession,
+} from "./hostSession.js";
+
 export function discoverProductHost(
   environment: Record<string, string | undefined> = process.env,
-) {
-  const envUrl = (environment.VIBEX_URL || "").replace(/\/+$/, "");
-  const envToken = (environment.VIBEX_TOKEN || "").trim();
-  let token = envToken;
-  const port = 17891;
-  if (!token) {
-    for (const dir of [
-      join(homedir(), ".vibex"),
-      join(homedir(), "Library", "Application Support", "com.xircth.vibex"),
-    ]) {
-      try {
-        const hostToken = join(dir, "host.token");
-        token = readFileSync(hostToken, "utf8").trim();
-        if (token) break;
-      } catch {
-        /* continue */
-      }
+): HostSession {
+  return (
+    resolveHostSession({}, environment) ?? {
+      url: "http://127.0.0.1:17891",
+      token: "",
     }
+  );
+}
+
+export async function pingProductHost(
+  session: HostSession = discoverProductHost(),
+): Promise<boolean> {
+  if (!session.token) return false;
+  try {
+    const response = await fetch(
+      `${session.url}/api/v1/call/plugin_control_catalog`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${session.token}`,
+          "content-type": "application/json",
+          "x-vibex-protocol-version": "1.0",
+        },
+        body: JSON.stringify({ operation_id: randomUUID(), args: {} }),
+        signal: AbortSignal.timeout(2000),
+      },
+    );
+    return response.status !== 404 && response.status < 500;
+  } catch {
+    return false;
   }
-  return {
-    url: envUrl || `http://127.0.0.1:${port}`,
-    token,
-  };
 }
 
 export async function callProductHost<T>(
@@ -36,7 +49,9 @@ export async function callProductHost<T>(
 ): Promise<T> {
   const host = discoverProductHost();
   if (!host.token) {
-    throw new Error("No running VibeX Host. Start Desktop or `vibex serve`.");
+    throw new Error(
+      "No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.",
+    );
   }
   const response = await fetch(`${host.url}/api/v1/call/${command}`, {
     method: "POST",

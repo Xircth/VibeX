@@ -2,10 +2,15 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildPlugin } from "./build.js";
-import { watchPluginSources } from "./dev.js";
-import { readPluginRemotes, startPluginRemoteDev } from "./remoteDev.js";
 import { packPlugin } from "./package.js";
+import { buildPlugin } from "./build.js";
+import {
+  bindHostServer,
+  parseRunInvocation,
+  runPluginBuild,
+  runPluginDev,
+  runPluginTest,
+} from "./pluginRun.js";
 import {
   doctorOnProductHost,
   importLinkedOnProductHost,
@@ -16,7 +21,27 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import|panel|kanban-view]\n  validate [dir] [--json]\n  build [dir]\n  test [dir] [--host]\n  dev [dir]\n  install --link [dir]\n  uninstall [dir] [--delete-data]\n  pack [dir] [--output file.vxp]\n  doctor [dir]\n  toolchain\n\nLink and diagnose against the running Host with the same token as \`vibex plugin add --dev\`. Prefer that product command for linked development. test --host installs, enables Host contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
+const helpText = `VibeX Plugin CLI 1.0
+
+Commands:
+  run server [--http://127.0.0.1:17891] [--token <token>]
+  run dev [dir]
+  run build [dir]
+  run test [dir] [--host]
+  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import|panel|kanban-view]
+  validate [dir] [--json]
+  build [dir]
+  test [dir] [--host]
+  dev [dir]
+  install --link [dir]
+  uninstall [dir] [--delete-data]
+  pack [dir] [--output file.vxp]
+  doctor [dir]
+  toolchain
+
+Prefer \`vibex plugin run server\` then \`vibex plugin run dev\` from a plugin directory.
+\`dev\` is an alias of \`run dev\`. \`add --dev\` only links; it does not start HMR.
+test --host installs, enables Host contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
 
 try {
@@ -41,6 +66,27 @@ try {
       const root = resolve(positional(args) ?? ".");
       await buildPlugin(root);
       console.log(`Built ${root}`);
+      break;
+    }
+    case "run": {
+      const invocation = parseRunInvocation(args);
+      if (invocation.script === "server") {
+        const session = await bindHostServer({ flags: invocation.host });
+        console.log(`Host ${session.url} ready`);
+        break;
+      }
+      if (invocation.script === "dev") {
+        await runPluginDev(resolve(invocation.positional[0] ?? "."));
+        break;
+      }
+      if (invocation.script === "build") {
+        const root = await runPluginBuild(invocation.positional[0] ?? ".");
+        console.log(`Built ${root}`);
+        break;
+      }
+      await runPluginTest(invocation.positional[0] ?? ".", {
+        host: invocation.hostJourney,
+      });
       break;
     }
     case "test":
@@ -78,63 +124,9 @@ try {
       );
       break;
     }
-    case "dev": {
-      const root = resolve(positional(args) ?? ".");
-      await buildPlugin(root);
-      const plugin = await inspectLinkedPackage(root);
-      const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
-      console.log(
-        `Published generation ${installed.generation}; watching ${root}`,
-      );
-      const controller = new AbortController();
-      const stop = () => controller.abort();
-      process.once("SIGINT", stop);
-      process.once("SIGTERM", stop);
-      const remotes = await readPluginRemotes(root);
-      const remoteDev =
-        remotes.length > 0
-          ? await startPluginRemoteDev({
-              root,
-              remotes,
-              signal: controller.signal,
-              onReady(entry) {
-                console.log(`Remote HMR at ${entry}`);
-              },
-              onError(error) {
-                console.error(formatError(error));
-              },
-            })
-          : null;
-      if (remoteDev) {
-        const published = await importLinkedOnProductHost(
-          plugin.root,
-          plugin.identity,
-        );
-        console.log(`Published generation ${published.generation} with live remotes`);
-      }
-      try {
-        await watchPluginSources(root, {
-          signal: controller.signal,
-          ignoreRemoteSources: remotes.length > 0,
-          async reload() {
-            await buildPlugin(root);
-            if (controller.signal.aborted) return;
-            const candidate = await importLinkedOnProductHost(
-              plugin.root,
-              plugin.identity,
-            );
-            console.log(`Published generation ${candidate.generation}`);
-          },
-          onError(error) {
-            console.error(formatError(error));
-          },
-        });
-      } finally {
-        process.removeListener("SIGINT", stop);
-        process.removeListener("SIGTERM", stop);
-      }
+    case "dev":
+      await runPluginDev(resolve(positional(args) ?? "."));
       break;
-    }
     case "toolchain": {
       const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
       console.log(
@@ -222,6 +214,7 @@ function flag(args: readonly string[], name: string) {
 function positional(args: readonly string[]) {
   const valueOptions = new Set([
     "--host",
+    "--http",
     "--token",
     "--publisher",
     "--template",
@@ -231,6 +224,15 @@ function positional(args: readonly string[]) {
     const argument = args[index];
     if (valueOptions.has(argument)) {
       index += 1;
+      continue;
+    }
+    if (
+      argument.startsWith("--http://") ||
+      argument.startsWith("--https://") ||
+      argument.startsWith("--host=") ||
+      argument.startsWith("--http=") ||
+      argument.startsWith("--token=")
+    ) {
       continue;
     }
     if (!argument.startsWith("--")) return argument;

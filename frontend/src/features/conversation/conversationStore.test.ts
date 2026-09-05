@@ -938,10 +938,85 @@ describe('conversationStore (row-op dumb container)', () => {
       turns.map((row) => [row.turn.id, textOf(row.turn.blocks)])
     );
     expect(byId['t1:assistant']).toBe('answer-A');
-    expect(byId['t2:assistant']).toBe('answer-B');
+    expect(byId['t2:assistant'] ?? '').toBe('');
+    expect(entryOf(state).liveText['t2:assistant']).toBeUndefined();
     expect(
       turns.filter((row) => row.turn.role === 'user').map((row) => row.turn.id)
     ).toEqual(['t1:user', 't2:user']);
+  });
+
+  it('drops a late first-turn append instead of grafting it onto the second turn', () => {
+    let state = loaded([
+      userRow('t1', 'A', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'answer-A' }], 2n),
+      userRow('t2', 'B', 3n),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'late-A',
+          },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: 'answer-B',
+          },
+        ],
+        5n
+      ),
+    });
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const byId = Object.fromEntries(
+      turns.map((row) => [row.turn.id, textOf(row.turn.blocks)])
+    );
+    expect(byId['t1:assistant']).toBe('answer-A');
+    expect(byId['t2:assistant']).toBe('answer-B');
+    expect(entryOf(state).liveText['t1:assistant']).toBeUndefined();
+  });
+
+  it('keeps in-flight overlay text when a detail reload does not yet include it', () => {
+    let state = loaded([userRow('t2', 'B', 3n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'answer-B',
+          },
+        ],
+        4n
+      ),
+    });
+    const detail = emptyDetail([
+      userRow('t1', 'A', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'answer-A' }], 2n),
+      userRow('t2', 'B', 3n),
+    ]);
+    detail.timeline.last_sequence = 4n;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    expect(entryOf(state).liveText['t2:assistant']?.text).toBe('answer-B');
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const byId = Object.fromEntries(
+      turns.map((row) => [row.turn.id, textOf(row.turn.blocks)])
+    );
+    expect(byId['t1:assistant']).toBe('answer-A');
+    expect(byId['t2:assistant']).toBe('answer-B');
   });
 
   it('keeps later optimistic user turns after an earlier streaming turn', () => {

@@ -1209,6 +1209,18 @@ impl AgentRuntime {
         Ok(prompt)
     }
 
+    pub async fn live_cancel_target(
+        &self,
+        session_id: AgentSessionId,
+    ) -> Option<(AgentConnectionId, AgentPromptId)> {
+        let state = self.state.read().await;
+        let session = state.sessions.get(&session_id)?;
+        Some((
+            session.snapshot.connection_id,
+            session.snapshot.active_prompt_id?,
+        ))
+    }
+
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;

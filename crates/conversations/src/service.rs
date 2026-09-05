@@ -2016,12 +2016,19 @@ impl ConversationSessionService {
             &working_dir,
         );
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
-        let latest_binding =
-            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
+        let latest_binding = bindings.first().cloned();
+        let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
         let preferences = self
-            .resolved_session_control_preferences(pool, &agent_id, latest_binding.as_ref())
+            .resolved_session_control_preferences(
+                pool,
+                &agent_id,
+                restorable_binding.or(latest_binding.as_ref()),
+            )
             .await;
-        let can_restore_agent_session = binding_can_restore_agent_session(latest_binding.as_ref());
+        let can_restore_agent_session = restorable_binding.is_some()
+            || binding_can_restore_agent_session(latest_binding.as_ref());
         if !can_restore_agent_session
             && latest_binding
                 .as_ref()
@@ -2030,7 +2037,15 @@ impl ConversationSessionService {
             return Ok(AgentSessionControlsSnapshot::default());
         }
         let external_session_id = resume_external_session_id(
-            known_acp_session_id(latest_binding.as_ref(), Some(&persisted_session), &agent_id),
+            restorable_binding
+                .and_then(|binding| binding.acp_session_id.clone())
+                .or_else(|| {
+                    known_acp_session_id(
+                        latest_binding.as_ref(),
+                        Some(&persisted_session),
+                        &agent_id,
+                    )
+                }),
             can_restore_agent_session,
             false,
         );
@@ -2158,7 +2173,7 @@ impl ConversationSessionService {
         let Some(turn_id) = turn_id else {
             return Ok(());
         };
-        if let (Some(connection_id), Some(prompt_id)) = (
+        let cancel_target = match (
             snapshot
                 .connection_id
                 .as_deref()
@@ -2167,15 +2182,25 @@ impl ConversationSessionService {
                 .active_prompt_id
                 .as_deref()
                 .and_then(parse_agent_prompt_id),
-        ) && let Err(error) = self
-            .ctx
-            .agent_runtime
-            .cancel_prompt(CancelAgentPromptInput {
-                connection_id,
-                session_id: AgentSessionId(conversation_id),
-                prompt_id,
-            })
-            .await
+        ) {
+            (Some(connection_id), Some(prompt_id)) => Some((connection_id, prompt_id)),
+            _ => {
+                self.ctx
+                    .agent_runtime
+                    .live_cancel_target(AgentSessionId(conversation_id))
+                    .await
+            }
+        };
+        if let Some((connection_id, prompt_id)) = cancel_target
+            && let Err(error) = self
+                .ctx
+                .agent_runtime
+                .cancel_prompt(CancelAgentPromptInput {
+                    connection_id,
+                    session_id: AgentSessionId(conversation_id),
+                    prompt_id,
+                })
+                .await
         {
             // The runtime may already be dead (auth expiry, crashed process, lost
             // transport). The user's cancel intent must still settle the durable
@@ -2653,18 +2678,28 @@ impl ConversationSessionService {
         let pool = &self.ctx.deployment.db().pool;
         let agent_id = input.agent_id.clone();
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
-        let latest_binding =
-            ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(pool, input.conversation_id)
                 .await?;
+        let latest_binding = bindings.first().cloned();
+        let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
         let preferences = self
-            .resolved_session_control_preferences(pool, &agent_id, latest_binding.as_ref())
+            .resolved_session_control_preferences(
+                pool,
+                &agent_id,
+                restorable_binding.or(latest_binding.as_ref()),
+            )
             .await;
         let persisted_session = Session::find_by_id(pool, input.conversation_id).await?;
-        let known_acp_session_id = known_acp_session_id(
-            latest_binding.as_ref(),
-            persisted_session.as_ref(),
-            &input.agent_id,
-        );
+        let known_acp_session_id = restorable_binding
+            .and_then(|binding| binding.acp_session_id.clone())
+            .or_else(|| {
+                known_acp_session_id(
+                    latest_binding.as_ref(),
+                    persisted_session.as_ref(),
+                    &input.agent_id,
+                )
+            });
         let session_capabilities_json = serde_json::to_string(&AcpCapabilitySnapshot::default())
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let mcp_servers_json = serde_json::to_string(&self.ctx.host.product_mcp_server_names())
@@ -2679,7 +2714,8 @@ impl ConversationSessionService {
             .runtime_connection_and_turn(input.conversation_id)
             .await
             .is_some();
-        let can_restore_agent_session = binding_can_restore_agent_session(latest_binding.as_ref());
+        let can_restore_agent_session = restorable_binding.is_some()
+            || binding_can_restore_agent_session(latest_binding.as_ref());
         let resume_external_session_id = resume_external_session_id(
             known_acp_session_id.clone(),
             can_restore_agent_session,
@@ -2700,8 +2736,18 @@ impl ConversationSessionService {
                 acp_protocol_version: None,
                 runtime_version: Some(&launch_settings.launch_lock.runtime_version),
                 acp_version: Some(&launch_settings.launch_lock.acp_version),
-                load_supported: false,
-                resume_supported: false,
+                load_supported: restorable_binding
+                    .map(|binding| binding.load_supported)
+                    .or_else(|| latest_binding.as_ref().map(|binding| binding.load_supported))
+                    .unwrap_or(false),
+                resume_supported: restorable_binding
+                    .map(|binding| binding.resume_supported)
+                    .or_else(|| {
+                        latest_binding
+                            .as_ref()
+                            .map(|binding| binding.resume_supported)
+                    })
+                    .unwrap_or(false),
                 close_supported: false,
                 terminal_supported: false,
                 additional_directories_supported: false,
@@ -2730,8 +2776,10 @@ impl ConversationSessionService {
         )
         .await?;
 
+        let mut inject_host_history = resume_external_session_id.is_none();
         let session = if let Some(external_session_id) = resume_external_session_id {
-            self.ctx
+            match self
+                .ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
                     agent_id: agent_id.clone(),
@@ -2745,13 +2793,35 @@ impl ConversationSessionService {
                     env: launch_settings.env.clone(),
                     preferences: preferences.clone(),
                 })
-                .await?
-                .0
+                .await
+            {
+                Ok(session) => session.0,
+                Err(agents::AgentError::SessionLoadFailed(_)) => {
+                    inject_host_history = true;
+                    self.ctx
+                        .agent_runtime
+                        .prepare_session(EnsureAgentSessionInput {
+                            agent_id: agent_id.clone(),
+                            launch_lock: launch_settings.launch_lock.clone(),
+                            workspace_id: input.workspace_id,
+                            working_dir: PathBuf::from(working_dir),
+                            additional_directories: additional_directories.to_vec(),
+                            session_id: AgentSessionId(input.conversation_id),
+                            acp_session_id: acp_session_id.clone(),
+                            auto_approve_mode: launch_settings.auto_approve_mode,
+                            env: launch_settings.env.clone(),
+                            preferences: preferences.clone(),
+                        })
+                        .await?
+                        .session
+                }
+                Err(error) => return Err(error.into()),
+            }
         } else {
             self.ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
-                    agent_id,
+                    agent_id: agent_id.clone(),
                     launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
@@ -2848,13 +2918,29 @@ impl ConversationSessionService {
             &prompt_overrides.config_overrides,
         )
         .await;
+        let mut prompt_blocks = blocks;
+        if inject_host_history {
+            let current_text = prompt_blocks.iter().find_map(|block| match block {
+                AgentContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            });
+            if let Some(history) = crate::session_info::host_history_prompt(
+                pool,
+                input.conversation_id,
+                current_text.unwrap_or(""),
+            )
+            .await
+            {
+                prompt_blocks.insert(0, AgentContentBlock::Text { text: history });
+            }
+        }
         let prompt = self
             .ctx
             .agent_runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: session.connection_id,
                 session_id: session.id,
-                blocks,
+                blocks: prompt_blocks,
                 mode_override: prompt_overrides.mode_override,
                 config_overrides: prompt_overrides.config_overrides,
             })
@@ -3801,6 +3887,24 @@ fn resume_external_session_id(
         .filter(|_| can_restore)
 }
 
+fn is_placeholder_acp_session_id(id: &str) -> bool {
+    id.starts_with("vibex-new-session-")
+}
+
+fn restorable_agent_binding<'a>(
+    bindings: &'a [ConversationAgentBindingRecord],
+    agent_id: &AgentId,
+) -> Option<&'a ConversationAgentBindingRecord> {
+    bindings.iter().find(|binding| {
+        binding.agent_id == *agent_id
+            && (binding.load_supported || binding.resume_supported)
+            && binding
+                .acp_session_id
+                .as_deref()
+                .is_some_and(|id| !is_placeholder_acp_session_id(id))
+    })
+}
+
 fn known_acp_session_id(
     latest_binding: Option<&ConversationAgentBindingRecord>,
     persisted_session: Option<&Session>,
@@ -3809,6 +3913,7 @@ fn known_acp_session_id(
     latest_binding
         .filter(|binding| binding.agent_id == *agent_id)
         .and_then(|binding| binding.acp_session_id.clone())
+        .filter(|id| !is_placeholder_acp_session_id(id))
         .or_else(|| {
             persisted_session
                 .filter(|session| {
@@ -3818,6 +3923,7 @@ fn known_acp_session_id(
                         .is_some_and(|persisted_id| persisted_id == agent_id)
                 })
                 .and_then(|session| session.external_session_id.clone())
+                .filter(|id| !is_placeholder_acp_session_id(id))
         })
 }
 

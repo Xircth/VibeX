@@ -216,7 +216,7 @@ impl ConversationAgentEventRecorder {
         let mut batch = RecordedConversationBatch::default();
         for mapped in records {
             let normalized_json = serde_json::to_string(&mapped.event)?;
-            let record = ConversationEventAppender::append(
+            let record = match ConversationEventAppender::append(
                 &self.pool,
                 AppendConversationEvent {
                     id: Uuid::new_v4(),
@@ -232,7 +232,38 @@ impl ConversationAgentEventRecorder {
                     idempotency_key: Some(&mapped.idempotency_key),
                 },
             )
-            .await?;
+            .await
+            {
+                Ok(record) => record,
+                Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
+                    ConversationEventAppender::append(
+                        &self.pool,
+                        AppendConversationEvent {
+                            id: Uuid::new_v4(),
+                            conversation_id: mapped.conversation_id,
+                            turn_id: None,
+                            binding_id: None,
+                            connection_id: Some(&mapped.connection_id),
+                            prompt_id: None,
+                            source: mapped.source,
+                            event_kind: &mapped.event_kind,
+                            normalized_json: &normalized_json,
+                            raw_json: Some(&mapped.raw_json),
+                            idempotency_key: Some(&mapped.idempotency_key),
+                        },
+                    )
+                    .await?
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        conversation_id = %mapped.conversation_id,
+                        turn_id = ?mapped.turn_id,
+                        %error,
+                        "skipped conversation event that could not be persisted"
+                    );
+                    continue;
+                }
+            };
             let durable = ConversationEventEnvelope {
                 id: record.id,
                 conversation_id: record.conversation_id,
@@ -328,6 +359,19 @@ impl ConversationAgentEventRecorder {
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
         resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+    }
+}
+
+fn is_foreign_key_constraint(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(database) => {
+            database.code().as_deref() == Some("787")
+                || database
+                    .message()
+                    .to_ascii_uppercase()
+                    .contains("FOREIGN KEY")
+        }
+        _ => false,
     }
 }
 

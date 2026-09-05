@@ -13,6 +13,9 @@ export interface RetryProcessParams {
   executionProcessId: string;
   branchStatus: RepoBranchStatus[] | undefined;
   processes: ExecutionProcess[] | undefined;
+  modeOverride?: string | null;
+  configOverrides?: import('shared/types').AgentSessionConfigOverride[];
+  operationId?: string;
 }
 
 class RetryDialogCancelledError extends Error {
@@ -36,6 +39,9 @@ export function useRetryProcess(
       executionProcessId,
       branchStatus,
       processes,
+      modeOverride,
+      configOverrides,
+      operationId,
     }: RetryProcessParams) => {
       // Ask user for confirmation - dialog fetches its own preflight data
       let modalResult: RestoreLogsDialogResult | undefined;
@@ -57,6 +63,9 @@ export function useRetryProcess(
         sessionId,
         text: message,
         executorProfileId: { executor, variant },
+        modeOverride,
+        configOverrides,
+        operationId: operationId ?? crypto.randomUUID(),
       });
     },
     onSuccess: () => {

@@ -329,6 +329,11 @@ describe('KanbanUsageDashboard', () => {
     expect(within(summary).getByText('$0.4200')).toHaveClass(
       'kanban-usage-stat__value--compact'
     );
+    expect(
+      within(summary)
+        .getByRole('img', { name: '缓存命中率: 40%' })
+        .closest('.kanban-usage-summary__ring')
+    ).not.toBeNull();
     expect(within(summary).getByText('总 Token')).toBeVisible();
     expect(within(summary).getByText('总费用')).toBeVisible();
     expect(within(summary).getByText('总会话')).toBeVisible();

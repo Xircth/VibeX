@@ -217,19 +217,21 @@ export const useTerminalStore = create<TerminalState>()(
     }),
     {
       name: 'vibex-terminal-sessions',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<TerminalState>;
         const sessionsByWorkspace = Object.fromEntries(
           Object.entries(state.sessionsByWorkspace ?? {}).map(
             ([workspaceId, sessions]) => [
               workspaceId,
-              (sessions ?? []).filter(
-                (session) =>
-                  !session.readOnly &&
-                  session.source !== 'acp' &&
-                  session.source !== 'codex'
-              ),
+              (sessions ?? [])
+                .filter(
+                  (session) =>
+                    !session.readOnly &&
+                    session.source !== 'acp' &&
+                    session.source !== 'codex'
+                )
+                .map((session) => ({ ...session, sessionId: null })),
             ]
           )
         );
@@ -258,12 +260,14 @@ export const useTerminalStore = create<TerminalState>()(
           Object.entries(state.sessionsByWorkspace).map(
             ([workspaceId, sessions]) => [
               workspaceId,
-              sessions.filter(
-                (session) =>
-                  !session.readOnly &&
-                  session.source !== 'acp' &&
-                  session.source !== 'codex'
-              ),
+              sessions
+                .filter(
+                  (session) =>
+                    !session.readOnly &&
+                    session.source !== 'acp' &&
+                    session.source !== 'codex'
+                )
+                .map((session) => ({ ...session, sessionId: null })),
             ]
           )
         ),

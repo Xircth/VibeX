@@ -1,7 +1,7 @@
 //! npm 官方指纹验证:外部 npx 组件内容变化时,用 npm registry 的
 //! `dist.integrity` 校验 tarball,再比对 tarball 内容与磁盘文件。
 
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -483,6 +483,15 @@ pub fn split_npm_spec(spec: &str) -> Option<(&str, &str)> {
     Some((package, &version[1..]))
 }
 
+/// True when `path` is inside an npm package tree. Bin shims and PATH vendor
+/// CLIs live outside `node_modules`; those files are launchers, not tarball
+/// payloads, so their bytes are not npm `dist.integrity`.
+pub fn is_npm_package_payload_path(path: &Path) -> bool {
+    path.to_string_lossy()
+        .split(['/', '\\'])
+        .any(|segment| segment == "node_modules")
+}
+
 /// 外部安装组件内容变化的官方验证判定(ADR-0038 方向 B)。
 ///
 /// - npx 分发:经 npm registry 的 `dist.integrity` 验证官方 tarball,再比对
@@ -502,10 +511,18 @@ pub async fn verify_external_component_change(
     distribution_kind: &str,
     package_spec: Option<&str>,
     registry_sha256: Option<&str>,
+    disk_path: &Path,
     disk_sha256: &str,
 ) -> ExternalChangeVerdict {
     match distribution_kind {
         "npx" => {
+            if !is_npm_package_payload_path(disk_path) {
+                // ADR-0060: npm bin shims and reused vendor CLIs on PATH are
+                // user-environment observations, not package payloads. npm
+                // rewriting a launcher or a vendor updater replacing `claude`
+                // is not tarball integrity damage.
+                return ExternalChangeVerdict::Verified;
+            }
             let Some(spec) = package_spec else {
                 return ExternalChangeVerdict::Unverifiable(
                     "external package component has no package spec".to_string(),
@@ -547,7 +564,7 @@ pub async fn verify_external_component_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Mutex};
+    use std::{collections::HashMap, path::Path, sync::Mutex};
 
     use async_trait::async_trait;
     use base64::Engine;
@@ -861,17 +878,97 @@ mod tests {
         // uvx 包托管在 PyPI,没有 npm dist.integrity;内容变化时无法用官方
         // 指纹验证,保持 fail-closed(TOFU 语义)。
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::new()));
-        let verdict =
-            verify_external_component_change(&fetcher, "uvx", Some("some-pkg@1.0.0"), None, "hash")
-                .await;
+        let verdict = verify_external_component_change(
+            &fetcher,
+            "uvx",
+            Some("some-pkg@1.0.0"),
+            None,
+            Path::new("/usr/local/bin/tool"),
+            "hash",
+        )
+        .await;
         assert!(matches!(verdict, ExternalChangeVerdict::Unverifiable(_)));
     }
 
     #[tokio::test]
     async fn tofu_registry_binaries_adopt_the_on_disk_fingerprint() {
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::new()));
-        let verdict =
-            verify_external_component_change(&fetcher, "binary", None, None, "abc123").await;
+        let verdict = verify_external_component_change(
+            &fetcher,
+            "binary",
+            None,
+            None,
+            Path::new("/usr/local/bin/tool"),
+            "abc123",
+        )
+        .await;
         assert_eq!(verdict, ExternalChangeVerdict::Verified);
+    }
+
+    #[test]
+    fn npm_package_payload_paths_are_inside_node_modules() {
+        assert!(!is_npm_package_payload_path(Path::new(
+            "/usr/local/bin/claude"
+        )));
+        assert!(!is_npm_package_payload_path(Path::new(
+            r"C:\Users\developer\AppData\Roaming\npm\claude.cmd"
+        )));
+        assert!(is_npm_package_payload_path(Path::new(
+            "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js"
+        )));
+        assert!(is_npm_package_payload_path(Path::new(
+            r"C:\Users\developer\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js"
+        )));
+    }
+
+    #[tokio::test]
+    async fn npx_vendor_cli_outside_node_modules_is_adopted_without_registry() {
+        let fetcher = ScriptedFetcher(Mutex::new(HashMap::new()));
+        let verdict = verify_external_component_change(
+            &fetcher,
+            "npx",
+            Some("@anthropic-ai/claude-code@2.1.211"),
+            None,
+            Path::new("/usr/local/bin/claude"),
+            "deadbeef",
+        )
+        .await;
+        assert_eq!(verdict, ExternalChangeVerdict::Verified);
+    }
+
+    #[tokio::test]
+    async fn npx_package_payload_still_requires_tarball_membership() {
+        let tarball = build_tarball(&[("package/dist/index.js", b"official content")]);
+        let metadata = serde_json::json!({
+            "versions": {
+                "1.1.9": {
+                    "dist": {
+                        "integrity": sha512_base64(&tarball),
+                        "tarball": "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz",
+                    }
+                }
+            }
+        });
+        let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([
+            (
+                "https://registry.npmjs.org/@agentclientprotocol%2fcodex-acp".to_string(),
+                serde_json::to_vec(&metadata).unwrap(),
+            ),
+            (
+                "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz"
+                    .to_string(),
+                tarball,
+            ),
+        ])));
+        let verdict = verify_external_component_change(
+            &fetcher,
+            "npx",
+            Some("@agentclientprotocol/codex-acp@1.1.9"),
+            None,
+            Path::new("/usr/local/lib/node_modules/@agentclientprotocol/codex-acp/dist/index.js"),
+            &"deadbeef".repeat(8),
+        )
+        .await;
+        assert_eq!(verdict, ExternalChangeVerdict::NotVerified);
     }
 }

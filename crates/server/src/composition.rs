@@ -190,12 +190,14 @@ impl HeadlessServer {
             tracing::warn!(%error, "queued linked Plugin inbox import failed");
         }
         if let Ok(node) = worker_runtime.resolve().await {
-            let _ = plugins::PluginControlPlane::spawn_developer_link_refresh(
+            // Fire and forget: the refresh task manages its own lifetime, so
+            // the join handle is dropped rather than awaited here.
+            drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
                 plugin_control_plane.clone(),
                 node,
                 config.data_dir.join("plugins").join("dev-candidates"),
                 capability_broker.clone(),
-            );
+            ));
         }
         plugin_control_plane
             .sync_official_product_mcp_gate()
@@ -236,21 +238,21 @@ impl HeadlessServer {
             conversation_context.clone(),
             plugin_control_plane.official_product_mcp_gate(),
         );
-        let core = crate::host_application_core(
-            pool.clone(),
-            conversation_context.clone(),
+        let core = crate::host_application_core(crate::HostApplicationCoreDeps {
+            pool: pool.clone(),
+            conversations: conversation_context.clone(),
             plugin_control_plane,
-            Some(companion_memory),
+            companion_memory: Some(companion_memory),
             preview_host,
             capability_broker,
             app_surfaces,
-            preview_proxy.clone(),
-            automation_runtime.clone(),
-            automation_owner.is_some(),
-            deployment.clone(),
-            config.data_dir.join("plugins/runtimes"),
+            preview_proxy: preview_proxy.clone(),
+            automation: automation_runtime.clone(),
+            owns_automation_engine: automation_owner.is_some(),
+            deployment: deployment.clone(),
+            runtime_root: config.data_dir.join("plugins/runtimes"),
             worker_runtime,
-        );
+        });
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {

@@ -94,10 +94,31 @@ pub fn load_providers(
 ) -> Result<DshProvidersView, String> {
     let settings = read_yaml_mapping(&paths.settings)?;
     let credentials = read_yaml_mapping(&paths.credentials)?;
-    let mut providers = vec![official_provider(&settings, &credentials)];
+    Ok(project_providers(
+        paths,
+        &settings,
+        &credentials,
+        default_provider,
+        default_model,
+    ))
+}
+
+/// Build the view from already-resolved documents.
+///
+/// A save returns the mutations for the caller to persist, so re-reading the
+/// files here would project the state from before the save and the UI would
+/// show a stale provider list until something else forced a reload.
+fn project_providers(
+    paths: &DshPaths,
+    settings: &serde_yaml::Mapping,
+    credentials: &serde_yaml::Mapping,
+    default_provider: Option<&str>,
+    default_model: Option<&str>,
+) -> DshProvidersView {
+    let mut providers = vec![official_provider(settings, credentials)];
     let mut seen = HashSet::from([OFFICIAL_PROVIDER_ID.to_string()]);
     if let Some(configured) = settings
-        .get(&Value::String("llm-pi-ai".into()))
+        .get(Value::String("llm-pi-ai".into()))
         .and_then(Value::as_mapping)
         .and_then(|section| section.get(Value::String("providers".into())))
         .and_then(Value::as_mapping)
@@ -118,7 +139,7 @@ pub fn load_providers(
             else {
                 continue;
             };
-            providers.push(project_pi_provider(&id, entry, &credentials));
+            providers.push(project_pi_provider(&id, entry, credentials));
         }
     }
 
@@ -139,14 +160,14 @@ pub fn load_providers(
         })
         .unwrap_or_else(|| DEFAULT_OFFICIAL_MODEL.to_string());
 
-    Ok(DshProvidersView {
+    DshProvidersView {
         settings_path: paths.settings.display().to_string(),
         credentials_path: paths.credentials.display().to_string(),
         default_provider,
         default_model,
         providers,
         catalog: catalog(),
-    })
+    }
 }
 
 pub fn save_provider(
@@ -213,7 +234,13 @@ pub fn save_provider(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     Ok((
-        load_providers(paths, default_provider, default_model)?,
+        project_providers(
+            paths,
+            &settings,
+            &credentials,
+            default_provider,
+            default_model,
+        ),
         mutations,
     ))
 }
@@ -229,16 +256,19 @@ pub fn delete_provider(
     let (mut settings, settings_original) = read_yaml_state(&paths.settings)?;
     let (mut credentials, credentials_original) = read_yaml_state(&paths.credentials)?;
     let removed_env = remove_pi_provider(&mut settings, &id);
-    if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV) {
-        if !credential_still_referenced(&settings, &env_name) {
-            credentials.remove(Value::String(env_name));
-        }
+    if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV)
+        && !credential_still_referenced(&settings, &env_name)
+    {
+        credentials.remove(Value::String(env_name));
     }
     let mutations = vec![
         yaml_mutation(&paths.settings, settings_original, &settings, false)?,
         yaml_mutation(&paths.credentials, credentials_original, &credentials, true)?,
     ];
-    Ok((load_providers(paths, None, None)?, mutations))
+    Ok((
+        project_providers(paths, &settings, &credentials, None, None),
+        mutations,
+    ))
 }
 
 pub async fn discover_models(
@@ -641,10 +671,10 @@ fn apply_pi_provider(
             Value::String("displayName".into()),
             Value::String(name.to_string()),
         );
-    } else if kind == DshProviderKind::Catalog {
-        if let Some(name) = catalog_name(id) {
-            entry.insert(Value::String("displayName".into()), Value::String(name));
-        }
+    } else if kind == DshProviderKind::Catalog
+        && let Some(name) = catalog_name(id)
+    {
+        entry.insert(Value::String("displayName".into()), Value::String(name));
     }
     if let Some(notes) = request
         .notes

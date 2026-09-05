@@ -7,6 +7,22 @@ use plugins::{
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
+/// `kill_on_drop` terminates the Worker asynchronously. Windows refuses to
+/// remove a directory while an exiting process still holds handles to it (and
+/// it is that process's working directory), so wait for the kill to land
+/// instead of racing it.
+async fn remove_dir_all_once_released(path: &std::path::Path) {
+    for attempt in 1..=50 {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return,
+            Err(error) if attempt == 50 => {
+                panic!("could not remove {}: {error}", path.display())
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+}
+
 async fn pool() -> sqlx::SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -354,7 +370,7 @@ async fn linked_worker_refreezes_source_when_its_candidate_snapshot_is_lost() {
         .await
         .unwrap();
     drop(first);
-    std::fs::remove_dir_all(&lost_snapshot).unwrap();
+    remove_dir_all_once_released(&lost_snapshot).await;
 
     let restored = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool)));
     let failures = restored

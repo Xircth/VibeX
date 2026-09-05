@@ -9,6 +9,25 @@ use std::{
 };
 
 use async_trait::async_trait;
+
+/// The managed root only has to be absolute for the host: the tests run
+/// against an in-memory filesystem, and a leading `/` is merely rooted on
+/// Windows rather than absolute, which the config rejects.
+fn managed_root() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\managed-tools")
+    } else {
+        PathBuf::from("/managed-tools")
+    }
+}
+
+fn managed_path(relative: &str) -> PathBuf {
+    let mut path = managed_root();
+    for segment in relative.split('/') {
+        path.push(segment);
+    }
+    path
+}
 use sha2::{Digest, Sha256};
 use tool_runtime::{
     CancellationToken, Downloader, InstallationLockStore, PortError, ProcessProbe, ToolFilesystem,
@@ -240,7 +259,7 @@ async fn rejects_digest_mismatch_before_probe() {
     let probe = Arc::new(FakeProbe::default());
     let lock_store = Arc::new(FakeLockStore::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(FakeDownloader {
             bytes: b"tampered binary".to_vec(),
         }),
@@ -307,7 +326,7 @@ async fn authoritative_runtime_rejects_unsafe_download_urls_before_fetch() {
             bytes: b"never downloaded".to_vec(),
         });
         let runtime = ToolRuntime::new(
-            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            ToolRuntimeConfig::new(managed_root()),
             downloader.clone(),
             Arc::new(FakeFilesystem::default()),
             Arc::new(FakeProbe::default()),
@@ -377,7 +396,7 @@ async fn upgrade_is_atomic() {
     let filesystem = Arc::new(FakeFilesystem::default());
     let lock_store = Arc::new(FakeLockStore::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
                 (
@@ -420,7 +439,7 @@ async fn upgrade_is_atomic() {
             .version,
         "1.0.0"
     );
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/staging")));
 
     let error = runtime
         .upgrade(
@@ -439,7 +458,7 @@ async fn upgrade_is_atomic() {
             .version,
         "1.0.0"
     );
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/staging")));
 
     let lease = runtime
         .upgrade(
@@ -458,7 +477,7 @@ async fn upgrade_is_atomic() {
             .version,
         "2.0.0"
     );
-    assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")));
+    assert!(filesystem.has_files_under(&managed_path("officecli/versions/1.0.0")));
 }
 
 #[tokio::test]
@@ -468,7 +487,7 @@ async fn concurrent_ensure_uses_single_install_attempt() {
         bytes: b"v1".to_vec(),
     });
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         downloader.clone(),
         Arc::new(FakeFilesystem::default()),
         Arc::new(SelectiveProbe),
@@ -492,7 +511,7 @@ async fn concurrent_ensure_uses_single_install_attempt() {
 async fn cancellation_interrupts_waiting_for_install_lock() {
     let runtime = Arc::new(
         ToolRuntime::new(
-            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            ToolRuntimeConfig::new(managed_root()),
             Arc::new(FakeDownloader {
                 bytes: b"v1".to_vec(),
             }),
@@ -528,7 +547,7 @@ async fn cancellation_interrupts_waiting_for_install_lock() {
 async fn cancellation_at_current_commit_keeps_previous_version() {
     let lock_store = Arc::new(FakeLockStore::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
                 (
@@ -577,7 +596,7 @@ async fn cancellation_at_current_commit_keeps_previous_version() {
 async fn release_delays_cleanup_for_active_lease() {
     let filesystem = Arc::new(FakeFilesystem::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
                 (
@@ -622,12 +641,12 @@ async fn release_delays_cleanup_for_active_lease() {
         .await
         .expect("v3 upgrade");
 
-    assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")));
+    assert!(filesystem.has_files_under(&managed_path("officecli/versions/1.0.0")));
     runtime.release(v1_lease).await.expect("release v1 lease");
 
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")));
-    assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/2.0.0")));
-    assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/3.0.0")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/versions/1.0.0")));
+    assert!(filesystem.has_files_under(&managed_path("officecli/versions/2.0.0")));
+    assert!(filesystem.has_files_under(&managed_path("officecli/versions/3.0.0")));
 }
 
 #[tokio::test]
@@ -635,7 +654,7 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
     let filesystem = Arc::new(FakeFilesystem::default());
     let runtime = Arc::new(
         ToolRuntime::new(
-            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            ToolRuntimeConfig::new(managed_root()),
             Arc::new(CatalogDownloader {
                 artifacts: HashMap::from([
                     (
@@ -686,7 +705,7 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
         target: "aarch64-apple-darwin".into(),
         source_url: "https://downloads.vibex.dev/fixtures/officecli/1.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v1")),
-        executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
+        executable_path: managed_path("officecli/versions/1.0.0/officecli"),
         installed_at_unix_ms: 1,
     };
     let barrier = filesystem.block_next_remove();
@@ -711,14 +730,14 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
         "aborting the caller must not release the deletion gate"
     );
     barrier.proceed.notify_one();
-    while filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")) {
+    while filesystem.has_files_under(&managed_path("officecli/versions/1.0.0")) {
         tokio::task::yield_now().await;
     }
     let v3_lock = ToolInstallationLock {
         version: "3.0.0".into(),
         source_url: "https://downloads.vibex.dev/fixtures/officecli/3.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v3")),
-        executable_path: PathBuf::from("/managed-tools/officecli/versions/3.0.0/officecli"),
+        executable_path: managed_path("officecli/versions/3.0.0/officecli"),
         ..v1_lock
     };
     runtime
@@ -731,7 +750,7 @@ async fn lease_acquisition_is_rejected_while_uninstall_deletes_the_tool() {
     let filesystem = Arc::new(FakeFilesystem::default());
     let runtime = Arc::new(
         ToolRuntime::new(
-            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            ToolRuntimeConfig::new(managed_root()),
             Arc::new(CatalogDownloader {
                 artifacts: HashMap::from([(
                     "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
@@ -762,7 +781,7 @@ async fn lease_acquisition_is_rejected_while_uninstall_deletes_the_tool() {
         target: "aarch64-apple-darwin".into(),
         source_url: "https://downloads.vibex.dev/fixtures/officecli/1.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v1")),
-        executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
+        executable_path: managed_path("officecli/versions/1.0.0/officecli"),
         installed_at_unix_ms: 1,
     };
     let barrier = filesystem.block_next_remove();
@@ -795,7 +814,7 @@ async fn rejects_managed_path_escape_before_download() {
         bytes: b"v1".to_vec(),
     });
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         downloader.clone(),
         Arc::new(FakeFilesystem::default()),
         Arc::new(SelectiveProbe),
@@ -833,7 +852,7 @@ async fn cancellation_interrupts_download_and_cleans_staging() {
     });
     let filesystem = Arc::new(FakeFilesystem::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         downloader.clone(),
         filesystem.clone(),
         Arc::new(SelectiveProbe),
@@ -856,7 +875,7 @@ async fn cancellation_interrupts_download_and_cleans_staging() {
         .expect_err("cancelled install");
 
     assert_eq!(error.code(), "tool_install_cancelled");
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/staging")));
 }
 
 #[tokio::test]
@@ -864,7 +883,7 @@ async fn cancellation_during_rename_does_not_switch_current() {
     let filesystem = Arc::new(FakeFilesystem::default());
     let lock_store = Arc::new(FakeLockStore::default());
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
                 (
@@ -907,7 +926,7 @@ async fn cancellation_during_rename_does_not_switch_current() {
             .version,
         "1.0.0"
     );
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/2.0.0")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/versions/2.0.0")));
 }
 
 #[tokio::test]
@@ -918,7 +937,7 @@ async fn next_install_reconciles_abandoned_staging_attempt() {
         b"abandoned",
     );
     let runtime = ToolRuntime::new(
-        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        ToolRuntimeConfig::new(managed_root()),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([(
                 "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
@@ -939,5 +958,5 @@ async fn next_install_reconciles_abandoned_staging_attempt() {
         .await
         .expect("fresh install after reconciliation");
 
-    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
+    assert!(!filesystem.has_files_under(&managed_path("officecli/staging")));
 }

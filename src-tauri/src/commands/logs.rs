@@ -31,10 +31,10 @@ pub async fn set_log_settings(
 ) -> Result<LogSettings, AppError> {
     let settings = sanitize_settings(settings);
     persist_settings(&settings).map_err(AppError::Internal)?;
-    if !env_level_is_set() {
-        if let Some(hub) = log_hub() {
-            hub.apply_settings(&settings);
-        }
+    if !env_level_is_set()
+        && let Some(hub) = log_hub()
+    {
+        hub.apply_settings(&settings);
     }
     let _ = app.emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
     Ok(settings)

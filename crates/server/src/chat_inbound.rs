@@ -2100,9 +2100,9 @@ mod tests {
 
     #[test]
     fn callback_payloads_stay_within_telegram_limit() {
-        assert!(format!("cb:f:8").len() < 64);
-        assert!(format!("cb:a:8").len() < 64);
-        assert!(format!("cb:p:always").len() < 64);
+        assert!("cb:f:8".len() < 64);
+        assert!("cb:a:8".len() < 64);
+        assert!("cb:p:always".len() < 64);
     }
 
     #[test]

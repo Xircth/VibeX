@@ -53,7 +53,9 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
             .iter()
             .find_map(|(id, source)| (*id == skill.id).then_some(*source))
             .expect("every declared bundled skill is embedded");
-        assert!(source.starts_with("---\n"));
+        // These are checked out from a submodule, so on Windows the working
+        // tree may hold CRLF; the frontmatter marker is what matters here.
+        assert!(source.starts_with("---\n") || source.starts_with("---\r\n"));
     }
     let manifest_text = serde_json::to_string(&manifest.manifest).unwrap();
     for suffix in [
@@ -85,6 +87,16 @@ fn office_package_update_keeps_valid_config_and_drops_removed_fields() {
             .is_err(),
         "authoring still rejects fields the current schema does not declare"
     );
+}
+
+/// An absolute executable path for the host: the runtime lock rejects a bare
+/// `/verified/...`, which Windows treats as rooted rather than absolute.
+fn verified_executable() -> std::path::PathBuf {
+    if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\verified\officecli.exe")
+    } else {
+        std::path::PathBuf::from("/verified/officecli")
+    }
 }
 
 #[tokio::test]
@@ -202,7 +214,9 @@ async fn office_action_resolves_skill_runtime_and_artifact_intent() {
                 version: runtime.version.clone().unwrap(),
                 target: runtime.target.clone(),
                 content_digest: runtime.content_digest.clone(),
-                executable_path: "/verified/officecli".into(),
+                // The lock requires a host-absolute executable, and a leading
+                // `/` is only rooted on Windows rather than absolute.
+                executable_path: verified_executable(),
                 ownership: "managed".to_owned(),
                 installer: "binary".to_owned(),
                 probe: runtime.probe.clone(),
@@ -223,11 +237,12 @@ async fn office_action_resolves_skill_runtime_and_artifact_intent() {
     assert_eq!(action.required_skills[0].as_str(), "office-docx");
     assert_eq!(action.required_tools[0].as_str(), "officecli");
     assert_eq!(action.artifact_intent.unwrap().provider, "office-preview");
-    assert!(action.prompt_blocks.iter().any(|block| matches!(
-        block,
-        plugins::PromptBlock::Text { text } if text.contains("/verified/officecli")
-            && text.contains("office-docx/SKILL.md")
-    )));
+    // Resolved paths are native, so compare on the logical suffixes.
+    assert!(action.prompt_blocks.iter().any(|block| {
+        let plugins::PromptBlock::Text { text } = block;
+        let unified = text.replace('\\', "/");
+        unified.contains("/verified/officecli") && unified.contains("office-docx/SKILL.md")
+    }));
 }
 
 #[tokio::test]

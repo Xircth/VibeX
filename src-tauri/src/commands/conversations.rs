@@ -1014,19 +1014,17 @@ pub async fn conversation_fork(
     let summary = DbConversationSummary::find_by_id(pool, source_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
-    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await? {
-        if let Some(active_turn_id) = conversation.active_turn_id
-            && let Some(active_turn) =
-                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
-            && matches!(
-                active_turn.status.as_str(),
-                "pending" | "queued" | "running" | "blocked"
-            )
-        {
-            return Err(AppError::Conflict(
-                "Cannot fork a conversation while a turn is in flight".to_string(),
-            ));
-        }
+    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await?
+        && let Some(active_turn_id) = conversation.active_turn_id
+        && let Some(active_turn) = ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+        && matches!(
+            active_turn.status.as_str(),
+            "pending" | "queued" | "running" | "blocked"
+        )
+    {
+        return Err(AppError::Conflict(
+            "Cannot fork a conversation while a turn is in flight".to_string(),
+        ));
     }
 
     // Full non-destructive copy with fresh ids via the tested export→import path.

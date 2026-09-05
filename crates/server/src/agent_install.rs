@@ -526,12 +526,7 @@ async fn install_plan(
     for component in &mut components {
         component.sha256 = Some(file_sha256(&component.absolute_path).await?);
     }
-    Ok(build_installed_plan(
-        &plan.agent_id,
-        plan,
-        user_env,
-        components,
-    )?)
+    build_installed_plan(&plan.agent_id, plan, user_env, components)
 }
 
 fn build_installed_plan(

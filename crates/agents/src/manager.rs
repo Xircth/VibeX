@@ -2701,10 +2701,10 @@ impl AgentConnectionRunner {
             if option.id.0.as_ref() != selection.config_id {
                 continue;
             }
-            if let SessionConfigKind::Select(select) = &mut option.kind {
-                if let Some(value_id) = selection.event_value.as_str() {
-                    select.current_value = SessionConfigValueId::new(value_id);
-                }
+            if let SessionConfigKind::Select(select) = &mut option.kind
+                && let Some(value_id) = selection.event_value.as_str()
+            {
+                select.current_value = SessionConfigValueId::new(value_id);
             }
         }
     }

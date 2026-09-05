@@ -53,8 +53,11 @@ impl GitService {
         }
     }
 
-    /// Signature for the empty bootstrap commit only. Does not write gitconfig.
-    fn signature_for_initial_commit<'a>(
+    /// Signature for commits VibeX authors itself rather than on the user's
+    /// behalf: the empty bootstrap commit and the libgit2 squash merge. These
+    /// must not hard-fail for a user who has never configured a Git identity,
+    /// so they fall back to the VibeX identity. Does not write gitconfig.
+    pub(crate) fn signature_with_bootstrap_fallback<'a>(
         &self,
         repo: &'a Repository,
     ) -> Result<git2::Signature<'a>, GitServiceError> {
@@ -128,7 +131,7 @@ impl GitService {
     }
 
     pub fn create_initial_commit(&self, repo: &Repository) -> Result<(), GitServiceError> {
-        let signature = self.signature_for_initial_commit(repo)?;
+        let signature = self.signature_with_bootstrap_fallback(repo)?;
 
         let tree_id = {
             let tree_builder = repo.treebuilder(None)?;

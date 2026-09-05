@@ -934,20 +934,19 @@ fn provider_is_in_use(
     else {
         return false;
     };
-    if let Some(native) = native_codex {
-        if !native_uses_vibex_projection(Some(native))
-            && native_active_matches_provider(
-                native.active_provider.as_deref(),
-                native
-                    .providers
-                    .iter()
-                    .map(|item| (item.id.as_str(), item.api_url.as_str())),
-                native.base_url.as_deref(),
-                provider,
-            )
-        {
-            return true;
-        }
+    if let Some(native) = native_codex
+        && !native_uses_vibex_projection(Some(native))
+        && native_active_matches_provider(
+            native.active_provider.as_deref(),
+            native
+                .providers
+                .iter()
+                .map(|item| (item.id.as_str(), item.api_url.as_str())),
+            native.base_url.as_deref(),
+            provider,
+        )
+    {
+        return true;
     }
     if let Some(native) = native_pi
         && native_active_matches_provider(
@@ -1213,7 +1212,7 @@ fn reconcile_codex_store_bindings(
     agent_id: &AgentId,
     native: Option<&NativeCodexState>,
 ) -> bool {
-    if agent_id.as_str() != "codex" || store.bindings.get(agent_id.as_str()).is_none() {
+    if agent_id.as_str() != "codex" || !store.bindings.contains_key(agent_id.as_str()) {
         return false;
     }
     if native_uses_vibex_projection(native) {
@@ -1913,17 +1912,17 @@ async fn native_codex_drafts(codex_home: &Path) -> Result<Vec<ImportDraft>, Stri
             skip_reason: None,
         });
     }
-    if drafts.is_empty() {
-        if let (Some(url), Some(model)) = (state.base_url, state.model) {
-            drafts.push(ImportDraft {
-                source_id: NATIVE_ENDPOINT_PROVIDER_ID.to_string(),
-                name: "当前原生配置".to_string(),
-                api_url: url,
-                api_key: key,
-                model: serde_json::json!({ "default_model": model }).to_string(),
-                skip_reason: None,
-            });
-        }
+    if drafts.is_empty()
+        && let (Some(url), Some(model)) = (state.base_url, state.model)
+    {
+        drafts.push(ImportDraft {
+            source_id: NATIVE_ENDPOINT_PROVIDER_ID.to_string(),
+            name: "当前原生配置".to_string(),
+            api_url: url,
+            api_key: key,
+            model: serde_json::json!({ "default_model": model }).to_string(),
+            skip_reason: None,
+        });
     }
     Ok(drafts)
 }
@@ -4440,8 +4439,8 @@ mod tests {
         assert!(managed.managed);
 
         let store = read_store(&store_path).await.unwrap();
-        assert!(store.bindings.get("codex").is_none());
-        assert!(store.projection_backups.get("codex").is_none());
+        assert!(!store.bindings.contains_key("codex"));
+        assert!(!store.projection_backups.contains_key("codex"));
 
         let state = read_native_codex_state(&codex_home).await.unwrap();
         assert!(native_codex_provider_ready(&state));

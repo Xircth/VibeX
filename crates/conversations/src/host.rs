@@ -799,7 +799,12 @@ mod working_dir_tests {
                 .as_deref(),
             Some("VibeX")
         );
-        let expected = format!("{container}/VibeX");
+        // The resolver joins with the host separator, so build the expectation
+        // the same way instead of hard-coding the POSIX one.
+        let expected = std::path::PathBuf::from(container)
+            .join("VibeX")
+            .to_string_lossy()
+            .into_owned();
         assert_eq!(
             resolve_absolute_workspace_agent_working_dir(
                 &workspace,

@@ -1534,6 +1534,15 @@ impl ContainerService for LocalContainerService {
 
 #[cfg(test)]
 mod tests {
+    /// Give the temp repo its own committer identity so these tests do not
+    /// depend on whether the developer running them has a global gitconfig.
+    fn configure_test_identity(repo_path: &std::path::Path) {
+        let cli = git::GitCli::new();
+        cli.git(repo_path, ["config", "user.name", "VibeX Test"])
+            .expect("set user.name");
+        cli.git(repo_path, ["config", "user.email", "test@vibex.invalid"])
+            .expect("set user.email");
+    }
     use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
     use db::{
@@ -1622,15 +1631,22 @@ mod tests {
     }
 
     fn env_probe_script() -> String {
-        #[cfg(windows)]
-        {
+        // Scripts are spawned through `get_shell_command`, which prefers bash
+        // when it is on PATH even on Windows. Keying the probe syntax off the
+        // target OS instead made it emit `%VAR%` into bash, where it is a
+        // literal rather than an expansion.
+        let (shell, _) = utils::shell::get_shell_command();
+        let uses_cmd = std::path::Path::new(&shell)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| stem.eq_ignore_ascii_case("cmd"));
+
+        if uses_cmd {
             format!(
                 "echo PROJECT=%VK_PROJECT_NAME% & echo WORKSPACE=%VK_WORKSPACE_ID% & echo SESSION=%VK_SESSION_ID% & {}",
                 long_running_script()
             )
-        }
-        #[cfg(not(windows))]
-        {
+        } else {
             format!(
                 "printf 'PROJECT=%s\\nWORKSPACE=%s\\nSESSION=%s\\n' \"$VK_PROJECT_NAME\" \"$VK_WORKSPACE_ID\" \"$VK_SESSION_ID\"; {}",
                 long_running_script()
@@ -2145,6 +2161,7 @@ mod tests {
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        configure_test_identity(&repo_path);
         fs::write(repo_path.join("README.md"), "hello\n").unwrap();
         git.commit(&repo_path, "seed").unwrap();
         let expected_head = git.get_head_info(&repo_path).unwrap().oid;
@@ -2309,6 +2326,7 @@ mod tests {
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        configure_test_identity(&repo_path);
         fs::write(repo_path.join("README.md"), "hello\n").unwrap();
         git.commit(&repo_path, "seed").unwrap();
         let expected_head = git.get_head_info(&repo_path).unwrap().oid;
@@ -2703,6 +2721,7 @@ mod tests {
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        configure_test_identity(&repo_path);
         fs::write(repo_path.join("README.md"), "hello\n").unwrap();
         git.commit(&repo_path, "seed").unwrap();
 
@@ -2740,6 +2759,7 @@ mod tests {
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        configure_test_identity(&repo_path);
 
         let nested_path = repo_path.join(".worktrees").join("not-a-worktree");
         fs::create_dir_all(&nested_path).unwrap();
@@ -2818,6 +2838,7 @@ mod tests {
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        configure_test_identity(&repo_path);
         fs::write(repo_path.join("README.md"), "hello\n").unwrap();
         git.commit(&repo_path, "seed").unwrap();
 

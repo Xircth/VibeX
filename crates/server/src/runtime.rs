@@ -939,12 +939,14 @@ mod origin_allowed_tests {
     #[test]
     fn published_reachability_is_accepted() {
         set_extra_browser_origins(Vec::<String>::new());
-        let mut config = ServerConfig::default();
-        config.listen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 17891);
-        config.reachability = vec![ReachabilityOrigin {
-            origin: "https://host.example.ts.net".to_string(),
-            kind: "tailscale".to_string(),
-        }];
+        let config = ServerConfig {
+            listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 17891),
+            reachability: vec![ReachabilityOrigin {
+                origin: "https://host.example.ts.net".to_string(),
+                kind: "tailscale".to_string(),
+            }],
+            ..ServerConfig::default()
+        };
         assert!(origin_allowed(&config, "https://host.example.ts.net"));
     }
 

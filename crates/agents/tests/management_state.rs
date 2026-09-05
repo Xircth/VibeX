@@ -107,7 +107,13 @@ fn probe_service_only_adopts_fully_verified_profile_candidates() {
 
     let candidate = ExternalCandidateObservation {
         component_id: "runtime".to_string(),
-        absolute_path: PathBuf::from("/opt/codex"),
+        // Adoption requires a host-absolute path, and `/opt/...` is only
+        // rooted on Windows rather than absolute.
+        absolute_path: if cfg!(windows) {
+            PathBuf::from(r"C:\opt\codex.exe")
+        } else {
+            PathBuf::from("/opt/codex")
+        },
         version: Some("0.146.0".to_string()),
         version_verified: true,
         hash_verified: true,

@@ -15,6 +15,25 @@ use artifacts::{
 use async_trait::async_trait;
 use uuid::Uuid;
 
+/// Scope roots must be host-absolute, and a leading `/` is only rooted on
+/// Windows rather than absolute.
+fn scope_root() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\workspace")
+    } else {
+        PathBuf::from("/workspace")
+    }
+}
+
+/// An absolute path that deliberately falls outside [`scope_root`].
+fn outside_scope() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\outside\escaped.xlsx")
+    } else {
+        PathBuf::from("/outside/escaped.xlsx")
+    }
+}
+
 #[derive(Default)]
 struct MemoryRepository(Mutex<Vec<ArtifactRecord>>);
 
@@ -226,7 +245,7 @@ fn request(root: &Path, conversation_id: Uuid, turn_id: Uuid) -> RecordArtifact 
 
 #[tokio::test]
 async fn records_only_content_changes() -> Result<(), ArtifactServiceError> {
-    let root = PathBuf::from("/workspace");
+    let root = scope_root();
     let filesystem = Arc::new(MemoryFilesystem {
         root: root.clone(),
         bytes: Mutex::new(b"A".to_vec()),
@@ -277,7 +296,7 @@ async fn records_only_content_changes() -> Result<(), ArtifactServiceError> {
 
 #[tokio::test]
 async fn retries_pending_event_without_creating_an_extra_revision() {
-    let root = PathBuf::from("/workspace");
+    let root = scope_root();
     let filesystem = Arc::new(MemoryFilesystem {
         root: root.clone(),
         bytes: Mutex::new(b"A".to_vec()),
@@ -310,7 +329,7 @@ async fn retries_pending_event_without_creating_an_extra_revision() {
 
 #[tokio::test]
 async fn pending_event_failure_does_not_block_changed_content() {
-    let root = PathBuf::from("/workspace");
+    let root = scope_root();
     let filesystem = Arc::new(MemoryFilesystem {
         root: root.clone(),
         bytes: Mutex::new(b"A".to_vec()),
@@ -344,7 +363,7 @@ async fn pending_event_failure_does_not_block_changed_content() {
 
 #[tokio::test]
 async fn rejects_parent_path_before_reading_content() {
-    let root = PathBuf::from("/workspace");
+    let root = scope_root();
     let filesystem = Arc::new(MemoryFilesystem {
         root: root.clone(),
         bytes: Mutex::new(b"secret".to_vec()),
@@ -374,7 +393,7 @@ impl ArtifactFilesystem for EscapingFilesystem {
         if path == self.root {
             Ok(self.root.clone())
         } else {
-            Ok(PathBuf::from("/outside/escaped.xlsx"))
+            Ok(outside_scope())
         }
     }
 
@@ -385,7 +404,7 @@ impl ArtifactFilesystem for EscapingFilesystem {
 
 #[tokio::test]
 async fn rejects_canonicalized_symlink_escape() {
-    let root = PathBuf::from("/workspace");
+    let root = scope_root();
     let repository = Arc::new(MemoryRepository::default());
     let service = ArtifactService::new(
         repository.clone(),

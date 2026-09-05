@@ -439,7 +439,7 @@ mod tests {
             }),
             json!({}),
         );
-        runtime.sync_from_plugins(&[package.clone()]);
+        runtime.sync_from_plugins(std::slice::from_ref(&package));
         let first = runtime.delegation_token().expect("token");
         runtime.sync_from_plugins(&[package]);
         assert_eq!(runtime.delegation_token().as_deref(), Some(first.as_str()));

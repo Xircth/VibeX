@@ -455,7 +455,9 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
         definition
             .skills_directory
             .as_deref()
-            .is_some_and(|path| path.ends_with("/.local-reviewer/skills"))
+            // A `~` expansion yields a native path, so compare on the logical
+            // suffix rather than assuming the POSIX separator.
+            .is_some_and(|path| path.replace('\\', "/").ends_with("/.local-reviewer/skills"))
     );
 }
 

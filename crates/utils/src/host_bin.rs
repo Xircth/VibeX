@@ -15,10 +15,10 @@ pub fn locate_host_family_binary(base: &str) -> PathBuf {
     if let Some(path) = env_override(base).filter(|path| is_runnable(path)) {
         return path;
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(found) = search_from(&exe, base, &file_name) {
-            return found;
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(found) = search_from(&exe, base, &file_name)
+    {
+        return found;
     }
     if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
         let dir = PathBuf::from(target);

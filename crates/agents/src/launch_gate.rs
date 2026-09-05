@@ -91,7 +91,7 @@ pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
     which::which(name)
         .ok()
         .filter(|path| path.is_file())
-        .map(|path| prefer_direct_spawn_executable(path))
+        .map(prefer_direct_spawn_executable)
         .unwrap_or(locked)
 }
 
@@ -350,7 +350,7 @@ mod tests {
 
         let mut env = BTreeMap::new();
         bind_runtime_executable_env(&AgentId::parse("codex").unwrap(), &exe, &mut env);
-        assert!(env.get("CODEX_PATH").is_none());
+        assert!(!env.contains_key("CODEX_PATH"));
     }
 
     #[test]
@@ -361,7 +361,7 @@ mod tests {
 
         let mut env = BTreeMap::new();
         bind_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
-        assert!(env.get("CLAUDE_CODE_EXECUTABLE").is_none());
+        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
     }
 
     #[test]

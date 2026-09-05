@@ -1,4 +1,15 @@
 use super::*;
+/// Give the temp repo its own committer identity so these tests do not depend
+/// on whether the developer running them has a global gitconfig.
+fn configure_test_identity(repo_path: &std::path::Path) {
+    let repo = git2::Repository::open(repo_path).expect("open temp repo");
+    let mut cfg = repo.config().expect("repo config");
+    cfg.set_str("user.name", "VibeX Test")
+        .expect("set user.name");
+    cfg.set_str("user.email", "test@vibex.invalid")
+        .expect("set user.email");
+}
+
 #[cfg(test)]
 mod safety_tests {
     use tempfile::TempDir;
@@ -12,6 +23,7 @@ mod safety_tests {
         GitService::new()
             .initialize_repo_with_main_branch(&repo_path)
             .unwrap();
+        configure_test_identity(&repo_path);
 
         let error = WorktreeManager::ensure_worktree_exists(&repo_path, "main", &repo_path)
             .await
@@ -28,6 +40,7 @@ mod safety_tests {
         GitService::new()
             .initialize_repo_with_main_branch(&repo_path)
             .unwrap();
+        configure_test_identity(&repo_path);
         let nested_target = repo_path.join("child-worktree");
 
         let error = WorktreeManager::ensure_worktree_exists(&repo_path, "main", &nested_target)
@@ -50,6 +63,7 @@ async fn create_worktree_when_repo_path_is_a_worktree() {
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
 
     let base_worktree_path = td.path().join("wt-base");
     WorktreeManager::create_worktree(
@@ -95,6 +109,7 @@ async fn create_worktree_creates_local_branch_when_only_remote_tracking_ref_exis
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
     std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
     git_service.commit(&repo_path, "seed").unwrap();
 
@@ -124,6 +139,7 @@ async fn create_worktree_from_local_main_materializes_directories() {
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
 
     std::fs::create_dir_all(repo_path.join("src").join("nested")).unwrap();
     std::fs::write(repo_path.join("README.md"), "root\n").unwrap();
@@ -166,6 +182,7 @@ async fn create_worktree_from_empty_main_seeds_untracked_project_files() {
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
     let git = GitCli::new();
 
     std::fs::create_dir_all(repo_path.join("backend").join("routes")).unwrap();
@@ -240,6 +257,7 @@ async fn create_worktree_uses_local_target_branch_even_when_upstream_moved() {
     git_service
         .initialize_repo_with_main_branch(&source_path)
         .unwrap();
+    configure_test_identity(&source_path);
     std::fs::write(source_path.join("README.md"), "v1\n").unwrap();
     git_service.commit(&source_path, "seed").unwrap();
 
@@ -300,6 +318,7 @@ async fn ensure_worktree_exists_recreates_git_only_worktree() {
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
     std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
     git_service.commit(&repo_path, "seed").unwrap();
 
@@ -341,6 +360,7 @@ async fn repair_materialized_checkout_restores_files_from_local_head() {
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
     std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
     git_service.commit(&repo_path, "seed").unwrap();
 
@@ -384,6 +404,7 @@ async fn ensure_worktree_exists_recreates_git_only_worktree_with_invalid_head() 
     git_service
         .initialize_repo_with_main_branch(&repo_path)
         .unwrap();
+    configure_test_identity(&repo_path);
     std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
     git_service.commit(&repo_path, "seed").unwrap();
 
@@ -436,6 +457,7 @@ async fn create_worktree_falls_back_to_head_branch_when_base_branch_is_missing()
     )
     .unwrap();
     git_service.create_initial_commit(&repo).unwrap();
+    configure_test_identity(&repo_path);
     std::fs::write(repo_path.join("README.md"), "master seed\n").unwrap();
     git_service.commit(&repo_path, "seed").unwrap();
 

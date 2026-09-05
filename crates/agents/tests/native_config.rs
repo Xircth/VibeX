@@ -6,10 +6,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+// Only the POSIX-gated permission test below touches the real filesystem.
+#[cfg(unix)]
+use agents::TokioNativeFileSystem;
 use agents::{
     AgentAuthenticationStatus, AgentId, BoundaryError, ConfigApplyEffect, NativeConfigFilePatch,
     NativeConfigFormat, NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError,
-    NativeFileMetadata, NativeFileMutation, NativeFileSystem, TokioNativeFileSystem,
+    NativeFileMetadata, NativeFileMutation, NativeFileSystem,
 };
 use async_trait::async_trait;
 use support::management::MemoryNativeFileSystem;

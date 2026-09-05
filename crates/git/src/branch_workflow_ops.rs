@@ -73,7 +73,9 @@ impl GitService {
                 let base_commit = base_branch.get().peel_to_commit()?;
                 let task_commit = task_branch.get().peel_to_commit()?;
 
-                let signature = self.configured_signature(&task_repo)?;
+                // VibeX authors the squash commit itself, so a user who never
+                // configured a Git identity must still be able to merge.
+                let signature = self.signature_with_bootstrap_fallback(&task_repo)?;
                 let squash_commit_id = self.perform_squash_merge(
                     &task_repo,
                     &base_commit,

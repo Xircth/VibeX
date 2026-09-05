@@ -94,7 +94,7 @@ fn read_bounded_line(
     if skipped {
         return Ok(BoundedLine::Skipped);
     }
-    if buf.ends_with(&[b'\r']) {
+    if buf.ends_with(b"\r") {
         buf.pop();
     }
     Ok(BoundedLine::Line(

@@ -4,10 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use git::{DiffTarget, GitCli, GitService};
+use git::{DiffTarget, GitCli, GitService, GitServiceError};
 use git2::{Repository, build::CheckoutBuilder};
 use tempfile::TempDir;
-use utils::diff::DiffChangeKind;
 
 fn add_path(repo_path: &Path, path: &str) {
     let git = GitCli::new();
@@ -51,6 +50,10 @@ fn configure_user(repo_path: &Path, name: &str, email: &str) {
     let mut cfg = repo.config().unwrap();
     cfg.set_str("user.name", name).unwrap();
     cfg.set_str("user.email", email).unwrap();
+    // Git for Windows defaults core.autocrlf to true, which rewrites LF to
+    // CRLF on checkout and would make byte-exact content assertions depend on
+    // the developer's global config rather than on the operation under test.
+    cfg.set_bool("core.autocrlf", false).unwrap();
 }
 
 fn init_repo_main(root: &TempDir) -> PathBuf {
@@ -121,15 +124,24 @@ fn initialize_repo_without_user_creates_initial_commit() {
 }
 
 #[test]
-fn commit_without_user_config_succeeds() {
+fn commit_without_user_config_reports_an_actionable_identity_error() {
     let td = TempDir::new().unwrap();
     let repo_path = td.path().join("repo_no_user");
     let s = GitService::new();
     s.initialize_repo_with_main_branch(&repo_path).unwrap();
+    // Blank the identity in the repo itself. Merely skipping `configure_user`
+    // is not enough: the lookup falls through to the global gitconfig, so on
+    // any machine that has one this would silently exercise the configured
+    // path instead of the missing-identity path it claims to cover.
+    configure_user(&repo_path, "", "");
     write_file(&repo_path, "f.txt", "x\n");
-    // No configure_user call here
-    let res = s.commit(&repo_path, "no user config");
-    assert!(res.is_ok());
+
+    let error = s.commit(&repo_path, "no user config").unwrap_err();
+
+    assert!(
+        matches!(error, GitServiceError::CommitIdentityNotConfigured),
+        "a missing identity must surface as an actionable error, got: {error:?}"
+    );
 }
 
 #[test]

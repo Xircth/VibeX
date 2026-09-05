@@ -1340,10 +1340,11 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
             }
             images.truncate(MAX_TIMELINE_PREVIEW_IMAGES);
         }
-        ContentBlock::ToolResult { output_preview, .. } => {
-            if let Some(preview) = output_preview {
-                *preview = cap_preview_bytes(std::mem::take(preview));
-            }
+        ContentBlock::ToolResult {
+            output_preview: Some(preview),
+            ..
+        } => {
+            *preview = cap_preview_bytes(std::mem::take(preview));
         }
         _ => {}
     }

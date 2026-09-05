@@ -190,8 +190,9 @@ pub use native_config::{
 };
 pub use npm_registry::{
     ExternalChangeVerdict, NpmRegistryHttpFetcher, NpmVerificationOutcome, fetch_npm_latest,
-    fetch_npm_package_requirements, npm_range_allows, runtime_acp_compatibility_warning,
-    split_npm_spec, verify_external_component_change, verify_npm_component_file,
+    fetch_npm_package_requirements, is_npm_package_payload_path, npm_range_allows,
+    runtime_acp_compatibility_warning, split_npm_spec, verify_external_component_change,
+    verify_npm_component_file,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{

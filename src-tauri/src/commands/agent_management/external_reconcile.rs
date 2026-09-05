@@ -168,11 +168,15 @@ async fn reconcile_one_install(
         } else {
             None
         };
+        let disk_path = tokio::fs::canonicalize(&component.absolute_path)
+            .await
+            .unwrap_or_else(|_| component.absolute_path.clone());
         let verdict = agents::verify_external_component_change(
             npm_fetcher,
             component_distribution_kind,
             package_spec.as_deref(),
             registry_sha256.as_deref(),
+            &disk_path,
             &actual,
         )
         .await;

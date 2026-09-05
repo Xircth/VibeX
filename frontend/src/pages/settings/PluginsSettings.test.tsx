@@ -956,8 +956,8 @@ describe('PluginsSettings', () => {
     const command = within(dialog).getByRole('textbox', {
       name: 'Codex CLI 命令',
     });
-    await user.type(
-      command,
+    await user.click(command);
+    await user.paste(
       'codex plugin marketplace add official\n' +
         'codex plugin add frontend-design@official'
     );

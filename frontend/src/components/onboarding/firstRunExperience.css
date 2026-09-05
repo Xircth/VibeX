@@ -273,7 +273,7 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 0 20px;
   color: var(--onboarding-ink-inverse);
   background: var(--onboarding-ink);
@@ -379,7 +379,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: transparent;
   box-shadow: var(--onboarding-shot-shadow);
 }
@@ -1020,7 +1020,7 @@
 .onboarding-disclaimer-link:focus-visible {
   outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius);
 }
 
 .onboarding-disclaimer-overlay {

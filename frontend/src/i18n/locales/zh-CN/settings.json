@@ -495,7 +495,7 @@
     "skillsTitle": "Skills",
     "noSkills": "此插件没有提供 Skill。",
     "skillsViewTitle": "Skill",
-    "skillsRegionAria": "{{name}} Skill",
+    "skillsRegionAria": "{{name}} 技能",
     "skillListAria": "Skill 列表",
     "mcpViewTitle": "MCP",
     "mcpRegionAria": "{{name}} MCP",
@@ -1548,6 +1548,10 @@
     "crashReportsPrivacy": "崩溃时应用会把报告（时间、版本、系统、panic 信息与调用栈）写入本机数据目录，最多保留 20 份。开启后，下次启动会展示完整内容，由你决定是否在 GitHub 提交 issue；任何内容都不会自动上传。"
   },
   "agents": {
+    "presetAcp": "预设 ACP",
+    "communityAcp": "社区",
+    "presetAcpBuiltIn": "已内置",
+    "presetAcpAdded": "已添加",
     "loadFailed": "无法加载 Agent 设置。",
     "pluginsTab": "插件",
     "skillsChooseWorkspace": "请输入工作区路径以管理项目级 Skills。",

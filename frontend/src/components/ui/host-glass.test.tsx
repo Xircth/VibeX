@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { HostGlass } from './HostGlass';
+import { HostGlass } from './host-glass';
 
 const LIQUID_GLASS_STAGE_CONTRACT = {
   position: 'absolute' as const,

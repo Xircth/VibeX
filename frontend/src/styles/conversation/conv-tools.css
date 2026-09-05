@@ -209,7 +209,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: hsl(var(--warning) / 0.16);
   color: hsl(var(--warning-foreground));
   font-size: 12px;
@@ -364,7 +364,7 @@
 .conv-tool-artifact-badge {
   flex-shrink: 0;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--conv-surface-control);
   color: var(--conv-text-secondary);
   font-size: 11px;
@@ -753,7 +753,7 @@ button.vibex-tool-call-target-label:hover {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: calc(var(--radius) - 4px);
+  border-radius: var(--radius);
   color: var(--conv-text-primary);
   font-size: 12px;
   line-height: 1.35;

@@ -94,7 +94,7 @@ describe('useSessionComposerPreviewElementInsertion', () => {
       kind: 'token',
       token: {
         kind: 'element',
-        label: 'SaveButton',
+        label: '@SaveButton',
       },
     });
     expect(serializeSessionComposerBackendMessage(insertedMessage)).toContain(
@@ -137,14 +137,14 @@ describe('useSessionComposerPreviewElementInsertion', () => {
       kind: 'token',
       token: {
         kind: 'element',
-        label: 'SaveButton',
+        label: '@SaveButton',
       },
     });
     expect(tokenSegments[1]).toMatchObject({
       kind: 'token',
       token: {
         kind: 'element',
-        label: 'HeroTitle',
+        label: '@HeroTitle',
       },
     });
     expect(serializeSessionComposerBackendMessage(insertedMessage)).toContain(
@@ -186,11 +186,11 @@ describe('useSessionComposerPreviewElementInsertion', () => {
     expect(tokenSegments).toHaveLength(2);
     expect(tokenSegments[0]).toMatchObject({
       kind: 'token',
-      token: { label: 'SaveButton' },
+      token: { label: '@SaveButton' },
     });
     expect(tokenSegments[1]).toMatchObject({
       kind: 'token',
-      token: { label: 'SaveButton' },
+      token: { label: '@SaveButton' },
     });
   });
 });

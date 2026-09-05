@@ -8,7 +8,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { HostGlass } from '@/components/ui/HostGlass';
+import { HostGlass } from '@/components/ui/host-glass';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

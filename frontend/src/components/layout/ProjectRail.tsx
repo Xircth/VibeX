@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Trash2, X } from 'lucide-react';
-import { HostGlass } from '@/components/ui/HostGlass';
+import { HostGlass } from '@/components/ui/host-glass';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { useProjects } from '@/hooks/useProjects';

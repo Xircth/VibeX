@@ -5113,7 +5113,7 @@
   }
 
   .settings-search-flash {
-    border-radius: 4px;
+    border-radius: var(--radius);
     animation: settings-search-flash 1.2s ease-out;
   }
 
@@ -5700,7 +5700,7 @@
   width: 100%;
   padding: 6px 8px;
   border: 0;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-strong);
   font-size: 0.75rem;
@@ -7080,7 +7080,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-section-heading-toggle:focus-visible {
   outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .settings-page
@@ -11537,7 +11537,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 0;
   max-height: 100%;
   margin: 0 auto;
-  padding: 0;
+  padding: 0 0 1.5rem;
   overflow: hidden;
 }
 
@@ -11878,7 +11878,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-list {
   position: relative;
-  background: transparent;
+  background: var(--surface-card-strong);
 }
 
 .settings-page .product-plugin-drop-overlay {
@@ -12077,7 +12077,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   padding: 7px 10px;
   border: 0;
-  border-radius: calc(var(--radius) - 6px);
+  border-radius: var(--radius);
   background: transparent;
   box-shadow: none;
   color: var(--text-primary);
@@ -12833,7 +12833,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   );
   --xy-selection-background-color: hsl(var(--primary) / 0.08);
   --xy-selection-border-default: 1px solid hsl(var(--primary) / 0.45);
-  --xy-node-border-radius: 0.75rem;
+  --xy-node-border-radius: var(--radius);
   background-color: var(--surface-content);
 }
 
@@ -12847,7 +12847,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .canvas-surface .canvas-minimap {
-  border-radius: 0.75rem;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   overflow: hidden;
   transition: opacity 120ms ease;
@@ -13017,7 +13017,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   width: 6px;
   height: 6px;
   border: 0.75px solid var(--border-strong);
-  border-radius: 1px;
+  border-radius: 50%;
   background: var(--surface-card-strong);
   z-index: 7;
 }

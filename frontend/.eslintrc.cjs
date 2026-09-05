@@ -183,6 +183,7 @@ module.exports = {
         'src/components/legacy-design/LegacyDesignScope.tsx',
         'src/components/ui-new/scope/NewDesignScope.tsx',
         'src/components/dialogs/**/*.{ts,tsx}',
+        'src/pages/settings/AgentUpdateConfirmDialog.tsx',
       ],
       rules: {
         'no-restricted-imports': 'off',

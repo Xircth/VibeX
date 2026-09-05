@@ -238,7 +238,15 @@ describe('AgentRegistryViewPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: '手动添加' }));
     expect(screen.getByText('预设 ACP')).toBeInTheDocument();
-    expect(screen.getByText('DeepSeek Harness')).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) => {
+        return (
+          element?.tagName === 'SPAN' &&
+          element.classList.contains('truncate') &&
+          element.textContent === 'DeepSeek Harness'
+        );
+      })
+    ).toBeInTheDocument();
     expect(screen.getByRole('status', { name: '已内置' })).toBeInTheDocument();
     expect(onAddUserDefinition).not.toHaveBeenCalled();
   });

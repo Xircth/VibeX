@@ -273,7 +273,7 @@ function UsageHeatmap({
                       value: formatNumber(value),
                     })}
                     className={cn(
-                      'h-full w-full rounded-[2px]',
+                      'h-full w-full rounded-full',
                       intensity === null &&
                         'bg-muted/40 ring-1 ring-inset ring-border/50'
                     )}
@@ -310,11 +310,11 @@ function UsageHeatmap({
       </div>
       <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
         <span>{t('usageDashboard.heatmapLess')}</span>
-        <span className="size-2.5 rounded-[2px] bg-muted/40 ring-1 ring-inset ring-border/50" />
+        <span className="size-2.5 rounded-full bg-muted/40 ring-1 ring-inset ring-border/50" />
         {HEATMAP_OPACITIES.map((opacity) => (
           <span
             key={opacity}
-            className="size-2.5 rounded-[2px]"
+            className="size-2.5 rounded-full"
             style={{ backgroundColor: `hsl(var(--primary) / ${opacity})` }}
           />
         ))}
@@ -332,7 +332,7 @@ function UsageHeatmap({
         <>
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute rounded-[3px] ring-2 ring-foreground/35"
+            className="pointer-events-none absolute rounded-full ring-2 ring-foreground/35"
             style={{
               left: hover.x - 1,
               top: hover.y - 1,
@@ -1046,11 +1046,11 @@ export function KanbanUsageDashboard() {
 
                   <div className="flex items-center justify-end gap-4 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-[2px] bg-foreground/75" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-foreground/75" />
                       {t('usageDashboard.freshTokens')}
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-[2px] bg-primary" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-primary" />
                       {t('usageDashboard.tokenCacheRead')}
                     </span>
                   </div>

@@ -118,7 +118,7 @@
   display: flex;
   overflow: hidden;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--muted);
 }
 

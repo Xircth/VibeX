@@ -543,7 +543,7 @@ export function AgentSettings() {
       .catch(() => undefined);
   }, [
     liveOperation?.kind,
-    management.refresh,
+    management,
     operationActive,
     registryOpen,
     selectedAgent?.lifecycle,

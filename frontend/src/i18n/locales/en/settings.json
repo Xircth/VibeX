@@ -1548,6 +1548,10 @@
     "crashReportsPrivacy": "On a crash the app writes a report (time, version, OS, panic message and backtrace) to the local data directory, keeping at most 20. When enabled, the next launch shows the full content and you decide whether to file a GitHub issue — nothing is ever uploaded automatically."
   },
   "agents": {
+    "presetAcp": "ACP presets",
+    "communityAcp": "Community",
+    "presetAcpBuiltIn": "Built-in",
+    "presetAcpAdded": "Added",
     "loadFailed": "Unable to load agent settings.",
     "pluginsTab": "Plugins",
     "skillsChooseWorkspace": "Enter a workspace path to manage project Skills.",

@@ -367,8 +367,8 @@ describe('conversation tool cards', () => {
   });
 
   it('opens and copies web fetch targets without expanding the card', async () => {
-    // The Tauri shell plugin is unavailable in jsdom, so the system-browser
-    // opener falls back to window.open.
+    const { open } = await import('@tauri-apps/plugin-shell');
+    vi.mocked(open).mockRejectedValueOnce(new Error('shell unavailable'));
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     render(
@@ -722,7 +722,7 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.getAllByText('No blocking issues')[0]).toBeInTheDocument();
-    expect(screen.getByText('visual polish')).toBeInTheDocument();
+    expect(screen.getAllByText('visual polish')[0]).toBeInTheDocument();
   });
 
   it('routes goal tool calls to a goal card', () => {

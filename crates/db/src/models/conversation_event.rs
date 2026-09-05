@@ -254,6 +254,18 @@ pub async fn insert_conversation_event(
     .fetch_one(&mut *conn)
     .await?;
 
+    let mut turn_id = input.turn_id;
+    if let Some(candidate) = turn_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE id = ?)")
+                .bind(candidate)
+                .fetch_one(&mut *conn)
+                .await?;
+        if !exists {
+            turn_id = None;
+        }
+    }
+
     // Every write explicitly stamps the current event-schema version (v1) rather
     // than leaning on the column default, so the write path is self-describing.
     sqlx::query_as::<_, ConversationEventRecord>(&format!(
@@ -267,7 +279,7 @@ pub async fn insert_conversation_event(
     ))
     .bind(input.id)
     .bind(input.conversation_id)
-    .bind(input.turn_id)
+    .bind(turn_id)
     .bind(input.binding_id)
     .bind(input.connection_id)
     .bind(input.prompt_id)
@@ -450,6 +462,47 @@ mod tests {
             .expect("events since");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn insert_nullifies_a_turn_id_that_does_not_exist() {
+        let pool = setup_pool().await;
+
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let record = ConversationEventRecord::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(Uuid::new_v4()),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: None,
+                source: "acp",
+                event_kind: "assistant_text_delta",
+                normalized_json: r#"{"kind":"assistant_text_delta","text":"hi"}"#,
+                raw_json: None,
+                idempotency_key: Some("orphan-turn"),
+            },
+        )
+        .await
+        .expect("append with missing turn");
+        assert_eq!(record.turn_id, None);
     }
 
     #[tokio::test]

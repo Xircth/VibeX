@@ -340,6 +340,7 @@ fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
     SqliteConnectOptions::new()
         .filename(database_path)
         .create_if_missing(true)
+        .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(10))

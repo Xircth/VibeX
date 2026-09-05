@@ -142,11 +142,15 @@ pub fn expand_agent_home_path(home: &Path, value: &str) -> PathBuf {
 }
 
 pub fn provider_store_path() -> PathBuf {
-    utils::assets::host_data_dir().join("agent-model-providers.json")
+    let dest = utils::assets::host_data_dir().join("agent-model-providers.json");
+    utils::assets::adopt_tauri_app_data_file("agent-model-providers.json", &dest);
+    dest
 }
 
 pub fn catalog_cache_dir() -> PathBuf {
-    utils::assets::host_data_dir().join("agent-catalogs")
+    let dest = utils::assets::host_data_dir().join("agent-catalogs");
+    utils::assets::adopt_tauri_app_data_dir_files("agent-catalogs", &dest);
+    dest
 }
 
 pub fn resolve_agent_home(

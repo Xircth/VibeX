@@ -9266,14 +9266,36 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-weight: 600;
 }
 
-.settings-page .codex-official-models {
+.settings-page .provider-detected-models-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-page .provider-detected-models-heading legend {
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-page .provider-detected-models-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.settings-page .codex-official-models,
+.settings-page .provider-detected-models {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 240px));
   gap: 8px;
   margin-top: 8px;
 }
 
-.settings-page .codex-official-models label {
+.settings-page .codex-official-models label,
+.settings-page .provider-detected-models label {
   display: flex;
   min-width: 0;
   align-items: flex-start;
@@ -9285,19 +9307,22 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-size: 0.75rem;
 }
 
-.settings-page .codex-official-models input[type='checkbox'] {
+.settings-page .codex-official-models input[type='checkbox'],
+.settings-page .provider-detected-models input[type='checkbox'] {
   flex: 0 0 auto;
   margin-top: 2px;
   accent-color: hsl(var(--primary));
 }
 
-.settings-page .codex-official-models label > span {
+.settings-page .codex-official-models label > span,
+.settings-page .provider-detected-models label > span {
   display: grid;
   min-width: 0;
   gap: 1px;
 }
 
-.settings-page .codex-official-models code {
+.settings-page .codex-official-models code,
+.settings-page .provider-detected-models code {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -9487,7 +9512,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (max-width: 620px) {
-  .settings-page .codex-official-models {
+  .settings-page .codex-official-models,
+  .settings-page .provider-detected-models {
     grid-template-columns: minmax(0, 240px);
   }
 

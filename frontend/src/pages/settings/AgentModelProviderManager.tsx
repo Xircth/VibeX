@@ -179,6 +179,13 @@ export function AgentModelProviderManager({
     setDetectedCatalog(null);
     setDetectionError(null);
     setSurface('form');
+    if (provider.api_url.trim() && provider.api_key.trim()) {
+      void detectModels(
+        provider.api_url.trim(),
+        provider.api_key.trim(),
+        provider.id
+      );
+    }
   };
 
   const closeForm = async () => {
@@ -196,15 +203,19 @@ export function AgentModelProviderManager({
     setSurface('list');
   };
 
-  const detectModels = async () => {
+  const detectModels = async (
+    nextUrl = apiUrl.trim(),
+    nextKey = apiKey.trim() || null,
+    nextId = id
+  ) => {
     setDetectingModels(true);
     setDetectionError(null);
     try {
       const catalog = await agentManagementApi.modelProviderCatalog(
         agentId,
-        id,
-        apiUrl.trim(),
-        apiKey.trim() || null
+        nextId,
+        nextUrl,
+        nextKey
       );
       setDetectedCatalog(catalog);
       setDetectionError(catalog.error);
@@ -218,52 +229,128 @@ export function AgentModelProviderManager({
     }
   };
 
-  const addDetectedModel = (modelId: string) => {
+  const toggleDetectedModel = (modelId: string, checked: boolean) => {
     const detected = detectedCatalog?.models.find(
       (candidate) => candidate.id === modelId
     );
     if (!detected) return;
     if (agentId === 'claude_code') {
       const next = parseClaudeModel(model);
-      next[claudeMappingTarget] = detected.id;
-      setModel(JSON.stringify(next));
+      if (checked) {
+        next[claudeMappingTarget] = detected.id;
+      } else {
+        for (const key of Object.keys(next)) {
+          if (next[key] === detected.id) delete next[key];
+        }
+      }
+      setModel(Object.keys(next).length ? JSON.stringify(next) : '');
       return;
     }
     if (agentId === 'codex') {
       const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
-      const alreadyCustom = draft.customs.some(
+      const index = draft.customs.findIndex(
         (candidate) => candidate.slug === detected.id
       );
-      const base =
-        codexCatalog?.models[0]?.id ??
-        detectedCatalog?.models[0]?.id ??
-        detected.id;
-      if (!alreadyCustom) {
-        draft.customs = [
-          ...draft.customs,
-          {
-            slug: detected.id,
-            display_name: detected.label,
-            context_window: detected.context_window,
-            base,
-          },
-        ];
-        setCustomModelTests((current) => ({
-          ...current,
-          [draft.customs.length - 1]: { ok: true },
-        }));
+      if (checked) {
+        if (index < 0) {
+          const base =
+            codexCatalog?.models[0]?.id ??
+            detectedCatalog?.models[0]?.id ??
+            detected.id;
+          draft.customs = [
+            ...draft.customs,
+            {
+              slug: detected.id,
+              display_name: detected.label,
+              context_window: detected.context_window,
+              base,
+            },
+          ];
+          setCustomModelTests((current) => ({
+            ...current,
+            [draft.customs.length - 1]: { ok: true },
+          }));
+        }
+        if (!draft.default_model) draft.default_model = detected.id;
+      } else if (index >= 0) {
+        draft.customs = draft.customs.filter(
+          (_, customIndex) => customIndex !== index
+        );
+        setCustomModelTests((current) =>
+          reindexCustomModelTests(current, index)
+        );
+        if (draft.default_model === detected.id) {
+          draft.default_model = draft.customs[0]?.slug ?? null;
+        }
       }
-      draft.default_model = detected.id;
       setModel(serializeCodexModel(draft));
       return;
     }
-    if (agentId === 'pi') {
-      const next = parsePiModel(model);
-      next.id = detected.id;
-      setModel(JSON.stringify(next));
+    const currentIds = selectedModelIds(model);
+    const nextIds = checked
+      ? currentIds.includes(detected.id)
+        ? currentIds
+        : [...currentIds, detected.id]
+      : currentIds.filter((id) => id !== detected.id);
+    setModel(serializeSelectedModels(agentId, model, nextIds));
+  };
+
+  const toggleAllDetected = (checked: boolean) => {
+    const models = detectedCatalog?.models ?? [];
+    if (agentId === 'claude_code') {
+      const next = parseClaudeModel(model);
+      const detectedIds = new Set(models.map((item) => item.id));
+      if (checked) {
+        if (models[0]) next[claudeMappingTarget] = models[0].id;
+      } else {
+        for (const key of Object.keys(next)) {
+          if (detectedIds.has(next[key])) delete next[key];
+        }
+      }
+      setModel(Object.keys(next).length ? JSON.stringify(next) : '');
       return;
     }
-    setModel(detected.id);
+    if (agentId === 'codex') {
+      const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
+      const detectedIds = new Set(models.map((item) => item.id));
+      const handwritten = draft.customs.filter(
+        (custom) => !detectedIds.has(custom.slug)
+      );
+      const selected = checked
+        ? models.map((item) => ({
+            slug: item.id,
+            display_name: item.label,
+            context_window: item.context_window,
+            base: codexCatalog?.models[0]?.id ?? models[0]?.id ?? item.id,
+          }))
+        : [];
+      const customs = [...selected, ...handwritten];
+      const tests: Record<number, CustomModelTestState> = {};
+      selected.forEach((_, index) => {
+        tests[index] = { ok: true };
+      });
+      const defaultStillAvailable = Boolean(
+        draft.default_model &&
+          customs.some((custom) => custom.slug === draft.default_model)
+      );
+      setCustomModelTests(tests);
+      setModel(
+        serializeCodexModel({
+          ...draft,
+          customs,
+          default_model: defaultStillAvailable
+            ? draft.default_model
+            : (customs[0]?.slug ?? null),
+        })
+      );
+      return;
+    }
+    const currentIds = selectedModelIds(model);
+    const detectedIds = models.map((item) => item.id);
+    const nextIds = checked
+      ? [...new Set([...currentIds, ...detectedIds])]
+      : currentIds.filter((id) => !detectedIds.includes(id));
+    setModel(serializeSelectedModels(agentId, model, nextIds));
   };
 
   const testCustomModel = async (index: number, slug: string) => {
@@ -278,18 +365,14 @@ export function AgentModelProviderManager({
     }
     setCustomModelTests((current) => ({ ...current, [index]: 'loading' }));
     try {
-      const catalog =
-        detectedCatalog ??
-        (await agentManagementApi.modelProviderCatalog(
-          agentId,
-          id,
-          apiUrl.trim(),
-          apiKey.trim() || null
-        ));
-      if (!detectedCatalog) {
-        setDetectedCatalog(catalog);
-        setDetectionError(catalog.error);
-      }
+      const catalog = await agentManagementApi.modelProviderCatalog(
+        agentId,
+        id,
+        apiUrl.trim(),
+        apiKey.trim() || null
+      );
+      setDetectedCatalog(catalog);
+      setDetectionError(catalog.error);
       const available = catalog.models.some(
         (candidate) => candidate.id === modelId
       );
@@ -327,9 +410,13 @@ export function AgentModelProviderManager({
     }
     if (agentId === 'codex') {
       const draft = parseCodexModel(model);
+      const detectedIds = new Set(
+        (detectedCatalog?.models ?? []).map((item) => item.id)
+      );
       const untested = draft.customs.some(
         (custom, index) =>
           Boolean(custom.slug.trim()) &&
+          !detectedIds.has(custom.slug.trim()) &&
           !customModelVerified(customModelTests[index])
       );
       if (untested) {
@@ -593,9 +680,16 @@ export function AgentModelProviderManager({
           disabled={busy || !apiUrl.trim() || !apiKey.trim()}
           error={detectionError}
           loading={detectingModels}
+          selectedIds={selectedDetectedIds(
+            agentId,
+            model,
+            detectedCatalog,
+            codexConfig
+          )}
           onDetect={() => void detectModels()}
           onMappingTargetChange={setClaudeMappingTarget}
-          onSelectModel={addDetectedModel}
+          onToggleModel={toggleDetectedModel}
+          onToggleAll={toggleAllDetected}
         />
         {agentId === 'claude_code' ? (
           <ClaudeProviderModelEditor
@@ -629,6 +723,9 @@ export function AgentModelProviderManager({
                 }}
                 defaultModelDetecting={detectingModels}
                 defaultModels={detectedCatalog?.models ?? []}
+                hideCustomSlugs={(detectedCatalog?.models ?? []).map(
+                  (item) => item.id
+                )}
                 disabled={busy}
                 draft={mergeCodexConfigDraft(
                   parseCodexModel(model),
@@ -1130,9 +1227,11 @@ function ProviderModelDetection({
   disabled,
   error,
   loading,
+  selectedIds,
   onDetect,
   onMappingTargetChange,
-  onSelectModel,
+  onToggleModel,
+  onToggleAll,
 }: {
   agentId: AgentId;
   catalog: AgentModelCatalogView | null;
@@ -1140,12 +1239,17 @@ function ProviderModelDetection({
   disabled: boolean;
   error: string | null;
   loading: boolean;
+  selectedIds: string[];
   onDetect: () => void;
   onMappingTargetChange: (value: string) => void;
-  onSelectModel: (value: string) => void;
+  onToggleModel: (id: string, checked: boolean) => void;
+  onToggleAll: (checked: boolean) => void;
 }) {
   const { t } = useTranslation('settings');
   const models = catalog?.models ?? [];
+  const selected = new Set(selectedIds);
+  const allSelected =
+    models.length > 0 && models.every((item) => selected.has(item.id));
   return (
     <div className="agent-model-provider-detection">
       <div className="agent-model-provider-detection-actions">
@@ -1179,22 +1283,6 @@ function ProviderModelDetection({
             onChange={onMappingTargetChange}
           />
         ) : null}
-        {models.length > 0 ? (
-          <AstryxSelect
-            ariaLabel={t('agents.providerDetectedModelAria')}
-            disabled={disabled || loading}
-            placeholder={t('agents.providerDetectedModelPlaceholder')}
-            value=""
-            options={models.map((detected) => ({
-              value: detected.id,
-              label:
-                detected.label === detected.id
-                  ? detected.id
-                  : `${detected.label} · ${detected.id}`,
-            }))}
-            onChange={onSelectModel}
-          />
-        ) : null}
       </div>
       {loading ? (
         <p aria-live="polite">{t('agents.providerDetectingModels')}</p>
@@ -1206,6 +1294,52 @@ function ProviderModelDetection({
               })
             : t('agents.providerDetectedModelsEmpty')}
         </p>
+      ) : null}
+      {models.length > 0 ? (
+        <fieldset>
+          <div className="provider-detected-models-heading">
+            <legend>{t('agents.providerDetectedModels')}</legend>
+            <div className="provider-detected-models-heading-actions">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                disabled={disabled || loading || allSelected}
+                onClick={() => onToggleAll(true)}
+              >
+                {t('agents.providerDetectedSelectAll')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                disabled={disabled || loading || selected.size === 0}
+                onClick={() => onToggleAll(false)}
+              >
+                {t('agents.providerDetectedClear')}
+              </Button>
+            </div>
+          </div>
+          <div className="provider-detected-models">
+            {models.map((detected) => (
+              <label key={detected.id}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(detected.id)}
+                  disabled={disabled || loading}
+                  name={`detected_model_${detected.id}`}
+                  onChange={(event) =>
+                    onToggleModel(detected.id, event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>{detected.label}</strong>
+                  <code>{detected.id}</code>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
     </div>
@@ -1436,6 +1570,113 @@ function parseClaudeModel(value: string): Record<string, string> {
   } catch {
     return value.trim() ? { main: value.trim() } : {};
   }
+}
+
+function reindexCustomModelTests(
+  current: Record<number, CustomModelTestState>,
+  removedIndex: number
+): Record<number, CustomModelTestState> {
+  const next: Record<number, CustomModelTestState> = {};
+  for (const [key, value] of Object.entries(current)) {
+    const currentIndex = Number(key);
+    if (currentIndex < removedIndex) next[currentIndex] = value;
+    else if (currentIndex > removedIndex) next[currentIndex - 1] = value;
+  }
+  return next;
+}
+
+function selectedModelIds(value: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    const next = id.trim();
+    if (!next || seen.has(next)) return;
+    seen.add(next);
+    ids.push(next);
+  };
+  try {
+    const parsed = JSON.parse(value) as {
+      id?: unknown;
+      default?: unknown;
+      main?: unknown;
+      models?: unknown;
+    };
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (typeof parsed.id === 'string') add(parsed.id);
+      if (typeof parsed.default === 'string') add(parsed.default);
+      if (typeof parsed.main === 'string') add(parsed.main);
+      if (Array.isArray(parsed.models)) {
+        for (const item of parsed.models) {
+          if (typeof item === 'string') add(item);
+          else if (
+            item &&
+            typeof item === 'object' &&
+            typeof (item as { id?: unknown }).id === 'string'
+          ) {
+            add((item as { id: string }).id);
+          }
+        }
+      }
+      if (ids.length) return ids;
+    }
+  } catch {
+    /* plain model id */
+  }
+  if (value.trim()) add(value);
+  return ids;
+}
+
+function serializeSelectedModels(
+  agentId: AgentId,
+  current: string,
+  ids: string[]
+): string {
+  if (agentId === 'grok') {
+    const parsed = parseGrokModel(current);
+    return JSON.stringify({
+      id: ids[0] ?? '',
+      api_backend: parsed.api_backend,
+      context_window: parsed.context_window
+        ? Number(parsed.context_window)
+        : null,
+      models: ids,
+    });
+  }
+  if (agentId === 'pi') {
+    const parsed = parsePiModel(current);
+    return JSON.stringify({
+      id: ids[0] ?? '',
+      api: parsed.api,
+      models: ids,
+    });
+  }
+  if (ids.length <= 1) return ids[0] ?? '';
+  return JSON.stringify({ default: ids[0], models: ids });
+}
+
+function selectedDetectedIds(
+  agentId: AgentId,
+  model: string,
+  catalog: AgentModelCatalogView | null,
+  codexConfig: CodexModelCatalogConfigView | null
+): string[] {
+  const detected = new Set((catalog?.models ?? []).map((item) => item.id));
+  if (!detected.size) return [];
+  if (agentId === 'codex') {
+    const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
+    return [
+      ...new Set([
+        ...draft.customs.map((custom) => custom.slug),
+        ...(draft.default_model ? [draft.default_model] : []),
+      ]),
+    ].filter((id) => detected.has(id));
+  }
+  if (agentId === 'claude_code') {
+    return [...new Set(Object.values(parseClaudeModel(model)))].filter((id) =>
+      detected.has(id)
+    );
+  }
+  return selectedModelIds(model).filter((id) => detected.has(id));
 }
 
 function parseCodexModel(value: string): CodexModelCatalogConfigRequest {

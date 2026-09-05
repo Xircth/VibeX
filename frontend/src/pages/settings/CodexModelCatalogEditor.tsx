@@ -329,6 +329,7 @@ export function CodexModelConfigFields({
   showOfficialModels = true,
   defaultModels,
   defaultModelDetecting = false,
+  hideCustomSlugs = [],
   onDefaultModelOpen,
   customModelTests,
   onTestCustomModel,
@@ -342,6 +343,7 @@ export function CodexModelConfigFields({
   showOfficialModels?: boolean;
   defaultModels?: AgentModelCatalogView['models'];
   defaultModelDetecting?: boolean;
+  hideCustomSlugs?: string[];
   onDefaultModelOpen?: () => void;
   customModelTests?: Record<number, CustomModelTestState>;
   onTestCustomModel?: (index: number, slug: string) => void;
@@ -350,6 +352,10 @@ export function CodexModelConfigFields({
 }) {
   const { t } = useTranslation('settings');
   const detectingLabel = t('agents.providerDetectingCurrentModels');
+  const hiddenSlugs = new Set(hideCustomSlugs);
+  const handwrittenCustoms = draft.customs.filter(
+    (custom) => !hiddenSlugs.has(custom.slug)
+  );
   const defaultOptions = defaultModels
     ? detectedModelOptions(draft, defaultModels, t('agents.custom'))
     : codexModelOptions(draft, catalog.models, t('agents.custom'));
@@ -417,42 +423,44 @@ export function CodexModelConfigFields({
             {t('agents.add')}
           </Button>
         </div>
-        {draft.customs.length ? (
+        {handwrittenCustoms.length ? (
           <ul className="codex-custom-models">
-            {draft.customs.map((custom, index) => (
-              <CustomModelRow
-                key={`custom-${index}`}
-                custom={custom}
-                bases={catalog.models}
-                disabled={disabled}
-                rowLabel={t('agents.codexCustomModelNumber', {
-                  number: index + 1,
-                })}
-                testState={customModelTests?.[index]}
-                onTest={
-                  onTestCustomModel
-                    ? () => onTestCustomModel(index, custom.slug)
-                    : undefined
-                }
-                onChange={(next) => {
-                  if (next.slug !== custom.slug) {
-                    onCustomModelSlugChange?.(index);
+            {draft.customs.map((custom, index) =>
+              hiddenSlugs.has(custom.slug) ? null : (
+                <CustomModelRow
+                  key={`custom-${index}`}
+                  custom={custom}
+                  bases={catalog.models}
+                  disabled={disabled}
+                  rowLabel={t('agents.codexCustomModelNumber', {
+                    number: index + 1,
+                  })}
+                  testState={customModelTests?.[index]}
+                  onTest={
+                    onTestCustomModel
+                      ? () => onTestCustomModel(index, custom.slug)
+                      : undefined
                   }
-                  const customs = [...draft.customs];
-                  customs[index] = next;
-                  onChange({ ...draft, customs });
-                }}
-                onRemove={() => {
-                  onCustomModelRemove?.(index);
-                  onChange({
-                    ...draft,
-                    customs: draft.customs.filter(
-                      (_, customIndex) => customIndex !== index
-                    ),
-                  });
-                }}
-              />
-            ))}
+                  onChange={(next) => {
+                    if (next.slug !== custom.slug) {
+                      onCustomModelSlugChange?.(index);
+                    }
+                    const customs = [...draft.customs];
+                    customs[index] = next;
+                    onChange({ ...draft, customs });
+                  }}
+                  onRemove={() => {
+                    onCustomModelRemove?.(index);
+                    onChange({
+                      ...draft,
+                      customs: draft.customs.filter(
+                        (_, customIndex) => customIndex !== index
+                      ),
+                    });
+                  }}
+                />
+              )
+            )}
           </ul>
         ) : (
           <p className="codex-model-editor-empty">

@@ -84,6 +84,9 @@ struct ProviderStore {
     bindings: BTreeMap<String, String>,
     #[serde(default)]
     projection_backups: BTreeMap<String, ProviderProjectionBackup>,
+    /// Set after the Host store has absorbed the pre-0.2.0 Tauri app-data file.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    adopted_legacy_store: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1321,11 +1324,53 @@ pub async fn native_codex_provider_ready_at(codex_home: &Path) -> bool {
 }
 
 async fn read_store(path: &Path) -> Result<ProviderStore, super::NativeError> {
+    let mut store = read_store_file(path).await?;
+    if !is_live_host_provider_store(path) || store.adopted_legacy_store {
+        return Ok(store);
+    }
+    for legacy in utils::assets::tauri_app_data_file_candidates("agent-model-providers.json") {
+        if legacy == path {
+            continue;
+        }
+        if let Ok(legacy_store) = read_store_file(&legacy).await {
+            merge_provider_stores(&mut store, legacy_store);
+        }
+    }
+    store.adopted_legacy_store = true;
+    write_store(path, &store).await?;
+    Ok(store)
+}
+
+async fn read_store_file(path: &Path) -> Result<ProviderStore, super::NativeError> {
     match tokio::fs::read(path).await {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|error| format!("Model Provider 存储文件无效：{error}").into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(ProviderStore::default()),
         Err(error) => Err(format!("读取 Model Provider 失败：{error}").into()),
+    }
+}
+
+fn is_live_host_provider_store(path: &Path) -> bool {
+    path == utils::assets::host_data_dir().join("agent-model-providers.json")
+}
+
+fn merge_provider_stores(dest: &mut ProviderStore, legacy: ProviderStore) {
+    let existing: HashSet<String> = dest
+        .providers
+        .iter()
+        .map(|provider| provider.id.clone())
+        .collect();
+    for provider in legacy.providers {
+        if existing.contains(&provider.id) {
+            continue;
+        }
+        dest.providers.push(provider);
+    }
+    for (agent_id, provider_id) in legacy.bindings {
+        dest.bindings.entry(agent_id).or_insert(provider_id);
+    }
+    for (agent_id, backup) in legacy.projection_backups {
+        dest.projection_backups.entry(agent_id).or_insert(backup);
     }
 }
 
@@ -3208,10 +3253,10 @@ async fn apply_openclaw(
             "baseUrl": provider.api_url,
             "apiKey": provider.api_key,
             "api": "openai-completions",
-            "models": [{
-                "id": model_default(&provider.model),
-                "name": provider.name
-            }]
+            "models": provider_model_ids(&provider.model)
+                .into_iter()
+                .map(|id| serde_json::json!({ "id": id, "name": provider.name }))
+                .collect::<Vec<_>>()
         }),
     );
     apply_projection_mutations(&[NativeFileMutation {
@@ -3238,8 +3283,25 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
     let mut models = parse_json_object_bytes(&models_path, models_original.as_deref())?;
     let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
     let native_id = pi_native_id(provider);
-    let model_id = pi_model_id(&provider.model);
+    let selected = provider_model_ids(&provider.model);
+    let model_id = selected
+        .first()
+        .cloned()
+        .unwrap_or_else(|| pi_model_id(&provider.model));
     let api = pi_wire_api(&provider.model);
+    let native_models: Vec<Value> = if selected.is_empty() {
+        vec![serde_json::json!({ "id": model_id, "name": provider.name })]
+    } else {
+        selected
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "id": id,
+                    "name": provider.name
+                })
+            })
+            .collect()
+    };
     insert_string(
         settings.as_object_mut().expect("object"),
         "defaultProvider",
@@ -3266,10 +3328,7 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
         serde_json::json!({
             "baseUrl": provider.api_url,
             "api": api,
-            "models": [{
-                "id": model_id,
-                "name": provider.name
-            }]
+            "models": native_models
         }),
     );
     apply_projection_mutations(&[
@@ -3594,16 +3653,52 @@ fn parse_model(raw: &str) -> Value {
 }
 
 fn model_default(raw: &str) -> String {
+    provider_model_ids(raw)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| match parse_model(raw) {
+            Value::Object(object) => object
+                .get("default")
+                .or_else(|| object.get("main"))
+                .and_then(Value::as_str)
+                .unwrap_or(raw)
+                .to_string(),
+            Value::String(model) => model,
+            _ => raw.to_string(),
+        })
+}
+
+fn provider_model_ids(raw: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push = |value: &str| {
+        let id = value.trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
+            return;
+        }
+        ids.push(id.to_string());
+    };
     match parse_model(raw) {
-        Value::Object(object) => object
-            .get("default")
-            .or_else(|| object.get("main"))
-            .and_then(Value::as_str)
-            .unwrap_or(raw)
-            .to_string(),
-        Value::String(model) => model,
-        _ => raw.to_string(),
+        Value::Object(object) => {
+            for key in ["id", "default", "main"] {
+                if let Some(value) = object.get(key).and_then(Value::as_str) {
+                    push(value);
+                }
+            }
+            if let Some(models) = object.get("models").and_then(Value::as_array) {
+                for model in models {
+                    if let Some(value) = model.as_str() {
+                        push(value);
+                    } else if let Some(value) = model.get("id").and_then(Value::as_str) {
+                        push(value);
+                    }
+                }
+            }
+        }
+        Value::String(model) => push(&model),
+        _ => {}
     }
+    ids
 }
 
 async fn write_json(
@@ -3619,6 +3714,74 @@ async fn write_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_model_ids_reads_default_and_selected_models() {
+        assert_eq!(
+            provider_model_ids(r#"{"id":"primary","models":["primary","extra"]}"#),
+            vec!["primary".to_string(), "extra".to_string()]
+        );
+        assert_eq!(
+            provider_model_ids(r#"{"default":"main","models":[{"id":"alt"}]}"#),
+            vec!["main".to_string(), "alt".to_string()]
+        );
+        assert_eq!(
+            provider_model_ids("plain-model"),
+            vec!["plain-model".to_string()]
+        );
+    }
+
+    #[test]
+    fn merge_provider_stores_keeps_host_ids_and_restores_missing_legacy_presets() {
+        let mut dest = ProviderStore {
+            providers: vec![StoredProvider {
+                id: "keep".to_string(),
+                name: "Host".to_string(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                api_url: "https://host.example/v1".to_string(),
+                api_key: "host-secret".to_string(),
+                model: "host-model".to_string(),
+            }],
+            bindings: BTreeMap::from([("codex".to_string(), "keep".to_string())]),
+            ..ProviderStore::default()
+        };
+        merge_provider_stores(
+            &mut dest,
+            ProviderStore {
+                providers: vec![
+                    StoredProvider {
+                        id: "keep".to_string(),
+                        name: "Legacy duplicate".to_string(),
+                        agent_id: AgentId::parse("codex").unwrap(),
+                        api_url: "https://legacy.example/v1".to_string(),
+                        api_key: "legacy-secret".to_string(),
+                        model: "legacy-model".to_string(),
+                    },
+                    StoredProvider {
+                        id: "restored".to_string(),
+                        name: "Saved".to_string(),
+                        agent_id: AgentId::parse("claude_code").unwrap(),
+                        api_url: "https://saved.example/v1".to_string(),
+                        api_key: "saved-secret".to_string(),
+                        model: "saved-model".to_string(),
+                    },
+                ],
+                bindings: BTreeMap::from([
+                    ("codex".to_string(), "should-not-win".to_string()),
+                    ("claude_code".to_string(), "restored".to_string()),
+                ]),
+                ..ProviderStore::default()
+            },
+        );
+        assert_eq!(dest.providers.len(), 2);
+        assert_eq!(dest.providers[0].name, "Host");
+        assert_eq!(dest.providers[1].id, "restored");
+        assert_eq!(dest.bindings.get("codex").map(String::as_str), Some("keep"));
+        assert_eq!(
+            dest.bindings.get("claude_code").map(String::as_str),
+            Some("restored")
+        );
+    }
 
     #[tokio::test]
     async fn probe_key_prefers_the_draft_and_can_reuse_the_edited_provider_secret() {

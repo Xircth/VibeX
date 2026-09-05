@@ -1,6 +1,9 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use agents::{AgentId, BuiltInProfileCatalog, NativeConfigProvider, TokioNativeFileSystem};
+use agents::{
+    AgentId, BuiltInProfileCatalog, NativeConfigProvider, TokioNativeFileSystem,
+    apply_built_in_auth_mode_policy, built_in_auth_mode_policy,
+};
 use api_types::{
     AgentAuthenticationStatus, AgentModelProviderImportRequest, AgentModelProviderImportSource,
     AgentModelProviderSaveRequest, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
@@ -48,6 +51,27 @@ async fn env_for(
     agent_id: &AgentId,
 ) -> Result<HashMap<String, String>, ApplicationError> {
     management::read_agent_environment(pool, agent_id).await
+}
+
+async fn sync_model_provider_auth_overlay(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    bound: bool,
+) -> Result<(), ApplicationError> {
+    let Some(policy) = built_in_auth_mode_policy(agent_id) else {
+        return Ok(());
+    };
+    if !policy.modes.contains(&"model_provider") {
+        return Ok(());
+    }
+    let mut environment = env_for(pool, agent_id).await?;
+    if bound {
+        environment.insert(policy.mode_env.to_string(), "model_provider".to_string());
+        apply_built_in_auth_mode_policy(agent_id, &mut environment);
+    } else {
+        environment.remove(policy.mode_env);
+    }
+    management::persist_agent_environment(pool, agent_id, &environment).await
 }
 
 fn invalidate(channel: &str) {
@@ -272,22 +296,33 @@ pub async fn dispatch_model_providers(
 pub async fn dispatch_model_provider_save(
     pool: &SqlitePool,
     args: Value,
-) -> Result<Value, ApplicationError> {
+) -> Result<(AgentId, Value), ApplicationError> {
     let request: AgentModelProviderSaveRequest = parse(args)?;
+    let agent_id = request.agent_id.clone();
     let home = require_home()?;
-    let env = env_for(pool, &request.agent_id).await?;
-    let _native_home = native_home_for(&home, &env, &request.agent_id);
-    let view = model_providers::save(&provider_store_path(), &home, &env, request)
+    let env = env_for(pool, &agent_id).await?;
+    let store_path = provider_store_path();
+    let native_home = native_home_for(&home, &env, &agent_id);
+    let has_binding =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(bad)?
+            .bound_provider_id
+            .is_some();
+    if has_binding {
+        sync_model_provider_auth_overlay(pool, &agent_id, true).await?;
+    }
+    let view = model_providers::save(&store_path, &home, &env, request)
         .await
         .map_err(bad)?;
     invalidate("agent-management-snapshot-invalidated");
-    serialize(view)
+    Ok((agent_id, serialize(view)?))
 }
 
 pub async fn dispatch_model_provider_delete(
     pool: &SqlitePool,
     args: Value,
-) -> Result<Value, ApplicationError> {
+) -> Result<(AgentId, Value), ApplicationError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct DeleteArgs {
@@ -297,45 +332,81 @@ pub async fn dispatch_model_provider_delete(
     let args: DeleteArgs = parse(args)?;
     let home = require_home()?;
     let env = env_for(pool, &args.agent_id).await?;
-    let _native_home = native_home_for(&home, &env, &args.agent_id);
+    let store_path = provider_store_path();
+    let native_home = native_home_for(&home, &env, &args.agent_id);
+    let was_bound =
+        model_providers::list_with_native(&store_path, args.agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(bad)?
+            .bound_provider_id
+            .as_deref()
+            == Some(args.provider_id.as_str());
     let view = model_providers::delete(
-        &provider_store_path(),
+        &store_path,
         &home,
         &env,
-        args.agent_id,
+        args.agent_id.clone(),
         &args.provider_id,
     )
     .await
     .map_err(bad)?;
+    if was_bound
+        && let Err(error) = sync_model_provider_auth_overlay(pool, &args.agent_id, false).await
+    {
+        tracing::warn!(%error, "删除 Model Provider 后同步鉴权模式失败");
+    }
     invalidate("agent-management-snapshot-invalidated");
-    serialize(view)
+    Ok((args.agent_id, serialize(view)?))
 }
 
 pub async fn dispatch_model_provider_bind(
     pool: &SqlitePool,
     args: Value,
-) -> Result<Value, ApplicationError> {
+) -> Result<(AgentId, Value), ApplicationError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct BindArgs {
         agent_id: AgentId,
-        provider_id: String,
+        provider_id: Option<String>,
     }
     let args: BindArgs = parse(args)?;
+    let provider_id = args
+        .provider_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     let home = require_home()?;
     let env = env_for(pool, &args.agent_id).await?;
-    let _native_home = native_home_for(&home, &env, &args.agent_id);
-    let view = model_providers::bind(
-        &provider_store_path(),
-        &home,
-        &env,
-        args.agent_id,
-        Some(args.provider_id),
-    )
-    .await
-    .map_err(bad)?;
+    let store_path = provider_store_path();
+    let native_home = native_home_for(&home, &env, &args.agent_id);
+    let previous_binding =
+        model_providers::list_with_native(&store_path, args.agent_id.clone(), Some(&native_home))
+            .await
+            .map_err(bad)?
+            .bound_provider_id;
+    let view = model_providers::bind(&store_path, &home, &env, args.agent_id.clone(), provider_id)
+        .await
+        .map_err(bad)?;
+    if let Err(error) =
+        sync_model_provider_auth_overlay(pool, &args.agent_id, view.bound_provider_id.is_some())
+            .await
+    {
+        if let Err(rollback_error) = model_providers::bind(
+            &store_path,
+            &home,
+            &env,
+            args.agent_id.clone(),
+            previous_binding,
+        )
+        .await
+        {
+            return Err(ApplicationError::internal(format!(
+                "{error}; rollback failed: {rollback_error}"
+            )));
+        }
+        return Err(error);
+    }
     invalidate("agent-management-snapshot-invalidated");
-    serialize(view)
+    Ok((args.agent_id, serialize(view)?))
 }
 
 pub async fn dispatch_model_provider_probe(
@@ -349,16 +420,22 @@ pub async fn dispatch_model_provider_import_preview(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: AgentModelProviderImportRequest = parse(args)?;
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ImportPreviewArgs {
+        agent_id: AgentId,
+        source: AgentModelProviderImportSource,
+    }
+    let args: ImportPreviewArgs = parse(args)?;
     let home = require_home()?;
-    let env = env_for(pool, &request.agent_id).await?;
+    let env = env_for(pool, &args.agent_id).await?;
     serialize(
         model_providers::preview_import(
             &provider_store_path(),
             &home,
             &env,
-            request.agent_id,
-            request.source,
+            args.agent_id,
+            args.source,
         )
         .await
         .map_err(bad)?,
@@ -368,7 +445,7 @@ pub async fn dispatch_model_provider_import_preview(
 pub async fn dispatch_model_provider_import(
     pool: &SqlitePool,
     args: Value,
-) -> Result<Value, ApplicationError> {
+) -> Result<(AgentId, Value), ApplicationError> {
     let request: AgentModelProviderImportRequest = parse(args)?;
     let home = require_home()?;
     let env = env_for(pool, &request.agent_id).await?;
@@ -376,14 +453,14 @@ pub async fn dispatch_model_provider_import(
         &provider_store_path(),
         &home,
         &env,
-        request.agent_id,
+        request.agent_id.clone(),
         request.source,
         &request.source_ids,
     )
     .await
     .map_err(bad)?;
     invalidate("agent-management-snapshot-invalidated");
-    serialize(view)
+    Ok((request.agent_id, serialize(view)?))
 }
 
 pub async fn dispatch_pi_configuration(pool: &SqlitePool) -> Result<Value, ApplicationError> {
@@ -1048,4 +1125,67 @@ async fn opencode_paths(pool: &SqlitePool) -> Result<OpenCodePaths, ApplicationE
         },
         cache_dir: cache_root.join("opencode"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn import_preview_accepts_frontend_camel_case_without_source_ids() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ImportPreviewArgs {
+            agent_id: AgentId,
+            source: AgentModelProviderImportSource,
+        }
+        let parsed: ImportPreviewArgs = parse(json!({
+            "agentId": "claude_code",
+            "source": "native"
+        }))
+        .expect("preview args");
+        assert_eq!(parsed.agent_id.as_str(), "claude_code");
+        assert_eq!(parsed.source, AgentModelProviderImportSource::Native);
+    }
+
+    #[test]
+    fn import_apply_accepts_request_wrapper_and_flat_camel_case() {
+        let wrapped: AgentModelProviderImportRequest = parse(json!({
+            "request": {
+                "agent_id": "codex",
+                "source": "cc_switch",
+                "source_ids": ["a"]
+            }
+        }))
+        .expect("wrapped import");
+        assert_eq!(wrapped.agent_id.as_str(), "codex");
+        assert_eq!(wrapped.source_ids, vec!["a"]);
+
+        let flat: AgentModelProviderImportRequest = parse(json!({
+            "agentId": "codex",
+            "source": "native"
+        }))
+        .expect("flat camelCase import");
+        assert_eq!(flat.agent_id.as_str(), "codex");
+        assert!(flat.source_ids.is_empty());
+    }
+
+    #[test]
+    fn bind_accepts_null_provider_id_to_unbind() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BindArgs {
+            agent_id: AgentId,
+            provider_id: Option<String>,
+        }
+        let parsed: BindArgs = parse(json!({
+            "agentId": "codex",
+            "providerId": null
+        }))
+        .expect("unbind");
+        assert_eq!(parsed.agent_id.as_str(), "codex");
+        assert_eq!(parsed.provider_id, None);
+    }
 }

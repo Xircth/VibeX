@@ -27,8 +27,9 @@ pub use bundle::{
     import_conversation_bundle,
 };
 pub use capability_catalog::{
-    capability_catalog_is_fresh, open_capability_catalog_fingerprint,
-    read_matching_open_capability_catalog, refresh_open_capability_catalog,
+    capability_catalog_is_fresh, invalidate_open_capability_catalog,
+    open_capability_catalog_fingerprint, read_matching_open_capability_catalog,
+    refresh_open_capability_catalog,
 };
 pub use export::{render_html, render_markdown};
 pub use host::{

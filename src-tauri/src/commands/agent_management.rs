@@ -2450,6 +2450,7 @@ use api_types::{
     UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
+use conversations::{invalidate_open_capability_catalog, refresh_open_capability_catalog};
 use db::models::{
     agent_management::{
         AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
@@ -9288,6 +9289,7 @@ pub async fn codex_model_catalog_apply(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Codex 模型清单已更改")
         .await;
+    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
     Ok(result)
 }
 
@@ -9392,6 +9394,7 @@ pub async fn agent_model_provider_save(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已更改")
         .await;
+    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
     Ok(result)
 }
 
@@ -9457,7 +9460,22 @@ pub async fn agent_model_provider_bind(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 绑定已更改")
         .await;
+    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
     Ok(result)
+}
+
+async fn refresh_session_controls_after_native_model_change(state: &AppState, agent_id: &AgentId) {
+    if let Err(error) =
+        invalidate_open_capability_catalog(&state.deployment.db().pool, agent_id).await
+    {
+        tracing::warn!(%error, "failed to invalidate capability catalog");
+    }
+    if let Err(error) =
+        refresh_open_capability_catalog(&state.deployment.db().pool, &state.agent_runtime, agent_id)
+            .await
+    {
+        tracing::warn!(%error, "failed to refresh capability catalog");
+    }
 }
 
 async fn sync_model_provider_auth_overlay(
@@ -9544,6 +9562,7 @@ pub async fn agent_model_provider_delete(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已删除")
         .await;
+    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
     Ok(result)
 }
 

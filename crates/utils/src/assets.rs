@@ -84,6 +84,71 @@ fn adopt_legacy_file(legacy: Option<PathBuf>, dest: &Path) {
     let _ = std::fs::copy(legacy, dest);
 }
 
+/// Directories Tauri used for `app.path().app_data_dir()` with identifier
+/// `com.vibex.app`. Host product files now live in [`host_data_dir`].
+pub fn tauri_app_data_dir_candidates() -> Vec<PathBuf> {
+    let Some(data) = dirs::data_dir() else {
+        return Vec::new();
+    };
+    let mut dirs = vec![
+        data.join("com.vibex.app"),
+        data.join("VibeX"),
+        data.join("vibex"),
+    ];
+    dirs.dedup();
+    dirs
+}
+
+pub fn tauri_app_data_file_candidates(relative: impl AsRef<Path>) -> Vec<PathBuf> {
+    let relative = relative.as_ref();
+    tauri_app_data_dir_candidates()
+        .into_iter()
+        .map(|root| root.join(relative))
+        .collect()
+}
+
+/// Copy `relative` from the first existing Tauri app-data location when `dest`
+/// is missing. Existing Host files win.
+pub fn adopt_tauri_app_data_file(relative: impl AsRef<Path>, dest: &Path) {
+    if dest.exists() {
+        return;
+    }
+    for legacy in tauri_app_data_file_candidates(relative) {
+        adopt_legacy_file(Some(legacy), dest);
+        if dest.exists() {
+            return;
+        }
+    }
+}
+
+/// Copy files that exist in `from` but not yet under `dest`.
+pub fn copy_missing_files(from: &Path, dest: &Path) {
+    let _ = std::fs::create_dir_all(dest);
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let target = dest.join(name);
+        if !target.exists() {
+            let _ = std::fs::copy(&path, &target);
+        }
+    }
+}
+
+/// Copy files that exist in a legacy Tauri directory but not yet under Host.
+pub fn adopt_tauri_app_data_dir_files(relative: impl AsRef<Path>, dest: &Path) {
+    for legacy_dir in tauri_app_data_file_candidates(relative) {
+        copy_missing_files(&legacy_dir, dest);
+    }
+}
+
 /// Directory for rotating application log files (P2-8). Created on first use.
 pub fn logs_dir() -> PathBuf {
     let path = host_data_dir().join("logs");
@@ -406,7 +471,10 @@ fn is_builtin_runtime_asset(path: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_or_create_host_id, materialize_builtin_plugins};
+    use super::{
+        adopt_legacy_file, copy_missing_files, load_or_create_host_id, materialize_builtin_plugins,
+        tauri_app_data_file_candidates,
+    };
 
     #[test]
     fn discovers_builtin_packages_without_plugin_specific_host_code() {
@@ -483,6 +551,61 @@ mod tests {
         assert!(
             data.path().join("host-identity.json").is_file(),
             "host identity must live in the Host data directory"
+        );
+    }
+
+    #[test]
+    fn adopt_legacy_file_copies_once_and_does_not_overwrite() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("legacy.json");
+        let dest = root.path().join("host/current.json");
+        std::fs::write(&legacy, br#"{"from":"legacy"}"#).unwrap();
+        adopt_legacy_file(Some(legacy.clone()), &dest);
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            r#"{"from":"legacy"}"#
+        );
+        std::fs::write(&legacy, br#"{"from":"newer-legacy"}"#).unwrap();
+        adopt_legacy_file(Some(legacy), &dest);
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            r#"{"from":"legacy"}"#
+        );
+    }
+
+    #[test]
+    fn copy_missing_files_fills_gaps_without_overwriting() {
+        let root = tempfile::tempdir().unwrap();
+        let from = root.path().join("legacy");
+        let dest = root.path().join("host");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(from.join("cached.json"), b"legacy").unwrap();
+        std::fs::write(from.join("keep.json"), b"legacy-keep").unwrap();
+        std::fs::write(dest.join("keep.json"), b"host-keep").unwrap();
+        copy_missing_files(&from, &dest);
+        assert_eq!(
+            std::fs::read_to_string(dest.join("cached.json")).unwrap(),
+            "legacy"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("keep.json")).unwrap(),
+            "host-keep"
+        );
+    }
+
+    #[test]
+    fn tauri_app_data_candidates_include_the_bundle_identifier() {
+        let files = tauri_app_data_file_candidates("agent-model-providers.json");
+        assert!(
+            files.iter().any(|path| {
+                path.components()
+                    .any(|component| component.as_os_str() == "com.vibex.app")
+                    && path
+                        .file_name()
+                        .is_some_and(|name| name == "agent-model-providers.json")
+            }),
+            "expected com.vibex.app candidate, got {files:?}"
         );
     }
 }

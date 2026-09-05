@@ -114,6 +114,16 @@ impl AgentCapabilityCatalogRecord {
         }
     }
 
+    pub async fn delete_for_agent(pool: &SqlitePool, agent_type: &str) -> Result<u64, sqlx::Error> {
+        Ok(
+            sqlx::query("DELETE FROM agent_capability_catalog WHERE agent_type = ?")
+                .bind(agent_type)
+                .execute(pool)
+                .await?
+                .rows_affected(),
+        )
+    }
+
     pub async fn record_refresh_error_if_generation(
         pool: &SqlitePool,
         agent_type: &str,
@@ -174,6 +184,33 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+
+        AgentCapabilityCatalogRecord::replace(
+            &pool,
+            "claude_code",
+            "first",
+            r#"{"options":["c"]}"#,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            AgentCapabilityCatalogRecord::delete_for_agent(&pool, "codex")
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, "codex", "first")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, "claude_code", "first")
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 

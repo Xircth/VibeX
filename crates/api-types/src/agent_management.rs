@@ -457,12 +457,14 @@ pub struct OpenCodeProviderModelRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct OpenCodeProviderConnectRequest {
+    #[serde(alias = "providerId")]
     pub provider_id: String,
     pub name: String,
     pub npm: Option<String>,
     pub api: Option<String>,
+    #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "apiKey")]
     pub api_key: Option<String>,
     pub models: Vec<OpenCodeProviderModelRequest>,
     pub enabled: bool,
@@ -650,8 +652,10 @@ pub struct AgentModelProviderImportPreviewView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentModelProviderImportRequest {
+    #[serde(alias = "agentId")]
     pub agent_id: AgentId,
     pub source: AgentModelProviderImportSource,
+    #[serde(default, alias = "sourceIds")]
     pub source_ids: Vec<String>,
 }
 
@@ -690,9 +694,13 @@ pub struct PiConfigurationView {
 pub struct PiCredentialsSaveRequest {
     pub provider: String,
     pub model: String,
+    #[serde(alias = "thinkingLevel")]
     pub thinking_level: Option<String>,
+    #[serde(alias = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(alias = "customBaseUrl")]
     pub custom_base_url: Option<String>,
+    #[serde(alias = "customApi")]
     pub custom_api: Option<String>,
 }
 
@@ -767,13 +775,18 @@ pub struct DshProvidersView {
 #[ts(export)]
 pub struct DshProviderSaveRequest {
     pub id: String,
+    #[serde(alias = "displayName")]
     pub display_name: Option<String>,
     pub notes: Option<String>,
     pub api: Option<String>,
+    #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
+    #[serde(alias = "apiKey")]
     pub api_key: Option<String>,
     pub models: Vec<DshProviderModelView>,
+    #[serde(alias = "setDefault")]
     pub set_default: bool,
+    #[serde(alias = "defaultModel")]
     pub default_model: Option<String>,
 }
 
@@ -853,8 +866,11 @@ pub struct PiPluginSummaryView {
 pub struct AgentModelProviderSaveRequest {
     pub id: Option<String>,
     pub name: String,
+    #[serde(alias = "agentId")]
     pub agent_id: AgentId,
+    #[serde(alias = "apiUrl")]
     pub api_url: String,
+    #[serde(alias = "apiKey")]
     pub api_key: Option<String>,
     pub model: String,
 }
@@ -1046,7 +1062,9 @@ pub struct AgentEnvironmentView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentEnvironmentPatchRequest {
+    #[serde(alias = "agentId")]
     pub agent_id: AgentId,
+    #[serde(alias = "baseRevision")]
     pub base_revision: String,
     pub values: std::collections::BTreeMap<String, Option<String>>,
 }
@@ -1093,7 +1111,9 @@ pub struct AgentEnvironmentDiagnosticsView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentNativeConfigPatchRequest {
+    #[serde(alias = "agentId")]
     pub agent_id: AgentId,
+    #[serde(alias = "baseFieldRevisions")]
     pub base_field_revisions: std::collections::BTreeMap<String, String>,
     pub fields: std::collections::BTreeMap<String, Option<String>>,
 }
@@ -1101,8 +1121,10 @@ pub struct AgentNativeConfigPatchRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentNativeConfigFileWriteRequest {
+    #[serde(alias = "agentId")]
     pub agent_id: AgentId,
     pub path: String,
+    #[serde(alias = "baseRevision")]
     pub base_revision: String,
     pub content: String,
 }

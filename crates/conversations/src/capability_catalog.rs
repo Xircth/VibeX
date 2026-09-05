@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use agents::{
     AgentAuthenticationStatus, AgentId, AgentRuntime, AgentSessionControlsSnapshot, AgentSessionId,
     EnsureAgentSessionInput, SessionAuthenticationEvidence, SessionLaunchLock,
@@ -24,7 +26,7 @@ pub async fn open_capability_catalog_fingerprint(
     let mut digest = Sha256::new();
     // v3 invalidates catalogs captured before effort/permission were merged
     // from Grok's vendor `_meta` into the standard session-control snapshot.
-    digest.update(b"open-agent-capability-catalog-v3:");
+    digest.update(b"open-agent-capability-catalog-v4:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(
@@ -131,7 +133,85 @@ pub async fn open_capability_catalog_fingerprint(
             digest.update(b"\0");
         }
     }
+    hash_native_model_sources(&mut digest, launch_lock);
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn hash_native_model_sources(digest: &mut Sha256, launch_lock: &SessionLaunchLock) {
+    let home = launch_lock
+        .env
+        .get("HOME")
+        .or_else(|| launch_lock.env.get("USERPROFILE"))
+        .map(PathBuf::from);
+    let dir = native_model_source_dir(launch_lock, home.as_deref());
+    digest.update(b"\0native:");
+    digest.update(launch_lock.agent_id.as_str().as_bytes());
+    let Some(dir) = dir else {
+        return;
+    };
+    for file in native_model_source_files(launch_lock.agent_id.as_str()) {
+        digest.update(b"\0file:");
+        digest.update(file.as_bytes());
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            digest.update(&bytes);
+        }
+    }
+}
+
+fn native_model_source_dir(
+    launch_lock: &SessionLaunchLock,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    match launch_lock.agent_id.as_str() {
+        "codex" => env_dir(launch_lock, "CODEX_HOME", home, ".codex"),
+        "claude_code" => env_dir(launch_lock, "CLAUDE_CONFIG_DIR", home, ".claude"),
+        "pi" => env_dir(launch_lock, "PI_HOME", home, ".pi/agent"),
+        "grok" => env_dir(launch_lock, "GROK_HOME", home, ".grok"),
+        "openclaw" => env_dir(launch_lock, "OPENCLAW_HOME", home, ".openclaw"),
+        _ => None,
+    }
+}
+
+fn native_model_source_files(agent_id: &str) -> &'static [&'static str] {
+    match agent_id {
+        "codex" => &[
+            "config.toml",
+            "vibex-model-catalog.json",
+            "vibex-model-catalog.source.json",
+        ],
+        "claude_code" => &["settings.json"],
+        "pi" => &["settings.json", "models.json"],
+        "grok" => &["config.toml"],
+        "openclaw" => &["openclaw.json"],
+        _ => &[],
+    }
+}
+
+fn env_dir(
+    launch_lock: &SessionLaunchLock,
+    key: &str,
+    home: Option<&Path>,
+    fallback: &str,
+) -> Option<PathBuf> {
+    if let Some(value) = launch_lock
+        .env
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return Some(PathBuf::from(value));
+    }
+    home.map(|home| home.join(fallback))
+}
+
+pub async fn invalidate_open_capability_catalog(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<(), ConversationServiceError> {
+    AgentCapabilityCatalogRecord::delete_for_agent(pool, agent_id.as_str())
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    Ok(())
 }
 
 fn catalog_controls_if_fresh(
@@ -438,6 +518,32 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(without_settings, with_settings);
+    }
+
+    #[tokio::test]
+    async fn fingerprint_includes_native_model_catalog_files() {
+        let pool = fingerprint_pool().await;
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join(".codex");
+        std::fs::create_dir_all(&codex_home).unwrap();
+        let mut lock = launch_lock();
+        lock.agent_id = AgentId::parse("codex").unwrap();
+        lock.env.insert(
+            "CODEX_HOME".to_string(),
+            codex_home.to_string_lossy().into_owned(),
+        );
+        let before = open_capability_catalog_fingerprint(&pool, &lock)
+            .await
+            .unwrap();
+        std::fs::write(
+            codex_home.join("vibex-model-catalog.json"),
+            r#"{"models":[{"slug":"gateway-a"}]}"#,
+        )
+        .unwrap();
+        let after = open_capability_catalog_fingerprint(&pool, &lock)
+            .await
+            .unwrap();
+        assert_ne!(before, after);
     }
 
     #[test]

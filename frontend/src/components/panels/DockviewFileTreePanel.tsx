@@ -4,7 +4,7 @@ import type { IDockviewPanelProps } from 'dockview-react';
 import { FolderTree, FolderOpen } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { usePanelActions } from '@/hooks/usePanelActions';
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickHostDirectory } from '@/lib/hostFs';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjectRepos } from '@/hooks/useProjectRepos';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -394,9 +394,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
 
   const handlePickFolder = useCallback(async () => {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
+      const selected = await pickHostDirectory({
         title: t('fileTreePanel.pickFolderTitle'),
       });
       if (selected && typeof selected === 'string') {

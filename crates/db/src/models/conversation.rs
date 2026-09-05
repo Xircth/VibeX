@@ -481,6 +481,66 @@ impl ConversationRecord {
     }
 }
 
+/// The `conversation_agent_bindings.status` domain. The column carries a CHECK
+/// constraint, so every write goes through this enum rather than a bare string —
+/// a status the schema rejects must not be expressible at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum BindingStatus {
+    Pending,
+    Connecting,
+    Ready,
+    /// The previous ACP session can no longer be loaded; the binding waits for a
+    /// rebind to establish a new one (see CONTEXT.md "Session rebind").
+    Recovering,
+    Failed,
+    Closed,
+}
+
+impl BindingStatus {
+    pub const ALL: [Self; 6] = [
+        Self::Pending,
+        Self::Connecting,
+        Self::Ready,
+        Self::Recovering,
+        Self::Failed,
+        Self::Closed,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Connecting => "connecting",
+            Self::Ready => "ready",
+            Self::Recovering => "recovering",
+            Self::Failed => "failed",
+            Self::Closed => "closed",
+        }
+    }
+}
+
+impl std::fmt::Display for BindingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Merge incoming config-option selections into the stored map (CodeG
+/// `saveConfigPreference`: `{ ...existing, [key]: value }`). A write of one
+/// option must not drop the others.
+pub fn merge_config_selection_json(existing: &str, incoming: &str) -> String {
+    let mut map: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(existing).unwrap_or_default();
+    if let Ok(incoming) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(incoming)
+    {
+        for (key, value) in incoming {
+            map.insert(key, value);
+        }
+    }
+    serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct ConversationAgentBindingRecord {
     pub id: Uuid,
@@ -503,6 +563,9 @@ pub struct ConversationAgentBindingRecord {
     pub modes_json: String,
     pub config_options_json: String,
     pub current_mode: Option<String>,
+    /// The user's explicit session config-option selection (key → value), replayed
+    /// onto any newly established ACP session so a rebind cannot silently revert it.
+    pub config_selection_json: String,
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -529,7 +592,10 @@ pub struct CreateConversationAgentBinding<'a> {
     pub modes_json: &'a str,
     pub config_options_json: &'a str,
     pub current_mode: Option<&'a str>,
-    pub status: &'a str,
+    /// JSON object of session config-option selections (key → string value). `{}` when
+    /// the user has not chosen any.
+    pub config_selection_json: &'a str,
+    pub status: BindingStatus,
 }
 
 const BINDING_COLUMNS: &str = r#"id,
@@ -552,6 +618,7 @@ const BINDING_COLUMNS: &str = r#"id,
     modes_json,
     config_options_json,
     current_mode,
+    config_selection_json,
     status,
     created_at,
     updated_at"#;
@@ -580,9 +647,9 @@ impl ConversationAgentBindingRecord {
                    additional_directories_supported, prompt_capabilities_json,
                    session_capabilities_json, client_capabilities_json,
                    mcp_servers_json, modes_json, config_options_json,
-                   current_mode, status
+                   current_mode, config_selection_json, status
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING {BINDING_COLUMNS}"#
         ))
         .bind(id)
@@ -606,7 +673,8 @@ impl ConversationAgentBindingRecord {
         .bind(input.modes_json)
         .bind(input.config_options_json)
         .bind(input.current_mode)
-        .bind(input.status)
+        .bind(input.config_selection_json)
+        .bind(input.status.as_str())
         .fetch_one(&mut *conn)
         .await
     }
@@ -647,7 +715,7 @@ impl ConversationAgentBindingRecord {
         id: Uuid,
         acp_session_id: &str,
         acp_protocol_version: Option<&str>,
-        status: &str,
+        status: BindingStatus,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE conversation_agent_bindings
@@ -659,8 +727,48 @@ impl ConversationAgentBindingRecord {
         )
         .bind(acp_session_id)
         .bind(acp_protocol_version)
-        .bind(status)
+        .bind(status.as_str())
         .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Persist the user's explicit session-control selection so a rebind (or any
+    /// cold `session/new`) can replay it instead of silently adopting the agent's
+    /// defaults — a mode reset is a permission change, not a cosmetic one.
+    pub async fn update_session_controls_selection(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        current_mode: Option<&str>,
+        config_selection_json: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let merged_config = if let Some(incoming) = config_selection_json {
+            let existing = sqlx::query_scalar::<_, String>(
+                r#"SELECT config_selection_json
+                   FROM conversation_agent_bindings
+                   WHERE conversation_id = ?
+                   ORDER BY updated_at DESC
+                   LIMIT 1"#,
+            )
+            .bind(conversation_id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_else(|| "{}".to_string());
+            Some(merge_config_selection_json(&existing, incoming))
+        } else {
+            None
+        };
+        sqlx::query(
+            r#"UPDATE conversation_agent_bindings
+               SET current_mode = COALESCE(?, current_mode),
+                   config_selection_json = COALESCE(?, config_selection_json),
+                   updated_at = datetime('now', 'subsec')
+               WHERE conversation_id = ?"#,
+        )
+        .bind(current_mode)
+        .bind(merged_config.as_deref())
+        .bind(conversation_id)
         .execute(pool)
         .await?;
         Ok(())
@@ -866,7 +974,8 @@ mod tests {
                 modes_json: "[]",
                 config_options_json: "[]",
                 current_mode: None,
-                status: "connecting",
+                config_selection_json: "{}",
+                status: BindingStatus::Connecting,
             },
         )
         .await
@@ -879,7 +988,7 @@ mod tests {
             binding_id,
             "acp-session-1",
             Some("1"),
-            "ready",
+            BindingStatus::Ready,
         )
         .await
         .expect("bind acp session");
@@ -890,6 +999,173 @@ mod tests {
             .expect("binding exists");
         assert_eq!(latest.acp_session_id.as_deref(), Some("acp-session-1"));
         assert_eq!(latest.status, "ready");
+    }
+
+    /// Regression: `invalidate_agent_session` used to write the string
+    /// "rebind_required", which the column's CHECK constraint rejects — every
+    /// message re-send failed with SQLite error 275.
+    #[tokio::test]
+    async fn binding_status_variants_satisfy_the_database_check_constraint() {
+        let pool = migrated_pool().await;
+        let conversation_id = Uuid::new_v4();
+        let binding_id = Uuid::new_v4();
+        let codex = AgentId::parse("codex").unwrap();
+
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        for status in BindingStatus::ALL {
+            ConversationAgentBindingRecord::create(
+                &pool,
+                if status == BindingStatus::Pending {
+                    binding_id
+                } else {
+                    Uuid::new_v4()
+                },
+                CreateConversationAgentBinding {
+                    conversation_id,
+                    agent_id: &codex,
+                    working_dir: "/work",
+                    acp_session_id: None,
+                    acp_protocol_version: None,
+                    runtime_version: None,
+                    acp_version: None,
+                    load_supported: false,
+                    resume_supported: false,
+                    close_supported: false,
+                    terminal_supported: false,
+                    additional_directories_supported: false,
+                    prompt_capabilities_json: "{}",
+                    session_capabilities_json: "{}",
+                    client_capabilities_json: "{}",
+                    mcp_servers_json: "[]",
+                    modes_json: "[]",
+                    config_options_json: "[]",
+                    current_mode: None,
+                    config_selection_json: "{}",
+                    status,
+                },
+            )
+            .await
+            .unwrap_or_else(|error| panic!("create binding with {status}: {error}"));
+
+            ConversationAgentBindingRecord::bind_acp_session(
+                &pool,
+                binding_id,
+                "vibex-new-session-x",
+                None,
+                status,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("bind acp session with {status}: {error}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn session_controls_selection_survives_and_only_overwrites_when_given() {
+        let pool = migrated_pool().await;
+        let conversation_id = Uuid::new_v4();
+        let codex = AgentId::parse("codex").unwrap();
+
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        ConversationAgentBindingRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationAgentBinding {
+                conversation_id,
+                agent_id: &codex,
+                working_dir: "/work",
+                acp_session_id: None,
+                acp_protocol_version: None,
+                runtime_version: None,
+                acp_version: None,
+                load_supported: false,
+                resume_supported: false,
+                close_supported: false,
+                terminal_supported: false,
+                additional_directories_supported: false,
+                prompt_capabilities_json: "{}",
+                session_capabilities_json: "{}",
+                client_capabilities_json: "{}",
+                mcp_servers_json: "[]",
+                modes_json: "[]",
+                config_options_json: "[]",
+                current_mode: None,
+                config_selection_json: "{}",
+                status: BindingStatus::Connecting,
+            },
+        )
+        .await
+        .expect("create binding");
+
+        ConversationAgentBindingRecord::update_session_controls_selection(
+            &pool,
+            conversation_id,
+            Some("bypassPermissions"),
+            Some(r#"{"model":"opus"}"#),
+        )
+        .await
+        .expect("record selection");
+        ConversationAgentBindingRecord::update_session_controls_selection(
+            &pool,
+            conversation_id,
+            None,
+            None,
+        )
+        .await
+        .expect("no-op selection");
+
+        let latest =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation_id)
+                .await
+                .expect("latest binding")
+                .expect("binding exists");
+        assert_eq!(latest.current_mode.as_deref(), Some("bypassPermissions"));
+        assert_eq!(latest.config_selection_json, r#"{"model":"opus"}"#);
+
+        ConversationAgentBindingRecord::update_session_controls_selection(
+            &pool,
+            conversation_id,
+            None,
+            Some(r#"{"thought_level":"high"}"#),
+        )
+        .await
+        .expect("merge a second config key");
+        let latest =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation_id)
+                .await
+                .expect("latest binding")
+                .expect("binding exists");
+        let selection: serde_json::Value =
+            serde_json::from_str(&latest.config_selection_json).expect("json");
+        assert_eq!(selection["model"], "opus");
+        assert_eq!(selection["thought_level"], "high");
+        assert_eq!(latest.current_mode.as_deref(), Some("bypassPermissions"));
     }
 
     #[tokio::test]

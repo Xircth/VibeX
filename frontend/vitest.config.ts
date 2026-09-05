@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    testTimeout: 15_000,
     setupFiles: ['./src/test/vitest.setup.ts'],
     // The heavier settings suites drive long userEvent sequences and land
     // around 2-4s alone, which overran the 5s default once the whole suite ran

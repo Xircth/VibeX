@@ -427,6 +427,9 @@ export function TaskFollowUpSection({
   const { handleRenameSession } = useSessionComposerSessionRename({
     workspaceId,
   });
+  const [pendingSendOperationId, setPendingSendOperationId] = useState<
+    string | null
+  >(null);
 
   const {
     queueMessage,
@@ -449,6 +452,7 @@ export function TaskFollowUpSection({
         value,
       })
     ),
+    excludeOperationId: pendingSendOperationId,
   });
   const handleEditQueuedMessage = useCallback(
     (queuedMessage: QueuedMessage) => {
@@ -621,6 +625,7 @@ export function TaskFollowUpSection({
     onBeforeSend: handleBeforeSend,
     onSendFailure: handleSendFailure,
     onAfterSendCleanup: handleAfterSendWithSessionControlCleanup,
+    onPendingOperationIdChange: setPendingSendOperationId,
   });
   const [isSteering, setIsSteering] = useState(false);
   const handleSteer = useCallback(async () => {
@@ -666,8 +671,7 @@ export function TaskFollowUpSection({
       cancelDebouncedSave();
       await handleAfterSendWithSessionControlCleanup();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       if (/no active turn/i.test(message)) {
         setFollowUpError('回合已结束，内容已保留。请发送或加入队列。');
         return;
@@ -890,8 +894,6 @@ export function TaskFollowUpSection({
                   workspaceId={workspaceId}
                   attemptBranch={attemptBranch}
                   branchStatus={branchStatus}
-                  isEditable={isEditable}
-                  onResolve={onSendFollowUp}
                   enableResolve={conflictActionState.enableResolve}
                   enableAbort={conflictActionState.enableAbort}
                   conflictResolutionInstructions={

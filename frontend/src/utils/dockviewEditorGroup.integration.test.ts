@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createDockview, type DockviewApi } from 'dockview-core';
 import { DEFAULT_LAYOUT_ARRANGEMENT } from '@/lib/layoutArrangement';
-import { syncDockviewGroupRegistry } from './dockviewHelpers';
 import {
   CRUSHED_EDITOR_COLUMN_WIDTH,
   dismissEmptyEditorColumn,
@@ -9,10 +8,13 @@ import {
   isEditorColumnCrushed,
   shouldPersistSessionColumnWidth,
 } from './dockviewEditorGroup';
+import { isEditorGroup } from './dockviewGroupPolicy';
+import { syncDockviewGroupRegistry } from './dockviewHelpers';
 import {
   defaultSessionPanelWidth,
   settleDockviewGroupWidths,
 } from './dockviewStartupSizing';
+import { shouldDismissEditorColumnAfterPanelRemoval } from './lastPreviewTabLayout';
 
 class ResizeObserverStub {
   observe() {}
@@ -217,6 +219,41 @@ describe('ensureWelcomeEditorGroup', () => {
     }
 
     expect(filePanel.group.api.isVisible).toBe(true);
+    api.dispose();
+  });
+
+  it('keeps a welcome-only editor visible when switching the left dock panel', () => {
+    const api = createApi();
+    const { welcome, fileTree } = buildWorkspace(api);
+
+    expect(welcome.group.api.isVisible).toBe(true);
+
+    api.addPanel({
+      id: 'git',
+      component: 'git',
+      title: 'Git',
+      position: { referenceGroup: fileTree, direction: 'within' },
+    });
+
+    const disposable = api.onDidRemovePanel((panel) => {
+      const editorGroups = api.groups.filter((group) => isEditorGroup(group));
+      if (shouldDismissEditorColumnAfterPanelRemoval(panel, editorGroups)) {
+        dismissEmptyEditorColumn(api, {
+          arrangement: DEFAULT_LAYOUT_ARRANGEMENT,
+          sessionWidth: 434,
+          dockWidth: Math.round(fileTree.api.width),
+        });
+      }
+    });
+
+    const fileTreePanel = api.getPanel('file-tree');
+    expect(fileTreePanel).toBeDefined();
+    api.removePanel(fileTreePanel!);
+
+    expect(api.getPanel('welcome')?.group.api.isVisible).toBe(true);
+    expect(api.getPanel('git')).toBeDefined();
+
+    disposable.dispose();
     api.dispose();
   });
 

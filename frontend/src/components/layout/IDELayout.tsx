@@ -52,9 +52,11 @@ import {
 import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
+  setColumnVisible,
+  setColumnsVisible,
   shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
-import { editorColumnShouldDismiss } from '@/utils/lastPreviewTabLayout';
+import { shouldDismissEditorColumnAfterPanelRemoval } from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   ACTIVITY_RAIL_PANEL_TITLES,
@@ -610,7 +612,10 @@ export function IDELayout({
       }
       bottomGroup.api.setVisible(false);
     }
-    getLeftGroup(api)?.api.setVisible(false);
+    const leftGroup = getLeftGroup(api);
+    if (leftGroup) {
+      setColumnVisible(api, getLayoutArrangement(), leftGroup, false);
+    }
   }, []);
 
   const ensureWorkspacePanelsVisible = useCallback(
@@ -650,7 +655,7 @@ export function IDELayout({
         });
       }
 
-      leftGroup.api.setVisible(true);
+      setColumnVisible(api, getLayoutArrangement(), leftGroup, true);
 
       let bottomGroup = getBottomGroup(api);
       const hadBottomGroup = !!bottomGroup;
@@ -930,14 +935,24 @@ export function IDELayout({
 
         if (panel.id === PANEL_IDS.AI_CHAT) {
           const rightGroup = ensureSessionPanel(api);
-          rightGroup?.api.setVisible(
-            useLayoutStore.getState().isRightPanelVisible
-          );
+          if (rightGroup) {
+            setColumnVisible(
+              api,
+              getLayoutArrangement(),
+              rightGroup,
+              useLayoutStore.getState().isRightPanelVisible
+            );
+          }
           return;
         }
 
         normalizeGroupIds(api);
-        if (editorColumnShouldDismiss(getEditorGroups(api))) {
+        if (
+          shouldDismissEditorColumnAfterPanelRemoval(
+            panel,
+            getEditorGroups(api)
+          )
+        ) {
           dismissEditorColumnAfterLastTab(api);
         }
       });
@@ -1131,9 +1146,7 @@ export function IDELayout({
       getRightGroup(api) ?? (shouldShow ? ensureSessionPanel(api) : undefined);
     if (!rightGroup) return;
 
-    if (rightGroup.api.isVisible !== shouldShow) {
-      rightGroup.api.setVisible(shouldShow);
-    }
+    setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
   }, [ensureSessionPanel, isRightPanelVisible, rightPanelContent]);
 
   // Collapsed editor area: hide every zone except the session zone so it can
@@ -1143,11 +1156,18 @@ export function IDELayout({
     if (!api || effectiveActiveTab !== 'workspace') return;
 
     if (isWorkspaceEditorAreaCollapsed) {
-      getLeftGroup(api)?.api.setVisible(false);
-      getBottomGroup(api)?.api.setVisible(false);
+      const updates: Array<{
+        group: NonNullable<ReturnType<DockviewApi['getGroup']>>;
+        visible: boolean;
+      }> = [];
+      const leftGroup = getLeftGroup(api);
+      if (leftGroup) updates.push({ group: leftGroup, visible: false });
+      const bottomGroup = getBottomGroup(api);
+      if (bottomGroup) updates.push({ group: bottomGroup, visible: false });
       for (const group of getEditorGroups(api)) {
-        group.api.setVisible(false);
+        updates.push({ group, visible: false });
       }
+      setColumnsVisible(api, getLayoutArrangement(), updates);
       wasEditorAreaCollapsedRef.current = true;
       return;
     }
@@ -1155,14 +1175,18 @@ export function IDELayout({
     const recoveringFromToolbarCollapse = wasEditorAreaCollapsedRef.current;
     wasEditorAreaCollapsedRef.current = false;
 
-    for (const group of getEditorGroups(api)) {
-      if (group.api.isVisible) continue;
+    const editorUpdates = getEditorGroups(api).flatMap((group) => {
+      if (group.api.isVisible) return [];
       const hasContent = group.panels.some(
         (panel) => !isPlaceholderPanelId(panel.id)
       );
       if (recoveringFromToolbarCollapse || hasContent) {
-        group.api.setVisible(true);
+        return [{ group, visible: true }];
       }
+      return [];
+    });
+    if (editorUpdates.length > 0) {
+      setColumnsVisible(api, getLayoutArrangement(), editorUpdates);
     }
     try {
       ensureWorkspacePanelsVisible(api);

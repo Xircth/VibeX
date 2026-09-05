@@ -235,6 +235,11 @@ export interface PluginFilePreviewStart {
   errorMessage: string | null;
 }
 
+export interface PluginFilePreviewRenew {
+  leaseId: string;
+  expiresAtUnixMs: number;
+}
+
 export interface PluginImportPreview {
   plugin: PluginControlItem;
   conflict: null | {
@@ -409,6 +414,10 @@ export function createPluginControlApi(transport: BackendTransport) {
         filePath,
         leaseId: leaseId ?? null,
       }),
+    renewFilePreview: (leaseId: string) =>
+      transport.call('plugin_renew_file_preview', {
+        leaseId,
+      }) as Promise<PluginFilePreviewRenew>,
     contributions: async (plugin: PluginControlItem) => {
       try {
         return (await transport.call('plugin_control_contributions', {

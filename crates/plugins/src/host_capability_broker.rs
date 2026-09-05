@@ -83,6 +83,26 @@ impl HostCapabilityBroker {
         }
         result
     }
+
+    pub async fn renew_preview(
+        &self,
+        lease_id: &str,
+    ) -> Result<crate::PluginPreviewSession, crate::PluginPreviewHostError> {
+        let lease = self.previews.renew_preview(lease_id).await?;
+        if self
+            .preview_leases
+            .lock()
+            .await
+            .contains_key(&lease.lease_id)
+        {
+            schedule_preview_lease_drop(
+                self.preview_leases.clone(),
+                lease.lease_id.clone(),
+                lease.expires_at_unix_ms,
+            );
+        }
+        Ok(lease)
+    }
 }
 
 #[async_trait]
@@ -261,14 +281,11 @@ impl HostCapabilityBroker {
             .lock()
             .await
             .insert(lease.lease_id.clone(), activation_lease);
-        let preview_leases = self.preview_leases.clone();
-        let lease_id = lease.lease_id.clone();
-        let delay =
-            Duration::from_millis(lease.expires_at_unix_ms.saturating_sub(unix_time_millis()));
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            preview_leases.lock().await.remove(&lease_id);
-        });
+        schedule_preview_lease_drop(
+            self.preview_leases.clone(),
+            lease.lease_id.clone(),
+            lease.expires_at_unix_ms,
+        );
         Ok(json!({
             "leaseId": lease.lease_id,
             "port": lease.loopback_port,
@@ -392,6 +409,18 @@ impl PluginKv {
             .filter_map(|key| key.strip_prefix(&prefix).map(str::to_owned))
             .collect()
     }
+}
+
+fn schedule_preview_lease_drop(
+    preview_leases: std::sync::Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
+    lease_id: String,
+    expires_at_unix_ms: u64,
+) {
+    let delay = Duration::from_millis(expires_at_unix_ms.saturating_sub(unix_time_millis()));
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        preview_leases.lock().await.remove(&lease_id);
+    });
 }
 
 fn unix_time_millis() -> u64 {

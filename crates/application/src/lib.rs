@@ -1,5 +1,6 @@
 //! Transport-neutral VibeX application use cases.
 
+mod args;
 mod command;
 mod conversation;
 mod conversation_artifacts;
@@ -11,6 +12,7 @@ mod principal;
 mod workflow;
 
 pub use agents::ConversationWorkflowRef;
+pub use args::decode_command_args;
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
     ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, CompanionSessionPort,

@@ -11,22 +11,13 @@ use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
-    desktop_toast::DesktopToastPayload,
-    local_history::LocalHistoryImportRuntime,
-    local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
+    desktop_toast::DesktopToastPayload, local_history::LocalHistoryImportRuntime,
 };
 
 #[derive(Default)]
 pub struct DesktopToastRuntimeState {
     pub ready: bool,
     pub pending: Vec<DesktopToastPayload>,
-}
-
-#[derive(Clone, Default)]
-pub struct LocalUsageCacheEntry {
-    pub sessions: Vec<ProjectUsageSessionSummary>,
-    pub provider_status: Vec<ProjectUsageProviderStatus>,
-    pub scanned_at_ms: i64,
 }
 
 #[derive(Default)]
@@ -191,7 +182,6 @@ pub struct AppState {
     pub file_tree_watchers: Arc<Mutex<HashSet<String>>>,
     pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
-    pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
     pub conversation_agent_events: StdMutex<Option<mpsc::Receiver<AgentEventEnvelope>>>,
@@ -201,10 +191,9 @@ pub struct AppState {
         Arc<Mutex<HashMap<uuid::Uuid, conversations::ConversationRuntimeState>>>,
     /// Per-conversation live incremental projectors (消灭双投影). Cache the folded
     /// state so each newly-appended event turns into row ops in O(1) amortized instead
-    /// of re-projecting the turn every frame. Dropped when a conversation closes
-    /// (`forget_conversation_runtime`).
-    pub conversation_row_projectors:
-        Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
+    /// of re-projecting the turn every frame. Bounded by least recent use, and dropped
+    /// when a conversation closes (`forget_conversation_runtime`).
+    pub conversation_row_projectors: conversations::ConversationRowProjectors,
     pub plugin_preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
@@ -372,7 +361,6 @@ impl AppState {
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
-            local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
             agent_management_runtime: Arc::new(AgentManagementRuntimeState::default()),
             agent_runtime,
             conversation_agent_events: StdMutex::new(Some(conversation_agent_events)),

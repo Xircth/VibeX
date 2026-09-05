@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use api_types::{AgentAuthModeKind, AgentId, AgentKind};
 
-use crate::permissions::AgentAutoApproveMode;
+use crate::{native_config::NativeConfigSnapshot, permissions::AgentAutoApproveMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInAuthModePolicy {
@@ -151,6 +151,14 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: &[],
             default_mode: "model_provider",
         }),
+        "qoder" => Some(BuiltInAuthModePolicy {
+            mode_env: "QODER_AUTH_MODE",
+            credential_env: "QODER_PERSONAL_ACCESS_TOKEN",
+            modes: QODER_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
         _ => None,
     }
 }
@@ -164,6 +172,7 @@ const KIMI_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const CLINE_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
 const CLINE_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const CODEBUDDY_MODES: &[&str] = &["official_subscription"];
+const QODER_MODES: &[&str] = &["official_subscription"];
 const PI_MODES: &[&str] = &["model_provider"];
 const OPENCLAW_MODES: &[&str] = &["model_provider"];
 
@@ -193,6 +202,95 @@ pub fn auth_mode_kind(agent_id: &AgentId, mode: &str) -> AgentAuthModeKind {
         }
         _ => AgentAuthModeKind::OfficialApi,
     }
+}
+
+pub fn resolve_built_in_auth_mode(
+    agent_id: &AgentId,
+    policy: BuiltInAuthModePolicy,
+    env: &HashMap<String, String>,
+    bound_provider: bool,
+    native_custom_endpoint: bool,
+    snapshot: Option<&NativeConfigSnapshot>,
+) -> String {
+    if policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint) {
+        return "model_provider".to_string();
+    }
+    if let Some(mode) = env
+        .get(policy.mode_env)
+        .filter(|mode| policy.modes.contains(&mode.as_str()))
+        .filter(|mode| mode.as_str() != "model_provider")
+    {
+        return mode.clone();
+    }
+    if agent_id.as_str() == "claude_code" {
+        if snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key")) {
+            return "official_api".to_string();
+        }
+        return "official_subscription".to_string();
+    }
+    if snapshot.is_some_and(|snapshot| snapshot.field_present("antigravity_api_key")) {
+        return "gemini-api-key".to_string();
+    }
+    if snapshot.is_some_and(|snapshot| {
+        snapshot.field_present("antigravity_google_api_key")
+            || snapshot.field_text("antigravity_cloud_project").is_some()
+    }) {
+        return "agent-platform".to_string();
+    }
+    if policy.modes.contains(&"oauth-personal") {
+        return "oauth-personal".to_string();
+    }
+    if agent_id.as_str() == "deepseek_harness"
+        && env
+            .get("DEEPSEEK_BASE_URL")
+            .is_some_and(|value| !value.trim().is_empty())
+    {
+        return "custom".to_string();
+    }
+    env.get(policy.credential_env)
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|_| policy.credential_modes.first().copied())
+        .map(str::to_string)
+        .unwrap_or_else(|| policy.default_mode.to_string())
+}
+
+pub fn native_uses_custom_endpoint(agent_id: &AgentId, snapshot: &NativeConfigSnapshot) -> bool {
+    let Some(url) = (match agent_id.as_str() {
+        "claude_code" => snapshot.field_text("anthropic_base_url"),
+        "grok" => snapshot.field_text("grok_base_url"),
+        "kimi_code" => snapshot.field_text("kimi_base_url"),
+        "cline" => snapshot.field_text("cline_base_url"),
+        "hermes" => snapshot.field_text("hermes_base_url"),
+        "codex" => snapshot.field_text("codex_openai_base_url"),
+        _ => None,
+    }) else {
+        return false;
+    };
+    is_non_official_api_url(agent_id, url)
+}
+
+pub fn is_non_official_api_url(agent_id: &AgentId, url: &str) -> bool {
+    let normalized = normalize_api_url(url);
+    if normalized.is_empty() {
+        return false;
+    }
+    let official = official_api_url(agent_id, "official_api")
+        .or_else(|| official_api_url(agent_id, "custom"))
+        .or_else(|| official_api_url(agent_id, "api_key"))
+        .or_else(|| official_api_url(agent_id, "gemini-api-key"))
+        .or_else(|| official_api_url(agent_id, "deepseek"))
+        .map(normalize_api_url)
+        .unwrap_or_default();
+    official.is_empty() || normalized != official
+}
+
+fn normalize_api_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/').to_ascii_lowercase();
+    trimmed
+        .strip_suffix("/v1")
+        .unwrap_or(trimmed.as_str())
+        .trim_end_matches('/')
+        .to_string()
 }
 
 pub fn official_api_url(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
@@ -443,7 +541,8 @@ mod tests {
     use super::{
         apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
         apply_built_in_launch_policy, auth_mode_kind, auto_approve_mode_for_launch,
-        official_api_url,
+        built_in_auth_mode_policy, is_non_official_api_url, official_api_url,
+        resolve_built_in_auth_mode,
     };
 
     #[test]
@@ -543,6 +642,13 @@ mod tests {
             Some("https://api.anthropic.com")
         );
         assert_eq!(official_api_url(&cursor, "custom"), None);
+
+        let qoder = AgentId::parse("qoder").unwrap();
+        assert_eq!(
+            auth_mode_kind(&qoder, "official_subscription"),
+            AgentAuthModeKind::Subscription
+        );
+        assert_eq!(official_api_url(&qoder, "official_subscription"), None);
     }
 
     #[test]
@@ -625,5 +731,66 @@ mod tests {
             openclaw_args,
             ["acp", "--url", "wss://gateway.example", "--session", "work"]
         );
+    }
+
+    #[test]
+    fn bound_provider_wins_over_official_api_env_and_credentials() {
+        let claude = AgentId::parse("claude_code").unwrap();
+        let grok = AgentId::parse("grok").unwrap();
+        let kimi = AgentId::parse("kimi_code").unwrap();
+        let claude_policy = built_in_auth_mode_policy(&claude).unwrap();
+        let grok_policy = built_in_auth_mode_policy(&grok).unwrap();
+        let kimi_policy = built_in_auth_mode_policy(&kimi).unwrap();
+
+        assert_eq!(
+            resolve_built_in_auth_mode(
+                &claude,
+                claude_policy,
+                &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
+                true,
+                false,
+                None,
+            ),
+            "model_provider"
+        );
+        assert_eq!(
+            resolve_built_in_auth_mode(&claude, claude_policy, &HashMap::new(), false, true, None,),
+            "model_provider"
+        );
+        assert_eq!(
+            resolve_built_in_auth_mode(&grok, grok_policy, &HashMap::new(), false, false, None),
+            "subscription"
+        );
+        assert_eq!(
+            resolve_built_in_auth_mode(&grok, grok_policy, &HashMap::new(), true, false, None),
+            "model_provider"
+        );
+        assert_eq!(
+            resolve_built_in_auth_mode(
+                &kimi,
+                kimi_policy,
+                &HashMap::from([("KIMI_API_KEY".to_string(), "sk-kimi".to_string())]),
+                false,
+                false,
+                None,
+            ),
+            "official_api"
+        );
+        assert_eq!(
+            resolve_built_in_auth_mode(
+                &kimi,
+                kimi_policy,
+                &HashMap::from([("KIMI_API_KEY".to_string(), "sk-kimi".to_string())]),
+                true,
+                false,
+                None,
+            ),
+            "model_provider"
+        );
+        assert!(is_non_official_api_url(&claude, "https://api.deepseek.com"));
+        assert!(!is_non_official_api_url(
+            &claude,
+            "https://api.anthropic.com/v1"
+        ));
     }
 }

@@ -13,6 +13,7 @@ vi.mock('./CanvasViewContext', () => ({
     renameGroup: vi.fn(),
     toggleGroupShowAll: vi.fn(),
     previewGroupResize: vi.fn(),
+    beginGroupResize: vi.fn(),
     resizeGroup: vi.fn(),
   }),
 }));
@@ -47,10 +48,12 @@ describe('SessionCanvasGroupNode', () => {
 
     const name = screen.getByRole('button', { name: '分组' });
     expect(name).toHaveClass('text-[14px]', 'text-[var(--text-strong)]');
+    expect(name).not.toHaveClass('nodrag');
     expect(name.parentElement).toHaveStyle({ height: '32px' });
     expect(container.querySelector('.canvas-session-group')).toHaveClass(
       'is-selected',
-      'is-running'
+      'is-running',
+      'cursor-grab'
     );
   });
 

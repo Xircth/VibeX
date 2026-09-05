@@ -40,9 +40,9 @@ use agents::{
         ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-        ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn, PlanEntry,
-        SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-        TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, ImageData,
+        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -100,14 +100,24 @@ use executors::{
     logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
-use git::{GitBranch, StashEntry};
+use git::{
+    ConflictFileDetail, ConflictHunk, ConflictStageContent, GitBranch, StashEntry,
+    WriteConflictResolutionResult,
+};
 use remote_protocol::{
     CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, ReachabilityOrigin,
     RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
     SubscriptionResource, SubscriptionSnapshot,
 };
-use services::services::config::{
-    CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen,
+use services::services::{
+    config::{CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen},
+    usage::{
+        ProjectUsageAgentUsage, ProjectUsageDailyUsage, ProjectUsageFolderUsage,
+        ProjectUsageModelUsage, ProjectUsageProviderStatus, ProjectUsageSessionSummary,
+        ProjectUsageSourcedTokens, ProjectUsageStatistics, ProjectUsageTokenCounts,
+        ProjectUsageTrends, ProjectUsageUsageData, ProjectUsageWeekData,
+        ProjectUsageWeeklyComparison,
+    },
 };
 use ts_rs::TS;
 use vibex::{
@@ -165,40 +175,171 @@ fn main() -> ExitCode {
 }
 
 fn run(check: bool) -> Result<ExitCode, String> {
-    let shared_types_path = workspace_root().join("shared").join("types.ts");
-    let current_raw = std::fs::read_to_string(&shared_types_path)
-        .map_err(|error| format!("failed to read {}: {error}", shared_types_path.display()))?;
+    let mut failed = false;
+    match sync_file(
+        check,
+        workspace_root().join("shared").join("types.ts"),
+        |current| render_merged_types(&normalize_newlines(current)),
+    )? {
+        FileSync::UpToDate => println!("shared/types.ts is up to date"),
+        FileSync::Updated => println!("updated shared/types.ts"),
+        FileSync::Stale => {
+            eprintln!("shared/types.ts is out of date. Run `pnpm run generate-types`.");
+            failed = true;
+        }
+    }
+    match sync_file(
+        check,
+        workspace_root().join("shared").join("hostCommands.ts"),
+        |_| render_host_commands(),
+    )? {
+        FileSync::UpToDate => println!("shared/hostCommands.ts is up to date"),
+        FileSync::Updated => println!("updated shared/hostCommands.ts"),
+        FileSync::Stale => {
+            eprintln!("shared/hostCommands.ts is out of date. Run `pnpm run generate-types`.");
+            failed = true;
+        }
+    }
+    if failed {
+        Ok(ExitCode::from(1))
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+enum FileSync {
+    UpToDate,
+    Updated,
+    Stale,
+}
+
+fn sync_file(
+    check: bool,
+    path: PathBuf,
+    render: impl FnOnce(&str) -> String,
+) -> Result<FileSync, String> {
+    let current_raw = std::fs::read_to_string(&path).unwrap_or_default();
     let line_ending = if current_raw.contains("\r\n") {
         "\r\n"
     } else {
         "\n"
     };
-
     let current = normalize_newlines(&current_raw);
-    let generated = render_merged_types(&current);
-
+    let generated = render(&current);
     if current == generated {
-        println!("shared/types.ts is up to date");
-        return Ok(ExitCode::SUCCESS);
+        return Ok(FileSync::UpToDate);
     }
-
     if check {
-        eprintln!("shared/types.ts is out of date. Run `pnpm run generate-types`.");
-        return Ok(ExitCode::from(1));
+        return Ok(FileSync::Stale);
     }
-
     let output = if line_ending == "\r\n" {
         generated.replace('\n', "\r\n")
     } else {
         generated
     };
-
-    std::fs::write(&shared_types_path, output)
-        .map_err(|error| format!("failed to write {}: {error}", shared_types_path.display()))?;
-    println!("updated {}", shared_types_path.display());
-
-    Ok(ExitCode::SUCCESS)
+    std::fs::write(&path, output)
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
+    Ok(FileSync::Updated)
 }
+
+fn render_host_commands() -> String {
+    let mut names = application::RegisteredCommand::host_command_names();
+    names.sort_unstable();
+    names.dedup();
+    let host = names
+        .into_iter()
+        .map(|name| format!("  '{name}',"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let shell = DESKTOP_SHELL_COMMANDS
+        .iter()
+        .map(|name| format!("  '{name}',"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let scopes = application::DomainCommand::capability_scopes()
+        .into_iter()
+        .map(|scope| format!("  '{scope}',"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "/* Generated from RegisteredCommand + DomainCommand. Do not hand-edit. */\n\n\
+export const HOST_COMMANDS = [\n{host}\n] as const;\n\n\
+export const DESKTOP_SHELL_COMMANDS = [\n{shell}\n] as const;\n\n\
+export const HOST_CAPABILITY_SCOPES = [\n{scopes}\n] as const;\n\n\
+export type HostCommand = (typeof HOST_COMMANDS)[number];\n\
+export type DesktopShellCommand = (typeof DESKTOP_SHELL_COMMANDS)[number];\n"
+    )
+}
+
+const DESKTOP_SHELL_COMMANDS: &[&str] = &[
+    "open_in_editor",
+    "open_project_in_editor",
+    "show_desktop_toast",
+    "start_web_server",
+    "stop_web_server",
+    "host_client_connect",
+    "host_client_disconnect",
+    "host_client_call",
+    "remote_desktop_connect",
+    "remote_desktop_disconnect",
+    "remote_desktop_call",
+    "remote_desktop_capabilities",
+    "remote_desktop_listen",
+    "remote_desktop_subscribe",
+    "create_ssh_tunnel",
+    "close_ssh_tunnel",
+    "backup_create",
+    "backup_restore",
+    "open_devtools",
+    "plugin_dev_connection",
+    "activate_desktop_toast",
+    "set_app_icon",
+    "update_tray_badge",
+    "host_client_delete",
+    "revoke_host_device",
+    "conversation_attach",
+    "fixture_delegate",
+    "fixture_reset",
+    "backup_cancel",
+    "backup_inspect",
+    "backup_restore_stage",
+    "browser_apply_intent",
+    "browser_close_tab",
+    "browser_create_tab",
+    "browser_get_tab",
+    "cancel_create_host_tunnel",
+    "check_existing_host_tunnel",
+    "confirm_create_host_tunnel",
+    "control_tauri_inspector",
+    "create_host_device_pairing",
+    "desktop_toast_window_ready",
+    "exit_app",
+    "generate_web_service_token",
+    "get_host_tunnel",
+    "get_tauri_inspector_status",
+    "get_web_server_status",
+    "get_web_service_config",
+    "health_check",
+    "host_client_discover",
+    "host_client_status",
+    "install_tauri_inspector",
+    "is_main_window_focused",
+    "list_host_devices",
+    "open_external_terminal",
+    "open_repo_in_editor",
+    "open_settings_window",
+    "open_workspace_in_editor",
+    "probe_web_service_port",
+    "remove_saved_host_tunnel",
+    "reveal_in_file_manager",
+    "select_saved_host_tunnel",
+    "set_host_tunnel_enabled",
+    "start_create_host_tunnel",
+    "take_tauri_inspector_capture",
+    "trash_item",
+    "update_web_service_config",
+    "plugin_control_import_cli",
+];
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -493,6 +634,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
     insert_declaration::<GitBranch>(&mut decls);
     insert_declaration::<StashEntry>(&mut decls);
+    insert_declaration::<ConflictStageContent>(&mut decls);
+    insert_declaration::<ConflictHunk>(&mut decls);
+    insert_declaration::<ConflictFileDetail>(&mut decls);
+    insert_declaration::<WriteConflictResolutionResult>(&mut decls);
     insert_declaration::<ConversationSearchHit>(&mut decls);
     insert_declaration::<ArtifactPreviewLeaseDto>(&mut decls);
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);
@@ -523,6 +668,19 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentPlan>(&mut decls);
     insert_declaration::<AgentPlanEntry>(&mut decls);
     insert_declaration::<AgentUsage>(&mut decls);
+    insert_declaration::<ProjectUsageTokenCounts>(&mut decls);
+    insert_declaration::<ProjectUsageSourcedTokens>(&mut decls);
+    insert_declaration::<ProjectUsageUsageData>(&mut decls);
+    insert_declaration::<ProjectUsageDailyUsage>(&mut decls);
+    insert_declaration::<ProjectUsageModelUsage>(&mut decls);
+    insert_declaration::<ProjectUsageFolderUsage>(&mut decls);
+    insert_declaration::<ProjectUsageAgentUsage>(&mut decls);
+    insert_declaration::<ProjectUsageSessionSummary>(&mut decls);
+    insert_declaration::<ProjectUsageWeekData>(&mut decls);
+    insert_declaration::<ProjectUsageTrends>(&mut decls);
+    insert_declaration::<ProjectUsageWeeklyComparison>(&mut decls);
+    insert_declaration::<ProjectUsageProviderStatus>(&mut decls);
+    insert_declaration::<ProjectUsageStatistics>(&mut decls);
     insert_declaration::<AgentListedSession>(&mut decls);
     insert_declaration::<AgentSessionListPage>(&mut decls);
     insert_declaration::<AgentSessionMode>(&mut decls);
@@ -614,6 +772,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationUsage>(&mut decls);
     insert_declaration::<ConversationFileChange>(&mut decls);
     insert_declaration::<ConversationFileChangeSummary>(&mut decls);
+    insert_declaration::<ConversationTurnErrorKind>(&mut decls);
     insert_declaration::<ConversationError>(&mut decls);
     insert_declaration::<TurnBlockedReason>(&mut decls);
     insert_declaration::<SessionRecoveryStrategy>(&mut decls);

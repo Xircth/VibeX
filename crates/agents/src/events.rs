@@ -256,6 +256,56 @@ pub struct AgentSessionConfigOverride {
     pub value: String,
 }
 
+/// User-chosen session controls applied at ACP session establishment, before the
+/// first `session_modes` / `session_config_options` event is emitted. Mirrors
+/// CodeG's `preferred_mode_id` + `preferred_config_values` on `acp_connect`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SessionControlPreferences {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config: Vec<AgentSessionConfigOverride>,
+}
+
+impl SessionControlPreferences {
+    pub fn is_empty(&self) -> bool {
+        self.mode.as_deref().is_none_or(str::is_empty) && self.config.is_empty()
+    }
+
+    /// Last-used / settings values keyed like `agent_session_default.option_id`.
+    /// `mode` is the session mode; every other key is a config option.
+    pub fn from_option_values(values: &BTreeMap<String, serde_json::Value>) -> Self {
+        let mut mode = None;
+        let mut config = Vec::new();
+        for (key, value) in values {
+            let value = option_value_as_string(value);
+            if value.is_empty() {
+                continue;
+            }
+            if key == "mode" {
+                mode = Some(value);
+            } else {
+                config.push(AgentSessionConfigOverride {
+                    key: key.clone(),
+                    value,
+                });
+            }
+        }
+        Self { mode, config }
+    }
+}
+
+fn option_value_as_string(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| match value {
+            serde_json::Value::Bool(_) | serde_json::Value::Number(_) => value.to_string(),
+            _ => String::new(),
+        })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentAvailableCommand {
@@ -292,6 +342,9 @@ pub struct AgentPromptFinished {
     pub prompt_id: AgentPromptId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    /// End-turn token breakdown from ACP `PromptResponse.usage` when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<AgentUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -456,6 +509,33 @@ pub struct AgentEventEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_used_option_values_split_mode_from_config() {
+        let mut values = BTreeMap::new();
+        values.insert(
+            "mode".to_string(),
+            serde_json::Value::String("bypassPermissions".into()),
+        );
+        values.insert(
+            "model".to_string(),
+            serde_json::Value::String("opus".into()),
+        );
+        values.insert(
+            "thought_level".to_string(),
+            serde_json::Value::String("high".into()),
+        );
+        let prefs = SessionControlPreferences::from_option_values(&values);
+        assert_eq!(prefs.mode.as_deref(), Some("bypassPermissions"));
+        assert_eq!(
+            prefs
+                .config
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "opus"), ("thought_level", "high")]
+        );
+    }
 
     #[test]
     fn event_envelope_serializes_tagged_event() {

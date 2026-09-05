@@ -17,6 +17,7 @@ import type { WebPreviewPanelParams } from '@/types/panels';
 
 interface WorkspaceBrowserPanelProps {
   api: IDockviewPanelProps['api'];
+  panelId: string;
   layoutVersion: number;
   requestedUrl: string | null;
   requestedUrlNonce: number;
@@ -26,6 +27,7 @@ interface WorkspaceBrowserPanelProps {
 
 function WorkspaceBrowserPanel({
   api,
+  panelId,
   layoutVersion,
   requestedUrl,
   requestedUrlNonce,
@@ -60,16 +62,30 @@ function WorkspaceBrowserPanel({
     },
     [api]
   );
+  const persistLocation = useCallback(
+    (url: string) => {
+      const current = api.getParameters<WebPreviewPanelParams>();
+      const nextUrl = url.trim() === '' || url === 'about:blank' ? null : url;
+      if ((current.requestedUrl ?? null) === nextUrl) return;
+      api.updateParameters({
+        ...current,
+        requestedUrl: nextUrl,
+      });
+    },
+    [api]
+  );
 
   return (
     <BrowserPanel
       initialUrl={initialUrl}
       requestNonce={requestedUrlNonce}
+      panelId={panelId}
       workspaceId={workspaceId}
       visible={visible}
       layoutVersion={layoutVersion}
       onTitleChange={updateTitle}
       onFaviconChange={updateFavicon}
+      onLocationChange={persistLocation}
       onInspectElement={addElement}
       onOpenExternalTab={panelActions?.openWebPreview}
     />
@@ -84,7 +100,6 @@ export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
   const workspaceId =
     visibleRightSession?.workspaceId ?? activeWorktreeId ?? undefined;
   const { data: attempt } = useTaskAttemptWithSession(workspaceId);
-  const executionKey = `${workspaceId ?? 'none'}:${attempt?.session?.id ?? 'none'}`;
   const [layoutState, setLayoutState] = useState(() => ({
     version: 0,
     visible: props.api.isVisible,
@@ -112,12 +127,12 @@ export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
 
   return (
     <ExecutionProcessesProvider
-      key={executionKey}
       attemptId={workspaceId}
       sessionId={attempt?.session?.id}
     >
       <WorkspaceBrowserPanel
         api={props.api}
+        panelId={props.api.id}
         layoutVersion={layoutState.version}
         requestedUrl={params.requestedUrl ?? null}
         requestedUrlNonce={params.requestedUrlNonce ?? 0}

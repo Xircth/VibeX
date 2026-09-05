@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ImageMetadata } from 'shared/types';
 import type { LocalImageMetadata } from '@/types/local-image-metadata';
 import { backendCall } from '@/lib/backendTransport';
+import { hostFileSrc } from '@/lib/hostAsset';
 
 export function useImageMetadata(
   taskAttemptId: string | undefined,
@@ -51,7 +51,7 @@ export function useImageMetadata(
           }
         );
         return data.proxy_url
-          ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
+          ? { ...data, proxy_url: await hostFileSrc(data.proxy_url) }
           : data;
       }
       if (taskId) {
@@ -63,7 +63,7 @@ export function useImageMetadata(
           }
         );
         return data.proxy_url
-          ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
+          ? { ...data, proxy_url: await hostFileSrc(data.proxy_url) }
           : data;
       }
       return null;

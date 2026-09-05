@@ -4,14 +4,14 @@ use ts_rs::TS;
 
 use crate::{ConversationId, ErrorEnvelope, SubscriptionId};
 
-#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]
 pub struct SubscriptionRequest {
     pub subscription_id: SubscriptionId,
     #[serde(flatten)]
     pub resource: SubscriptionResource,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]
 #[serde(tag = "resource", rename_all = "snake_case")]
 pub enum SubscriptionResource {
     Conversation {
@@ -21,6 +21,15 @@ pub enum SubscriptionResource {
     WorkflowRun {
         run_id: uuid::Uuid,
         after_sequence: i64,
+    },
+    HostEvent {
+        channel: String,
+        after_sequence: i64,
+    },
+    PatchStream {
+        stream: String,
+        #[serde(default)]
+        args: serde_json::Value,
     },
 }
 

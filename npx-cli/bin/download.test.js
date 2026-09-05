@@ -18,14 +18,17 @@ const {
 } = require("./download");
 
 test("builds GitHub release URLs for the official Host family tarball", () => {
-  assert.equal(familyAssetName("macos-arm64"), "vibex-host-family-macos-arm64.tar.gz");
   assert.equal(
-    familyAssetUrl("linux-x64"),
-    `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download/v${CLI_VERSION}/vibex-host-family-linux-x64.tar.gz`,
+    familyAssetName("darwin-aarch64"),
+    `VibeX-${CLI_VERSION}-darwin-aarch64-server.tar.gz`,
   );
   assert.equal(
-    familyAssetUrl("windows-x64", ".sha256"),
-    `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download/v${CLI_VERSION}/vibex-host-family-windows-x64.tar.gz.sha256`,
+    familyAssetUrl("linux-x86_64"),
+    `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download/v${CLI_VERSION}/VibeX-${CLI_VERSION}-linux-x86_64-server.tar.gz`,
+  );
+  assert.equal(
+    familyAssetUrl("windows-x86_64", ".sha256"),
+    `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download/v${CLI_VERSION}/VibeX-${CLI_VERSION}-windows-x86_64-server.tar.gz.sha256`,
   );
 });
 
@@ -71,7 +74,7 @@ test("ensureHostFamily uses a local directory after verifying SHA256SUMS", async
   const previous = process.env.VIBEX_HOST_FAMILY_DIR;
   process.env.VIBEX_HOST_FAMILY_DIR = root;
   try {
-    const family = await ensureHostFamily("macos-arm64");
+    const family = await ensureHostFamily("darwin-aarch64");
     assert.equal(family.source, "local");
     assert.equal(family.root, root);
   } finally {

@@ -512,10 +512,26 @@ export function useTauriTerminal({
 
       try {
         if (resolvedSessionId) {
-          await attachListener(resolvedSessionId);
-          await backendCall<string>('attach_terminal', {
-            sessionId: resolvedSessionId,
-          });
+          try {
+            await attachListener(resolvedSessionId);
+            await backendCall<string>('attach_terminal', {
+              sessionId: resolvedSessionId,
+            });
+          } catch {
+            if (unlistenRef.current) {
+              unlistenRef.current();
+              unlistenRef.current = null;
+            }
+            resolvedSessionId = crypto.randomUUID();
+            await attachListener(resolvedSessionId);
+            await backendCall<string>('create_terminal', {
+              workspaceId,
+              cols: terminal.cols,
+              rows: terminal.rows,
+              shell: shell || null,
+              sessionId: resolvedSessionId,
+            });
+          }
         } else {
           resolvedSessionId = crypto.randomUUID();
           await attachListener(resolvedSessionId);

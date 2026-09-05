@@ -1,21 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
-import { backendCall, backendListen } from '@/lib/backendTransport';
-
-// ------------------------------------------------------------------
-// Tauri event payload types
-//
-// Rust `LogMsg` enum is serialised by serde with default (externally tagged)
-// representation.  Unit variants become plain strings, newtype variants
-// become `{ "VariantName": <inner> }`.
-//
-//   LogMsg::JsonPatch(ops) → { "JsonPatch": [...] }
-//   LogMsg::Ready          → "Ready"
-//   LogMsg::Finished       → "Finished"
-//   LogMsg::Stdout(s)      → { "Stdout": "..." }
-//   LogMsg::Stderr(s)      → { "Stderr": "..." }
-// ------------------------------------------------------------------
+import { getBackendTransport } from '@/lib/transport/transportRegistry';
+import type { RemoteEvent } from '@/lib/transport/backendTransport';
+import type { JsonValue } from 'shared/types';
 
 type TauriLogMsg =
   | { JsonPatch: Operation[] }
@@ -26,22 +14,25 @@ type TauriLogMsg =
   | { SessionId: string }
   | { MessageId: string };
 
-// ---- public API ---------------------------------------------------
+const STREAM_BY_COMMAND: Record<string, string> = {
+  subscribe_projects_stream: 'projects',
+  subscribe_project_workspaces_stream: 'project_workspaces',
+  subscribe_execution_processes_stream: 'execution_processes',
+  subscribe_diff_stream: 'diff',
+  subscribe_file_tree_stream: 'file_tree',
+  subscribe_scratch_stream: 'scratch',
+  subscribe_slash_commands_stream: 'slash_commands',
+  subscribe_log_stream: 'log',
+  subscribe_conversation_stream: 'conversation',
+};
 
 export interface TauriPatchStreamOptions<T> {
-  /** Tauri command name to invoke (e.g. 'subscribe_diff_stream') */
   subscribeCommand: string;
-  /** Arguments forwarded to the Tauri command */
   subscribeArgs?: Record<string, unknown>;
-  /** Tauri event channel to listen on (e.g. 'diff-stream:{id}') */
   eventChannel: string;
-  /** Factory that returns the initial (empty) data shape */
   initialData: () => T;
-  /** Whether the stream should be active. Defaults to true. */
   enabled?: boolean;
-  /** Filter / deduplicate patches before applying them */
   deduplicatePatches?: (patches: Operation[]) => Operation[];
-  /** Inject initial data once when stream starts */
   injectInitialEntry?: (data: T) => void;
 }
 
@@ -52,15 +43,17 @@ export interface TauriPatchStreamResult<T> {
   error: string | null;
 }
 
-/**
- * Core hook that replaces `useJsonPatchWsStream`.
- *
- * Instead of opening a WebSocket it:
- *  1. Calls a Tauri command that spawns a background stream on the Rust side.
- *  2. Listens to a Tauri event channel for `LogMsg` payloads.
- *  3. Applies incoming JSON-Patch operations via immer + `applyUpsertPatch`.
- */
-export const useTauriPatchStream = <T extends object>(
+function asLogMsg(payload: unknown): TauriLogMsg | null {
+  if (payload === 'Ready' || payload === 'Finished') {
+    return payload;
+  }
+  if (typeof payload === 'object' && payload !== null) {
+    return payload as TauriLogMsg;
+  }
+  return null;
+}
+
+export const usePatchStream = <T extends object>(
   options: TauriPatchStreamOptions<T>
 ): TauriPatchStreamResult<T> => {
   const {
@@ -80,15 +73,10 @@ export const useTauriPatchStream = <T extends object>(
   const dataRef = useRef<T | undefined>(undefined);
   const finishedRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
-
-  // Serialise subscribeArgs to a stable string so we can safely depend on it
-  // without causing infinite re-renders when the caller creates a new object
-  // literal each render.
   const argsKey = subscribeArgs ? JSON.stringify(subscribeArgs) : '';
 
   useEffect(() => {
     if (!enabled) {
-      // Reset everything when disabled
       setData(undefined);
       setIsConnected(false);
       setIsInitialized(false);
@@ -99,7 +87,6 @@ export const useTauriPatchStream = <T extends object>(
       return;
     }
 
-    // Initialise data
     const init = initialData();
     if (injectInitialEntry) {
       injectInitialEntry(init);
@@ -109,93 +96,85 @@ export const useTauriPatchStream = <T extends object>(
     isInitializedRef.current = false;
 
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
 
-    const setup = async () => {
+    const applyMessage = (payload: unknown) => {
+      if (cancelled || finishedRef.current) return;
+      const msg = asLogMsg(payload);
+      if (msg == null) return;
       try {
-        // 1. Start listening BEFORE invoking the command so we don't miss
-        //    any events emitted immediately after the subscribe call.
-        unlisten = await backendListen<TauriLogMsg>(eventChannel, (msg) => {
-          if (cancelled || finishedRef.current) return;
-
-          try {
-            // Handle JsonPatch
-            if (typeof msg === 'object' && msg !== null && 'JsonPatch' in msg) {
-              const patches: Operation[] = msg.JsonPatch;
-              const filtered = deduplicatePatches
-                ? deduplicatePatches(patches)
-                : patches;
-
-              if (!isInitializedRef.current) {
-                isInitializedRef.current = true;
-                setIsInitialized(true);
-              }
-
-              const current = dataRef.current;
-              if (!filtered.length || !current) return;
-
-              const next = structuredClone(current);
-              applyUpsertPatch(next, filtered);
-
-              dataRef.current = next;
-              setData(next);
-              return;
-            }
-
-            // Handle Ready
-            if (msg === 'Ready') {
-              if (!isInitializedRef.current) {
-                isInitializedRef.current = true;
-                setIsInitialized(true);
-              }
-              return;
-            }
-
-            // Handle Finished
-            if (msg === 'Finished') {
-              finishedRef.current = true;
-              if (!isInitializedRef.current) {
-                isInitializedRef.current = true;
-                setIsInitialized(true);
-              }
-              setIsConnected(false);
-              return;
-            }
-          } catch (err) {
-            console.error('Failed to process Tauri event message:', err);
-            setError('Failed to process stream update');
+        if (typeof msg === 'object' && msg !== null && 'JsonPatch' in msg) {
+          const patches: Operation[] = msg.JsonPatch;
+          const filtered = deduplicatePatches
+            ? deduplicatePatches(patches)
+            : patches;
+          if (!isInitializedRef.current) {
+            isInitializedRef.current = true;
+            setIsInitialized(true);
           }
-        });
-
-        if (cancelled) {
-          unlisten?.();
+          const current = dataRef.current;
+          if (!filtered.length || !current) return;
+          const next = structuredClone(current);
+          applyUpsertPatch(next, filtered);
+          dataRef.current = next;
+          setData(next);
           return;
         }
+        if (msg === 'Ready') {
+          if (!isInitializedRef.current) {
+            isInitializedRef.current = true;
+            setIsInitialized(true);
+          }
+          return;
+        }
+        if (msg === 'Finished') {
+          finishedRef.current = true;
+          if (!isInitializedRef.current) {
+            isInitializedRef.current = true;
+            setIsInitialized(true);
+          }
+          setIsConnected(false);
+        }
+      } catch (err) {
+        console.error('Failed to process patch stream message:', err);
+        setError('Failed to process stream update');
+      }
+    };
 
-        // 2. Invoke the subscribe command to start the backend stream.
-        const args = argsKey
-          ? (JSON.parse(argsKey) as Record<string, unknown>)
-          : undefined;
-
-        await backendCall(subscribeCommand, args);
-
+    const setup = async () => {
+      const transport = getBackendTransport();
+      const stream = STREAM_BY_COMMAND[subscribeCommand];
+      if (!stream || !transport.subscribe) {
+        setError(`patch stream ${subscribeCommand} is not available`);
+        return;
+      }
+      const args = (argsKey ? JSON.parse(argsKey) : {}) as JsonValue;
+      try {
+        const subscription = transport.subscribe({
+          subscription_id: globalThis.crypto.randomUUID(),
+          resource: 'patch_stream',
+          stream,
+          args,
+        });
         if (!cancelled) {
           setIsConnected(true);
           setError(null);
         }
+        for await (const event of subscription) {
+          if (cancelled) return;
+          applyMessage((event as RemoteEvent).payload);
+        }
       } catch (err) {
         if (!cancelled) {
-          console.error(`Failed to subscribe to ${subscribeCommand}:`, err);
+          console.error(`Failed to subscribe to ${eventChannel}:`, err);
           setError(err instanceof Error ? err.message : 'Failed to connect');
         }
       }
     };
 
-    setup();
+    void setup();
 
     return () => {
       cancelled = true;
-      unlisten?.();
       dataRef.current = undefined;
       finishedRef.current = false;
       isInitializedRef.current = false;
@@ -215,3 +194,6 @@ export const useTauriPatchStream = <T extends object>(
 
   return { data, isConnected, isInitialized, error };
 };
+
+/** @deprecated Host Event Bus + patch_stream subscription; same hook. */
+export const useTauriPatchStream = usePatchStream;

@@ -7,7 +7,13 @@
 //! Cursor through the official DashboardService period-usage API. None of the
 //! probes touch live agent connections or conversations.
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{
+    collections::HashMap,
+    env,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -30,10 +36,16 @@ const CLAUDE_OAUTH_BETA_HEADER: &str = "oauth-2025-04-20";
 const CLAUDE_USAGE_USER_AGENT: &str = "claude-code/2.1.2";
 const CLAUDE_USAGE_TIMEOUT_SECS: u64 = 15;
 const GROK_SETTINGS_URL: &str = "https://cli-chat-proxy.grok.com/v1/settings";
-const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing";
+/// `format=credits` is the shape the Grok CLI itself reads. The unparameterized
+/// response only describes pay-as-you-go monthly billing, so subscription
+/// accounts get `monthlyLimit: 0` and no usable window.
+const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const GROK_USAGE_USER_AGENT: &str = "grok-cli";
 const GROK_USAGE_TIMEOUT_SECS: u64 = 15;
 const GROK_OIDC_DISCOVERY_URL: &str = "https://auth.x.ai/.well-known/openid-configuration";
+/// Nginx routes the CLI proxy to OAuth only when this header is present.
+const GROK_TOKEN_AUTH_HEADER: &str = "xai-grok-cli";
+const GROK_CLIENT_VERSION: &str = "1.0.13";
 const CURSOR_PERIOD_USAGE_URL: &str =
     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage";
 const CURSOR_PLAN_INFO_URL: &str =
@@ -47,8 +59,8 @@ const CURSOR_USAGE_TIMEOUT_SECS: u64 = 15;
 pub struct PlanUsageWindow {
     /// Stable window identifier the frontend maps to a localized label.
     /// Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
-    /// `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `monthly`.
-    /// Cursor: `cursor_models` / `other_models`.
+    /// `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
+    /// `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
     pub id: String,
     pub used_percent: Option<f64>,
     #[ts(type = "number | null")]
@@ -106,14 +118,32 @@ impl PlanUsageResult {
     }
 }
 
+fn plan_usage_cache() -> &'static Mutex<HashMap<AgentId, AgentPlanUsage>> {
+    static CACHE: OnceLock<Mutex<HashMap<AgentId, AgentPlanUsage>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn cached_plan_usage(agent_id: &AgentId) -> Option<AgentPlanUsage> {
+    plan_usage_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(agent_id).cloned())
+}
+
 pub async fn probe_plan_usage(agent_id: &AgentId) -> PlanUsageResult {
-    match agent_id.as_str() {
+    let result = match agent_id.as_str() {
         "claude_code" => probe_claude_plan_usage().await,
         "codex" => probe_codex_plan_usage().await,
         "grok" => probe_grok_plan_usage().await,
         "cursor" => probe_cursor_plan_usage().await,
         _ => PlanUsageResult::unavailable(PlanUsageUnavailableReason::UnsupportedAgent),
+    };
+    if let PlanUsageResult::Ok { usage } = &result
+        && let Ok(mut cache) = plan_usage_cache().lock()
+    {
+        cache.insert(agent_id.clone(), usage.clone());
     }
+    result
 }
 
 // ── Codex: one-shot `codex app-server` JSON-RPC probe ──────────────────────
@@ -619,6 +649,8 @@ struct GrokSessionCredentials {
     refresh_token: Option<String>,
     client_id: Option<String>,
     expires_at_ms: Option<i64>,
+    user_id: Option<String>,
+    email: Option<String>,
 }
 
 fn grok_home_dir() -> Option<PathBuf> {
@@ -675,6 +707,16 @@ fn parse_grok_session_credentials(raw: &str) -> Option<GrokSessionCredentials> {
                         .and_then(|payload| payload.get("exp").and_then(json_i64))
                         .map(|seconds| seconds.saturating_mul(1000))
                 }),
+            user_id: entry
+                .get("user_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string),
+            email: entry
+                .get("email")
+                .and_then(Value::as_str)
+                .filter(|email| !email.is_empty())
+                .map(str::to_string),
         };
         if entry.get("auth_mode").and_then(Value::as_str) == Some("oidc")
             || access_token.starts_with("eyJ")
@@ -792,7 +834,9 @@ async fn refresh_grok_access_token(
     Ok((access_token.to_string(), expires_at_ms))
 }
 
-async fn load_grok_access_token(client: &reqwest::Client) -> Result<String, PlanUsageResult> {
+async fn load_grok_session(
+    client: &reqwest::Client,
+) -> Result<GrokSessionCredentials, PlanUsageResult> {
     let Some(path) = grok_auth_path() else {
         return Err(PlanUsageResult::unavailable(
             PlanUsageUnavailableReason::NotLoggedIn,
@@ -803,7 +847,7 @@ async fn load_grok_access_token(client: &reqwest::Client) -> Result<String, Plan
             PlanUsageUnavailableReason::NotLoggedIn,
         ));
     };
-    let Some(credentials) = parse_grok_session_credentials(&raw) else {
+    let Some(mut credentials) = parse_grok_session_credentials(&raw) else {
         return Err(PlanUsageResult::unavailable(
             PlanUsageUnavailableReason::NotLoggedIn,
         ));
@@ -811,7 +855,7 @@ async fn load_grok_access_token(client: &reqwest::Client) -> Result<String, Plan
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     if !is_token_expired(credentials.expires_at_ms, now_ms) {
-        return Ok(credentials.access_token);
+        return Ok(credentials);
     }
 
     let (Some(refresh_token), Some(client_id)) = (
@@ -825,22 +869,33 @@ async fn load_grok_access_token(client: &reqwest::Client) -> Result<String, Plan
     let (access_token, expires_at_ms) =
         refresh_grok_access_token(client, refresh_token, client_id).await?;
     persist_grok_access_token(&access_token, expires_at_ms).await;
-    Ok(access_token)
+    credentials.access_token = access_token;
+    credentials.expires_at_ms = expires_at_ms;
+    Ok(credentials)
 }
 
 async fn grok_authorized_json(
     client: &reqwest::Client,
     url: &str,
-    access_token: &str,
+    credentials: &GrokSessionCredentials,
 ) -> Result<Value, PlanUsageResult> {
-    let response = match client
+    let mut request = client
         .get(url)
-        .header("Authorization", format!("Bearer {access_token}"))
+        .header(
+            "Authorization",
+            format!("Bearer {}", credentials.access_token),
+        )
         .header("User-Agent", GROK_USAGE_USER_AGENT)
         .header("Accept", "application/json")
-        .send()
-        .await
-    {
+        .header("X-XAI-Token-Auth", GROK_TOKEN_AUTH_HEADER)
+        .header("x-grok-client-version", GROK_CLIENT_VERSION);
+    if let Some(user_id) = credentials.user_id.as_deref() {
+        request = request.header("x-userid", user_id);
+    }
+    if let Some(email) = credentials.email.as_deref() {
+        request = request.header("x-email", email);
+    }
+    let response = match request.send().await {
         Ok(response) => response,
         Err(error) => return Err(PlanUsageResult::error(error.to_string())),
     };
@@ -853,45 +908,161 @@ async fn grok_authorized_json(
         .map_err(|error| PlanUsageResult::error(error.to_string()))
 }
 
-fn map_grok_plan_usage(settings: &Value, billing: &Value) -> AgentPlanUsage {
-    let plan_type = settings
+fn grok_restricted_tier_name(tier: &str) -> bool {
+    let tier = tier.trim().to_ascii_lowercase();
+    tier.is_empty() || tier == "free" || tier == "x basic" || tier == "x_basic"
+}
+
+fn grok_jwt_tier_display(token: &str) -> Option<String> {
+    let tier = jwt_payload(token)?.get("tier").and_then(json_i64)?;
+    Some(
+        match tier {
+            0 => "Free",
+            1 => "SuperGrok",
+            2 => "X Basic",
+            3 => "X Premium",
+            4 => "X Premium+",
+            5 => "SuperGrok Heavy",
+            6 => "SuperGrok Lite",
+            7 => "SuperGrok Plus",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+fn grok_settings_plan_type(settings: &Value) -> Option<String> {
+    settings
         .get("subscription_tier_display")
         .and_then(Value::as_str)
+        .or_else(|| settings.get("subscription_tier").and_then(Value::as_str))
+        .map(str::trim)
         .filter(|plan| !plan.is_empty())
-        .map(str::to_string);
+        .map(str::to_string)
+}
 
+fn grok_plan_type(
+    settings: &Value,
+    access_token: Option<&str>,
+    has_coding_window: bool,
+) -> Option<String> {
+    let display = grok_settings_plan_type(settings);
+    if let Some(display) = display
+        && !(has_coding_window && grok_restricted_tier_name(&display))
+    {
+        return Some(display);
+    }
+    access_token
+        .and_then(grok_jwt_tier_display)
+        .filter(|plan| !(has_coding_window && grok_restricted_tier_name(plan)))
+}
+
+fn grok_window_id(period_type: Option<&str>) -> &'static str {
+    match period_type {
+        Some("USAGE_PERIOD_TYPE_WEEKLY") => "weekly",
+        Some("USAGE_PERIOD_TYPE_MONTHLY") => "monthly",
+        _ => "plan_period",
+    }
+}
+
+fn grok_product_usage_percent(config: &Value) -> Option<f64> {
+    let products = config.get("productUsage")?.as_array()?;
+    let grok_build = products.iter().find(|product| {
+        product.get("product").and_then(Value::as_str) == Some("PRODUCT_GROK_BUILD")
+    });
+    grok_build
+        .or_else(|| products.first())
+        .and_then(|product| product.get("usagePercent").and_then(wrapped_number))
+}
+
+fn grok_used_percent(config: &Value) -> Option<f64> {
+    config
+        .get("creditUsagePercent")
+        .and_then(wrapped_number)
+        .or_else(|| grok_product_usage_percent(config))
+        .or_else(|| {
+            let limit = config
+                .get("monthlyLimit")
+                .and_then(wrapped_number)
+                .filter(|limit| *limit > 0.0)?;
+            let used = config.get("used").and_then(wrapped_number).unwrap_or(0.0);
+            Some((used / limit) * 100.0)
+        })
+}
+
+/// Remaining pay-as-you-go allowance: prepaid credits first, then whatever is
+/// left under the on-demand spending cap.
+fn grok_credits(config: &Value) -> Option<PlanCredits> {
+    let amount = config
+        .get("prepaidBalance")
+        .and_then(wrapped_number)
+        .filter(|balance| *balance > 0.0)
+        .or_else(|| {
+            let cap = config
+                .get("onDemandCap")
+                .and_then(wrapped_number)
+                .filter(|cap| *cap > 0.0)?;
+            let used = config
+                .get("onDemandUsed")
+                .and_then(wrapped_number)
+                .unwrap_or(0.0);
+            Some((cap - used).max(0.0))
+        })?;
+    Some(PlanCredits {
+        balance: Some(format!("{amount:.2}")),
+        unlimited: false,
+    })
+}
+
+#[cfg(test)]
+fn map_grok_plan_usage(settings: &Value, billing: &Value) -> AgentPlanUsage {
+    map_grok_plan_usage_for(settings, billing, None)
+}
+
+fn map_grok_plan_usage_for(
+    settings: &Value,
+    billing: &Value,
+    access_token: Option<&str>,
+) -> AgentPlanUsage {
     let config = billing.get("config").unwrap_or(billing);
-    let used = config.get("used").and_then(wrapped_number);
-    let limit = config.get("monthlyLimit").and_then(wrapped_number);
-    let period_start = config.get("billingPeriodStart").and_then(parse_rfc3339_ms);
-    let period_end = config.get("billingPeriodEnd").and_then(parse_rfc3339_ms);
+    let period = config.get("currentPeriod");
+    let period_bound = |period_key: &str, config_key: &str| {
+        period
+            .and_then(|period| period.get(period_key))
+            .and_then(parse_rfc3339_ms)
+            .or_else(|| config.get(config_key).and_then(parse_rfc3339_ms))
+    };
+    let period_start = period_bound("start", "billingPeriodStart");
+    let period_end = period_bound("end", "billingPeriodEnd");
     let window_minutes = match (period_start, period_end) {
         (Some(start), Some(end)) if end > start => Some((end - start) / 60_000),
         _ => None,
     };
 
-    let mut windows = Vec::new();
-    if let Some(limit) = limit
-        && limit > 0.0
-    {
-        windows.push(PlanUsageWindow {
-            id: "monthly".to_string(),
-            used_percent: used.map(|used| (used / limit) * 100.0),
+    // proto3 omits a 0.0 `creditUsagePercent` after a period reset. The weekly
+    // window is still present on `currentPeriod`; keep it and leave the percent
+    // missing instead of dropping the only quota the account returned.
+    let used_percent = grok_used_percent(config);
+    let windows = if used_percent.is_some() || period.is_some() {
+        vec![PlanUsageWindow {
+            id: grok_window_id(
+                period
+                    .and_then(|period| period.get("type"))
+                    .and_then(Value::as_str),
+            )
+            .to_string(),
+            used_percent,
             window_minutes,
             resets_at_ms: period_end,
-        });
-    }
-
-    let on_demand = config.get("onDemandCap").and_then(wrapped_number);
-    let credits = on_demand.filter(|cap| *cap > 0.0).map(|cap| PlanCredits {
-        balance: Some(cap.to_string()),
-        unlimited: false,
-    });
+        }]
+    } else {
+        Vec::new()
+    };
 
     AgentPlanUsage {
-        plan_type,
+        plan_type: grok_plan_type(settings, access_token, !windows.is_empty()),
         windows,
-        credits,
+        credits: grok_credits(config),
     }
 }
 
@@ -900,22 +1071,22 @@ async fn probe_grok_plan_usage() -> PlanUsageResult {
         Ok(client) => client,
         Err(result) => return result,
     };
-    let access_token = match load_grok_access_token(&client).await {
-        Ok(token) => token,
+    let credentials = match load_grok_session(&client).await {
+        Ok(credentials) => credentials,
         Err(result) => return result,
     };
 
-    let settings = match grok_authorized_json(&client, GROK_SETTINGS_URL, &access_token).await {
+    let settings = match grok_authorized_json(&client, GROK_SETTINGS_URL, &credentials).await {
         Ok(value) => value,
         Err(result) => return result,
     };
-    let billing = match grok_authorized_json(&client, GROK_BILLING_URL, &access_token).await {
+    let billing = match grok_authorized_json(&client, GROK_BILLING_URL, &credentials).await {
         Ok(value) => value,
         Err(result) => return result,
     };
 
     PlanUsageResult::Ok {
-        usage: map_grok_plan_usage(&settings, &billing),
+        usage: map_grok_plan_usage_for(&settings, &billing, Some(&credentials.access_token)),
     }
 }
 
@@ -1199,6 +1370,8 @@ mod tests {
                 "auth_mode": "oidc",
                 "refresh_token": "refresh-1",
                 "oidc_client_id": "client",
+                "user_id": "user-1",
+                "email": "user@example.com",
                 "expires_at": "2026-08-18T08:25:06.366514Z"
             }
         }"#;
@@ -1206,6 +1379,8 @@ mod tests {
         assert!(credentials.access_token.starts_with("eyJ"));
         assert_eq!(credentials.refresh_token.as_deref(), Some("refresh-1"));
         assert_eq!(credentials.client_id.as_deref(), Some("client"));
+        assert_eq!(credentials.user_id.as_deref(), Some("user-1"));
+        assert_eq!(credentials.email.as_deref(), Some("user@example.com"));
         assert!(credentials.expires_at_ms.is_some());
     }
 
@@ -1217,33 +1392,46 @@ mod tests {
     }
 
     #[test]
-    fn grok_usage_maps_plan_and_skips_zero_limit() {
+    fn grok_usage_maps_weekly_subscription_period() {
         let settings = json!({ "subscription_tier_display": "SuperGrok Heavy" });
         let billing = json!({
             "config": {
-                "monthlyLimit": { "val": 0 },
-                "used": { "val": 0 },
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-08-28T13:59:50.639993+00:00",
+                    "end": "2026-09-04T13:59:50.639993+00:00"
+                },
+                "creditUsagePercent": 100.0,
                 "onDemandCap": { "val": 0 },
-                "billingPeriodStart": "2026-08-01T00:00:00+00:00",
-                "billingPeriodEnd": "2026-09-01T00:00:00+00:00"
+                "onDemandUsed": { "val": 0 },
+                "prepaidBalance": { "val": 0 },
+                "billingPeriodStart": "2026-08-28T13:59:50.639993+00:00",
+                "billingPeriodEnd": "2026-09-04T13:59:50.639993+00:00"
             }
         });
         let usage = map_grok_plan_usage(&settings, &billing);
         assert_eq!(usage.plan_type.as_deref(), Some("SuperGrok Heavy"));
-        assert!(usage.windows.is_empty());
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "weekly");
+        assert_eq!(usage.windows[0].used_percent, Some(100.0));
+        assert_eq!(usage.windows[0].window_minutes, Some(10_080));
+        assert!(usage.windows[0].resets_at_ms.is_some());
         assert!(usage.credits.is_none());
     }
 
     #[test]
-    fn grok_usage_maps_monthly_window_from_wrapped_amounts() {
+    fn grok_usage_maps_monthly_period_and_on_demand_remainder() {
         let settings = json!({ "subscription_tier_display": "SuperGrok" });
         let billing = json!({
             "config": {
-                "monthlyLimit": { "val": 200 },
-                "used": { "val": 50 },
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_MONTHLY",
+                    "start": "2026-08-01T00:00:00Z",
+                    "end": "2026-09-01T00:00:00Z"
+                },
+                "creditUsagePercent": 25.0,
                 "onDemandCap": { "val": 25 },
-                "billingPeriodStart": "2026-08-01T00:00:00Z",
-                "billingPeriodEnd": "2026-09-01T00:00:00Z"
+                "onDemandUsed": { "val": 10 }
             }
         });
         let usage = map_grok_plan_usage(&settings, &billing);
@@ -1251,8 +1439,125 @@ mod tests {
         assert_eq!(usage.windows[0].id, "monthly");
         assert_eq!(usage.windows[0].used_percent, Some(25.0));
         assert_eq!(usage.windows[0].window_minutes, Some(44_640));
+        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("15.00"));
+    }
+
+    #[test]
+    fn grok_usage_prefers_prepaid_balance_and_falls_back_to_duration_label() {
+        let settings = json!({});
+        let billing = json!({
+            "config": {
+                "creditUsagePercent": 12.5,
+                "prepaidBalance": { "val": 40 },
+                "onDemandCap": { "val": 25 },
+                "onDemandUsed": { "val": 10 }
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert!(usage.plan_type.is_none());
+        assert_eq!(usage.windows[0].id, "plan_period");
+        assert_eq!(usage.windows[0].window_minutes, None);
+        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("40.00"));
+    }
+
+    #[test]
+    fn grok_usage_keeps_weekly_window_when_credits_percent_is_omitted() {
+        let settings = json!({ "subscription_tier_display": "SuperGrok Heavy" });
+        let billing = json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-09-04T13:59:50.639993+00:00",
+                    "end": "2026-09-11T13:59:50.639993+00:00"
+                },
+                "onDemandCap": { "val": 0 },
+                "onDemandUsed": { "val": 0 },
+                "isUnifiedBillingUser": true,
+                "prepaidBalance": { "val": 0 },
+                "billingPeriodStart": "2026-09-04T13:59:50.639993+00:00",
+                "billingPeriodEnd": "2026-09-11T13:59:50.639993+00:00"
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "weekly");
+        assert_eq!(usage.windows[0].used_percent, None);
+        assert_eq!(usage.windows[0].window_minutes, Some(10_080));
         assert!(usage.windows[0].resets_at_ms.is_some());
-        assert_eq!(usage.credits.unwrap().balance.as_deref(), Some("25"));
+    }
+
+    #[test]
+    fn grok_usage_reads_product_percent_when_overall_percent_is_absent() {
+        let settings = json!({ "subscription_tier_display": "SuperGrok" });
+        let billing = json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-06-01T00:00:00Z",
+                    "end": "2026-06-08T00:00:00Z"
+                },
+                "productUsage": [
+                    { "product": "PRODUCT_GROK", "usagePercent": 10.0 },
+                    { "product": "PRODUCT_GROK_BUILD", "usagePercent": 61.2 }
+                ]
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "weekly");
+        assert_eq!(usage.windows[0].used_percent, Some(61.2));
+    }
+
+    #[test]
+    fn grok_usage_ignores_chat_free_tier_when_coding_window_exists() {
+        let settings = json!({ "subscription_tier_display": "Free" });
+        let billing = json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-09-04T13:59:50.639993+00:00",
+                    "end": "2026-09-11T13:59:50.639993+00:00"
+                }
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert!(usage.plan_type.is_none());
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "weekly");
+    }
+
+    #[test]
+    fn grok_usage_reads_heavy_from_jwt_when_settings_report_free() {
+        let settings = json!({ "subscription_tier_display": "Free" });
+        let billing = json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-09-04T13:59:50.639993+00:00",
+                    "end": "2026-09-11T13:59:50.639993+00:00"
+                }
+            }
+        });
+        let token = "eyJhbGciOiJub25lIn0.eyJleHAiOjE3ODcwNDE1MDYsInRpZXIiOjV9.sig";
+        let usage = map_grok_plan_usage_for(&settings, &billing, Some(token));
+        assert_eq!(usage.plan_type.as_deref(), Some("SuperGrok Heavy"));
+        assert_eq!(usage.windows[0].id, "weekly");
+    }
+
+    #[test]
+    fn grok_usage_skips_payg_month_without_a_usable_limit() {
+        let settings = json!({ "subscription_tier_display": "SuperGrok Heavy" });
+        let billing = json!({
+            "config": {
+                "monthlyLimit": { "val": 0 },
+                "used": { "val": 157 },
+                "onDemandCap": { "val": 0 },
+                "billingPeriodStart": "2026-09-01T00:00:00+00:00",
+                "billingPeriodEnd": "2026-10-01T00:00:00+00:00"
+            }
+        });
+        let usage = map_grok_plan_usage(&settings, &billing);
+        assert!(usage.windows.is_empty());
     }
 
     #[test]

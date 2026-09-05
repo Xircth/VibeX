@@ -74,24 +74,19 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     assert_eq!(
         plugin["actions"],
         serde_json::json!([]),
-        "freshly imported plugins stay disabled until the user enables them"
+        "official plugins stay out of the catalog until the user installs them"
     );
 
-    // Bootstrap materializes the bundled official plugins but deliberately
-    // leaves the control catalog empty until one is installed -- see
-    // plugins/tests/official_host_catalog.rs, which pins that contract.
-    let empty_catalog = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
-    assert_eq!(
-        empty_catalog["plugins"],
-        serde_json::json!([]),
-        "bundled plugins stay out of the catalog until installed"
-    );
-    call(
+    let installed = call(
         app.clone(),
         "plugin_marketplace_install",
-        serde_json::json!({ "owner": "vibex", "pluginName": "office" }),
+        serde_json::json!({
+            "owner": "vibex",
+            "pluginName": "office",
+        }),
     )
     .await;
+    assert_eq!(installed["id"], "vibex.office");
 
     let product_plugins = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
     assert_eq!(
@@ -121,13 +116,25 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         serde_json::json!({ "pluginId": "vibex.office" }),
     )
     .await;
-    // The nine indexed contents (3 Skills + 6 workflows) plus the file opener
-    // contributed by the app surface.
-    assert_eq!(detail["contents"].as_array().expect("contents").len(), 10);
+    let contents = detail["contents"].as_array().expect("contents");
+    assert_eq!(
+        contents
+            .iter()
+            .filter(|item| item["kind"] == "skill")
+            .count(),
+        10,
+        "Office skills come from the locked officecli load_skill set"
+    );
+    assert!(
+        contents
+            .iter()
+            .any(|item| item["kind"] == "file_opener" && item["title"] == "Office Preview")
+    );
     assert!(
         detail["readme"]
             .as_str()
             .expect("README")
+            .trim_start()
             .starts_with("# VibeX Office")
     );
     assert_eq!(detail["config"]["idleTimeoutMinutes"], 10);

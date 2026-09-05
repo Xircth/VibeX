@@ -1,12 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
-
 use agents::{
     AgentEvent,
     conversation::{ConversationEvent, ConversationRowOpBatch, ConversationSessionModes},
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use conversations::{
-    ConversationAgentEventRecorder, IncrementalRowProjector, RecordedConversationBatch,
+    CachedRowProjector, ConversationAgentEventRecorder, IncrementalRowProjector,
+    RecordedConversationBatch, evict_least_recently_used_projectors,
 };
 use db::models::{
     conversation::ConversationRecord, conversation_event::ConversationEventRecord,
@@ -16,10 +15,7 @@ use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
-use tokio::{
-    sync::Mutex,
-    time::{self, Duration, MissedTickBehavior},
-};
+use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -32,9 +28,7 @@ pub mod channels {
     pub const DESKTOP_SESSION_ATTENTION: &str = "desktop-session-attention";
 }
 
-/// Per-conversation cache of live incremental projectors (消灭双投影). Held on
-/// `AppState`; fed only through [`emit_conversation_row_ops_after`].
-pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>;
+pub use conversations::ConversationRowProjectors;
 
 /// Publish committed events as frontend row operations in durable sequence order.
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
@@ -46,21 +40,24 @@ pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProje
 /// subscribe-time row backfill (`rows_since`) and by a full reload (`conversation_detail`),
 /// both of which reproject from the same fold.
 pub async fn emit_conversation_row_ops_after(
-    app: &AppHandle,
+    _app: &AppHandle,
     projectors: &ConversationRowProjectors,
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // Read the cursor and the durable tail without holding the map across SQLite.
-    // Apply still runs under the lock so two notifiers cannot fold out of order;
-    // a later load that wins the insert already includes earlier sequences.
-    let publish_after = {
-        let map = projectors.lock().await;
-        map.get(&conversation_id)
-            .map(IncrementalRowProjector::last_sequence)
-            .unwrap_or(after_sequence)
-    };
+    // Cursor read, tail read, projector load and fold all happen inside one critical
+    // section. Splitting them let two publishers disagree on the cursor: the one that
+    // won the map insert loaded its projector *at* the other's first unpublished
+    // sequence, silently folding that event into the baseline, and the other then
+    // skipped it as already applied. The ops for that sequence were never emitted —
+    // and at a turn boundary the lost op is the terminal one, so the composer kept
+    // showing a stop button until the user reloaded.
+    let mut map = projectors.lock().await;
+    let publish_after = map
+        .get(&conversation_id)
+        .map(|entry| entry.projector.last_sequence())
+        .unwrap_or(after_sequence);
     let new_records =
         match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
             .await
@@ -80,20 +77,11 @@ pub async fn emit_conversation_row_ops_after(
         .unwrap_or(publish_after);
 
     // Session control state (modes / config options) is not a timeline row, so carry
-    // the latest of each in the batch rather than on a separate channel. Also detect
-    // whether the batch settles a turn — the projector is a pure cache and can be
-    // dropped once its turn is terminal.
+    // the latest of each in the batch rather than on a separate channel.
     let mut session_modes = None;
     let mut session_config_options = None;
     let mut available_commands = None;
-    let mut settled = false;
     for record in &new_records {
-        if matches!(
-            record.event_kind.as_str(),
-            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
-        ) {
-            settled = true;
-        }
         if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
             match event {
                 ConversationEvent::SessionModeUpdated { current, modes } => {
@@ -114,46 +102,26 @@ pub async fn emit_conversation_row_ops_after(
         .iter()
         .any(|record| record.event_kind == "conversation_input");
 
-    let loaded = {
-        let map = projectors.lock().await;
-        if map.contains_key(&conversation_id) {
-            None
-        } else {
-            drop(map);
-            match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-                Ok(projector) => Some(projector),
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                    return;
-                }
+    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
+            Ok(projector) => {
+                entry.insert(CachedRowProjector::new(projector));
+            }
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                return;
             }
         }
-    };
-
-    let mut map = projectors.lock().await;
-    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
-        let projector = match loaded {
-            Some(projector) => projector,
-            None => {
-                match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-                    Ok(projector) => projector,
-                    Err(error) => {
-                        tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                        return;
-                    }
-                }
-            }
-        };
-        entry.insert(projector);
     }
     let mut ops = Vec::new();
     {
-        let projector = map.get_mut(&conversation_id).expect("projector present");
+        let entry = map.get_mut(&conversation_id).expect("projector present");
+        entry.touch();
         for record in &new_records {
-            if record.sequence <= projector.last_sequence() {
+            if record.sequence <= entry.projector.last_sequence() {
                 continue;
             }
-            match projector.apply(record) {
+            match entry.projector.apply(record) {
                 Ok(record_ops) => ops.extend(record_ops),
                 Err(error) => {
                     tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
@@ -176,25 +144,21 @@ pub async fn emit_conversation_row_ops_after(
             session_config_options,
             available_commands,
         };
-        if let Err(error) = app.emit(
-            &format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
+        let bus = server::global_host_events();
+        bus.emit(
+            format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
             &batch,
-        ) {
-            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
-        }
-        if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
-            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
-        }
+        );
+        bus.emit(channels::CONVERSATION_EVENTS, &batch);
     }
 
-    // A settled turn's projector holds the whole folded timeline but is a pure cache —
-    // drop it to bound memory. The next committed event reloads it from that event's
-    // predecessor sequence. Without this, one projector leaked per conversation ever
-    // streamed (the map is only otherwise cleared by `close_conversation`, which the UI
-    // never calls). Done under the lock, after emit.
-    if settled {
-        map.remove(&conversation_id);
-    }
+    // The projector is a pure cache of the folded timeline, so it must stay bounded —
+    // otherwise one leaks per conversation ever streamed (the map is only otherwise
+    // cleared by `close_conversation`, which the UI never calls). Evict by least
+    // recent use rather than on turn settle: settle is the busiest moment on this
+    // path, and dropping the projector there guaranteed a cold reload right when
+    // several publishers were racing, plus a full replay of the turn's events.
+    evict_least_recently_used_projectors(&mut map, conversation_id);
     drop(map);
 
     let workbench_changed = new_records.iter().any(|record| {
@@ -213,7 +177,7 @@ pub async fn emit_conversation_row_ops_after(
     });
     if workbench_changed && let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await
     {
-        let _ = app.emit(
+        server::global_host_events().emit(
             "workspace-sessions-changed",
             WorkspaceSessionsChangedPayload {
                 workspace_id: session.workspace_id,
@@ -263,6 +227,29 @@ pub enum AgentTerminalUiEvent {
         session_id: Uuid,
         workspace_id: Option<Uuid>,
     },
+}
+
+/// Forward Host Event Bus channels onto Tauri so desktop `listen` matches
+/// the single Host push surface (ADR-0078).
+pub fn start_host_event_forwarding(app: &AppHandle) {
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut rx = server::global_host_events().subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if !server::HostEventBus::channel_allowed(&event.channel) {
+                        continue;
+                    }
+                    if app_handle.emit(&event.channel, event.payload).is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// Start forwarding global events from EventService to Tauri Events.
@@ -332,9 +319,9 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                 }
                             }
                             if should_emit_agent_event(&event.event)
-                                && app_handle.emit(channels::AGENT_EVENTS, &event).is_err()
                             {
-                                break;
+                                server::global_host_events()
+                                    .emit(channels::AGENT_EVENTS, &event);
                             }
                         }
                         None => {
@@ -496,7 +483,7 @@ fn diagnostic_attention(
 
 async fn emit_desktop_session_attention(
     pool: &SqlitePool,
-    app_handle: &AppHandle,
+    _app_handle: &AppHandle,
     conversation_id: Uuid,
     turn_id: Option<Uuid>,
     kind: DesktopAttentionKind,
@@ -518,7 +505,7 @@ async fn emit_desktop_session_attention(
         title,
         message,
     };
-    app_handle.emit(channels::DESKTOP_SESSION_ATTENTION, &payload)?;
+    server::global_host_events().emit(channels::DESKTOP_SESSION_ATTENTION, &payload);
     Ok(())
 }
 
@@ -550,8 +537,7 @@ fn terminal_title(source: AgentTerminalSource, command: &str) -> String {
     }
 }
 
-pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
-    let acp_app_handle = app.clone();
+pub fn start_agent_terminal_forwarding(_app: &AppHandle, state: &AppState) {
     let acp_pool = state.deployment.db().pool.clone();
     let mut acp_lifecycle_rx = agent_terminal_registry().subscribe_lifecycle();
 
@@ -614,12 +600,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
                     };
 
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
                     let workspace_id = workspace_by_session.get(&terminal_id.0).copied().flatten();
@@ -628,12 +609,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
                     let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
@@ -642,12 +618,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         session_id: terminal_id.0,
                         workspace_id,
                     };
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
+                    server::global_host_events().emit(channels::AGENT_TERMINAL_EVENTS, &payload);
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -733,11 +704,7 @@ mod tests {
         assert_eq!(title.as_deref(), Some("Edit file"));
 
         let failed = ConversationEvent::TurnFailed {
-            error: agents::conversation::ConversationError {
-                message: "boom".into(),
-                code: None,
-                raw: None,
-            },
+            error: agents::conversation::ConversationError::new("boom", None, None),
         };
         assert_eq!(
             super::attention_from_event(&failed).map(|(kind, _, _)| kind),

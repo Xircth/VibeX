@@ -17,6 +17,7 @@ import {
   FileDiff,
   FolderTree,
   GitBranch,
+  GitMerge,
   Globe2,
   House,
   Image as ImageIcon,
@@ -33,6 +34,7 @@ import FileIcon from '@/components/FileIcon';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
 
 type DockviewPanelModule = {
   default: ComponentType<IDockviewPanelProps>;
@@ -161,6 +163,9 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
   [PANEL_IDS.GIT]: lazyPanel(
     () => import('@/components/panels/DockviewGitPanel')
   ),
+  [PANEL_IDS.MERGE]: lazyPanel(
+    () => import('@/components/panels/DockviewMergePanel')
+  ),
   [PANEL_IDS.WELCOME]: lazyPanel(
     () => import('@/components/panels/DockviewWelcomePanel')
   ),
@@ -207,6 +212,7 @@ const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
   [PANEL_IDS.DIFFS]: [FileDiff, 'diff'],
   [PANEL_IDS.FILE_TREE]: [FolderTree, 'file-tree'],
   [PANEL_IDS.GIT]: [GitBranch, 'git'],
+  [PANEL_IDS.MERGE]: [GitMerge, 'merge'],
   [PANEL_IDS.KANBAN]: [Columns3, 'kanban'],
   [PANEL_IDS.LOGS]: [ScrollText, 'logs'],
   [PANEL_IDS.NOTES]: [NotebookPen, 'note'],
@@ -342,6 +348,12 @@ export function WorkspaceDockviewTab({
   const onClose = React.useCallback(
     (event: React.PointerEvent | React.MouseEvent) => {
       event.preventDefault();
+      if (
+        api.component === PANEL_IDS.MERGE &&
+        !confirmDiscardMergePanel(api.id)
+      ) {
+        return;
+      }
       if (closeActionOverride) {
         closeActionOverride();
       } else {
@@ -377,7 +389,7 @@ export function WorkspaceDockviewTab({
       <span className="dv-default-tab-content">{title}</span>
       {!hideClose && (
         <div
-          className="dv-default-tab-action"
+          className="dv-default-tab-action rounded-full"
           onPointerDown={(event) => event.preventDefault()}
           onClick={onClose}
           aria-label={`Close ${title}`}
@@ -416,6 +428,7 @@ export function usePanelMeta(): PanelMeta[] {
       defaultPosition: 'center',
     },
     { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
+    { id: PANEL_IDS.MERGE, title: 'Merge', defaultPosition: 'center' },
     { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },
     {
       id: PANEL_IDS.GIT,

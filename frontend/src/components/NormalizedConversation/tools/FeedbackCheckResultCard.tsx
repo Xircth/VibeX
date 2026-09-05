@@ -14,46 +14,51 @@ function isFeedbackToolName(toolName: string): boolean {
   );
 }
 
-/** Reads the plain `summary` some feedback tools return instead of a list. */
-function summaryEntries(
-  record: Record<string, unknown> | null
-): Array<{ text: string; createdAt?: string | null }> {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function summaryText(record: Record<string, unknown> | null): string | null {
   const summary = record?.summary;
-  return typeof summary === 'string' && summary.trim() ? [{ text: summary }] : [];
+  return typeof summary === 'string' && summary.trim() ? summary.trim() : null;
 }
 
 function feedbackEntries(
   result: unknown
 ): Array<{ text: string; createdAt?: string | null }> {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return [];
-  }
-  const record = result as Record<string, unknown>;
+  const record = asRecord(result);
+  if (!record) return [];
   const envelope =
     Array.isArray(record.feedback) || typeof record.count === 'number'
       ? record
-      : record.structuredContent &&
-          typeof record.structuredContent === 'object' &&
-          !Array.isArray(record.structuredContent)
-        ? (record.structuredContent as Record<string, unknown>)
-        : null;
-  // A feedback tool that reports a bare `summary` still has something worth
-  // showing; without this the whole card renders as null and the completed
-  // tool call disappears from the timeline.
-  if (!envelope) return summaryEntries(record);
-  if (!Array.isArray(envelope.feedback)) return summaryEntries(envelope);
-  return envelope.feedback.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-    const text = (item as { text?: unknown }).text;
-    if (typeof text !== 'string' || !text.trim()) return [];
-    const createdAt =
-      typeof (item as { created_at?: unknown }).created_at === 'string'
-        ? (item as { created_at: string }).created_at
-        : typeof (item as { createdAt?: unknown }).createdAt === 'string'
-          ? (item as { createdAt: string }).createdAt
-          : null;
-    return [{ text, createdAt }];
-  });
+      : asRecord(record.structuredContent);
+  const items = Array.isArray(envelope?.feedback)
+    ? envelope.feedback.flatMap((item) => {
+        const entry = asRecord(item);
+        if (!entry) return [];
+        const text = entry.text;
+        if (typeof text !== 'string' || !text.trim()) return [];
+        const createdAt =
+          typeof entry.created_at === 'string'
+            ? entry.created_at
+            : typeof entry.createdAt === 'string'
+              ? entry.createdAt
+              : null;
+        return [{ text, createdAt }];
+      })
+    : [];
+  if (items.length > 0) return items;
+  const summary = summaryText(envelope) ?? summaryText(record);
+  return summary ? [{ text: summary }] : [];
+}
+
+function checkArgument(argumentsValue: unknown): string | null {
+  const record = asRecord(argumentsValue);
+  const check = record?.check;
+  return typeof check === 'string' && check.trim() ? check.trim() : null;
 }
 
 export function isFeedbackCheckToolEntry(entry: NormalizedEntry): boolean {
@@ -72,23 +77,18 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
     toolEntry?.action_type.action === 'tool' ? toolEntry.action_type : null;
   if (!toolEntry || !action) return null;
 
-  const entries = feedbackEntries(
-    action.result?.type.type === 'json' ? action.result.value : null
-  );
-  if (entries.length === 0) return null;
-  const summary = entries[0].text;
-  const args = action.arguments;
-  const check =
-    args && typeof args === 'object' && !Array.isArray(args) &&
-    typeof (args as { check?: unknown }).check === 'string'
-      ? (args as { check: string }).check
-      : null;
+  const resultValue =
+    action.result?.type.type === 'json' ? action.result.value : null;
+  const entries = feedbackEntries(resultValue);
+  const check = checkArgument(action.arguments);
+  if (entries.length === 0 && !check) return null;
+  const summary = entries[0]?.text ?? check ?? t('feedbackCheck.label');
 
   return (
     <ToolCardShell
       icon={<MessageSquare className="h-3 w-3" />}
       label={t('feedbackCheck.label')}
-      detail={t('feedbackCheck.count', { count: entries.length })}
+      detail={check ?? t('feedbackCheck.count', { count: entries.length })}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
       status={toolEntry.status}
@@ -96,7 +96,6 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
       expandable={false}
     >
       <ToolArtifact title={summary}>
-        {check ? <ToolProse>{check}</ToolProse> : null}
         {entries.map((entry, index) => (
           <ToolProse key={`${entry.text}-${index}`}>{entry.text}</ToolProse>
         ))}

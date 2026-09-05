@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { useTauriTerminal } from './useTauriTerminal';
 
 const originalGetBoundingClientRect =
@@ -199,10 +199,13 @@ describe('useTauriTerminal', () => {
     );
   });
 
-  it('exposes a failed reattach without replacing the PTY session', async () => {
+  it('creates a new PTY when reattach fails after a process restart', async () => {
     backendCall.mockImplementation((command: string) => {
       if (command === 'attach_terminal') {
         return Promise.reject(new Error('PTY session no longer exists'));
+      }
+      if (command === 'create_terminal') {
+        return Promise.resolve('new-session');
       }
       return Promise.resolve(undefined);
     });
@@ -228,19 +231,21 @@ describe('useTauriTerminal', () => {
       }
     );
 
-    const view = render(<TerminalHarness sessionId="existing-session" />);
+    render(<TerminalHarness sessionId="existing-session" />);
 
     await waitFor(() =>
-      expect(view.getByText('PTY session no longer exists')).toBeTruthy()
+      expect(backendCall).toHaveBeenCalledWith('attach_terminal', {
+        sessionId: 'existing-session',
+      })
     );
-    expect(backendCall).toHaveBeenCalledWith('attach_terminal', {
-      sessionId: 'existing-session',
-    });
-    expect(
-      backendCall.mock.calls.filter(
-        ([command]) => command === 'create_terminal'
-      )
-    ).toHaveLength(0);
+    await waitFor(() =>
+      expect(
+        backendCall.mock.calls.filter(
+          ([command]) => command === 'create_terminal'
+        )
+      ).toHaveLength(1)
+    );
+    expect(screen.queryByText(/PTY session no longer exists/)).toBeNull();
   });
 
   it('serializes rapid input while an earlier PTY write is still pending', async () => {

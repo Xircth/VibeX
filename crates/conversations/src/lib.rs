@@ -5,6 +5,8 @@
 //! db→agents reverse dependency is now gone). `crates/db` is a dumb storage layer;
 //! this crate owns the folding of the event log into timeline projections.
 
+pub mod bundle;
+pub mod capability_catalog;
 pub mod commit_reminder;
 pub mod export;
 pub mod host;
@@ -16,8 +18,18 @@ pub mod scoped_control;
 pub mod search;
 pub mod service;
 pub mod session_info;
+pub mod usage_accounting;
 pub mod workbench_status;
 
+pub use bundle::{
+    ConversationBundleError, ConversationExportResult, ConversationForkContinuity,
+    ConversationForkResult, ConversationImportResult, export_conversation_bundle,
+    import_conversation_bundle,
+};
+pub use capability_catalog::{
+    capability_catalog_is_fresh, open_capability_catalog_fingerprint,
+    read_matching_open_capability_catalog, refresh_open_capability_catalog,
+};
 pub use export::{render_html, render_markdown};
 pub use host::{
     DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
@@ -32,8 +44,9 @@ pub use input::{
     UpdateConversationInput,
 };
 pub use projection::{
-    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    ConversationStateApplier, IncrementalRowProjector,
+    CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
+    ConversationProjector, ConversationRowProjectors, ConversationStateApplier,
+    IncrementalRowProjector, evict_least_recently_used_projectors,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,
@@ -61,4 +74,8 @@ pub use service::{
 };
 pub use session_info::{
     SessionInfo, load_compact_transcript, resolve_referenced_session, session_info_value,
+};
+pub use usage_accounting::{
+    assemble_project_usage_statistics, attributed_sessions_from_rows, catch_up_usage_snapshots,
+    sync_vendor_usage_logs,
 };

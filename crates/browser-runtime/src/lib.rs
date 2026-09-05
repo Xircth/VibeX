@@ -380,6 +380,24 @@ impl BrowserRuntime {
         Ok(tab)
     }
 
+    pub fn fail_all_tabs(&self, code: &str, message: &str) -> Result<(), BrowserError> {
+        let tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| BrowserError::StateUnavailable)?
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for tab in tabs {
+            let _ = self.events.send(BrowserEvent::TabFailed {
+                tab,
+                code: code.to_string(),
+                message: message.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     pub fn apply(&self, tab_id: &BrowserTabId, intent: BrowserIntent) -> Result<(), BrowserError> {
         if !self
             .tabs

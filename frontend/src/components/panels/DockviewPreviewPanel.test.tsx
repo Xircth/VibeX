@@ -80,6 +80,31 @@ vi.mock('@/components/NormalizedConversation/FileContentView', () => ({
   default: () => <div data-testid="file-content-view" />,
 }));
 
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@tanstack/react-query')>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  };
+});
+
+vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
+  default: ({
+    value,
+    workspacePath,
+  }: {
+    value?: string;
+    workspacePath?: string | null;
+  }) => (
+    <div
+      data-testid="astryx-markdown"
+      data-value={value}
+      data-workspace-path={workspacePath ?? ''}
+    />
+  ),
+}));
+
 function panelProps(filePath = 'README.md'): IDockviewPanelProps {
   return {
     params: {
@@ -163,6 +188,17 @@ describe('DockviewPreviewPanel', () => {
     fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
 
     expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
+  });
+
+  it('renders markdown preview relative to the file directory', async () => {
+    render(<DockviewPreviewPanel {...panelProps('docs/guide.md')} />);
+
+    await screen.findByRole('button', { name: 'Source' });
+    fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
+
+    const markdown = await screen.findByTestId('astryx-markdown');
+    expect(markdown).toHaveAttribute('data-workspace-path', '/workspace/docs');
+    expect(markdown).toHaveAttribute('data-value', '# Preview title');
   });
 
   it('lets a diff preview switch to the editable file view', async () => {

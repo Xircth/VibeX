@@ -30,6 +30,7 @@ import {
   Sun,
 } from 'lucide-react';
 
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { Button } from '@/components/ui/button';
 import {
   preloadSettingsPath,
@@ -126,13 +127,13 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     path: '/settings/logs',
     labelKey: 'logs',
     icon: FileText,
-    capability: 'desktop.tauri',
+    capability: 'application.call',
   },
   {
     path: '/settings/system',
     labelKey: 'system',
     icon: Settings,
-    capability: 'desktop.tauri',
+    capability: 'application.call',
   },
 ];
 
@@ -200,7 +201,7 @@ export function SettingsLayout() {
   return (
     <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">
       <div className="flex min-h-0 flex-1">
-        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5 [scrollbar-gutter:stable]">
+        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5">
           <SettingsSearch
             query={searchQuery}
             onQueryChange={setSearchQuery}
@@ -247,12 +248,11 @@ export function SettingsLayout() {
         <section
           data-settings-content
           className={cn(
-            'min-h-0 min-w-0 flex-1 p-4 [scrollbar-gutter:stable]',
+            'min-h-0 min-w-0 flex-1 p-4',
             location.pathname === '/plugins'
               ? 'flex flex-col overflow-hidden'
               : 'overflow-y-auto'
           )}
-          style={{ scrollbarGutter: 'stable' }}
         >
           <Suspense fallback={<SettingsContentFallback />}>
             <Outlet />
@@ -271,35 +271,5 @@ function SettingsContentFallback() {
   ) {
     return <AgentSettingsLoading />;
   }
-  return <SettingsSectionLoading />;
-}
-
-function SettingsSectionLoading() {
-  return (
-    <div
-      className="agent-settings-loading flex flex-col gap-4"
-      role="status"
-      aria-busy="true"
-    >
-      <section className="settings-surface" aria-hidden="true">
-        <div className="agent-section-heading">
-          <span className="agent-settings-loading-line agent-settings-loading-line-heading" />
-        </div>
-        <ul className="agent-settings-loading-rows">
-          <li />
-          <li />
-          <li />
-        </ul>
-      </section>
-      <section className="settings-surface" aria-hidden="true">
-        <div className="agent-section-heading">
-          <span className="agent-settings-loading-line agent-settings-loading-line-heading" />
-        </div>
-        <ul className="agent-settings-loading-rows">
-          <li />
-          <li />
-        </ul>
-      </section>
-    </div>
-  );
+  return <SurfaceLoading />;
 }

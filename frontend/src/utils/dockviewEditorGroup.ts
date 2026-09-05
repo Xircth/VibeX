@@ -1,5 +1,9 @@
 import type { DockviewApi } from 'dockview-react';
-import { slotOfZone, type LayoutArrangement } from '@/lib/layoutArrangement';
+import {
+  slotOfZone,
+  type LayoutArrangement,
+  type LayoutZone,
+} from '@/lib/layoutArrangement';
 import {
   GROUP_IDS,
   MIN_RIGHT_PANEL_WIDTH,
@@ -20,7 +24,6 @@ import {
   settleDockviewGroupWidths,
 } from '@/utils/dockviewStartupSizing';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
-import { collapsedEditorColumnWidths } from '@/utils/lastPreviewTabLayout';
 
 /**
  * Dockview's built-in group minimum is 100px. Adding a group without
@@ -69,6 +72,108 @@ function getEditorGroups(api: DockviewApi) {
 
 function isSideColumn(slot: ReturnType<typeof slotOfZone>): boolean {
   return slot !== 'center' && slot !== 'bottom';
+}
+
+export function groupForZone(
+  api: DockviewApi,
+  zone: LayoutZone
+): DockviewGroup | undefined {
+  switch (zone) {
+    case 'dock':
+      return getLeftGroup(api);
+    case 'terminal':
+      return getBottomGroup(api);
+    case 'session':
+      return getRightGroup(api);
+    default:
+      return getEditorGroups(api)[0];
+  }
+}
+
+/**
+ * Live widths of the left/right slots, plus whether the center slot is
+ * currently shown. Taken before a visibility change so leftover width can
+ * be given to the neighboring column instead of Dockview's last sibling.
+ */
+export interface SlotColumnSnapshot {
+  left?: number;
+  right?: number;
+  centerVisible: boolean;
+}
+
+export function snapshotSlotColumnWidths(
+  api: DockviewApi,
+  arrangement: LayoutArrangement
+): SlotColumnSnapshot {
+  const left = groupForZone(api, arrangement.left);
+  const center = groupForZone(api, arrangement.center);
+  const right = groupForZone(api, arrangement.right);
+  return {
+    left: left?.api.isVisible ? left.api.width : undefined,
+    right: right?.api.isVisible ? right.api.width : undefined,
+    centerVisible: !!center?.api.isVisible,
+  };
+}
+
+/**
+ * Left/right leftover goes to the center slot. Center leftover goes to the
+ * right slot. Side columns keep the pixel width they had before the change.
+ */
+export function settleSlotColumnWidths(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  snapshot: SlotColumnSnapshot
+): void {
+  const left = groupForZone(api, arrangement.left);
+  const center = groupForZone(api, arrangement.center);
+  const right = groupForZone(api, arrangement.right);
+  const targets: Array<{ group: DockviewGroup; width: number }> = [];
+
+  if (left?.api.isVisible) {
+    const width =
+      snapshot.left && snapshot.left > 0 ? snapshot.left : left.api.width;
+    if (width > 0) {
+      targets.push({ group: left, width });
+    }
+  }
+
+  if (center?.api.isVisible && right?.api.isVisible && snapshot.centerVisible) {
+    const width =
+      snapshot.right && snapshot.right > 0 ? snapshot.right : right.api.width;
+    if (width > 0) {
+      targets.push({ group: right, width });
+    }
+  }
+
+  if (targets.length > 0) {
+    settleDockviewGroupWidths(targets);
+  }
+}
+
+export function setColumnVisible(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  group: DockviewGroup,
+  visible: boolean
+): void {
+  setColumnsVisible(api, arrangement, [{ group, visible }]);
+}
+
+export function setColumnsVisible(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  updates: ReadonlyArray<{ group: DockviewGroup; visible: boolean }>
+): void {
+  const snapshot = snapshotSlotColumnWidths(api, arrangement);
+  let changed = false;
+  for (const { group, visible } of updates) {
+    if (group.api.isVisible === visible) continue;
+    group.api.setVisible(visible);
+    changed = true;
+  }
+  if (changed) {
+    settleSlotColumnWidths(api, arrangement, snapshot);
+  }
 }
 
 export function isEditorColumnCrushed(api: DockviewApi): boolean {
@@ -177,56 +282,17 @@ export function restoreFlexibleEditorColumn(
 
 /**
  * After the last editor tab closes, keep a hidden editor group as an anchor
- * and give the leftover width to the session column instead of leaving a
- * crushed Welcome pane.
+ * and give the leftover width to the right-hand column.
  */
 export function dismissEmptyEditorColumn(
   api: DockviewApi,
   options: EnsureWelcomeEditorGroupOptions
 ): DockviewGroup | undefined {
   const group = ensureWelcomeEditorGroup(api, options);
-  group?.api.setVisible(false);
-  absorbHiddenEditorColumn(api, options.arrangement, options.dockWidth);
+  if (group) {
+    setColumnVisible(api, options.arrangement, group, false);
+  }
   return group;
-}
-
-export function absorbHiddenEditorColumn(
-  api: DockviewApi,
-  arrangement: LayoutArrangement,
-  dockWidth?: number
-): void {
-  if (slotOfZone(arrangement, 'workspace') !== 'center') return;
-
-  const leftGroup = getLeftGroup(api);
-  const rightGroup = getRightGroup(api);
-  if (
-    !rightGroup?.api.isVisible ||
-    !isSideColumn(slotOfZone(arrangement, 'session'))
-  ) {
-    return;
-  }
-
-  const leftIsSide =
-    !!leftGroup?.api.isVisible && isSideColumn(slotOfZone(arrangement, 'dock'));
-  const gridWidth = api.width;
-  const nextDockWidth =
-    leftIsSide && leftGroup
-      ? intendedDockColumnWidth(gridWidth, leftGroup.api.width, dockWidth)
-      : 0;
-  const widths = collapsedEditorColumnWidths({
-    gridWidth,
-    dockWidth: nextDockWidth,
-    minDockWidth: MIN_LEFT_PANEL_WIDTH,
-    minSessionWidth: MIN_RIGHT_PANEL_WIDTH,
-  });
-
-  const targets: Array<{ group: DockviewGroup; width: number }> = [
-    { group: rightGroup, width: widths.session },
-  ];
-  if (leftIsSide && leftGroup) {
-    targets.push({ group: leftGroup, width: widths.dock });
-  }
-  settleDockviewGroupWidths(targets);
 }
 
 export function ensureWelcomeEditorGroup(

@@ -99,6 +99,24 @@ describe('FileTreePanel truncated root scans', () => {
     expect(fileTreeApi.listDirectoryChildren).not.toHaveBeenCalled();
   });
 
+  it('expands a folder that already has children from a complete scan', () => {
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={['assets/logo.png']}
+        directories={['assets']}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /assets/i }));
+
+    expect(
+      screen.getByRole('button', { name: /logo\.png/i })
+    ).toBeInTheDocument();
+    expect(fileTreeApi.listDirectoryChildren).not.toHaveBeenCalled();
+  });
+
   it('shows a readable duplicate failure toast from the file context menu', async () => {
     vi.mocked(fileTreeApi.copyItem).mockRejectedValue(new Error('copy failed'));
 

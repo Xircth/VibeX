@@ -25,23 +25,23 @@ mod tests {
         PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, RuntimeSource,
         agent_process_command, apply_codex_auth_document, apply_config_transition_then,
         apply_custom_version_override, apply_opencode_provider_connection,
-        bind_profile_runtime_executable, build_launch_environment, built_in_probe_action,
-        cancellable_command_output, codex_provider_config_is_projected,
-        compare_and_set_agent_environment, configure_uv_tool_install_command,
-        dependency_version_satisfied, detect_account_login, install_locked_plan,
-        managed_artifacts_directory, managed_install_root, managed_node_artifact,
-        managed_node_executables, managed_uv_artifact, managed_uv_executable,
-        managed_uv_version_matches, management_command_with_environment, management_error,
-        native_auth_mode_patch, native_config_view, npm_executable, opencode_provider_paths,
-        operation_event, overlay_local_runtime_evidence, pi_runtime_lock_env,
-        preflight_component_is_healthy, probe_local_runtime_candidate, probe_system_node_runtime,
-        profile_component_distribution_kind, project_agent_environment, project_auth_mode_options,
-        project_codex_auth_mode, project_opencode_provider_connections,
+        authentication_with_bound_provider, bind_profile_runtime_executable,
+        build_launch_environment, built_in_probe_action, cancellable_command_output,
+        codex_provider_config_is_projected, compare_and_set_agent_environment,
+        configure_uv_tool_install_command, dependency_version_satisfied, detect_account_login,
+        extract_binary_archive, install_locked_plan, managed_artifacts_directory,
+        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
+        management_error, native_auth_mode_patch, native_config_view, npm_executable,
+        opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
+        pi_runtime_lock_env, preflight_component_is_healthy, probe_local_runtime_candidate,
+        probe_system_node_runtime, profile_component_distribution_kind, project_agent_environment,
+        project_auth_mode_options, project_codex_auth_mode, project_opencode_provider_connections,
         read_agent_environment_record, read_agent_management_snapshot,
         reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
         redact_operation_output, relocate_managed_path, remove_opencode_provider_state,
-        resolve_npm_package_executable, resolve_uv_tool_executable, restore_native_file_rollback,
-        run_agent_management_warmup_once, run_bounded_agent_probes,
+        resolve_npm_package_executable, resolve_profile_auth_mode, resolve_uv_tool_executable,
+        restore_native_file_rollback, run_agent_management_warmup_once, run_bounded_agent_probes,
         run_local_runtime_discovery_once, runtime_preflight_facts, safe_archive_executable,
         sanitize_custom_version, seed_kimi_synthetic_credential, set_opencode_provider_enabled,
         staging_dir_is_referenced_by, sync_native_launch_preferences,
@@ -337,6 +337,7 @@ mod tests {
             component: ProfileComponent::AgentRuntime,
             executable,
             version_args: &["--version"],
+            acp_args: &[],
         })
         .await
         .expect("the runnable CLI is independent Runtime evidence");
@@ -572,6 +573,7 @@ mod tests {
             "grok",
             "cursor",
             "deepseek_harness",
+            "qoder",
         ] {
             let agent_id = AgentId::parse(agent).unwrap();
             let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
@@ -591,6 +593,22 @@ mod tests {
                 assert_eq!(option.credential_required, option.credential_env.is_some());
             }
         }
+    }
+
+    #[test]
+    fn qoder_auth_options_are_subscription_only() {
+        let agent_id = AgentId::parse("qoder").unwrap();
+        let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
+        let options = project_auth_mode_options(&agent_id, policy.modes);
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].value, "official_subscription");
+        assert_eq!(options[0].kind, api_types::AgentAuthModeKind::Subscription);
+        assert!(!options[0].credential_required);
+        assert!(options[0].credential_env.is_none());
+        assert_eq!(
+            options[0].description_key,
+            "agents.authDescQoderSubscription"
+        );
     }
 
     #[test]
@@ -2334,34 +2352,57 @@ base_url = "https://example.test/v1"
         .await
         .unwrap();
     }
+
+    #[test]
+    fn grok_bound_provider_is_model_provider_even_when_env_defaults_to_subscription() {
+        let agent_id = AgentId::parse("grok").unwrap();
+        let policy = agents::built_in_auth_mode_policy(&agent_id).expect("grok policy");
+        let env = HashMap::new();
+
+        assert_eq!(
+            resolve_profile_auth_mode(&agent_id, policy, &env, false, false, None),
+            "subscription"
+        );
+        assert_eq!(
+            resolve_profile_auth_mode(&agent_id, policy, &env, true, false, None),
+            "model_provider"
+        );
+    }
+
+    #[test]
+    fn bound_provider_credentials_count_as_api_key_login() {
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, true),
+            AgentAuthenticationStatus::ApiKey
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, false),
+            AgentAuthenticationStatus::NotLoggedIn
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::Account, true),
+            AgentAuthenticationStatus::Account
+        );
+    }
 }
 
-#[path = "agent_management/account_flow.rs"]
-mod account_flow;
-#[path = "agent_management/codex_device_auth.rs"]
-mod codex_device_auth;
-#[path = "agent_management/dsh_configuration.rs"]
-mod dsh_configuration;
+use server::{
+    account_flow,
+    native::{
+        codex_device_auth, dsh_configuration, grok_plugins, model_catalogs, model_provider_import,
+        model_providers, opencode_catalog, opencode_plugins,
+        opencode_providers::{
+            apply_opencode_provider_connection, project_opencode_provider_connections,
+            remove_opencode_provider_state, set_opencode_provider_enabled, slug_provider_id,
+            validate_opencode_provider_id,
+        },
+        pi_configuration, pi_plugins,
+    },
+};
 #[path = "agent_management/environment_diagnostics.rs"]
 mod environment_diagnostics;
 #[path = "agent_management/external_reconcile.rs"]
 mod external_reconcile;
-#[path = "agent_management/grok_plugins.rs"]
-mod grok_plugins;
-#[path = "agent_management/model_catalogs.rs"]
-mod model_catalogs;
-#[path = "agent_management/model_provider_import.rs"]
-mod model_provider_import;
-#[path = "agent_management/model_providers.rs"]
-mod model_providers;
-#[path = "agent_management/opencode_catalog.rs"]
-mod opencode_catalog;
-#[path = "agent_management/opencode_plugins.rs"]
-mod opencode_plugins;
-#[path = "agent_management/pi_configuration.rs"]
-mod pi_configuration;
-#[path = "agent_management/pi_plugins.rs"]
-mod pi_plugins;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -2381,7 +2422,7 @@ use agents::{
     InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
     LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
     NativeFileMutation, NativeFileSystem, ObservedUserComponent, OfficialRegistryHttpFetcher,
-    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileInstallSource,
+    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent,
     ProfileManagementActionKind, ProfileTopology, REGISTRY_REFRESH_TIMEOUT, RegistryCache,
     RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
     ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
@@ -2415,10 +2456,9 @@ use api_types::{
     CodexModelCatalogConfigView, DshPluginSummaryView, DshProviderDiscoverRequest,
     DshProviderModelView, DshProviderSaveRequest, DshProvidersView, GrokPluginSummaryView,
     OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodeProviderCatalogView,
-    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
-    OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
-    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView,
-    PiRuntimeSaveRequest, UserAgentDefinitionRequest, UserAgentDefinitionView,
+    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionsView, PiCommandValidationView,
+    PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView, PiRuntimeSaveRequest,
+    UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
 use db::models::{
@@ -2433,7 +2473,7 @@ use services::services::{
     agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
 };
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -2525,14 +2565,12 @@ fn local_runtime_discovery_progress_view(
 }
 
 async fn emit_local_runtime_discovery_progress(
-    app: &AppHandle,
+    _app: &AppHandle,
     runtime: &AgentManagementRuntimeState,
 ) {
     let progress =
         local_runtime_discovery_progress_view(runtime.local_runtime_discovery_progress().await);
-    if let Err(error) = app.emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress) {
-        tracing::warn!(%error, "failed to emit local Agent discovery progress");
-    }
+    server::global_host_events().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
 }
 
 struct ManagedNodeArtifact {
@@ -3392,7 +3430,36 @@ async fn observe_native_authentication(
             return AgentAuthenticationStatus::ApiKey;
         }
     }
-    native_authentication
+    let bound_with_credential =
+        bound_model_provider_has_credentials(app, agent_id, agent_env).await;
+    authentication_with_bound_provider(native_authentication, bound_with_credential)
+}
+
+async fn bound_model_provider_has_credentials(
+    app: &AppHandle,
+    agent_id: &AgentId,
+    agent_env: &HashMap<String, String>,
+) -> bool {
+    let Ok(home) = app.path().home_dir() else {
+        return false;
+    };
+    let Ok(store_path) = app
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("agent-model-providers.json"))
+    else {
+        return false;
+    };
+    let native_home = resolve_model_provider_native_home(&home, agent_env, agent_id);
+    let Ok(view) =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home)).await
+    else {
+        return false;
+    };
+    view.providers
+        .iter()
+        .find(|provider| Some(&provider.id) == view.bound_provider_id.as_ref())
+        .is_some_and(|provider| provider.credential_present)
 }
 
 async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
@@ -3513,9 +3580,7 @@ pub(crate) async fn warm_agent_management(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_agent_management_warmup(app, pool, runtime).await;
-    if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
-        tracing::warn!(%error, "failed to emit Agent management snapshot invalidation");
-    }
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 pub(crate) async fn warm_local_runtime_discovery(
@@ -3524,9 +3589,7 @@ pub(crate) async fn warm_local_runtime_discovery(
     runtime: &AgentManagementRuntimeState,
 ) {
     ensure_local_runtime_discovery(app, pool, runtime).await;
-    if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
-        tracing::warn!(%error, "failed to emit local Agent discovery invalidation");
-    }
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
 }
 
 async fn normalize_optional_profile_authentication(pool: &sqlx::SqlitePool) {
@@ -3680,30 +3743,7 @@ async fn discover_profile_acp_launch(
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
         anyhow::bail!("external ACP candidate is not an absolute executable file");
     }
-    let args = profile
-        .install_sources
-        .iter()
-        .find_map(|source| match source {
-            ProfileInstallSource::Npx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Uvx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Binary {
-                component, args, ..
-            } if profile_component_key(*component)
-                == profile_component_key(candidate.component) =>
-            {
-                Some(
-                    args.iter()
-                        .map(|argument| (*argument).to_string())
-                        .collect::<Vec<_>>(),
-                )
-            }
-            _ => None,
-        })
-        .unwrap_or_default();
+    let args = agents::acp_launch_args(profile, candidate.component);
     let mut env = BTreeMap::new();
     let mut path_entries = vec![
         executable
@@ -3897,25 +3937,8 @@ async fn probe_one_built_in_external_installation(
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
         .ok_or_else(|| anyhow::anyhow!("external ACP executable is missing"))?;
-    let args = profile
-        .install_sources
-        .iter()
-        .find_map(|source| match source {
-            ProfileInstallSource::Npx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Uvx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Binary {
-                component, args, ..
-            } if profile_component_key(*component) == acp.kind => Some(
-                args.iter()
-                    .map(|argument| (*argument).to_string())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        })
+    let args = profile_component_from_key(&acp.kind)
+        .map(|component| agents::acp_launch_args(profile, component))
         .unwrap_or_default();
     let mut env = BTreeMap::new();
     if profile.agent_id.as_str() == "pi" {
@@ -4018,6 +4041,15 @@ fn profile_component_key(component: ProfileComponent) -> &'static str {
     }
 }
 
+fn profile_component_from_key(key: &str) -> Option<ProfileComponent> {
+    match key {
+        "agent_runtime" => Some(ProfileComponent::AgentRuntime),
+        "acp_adapter" => Some(ProfileComponent::AcpAdapter),
+        "combined_runtime" => Some(ProfileComponent::CombinedRuntime),
+        _ => None,
+    }
+}
+
 fn bind_profile_runtime_executable(
     agent_id: &AgentId,
     runtime_path: &Path,
@@ -4080,7 +4112,7 @@ fn internal_error(error: impl std::fmt::Display) -> AgentManagementErrorView {
 }
 
 fn emit_operation(
-    app: &AppHandle,
+    _app: &AppHandle,
     agent_id: AgentId,
     operation_id: &str,
     kind: AgentOperationKind,
@@ -4097,9 +4129,7 @@ fn emit_operation(
         progress_percent,
         message,
     );
-    if let Err(error) = app.emit(MANAGEMENT_EVENT, event) {
-        tracing::warn!(%error, "failed to emit Agent management operation event");
-    }
+    server::global_host_events().emit(MANAGEMENT_EVENT, event);
 }
 
 async fn overlay_local_runtime_evidence(
@@ -4551,37 +4581,7 @@ pub async fn agent_management_preflight(
         }
     }
     let authentication_observation: Option<AcpAuthenticationObservationSnapshot> = None;
-    let native_authentication = if let Ok(home) = app.path().home_dir() {
-        let account_logged_in = resolve_native_account_login(&home, &agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home,
-            agent_env.clone().into_iter().collect(),
-        );
-        match provider.read(&agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(_) => AgentAuthenticationStatus::NotLoggedIn,
-        }
-    } else {
-        AgentAuthenticationStatus::NotLoggedIn
-    };
-    let native_authentication = if agent_id.as_str() == "deepseek_harness" {
-        if let Ok(home) = app.path().home_dir() {
-            let paths = dsh_paths(&home, &agent_env);
-            if dsh_configuration::any_credential_present(&paths) {
-                AgentAuthenticationStatus::ApiKey
-            } else {
-                native_authentication
-            }
-        } else {
-            native_authentication
-        }
-    } else {
-        native_authentication
-    };
+    let native_authentication = observe_native_authentication(&app, &agent_id, &agent_env).await;
     let authentication_required_by_default = BuiltInProfileCatalog::bundled()
         .profile(&agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
@@ -4955,7 +4955,10 @@ async fn evaluate_auth_mode_preflight(
             ),
         });
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return Ok(
             match evaluate_profile_auth_mode_preflight(app, pool, agent_id.clone(), authentication)
                 .await
@@ -5002,6 +5005,12 @@ async fn evaluate_auth_mode_preflight(
     };
     let auth_mode = project_agent_auth_mode(agent_id.clone(), policy, agent_env);
     let needs_credential = policy.credential_modes.contains(&auth_mode.mode.as_str());
+    let provider_ready = auth_mode.mode != "model_provider"
+        || agent_id.as_str() != "pi"
+        || matches!(
+            authentication,
+            AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+        );
     let custom_ready = if agent_id.as_str() == "grok" && auth_mode.mode == "custom" {
         let home = app.path().home_dir().map_err(internal_error)?;
         let provider = NativeConfigProvider::with_environment(
@@ -5026,13 +5035,21 @@ async fn evaluate_auth_mode_preflight(
             authentication,
             AgentAuthenticationStatus::Account | AgentAuthenticationStatus::MultipleUnknown
         );
-    let ready =
-        (!needs_credential || auth_mode.credential_present) && custom_ready && subscription_ready;
+    let ready = (!needs_credential || auth_mode.credential_present)
+        && custom_ready
+        && subscription_ready
+        && provider_ready;
     let detail = if auth_mode.mode == "subscription" {
         format!(
             "订阅登录模式；启动时会清除冲突的 {}。",
             policy.subscription_scrub_env.join("、")
         )
+    } else if auth_mode.mode == "model_provider" && agent_id.as_str() == "pi" {
+        if provider_ready {
+            "已从 Pi 原生配置检测到供应商凭据。".to_string()
+        } else {
+            "尚未检测到已启用的供应商凭据。".to_string()
+        }
     } else if needs_credential && !auth_mode.credential_present {
         format!(
             "{} 模式缺少 {}，请在鉴权模式中保存凭据。",
@@ -5629,7 +5646,7 @@ async fn revalidate_external_installation(
     .fetch_one(pool)
     .await
     .map_err(internal_error)?;
-    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     if lifecycle != "ready" {
         return Err(management_error(
             AgentManagementErrorCode::InvalidState,
@@ -5704,7 +5721,7 @@ async fn try_adopt_user_environment(
     {
         return Ok(None);
     }
-    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     Ok(Some(AgentOperationReceipt {
         operation_id: Uuid::new_v4().to_string(),
         agent_id: agent_id.clone(),
@@ -6233,23 +6250,11 @@ async fn record_post_install_probe(
         &CancellationToken::new(),
     )
     .await?;
-    let native_authentication = if let Ok(home) = app.path().home_dir() {
+    let native_authentication = if app.path().home_dir().is_ok() {
         let agent_env = read_agent_environment(pool, agent_id)
             .await
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        let account_logged_in = resolve_native_account_login(&home, agent_id, &agent_env).await;
-        let provider = NativeConfigProvider::with_environment(
-            Arc::new(TokioNativeFileSystem),
-            home,
-            agent_env.into_iter().collect(),
-        );
-        match provider.read(agent_id, account_logged_in).await {
-            Ok(snapshot) => snapshot.authentication,
-            Err(agents::NativeConfigError::Unsupported(_)) => {
-                AgentAuthenticationStatus::NotRequired
-            }
-            Err(error) => return Err(error.into()),
-        }
+        observe_native_authentication(app, agent_id, &agent_env).await
     } else {
         AgentAuthenticationStatus::NotRequired
     };
@@ -9094,6 +9099,7 @@ async fn ensure_not_busy(
                     && matches!(
                         connection.status,
                         agents::AgentConnectionStatus::Connecting
+                            | agents::AgentConnectionStatus::Recovering
                             | agents::AgentConnectionStatus::Ready
                     )
             });
@@ -9178,7 +9184,7 @@ pub async fn codex_poll_device_code(
             AgentAuthenticationStatus::Account,
         )
         .await?;
-        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(result)
 }
@@ -9253,22 +9259,6 @@ pub async fn codex_model_catalog_config(
 ) -> Result<CodexModelCatalogConfigView, AgentManagementErrorView> {
     let agent_id = AgentId::parse("codex").expect("built-in id");
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
-    let program = resolve_management_program(
-        &state.deployment.db().pool,
-        &agent_id,
-        "codex",
-        &environment,
-    )
-    .await;
-    let cache_path = app
-        .path()
-        .app_data_dir()
-        .map_err(internal_error)?
-        .join("agent-catalogs")
-        .join("codex-bundled.json");
-    let official = model_catalogs::codex_official_document(program.as_deref(), &cache_path)
-        .await
-        .ok();
     let home = app.path().home_dir().map_err(internal_error)?;
     let codex_home = environment
         .get("CODEX_HOME")
@@ -9280,7 +9270,7 @@ pub async fn codex_model_catalog_config(
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| home.join(".codex"));
-    model_catalogs::load_codex_config(&codex_home, official.as_ref())
+    model_catalogs::load_codex_config(&codex_home)
         .await
         .map_err(internal_error)
 }
@@ -9417,6 +9407,11 @@ pub async fn agent_model_provider_save(
     let result = model_providers::save(&store_path, &home, &environment, request)
         .await
         .map_err(internal_error)?;
+    if result.bound_provider_id.is_some() {
+        let _ =
+            refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false)
+                .await;
+    }
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已更改")
@@ -9480,6 +9475,8 @@ pub async fn agent_model_provider_bind(
         }
         return Err(error);
     }
+    let _ =
+        refresh_one_agent_authentication(&app, &state.deployment.db().pool, &agent_id, false).await;
     state
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 绑定已更改")
@@ -10089,7 +10086,10 @@ pub async fn agent_auth_mode(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return with_account_label(
             read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await?,
         )
@@ -10134,7 +10134,10 @@ pub async fn agent_auth_mode_set(
         )
         .await;
     }
-    if matches!(agent_id.as_str(), "claude_code" | "antigravity" | "gemini") {
+    if matches!(
+        agent_id.as_str(),
+        "claude_code" | "antigravity" | "gemini" | "grok"
+    ) {
         return with_account_label(
             set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await?,
         )
@@ -10341,6 +10344,35 @@ async fn read_agent_environment(
     parse_agent_env(env_json.as_deref()).map_err(internal_error)
 }
 
+fn resolve_profile_auth_mode(
+    agent_id: &AgentId,
+    policy: agents::BuiltInAuthModePolicy,
+    env: &HashMap<String, String>,
+    bound_provider: bool,
+    native_custom_endpoint: bool,
+    snapshot: Option<&agents::NativeConfigSnapshot>,
+) -> String {
+    agents::resolve_built_in_auth_mode(
+        agent_id,
+        policy,
+        env,
+        bound_provider,
+        native_custom_endpoint,
+        snapshot,
+    )
+}
+
+fn authentication_with_bound_provider(
+    observed: AgentAuthenticationStatus,
+    bound_with_credential: bool,
+) -> AgentAuthenticationStatus {
+    if bound_with_credential && matches!(observed, AgentAuthenticationStatus::NotLoggedIn) {
+        AgentAuthenticationStatus::ApiKey
+    } else {
+        observed
+    }
+}
+
 fn project_agent_auth_mode(
     agent_id: AgentId,
     policy: agents::BuiltInAuthModePolicy,
@@ -10413,32 +10445,14 @@ async fn read_profile_auth_mode_view(
     .read(&agent_id, account_logged_in)
     .await
     .map_err(internal_error)?;
-    let configured_mode = environment
-        .get(policy.mode_env)
-        .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .filter(|mode| mode.as_str() != "model_provider")
-        .cloned();
-    let mode = if providers.bound_provider_id.is_some()
-        || native_uses_custom_endpoint(&agent_id, &snapshot)
-    {
-        "model_provider".to_string()
-    } else if let Some(mode) = configured_mode {
-        mode
-    } else if agent_id.as_str() == "claude_code" {
-        if native_field_present(&snapshot, "anthropic_api_key") {
-            "official_api".to_string()
-        } else {
-            "official_subscription".to_string()
-        }
-    } else if native_field_present(&snapshot, "antigravity_api_key") {
-        "gemini-api-key".to_string()
-    } else if native_field_present(&snapshot, "antigravity_google_api_key")
-        || native_field_text(&snapshot, "antigravity_cloud_project").is_some()
-    {
-        "agent-platform".to_string()
-    } else {
-        "oauth-personal".to_string()
-    };
+    let mode = resolve_profile_auth_mode(
+        &agent_id,
+        policy,
+        &environment,
+        providers.bound_provider_id.is_some(),
+        native_uses_custom_endpoint(&agent_id, &snapshot),
+        Some(&snapshot),
+    );
     let credential_env = agents::auth_mode_credential_env(&agent_id, &mode)
         .unwrap_or(policy.credential_env)
         .to_string();
@@ -10451,6 +10465,7 @@ async fn read_profile_auth_mode_view(
         ("claude_code", "official_api" | "custom") => {
             native_field_present(&snapshot, "anthropic_api_key")
         }
+        ("grok", "api_key" | "custom") => native_field_present(&snapshot, "grok_api_key"),
         ("antigravity" | "gemini", "gemini-api-key") => {
             native_field_present(&snapshot, "antigravity_api_key")
         }
@@ -10459,7 +10474,9 @@ async fn read_profile_auth_mode_view(
                 || (native_field_text(&snapshot, "antigravity_cloud_project").is_some()
                     && native_field_text(&snapshot, "antigravity_cloud_location").is_some())
         }
-        _ => false,
+        _ => environment
+            .get(&credential_env)
+            .is_some_and(|value| !value.trim().is_empty()),
     };
     Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, policy.modes),
@@ -10587,6 +10604,47 @@ async fn evaluate_profile_auth_mode_preflight(
                 Some(native_path),
             )
         }
+        ("grok", "subscription") => (
+            account_ready,
+            if account_ready {
+                "Grok 订阅登录模式已检测到有效账号会话。".to_string()
+            } else {
+                "Grok 订阅登录模式尚未检测到有效账号会话，请先运行官方登录。".to_string()
+            },
+            Some(native_path),
+        ),
+        ("grok", "api_key") => (
+            view.credential_present,
+            if view.credential_present {
+                "Grok 官方 API Key 已配置。".to_string()
+            } else {
+                "Grok 官方 API 需要 XAI_API_KEY。".to_string()
+            },
+            Some(native_path),
+        ),
+        ("grok", "custom") => {
+            let ready = native_field_present(&snapshot, "grok_api_key")
+                && native_field_text(&snapshot, "grok_base_url").is_some()
+                && native_field_text(&snapshot, "grok_custom_model_id").is_some();
+            (
+                ready,
+                if ready {
+                    "Grok 自定义端点与模型已配置。".to_string()
+                } else {
+                    "Grok 自定义模式需要端点、模型与 API Key。".to_string()
+                },
+                Some(native_path),
+            )
+        }
+        ("grok", "model_provider") => (
+            view.credential_present,
+            if view.credential_present {
+                "已启用的供应商凭据可用。".to_string()
+            } else {
+                "尚未检测到已启用的供应商凭据。".to_string()
+            },
+            Some(native_path),
+        ),
         _ => (
             false,
             format!("无法验证鉴权模式 `{}`。", view.mode),
@@ -10623,44 +10681,18 @@ fn native_uses_custom_endpoint(
     agent_id: &AgentId,
     snapshot: &agents::NativeConfigSnapshot,
 ) -> bool {
-    let Some(url) = (match agent_id.as_str() {
-        "claude_code" => native_field_text(snapshot, "anthropic_base_url"),
-        _ => None,
-    }) else {
-        return false;
-    };
-    let normalized = url.trim().trim_end_matches('/').to_ascii_lowercase();
-    let official = agents::official_api_url(agent_id, "official_api")
-        .or_else(|| agents::official_api_url(agent_id, "custom"))
-        .or_else(|| agents::official_api_url(agent_id, "api_key"))
-        .unwrap_or("")
-        .trim_end_matches('/')
-        .to_ascii_lowercase();
-    !normalized.is_empty()
-        && (official.is_empty()
-            || (normalized != official
-                && normalized.strip_suffix("/v1").unwrap_or(&normalized) != official.as_str()))
+    agents::native_uses_custom_endpoint(agent_id, snapshot)
 }
 
 fn native_field_present(snapshot: &agents::NativeConfigSnapshot, field_id: &str) -> bool {
-    snapshot
-        .fields
-        .iter()
-        .find(|field| field.field_id == field_id)
-        .is_some_and(|field| field.present)
+    snapshot.field_present(field_id)
 }
 
 fn native_field_text<'a>(
     snapshot: &'a agents::NativeConfigSnapshot,
     field_id: &str,
 ) -> Option<&'a str> {
-    snapshot
-        .fields
-        .iter()
-        .find(|field| field.field_id == field_id)
-        .and_then(|field| field.value.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    snapshot.field_text(field_id)
 }
 
 async fn set_profile_auth_mode(
@@ -11320,6 +11352,10 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescCodebuddySubscription",
         ),
+        ("qoder", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescQoderSubscription",
+        ),
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")
         }
@@ -11493,25 +11529,6 @@ pub async fn opencode_provider_import(
         .mark_agent_sessions_config_stale(&agent_id, "OpenCode Provider 已更改")
         .await;
     Ok(project_opencode_provider_connections(&auth, &config))
-}
-
-fn slug_provider_id(name: &str) -> String {
-    let slug: String = name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let slug = slug.trim_matches('-').to_string();
-    if slug.is_empty() {
-        "imported".to_string()
-    } else {
-        slug
-    }
 }
 
 #[tauri::command]
@@ -11747,383 +11764,6 @@ where
     Ok(())
 }
 
-async fn write_json_document(
-    path: &Path,
-    value: &serde_json::Value,
-    sensitive: bool,
-) -> Result<(), AgentManagementErrorView> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(internal_error)?;
-    write_bytes_document(path, &bytes, sensitive).await
-}
-
-fn apply_opencode_provider_connection(
-    auth: &mut serde_json::Value,
-    config: &mut serde_json::Value,
-    request: &OpenCodeProviderConnectRequest,
-) -> Result<(), String> {
-    validate_opencode_provider_id(&request.provider_id)?;
-    if !auth.is_object() || !config.is_object() {
-        return Err("OpenCode auth.json 与 opencode.json 顶层必须是对象".to_string());
-    }
-    let submitted_api_key = request
-        .api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
-    let credential_present = auth.get(&request.provider_id).is_some_and(|entry| {
-        entry
-            .get("key")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|key| !key.trim().is_empty())
-            || entry.get("type").and_then(serde_json::Value::as_str) == Some("oauth")
-    });
-    if submitted_api_key.is_none() && !credential_present {
-        return Err("新 Provider 必须提供 API Key".to_string());
-    }
-    if let Some(api_key) = submitted_api_key {
-        let auth_entry = auth
-            .as_object_mut()
-            .expect("object")
-            .entry(request.provider_id.clone())
-            .or_insert_with(|| serde_json::json!({}));
-        if !auth_entry.is_object() {
-            *auth_entry = serde_json::json!({});
-        }
-        let auth_entry = auth_entry.as_object_mut().expect("object");
-        auth_entry.insert("type".to_string(), serde_json::json!("api"));
-        auth_entry.insert("key".to_string(), serde_json::json!(api_key));
-    }
-
-    let has_provider_override = request
-        .npm
-        .as_deref()
-        .is_some_and(|npm| !npm.trim().is_empty())
-        || request
-            .api
-            .as_deref()
-            .is_some_and(|api| !api.trim().is_empty())
-        || request
-            .base_url
-            .as_deref()
-            .is_some_and(|url| !url.trim().is_empty())
-        || request
-            .models
-            .iter()
-            .any(|model| !model.id.trim().is_empty());
-    if !has_provider_override {
-        set_opencode_provider_enabled(config, &request.provider_id, request.enabled)?;
-        return Ok(());
-    }
-
-    let providers = config
-        .as_object_mut()
-        .expect("object")
-        .entry("provider")
-        .or_insert_with(|| serde_json::json!({}));
-    let providers = providers
-        .as_object_mut()
-        .ok_or_else(|| "opencode.json 的 provider 必须是对象".to_string())?;
-    let provider = providers
-        .entry(request.provider_id.clone())
-        .or_insert_with(|| serde_json::json!({}));
-    let provider = provider
-        .as_object_mut()
-        .ok_or_else(|| format!("Provider `{}` 的配置必须是对象", request.provider_id))?;
-    provider.insert(
-        "name".to_string(),
-        serde_json::Value::String(if request.name.trim().is_empty() {
-            request.provider_id.clone()
-        } else {
-            request.name.trim().to_string()
-        }),
-    );
-    match request
-        .npm
-        .as_deref()
-        .map(str::trim)
-        .filter(|npm| !npm.is_empty())
-    {
-        Some(npm) => {
-            provider.insert(
-                "npm".to_string(),
-                serde_json::Value::String(npm.to_string()),
-            );
-        }
-        None => {
-            provider.remove("npm");
-        }
-    }
-    match request
-        .api
-        .as_deref()
-        .map(str::trim)
-        .filter(|api| !api.is_empty())
-    {
-        Some(api) => {
-            provider.insert(
-                "api".to_string(),
-                serde_json::Value::String(api.to_string()),
-            );
-        }
-        None => {
-            provider.remove("api");
-        }
-    }
-    let base_url = request
-        .base_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|url| !url.is_empty());
-    if base_url.is_some() || provider.contains_key("options") {
-        let options = provider
-            .entry("options".to_string())
-            .or_insert_with(|| serde_json::json!({}));
-        let options = options
-            .as_object_mut()
-            .ok_or_else(|| format!("Provider `{}` 的 options 必须是对象", request.provider_id))?;
-        match base_url {
-            Some(base_url) => {
-                options.insert("baseURL".to_string(), serde_json::json!(base_url));
-            }
-            None => {
-                options.remove("baseURL");
-            }
-        }
-        if options.is_empty() {
-            provider.remove("options");
-        }
-    }
-    let requested_models = normalize_opencode_provider_models(&request.models)?;
-    let mut existing_models = match provider.remove("models") {
-        Some(serde_json::Value::Object(models)) => models,
-        Some(_) => {
-            return Err(format!(
-                "Provider `{}` 的 models 必须是对象",
-                request.provider_id
-            ));
-        }
-        None => serde_json::Map::new(),
-    };
-    if !requested_models.is_empty() {
-        let mut preserved_entries = Vec::with_capacity(requested_models.len());
-        for model in &requested_models {
-            let source_id = model.previous_id.as_deref().unwrap_or(&model.id);
-            let entry = existing_models
-                .remove(source_id)
-                .or_else(|| existing_models.remove(&model.id));
-            preserved_entries.push(entry);
-        }
-        let models = requested_models
-            .into_iter()
-            .zip(preserved_entries)
-            .map(|(model, existing)| {
-                let mut entry = match existing {
-                    Some(serde_json::Value::Object(entry)) => entry,
-                    _ => serde_json::Map::new(),
-                };
-                entry.insert("name".to_string(), serde_json::json!(model.name));
-                (model.id, serde_json::Value::Object(entry))
-            })
-            .collect::<serde_json::Map<_, _>>();
-        provider.insert("models".to_string(), serde_json::Value::Object(models));
-    } else {
-        provider.remove("models");
-    }
-    set_opencode_provider_enabled(config, &request.provider_id, request.enabled)?;
-    Ok(())
-}
-
-fn normalize_opencode_provider_models(
-    models: &[OpenCodeProviderModelRequest],
-) -> Result<Vec<OpenCodeProviderModelRequest>, String> {
-    let mut ids = std::collections::BTreeSet::new();
-    let mut normalized = Vec::with_capacity(models.len());
-    for model in models {
-        let id = model.id.trim();
-        if id.is_empty() {
-            return Err("模型 ID 不能为空".to_string());
-        }
-        if !ids.insert(id.to_string()) {
-            return Err(format!("模型 ID `{id}` 重复"));
-        }
-        let name = model.name.trim();
-        normalized.push(OpenCodeProviderModelRequest {
-            id: id.to_string(),
-            name: if name.is_empty() { id } else { name }.to_string(),
-            previous_id: model
-                .previous_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|previous_id| !previous_id.is_empty())
-                .map(str::to_string),
-        });
-    }
-    Ok(normalized)
-}
-
-fn set_opencode_provider_enabled(
-    config: &mut serde_json::Value,
-    provider_id: &str,
-    enabled: bool,
-) -> Result<(), String> {
-    let object = config
-        .as_object_mut()
-        .ok_or_else(|| "opencode.json 顶层必须是对象".to_string())?;
-    update_provider_id_array(object, "disabled_providers", provider_id, !enabled)?;
-    if object
-        .get("enabled_providers")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|values| !values.is_empty())
-    {
-        update_provider_id_array(object, "enabled_providers", provider_id, enabled)?;
-    }
-    Ok(())
-}
-
-fn remove_opencode_provider_state(config: &mut serde_json::Value, provider_id: &str) {
-    let Some(object) = config.as_object_mut() else {
-        return;
-    };
-    for key in ["enabled_providers", "disabled_providers"] {
-        if let Some(values) = object
-            .get_mut(key)
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            values.retain(|value| value.as_str() != Some(provider_id));
-            if values.is_empty() {
-                object.remove(key);
-            }
-        }
-    }
-}
-
-fn update_provider_id_array(
-    object: &mut serde_json::Map<String, serde_json::Value>,
-    key: &str,
-    provider_id: &str,
-    present: bool,
-) -> Result<(), String> {
-    if !present && object.get(key).is_none() {
-        return Ok(());
-    }
-    let values = object
-        .entry(key.to_string())
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .ok_or_else(|| format!("opencode.json 的 {key} 必须是数组"))?;
-    values.retain(|value| value.as_str() != Some(provider_id));
-    if present {
-        values.push(serde_json::Value::String(provider_id.to_string()));
-    } else if values.is_empty() {
-        object.remove(key);
-    }
-    Ok(())
-}
-
-fn validate_opencode_provider_id(provider_id: &str) -> Result<(), String> {
-    static ID: OnceLock<regex::Regex> = OnceLock::new();
-    let pattern =
-        ID.get_or_init(|| regex::Regex::new(r"^[a-z0-9][a-z0-9._-]*$").expect("provider id regex"));
-    if pattern.is_match(provider_id) {
-        Ok(())
-    } else {
-        Err("Provider ID 只能包含小写字母、数字、点、短横线和下划线".to_string())
-    }
-}
-
-fn project_opencode_provider_connections(
-    auth: &serde_json::Value,
-    config: &serde_json::Value,
-) -> OpenCodeProviderConnectionsView {
-    let mut ids = std::collections::BTreeSet::new();
-    ids.extend(
-        auth.as_object()
-            .into_iter()
-            .flat_map(|object| object.keys().cloned()),
-    );
-    ids.extend(
-        config
-            .get("provider")
-            .and_then(serde_json::Value::as_object)
-            .into_iter()
-            .flat_map(|object| object.keys().cloned()),
-    );
-    let providers = ids
-        .into_iter()
-        .map(|provider_id| {
-            let definition = config
-                .get("provider")
-                .and_then(|value| value.get(&provider_id));
-            let credential_present = auth.get(&provider_id).is_some_and(|entry| {
-                entry
-                    .get("key")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|key| !key.trim().is_empty())
-                    || entry.get("type").and_then(serde_json::Value::as_str) == Some("oauth")
-            });
-            let disabled = config
-                .get("disabled_providers")
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|values| {
-                    values
-                        .iter()
-                        .any(|value| value.as_str() == Some(&provider_id))
-                });
-            let enabled_allowlist = config
-                .get("enabled_providers")
-                .and_then(serde_json::Value::as_array);
-            let enabled = !disabled
-                && enabled_allowlist.is_none_or(|values| {
-                    values.is_empty()
-                        || values
-                            .iter()
-                            .any(|value| value.as_str() == Some(&provider_id))
-                });
-            OpenCodeProviderConnectionView {
-                name: definition
-                    .and_then(|value| value.get("name"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(&provider_id)
-                    .to_string(),
-                npm: definition
-                    .and_then(|value| value.get("npm"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
-                api: definition
-                    .and_then(|value| value.get("api"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
-                base_url: definition
-                    .and_then(|value| value.get("options"))
-                    .and_then(|value| value.get("baseURL"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string),
-                models: definition
-                    .and_then(|value| value.get("models"))
-                    .and_then(serde_json::Value::as_object)
-                    .map(|models| {
-                        models
-                            .iter()
-                            .map(|(id, model)| OpenCodeProviderModelView {
-                                id: id.clone(),
-                                name: model
-                                    .get("name")
-                                    .and_then(serde_json::Value::as_str)
-                                    .unwrap_or(id)
-                                    .to_string(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                provider_id,
-                credential_present,
-                enabled,
-            }
-        })
-        .collect();
-    OpenCodeProviderConnectionsView { providers }
-}
-
 #[tauri::command]
 pub async fn agent_management_actions(
     state: tauri::State<'_, AppState>,
@@ -12274,7 +11914,7 @@ pub async fn agent_management_run_action(
 
 #[tauri::command]
 pub async fn agent_management_account_flow(
-    app: AppHandle,
+    _app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentAccountFlowView, AgentManagementErrorView> {
@@ -12302,7 +11942,7 @@ pub async fn agent_management_account_flow(
         sync_authentication_probe(&state.deployment.db().pool, &agent_id, authentication).await?;
     }
     if exit_code == 0 {
-        let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+        server::global_host_events().emit(MANAGEMENT_INVALIDATED_EVENT, ());
     }
     Ok(AgentAccountFlowView {
         agent_id,

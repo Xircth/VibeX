@@ -1,6 +1,6 @@
 [package]
 name = "git"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2024"
 
 [features]
@@ -9,7 +9,6 @@ cloud = []
 
 [dependencies]
 chrono = { workspace = true }
-dirs = { workspace = true }
 git2 = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }

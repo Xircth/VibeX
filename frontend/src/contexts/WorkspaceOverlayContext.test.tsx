@@ -16,6 +16,16 @@ function MenuTrigger() {
   );
 }
 
+function HtmlOverlayTrigger() {
+  const { setHtmlOverlayOpen } = useWorkspaceOverlay();
+
+  return (
+    <button type="button" onClick={() => setHtmlOverlayOpen(true)}>
+      Open select
+    </button>
+  );
+}
+
 function WorkspaceShell() {
   const renderCount = useRef(0);
   renderCount.current += 1;
@@ -68,5 +78,20 @@ describe('WorkspaceOverlayProvider', () => {
       screen.getByLabelText('native surface bridge renders')
     ).toHaveTextContent('1');
     expect(screen.getByLabelText('workspace renders')).toHaveTextContent('1');
+  });
+
+  it('occludes native surfaces while an HTML overlay such as a select is open', () => {
+    const onOcclusionChange = vi.fn();
+
+    render(
+      <WorkspaceOverlayProvider>
+        <HtmlOverlayTrigger />
+        <NativeSurfaceBridge onOcclusionChange={onOcclusionChange} />
+      </WorkspaceOverlayProvider>
+    );
+
+    expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Open select' }));
+    expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
   });
 });

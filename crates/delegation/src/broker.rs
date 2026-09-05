@@ -868,52 +868,6 @@ impl DelegationBroker {
         }
     }
 
-    // Orphaned: nothing in the crate calls this setup-failure path any more.
-    // Left in place rather than deleted because removing a delegation failure
-    // handler is a product decision, not a lint fix.
-    #[allow(dead_code)]
-    fn fail_setup(
-        &self,
-        call_id: &str,
-        req: &DelegationRequest,
-        code: &str,
-        message: &str,
-        parent_setup_lease: &ParentSetupLease,
-    ) {
-        let mut pending = self.pending.lock().unwrap();
-        pending.setups.remove(call_id);
-        pending.active_reservations.remove(call_id);
-        remove_parent_setup_lease(
-            &mut pending,
-            &req.parent_connection_id,
-            &parent_setup_lease.revoked,
-        );
-        let status = if code == "canceled" {
-            TaskStatus::Canceled
-        } else {
-            TaskStatus::Failed
-        };
-        let completed = CompletedTask {
-            parent_connection_id: req.parent_connection_id.clone(),
-            parent_conversation_id: req.parent_session_id,
-            status,
-            child_session_id: None,
-            agent_type: Some(req.agent_type.clone()),
-            text: None,
-            error_code: Some(code.to_string()),
-            message: Some(message.to_string()),
-            duration_ms: None,
-        };
-        insert_completed(
-            &mut pending,
-            call_id.to_string(),
-            completed,
-            self.config_snapshot().completed_cache_cap_bytes,
-        );
-        drop(pending);
-        self.result_notify.notify_waiters();
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn fail_started(
         &self,

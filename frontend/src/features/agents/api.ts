@@ -1,4 +1,4 @@
-import { backendCall, backendStream } from '@/lib/backendTransport';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import type {
   AgentPreparedSessionSnapshot,
   AgentSessionControlsSnapshot,
@@ -152,20 +152,25 @@ export const agentsApi = {
       },
     }),
 
-  scanLocalHistory: (
+  scanLocalHistory: async (
     agentId: string,
     onProgress?: (
       progress: import('shared/types').LocalHistoryScanProgress
     ) => void
-  ): Promise<import('shared/types').LocalHistoryScanPage> =>
-    backendStream(
-      'agent_scan_local_history',
-      { agentId },
-      (message) =>
-        onProgress?.(
-          message as import('shared/types').LocalHistoryScanProgress
-        )
-    ),
+  ): Promise<import('shared/types').LocalHistoryScanPage> => {
+    const unlisten = onProgress
+      ? await backendListen<
+          import('shared/types').LocalHistoryScanProgress
+        >('local-history-scan-progress', onProgress)
+      : () => undefined;
+    try {
+      return await backendCall<
+        import('shared/types').LocalHistoryScanPage
+      >('agent_scan_local_history', { agentId });
+    } finally {
+      unlisten();
+    }
+  },
 
   startLocalHistoryImport: (
     selections: import('shared/types').LocalHistoryImportSelection[]

@@ -682,17 +682,18 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         [
             ("claude_code", true),
             ("codex", false),
-            ("antigravity", false),
-            ("openclaw", true),
-            ("opencode", true),
-            ("cline", true),
-            ("hermes", true),
-            ("codebuddy", true),
-            ("kimi_code", true),
             ("pi", true),
+            ("opencode", true),
             ("grok", true),
             ("cursor", true),
             ("deepseek_harness", true),
+            ("antigravity", false),
+            ("cline", true),
+            ("openclaw", true),
+            ("hermes", true),
+            ("codebuddy", true),
+            ("kimi_code", true),
+            ("qoder", true),
         ]
     );
     assert!(
@@ -721,6 +722,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         "grok",
         "cursor",
         "deepseek_harness",
+        "qoder",
     ] {
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")
@@ -774,6 +776,134 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             .unwrap()
             .is_some()
     );
+}
+
+#[tokio::test]
+async fn migration_rewrites_the_previous_default_agent_bar_order() {
+    let pool = migrated_pool().await;
+    for (position, agent_id) in [
+        "claude_code",
+        "codex",
+        "antigravity",
+        "openclaw",
+        "opencode",
+        "cline",
+        "hermes",
+        "codebuddy",
+        "kimi_code",
+        "pi",
+        "grok",
+        "cursor",
+        "deepseek_harness",
+        "qoder",
+        "vendor.custom",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        sqlx::query(
+            r#"INSERT INTO agent_membership
+               (agent_id, source, built_in, retired, enabled, position)
+               VALUES (?, ?, ?, 0, 1, ?)"#,
+        )
+        .bind(agent_id)
+        .bind(if agent_id == "vendor.custom" {
+            "official_registry"
+        } else {
+            "built_in_profile"
+        })
+        .bind(agent_id != "vendor.custom")
+        .bind(position as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        r#"INSERT INTO agent_management_migration_state (migration_key, completed_at)
+           VALUES ('legacy-agent-settings-v1', datetime('now', 'subsec'))"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    LegacyAgentMigration::run(&pool).await.unwrap();
+
+    let memberships = AgentMembershipRepository::new(pool.clone())
+        .list()
+        .await
+        .unwrap();
+    assert_eq!(
+        memberships
+            .iter()
+            .map(|row| row.agent_id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "claude_code",
+            "codex",
+            "pi",
+            "opencode",
+            "grok",
+            "cursor",
+            "deepseek_harness",
+            "antigravity",
+            "cline",
+            "openclaw",
+            "hermes",
+            "codebuddy",
+            "kimi_code",
+            "qoder",
+            "vendor.custom",
+        ]
+    );
+
+    LegacyAgentMigration::run(&pool).await.unwrap();
+    let again = AgentMembershipRepository::new(pool).list().await.unwrap();
+    assert_eq!(
+        again
+            .iter()
+            .map(|row| row.agent_id.as_str())
+            .collect::<Vec<_>>(),
+        memberships
+            .iter()
+            .map(|row| row.agent_id.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn migration_keeps_a_customized_agent_bar_order() {
+    let pool = migrated_pool().await;
+    for (position, agent_id) in ["pi", "claude_code", "codex", "opencode"]
+        .into_iter()
+        .enumerate()
+    {
+        sqlx::query(
+            r#"INSERT INTO agent_membership
+               (agent_id, source, built_in, retired, enabled, position)
+               VALUES (?, 'built_in_profile', 1, 0, 1, ?)"#,
+        )
+        .bind(agent_id)
+        .bind(position as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        r#"INSERT INTO agent_management_migration_state (migration_key, completed_at)
+           VALUES ('legacy-agent-settings-v1', datetime('now', 'subsec'))"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    LegacyAgentMigration::run(&pool).await.unwrap();
+
+    let memberships = AgentMembershipRepository::new(pool).list().await.unwrap();
+    let ids = memberships
+        .iter()
+        .map(|row| row.agent_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(&ids[..4], &["pi", "claude_code", "codex", "opencode"]);
 }
 
 #[tokio::test]

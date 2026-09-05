@@ -1,8 +1,12 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 
 use agents::conversation::{
-    ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationError,
-    ConversationErrorView, ConversationEvent, ConversationPermissionView, ConversationRowOp,
+    ContentBlock, ConversationAgentConnectionStatus, ConversationDelegationResult,
+    ConversationDelegationView, ConversationError, ConversationErrorView, ConversationEvent,
+    ConversationInputEvent, ConversationPermissionView, ConversationRowOp,
     ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
     ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
     SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
@@ -28,14 +32,17 @@ use db::models::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
+use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
-// v16 keeps a later turn's stream off a settled predecessor when turn_id is stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 16;
+// v17 attributes streaming deltas to the recorder's turn_id, which is now read from
+// the authoritative active-turn pointer instead of a cache that could go stale.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 17;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
+const AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID: &str = "notice:agent-connection-recovering";
 const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
@@ -553,6 +560,16 @@ impl ConversationStateApplier {
                 )
                 .await?;
             }
+            ConversationEvent::UsageUpdated { usage } => {
+                crate::usage_accounting::apply_usage_updated(
+                    &mut *conn,
+                    record.conversation_id,
+                    record.sequence,
+                    &usage,
+                    record.created_at,
+                )
+                .await?;
+            }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 if let Some(turn_id) = record.turn_id {
                     for file in summary.files {
@@ -756,6 +773,7 @@ impl ConversationProjector {
             "conversation_permissions",
             "conversation_terminals",
             "conversation_file_changes",
+            "conversation_usage_snapshots",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE conversation_id = ?"))
                 .bind(conversation_id)
@@ -809,6 +827,12 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
+        // Durable input Submitted/Claimed events have no turn_id, so they sit
+        // before the turn-owned cut. If they survive, rebuild re-queues the
+        // truncated prompt and a reset-to-here resend submits it a second time.
+        let drop_input_ids =
+            Self::durable_inputs_undone_by_truncate(conn, conversation_id, ordinal).await?;
+
         // The first event sequence owned by the target turn (or any later turn) is the
         // truncation cut: dropping events at/after it removes the target turn and
         // everything that followed, while turn-less infra events before it stay put.
@@ -834,6 +858,8 @@ impl ConversationProjector {
             .await?;
         }
 
+        Self::delete_durable_input_events(conn, conversation_id, &drop_input_ids).await?;
+
         sqlx::query(
             r#"DELETE FROM conversation_turns
                WHERE conversation_id = ? AND ordinal >= ?"#,
@@ -857,6 +883,99 @@ impl ConversationProjector {
         .await;
         if let Err(error) = reindex {
             tracing::warn!("conversation FTS reindex on truncate failed: {error}");
+        }
+        Ok(())
+    }
+
+    async fn durable_inputs_undone_by_truncate(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        ordinal: i64,
+    ) -> Result<HashSet<Uuid>, sqlx::Error> {
+        let mut ids: HashSet<Uuid> = sqlx::query_scalar(
+            r#"SELECT id
+               FROM conversation_inputs
+               WHERE conversation_id = ?
+                 AND (
+                   status IN ('queued', 'claimed')
+                   OR (
+                       status = 'dispatched'
+                       AND (
+                           turn_id IS NULL
+                           OR turn_id IN (
+                               SELECT id
+                               FROM conversation_turns
+                               WHERE conversation_id = ? AND ordinal >= ?
+                           )
+                       )
+                   )
+                 )"#,
+        )
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+
+        let truncated_turn_ids: HashSet<Uuid> = sqlx::query_scalar(
+            r#"SELECT id
+               FROM conversation_turns
+               WHERE conversation_id = ? AND ordinal >= ?"#,
+        )
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+        if truncated_turn_ids.is_empty() {
+            return Ok(ids);
+        }
+
+        let events =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        for record in events {
+            if let ParsedEvent::Known(ConversationEvent::ConversationInput {
+                event:
+                    ConversationInputEvent::Dispatched {
+                        input_id, turn_id, ..
+                    },
+            }) = conversation_event_from_record(&record)
+                && truncated_turn_ids.contains(&turn_id)
+            {
+                ids.insert(input_id);
+            }
+        }
+        Ok(ids)
+    }
+
+    async fn delete_durable_input_events(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        drop_input_ids: &HashSet<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        if drop_input_ids.is_empty() {
+            return Ok(());
+        }
+        let events =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        for record in events {
+            if record.event_kind != "conversation_input" {
+                continue;
+            }
+            let ParsedEvent::Known(ConversationEvent::ConversationInput { event }) =
+                conversation_event_from_record(&record)
+            else {
+                continue;
+            };
+            if drop_input_ids.contains(&conversation_input_event_id(&event)) {
+                sqlx::query("DELETE FROM conversation_events WHERE id = ?")
+                    .bind(record.id)
+                    .execute(&mut *conn)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -931,6 +1050,58 @@ impl IncrementalRowProjector {
 
     pub fn last_sequence(&self) -> i64 {
         self.fold.last_sequence
+    }
+}
+
+/// How many conversations keep a warm [`IncrementalRowProjector`]. Each holds that
+/// conversation's whole folded timeline, so the cache is capped; an evicted entry
+/// simply reloads from its snapshot on the next committed event.
+const MAX_CACHED_ROW_PROJECTORS: usize = 8;
+
+/// A cached projector plus the recency used to bound the cache.
+pub struct CachedRowProjector {
+    pub projector: IncrementalRowProjector,
+    last_used: Instant,
+}
+
+impl CachedRowProjector {
+    pub fn new(projector: IncrementalRowProjector) -> Self {
+        Self {
+            projector,
+            last_used: Instant::now(),
+        }
+    }
+
+    pub fn touch(&mut self) {
+        self.last_used = Instant::now();
+    }
+}
+
+/// Per-conversation cache of live incremental projectors (消灭双投影). Owned by the
+/// host's application state and fed through a single publish path.
+pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, CachedRowProjector>>>;
+
+/// Trim the projector cache to [`MAX_CACHED_ROW_PROJECTORS`], never evicting the
+/// conversation that just published.
+///
+/// Eviction is by least recent use rather than on turn settle: settle is the busiest
+/// moment on the publish path, so dropping the projector there guaranteed a cold
+/// reload — and a full replay of the turn's events — exactly when several publishers
+/// were racing to emit the terminal row op.
+pub fn evict_least_recently_used_projectors(
+    cache: &mut HashMap<Uuid, CachedRowProjector>,
+    keep: Uuid,
+) {
+    while cache.len() > MAX_CACHED_ROW_PROJECTORS {
+        let Some(oldest) = cache
+            .iter()
+            .filter(|(id, _)| **id != keep)
+            .min_by_key(|(_, entry)| entry.last_used)
+            .map(|(id, _)| *id)
+        else {
+            return;
+        };
+        cache.remove(&oldest);
     }
 }
 
@@ -1035,8 +1206,13 @@ impl ProjectionFold {
         if let ConversationEvent::AssistantTextDelta { ref text, .. }
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
         {
+            // A delta belongs to the Turn the recorder attributed it to, even when
+            // that Turn has already settled — a late-flushed tail is part of the
+            // reply it came from. Re-pointing it at whichever Turn is currently open
+            // was a workaround for stale turn attribution, and it is what glued a
+            // stopped reply onto the front of the next one.
             let turn_id = self
-                .resolved_turn_id_for_stream(record)
+                .resolved_turn_id(record)
                 .unwrap_or(record.conversation_id);
             let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
                 TimelineTextStream::Reasoning
@@ -1537,7 +1713,50 @@ impl ProjectionFold {
                     row: ConversationTimelineRow::SessionNotice { notice },
                 });
             }
-            ConversationEvent::AgentBindingReady { .. } => {}
+            ConversationEvent::AgentBindingReady { .. } => {
+                if let Some(index) = side_rows
+                    .iter()
+                    .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
+                {
+                    side_rows.remove(index);
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                    });
+                }
+            }
+            ConversationEvent::AgentConnectionStatusChanged { status } => match status {
+                ConversationAgentConnectionStatus::Recovering => {
+                    side_rows.retain(|row| row.row_id != AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
+                    side_rows.push(TimelineRow {
+                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                        row: ConversationTimelineRow::SessionNotice {
+                            notice: ConversationSessionNotice {
+                                title: "正在恢复会话".into(),
+                                message: None,
+                                severity: "info".into(),
+                                ..Default::default()
+                            },
+                        },
+                    });
+                }
+                ConversationAgentConnectionStatus::Ready
+                | ConversationAgentConnectionStatus::Error
+                | ConversationAgentConnectionStatus::Closed => {
+                    if let Some(index) = side_rows
+                        .iter()
+                        .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
+                    {
+                        side_rows.remove(index);
+                        deleted_rows.push(ConversationRowOp::Delete {
+                            row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
+                            revision: record.sequence,
+                        });
+                    }
+                }
+                ConversationAgentConnectionStatus::Connecting => {}
+            },
             ConversationEvent::AgentBindingRecovered { strategy } => match strategy {
                 SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
                     if let Some(index) = side_rows
@@ -1646,6 +1865,8 @@ impl ProjectionFold {
                                 message,
                                 code: Some("auth_required".into()),
                                 raw: None,
+                                kind: Default::default(),
+                                plan_usage: None,
                             },
                         },
                     },
@@ -1767,37 +1988,6 @@ impl ProjectionFold {
         record.turn_id.or_else(|| self.turn_order.last().copied())
     }
 
-    /// Streaming deltas must never attach to a turn that has already settled once
-    /// a later turn is open. A stale recorder `turn_id` (the previous completed
-    /// turn) would otherwise concatenate reply B onto assistant A while the new
-    /// user row only shows a loading bubble.
-    fn resolved_turn_id_for_stream(&self, record: &ConversationEventRecord) -> Option<Uuid> {
-        let latest_open = self.latest_open_turn_id();
-        if let Some(turn_id) = record.turn_id {
-            if let Some(turn) = self.turns.get(&turn_id)
-                && turn_phase_is_terminal(&turn.phase)
-                && let Some(open_id) = latest_open
-                && open_id != turn_id
-            {
-                return Some(open_id);
-            }
-            return Some(turn_id);
-        }
-        latest_open.or_else(|| self.turn_order.last().copied())
-    }
-
-    fn latest_open_turn_id(&self) -> Option<Uuid> {
-        self.turn_order.iter().rev().find_map(|id| {
-            self.turns.get(id).and_then(|turn| {
-                if turn_phase_is_terminal(&turn.phase) {
-                    None
-                } else {
-                    Some(*id)
-                }
-            })
-        })
-    }
-
     fn seed_user_prompt_from_session(&mut self, conversation_id: Uuid, prompt: Option<&str>) {
         let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) else {
             return;
@@ -1900,10 +2090,6 @@ fn ensure_turn(
             revision: record.sequence,
         },
     );
-}
-
-fn turn_phase_is_terminal(phase: &str) -> bool {
-    matches!(phase, "settled" | "failed" | "cancelled" | "interrupted")
 }
 
 fn settle_turn(
@@ -2078,6 +2264,18 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
     Some(format!("{reason}: {requested}"))
 }
 
+fn conversation_input_event_id(event: &ConversationInputEvent) -> Uuid {
+    match event {
+        ConversationInputEvent::Submitted { input_id, .. }
+        | ConversationInputEvent::Updated { input_id, .. }
+        | ConversationInputEvent::Reordered { input_id, .. }
+        | ConversationInputEvent::Claimed { input_id, .. }
+        | ConversationInputEvent::ClaimReleased { input_id, .. }
+        | ConversationInputEvent::Dispatched { input_id, .. }
+        | ConversationInputEvent::Cancelled { input_id, .. } => *input_id,
+    }
+}
+
 fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEvent {
     match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
         Ok(event) => ParsedEvent::Known(event),
@@ -2140,9 +2338,10 @@ mod tests {
             ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
             ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
             ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
-            ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
-            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
-            ConversationToolCallPatch, ConversationUsage, SessionRecoveryStrategy,
+            ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
+            ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
+            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
+            ConversationUsage, SessionRecoveryStrategy,
         },
     };
     use db::models::{
@@ -2368,7 +2567,8 @@ mod tests {
                 modes_json: "[]",
                 config_options_json: "[]",
                 current_mode: None,
-                status: "connecting",
+                config_selection_json: "{}",
+                status: db::models::conversation::BindingStatus::Connecting,
             },
         )
         .await
@@ -3143,6 +3343,8 @@ mod tests {
                         message: "agent failed".into(),
                         code: Some("fixture_failure".into()),
                         raw: None,
+                        kind: Default::default(),
+                        plan_usage: None,
                     },
                 },
                 "failed",
@@ -3291,6 +3493,8 @@ mod tests {
                     message: "ACP connection closed".into(),
                     code: Some("connection_closed".into()),
                     raw: None,
+                    kind: Default::default(),
+                    plan_usage: None,
                 },
             },
             None,
@@ -3320,11 +3524,12 @@ mod tests {
         }
     }
 
+    /// Regression: each Turn's stream stays on its own assistant row. Deltas are
+    /// attributed by the recorder from the authoritative active-turn pointer, so the
+    /// fold must honour `turn_id` verbatim — re-pointing a settled Turn's late tail at
+    /// whichever Turn is open produced the reported "用户 A - AI A - 用户 B - AI AB".
     #[tokio::test]
-    async fn next_turn_stream_does_not_append_to_a_settled_predecessor() {
-        // User A → AI A, then User B. If the recorder still tags B's deltas with
-        // A's turn_id (stale active-turn cache), the fold must still place them
-        // on B. Otherwise the timeline becomes User A → AI AB, User B → loading.
+    async fn each_turns_stream_stays_on_its_own_assistant_row() {
         let pool = setup_pool().await;
         let (conversation_id, turn_a) = seed_turn(&pool).await;
         let turn_b = ConversationTurnRecord::create_pending(
@@ -3401,7 +3606,7 @@ mod tests {
         let delta_b = append_event(
             &pool,
             conversation_id,
-            Some(turn_a),
+            Some(turn_b),
             "acp",
             ConversationEvent::AssistantTextDelta {
                 text: "answer-B".into(),
@@ -3417,7 +3622,7 @@ mod tests {
                 ConversationRowOp::AppendText { row_id, delta, .. }
                     if row_id == &format!("{turn_b}:assistant") && delta == "answer-B"
             )),
-            "stale turn_id on B's delta must still append to B, not A: {ops:?}"
+            "B's delta must append to B: {ops:?}"
         );
         assert!(
             !ops.iter().any(|op| matches!(
@@ -3426,6 +3631,30 @@ mod tests {
                     if row_id == &format!("{turn_a}:assistant")
             )),
             "B's stream must not grow A's assistant row: {ops:?}"
+        );
+
+        // A settled Turn's late-flushed tail belongs to that Turn, not to the Turn
+        // that happens to be open.
+        let late_tail_a = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_a),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "-tail".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&late_tail_a).expect("fold A tail");
+        assert!(
+            ops.iter().any(|op| matches!(
+                op,
+                ConversationRowOp::AppendText { row_id, delta, .. }
+                    if row_id == &format!("{turn_a}:assistant") && delta == "-tail"
+            )),
+            "A's late tail must stay on A: {ops:?}"
         );
 
         let timeline = ConversationProjector::project(&pool, conversation_id)
@@ -3454,7 +3683,7 @@ mod tests {
         assert_eq!(
             assistant_texts,
             vec![
-                (format!("{turn_a}:assistant"), "answer-A".into()),
+                (format!("{turn_a}:assistant"), "answer-A-tail".into()),
                 (format!("{turn_b}:assistant"), "answer-B".into()),
             ]
         );
@@ -4499,6 +4728,8 @@ mod tests {
                         message: "canceled by request".into(),
                         code: Some("canceled".into()),
                         raw: None,
+                        kind: Default::default(),
+                        plan_usage: None,
                     },
                 },
             },
@@ -4791,6 +5022,8 @@ mod tests {
                     message: "late visible error".into(),
                     code: None,
                     raw: None,
+                    kind: Default::default(),
+                    plan_usage: None,
                 },
             },
             None,
@@ -5252,6 +5485,178 @@ mod tests {
             .await
             .expect("project after");
         assert_eq!(after.last_sequence, 3);
+    }
+
+    fn test_input_payload(text: &str) -> ConversationInputPayload {
+        ConversationInputPayload {
+            agent_id: AgentId::parse("codex").expect("agent id"),
+            workspace_id: Uuid::new_v4(),
+            executor_profile_id: None,
+            text: text.to_string(),
+            display_text: None,
+            images: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
+        }
+    }
+
+    async fn seed_durable_input_turn(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        text: &str,
+    ) -> (Uuid, Uuid) {
+        let input_id = Uuid::new_v4();
+        let claim_token = Uuid::new_v4();
+        let payload = test_input_payload(text);
+        append_event(
+            pool,
+            conversation_id,
+            None,
+            "user",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Submitted {
+                    input_id,
+                    operation_id: Uuid::new_v4(),
+                    revision: 1,
+                    sort_key: ConversationInputRecord::next_sort_key(pool, conversation_id)
+                        .await
+                        .expect("sort key"),
+                    payload_digest: format!("digest-{input_id}"),
+                    payload,
+                    principal: serde_json::json!({ "kind": "test" }),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            pool,
+            conversation_id,
+            None,
+            "system",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Claimed {
+                    input_id,
+                    claim_token,
+                    claim_deadline: chrono::Utc::now() + chrono::Duration::seconds(30),
+                },
+            },
+            None,
+        )
+        .await;
+        let turn = ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt"),
+                text_preview: Some(text),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        append_event(
+            pool,
+            conversation_id,
+            Some(turn.id),
+            "system",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Dispatched {
+                    input_id,
+                    claim_token,
+                    turn_id: turn.id,
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            pool,
+            conversation_id,
+            Some(turn.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: text.into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        (input_id, turn.id)
+    }
+
+    #[tokio::test]
+    async fn truncate_to_turn_does_not_requeue_the_truncated_turn_input() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let (kept_input_id, _) = seed_durable_input_turn(&pool, conversation_id, "first").await;
+        let (resent_input_id, _) = seed_durable_input_turn(&pool, conversation_id, "hello").await;
+        let queued_follow_up = Uuid::new_v4();
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "user",
+            ConversationEvent::ConversationInput {
+                event: ConversationInputEvent::Submitted {
+                    input_id: queued_follow_up,
+                    operation_id: Uuid::new_v4(),
+                    revision: 1,
+                    sort_key: ConversationInputRecord::next_sort_key(&pool, conversation_id)
+                        .await
+                        .expect("sort key"),
+                    payload_digest: format!("digest-{queued_follow_up}"),
+                    payload: test_input_payload("follow-up"),
+                    principal: serde_json::json!({ "kind": "test" }),
+                },
+            },
+            None,
+        )
+        .await;
+
+        ConversationProjector::truncate_to_turn_ordinal(&pool, conversation_id, 2)
+            .await
+            .expect("truncate");
+
+        let remaining = ConversationInputRecord::list_for_conversation(&pool, conversation_id)
+            .await
+            .expect("list inputs");
+        assert_eq!(
+            remaining.iter().map(|input| input.id).collect::<Vec<_>>(),
+            vec![kept_input_id],
+            "reset-to-here must drop the truncated turn input and later queued follow-ups, or resend submits a duplicate"
+        );
+        assert_eq!(remaining[0].status, "dispatched");
+        assert!(
+            ConversationInputRecord::find_by_id(&pool, resent_input_id)
+                .await
+                .expect("lookup resent input")
+                .is_none()
+        );
+        assert!(
+            ConversationInputRecord::find_by_id(&pool, queued_follow_up)
+                .await
+                .expect("lookup follow-up")
+                .is_none()
+        );
     }
 
     #[tokio::test]

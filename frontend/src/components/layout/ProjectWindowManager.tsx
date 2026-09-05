@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { TFunction } from 'i18next';
 import { SoundFile } from 'shared/types';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
 import {
@@ -17,12 +17,11 @@ import {
   type SessionSummary,
 } from '@/lib/api';
 import { showDesktopToast } from '@/lib/desktopToast';
-import { paths } from '@/lib/paths';
 import { backendListen } from '@/lib/backendTransport';
 import { desktopApi } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
-import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
+import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
 import { deliverDesktopNotification } from './sessionCompletionNotification';
 
 function getSessionStatusLabel(
@@ -115,24 +114,11 @@ function resolveSummaryDisplayName(summary: SessionSummary, t: TFunction) {
 
 function ProjectNotificationBridge() {
   const { t } = useTranslation(['panels', 'common']);
-  const navigate = useNavigate();
   const { projectId: activeProjectId } = useProject();
   const { config } = useUserSystem();
   const { projectsById } = useProjects();
-  const ensureProjectOpen = useWindowProjectsStore(
-    (state) => state.ensureProjectOpen
-  );
   const setProjectAlert = useWindowProjectsStore(
     (state) => state.setProjectAlert
-  );
-  const requestProjectFocus = useWindowProjectsStore(
-    (state) => state.requestProjectFocus
-  );
-  const setRailVisible = useWindowProjectsStore(
-    (state) => state.setRailVisible
-  );
-  const setProjectActiveTab = useLayoutStore(
-    (state) => state.setProjectActiveTab
   );
   const { consumeStopToastSuppression } = useStopToastSuppression();
   const latestNotificationStateRef = useRef({
@@ -150,26 +136,9 @@ function ProjectNotificationBridge() {
     t,
   };
 
-  const openProjectSession = useCallback(
-    ({ projectId, workspaceId, sessionId }: ProjectSessionTarget) => {
-      setRailVisible(true);
-      ensureProjectOpen(projectId);
-      requestProjectFocus(projectId, {
-        workspaceId,
-        sessionId,
-        requestedAt: Date.now(),
-      });
-      setProjectActiveTab(projectId, 'kanban');
-      navigate(paths.projectSession(projectId, workspaceId, sessionId));
-    },
-    [
-      ensureProjectOpen,
-      navigate,
-      requestProjectFocus,
-      setProjectActiveTab,
-      setRailVisible,
-    ]
-  );
+  // Shared context-aware reveal: workspace execution area, kanban execution
+  // area, or kanban canvas depending on where the main window currently is.
+  const openProjectSession = useOpenProjectSession();
 
   const isApplicationCurrentlyFocused = useCallback(async () => {
     try {

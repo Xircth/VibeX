@@ -690,7 +690,29 @@ pub struct ConversationFileChangeSummary {
     pub summary: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+/// Backend-owned turn-failure taxonomy (ADR-0074). Classification uses
+/// protocol codes and structured `data` only — never free-text messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationTurnErrorKind {
+    Rejected,
+    ServiceError,
+    RateLimited,
+    Cancelled,
+    AuthRequired,
+    ResourceNotFound,
+    SessionResumeUnsupported,
+    SessionLoadFailed,
+    IdleTimeout,
+    ConnectionClosed,
+    PromptConflict,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 pub struct ConversationError {
     pub message: String,
@@ -698,6 +720,85 @@ pub struct ConversationError {
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<serde_json::Value>,
+    #[serde(default)]
+    pub kind: ConversationTurnErrorKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_usage: Option<crate::AgentPlanUsage>,
+}
+
+impl ConversationError {
+    pub fn new(
+        message: impl Into<String>,
+        code: Option<String>,
+        raw: Option<serde_json::Value>,
+    ) -> Self {
+        let message = message.into();
+        let kind = classify_turn_error(code.as_deref(), raw.as_ref());
+        Self {
+            message,
+            code,
+            raw,
+            kind,
+            plan_usage: None,
+        }
+    }
+
+    pub fn with_cached_plan_usage(mut self, agent_id: Option<&crate::AgentId>) -> Self {
+        if let Some(agent_id) = agent_id {
+            self.plan_usage = crate::cached_plan_usage(agent_id);
+        }
+        self
+    }
+}
+
+/// Classify a turn failure from protocol/host evidence only.
+///
+/// `code` is the ACP/JSON-RPC or host-produced code. `raw` is `acp::Error.data`
+/// or a host-built object. Message text is never consulted (ADR-0058 / ADR-0074).
+pub fn classify_turn_error(
+    code: Option<&str>,
+    raw: Option<&serde_json::Value>,
+) -> ConversationTurnErrorKind {
+    if let Some(raw) = raw {
+        if structured_http_status(raw) == Some(429) || structured_rate_limited(raw) {
+            return ConversationTurnErrorKind::RateLimited;
+        }
+        if structured_http_status(raw).is_some_and(|status| (500..600).contains(&status)) {
+            return ConversationTurnErrorKind::ServiceError;
+        }
+    }
+    match code {
+        Some("invalid_request" | "invalid_params") => ConversationTurnErrorKind::Rejected,
+        Some("internal_error") => ConversationTurnErrorKind::ServiceError,
+        Some("request_cancelled" | "cancelled") => ConversationTurnErrorKind::Cancelled,
+        Some("auth_required") => ConversationTurnErrorKind::AuthRequired,
+        Some("resource_not_found") => ConversationTurnErrorKind::ResourceNotFound,
+        Some("session_resume_unsupported") => ConversationTurnErrorKind::SessionResumeUnsupported,
+        Some("session_load_failed") => ConversationTurnErrorKind::SessionLoadFailed,
+        Some("idle_timeout") => ConversationTurnErrorKind::IdleTimeout,
+        Some("connection_closed") => ConversationTurnErrorKind::ConnectionClosed,
+        Some("prompt_conflict") => ConversationTurnErrorKind::PromptConflict,
+        _ => ConversationTurnErrorKind::Unknown,
+    }
+}
+
+fn structured_http_status(raw: &serde_json::Value) -> Option<u16> {
+    raw.get("http_status")
+        .or_else(|| raw.get("status"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|status| u16::try_from(status).ok())
+}
+
+fn structured_rate_limited(raw: &serde_json::Value) -> bool {
+    raw.get("rate_limited").and_then(serde_json::Value::as_bool) == Some(true)
+        || raw
+            .get("retry_after_ms")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+        || raw
+            .get("retry_after")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -1518,6 +1619,46 @@ mod event_sourced_tests {
             ConversationEvent::UserTurnCreated { workflow_refs, .. }
                 if workflow_refs.is_empty()
         ));
+    }
+
+    #[test]
+    fn turn_error_kind_uses_protocol_and_structured_data_never_message_text() {
+        use super::{ConversationTurnErrorKind, classify_turn_error};
+
+        assert_eq!(
+            classify_turn_error(Some("invalid_params"), None),
+            ConversationTurnErrorKind::Rejected
+        );
+        assert_eq!(
+            classify_turn_error(Some("internal_error"), None),
+            ConversationTurnErrorKind::ServiceError
+        );
+        assert_eq!(
+            classify_turn_error(
+                Some("rpc_-32004"),
+                Some(&serde_json::json!({ "http_status": 429 }))
+            ),
+            ConversationTurnErrorKind::RateLimited
+        );
+        assert_eq!(
+            classify_turn_error(
+                Some("rpc_-32004"),
+                Some(&serde_json::json!({ "http_status": 503 }))
+            ),
+            ConversationTurnErrorKind::ServiceError
+        );
+        assert_eq!(
+            classify_turn_error(
+                Some("rpc_-32004"),
+                Some(&serde_json::json!({
+                    "message": "rate limit exceeded"
+                }))
+            ),
+            ConversationTurnErrorKind::Unknown
+        );
+        let error = ConversationError::new("rate limit exceeded", Some("rpc_-32004".into()), None);
+        assert_eq!(error.kind, ConversationTurnErrorKind::Unknown);
+        assert_eq!(error.code.as_deref(), Some("rpc_-32004"));
     }
 
     #[test]

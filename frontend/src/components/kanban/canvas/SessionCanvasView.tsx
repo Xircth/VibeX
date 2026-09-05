@@ -26,11 +26,17 @@ import {
 } from '@xyflow/react';
 import { Map as MapIcon, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { createPortal } from 'react-dom';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import { useKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { invalidateWorkspaceSessions } from '@/lib/sessionQueryCache';
+import {
+  clearCanvasReveal,
+  peekCanvasReveal,
+  subscribeCanvasReveal,
+} from '@/lib/canvasSessionReveal';
 import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
 import { cn } from '@/lib/utils';
 import { FloatingSessionList } from './FloatingSessionList';
@@ -42,6 +48,7 @@ import { SessionCanvasGroupNode } from './SessionCanvasGroupNode';
 import {
   applyFlowGeometryChanges,
   applyDropHint,
+  buildCanvasFlowLookups,
   computeDropHint,
   canGroupSelection,
   collectSelectionForRemoval,
@@ -49,11 +56,11 @@ import {
   expandSelectionToGroups,
   emptyGroupFootprint,
   findEmptyCanvasPlacement,
-  groupHasRunningSession,
   selectedSessionIdsForViewed,
-  groupNumber,
+  planSessionGrid,
+  dropHintsEqual,
+  flowPositionToWorld,
   groupSelection,
-  groupSessionCount,
   importSessionsAsGroup,
   isGroupNode,
   isOverflowHidden,
@@ -64,14 +71,18 @@ import {
   closeSessionWindow,
   createEmptyGroup,
   previewGroupFrame,
+  previewCanvasDrop,
+  nextOpenCardSlot,
+  visualDropHint,
   renameGroup as renameCanvasGroup,
   toggleGroupShowAll as toggleCanvasGroupShowAll,
-  GROUP_VISIBLE_LIMIT,
   resizeGroupFrame,
+  inferGroupResizeAxis,
   toggleGroupCollapsed,
-  worldPosition,
   worldRect,
   type CanvasDropHint,
+  type CanvasFlowLookups,
+  type GroupResizeOrigin,
 } from './canvasGrouping';
 import {
   canvasNodesMatch,
@@ -87,6 +98,7 @@ import {
   CARD_HEIGHT,
   CARD_WIDTH,
   DRAG_HANDLE_SELECTOR,
+  alignGuidesEqual,
   applyMoves,
   canvasNodeId,
   computeAlignment,
@@ -111,6 +123,7 @@ import {
 import {
   CANVAS_BUNDLE_KEY,
   canvasDocumentStorageKey,
+  flushCanvasDocumentPersist,
   loadCanvasDocument,
   saveCanvasDocument,
   type SessionCanvasDocument,
@@ -120,6 +133,7 @@ import {
   SessionCanvasViewProvider,
   type SessionCanvasViewContextValue,
 } from './CanvasViewContext';
+import { createCanvasSessionStore } from './canvasSessionStore';
 import { useCanvasMarqueeTextGuard } from './useCanvasMarqueeTextGuard';
 import { useCanvasRightDragPan } from './useCanvasRightDragPan';
 
@@ -163,24 +177,26 @@ interface SessionCanvasViewProps {
 function toFlowNode(
   node: SessionCanvasNode,
   nodes: readonly SessionCanvasNode[],
+  lookups: CanvasFlowLookups,
   selectedIds: ReadonlySet<string>,
   dropHint: CanvasDropHint | null,
   windowSessionIds: readonly string[],
-  draggedId: string | null,
-  runningSessionIds: ReadonlySet<string>,
-  reviewSessionIds: ReadonlySet<string>
+  runningSessionIds: ReadonlySet<string>
 ): Node {
   const size = sizeForNode(node);
   const parent =
     node.parentId && !node.expanded
-      ? nodes.find((item) => item.id === node.parentId)
+      ? nodeById(nodes, node.parentId)
       : undefined;
   const position = { x: node.x, y: node.y };
   const isDropTarget =
     dropHint?.type === 'group' && dropHint.groupId === node.id;
-  const isDragging = draggedId === node.id;
+  const zIndex = lookups.zIndex(node);
   if (isGroupNode(node)) {
-    const count = groupSessionCount(nodes, node.id);
+    const count = lookups.sessionCount(node.id);
+    const plan = planSessionGrid(count, node);
+    const placeholder = isDropTarget ? nextOpenCardSlot(nodes, node.id) : null;
+    const min = lookups.minSize(node.id);
     return {
       id: canvasNodeId(node.id),
       type: 'sessionGroup',
@@ -189,22 +205,25 @@ function toFlowNode(
       height: size.height,
       selected: selectedIds.has(node.id),
       parentId: parent ? canvasNodeId(parent.id) : undefined,
-      dragHandle: DRAG_HANDLE_SELECTOR,
       className: cn(
         'canvas-group-flow-node',
         isDropTarget && 'canvas-drop-target'
       ),
-      zIndex: isDragging ? 8 : 0,
+      zIndex,
       data: {
         instanceId: node.id,
         name: node.name,
-        index: groupNumber(nodes, node.id),
+        index: lookups.groupNumber(node.id),
         count,
-        overflow: Math.max(0, count - GROUP_VISIBLE_LIMIT),
+        overflow: plan.overflow,
+        placeholderX: placeholder?.x,
+        placeholderY: placeholder?.y,
         showAll: node.showAll,
         collapsed: node.collapsed === true,
-        isRunning: groupHasRunningSession(nodes, node.id, runningSessionIds),
-        isReviewing: groupHasRunningSession(nodes, node.id, reviewSessionIds),
+        isRunning: lookups.groupRunning(node.id),
+        isReviewing: lookups.groupReviewing(node.id),
+        minWidth: min.width,
+        minHeight: min.height,
       },
     };
   }
@@ -220,7 +239,7 @@ function toFlowNode(
     hidden: isOverflowHidden(nodes, node),
     dragHandle: node.expanded ? DRAG_HANDLE_SELECTOR : undefined,
     className: isDropTarget ? 'canvas-drop-target' : undefined,
-    zIndex: isDragging ? 8 : node.expanded ? 4 : 2,
+    zIndex,
     data: {
       sessionId: node.sessionId,
       instanceId: node.id,
@@ -298,27 +317,44 @@ function SessionCanvasFlow({
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [dropHint, setDropHint] = useState<CanvasDropHint | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [alignGuides, setAlignGuides] = useState<AlignmentGuide[]>([]);
-  const [historyVersion, setHistoryVersion] = useState(0);
+  const [, setHistoryVersion] = useState(0);
   const historyRef = useRef<{
     past: SessionCanvasNode[][];
     future: SessionCanvasNode[][];
   }>({ past: [], future: [] });
   const skipHistoryRef = useRef(false);
   const marqueeSelectingRef = useRef(false);
+  const selectionMenuRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     onMiddleClickRef.current = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (selectedIds.size === 0) {
+      if (selectedIdsRef.current.size === 0) {
         setSelectionMenu(null);
         return;
       }
       setSelectionMenu({ x: event.clientX, y: event.clientY });
     };
-  }, [selectedIds]);
+  }, []);
+
+  useEffect(() => {
+    if (!selectionMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const menu = selectionMenuRef.current;
+      if (menu && event.target instanceof Node && menu.contains(event.target)) {
+        return;
+      }
+      setSelectionMenu(null);
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [selectionMenu]);
   const alignmentDeltaRef = useRef({ dx: 0, dy: 0 });
   const flowNodeCacheRef = useRef(new Map<string, Node>());
   const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
@@ -326,7 +362,11 @@ function SessionCanvasFlow({
   const saveTimer = useRef<number | null>(null);
   const documentRef = useRef(documentState);
   documentRef.current = documentState;
+  const groupResizeOriginRef = useRef<
+    (GroupResizeOrigin & { id: string }) | null
+  >(null);
 
+  const sessionStoreRef = useRef(createCanvasSessionStore());
   const previousLiveSessionsRef =
     useRef<readonly KanbanProjectSessionRecord[]>(sessions);
   const displaySessions = preferLiveKanbanSessions(
@@ -380,6 +420,7 @@ function SessionCanvasFlow({
     }
     return ids;
   }, [sessionsById]);
+  sessionStoreRef.current.replace(sessionsById, sessionsReady);
 
   useEffect(() => {
     const sessionIds = selectedSessionIdsForViewed(
@@ -468,16 +509,22 @@ function SessionCanvasFlow({
   const rfNodes = useMemo(() => {
     const cache = flowNodeCacheRef.current;
     const nextCache = new Map<string, Node>();
-    const result = orderCanvasNodes(nodes).map((node) => {
+    const layoutNodes = previewCanvasDrop(nodes, draggedId, dropHint);
+    const lookups = buildCanvasFlowLookups(layoutNodes, {
+      draggedId,
+      selectedIds,
+      runningSessionIds,
+      reviewSessionIds,
+    });
+    const result = orderCanvasNodes(layoutNodes).map((node) => {
       const built = toFlowNode(
         node,
-        nodes,
+        layoutNodes,
+        lookups,
         selectedIds,
         dropHint,
         windowSessionIds,
-        draggedId,
-        runningSessionIds,
-        reviewSessionIds
+        runningSessionIds
       );
       const reused = reuseUnchangedFlowNode(cache.get(built.id), built);
       nextCache.set(reused.id, reused);
@@ -559,6 +606,63 @@ function SessionCanvasFlow({
     },
     [addSession, setCenter]
   );
+
+  // Focus-request reveal: place the session card onto the canvas and focus it.
+  // When the card is already on the canvas the node is left untouched — the
+  // window focus performed by the caller is the entire reveal.
+  const revealSessionOnCanvas = useCallback(
+    (sessionId: string) => {
+      const existing = documentRef.current.nodes.find(
+        (node) => node.sessionId === sessionId
+      );
+      if (existing) {
+        return;
+      }
+      addSession(sessionId);
+      const added = documentRef.current.nodes.find(
+        (node) => node.sessionId === sessionId
+      );
+      if (added) {
+        const size = sizeForNode(added);
+        void setCenter(added.x + size.width / 2, added.y + size.height / 2, {
+          duration: 280,
+          zoom: Math.max(zoomRef.current, 0.8),
+        });
+      }
+    },
+    [addSession, setCenter]
+  );
+
+  const applyCanvasReveal = useCallback(() => {
+    if (!sessionsReady) return;
+    const request = peekCanvasReveal();
+    if (!request || request.projectId !== projectId) return;
+    const record = sessionsById.get(request.sessionId);
+    if (!record) return;
+    // Only the matching canvas clears the request, so a reveal that arrives
+    // before this canvas (or its session list) is ready is still honored.
+    clearCanvasReveal({ projectId });
+    revealSessionOnCanvas(request.sessionId);
+  }, [projectId, revealSessionOnCanvas, sessionsById, sessionsReady]);
+
+  const applyCanvasRevealRef = useRef(applyCanvasReveal);
+  applyCanvasRevealRef.current = applyCanvasReveal;
+
+  useEffect(
+    () =>
+      subscribeCanvasReveal(() => {
+        applyCanvasRevealRef.current();
+      }),
+    []
+  );
+
+  useEffect(() => {
+    // Re-attempt whenever readiness or the session list changes while a reveal
+    // request is still pending (e.g. it arrived before data loaded).
+    if (sessionsReady) {
+      applyCanvasRevealRef.current();
+    }
+  }, [projectId, sessionsById, sessionsReady]);
 
   useEffect(() => {
     onApiReady?.({ addOrFocus, addSession, dropSessionAt, presentSessionIds });
@@ -660,21 +764,73 @@ function SessionCanvasFlow({
     [updateNodes]
   );
 
+  const beginGroupResize = useCallback((groupId: string) => {
+    const group = nodeById(documentRef.current.nodes, groupId);
+    if (!group || !isGroupNode(group)) return;
+    groupResizeOriginRef.current = {
+      id: groupId,
+      width: group.width,
+      height: group.height,
+    } satisfies GroupResizeOrigin & { id: string };
+  }, []);
+
+  const originForGroupResize = useCallback(
+    (
+      groupId: string,
+      geometry?: CanvasNodeGeometry
+    ): GroupResizeOrigin | undefined => {
+      const stored = groupResizeOriginRef.current;
+      const base =
+        stored?.id === groupId
+          ? stored
+          : (() => {
+              const group = nodeById(documentRef.current.nodes, groupId);
+              if (!group || !isGroupNode(group)) return null;
+              const next: GroupResizeOrigin & { id: string } = {
+                id: groupId,
+                width: group.width,
+                height: group.height,
+              };
+              groupResizeOriginRef.current = next;
+              return next;
+            })();
+      if (!base) return undefined;
+      if (!geometry) {
+        return { width: base.width, height: base.height, axis: base.axis };
+      }
+      const axis = inferGroupResizeAxis(base, geometry);
+      if (axis && base.axis !== axis) {
+        groupResizeOriginRef.current = { ...base, axis };
+      }
+      return {
+        width: base.width,
+        height: base.height,
+        axis: axis ?? base.axis,
+      };
+    },
+    []
+  );
+
   const previewGroupResize = useCallback(
     (groupId: string, geometry: CanvasNodeGeometry) => {
+      const origin = originForGroupResize(groupId, geometry);
       updateNodes(
-        (items) => previewGroupFrame(items, groupId, geometry),
+        (items) => previewGroupFrame(items, groupId, geometry, origin),
         false
       );
     },
-    [updateNodes]
+    [originForGroupResize, updateNodes]
   );
 
   const resizeGroup = useCallback(
     (groupId: string, geometry: CanvasNodeGeometry) => {
-      updateNodes((items) => resizeGroupFrame(items, groupId, geometry));
+      const origin = originForGroupResize(groupId, geometry);
+      groupResizeOriginRef.current = null;
+      updateNodes((items) =>
+        resizeGroupFrame(items, groupId, geometry, origin)
+      );
     },
-    [updateNodes]
+    [originForGroupResize, updateNodes]
   );
 
   const collapseGroup = useCallback(
@@ -686,7 +842,7 @@ function SessionCanvasFlow({
 
   const viewContext = useMemo<SessionCanvasViewContextValue>(
     () => ({
-      sessionsById,
+      sessionStore: sessionStoreRef.current,
       sessionsReady,
       expandCard,
       collapseCard,
@@ -697,6 +853,7 @@ function SessionCanvasFlow({
       resetCardSize,
       renameGroup,
       toggleGroupShowAll,
+      beginGroupResize,
       previewGroupResize,
       resizeGroup,
       collapseGroup,
@@ -710,6 +867,7 @@ function SessionCanvasFlow({
       sessionsReady,
       onRenameSession,
       previewResize,
+      beginGroupResize,
       previewGroupResize,
       renameGroup,
       resizeGroup,
@@ -718,7 +876,6 @@ function SessionCanvasFlow({
       removeCard,
       resetCardSize,
       resizeCard,
-      sessionsById,
       zoomToCard,
     ]
   );
@@ -808,19 +965,11 @@ function SessionCanvasFlow({
     const items = documentRef.current.nodes;
     const model = nodeById(items, instanceId);
     if (!model) return;
-    const parent =
-      model.parentId && !model.expanded
-        ? nodeById(items, model.parentId)
-        : undefined;
-    const world = parent
-      ? {
-          x: worldPosition(items, parent).x + dragged.position.x,
-          y: worldPosition(items, parent).y + dragged.position.y,
-        }
-      : { x: dragged.position.x, y: dragged.position.y };
+    const world = flowPositionToWorld(items, model, dragged.position);
+    const parent = model.parentId && !model.expanded;
     if (parent) {
       alignmentDeltaRef.current = { dx: 0, dy: 0 };
-      setAlignGuides([]);
+      setAlignGuides((current) => (current.length === 0 ? current : []));
     } else {
       const moving = {
         id: instanceId,
@@ -834,12 +983,15 @@ function SessionCanvasFlow({
           (node) => node.id !== instanceId && (!node.parentId || node.expanded)
         )
         .map((node) => {
-          const position = worldPosition(items, node);
+          const origin = flowPositionToWorld(items, node, {
+            x: node.x,
+            y: node.y,
+          });
           const size = sizeForNode(node);
           return {
             id: node.id,
-            x: position.x,
-            y: position.y,
+            x: origin.x,
+            y: origin.y,
             width: size.width,
             height: size.height,
           };
@@ -851,9 +1003,12 @@ function SessionCanvasFlow({
         BOARD_DOT_GAP
       );
       alignmentDeltaRef.current = { dx: alignment.dx, dy: alignment.dy };
-      setAlignGuides(alignment.guides);
+      setAlignGuides((current) =>
+        alignGuidesEqual(current, alignment.guides) ? current : alignment.guides
+      );
     }
-    setDropHint(computeDropHint(items, instanceId, world));
+    const hint = visualDropHint(computeDropHint(items, instanceId, world));
+    setDropHint((current) => (dropHintsEqual(current, hint) ? current : hint));
   }, []);
 
   const handleNodeDragStop = useCallback(
@@ -868,7 +1023,7 @@ function SessionCanvasFlow({
       updateNodes((items) => {
         const current = nodeById(items, instanceId);
         if (!current) return items;
-        if (isGroupNode(current) || current.expanded) {
+        if (current.expanded) {
           return items.map((node) =>
             node.id === instanceId
               ? {
@@ -879,24 +1034,23 @@ function SessionCanvasFlow({
               : node
           );
         }
-        const parent =
-          current.parentId && !current.expanded
-            ? nodeById(items, current.parentId)
-            : undefined;
-        const world = {
-          x:
-            (parent ? worldPosition(items, parent).x : 0) +
-            dragged.position.x +
-            dx,
-          y:
-            (parent ? worldPosition(items, parent).y : 0) +
-            dragged.position.y +
-            dy,
-        };
+        const world = flowPositionToWorld(items, current, {
+          x: dragged.position.x + dx,
+          y: dragged.position.y + dy,
+        });
+        const next = items.map((node) =>
+          node.id === instanceId
+            ? {
+                ...node,
+                x: dragged.position.x + dx,
+                y: dragged.position.y + dy,
+              }
+            : node
+        );
         return applyDropHint(
-          items,
+          next,
           instanceId,
-          computeDropHint(items, instanceId, world)
+          computeDropHint(next, instanceId, world)
         );
       });
     },
@@ -1088,17 +1242,19 @@ function SessionCanvasFlow({
         ...documentRef.current,
         viewport: pendingViewport.current ?? documentRef.current.viewport,
       });
+      flushCanvasDocumentPersist();
     },
     [projectId]
   );
 
   const empty = nodes.length === 0;
   const selectedNodes = nodes.filter((node) => selectedIds.has(node.id));
+  const selectedSessions = selectedNodes.filter(isSessionNode);
   const selectedExpanded =
-    selectedNodes.filter(isSessionNode).length > 0 &&
-    selectedNodes.filter(isSessionNode).every((node) => node.expanded);
-  const canUndo = historyVersion >= 0 && historyRef.current.past.length > 0;
-  const canRedo = historyVersion >= 0 && historyRef.current.future.length > 0;
+    selectedSessions.length > 0 &&
+    selectedSessions.every((node) => node.expanded);
+  const canUndo = historyRef.current.past.length > 0;
+  const canRedo = historyRef.current.future.length > 0;
   const canGroup = canGroupSelection(nodes, selectedIds);
 
   return (
@@ -1106,7 +1262,6 @@ function SessionCanvasFlow({
       <div
         ref={surfaceRef}
         className="canvas-surface relative h-full w-full"
-        onClick={() => setSelectionMenu(null)}
         onContextMenu={(event) => {
           event.preventDefault();
         }}
@@ -1335,39 +1490,43 @@ function SessionCanvasFlow({
           }}
           onImport={importSessions}
         />
-        {selectionMenu ? (
-          <div
-            role="menu"
-            className="tahoe-popover fixed z-50 min-w-36 rounded-md p-1 text-popover-foreground"
-            style={{ left: selectionMenu.x, top: selectionMenu.y }}
-            onClick={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              disabled={!canGroup}
-              className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)] disabled:pointer-events-none disabled:opacity-40"
-              onClick={() => {
-                updateNodes((items) => groupSelection(items, selectedIds));
-                setSelectionMenu(null);
-              }}
-            >
-              {t('hubCanvas.groupSelection')}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
-              onClick={() => {
-                deleteSelection();
-                setSelectionMenu(null);
-              }}
-            >
-              {t('hubCanvas.removeNodes')}
-            </button>
-          </div>
-        ) : null}
+        {selectionMenu
+          ? createPortal(
+              <div
+                ref={selectionMenuRef}
+                role="menu"
+                className="tahoe-popover fixed z-[100000] min-w-36 rounded-md p-1 text-popover-foreground"
+                style={{ left: selectionMenu.x, top: selectionMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!canGroup}
+                  className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)] disabled:pointer-events-none disabled:opacity-40"
+                  onClick={() => {
+                    updateNodes((items) => groupSelection(items, selectedIds));
+                    setSelectionMenu(null);
+                  }}
+                >
+                  {t('hubCanvas.groupSelection')}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
+                  onClick={() => {
+                    deleteSelection();
+                    setSelectionMenu(null);
+                  }}
+                >
+                  {t('hubCanvas.removeNodes')}
+                </button>
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     </SessionCanvasViewProvider>
   );

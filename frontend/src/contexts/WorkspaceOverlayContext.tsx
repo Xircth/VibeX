@@ -12,6 +12,8 @@ type NativeSurfaceOcclusionListener = (occluded: boolean) => void;
 
 interface WorkspaceOverlayContextValue {
   setTabCreationMenuOpen: (open: boolean) => void;
+  /** Hide native CEF surfaces while an HTML overlay (select, menu) is open. */
+  setHtmlOverlayOpen: (open: boolean) => void;
   subscribeNativeSurfaceOcclusion: (
     listener: NativeSurfaceOcclusionListener
   ) => () => void;
@@ -20,6 +22,7 @@ interface WorkspaceOverlayContextValue {
 export const WorkspaceOverlayContext =
   createContext<WorkspaceOverlayContextValue>({
     setTabCreationMenuOpen: () => {},
+    setHtmlOverlayOpen: () => {},
     subscribeNativeSurfaceOcclusion: (listener) => {
       listener(false);
       return () => {};
@@ -35,12 +38,15 @@ export function WorkspaceOverlayProvider({
 }) {
   const nativeSurfaceOccludedRef = useRef(nativeSurfaceOccluded);
   const tabCreationMenuOpenRef = useRef(false);
+  const htmlOverlayCountRef = useRef(0);
   const currentOcclusionRef = useRef(nativeSurfaceOccluded);
   const listenersRef = useRef(new Set<NativeSurfaceOcclusionListener>());
 
   const publishOcclusion = useCallback(() => {
     const nextOcclusion =
-      nativeSurfaceOccludedRef.current || tabCreationMenuOpenRef.current;
+      nativeSurfaceOccludedRef.current ||
+      tabCreationMenuOpenRef.current ||
+      htmlOverlayCountRef.current > 0;
     if (currentOcclusionRef.current === nextOcclusion) return;
 
     currentOcclusionRef.current = nextOcclusion;
@@ -52,6 +58,17 @@ export function WorkspaceOverlayProvider({
   const setTabCreationMenuOpen = useCallback(
     (open: boolean) => {
       tabCreationMenuOpenRef.current = open;
+      publishOcclusion();
+    },
+    [publishOcclusion]
+  );
+
+  const setHtmlOverlayOpen = useCallback(
+    (open: boolean) => {
+      htmlOverlayCountRef.current = Math.max(
+        0,
+        htmlOverlayCountRef.current + (open ? 1 : -1)
+      );
       publishOcclusion();
     },
     [publishOcclusion]
@@ -76,9 +93,14 @@ export function WorkspaceOverlayProvider({
   const value = useMemo(
     () => ({
       setTabCreationMenuOpen,
+      setHtmlOverlayOpen,
       subscribeNativeSurfaceOcclusion,
     }),
-    [setTabCreationMenuOpen, subscribeNativeSurfaceOcclusion]
+    [
+      setHtmlOverlayOpen,
+      setTabCreationMenuOpen,
+      subscribeNativeSurfaceOcclusion,
+    ]
   );
 
   return (

@@ -22,6 +22,8 @@ use crate::{
 
 type WatchKey = (String, String, u64, String, PathBuf);
 const PREVIEW_LEASE_TTL: Duration = Duration::from_secs(5 * 60);
+const MIN_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 struct PreviewWatch {
     child: Child,
@@ -31,6 +33,9 @@ struct PreviewWatch {
 
 struct PreviewLease {
     watch: WatchKey,
+    port: u16,
+    capability_token: String,
+    idle_timeout: Duration,
     expires_at: Instant,
 }
 
@@ -113,6 +118,7 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
             .map_err(plugin_error)?
             .ok_or_else(|| preview_error("RUNTIME_NOT_READY", "Preview Runtime is not locked"))?;
         let artifact = canonical_artifact(&request.file_path).await?;
+        let idle_timeout = idle_timeout_for_plugin(&plugin);
         let watch_key = (
             request.plugin_id.clone(),
             request.provider_id.clone(),
@@ -130,9 +136,9 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
             {
                 watch.references = watch.references.saturating_add(1);
                 let port = watch.port;
-                let session = register_lease(&mut state, watch_key, port);
+                let session = register_lease(&mut state, watch_key, port, idle_timeout);
                 drop(state);
-                schedule_expiry(self.state.clone(), session.lease_id.clone());
+                schedule_expiry(self.state.clone(), session.lease_id.clone(), idle_timeout);
                 return Ok(session);
             }
             state.watches.remove(&watch_key);
@@ -195,9 +201,9 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
                 references: 1,
             },
         );
-        let session = register_lease(&mut state, watch_key, port);
+        let session = register_lease(&mut state, watch_key, port, idle_timeout);
         drop(state);
-        schedule_expiry(self.state.clone(), session.lease_id.clone());
+        schedule_expiry(self.state.clone(), session.lease_id.clone(), idle_timeout);
         Ok(session)
     }
 
@@ -231,38 +237,114 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
         }
         Ok(())
     }
+
+    async fn renew_preview(
+        &self,
+        lease_id: &str,
+    ) -> Result<PluginPreviewSession, PluginPreviewHostError> {
+        let mut state = self.state.lock().await;
+        let session = renew_lease(&mut state, lease_id)?;
+        let idle_timeout = state
+            .leases
+            .get(lease_id)
+            .map(|lease| lease.idle_timeout)
+            .unwrap_or(PREVIEW_LEASE_TTL);
+        drop(state);
+        schedule_expiry(self.state.clone(), lease_id.to_owned(), idle_timeout);
+        Ok(session)
+    }
 }
 
-fn register_lease(state: &mut PreviewState, watch: WatchKey, port: u16) -> PluginPreviewSession {
+fn idle_timeout_for_plugin(plugin: &crate::InstalledPlugin) -> Duration {
+    let live = std::fs::read_to_string(plugin.source.path.join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok());
+    idle_timeout_from_config(live.as_ref().unwrap_or(&plugin.config))
+}
+
+fn idle_timeout_from_config(config: &serde_json::Value) -> Duration {
+    let Some(minutes) = config.get("idleTimeoutMinutes").and_then(|value| {
+        value
+            .as_u64()
+            .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+    }) else {
+        return PREVIEW_LEASE_TTL;
+    };
+    Duration::from_secs(minutes.saturating_mul(60)).clamp(MIN_IDLE_TIMEOUT, MAX_IDLE_TIMEOUT)
+}
+
+fn unix_expiry_ms(idle_timeout: Duration) -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .saturating_add(idle_timeout.as_millis()) as u64
+}
+
+fn register_lease(
+    state: &mut PreviewState,
+    watch: WatchKey,
+    port: u16,
+    idle_timeout: Duration,
+) -> PluginPreviewSession {
     let lease_id = Uuid::new_v4().to_string();
+    let capability_token = Uuid::new_v4().simple().to_string();
     state.leases.insert(
         lease_id.clone(),
         PreviewLease {
-            watch: watch.clone(),
-            expires_at: Instant::now() + PREVIEW_LEASE_TTL,
+            watch,
+            port,
+            capability_token: capability_token.clone(),
+            idle_timeout,
+            expires_at: Instant::now() + idle_timeout,
         },
     );
     PluginPreviewSession {
         lease_id,
         loopback_port: port,
-        capability_token: Uuid::new_v4().simple().to_string(),
-        expires_at_unix_ms: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .saturating_add(PREVIEW_LEASE_TTL.as_millis()) as u64,
+        capability_token,
+        expires_at_unix_ms: unix_expiry_ms(idle_timeout),
     }
 }
 
-fn schedule_expiry(state: Arc<Mutex<PreviewState>>, lease_id: String) {
+fn renew_lease(
+    state: &mut PreviewState,
+    lease_id: &str,
+) -> Result<PluginPreviewSession, PluginPreviewHostError> {
+    let lease = state
+        .leases
+        .get_mut(lease_id)
+        .ok_or_else(|| preview_error("LEASE_EXPIRED", "Preview lease is not active"))?;
+    lease.expires_at = Instant::now() + lease.idle_timeout;
+    Ok(PluginPreviewSession {
+        lease_id: lease_id.to_owned(),
+        loopback_port: lease.port,
+        capability_token: lease.capability_token.clone(),
+        expires_at_unix_ms: unix_expiry_ms(lease.idle_timeout),
+    })
+}
+
+fn take_expired_lease(
+    state: &mut PreviewState,
+    lease_id: &str,
+    now: Instant,
+) -> Option<PreviewLease> {
+    let expired = state
+        .leases
+        .get(lease_id)
+        .is_some_and(|lease| lease.expires_at <= now);
+    if expired {
+        state.leases.remove(lease_id)
+    } else {
+        None
+    }
+}
+
+fn schedule_expiry(state: Arc<Mutex<PreviewState>>, lease_id: String, idle_timeout: Duration) {
     tokio::spawn(async move {
-        tokio::time::sleep(PREVIEW_LEASE_TTL).await;
+        tokio::time::sleep(idle_timeout).await;
         let mut state = state.lock().await;
-        let Some(lease) = state
-            .leases
-            .remove(&lease_id)
-            .filter(|lease| lease.expires_at <= Instant::now())
-        else {
+        let Some(lease) = take_expired_lease(&mut state, &lease_id, Instant::now()) else {
             return;
         };
         let mut remove_watch = false;
@@ -426,9 +508,16 @@ fn preview_error(code: &'static str, message: impl Into<String>) -> PluginPrevie
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, time::Duration};
 
-    use super::{announced_loopback_port, render_arguments, valid_environment_entry};
+    use serde_json::json;
+    use tokio::time::Instant;
+
+    use super::{
+        PREVIEW_LEASE_TTL, PreviewState, announced_loopback_port, idle_timeout_from_config,
+        register_lease, render_arguments, renew_lease, schedule_expiry, take_expired_lease,
+        valid_environment_entry,
+    };
 
     #[test]
     fn process_protocol_expands_only_host_owned_values() {
@@ -455,5 +544,86 @@ mod tests {
         assert_eq!(announced_loopback_port("ready http://0.0.0.0:43100/"), None);
         assert!(valid_environment_entry("OFFICECLI_SKIP_UPDATE", "1"));
         assert!(!valid_environment_entry("LD_PRELOAD-", "x"));
+    }
+
+    #[test]
+    fn idle_timeout_reads_plugin_config_and_falls_back_to_default() {
+        assert_eq!(idle_timeout_from_config(&json!({})), PREVIEW_LEASE_TTL);
+        assert_eq!(
+            idle_timeout_from_config(&json!({ "idleTimeoutMinutes": 10 })),
+            Duration::from_secs(10 * 60)
+        );
+        assert_eq!(
+            idle_timeout_from_config(&json!({ "idleTimeoutMinutes": 0 })),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            idle_timeout_from_config(&json!({ "idleTimeoutMinutes": 90 })),
+            Duration::from_secs(60 * 60)
+        );
+    }
+
+    fn test_watch() -> super::WatchKey {
+        (
+            "plugin".into(),
+            "preview".into(),
+            1,
+            "digest".into(),
+            Path::new("/tmp/doc.docx").to_path_buf(),
+        )
+    }
+
+    #[tokio::test]
+    async fn renew_extends_lease_past_the_original_idle_window() {
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(PreviewState::default()));
+        let idle = Duration::from_millis(80);
+        let session = {
+            let mut locked = state.lock().await;
+            register_lease(&mut locked, test_watch(), 43100, idle)
+        };
+        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
+
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        {
+            let mut locked = state.lock().await;
+            renew_lease(&mut locked, &session.lease_id).expect("renew");
+        }
+        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
+
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(
+            state.lock().await.leases.contains_key(&session.lease_id),
+            "continuous renew must keep the lease past the first idle window"
+        );
+
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(
+            !state.lock().await.leases.contains_key(&session.lease_id),
+            "stopping renew recycles after the captured idle timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_renew_expires_at_the_captured_idle_timeout() {
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(PreviewState::default()));
+        let idle = Duration::from_millis(60);
+        let session = {
+            let mut locked = state.lock().await;
+            register_lease(&mut locked, test_watch(), 43100, idle)
+        };
+        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(!state.lock().await.leases.contains_key(&session.lease_id));
+    }
+
+    #[test]
+    fn take_expired_lease_leaves_renewed_leases_in_place() {
+        let mut state = PreviewState::default();
+        let session = register_lease(&mut state, test_watch(), 43100, Duration::from_secs(60));
+        assert!(take_expired_lease(&mut state, &session.lease_id, Instant::now()).is_none());
+        assert!(state.leases.contains_key(&session.lease_id));
+        let later = Instant::now() + Duration::from_secs(61);
+        assert!(take_expired_lease(&mut state, &session.lease_id, later).is_some());
+        assert!(!state.leases.contains_key(&session.lease_id));
     }
 }

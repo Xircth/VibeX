@@ -100,6 +100,13 @@ impl PluginArtifactPreviewService {
     ) -> Result<(), PluginPreviewHostError> {
         self.broker.close_preview(file_path, lease_id).await
     }
+
+    pub async fn renew(
+        &self,
+        lease_id: &str,
+    ) -> Result<PluginPreviewSession, PluginPreviewHostError> {
+        self.broker.renew_preview(lease_id).await
+    }
 }
 
 fn decode_worker_lease(value: Value) -> Result<PluginPreviewSession, PluginPreviewHostError> {

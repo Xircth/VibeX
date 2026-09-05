@@ -101,6 +101,12 @@ function parseNode(value: unknown): SessionCanvasNode | null {
     createdAt: isFiniteNumber(record.createdAt) ? record.createdAt : 0,
     showAll: record.showAll === true,
     collapsed: record.collapsed === true,
+    ...(isFiniteNumber(record.manualColumns) && record.manualColumns >= 1
+      ? { manualColumns: Math.round(record.manualColumns) }
+      : {}),
+    ...(isFiniteNumber(record.manualRows) && record.manualRows >= 1
+      ? { manualRows: Math.round(record.manualRows) }
+      : {}),
     x: record.x,
     y: record.y,
     width: Math.max(width, expanded ? DETAIL_MIN_WIDTH : 1),
@@ -130,26 +136,40 @@ function parseViewport(value: unknown): SessionCanvasViewport | null {
   };
 }
 
-function readCanvasBundle(): Record<string, unknown> {
+export const CANVAS_DOCUMENT_SAVE_DELAY_MS = 500;
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingBundle: Record<string, unknown> | null = null;
+
+function readStoredBundle(): Record<string, unknown> {
   const bundled = readJson(CANVAS_BUNDLE_KEY);
-  const result: Record<string, unknown> =
-    bundled && typeof bundled === 'object' && !Array.isArray(bundled)
-      ? { ...(bundled as Record<string, unknown>) }
-      : {};
-  if (typeof window === 'undefined') return result;
-  try {
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key || !key.startsWith(DOCUMENT_KEY_PREFIX)) continue;
-      const projectId = key.slice(DOCUMENT_KEY_PREFIX.length);
-      if (!projectId || projectId in result) continue;
-      const parsed = readJson(key);
-      if (parsed) result[projectId] = parsed;
+  return bundled && typeof bundled === 'object' && !Array.isArray(bundled)
+    ? { ...(bundled as Record<string, unknown>) }
+    : {};
+}
+
+function scheduleBundlePersist(bundle: Record<string, unknown>) {
+  pendingBundle = bundle;
+  if (persistTimer != null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const next = pendingBundle;
+    pendingBundle = null;
+    if (next) {
+      persistFrontendPreference(CANVAS_BUNDLE_KEY, { ...next } as JsonValue);
     }
-  } catch {
-    /* ignore */
+  }, CANVAS_DOCUMENT_SAVE_DELAY_MS);
+}
+
+export function flushCanvasDocumentPersist(): void {
+  if (persistTimer == null) return;
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  const next = pendingBundle;
+  pendingBundle = null;
+  if (next) {
+    persistFrontendPreference(CANVAS_BUNDLE_KEY, { ...next } as JsonValue);
   }
-  return result;
 }
 
 function parseDocument(value: unknown): SessionCanvasDocument {
@@ -174,8 +194,8 @@ function parseDocument(value: unknown): SessionCanvasDocument {
 
 export function loadCanvasDocument(projectId: string): SessionCanvasDocument {
   if (!projectId) return { ...DEFAULT_CANVAS_DOCUMENT };
-  const bundle = readCanvasBundle();
-  const parsed = bundle[projectId] ?? readJson(documentKey(projectId));
+  const parsed =
+    readStoredBundle()[projectId] ?? readJson(documentKey(projectId));
   return parseDocument(parsed);
 }
 
@@ -186,10 +206,10 @@ export function saveCanvasDocument(
   if (!projectId) return;
   const stored = { ...document, relativeChildren: true };
   writeJson(documentKey(projectId), stored);
-  const bundle = readCanvasBundle();
+  const bundle = readStoredBundle();
   bundle[projectId] = stored;
   writeJson(CANVAS_BUNDLE_KEY, bundle);
-  persistFrontendPreference(CANVAS_BUNDLE_KEY, bundle as JsonValue);
+  scheduleBundlePersist(bundle);
 }
 
 export function loadMinimapVisible(): boolean {

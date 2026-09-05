@@ -390,6 +390,91 @@ describe('AgentSettings', () => {
     });
   });
 
+  it('does not blank a cached Agent config when switching back', async () => {
+    const agents = [
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile' as const,
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready' as const,
+        authentication: 'account' as const,
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode'],
+      },
+      {
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        description: 'Claude',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile' as const,
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 1,
+        lifecycle: 'ready' as const,
+        authentication: 'account' as const,
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode'],
+      },
+    ];
+    api.bar.mockResolvedValue(agents);
+    api.readConfig.mockImplementation(async (agentId: string) => ({
+      agent_id: agentId,
+      available: false,
+      settings_features: ['authentication_mode'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    }));
+    api.preflight.mockImplementation(async (agentId: string) => ({
+      agent_id: agentId,
+      checked_at: '2026-08-21T00:00:00Z',
+      items: [],
+    }));
+
+    confirmShow.mockResolvedValue('confirmed');
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Codex' });
+    await userEvent.click(screen.getByRole('button', { name: 'Codex' }));
+    await waitFor(() => expect(api.readConfig).toHaveBeenCalledWith('codex'));
+    await userEvent.click(screen.getByRole('button', { name: 'Claude Code' }));
+    await waitFor(() =>
+      expect(api.readConfig).toHaveBeenCalledWith('claude_code')
+    );
+
+    api.readConfig.mockImplementation(
+      (agentId: string) =>
+        new Promise(() => {
+          void agentId;
+        })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Codex' }));
+
+    expect(await screen.findByRole('heading', { name: 'Codex' })).toBeVisible();
+    expect(screen.queryByText('正在读取配置…')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Loading configuration…')
+    ).not.toBeInTheDocument();
+  });
+
   it('shows Codex auth management before native config finishes', async () => {
     api.readConfig.mockReturnValue(new Promise(() => undefined));
 

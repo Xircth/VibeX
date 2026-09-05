@@ -12,7 +12,7 @@ function writeArtifact(root, relativePath, contents) {
   fs.writeFileSync(artifactPath, contents);
 }
 
-test("generates a six-platform updater manifest without asset collisions", () => {
+test("generates a five-platform updater manifest without asset collisions", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "vibex-updater-manifest-"),
   );
@@ -42,18 +42,9 @@ test("generates a six-platform updater manifest without asset collisions", () =>
         "linux ARM64 signature",
       ],
       [
-        "VibeX-macos-x64/bundle/macos/VibeX.app.tar.gz",
-        "macOS x64 bundle",
-        "macOS x64 signature",
-      ],
-      [
         "VibeX-macos-arm64/bundle/macos/VibeX.app.tar.gz",
         "macOS arm64 bundle",
         "macOS arm64 signature",
-      ],
-      [
-        "VibeX-macos-x64/bundle/dmg/VibeX_0.1.1_x64.dmg",
-        "macOS x64 disk image",
       ],
       [
         "VibeX-macos-arm64/bundle/dmg/VibeX_0.1.1_aarch64.dmg",
@@ -103,10 +94,6 @@ test("generates a six-platform updater manifest without asset collisions", () =>
           signature: "linux ARM64 signature",
           url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-linux-aarch64.AppImage",
         },
-        "darwin-x86_64": {
-          signature: "macOS x64 signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-darwin-x86_64.app.tar.gz",
-        },
         "darwin-aarch64": {
           signature: "macOS arm64 signature",
           url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-darwin-aarch64.app.tar.gz",
@@ -119,7 +106,6 @@ test("generates a six-platform updater manifest without asset collisions", () =>
       "VibeX-0.1.1-windows-aarch64-setup.exe",
       "VibeX-0.1.1-linux-x86_64.AppImage",
       "VibeX-0.1.1-linux-aarch64.AppImage",
-      "VibeX-0.1.1-darwin-x86_64.app.tar.gz",
       "VibeX-0.1.1-darwin-aarch64.app.tar.gz",
     ]) {
       assert.equal(fs.existsSync(path.join(outputDir, assetName)), true);
@@ -129,10 +115,7 @@ test("generates a six-platform updater manifest without asset collisions", () =>
       );
     }
 
-    for (const assetName of [
-      "VibeX-0.1.1-darwin-x86_64.dmg",
-      "VibeX-0.1.1-darwin-aarch64.dmg",
-    ]) {
+    for (const assetName of ["VibeX-0.1.1-darwin-aarch64.dmg"]) {
       assert.equal(fs.existsSync(path.join(outputDir, assetName)), true);
     }
   } finally {

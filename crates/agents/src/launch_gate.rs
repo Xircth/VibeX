@@ -9,8 +9,7 @@ use sha2::{Digest, Sha256};
 use workspace_utils::process::{node_spawnable_runtime_path, prefer_direct_spawn_executable};
 
 use crate::{
-    AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent, ProfileInstallSource,
-    SessionLaunchLock,
+    AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent, SessionLaunchLock,
 };
 
 /// Whether the persisted launch program currently exists on disk. Follows
@@ -50,26 +49,7 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
     if !launch_program_available(&executable) {
         return None;
     }
-    let args = profile
-        .install_sources
-        .iter()
-        .find_map(|source| match source {
-            ProfileInstallSource::Npx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Uvx {
-                component, args, ..
-            }
-            | ProfileInstallSource::Binary {
-                component, args, ..
-            } if *component == candidate.component => Some(
-                args.iter()
-                    .map(|argument| (*argument).to_string())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        })
-        .unwrap_or_default();
+    let args = crate::acp_launch_args(profile, candidate.component);
     Some(SessionLaunchLock {
         agent_id: agent_id.clone(),
         absolute_acp_program: executable,

@@ -41,6 +41,7 @@ import {
 } from './AgentConfigurationAndDiagnostics';
 import { AgentDetail } from './AgentDetail';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
+import { QoderLaunchTokenField } from './QoderLaunchTokenField';
 import { AgentEnvironmentEditor } from './AgentEnvironmentEditor';
 import { AgentEnvironmentDiagnosticsDialog } from './AgentEnvironmentDiagnosticsDialog';
 import { AgentModelProviderManager } from './AgentModelProviderManager';
@@ -184,6 +185,12 @@ export function AgentSettings() {
   const refreshManagement = management.refresh;
   const authWatchGeneration = useRef(0);
   const inspectGeneration = useRef(0);
+  const inspectCacheRef = useRef({
+    config: new Map<AgentId, AgentNativeConfigView>(),
+    actions: new Map<AgentId, AgentManagementActionsView>(),
+    diagnostics: new Map<AgentId, AgentDiagnosticView[]>(),
+    updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
+  });
 
   useEffect(() => {
     if (!configDirty) return;
@@ -243,12 +250,15 @@ export function AgentSettings() {
     if (!selectedAgentId || registryOpen) return;
     let active = true;
     const watchId = ++inspectGeneration.current;
-    setPreflight(readPreflightSnapshot(selectedAgentId));
-    setActions(null);
-    setConfig(null);
+    const cache = inspectCacheRef.current;
+    const snapshot = readPreflightSnapshot(selectedAgentId);
+    setPreflight(snapshot);
+    setConfig(cache.config.get(selectedAgentId) ?? null);
+    setActions(cache.actions.get(selectedAgentId) ?? null);
+    setDiagnostics(cache.diagnostics.get(selectedAgentId) ?? []);
+    setUpdateCheck(cache.updateCheck.get(selectedAgentId) ?? null);
     setConfigConflict(null);
-    setUpdateCheck(null);
-    setChecking(true);
+    setChecking(!snapshot);
     void (async () => {
       try {
         const report = await agentManagementApi.preflight(selectedAgentId);
@@ -261,6 +271,7 @@ export function AgentSettings() {
         const comparison =
           await agentManagementApi.checkUpdate(selectedAgentId);
         if (!active || inspectGeneration.current !== watchId) return;
+        cache.updateCheck.set(selectedAgentId, comparison);
         setUpdateCheck(comparison);
         setPreflight((current) => {
           if (!current || current.agent_id !== selectedAgentId) return current;
@@ -283,14 +294,18 @@ export function AgentSettings() {
     ]).then(([configResult, diagnosticResult, actionsResult]) => {
       if (!active) return;
       if (configResult.status === 'fulfilled') {
+        cache.config.set(selectedAgentId, configResult.value);
         setConfig(configResult.value);
       }
       if (diagnosticResult.status === 'fulfilled') {
-        setDiagnostics(
-          diagnosticResult.value.filter((diagnostic) => !diagnostic.read)
+        const unread = diagnosticResult.value.filter(
+          (diagnostic) => !diagnostic.read
         );
+        cache.diagnostics.set(selectedAgentId, unread);
+        setDiagnostics(unread);
       }
       if (actionsResult.status === 'fulfilled') {
+        cache.actions.set(selectedAgentId, actionsResult.value);
         setActions(actionsResult.value);
       }
     });
@@ -1122,6 +1137,12 @@ export function AgentSettings() {
             selectedAgent.agent_id === 'opencode' ? (
               <OpenCodeSubscriptionPanel
                 onDirtyChange={setOpenCodeProviderDirty}
+                onChanged={refreshAuthentication}
+              />
+            ) : selectedAgent.agent_id === 'qoder' ? (
+              <QoderLaunchTokenField
+                locked={agentLocked}
+                onDirtyChange={setAuthModeDirty}
                 onChanged={refreshAuthentication}
               />
             ) : undefined

@@ -7,9 +7,9 @@ const resizeCard = vi.fn();
 const resetCardSize = vi.fn();
 const collapseCard = vi.fn();
 
-vi.mock('./CanvasViewContext', () => ({
-  useSessionCanvasView: () => ({
-    sessionsById: new Map([
+const sessionsById = vi.hoisted(
+  () =>
+    new Map([
       [
         'session-1',
         {
@@ -19,7 +19,12 @@ vi.mock('./CanvasViewContext', () => ({
           workspace: { id: 'ws' },
         } as KanbanProjectSessionRecord,
       ],
-    ]),
+    ])
+);
+
+vi.mock('./CanvasViewContext', () => ({
+  useSessionCanvasView: () => ({
+    sessionsById,
     sessionsReady: true,
     expandCard: vi.fn(),
     collapseCard,
@@ -31,6 +36,7 @@ vi.mock('./CanvasViewContext', () => ({
     renameGroup: vi.fn(),
     toggleGroupShowAll: vi.fn(),
   }),
+  useCanvasSession: (sessionId: string) => sessionsById.get(sessionId),
 }));
 
 vi.mock('@xyflow/react', () => ({

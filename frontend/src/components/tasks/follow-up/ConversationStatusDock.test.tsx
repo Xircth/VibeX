@@ -28,6 +28,7 @@ describe('ConversationStatusDock', () => {
               message: 'agent connection closed',
               code: 'connection_closed',
               raw: null,
+              kind: 'connection_closed',
             },
             onReload,
           },
@@ -132,6 +133,7 @@ describe('ConversationStatusDock', () => {
               message: 'agent connection closed unexpectedly',
               code: 'connection_closed',
               raw: null,
+              kind: 'connection_closed',
             },
           },
           {
@@ -324,6 +326,7 @@ describe('ConversationStatusDock', () => {
               message: 'agent connection closed',
               code: 'connection_closed',
               raw: null,
+              kind: 'connection_closed',
             },
           },
           {
@@ -364,6 +367,7 @@ describe('ConversationStatusDock', () => {
               message: 'agent connection closed',
               code: 'connection_closed',
               raw: null,
+              kind: 'connection_closed',
             },
             onReload,
           },

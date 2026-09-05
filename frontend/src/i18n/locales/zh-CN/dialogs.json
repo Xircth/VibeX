@@ -312,8 +312,7 @@
         "body": "在适用法律允许的最大范围内，{{appName}} 及其开发者、贡献者不对下列事项承担责任：数据丢失或损坏；代码、仓库或生产环境被破坏；安全事件、凭据泄露或未授权访问；第三方服务中断、变更或违约；自动化、委派、远程访问或聊天通道造成的意外后果；生成代码的质量、合法性、知识产权或适用性；利润、商誉或其他间接、附带、特殊或后果性损害。你应自行备份重要工作并监督所有 Agent 与插件行为。本声明构成你使用本软件的条件；某一条款无法执行时，其余条款仍然有效。"
       }
     },
-    "versionControlTitle": "版本管理器配置",
-    "versionControlDescription": "本机还没有 Git。填写提交所用的名称和邮箱后，将安装 Git 和 GitHub CLI。",
+    "versionControlTitle": "配置版本管理器",
     "gitUserNameLabel": "名称",
     "gitUserNamePlaceholder": "例如：张三",
     "gitUserEmailLabel": "邮箱",

@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
 import { AgentModelProviderManager } from './AgentModelProviderManager';
+import { pickAstryxOption } from './agentSettingsTestUtils';
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: vi.fn() },
@@ -151,7 +152,8 @@ describe('AgentModelProviderManager', () => {
     );
     await user.type(screen.getByLabelText('Provider API Key'), 'secret');
     await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
-    await user.selectOptions(
+    await pickAstryxOption(
+      user,
       screen.getByLabelText('接入协议'),
       'anthropic-messages'
     );
@@ -193,12 +195,8 @@ describe('AgentModelProviderManager', () => {
     ).toBeVisible();
     expect(await screen.findByText('private')).toBeVisible();
     expect(screen.getByRole('button', { name: '已启用' })).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: '编辑 private' })
-    ).toBeEnabled();
-    expect(
-      screen.getByRole('button', { name: '删除 private' })
-    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: '编辑 private' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '删除 private' })).toBeDisabled();
     expect(screen.queryByText('暂未识别到供应商')).not.toBeInTheDocument();
   });
 
@@ -441,6 +439,221 @@ describe('AgentModelProviderManager', () => {
       await screen.findByRole('button', { name: '已启用' })
     ).toBeDisabled();
     expect(screen.getByRole('button', { name: '删除 Gateway' })).toBeDisabled();
+  });
+
+  it('hides Codex official models and fills the default picker from detected models', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+          name: 'BeeAPI · codex',
+          api_url: 'https://beeapi.ai/v1',
+          model: '{"default_model":"gpt-5.6-sol"}',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'cache',
+      models: [
+        {
+          id: 'gpt-5.2',
+          label: 'GPT-5.2',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'gpt-5.2',
+      error: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
+      customs: [],
+      excluded_officials: [],
+      default_model: 'gpt-5.6-sol',
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
+      active: false,
+    });
+    let resolveCatalog:
+      | ((
+          value: Awaited<
+            ReturnType<typeof agentManagementApi.modelProviderCatalog>
+          >
+        ) => void)
+      | undefined;
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCatalog = resolve;
+        })
+    );
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 BeeAPI · codex' })
+    );
+    expect(screen.queryByText('官方模型')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: /GPT-5.2/ })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Codex 模型清单默认项'));
+    expect(
+      (await screen.findAllByText('正在检测当前供应商可用模型')).length
+    ).toBeGreaterThan(0);
+    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
+      'codex',
+      'provider-1',
+      'https://beeapi.ai/v1',
+      'secret'
+    );
+
+    resolveCatalog?.({
+      agent_id: 'codex',
+      source: 'live',
+      models: [
+        {
+          id: 'gpt-5.5',
+          label: 'GPT-5.5',
+          context_window: null,
+          reasoning_levels: [],
+        },
+        {
+          id: 'gpt-5.6-sol',
+          label: 'GPT-5.6-Sol',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'gpt-5.5',
+      error: null,
+    });
+
+    expect(
+      await screen.findByRole('option', { name: 'GPT-5.5 · gpt-5.5' })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('option', { name: 'GPT-5.6-Sol · gpt-5.6-sol' })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('option', { name: 'GPT-5.2' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('requires a connectivity test before saving a Codex custom model', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+          name: 'BeeAPI · codex',
+          api_url: 'https://beeapi.ai/v1',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'cache',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
+      customs: [],
+      excluded_officials: [],
+      default_model: null,
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
+      active: false,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'live',
+      models: [
+        {
+          id: 'gpt-5.6-sol',
+          label: 'GPT-5.6-Sol',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'gpt-5.6-sol',
+      error: null,
+    });
+    vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [{ ...gateway, agent_id: 'codex' }],
+      bound_provider_id: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 BeeAPI · codex' })
+    );
+    await user.click(screen.getByRole('button', { name: '添加' }));
+    const modelId = screen.getByLabelText('自定义模型 1 模型 ID');
+    await user.clear(modelId);
+    await user.type(modelId, 'gpt-5.6-sol');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+    expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole('button', { name: /连通测试自定义模型/ })
+    );
+    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
+      'codex',
+      'provider-1',
+      'https://beeapi.ai/v1',
+      'secret'
+    );
+    expect(await screen.findByText('模型可用')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+    expect(agentManagementApi.saveModelProvider).toHaveBeenCalled();
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0]?.[0];
+    expect(saved).toBeDefined();
+    expect(JSON.parse(saved?.model ?? '{}')).toEqual(
+      expect.objectContaining({
+        customs: [expect.objectContaining({ slug: 'gpt-5.6-sol' })],
+      })
+    );
+  });
+
+  it('lists Codex providers when catalog config loading fails', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockRejectedValue(
+      new Error('无法读取官方模型目录')
+    );
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockRejectedValue(
+      new Error('无法读取官方模型目录')
+    );
+
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    expect(await screen.findByRole('button', { name: '启用' })).toBeEnabled();
+    expect(screen.getByText('Gateway')).toBeVisible();
   });
 
   it('imports selectable CC Switch candidates after preview', async () => {

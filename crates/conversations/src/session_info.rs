@@ -421,6 +421,44 @@ fn session_status_label(status: &db::models::session::SessionStatus) -> String {
         .unwrap_or_else(|| format!("{status:?}").to_ascii_lowercase())
 }
 
+pub async fn host_history_prompt(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    current_user_text: &str,
+) -> Option<String> {
+    let (messages, _) = load_compact_transcript(pool, conversation_id, MAX_SESSION_MESSAGES).await;
+    format_host_history_prompt(messages.as_ref()?, current_user_text)
+}
+
+pub fn format_host_history_prompt(
+    messages: &SessionMessages,
+    current_user_text: &str,
+) -> Option<String> {
+    let mut items = messages.items.clone();
+    if items
+        .last()
+        .is_some_and(|item| item.role == "user" && item.text.trim() == current_user_text.trim())
+    {
+        items.pop();
+    }
+    if items.is_empty() {
+        return None;
+    }
+    let mut body = String::from("Previous conversation:\n");
+    for item in items {
+        let role = match item.role.as_str() {
+            "user" => "User",
+            "assistant" => "Assistant",
+            other => other,
+        };
+        body.push_str(role);
+        body.push_str(": ");
+        body.push_str(item.text.trim());
+        body.push('\n');
+    }
+    Some(body)
+}
+
 fn truncate_chars(value: &str, cap: usize) -> String {
     if value.chars().count() <= cap {
         return value.to_string();
@@ -439,6 +477,53 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[test]
+    fn host_history_prompt_omits_the_current_user_message() {
+        let messages = SessionMessages {
+            total: 3,
+            included: 3,
+            truncated: false,
+            items: vec![
+                SessionMessageItem {
+                    role: "user".into(),
+                    text: "first question".into(),
+                    tools: Vec::new(),
+                },
+                SessionMessageItem {
+                    role: "assistant".into(),
+                    text: "first answer".into(),
+                    tools: Vec::new(),
+                },
+                SessionMessageItem {
+                    role: "user".into(),
+                    text: "second question".into(),
+                    tools: Vec::new(),
+                },
+            ],
+        };
+        let prompt = format_host_history_prompt(&messages, "second question").expect("history");
+        assert!(prompt.contains("User: first question"));
+        assert!(prompt.contains("Assistant: first answer"));
+        assert!(!prompt.contains("second question"));
+        assert!(format_host_history_prompt(&messages, "first question").is_some());
+        assert!(
+            format_host_history_prompt(
+                &SessionMessages {
+                    total: 1,
+                    included: 1,
+                    truncated: false,
+                    items: vec![SessionMessageItem {
+                        role: "user".into(),
+                        text: "only".into(),
+                        tools: Vec::new(),
+                    }],
+                },
+                "only"
+            )
+            .is_none()
+        );
+    }
 
     async fn pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:").unwrap();

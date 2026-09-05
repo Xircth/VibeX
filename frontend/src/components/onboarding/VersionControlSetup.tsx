@@ -29,34 +29,36 @@ export function VersionControlSetup({
 
   return (
     <div className="onboarding-config-panel onboarding-version-control-panel">
-      <label className="onboarding-version-control-field">
-        <span>{t('onboarding.gitUserNameLabel')}</span>
-        <TextInput
-          label={t('onboarding.gitUserNameLabel')}
-          isLabelHidden
-          value={userName}
-          onChange={onUserNameChange}
-          placeholder={t('onboarding.gitUserNamePlaceholder')}
-          isDisabled={fieldsDisabled}
-          width="100%"
-          className="[&_input]:text-sm"
-          style={textInputSurfaceStyle}
-        />
-      </label>
-      <label className="onboarding-version-control-field">
-        <span>{t('onboarding.gitUserEmailLabel')}</span>
-        <TextInput
-          label={t('onboarding.gitUserEmailLabel')}
-          isLabelHidden
-          value={userEmail}
-          onChange={onUserEmailChange}
-          placeholder={t('onboarding.gitUserEmailPlaceholder')}
-          isDisabled={fieldsDisabled}
-          width="100%"
-          className="[&_input]:text-sm"
-          style={textInputSurfaceStyle}
-        />
-      </label>
+      <div className="onboarding-version-control-fields">
+        <label className="onboarding-version-control-field">
+          <span>{t('onboarding.gitUserNameLabel')}</span>
+          <TextInput
+            label={t('onboarding.gitUserNameLabel')}
+            isLabelHidden
+            value={userName}
+            onChange={onUserNameChange}
+            placeholder={t('onboarding.gitUserNamePlaceholder')}
+            isDisabled={fieldsDisabled}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={textInputSurfaceStyle}
+          />
+        </label>
+        <label className="onboarding-version-control-field">
+          <span>{t('onboarding.gitUserEmailLabel')}</span>
+          <TextInput
+            label={t('onboarding.gitUserEmailLabel')}
+            isLabelHidden
+            value={userEmail}
+            onChange={onUserEmailChange}
+            placeholder={t('onboarding.gitUserEmailPlaceholder')}
+            isDisabled={fieldsDisabled}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={textInputSurfaceStyle}
+          />
+        </label>
+      </div>
       {installing ? (
         <p className="onboarding-version-control-progress" role="status">
           <Loader2 className="animate-spin" aria-hidden="true" />

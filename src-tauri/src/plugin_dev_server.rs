@@ -64,6 +64,18 @@ impl DesktopPreviewProxy {
             self.registry.revoke(lease_id).await;
         }
     }
+
+    pub async fn renew(&self, lease: &plugins::PluginPreviewSession) -> anyhow::Result<()> {
+        let lease_id = uuid::Uuid::parse_str(&lease.lease_id)?;
+        self.registry
+            .renew(lease_id, lease.expires_at_unix_ms)
+            .await?;
+        Ok(())
+    }
+
+    pub fn registry(&self) -> server::PreviewProxyRegistry {
+        self.registry.clone()
+    }
 }
 
 #[tauri::command]

@@ -59,3 +59,14 @@ export function shouldShowLeftArrow(view: KanbanPanelView): boolean {
 export function shouldShowRightArrow(view: KanbanPanelView): boolean {
   return view !== 'usageDashboard';
 }
+
+/**
+ * The execution column belongs to the four-column board and the session hub.
+ * Usage statistics always take the full page; infinite canvas never shows it.
+ */
+export function shouldHideKanbanSessionSlot(
+  view: KanbanPanelView,
+  canvasMode: boolean
+): boolean {
+  return canvasMode || view === 'usageDashboard';
+}

@@ -156,7 +156,7 @@ fn automation_engine_data_dir_key() -> String {
         .into_owned()
 }
 
-fn this_host_owns_automation_engine() -> bool {
+pub fn this_host_owns_automation_engine() -> bool {
     OWNED_DATA_DIRS
         .lock()
         .expect("Automation ownership registry poisoned")

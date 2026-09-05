@@ -368,7 +368,11 @@ function inferAtTokenKind(key: string, value: string): 'file' | 'element' {
 }
 
 function lastCommandSegment(value: string): string {
-  return value.split(':').filter(Boolean).at(-1) ?? value;
+  const colonTail = value.split(':').filter(Boolean).at(-1) ?? value;
+  if (/[\\/]/.test(colonTail)) {
+    return colonTail.split(/[\\/]/).filter(Boolean).at(-1) ?? colonTail;
+  }
+  return colonTail;
 }
 
 function slashInvocationValue(

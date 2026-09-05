@@ -171,8 +171,8 @@ export function createConversationApi(transport: BackendTransport) {
         conversationId,
       }),
     // Conversation detail (metadata + projected timeline) from the durable event log.
-    detail: (sessionId: string): Promise<DbConversationDetail | null> =>
-      call('conversation_detail', { sessionId }),
+    detail: (conversationId: string): Promise<DbConversationDetail | null> =>
+      call('conversation_detail', { conversationId }),
 
     // Materialize or reconnect an Agent session and return its authoritative ACP
     // controls. This never sends a prompt.

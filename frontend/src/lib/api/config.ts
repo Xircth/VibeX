@@ -10,6 +10,7 @@ import type {
 } from 'shared/types';
 
 import { backendCall } from './base';
+import { getBackendTransport } from '@/lib/transport';
 
 export interface PromptEnhancementContextMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -83,12 +84,26 @@ export const configApi = {
   checkEditorAvailability: async (
     editorType: EditorType
   ): Promise<CheckEditorAvailabilityResponse> => {
+    const transport = getBackendTransport();
+    const capabilities = transport.capabilities
+      ? await transport.capabilities()
+      : { capabilities: [] as string[] };
+    if (!capabilities.capabilities.includes('desktop.tauri')) {
+      return { available: false };
+    }
     return backendCall<CheckEditorAvailabilityResponse>(
       'check_editor_availability',
       { editorType }
     );
   },
   playNotificationSound: async (soundFile: SoundFile): Promise<void> => {
+    const transport = getBackendTransport();
+    const capabilities = transport.capabilities
+      ? await transport.capabilities()
+      : { capabilities: [] as string[] };
+    if (!capabilities.capabilities.includes('desktop.tauri')) {
+      return;
+    }
     return backendCall<void>('play_notification_sound', {
       soundFile,
     });

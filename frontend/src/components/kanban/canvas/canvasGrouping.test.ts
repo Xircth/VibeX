@@ -8,15 +8,23 @@ import {
   createCanvasNode,
 } from './canvasModel';
 import {
+  GROUP_GAP,
   GROUP_HEADER_HEIGHT,
-  GROUP_VISIBLE_LIMIT,
+  GROUP_PAD,
+  MAX_GROUP_ROWS,
   applyFlowGeometryChanges,
   groupHasRunningSession,
   selectedSessionIdsForViewed,
+  applyDropHint,
+  buildCanvasFlowLookups,
+  CANVAS_DROP_HINT,
+  dropHintsEqual,
   attachToGroup,
   canGroupSelection,
   computeDropHint,
+  containerMinSize,
   createEmptyGroup,
+  detachNode,
   dissolveGroup,
   dragHitRect,
   dropOnTarget,
@@ -31,17 +39,47 @@ import {
   groupWidthForColumns,
   hitTestNode,
   importSessionsAsGroup,
+  isContainerGroup,
   openSessionWindow,
   closeSessionWindow,
   orderCanvasNodes,
+  canvasNodeZIndex,
   overlapRatio,
   placeDetachedWindow,
   previewGroupFrame,
+  previewCanvasDrop,
+  nextOpenCardSlot,
+  planSessionGrid,
   resizeGroupFrame,
   rowsForGroupHeight,
   uniqueGroupName,
   worldPosition,
 } from './canvasGrouping';
+
+function makeNestedGroup() {
+  const innerNodes = groupSelection(
+    [
+      createCanvasNode('sess-a', { x: 0, y: 0 }, 'a'),
+      createCanvasNode('sess-b', { x: 40, y: 0 }, 'b'),
+    ],
+    new Set(['a', 'b']),
+    'Inner'
+  );
+  const inner = innerNodes.find((node) => node.kind === 'group')!;
+  const nested = groupSelection(
+    [...innerNodes, createCanvasNode('sess-c', { x: 400, y: 0 }, 'c')],
+    new Set([inner.id, 'c']),
+    'Outer'
+  );
+  const outer = nested.find(
+    (node) => node.kind === 'group' && node.id !== inner.id
+  )!;
+  return {
+    nodes: nested,
+    outer,
+    inner: nested.find((node) => node.id === inner.id)!,
+  };
+}
 
 describe('uniqueGroupName', () => {
   it('adds a numeric suffix when the name is taken', () => {
@@ -167,6 +205,300 @@ describe('grouping', () => {
     const dissolved = dissolveGroup(nested, innerGroup.id);
     expect(dissolved.find((node) => node.id === innerGroup.id)).toBeUndefined();
     expect(dissolved.find((node) => node.id === 'a')?.parentId).toBe(outer.id);
+  });
+
+  it('lets nested-group children stay put when the outer frame grows', () => {
+    const nested = makeNestedGroup();
+    expect(isContainerGroup(nested.nodes, nested.outer.id)).toBe(true);
+    const beforeInner = nested.nodes.find(
+      (node) => node.id === nested.inner.id
+    )!;
+    const beforeCard = nested.nodes.find((node) => node.id === 'c')!;
+    const grown = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width + 240,
+        height: nested.outer.height + 160,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'xy',
+      }
+    );
+    const outer = grown.find((node) => node.id === nested.outer.id)!;
+    expect(outer.width).toBeGreaterThan(nested.outer.width);
+    expect(outer.height).toBeGreaterThan(nested.outer.height);
+    expect(grown.find((node) => node.id === nested.inner.id)).toMatchObject({
+      x: beforeInner.x,
+      y: beforeInner.y,
+    });
+    expect(grown.find((node) => node.id === 'c')).toMatchObject({
+      x: beforeCard.x,
+      y: beforeCard.y,
+    });
+  });
+
+  it('keeps a freely moved child inside a nested group instead of re-stacking', () => {
+    const nested = makeNestedGroup();
+    const grown = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width + 280,
+        height: nested.outer.height + 80,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'xy',
+      }
+    );
+    const inner = grown.find((node) => node.id === nested.inner.id)!;
+    const moved = grown.map((node) =>
+      node.id === 'c'
+        ? {
+            ...node,
+            x: inner.x + inner.width + 24,
+            y: inner.y,
+          }
+        : node
+    );
+    const dropped = applyDropHint(moved, 'c', {
+      type: 'same',
+      groupId: nested.outer.id,
+    });
+    const card = dropped.find((node) => node.id === 'c')!;
+    expect(card.x).toBeGreaterThan(inner.x);
+    expect(dropped.find((node) => node.id === nested.inner.id)).toMatchObject({
+      x: inner.x,
+      y: inner.y,
+    });
+  });
+
+  it('lets a nested group stay at a free position inside its parent', () => {
+    const nested = makeNestedGroup();
+    const grown = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width + 280,
+        height: nested.outer.height + 120,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'xy',
+      }
+    );
+    const inner = grown.find((node) => node.id === nested.inner.id)!;
+    const moved = grown.map((node) =>
+      node.id === nested.inner.id
+        ? { ...node, x: inner.x + 48, y: inner.y + 36 }
+        : node
+    );
+    const dropped = applyDropHint(moved, nested.inner.id, {
+      type: 'same',
+      groupId: nested.outer.id,
+    });
+    expect(dropped.find((node) => node.id === nested.inner.id)).toMatchObject({
+      x: inner.x + 48,
+      y: inner.y + 36,
+    });
+    expect(dropped.find((node) => node.id === 'c')).toMatchObject({
+      x: grown.find((node) => node.id === 'c')!.x,
+      y: grown.find((node) => node.id === 'c')!.y,
+    });
+  });
+
+  it('returns a card from the outer nested group back into the inner group', () => {
+    const nested = makeNestedGroup();
+    const innerWorld = worldPosition(nested.nodes, nested.inner);
+    const hint = computeDropHint(nested.nodes, 'c', {
+      x: innerWorld.x + GROUP_PAD + 24,
+      y: innerWorld.y + GROUP_HEADER_HEIGHT + GROUP_PAD + 24,
+    });
+    expect(hint).toEqual({ type: 'group', groupId: nested.inner.id });
+    const dropped = applyDropHint(nested.nodes, 'c', hint);
+    expect(dropped.find((node) => node.id === 'c')?.parentId).toBe(
+      nested.inner.id
+    );
+  });
+
+  it('nests a detached subgroup back into its outer group', () => {
+    const nested = makeNestedGroup();
+    const detached = detachNode(nested.nodes, nested.inner.id, {
+      x: 800,
+      y: 40,
+    });
+    expect(detached.find((node) => node.id === nested.inner.id)?.parentId).toBe(
+      null
+    );
+    const outer = detached.find((node) => node.id === nested.outer.id)!;
+    const outerWorld = worldPosition(detached, outer);
+    const hint = computeDropHint(detached, nested.inner.id, {
+      x: outerWorld.x,
+      y: outerWorld.y,
+    });
+    expect(hint).toEqual({ type: 'group', groupId: outer.id });
+    const dropped = applyDropHint(detached, nested.inner.id, hint);
+    expect(dropped.find((node) => node.id === nested.inner.id)?.parentId).toBe(
+      outer.id
+    );
+  });
+
+  it('packs nested-group children and grows height when the outer width shrinks', () => {
+    const nested = makeNestedGroup();
+    const grown = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width + 320,
+        height: nested.outer.height + 40,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'x',
+      }
+    );
+    const inner = grown.find((node) => node.id === nested.inner.id)!;
+    const spread = grown.map((node) =>
+      node.id === 'c'
+        ? { ...node, x: inner.x + inner.width + 24, y: inner.y }
+        : node
+    );
+    const min = containerMinSize(spread, nested.outer.id);
+    const hugged = resizeGroupFrame(
+      spread,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: spread.find((node) => node.id === nested.outer.id)!.width,
+        height: min.height,
+      },
+      {
+        width: spread.find((node) => node.id === nested.outer.id)!.width,
+        height: spread.find((node) => node.id === nested.outer.id)!.height,
+        axis: 'y',
+      }
+    );
+    const rowHeight = hugged.find(
+      (node) => node.id === nested.outer.id
+    )!.height;
+    const squeezed = resizeGroupFrame(
+      hugged,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: min.width,
+        height: rowHeight,
+      },
+      {
+        width: hugged.find((node) => node.id === nested.outer.id)!.width,
+        height: rowHeight,
+        axis: 'x',
+      }
+    );
+    const outer = squeezed.find((node) => node.id === nested.outer.id)!;
+    const card = squeezed.find((node) => node.id === 'c')!;
+    expect(outer.width).toBe(min.width);
+    expect(outer.width).toBeGreaterThanOrEqual(inner.width + GROUP_PAD * 2);
+    expect(card.y).toBeGreaterThan(
+      squeezed.find((node) => node.id === nested.inner.id)!.y
+    );
+    expect(outer.height).toBeGreaterThan(rowHeight);
+    expect(card.y + CARD_HEIGHT).toBeLessThanOrEqual(outer.height - GROUP_PAD);
+  });
+
+  it('cannot shrink a nested group narrower than its widest group child', () => {
+    const nested = makeNestedGroup();
+    const min = containerMinSize(nested.nodes, nested.outer.id);
+    const squeezed = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: 40,
+        height: nested.outer.height,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'x',
+      }
+    );
+    const outer = squeezed.find((node) => node.id === nested.outer.id)!;
+    expect(outer.width).toBe(min.width);
+    expect(min.width).toBeGreaterThanOrEqual(
+      nested.inner.width + GROUP_PAD * 2
+    );
+  });
+
+  it('packs nested-group children and grows width when the outer height shrinks', () => {
+    const nested = makeNestedGroup();
+    const min = containerMinSize(nested.nodes, nested.outer.id);
+    const squeezed = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width,
+        height: min.height,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'y',
+      }
+    );
+    const outer = squeezed.find((node) => node.id === nested.outer.id)!;
+    const inner = squeezed.find((node) => node.id === nested.inner.id)!;
+    const card = squeezed.find((node) => node.id === 'c')!;
+    expect(outer.height).toBe(min.height);
+    expect(card.x).toBeGreaterThan(inner.x);
+    expect(outer.width).toBeGreaterThanOrEqual(
+      inner.width + GROUP_GAP + CARD_WIDTH + GROUP_PAD * 2
+    );
+    expect(card.x + CARD_WIDTH).toBeLessThanOrEqual(outer.width - GROUP_PAD);
+  });
+
+  it('cannot shrink a nested group shorter than its tallest child', () => {
+    const nested = makeNestedGroup();
+    const min = containerMinSize(nested.nodes, nested.outer.id);
+    const squeezed = resizeGroupFrame(
+      nested.nodes,
+      nested.outer.id,
+      {
+        x: nested.outer.x,
+        y: nested.outer.y,
+        width: nested.outer.width,
+        height: 20,
+      },
+      {
+        width: nested.outer.width,
+        height: nested.outer.height,
+        axis: 'y',
+      }
+    );
+    const outer = squeezed.find((node) => node.id === nested.outer.id)!;
+    expect(outer.height).toBe(min.height);
+    expect(min.height).toBeGreaterThanOrEqual(
+      nested.inner.height + GROUP_HEADER_HEIGHT + GROUP_PAD * 2
+    );
   });
 
   it('treats overlapping cards as a drop target even when centers miss', () => {
@@ -455,16 +787,18 @@ describe('grouping', () => {
     expect(joined.find((node) => node.id === 'c')?.parentId).toBe(group.id);
   });
 
-  it('previews a group frame without snapping, then snaps on commit', () => {
+  it('lets the live frame follow the pointer and only snaps on commit', () => {
     const next = createEmptyGroup([], { x: 0, y: 0 });
     const group = next.find((node) => node.kind === 'group')!;
-    const previewed = previewGroupFrame(next, group.id, {
+    const geometry = {
       x: 8,
       y: 12,
       width: group.width + 28,
       height: group.height + 18,
-    });
-    const previewGroup = previewed.find((node) => node.id === group.id);
+    };
+    const origin = { width: group.width, height: group.height };
+    const previewed = previewGroupFrame(next, group.id, geometry, origin);
+    const previewGroup = previewed.find((node) => node.id === group.id)!;
     expect(previewGroup).toMatchObject({
       x: 8,
       y: 12,
@@ -472,17 +806,15 @@ describe('grouping', () => {
       height: group.height + 18,
     });
 
-    const committed = resizeGroupFrame(previewed, group.id, {
+    const committed = resizeGroupFrame(previewed, group.id, geometry, {
+      ...origin,
+      axis: 'xy',
+    });
+    expect(committed.find((node) => node.id === group.id)).toMatchObject({
       x: 8,
       y: 12,
-      width: group.width + 28,
-      height: group.height + 18,
+      width: groupWidthForColumns(columnsForGroupWidth(group.width + 28)),
     });
-    const committedGroup = committed.find((node) => node.id === group.id)!;
-    expect(committedGroup.width).toBe(
-      groupWidthForColumns(columnsForGroupWidth(group.width + 28))
-    );
-    expect(committedGroup.width).not.toBe(group.width + 28);
   });
 
   it('reflows member cards as soon as the live frame drops to one column', () => {
@@ -495,29 +827,127 @@ describe('grouping', () => {
       grouped.find((node) => node.id === 'a')!.x
     );
 
-    const previewed = previewGroupFrame(grouped, group.id, {
+    const origin = {
+      width: group.width,
+      height: group.height,
+      axis: 'x' as const,
+    };
+    const liveWidth = groupWidthForColumns(1) + 40;
+    const previewed = previewGroupFrame(
+      grouped,
+      group.id,
+      {
+        x: group.x,
+        y: group.y,
+        width: liveWidth,
+        height: group.height,
+      },
+      origin
+    );
+    const afterA = previewed.find((node) => node.id === 'a')!;
+    const afterB = previewed.find((node) => node.id === 'b')!;
+    const previewGroup = previewed.find((node) => node.id === group.id)!;
+    expect(previewGroup.width).toBe(liveWidth);
+    expect(rowsForGroupHeight(previewGroup.height)).toBe(2);
+    expect(afterA.x).toBe(afterB.x);
+    expect(afterB.y).toBeGreaterThan(afterA.y);
+    expect(afterB.y + CARD_HEIGHT).toBeLessThanOrEqual(
+      previewGroup.height - GROUP_PAD
+    );
+  });
+
+  it('keeps a five-card group at 1x5 after a width squeeze instead of bouncing back', () => {
+    const cards = Array.from({ length: 5 }, (_, index) =>
+      createCanvasNode(`s${index}`, { x: index * 10, y: 0 }, `n${index}`)
+    );
+    const grouped = groupSelection(
+      cards,
+      new Set(cards.map((card) => card.id)),
+      'G'
+    );
+    const group = grouped.find((node) => node.kind === 'group')!;
+    expect(columnsForGroupWidth(group.width)).toBe(2);
+    expect(rowsForGroupHeight(group.height)).toBe(3);
+
+    const origin = { width: group.width, height: group.height };
+    const geometry = {
       x: group.x,
       y: group.y,
       width: groupWidthForColumns(1),
       height: group.height,
-    });
-    const afterA = previewed.find((node) => node.id === 'a')!;
-    const afterB = previewed.find((node) => node.id === 'b')!;
-    expect(previewed.find((node) => node.id === group.id)?.width).toBe(
-      groupWidthForColumns(1)
+    };
+    const previewed = previewGroupFrame(grouped, group.id, geometry, origin);
+    const live = previewed.find((node) => node.id === group.id)!;
+    expect(live.manualColumns).toBe(1);
+    expect(live.manualRows).toBeUndefined();
+    expect(columnsForGroupWidth(live.width)).toBe(1);
+    expect(rowsForGroupHeight(live.height)).toBe(5);
+
+    const stillDragging = previewGroupFrame(
+      previewed,
+      group.id,
+      geometry,
+      origin
     );
-    expect(afterA.x).toBe(afterB.x);
-    expect(afterB.y).toBeGreaterThan(afterA.y);
+    const committed = resizeGroupFrame(
+      stillDragging,
+      group.id,
+      geometry,
+      origin
+    );
+    const next = committed.find((node) => node.id === group.id)!;
+    expect(next.manualColumns).toBe(1);
+    expect(next.manualRows).toBeUndefined();
+    expect(columnsForGroupWidth(next.width)).toBe(1);
+    expect(rowsForGroupHeight(next.height)).toBe(5);
   });
 
-  it('imports sessions as a new named group and caps the default grid at 15', () => {
-    const ids = Array.from({ length: 16 }, (_, index) => `s${index}`);
+  it('reflows cards and grows width when the user shortens group height', () => {
+    const cards = Array.from({ length: 5 }, (_, index) =>
+      createCanvasNode(`s${index}`, { x: index * 10, y: 0 }, `n${index}`)
+    );
+    const grouped = groupSelection(
+      cards,
+      new Set(cards.map((card) => card.id)),
+      'G'
+    );
+    const group = grouped.find((node) => node.kind === 'group')!;
+    const origin = { width: group.width, height: group.height };
+    const geometry = {
+      x: group.x,
+      y: group.y,
+      width: group.width,
+      height: groupHeightForRows(1),
+    };
+    const previewed = previewGroupFrame(grouped, group.id, geometry, origin);
+    const live = previewed.find((node) => node.id === group.id)!;
+    expect(live.manualRows).toBe(1);
+    expect(live.manualColumns).toBeUndefined();
+    expect(columnsForGroupWidth(live.width)).toBe(5);
+    expect(rowsForGroupHeight(live.height)).toBe(1);
+
+    const committed = resizeGroupFrame(previewed, group.id, geometry, origin);
+    const next = committed.find((node) => node.id === group.id)!;
+    expect(columnsForGroupWidth(next.width)).toBe(5);
+    expect(rowsForGroupHeight(next.height)).toBe(1);
+    const first = committed.find((node) => node.id === 'n0')!;
+    const last = committed.find((node) => node.id === 'n4')!;
+    expect(first.y).toBe(last.y);
+    expect(last.x).toBeGreaterThan(first.x);
+  });
+
+  it('imports sessions as a new named group and caps the default grid at 20 rows', () => {
+    const ids = Array.from({ length: 100 }, (_, index) => `s${index}`);
     const nodes = importSessionsAsGroup([], ids, '最近 7 天', { x: 0, y: 0 });
     const group = nodes.find((node) => node.kind === 'group')!;
     expect(group.name).toBe('最近 7 天');
-    expect(nodes.filter((node) => node.parentId === group.id)).toHaveLength(16);
-    expect(group.width).toBeGreaterThan(CARD_WIDTH * 2);
-    expect(GROUP_VISIBLE_LIMIT).toBe(15);
+    expect(nodes.filter((node) => node.parentId === group.id)).toHaveLength(
+      100
+    );
+    expect(columnsForGroupWidth(group.width)).toBe(2);
+    expect(rowsForGroupHeight(group.height)).toBe(MAX_GROUP_ROWS);
+    expect(planSessionGrid(100, group).overflow).toBe(60);
+    expect(GROUP_HEADER_HEIGHT).toBe(32);
   });
 
   it('does not attach a nested group into another nested group', () => {
@@ -550,5 +980,189 @@ describe('grouping', () => {
     expect(refused.find((node) => node.id === otherGroup.id)?.parentId).toBe(
       outerGroup.id
     );
+  });
+
+  it('keeps one group of cards below another group frame when they overlap', () => {
+    const grouped = groupSelection(
+      groupSelection(
+        [
+          createCanvasNode('sess-a', { x: 0, y: 0 }, 'a'),
+          createCanvasNode('sess-b', { x: 40, y: 0 }, 'b'),
+          createCanvasNode('sess-c', { x: 200, y: 0 }, 'c'),
+          createCanvasNode('sess-d', { x: 240, y: 0 }, 'd'),
+        ],
+        new Set(['a', 'b']),
+        'Back'
+      ),
+      new Set(['c', 'd']),
+      'Front'
+    );
+    const front = grouped.find((node) => node.name === 'Front')!;
+    const backCard = grouped.find((node) => node.id === 'a')!;
+    const frontCard = grouped.find((node) => node.id === 'c')!;
+
+    expect(canvasNodeZIndex(grouped, front)).toBeLessThan(
+      canvasNodeZIndex(grouped, frontCard)
+    );
+    expect(
+      canvasNodeZIndex(grouped, backCard, { selectedIds: new Set([front.id]) })
+    ).toBeLessThan(
+      canvasNodeZIndex(grouped, front, { selectedIds: new Set([front.id]) })
+    );
+
+    const lookups = buildCanvasFlowLookups(grouped, {
+      selectedIds: new Set([front.id]),
+    });
+    expect(lookups.zIndex(front)).toBe(
+      canvasNodeZIndex(grouped, front, { selectedIds: new Set([front.id]) })
+    );
+    expect(lookups.groupNumber(front.id)).toBe(groupNumber(grouped, front.id));
+  });
+
+  it('treats canvas drop hints as visually equal while merge hints compare geometry', () => {
+    expect(
+      dropHintsEqual(
+        { type: 'canvas', x: 1, y: 2 },
+        { type: 'canvas', x: 9, y: 8 }
+      )
+    ).toBe(true);
+    expect(
+      dropHintsEqual(CANVAS_DROP_HINT, { type: 'group', groupId: 'g' })
+    ).toBe(false);
+    expect(
+      dropHintsEqual(
+        { type: 'group', groupId: 'g' },
+        { type: 'group', groupId: 'g' }
+      )
+    ).toBe(true);
+  });
+
+  it('grows an auto group on a two-column grid as cards are dropped in', () => {
+    const empty = createEmptyGroup([], { x: 0, y: 0 });
+    const group = empty.find((node) => node.kind === 'group')!;
+    const first = attachToGroup(
+      [...empty, createCanvasNode('s1', { x: 400, y: 0 }, 'a')],
+      'a',
+      group.id
+    );
+    expect(
+      columnsForGroupWidth(first.find((node) => node.id === group.id)!.width)
+    ).toBe(2);
+    expect(
+      rowsForGroupHeight(first.find((node) => node.id === group.id)!.height)
+    ).toBe(1);
+
+    const second = attachToGroup(
+      [...first, createCanvasNode('s2', { x: 600, y: 0 }, 'b')],
+      'b',
+      group.id
+    );
+    expect(
+      rowsForGroupHeight(second.find((node) => node.id === group.id)!.height)
+    ).toBe(1);
+
+    const third = attachToGroup(
+      [...second, createCanvasNode('s3', { x: 800, y: 0 }, 'c')],
+      'c',
+      group.id
+    );
+    expect(
+      rowsForGroupHeight(third.find((node) => node.id === group.id)!.height)
+    ).toBe(2);
+
+    const fourth = attachToGroup(
+      [...third, createCanvasNode('s4', { x: 1000, y: 0 }, 'd')],
+      'd',
+      group.id
+    );
+    expect(
+      columnsForGroupWidth(fourth.find((node) => node.id === group.id)!.width)
+    ).toBe(2);
+    expect(
+      rowsForGroupHeight(fourth.find((node) => node.id === group.id)!.height)
+    ).toBe(2);
+  });
+
+  it('locks columns when the user resizes width and grows height to fit', () => {
+    const cards = Array.from({ length: 10 }, (_, index) =>
+      createCanvasNode(`s${index}`, { x: index * 10, y: 0 }, `n${index}`)
+    );
+    const grouped = groupSelection(
+      cards,
+      new Set(cards.map((card) => card.id)),
+      'G'
+    );
+    const group = grouped.find((node) => node.kind === 'group')!;
+    const squeezed = resizeGroupFrame(grouped, group.id, {
+      x: group.x,
+      y: group.y,
+      width: groupWidthForColumns(1),
+      height: group.height,
+    });
+    const next = squeezed.find((node) => node.id === group.id)!;
+    expect(next.manualColumns).toBe(1);
+    expect(next.manualRows).toBeUndefined();
+    expect(columnsForGroupWidth(next.width)).toBe(1);
+    expect(rowsForGroupHeight(next.height)).toBe(10);
+  });
+
+  it('locks rows when the user resizes height and grows width up to 10 columns', () => {
+    const cards = Array.from({ length: 15 }, (_, index) =>
+      createCanvasNode(`s${index}`, { x: index * 10, y: 0 }, `n${index}`)
+    );
+    const grouped = groupSelection(
+      cards,
+      new Set(cards.map((card) => card.id)),
+      'G'
+    );
+    const group = grouped.find((node) => node.kind === 'group')!;
+    const oneRow = resizeGroupFrame(grouped, group.id, {
+      x: group.x,
+      y: group.y,
+      width: group.width,
+      height: groupHeightForRows(1),
+    });
+    const next = oneRow.find((node) => node.id === group.id)!;
+    expect(next.manualRows).toBe(1);
+    expect(columnsForGroupWidth(next.width)).toBe(10);
+    expect(rowsForGroupHeight(next.height)).toBe(1);
+    expect(planSessionGrid(15, next).overflow).toBe(5);
+  });
+
+  it('shows a placeholder slot while dragging a card onto a group', () => {
+    const empty = createEmptyGroup([], { x: 0, y: 0 });
+    const group = empty.find((node) => node.kind === 'group')!;
+    const card = createCanvasNode('s1', { x: 400, y: 0 }, 'a');
+    const nodes = [...empty, card];
+    const previewed = previewCanvasDrop(nodes, 'a', {
+      type: 'group',
+      groupId: group.id,
+    });
+    expect(
+      rowsForGroupHeight(previewed.find((node) => node.id === group.id)!.height)
+    ).toBe(1);
+    expect(nextOpenCardSlot(previewed, group.id)).toEqual({
+      x: 12,
+      y: GROUP_HEADER_HEIGHT + 12,
+    });
+  });
+
+  it('resets an emptied group back to the two-by-two footprint', () => {
+    const a = createCanvasNode('sess-a', { x: 0, y: 0 }, 'a');
+    const b = createCanvasNode('sess-b', { x: 40, y: 0 }, 'b');
+    const grouped = groupSelection([a, b], new Set(['a', 'b']), 'G');
+    const group = grouped.find((node) => node.kind === 'group')!;
+    const locked = resizeGroupFrame(grouped, group.id, {
+      x: group.x,
+      y: group.y,
+      width: groupWidthForColumns(1),
+      height: group.height,
+    });
+    const afterA = detachNode(locked, 'a', { x: 800, y: 0 });
+    const emptied = detachNode(afterA, 'b', { x: 1000, y: 0 });
+    const empty = emptied.find((node) => node.id === group.id)!;
+    expect(empty.manualColumns).toBeUndefined();
+    expect(columnsForGroupWidth(empty.width)).toBe(2);
+    expect(rowsForGroupHeight(empty.height)).toBe(2);
   });
 });

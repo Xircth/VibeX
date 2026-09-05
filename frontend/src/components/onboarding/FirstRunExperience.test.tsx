@@ -1372,7 +1372,7 @@ describe('FirstRunExperience', () => {
       screen.getByRole('heading', { name: '选择出战的 Agent' })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('heading', { name: '版本管理器配置' })
+      screen.queryByRole('heading', { name: '配置版本管理器' })
     ).not.toBeInTheDocument();
   });
 
@@ -1404,7 +1404,7 @@ describe('FirstRunExperience', () => {
       await screen.findByRole('heading', { name: '选择出战的 Agent' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: '版本管理器配置' })
+      screen.getByRole('heading', { name: '配置版本管理器' })
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
     expect(screen.getByRole('alert')).toHaveTextContent('请填写名称和邮箱');
@@ -1490,7 +1490,7 @@ describe('FirstRunExperience', () => {
       expect(versionControlApiMock.detectGit).toHaveBeenCalled()
     );
     await user.click(screen.getByRole('button', { name: '下一步' }));
-    await screen.findByRole('heading', { name: '版本管理器配置' });
+    await screen.findByRole('heading', { name: '配置版本管理器' });
     await user.type(screen.getByPlaceholderText('例如：张三'), 'Ada');
     await user.type(
       screen.getByPlaceholderText('name@example.com'),
@@ -1503,7 +1503,7 @@ describe('FirstRunExperience', () => {
       screen.getByRole('heading', { name: '选择出战的 Agent' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: '版本管理器配置' })
+      screen.getByRole('heading', { name: '配置版本管理器' })
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '重试安装' }));

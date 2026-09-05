@@ -90,6 +90,7 @@ pub async fn run_oneshot_agent_turn(
                 acp_session_id: String::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: launch.env,
+                preferences: Default::default(),
             })
             .await,
     )

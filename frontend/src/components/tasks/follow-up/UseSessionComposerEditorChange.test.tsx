@@ -15,6 +15,7 @@ function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
       {
         id: 'input-1',
         session_id: 'session-1',
+        operationId: 'operation-1',
         revision: 1n,
         sortKey: 1024n,
         status: 'queued',

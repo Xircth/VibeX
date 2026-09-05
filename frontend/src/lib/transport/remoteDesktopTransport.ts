@@ -21,6 +21,15 @@ export interface RemoteDesktopBridge {
     operationId?: string
   ): Promise<unknown>;
   capabilities(profileId: string): Promise<ServerCapabilities>;
+  listen(
+    profileId: string,
+    event: string,
+    handler: (payload: unknown) => void
+  ): Promise<() => void>;
+  subscribe(
+    profileId: string,
+    request: SubscriptionRequest
+  ): AsyncIterable<RemoteEvent>;
 }
 
 const tauriBridge: RemoteDesktopBridge = {
@@ -45,38 +54,58 @@ const tauriBridge: RemoteDesktopBridge = {
     const { tauriInvoke } = await import('@/lib/tauriApi');
     return tauriInvoke('remote_desktop_capabilities', { profileId });
   },
+  async listen(profileId, event, handler) {
+    const { tauriInvoke, tauriListen } = await import('@/lib/tauriApi');
+    await tauriInvoke('remote_desktop_listen', { profileId, event });
+    return tauriListen(`remote-desktop:${profileId}:${event}`, handler);
+  },
+  subscribe(profileId, request) {
+    return subscribeRemoteDesktop(profileId, request);
+  },
 };
 
-function eventsFromBootstrap(value: unknown): RemoteEvent[] {
-  if (typeof value !== 'object' || value === null) return [];
-  const bootstrap = value as {
-    snapshot?: { payload?: { events?: unknown[] } } | null;
-    replay?: unknown[];
+async function* subscribeRemoteDesktop(
+  profileId: string,
+  request: SubscriptionRequest
+): AsyncIterable<RemoteEvent> {
+  const [{ Channel }, { tauriInvoke }] = await Promise.all([
+    import('@tauri-apps/api/core'),
+    import('@/lib/tauriApi'),
+  ]);
+  const queue: RemoteEvent[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  const channel = new Channel<RemoteEvent>();
+  channel.onmessage = (event) => {
+    queue.push(event);
+    wake?.();
+    wake = undefined;
   };
-  const wireEvents = [
-    ...(bootstrap.snapshot?.payload?.events ?? []),
-    ...(bootstrap.replay ?? []),
-  ];
-  return wireEvents.flatMap((event) => {
-    if (
-      typeof event !== 'object' ||
-      event === null ||
-      !('sequence' in event) ||
-      typeof event.sequence !== 'number' ||
-      !Number.isSafeInteger(event.sequence) ||
-      !('kind' in event) ||
-      typeof event.kind !== 'string' ||
-      !('payload' in event)
-    ) {
-      return [];
-    }
-    return [
-      {
-        ...(event as unknown as Omit<RemoteEvent, 'sequence'>),
-        sequence: BigInt(event.sequence),
-      },
-    ];
+  await tauriInvoke('remote_desktop_subscribe', {
+    profileId,
+    request: {
+      ...request,
+      ...('after_sequence' in request
+        ? { after_sequence: Number(request.after_sequence) }
+        : {}),
+    },
+    onEvent: channel,
   });
+  try {
+    while (!closed) {
+      if (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+      const next = queue.shift();
+      if (next) {
+        yield next;
+      }
+    }
+  } finally {
+    closed = true;
+  }
 }
 
 /**
@@ -87,22 +116,16 @@ export class RemoteDesktopTransport implements BackendTransport {
   readonly environment = 'remote-desktop' as const;
   readonly profileId: string;
   private readonly baseUrl: string;
-  // A `private` field is only compile-time private and still serializes, which
-  // would put the bearer token into any log or crash report that stringifies a
-  // transport. A `#` field is absent from the runtime object entirely.
-  readonly #token: string;
   private readonly bridge: RemoteDesktopBridge;
   private destroyed = false;
 
   private constructor(
     profileId: string,
     baseUrl: string,
-    token: string,
     bridge: RemoteDesktopBridge
   ) {
     this.profileId = profileId;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.#token = token;
     this.bridge = bridge;
   }
 
@@ -114,7 +137,6 @@ export class RemoteDesktopTransport implements BackendTransport {
     return new RemoteDesktopTransport(
       profile.profileId,
       profile.baseUrl,
-      profile.token,
       bridge
     );
   }
@@ -136,84 +158,17 @@ export class RemoteDesktopTransport implements BackendTransport {
     return this.bridge.capabilities(this.profileId);
   }
 
-  async listen<T>(
-    event: string,
-    handler: (payload: T) => void
-  ): Promise<() => void> {
-    const prefix = 'terminal-output:';
-    if (!event.startsWith(prefix) || this.destroyed) {
-      return () => undefined;
+  listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+    if (this.destroyed) {
+      return Promise.resolve(() => undefined);
     }
-    const controller = new AbortController();
-    const sessionId = event.slice(prefix.length);
-    void (async () => {
-      try {
-        const response = await fetch(
-          `${this.baseUrl}/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
-          {
-            headers: {
-              Authorization: `Bearer ${this.#token}`,
-              'X-VibeX-Protocol-Version': '1.0',
-            },
-            signal: controller.signal,
-          }
-        );
-        if (!response.ok || !response.body) {
-          return;
-        }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (!controller.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() ?? '';
-          for (const frame of frames) {
-            const data = frame
-              .split('\n')
-              .filter((line) => line.startsWith('data:'))
-              .map((line) => line.slice(5).trimStart())
-              .join('\n');
-            if (data.length > 0) {
-              (handler as (payload: string) => void)(data);
-            }
-          }
-        }
-      } catch {
-        // Panel close and disconnect abort the stream.
-      }
-    })();
-    return () => controller.abort();
+    return this.bridge.listen(this.profileId, event, (payload) =>
+      handler(payload as T)
+    );
   }
 
-  async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
-    let cursor = request.after_sequence;
-    while (!this.destroyed) {
-      if (
-        cursor < BigInt(Number.MIN_SAFE_INTEGER) ||
-        cursor > BigInt(Number.MAX_SAFE_INTEGER)
-      ) {
-        throw new Error(
-          'Conversation sequence exceeds JSON-safe integer range'
-        );
-      }
-      const bootstrap = await this.call('conversation_attach', {
-        request: {
-          ...request,
-          after_sequence: Number(cursor),
-        },
-      });
-      const events = eventsFromBootstrap(bootstrap);
-      for (const event of events) {
-        if (event.sequence > cursor) {
-          cursor = event.sequence;
-          yield event;
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+  subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+    return this.bridge.subscribe(this.profileId, request);
   }
 
   artifactPreviewUrl(lease: {
@@ -230,5 +185,13 @@ export class RemoteDesktopTransport implements BackendTransport {
     if (this.destroyed) return;
     this.destroyed = true;
     await this.bridge.disconnect(this.profileId);
+  }
+
+  toJSON(): { environment: string; profileId: string; baseUrl: string } {
+    return {
+      environment: this.environment,
+      profileId: this.profileId,
+      baseUrl: this.baseUrl,
+    };
   }
 }

@@ -1,5 +1,6 @@
 use tauri::image::Image;
 
+#[cfg(any(target_os = "windows", test))]
 const WINDOWS_CAPTION_PAD: u32 = 4;
 
 #[cfg(target_os = "windows")]
@@ -27,6 +28,7 @@ pub(crate) fn icon_from_png_bytes(bytes: &[u8]) -> Result<Image<'static>, String
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
 pub(crate) fn fit_opaque_content(
     rgba: &[u8],
     width: u32,
@@ -67,6 +69,7 @@ pub(crate) fn fit_opaque_content(
     Image::new_owned(out_buf, out, out)
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn opaque_bbox(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
     let mut min_x = width;
     let mut min_y = height;
@@ -89,6 +92,7 @@ fn opaque_bbox(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u
     found.then_some((min_x, min_y, max_x, max_y))
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn sample_bilinear(rgba: &[u8], width: u32, height: u32, x: f32, y: f32) -> [u8; 4] {
     if width == 0 || height == 0 {
         return [0; 4];
@@ -116,6 +120,7 @@ fn sample_bilinear(rgba: &[u8], width: u32, height: u32, x: f32, y: f32) -> [u8;
     out
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let index = ((y * width + x) * 4) as usize;
     [

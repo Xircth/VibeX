@@ -167,6 +167,16 @@ describe('conversationApi', () => {
     });
   });
 
+  it('loads conversation detail by conversationId', async () => {
+    call.mockResolvedValue({ summary: { id: 'conversation-1' } });
+
+    await conversationApi.detail('conversation-1');
+
+    expect(call).toHaveBeenCalledWith('conversation_detail', {
+      conversationId: 'conversation-1',
+    });
+  });
+
   it('requests durable events by sequence', async () => {
     call.mockResolvedValue({
       conversation_id: 'conversation-1',

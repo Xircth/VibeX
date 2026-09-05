@@ -480,21 +480,22 @@
   padding: 18px 20px;
 }
 
-.onboarding-version-control-copy {
-  margin: 0 2px 4px;
-  color: var(--onboarding-ink-muted);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .onboarding-version-control-panel {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   padding: 18px 20px;
+}
+
+.onboarding-version-control-fields {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(14rem, 1.75fr);
+  gap: 12px 16px;
+  align-items: start;
 }
 
 .onboarding-version-control-field {
   display: grid;
+  min-width: 0;
   gap: 7px;
 }
 
@@ -1205,6 +1206,10 @@
 
   .onboarding-editor-panel .settings-row [role='combobox'] {
     width: 100% !important;
+  }
+
+  .onboarding-version-control-fields {
+    grid-template-columns: 1fr;
   }
 }
 

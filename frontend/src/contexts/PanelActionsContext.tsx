@@ -21,6 +21,7 @@ import {
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { backendCall } from '@/lib/backendTransport';
+import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   editorTerminalPanelId,
@@ -60,6 +61,7 @@ import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   restoreFlexibleEditorColumn,
+  setColumnVisible,
 } from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
@@ -144,6 +146,11 @@ export interface PanelActions {
     path: string,
     options?: OpenFilePreviewOptions & { title?: string }
   ) => void;
+  openMergePanel: (params: {
+    workspaceId: string;
+    repoId: string;
+    filePath: string;
+  }) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
   openTerminalEditorTab: () => void;
@@ -186,6 +193,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const setSelectedFilePath = useFileTreeStore(
     (state) => state.setSelectedFilePath
   );
+  const transport = useBackendTransport();
+  const { supports } = useBackendCapabilities();
+  const canOpenWebPreview =
+    transport.environment === 'desktop' || supports('desktop.tauri');
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
     imagePanelRemovalDisposableRef.current?.dispose();
@@ -457,6 +468,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openWebPreview = useCallback(
     (url?: string | null) => {
+      if (!canOpenWebPreview) return;
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -480,7 +492,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       panel?.api.setActive();
     },
-    [addPanelToActiveEditorGroup]
+    [addPanelToActiveEditorGroup, canOpenWebPreview]
   );
 
   const syncDiffPreviewPanelQueue = useCallback(() => {
@@ -884,10 +896,20 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
               }
             }
 
-            leftGroup.api.setVisible(true);
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              leftGroup,
+              true
+            );
             applyLeftGroupHeaderHiding(dockviewApi);
           } else {
-            leftGroup.api.setVisible(!leftGroup.api.isVisible);
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              leftGroup,
+              !leftGroup.api.isVisible
+            );
           }
         }
 
@@ -937,7 +959,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      leftGroup.api.setVisible(true);
+      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },
@@ -966,7 +988,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
 
         const leftGroup = getLeftGroup(dockviewApi);
-        leftGroup?.api.setVisible(true);
+        if (leftGroup) {
+          setColumnVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            leftGroup,
+            true
+          );
+        }
         applyLeftGroupHeaderHiding(dockviewApi);
         normalizeEditorGroupIds(dockviewApi);
         return;
@@ -1015,7 +1044,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      leftGroup.api.setVisible(true);
+      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
       applyLeftGroupHeaderHiding(dockviewApi);
       normalizeEditorGroupIds(dockviewApi);
     },
@@ -1130,6 +1159,30 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+  const openMergePanel = useCallback(
+    (params: { workspaceId: string; repoId: string; filePath: string }) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+      const panelId = `merge:${params.filePath}`;
+      const title = params.filePath.split(/[/\\]/).pop() || params.filePath;
+      const existingPanel = dockviewApi.getPanel(panelId);
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        existingPanel.group.api.setVisible(true);
+        existingPanel.api.setActive();
+        return;
+      }
+      const panel = addPanelToActiveEditorGroup({
+        id: panelId,
+        component: PANEL_IDS.MERGE,
+        title,
+        params,
+      });
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
+  );
+
   const openDiffPreview = useCallback(() => {
     clearCommitDiff();
     clearGitDiffTargetPath();
@@ -1232,6 +1285,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       revealInFileTree,
       openDiffPreview,
       openDiffPreviewAtPath,
+      openMergePanel,
       openCommitDiff,
       openNewTerminal,
       openTerminalEditorTab,
@@ -1262,6 +1316,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openCommitDiff,
       openDiffPreview,
       openDiffPreviewAtPath,
+      openMergePanel,
       openFilePreview,
       openImagePreview,
       openWebPreview,

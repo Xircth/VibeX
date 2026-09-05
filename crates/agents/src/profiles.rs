@@ -86,6 +86,11 @@ pub struct ProfileExternalCandidate {
     pub component: ProfileComponent,
     pub executable: &'static str,
     pub version_args: &'static [&'static str],
+    /// Arguments that make this executable speak ACP over stdio. Required for
+    /// detection-only profiles, which have no install source to pin them.
+    /// Managed installs pin the same invocation on their install source; when
+    /// both are declared they must agree (locked by `built_in_profiles`).
+    pub acp_args: &'static [&'static str],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +304,47 @@ pub fn adapter_bundles_runtime(agent_id: &AgentId) -> bool {
     !bundled_adapter_runtime_env_keys(agent_id).is_empty()
 }
 
+/// The arguments that make a Profile's component speak ACP over stdio.
+///
+/// Managed installs pin the invocation on their install source. Detection-only
+/// Profiles have no install source, so their external candidate carries it.
+/// This is the only place either is read, so the two cannot drift into two
+/// different answers at different call sites.
+pub fn acp_launch_args(profile: &BuiltInProfile, component: ProfileComponent) -> Vec<String> {
+    let declared = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == component && !candidate.acp_args.is_empty())
+        .map(|candidate| candidate.acp_args);
+    let pinned = profile
+        .install_sources
+        .iter()
+        .find_map(|source| match source {
+            ProfileInstallSource::Npx {
+                component: source_component,
+                args,
+                ..
+            }
+            | ProfileInstallSource::Uvx {
+                component: source_component,
+                args,
+                ..
+            }
+            | ProfileInstallSource::Binary {
+                component: source_component,
+                args,
+                ..
+            } if *source_component == component => Some(*args),
+            _ => None,
+        });
+    declared
+        .or(pinned)
+        .unwrap_or(&[])
+        .iter()
+        .map(|argument| (*argument).to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryEntryIdentity {
     pub registry_id: String,
@@ -316,17 +362,18 @@ impl BuiltInProfileCatalog {
             profiles: vec![
                 claude_code_profile(),
                 codex_profile(),
-                antigravity_profile(),
-                openclaw_profile(),
-                opencode_profile(),
-                cline_profile(),
-                hermes_profile(),
-                codebuddy_profile(),
-                kimi_code_profile(),
                 pi_profile(),
+                opencode_profile(),
                 grok_profile(),
                 cursor_profile(),
                 deepseek_harness_profile(),
+                antigravity_profile(),
+                cline_profile(),
+                openclaw_profile(),
+                hermes_profile(),
+                codebuddy_profile(),
+                kimi_code_profile(),
+                qoder_profile(),
             ],
         }
     }
@@ -368,11 +415,13 @@ const CLAUDE_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::AgentRuntime,
         executable: "claude",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "claude-agent-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const CODEX_CANDIDATES: &[ProfileExternalCandidate] = &[
@@ -380,28 +429,33 @@ const CODEX_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::AgentRuntime,
         executable: "codex",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "codex-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] = &[ProfileExternalCandidate {
     component: ProfileComponent::CombinedRuntime,
     executable: "opencode",
     version_args: &["--version"],
+    acp_args: &[],
 }];
 const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
     ProfileExternalCandidate {
         component: ProfileComponent::AgentRuntime,
         executable: "pi",
         version_args: &["--version"],
+        acp_args: &[],
     },
     ProfileExternalCandidate {
         component: ProfileComponent::AcpAdapter,
         executable: "pi-acp",
         version_args: &["--version"],
+        acp_args: &[],
     },
 ];
 const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
@@ -409,6 +463,7 @@ const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::CombinedRuntime,
         executable: "agy_acp_server.par",
         version_args: &[],
+        acp_args: &[],
     },
     external("agy_acp_server"),
 ];
@@ -432,12 +487,34 @@ const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
 const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
 const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
 const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
+/// Qoder CLI turns into an ACP stdio server with `--acp`; without it the same
+/// executable starts the interactive TUI. Both published executable names are
+/// probed because the official ACP guide uses `qoder` while the Model Studio
+/// install guide verifies `qodercli`.
+const QODER_ACP_ARGS: &[&str] = &["--acp"];
+const QODER_CANDIDATES: &[ProfileExternalCandidate] = &[
+    external_acp("qoder", QODER_ACP_ARGS),
+    external_acp("qodercli", QODER_ACP_ARGS),
+];
 
 const fn external(executable: &'static str) -> ProfileExternalCandidate {
     ProfileExternalCandidate {
         component: ProfileComponent::CombinedRuntime,
         executable,
         version_args: &["--version"],
+        acp_args: &[],
+    }
+}
+
+const fn external_acp(
+    executable: &'static str,
+    acp_args: &'static [&'static str],
+) -> ProfileExternalCandidate {
+    ProfileExternalCandidate {
+        component: ProfileComponent::CombinedRuntime,
+        executable,
+        version_args: &["--version"],
+        acp_args,
     }
 }
 
@@ -603,6 +680,14 @@ const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "启动 CodeBuddy 官方登录",
     ProfileManagementActionKind::Login,
     "codebuddy",
+    &["login"],
+)];
+const QODER_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 Qoder",
+    "打开浏览器完成 Qoder 官方账号登录",
+    ProfileManagementActionKind::Login,
+    "qodercli",
     &["login"],
 )];
 const KIMI_ACTIONS: &[ProfileManagementAction] = &[
@@ -965,7 +1050,7 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
     boolean_field(
         "codex_responses_websockets",
         "关闭 WebSocket 连接",
-        "关闭 Responses API 的 WebSocket 传输",
+        "关闭 Responses API 的 WebSocket 传输，写入活跃 model_providers 提供商的 supports_websockets；Codex 内置提供商不支持由此开关改变",
         &["features", "responses_websockets_v2"],
     ),
     boolean_field(
@@ -1933,6 +2018,15 @@ const DEEPSEEK_HARNESS_CONFIG: &[NativeConfigBinding] = &[
     },
 ];
 
+const QODER_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "settings",
+    home_relative_path: ".qoder/settings.json",
+    directory_override_env: Some("QODER_CONFIG_DIR"),
+    override_relative_path: "settings.json",
+    format: NativeConfigFormat::Json,
+    fields: &[],
+}];
+
 const fn text_field(
     field_id: &'static str,
     label: &'static str,
@@ -2180,6 +2274,15 @@ const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::OpenCodeProviders,
     AgentSettingsFeature::OpenCodePlugins,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+/// Qoder authenticates through `qoder login` (or `QODER_PERSONAL_ACCESS_TOKEN`
+/// as the same account's headless credential). There is no official API Key
+/// env and no custom endpoint. Skills live in `~/.qoder/skills`; MCP servers
+/// live in `~/.qoder/settings.json` `mcpServers`.
+const QODER_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
@@ -2870,6 +2973,46 @@ fn deepseek_harness_profile() -> BuiltInProfile {
         authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: true,
         account_evidence: None,
+    }
+}
+
+fn qoder_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("qoder").expect("bundled AgentId"),
+        display_name: "Qoder",
+        description: "Qoder CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/qoder.svg",
+            dark: "/agents/qoder.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "qoder",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@qoder-ai/qodercli",
+            "1.1.44",
+            "qodercli",
+            QODER_ACP_ARGS,
+            ">=20",
+            "sha512-OFZFj6w6Zckuz/o8KT3LCLctS7g5UZbSSyoF66+8seYNrQkkFmU0GrnGCsduHK7ZBrlpRVWXPQg6h9gUWo3v4A==",
+        )],
+        external_candidates: QODER_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: QODER_ACTIONS,
+        runtime_executable_env: None,
+        native_config: QODER_CONFIG,
+        settings_features: QODER_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".qoder",
+            directory_override_env: Some("QODER_CONFIG_DIR"),
+            override_relative_directory: "",
+            relative_file: "settings.json",
+            kind: AccountEvidenceKind::NonEmptyStringAt(&["security", "auth", "selectedType"]),
+        }),
     }
 }
 

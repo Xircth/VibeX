@@ -1229,7 +1229,7 @@ export type AgentConnectionId = string;
 
 export type AgentConnectionSnapshot = { id: AgentConnectionId, agent_id: AgentId, workspace_id: string, status: AgentConnectionStatus, working_dir: string, status_message?: string | null, created_at: string, updated_at: string, };
 
-export type AgentConnectionStatus = "disconnected" | "connecting" | "ready" | "failed";
+export type AgentConnectionStatus = "disconnected" | "connecting" | "recovering" | "ready" | "failed";
 
 export type AgentContentBlock = { "kind": "text", text: string, } | { "kind": "image", data: string, mime_type: string, uri: string | null, } | { "kind": "resource", uri: string, title: string | null, } | { "kind": "protocol", content: JsonValue, };
 
@@ -1263,7 +1263,11 @@ export type AgentPermissionResponse = { "kind": "selected", option_id: string, }
 
 export type AgentPlan = { entries: Array<AgentPlanEntry>, };
 
-export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null, };
+export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null,
+/**
+ * End-turn token breakdown from ACP `PromptResponse.usage` when present.
+ */
+usage?: AgentUsage | null, };
 
 export type AgentPromptId = string;
 
@@ -1453,7 +1457,7 @@ export type ConversationDelegation = { delegation_id: string, parent_tool_call_i
 
 export type ConversationDelegationResult = { "kind": "ok", text_preview?: string | null, duration_ms?: bigint | null, } | { "kind": "err", error: ConversationError, };
 
-export type ConversationError = { message: string, code?: string | null, raw?: JsonValue | null, };
+export type ConversationError = { message: string, code?: string | null, raw?: JsonValue | null, kind: ConversationTurnErrorKind, plan_usage?: AgentPlanUsage | null, };
 
 export type ConversationErrorView = { turn_id: string | null, error: ConversationError, };
 
@@ -1723,7 +1727,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
@@ -1781,9 +1785,9 @@ export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: bo
 
 export type SubscriptionId = string;
 
-export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, });
+export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, } | { "resource": "host_event", channel: string, after_sequence: bigint, } | { "resource": "patch_stream", stream: string, args: JsonValue, });
 
-export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, };
+export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, } | { "resource": "host_event", channel: string, after_sequence: bigint, } | { "resource": "patch_stream", stream: string, args: JsonValue, };
 
 export type SubscriptionSnapshot = { through_sequence: bigint, payload: JsonValue, };
 
@@ -1969,8 +1973,8 @@ export type PlanUsageWindow = {
 /**
  * Stable window identifier the frontend maps to a localized label.
  * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
- * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `monthly`.
- * Cursor: `cursor_models` / `other_models`.
+ * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
+ * `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
  */
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
 
@@ -2107,3 +2111,39 @@ export type LocalHistoryImportJobStatus = "idle" | "running" | "completed" | "fa
 export type LocalHistoryImportLogEntry = { phase: LocalHistoryImportPhase, agent_id: AgentId, external_session_id: string, title: string | null, conversation_id?: string | null, error?: string | null, };
 
 export type LocalHistoryScanProgress = { session_count: number, bytes_scanned: bigint, };
+
+export type ConversationTurnErrorKind = "rejected" | "service_error" | "rate_limited" | "cancelled" | "auth_required" | "resource_not_found" | "session_resume_unsupported" | "session_load_failed" | "idle_timeout" | "connection_closed" | "prompt_conflict" | "unknown";
+
+export type ProjectUsageAgentUsage = { agent_id: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>, };
+
+export type ProjectUsageFolderUsage = { workspace_id: string, folder?: string | null, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageModelUsage = { model: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
+
+export type ProjectUsageProviderStatus = { provider: string, success: boolean, error: string | null, sessions_scanned: bigint, };
+
+export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null, };
+
+export type ProjectUsageSourcedTokens = { protocol?: ProjectUsageTokenCounts | null, vendor_log?: ProjectUsageTokenCounts | null, sources_disagree: boolean, };
+
+export type ProjectUsageStatistics = { scope: string, project_id: string, project_name: string, total_sessions: bigint, total_tokens: ProjectUsageSourcedTokens, estimated_cost?: number | null, vendor_estimated_cost?: number | null, sessions: Array<ProjectUsageSessionSummary>, daily_usage: Array<ProjectUsageDailyUsage>, weekly_comparison: ProjectUsageWeeklyComparison, by_model: Array<ProjectUsageModelUsage>, by_folder: Array<ProjectUsageFolderUsage>, by_agent: Array<ProjectUsageAgentUsage>, provider_status: Array<ProjectUsageProviderStatus>, unattributed_vendor_sessions: bigint, last_updated: bigint, pricing_notice?: string | null, };
+
+export type ProjectUsageTokenCounts = { input_tokens?: bigint | null, output_tokens?: bigint | null, cache_write_tokens?: bigint | null, cache_read_tokens?: bigint | null, total_tokens?: bigint | null, };
+
+export type ProjectUsageTrends = { sessions: number, cost: number, tokens: number, };
+
+export type ProjectUsageUsageData = { input_tokens?: bigint | null, output_tokens?: bigint | null, cache_write_tokens?: bigint | null, cache_read_tokens?: bigint | null, total_tokens?: bigint | null, };
+
+export type ProjectUsageWeekData = { sessions: bigint, cost?: number | null, tokens?: bigint | null, };
+
+export type ProjectUsageWeeklyComparison = { current_week: ProjectUsageWeekData, last_week: ProjectUsageWeekData, trends: ProjectUsageTrends, };
+
+export type ConflictFileDetail = { path: string, base: ConflictStageContent, ours: ConflictStageContent, theirs: ConflictStageContent, result: string, hunks: Array<ConflictHunk>, is_binary: boolean, is_resolved: boolean, };
+
+export type ConflictHunk = { index: number, ours: string, theirs: string, };
+
+export type ConflictStageContent = { present: boolean, content?: string | null, };
+
+export type WriteConflictResolutionResult = { path: string, is_resolved: boolean, };

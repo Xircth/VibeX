@@ -1,4 +1,10 @@
-import { isPlaceholderPanelId } from '@/utils/dockviewGroupPolicy';
+import {
+  BOTTOM_PANEL_IDS,
+  isEditorGroup,
+  isPlaceholderPanelId,
+  LEFT_PANEL_IDS,
+  SESSION_PANEL_IDS,
+} from '@/utils/dockviewGroupPolicy';
 
 export function editorColumnShouldDismiss(
   editorGroups: ReadonlyArray<{ panels: ReadonlyArray<{ id: string }> }>
@@ -9,6 +15,35 @@ export function editorColumnShouldDismiss(
   return editorGroups.every((group) =>
     group.panels.every((panel) => isPlaceholderPanelId(panel.id))
   );
+}
+
+function isZonePanelId(panelId: string): boolean {
+  return (
+    LEFT_PANEL_IDS.has(panelId) ||
+    SESSION_PANEL_IDS.has(panelId) ||
+    BOTTOM_PANEL_IDS.has(panelId)
+  );
+}
+
+/**
+ * Closing the last real editor tab hides a welcome-only column. Switching the
+ * activity-rail (or any other zone panel) must not, even if Welcome is the
+ * only remaining editor tab.
+ */
+export function shouldDismissEditorColumnAfterPanelRemoval(
+  removedPanel: {
+    id: string;
+    group?: { id: string; panels: ReadonlyArray<{ id: string }> };
+  },
+  editorGroups: ReadonlyArray<{ panels: ReadonlyArray<{ id: string }> }>
+): boolean {
+  if (isZonePanelId(removedPanel.id)) {
+    return false;
+  }
+  if (removedPanel.group && !isEditorGroup(removedPanel.group)) {
+    return false;
+  }
+  return editorColumnShouldDismiss(editorGroups);
 }
 
 export function collapsedEditorColumnWidths(input: {

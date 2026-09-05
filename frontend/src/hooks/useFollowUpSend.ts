@@ -7,6 +7,7 @@ import type {
   ExecutorProfileId,
 } from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import { publishOptimisticConversationTurn } from '@/features/conversation/optimisticTurnEvents';
 import {
   buildAgentPrompt,
@@ -42,6 +43,7 @@ type Args = {
   onBeforeSend?: () => void;
   onSendFailure?: (message: string) => void;
   onAfterSendCleanup: () => void | Promise<void>;
+  onPendingOperationIdChange?: (operationId: string | null) => void;
 };
 
 let optimisticTurnSequence = 0;
@@ -65,6 +67,7 @@ export function useFollowUpSend({
   onBeforeSend,
   onSendFailure,
   onAfterSendCleanup,
+  onPendingOperationIdChange,
 }: Args) {
   const { t } = useTranslation(['app', 'common']);
   const queryClient = useQueryClient();
@@ -75,6 +78,7 @@ export function useFollowUpSend({
   // durable inputs while session creation or submission is still pending.
   const isSendingRef = useRef(false);
   const operationIdRef = useRef<string | null>(null);
+  const lastSubmittedMessageRef = useRef<string | null>(null);
 
   const sendFollowUp = useCallback(
     async (submittedMessage?: string) => {
@@ -100,8 +104,17 @@ export function useFollowUpSend({
       if (!prompt && images.length === 0) return;
 
       isSendingRef.current = true;
+      const abandonedOperationId =
+        lastSubmittedMessageRef.current !== acceptedMessage
+          ? operationIdRef.current
+          : null;
+      if (abandonedOperationId) {
+        operationIdRef.current = null;
+      }
+      lastSubmittedMessageRef.current = acceptedMessage;
       operationIdRef.current ??= crypto.randomUUID();
       const operationId = operationIdRef.current;
+      onPendingOperationIdChange?.(operationId);
       let turnAccepted = false;
       try {
         onBeforeSend?.();
@@ -149,6 +162,24 @@ export function useFollowUpSend({
           throw new Error('No workspace available for ACP agent turn');
         }
 
+        if (abandonedOperationId) {
+          const leftoverInputs = await conversationApi
+            .listInputs(targetSessionId)
+            .catch(() => []);
+          for (const input of leftoverInputs) {
+            if (
+              input.status === 'queued' &&
+              input.operationId === abandonedOperationId
+            ) {
+              await conversationApi.cancelInput({
+                conversationId: targetSessionId,
+                inputId: input.id,
+                expectedRevision: Number(input.revision),
+              });
+            }
+          }
+        }
+
         const optimisticTurnId = `optimistic-${Date.now()}-${optimisticTurnSequence++}`;
         publishOptimisticConversationTurn({
           type: 'add',
@@ -187,6 +218,18 @@ export function useFollowUpSend({
             conversationId: targetSessionId,
             turnId: optimisticTurnId,
           });
+          const acceptedInput = (
+            await conversationApi.listInputs(targetSessionId).catch(() => [])
+          ).find(
+            (input) =>
+              input.operationId === operationId &&
+              ['queued', 'claimed', 'dispatched'].includes(input.status)
+          );
+          if (acceptedInput) {
+            turnAccepted = true;
+            operationIdRef.current = null;
+            return;
+          }
           throw error;
         }
         await queryClient.invalidateQueries({
@@ -207,6 +250,7 @@ export function useFollowUpSend({
       } finally {
         isSendingRef.current = false;
         setIsSendingFollowUp(false);
+        onPendingOperationIdChange?.(null);
       }
     },
     [
@@ -230,6 +274,7 @@ export function useFollowUpSend({
       onBeforeSend,
       onSendFailure,
       onAfterSendCleanup,
+      onPendingOperationIdChange,
     ]
   );
 

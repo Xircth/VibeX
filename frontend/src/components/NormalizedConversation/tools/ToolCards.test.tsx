@@ -727,7 +727,7 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.getAllByText('No blocking issues')[0]).toBeInTheDocument();
-    expect(screen.getByText('visual polish')).toBeInTheDocument();
+    expect(screen.getAllByText('visual polish')[0]).toBeInTheDocument();
   });
 
   it('routes goal tool calls to a goal card', () => {

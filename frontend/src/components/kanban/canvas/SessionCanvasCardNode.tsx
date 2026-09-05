@@ -8,8 +8,7 @@ import {
   sessionSlotClasses,
   sessionSlotHue,
 } from '@/components/kanban/session-hub/utils';
-import { CanvasNodeAnchors } from './CanvasNodeAnchors';
-import { useSessionCanvasView } from './CanvasViewContext';
+import { useCanvasSession, useSessionCanvasView } from './CanvasViewContext';
 import { cn } from '@/lib/utils';
 
 export interface SessionCanvasCardData {
@@ -30,14 +29,9 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
   selected,
 }: NodeProps<SessionCanvasCardFlowNode>) {
   const { t } = useTranslation(['tasks']);
-  const {
-    sessionsById,
-    sessionsReady,
-    removeCard,
-    onRenameSession,
-    onDeleteSession,
-  } = useSessionCanvasView();
-  const session = sessionsById.get(data.sessionId);
+  const { sessionsReady, removeCard, onRenameSession, onDeleteSession } =
+    useSessionCanvasView();
+  const session = useCanvasSession(data.sessionId);
 
   if (!session) {
     if (!sessionsReady) {
@@ -67,7 +61,6 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
 
   return (
     <div className="relative h-full w-full">
-      <CanvasNodeAnchors />
       <div
         className={cn(
           'canvas-board-units canvas-session-card h-full w-full overflow-hidden rounded-lg',

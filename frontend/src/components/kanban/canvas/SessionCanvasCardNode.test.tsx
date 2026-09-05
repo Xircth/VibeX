@@ -8,9 +8,9 @@ vi.mock('@xyflow/react', () => ({
   Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
 }));
 
-vi.mock('./CanvasViewContext', () => ({
-  useSessionCanvasView: () => ({
-    sessionsById: new Map([
+const sessionsById = vi.hoisted(
+  () =>
+    new Map([
       [
         'session-1',
         {
@@ -35,7 +35,12 @@ vi.mock('./CanvasViewContext', () => ({
           status: 'inreview',
         } as KanbanProjectSessionRecord,
       ],
-    ]),
+    ])
+);
+
+vi.mock('./CanvasViewContext', () => ({
+  useSessionCanvasView: () => ({
+    sessionsById,
     sessionsReady: true,
     expandCard: vi.fn(),
     collapseCard: vi.fn(),
@@ -46,6 +51,7 @@ vi.mock('./CanvasViewContext', () => ({
     renameGroup: vi.fn(),
     toggleGroupShowAll: vi.fn(),
   }),
+  useCanvasSession: (sessionId: string) => sessionsById.get(sessionId),
 }));
 
 vi.mock('@/components/kanban/session-hub/SessionHubListItem', () => ({

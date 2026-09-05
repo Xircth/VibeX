@@ -104,6 +104,7 @@ struct AgentTerminalSession {
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
     exit_status: Arc<RwLock<Option<AgentTerminalExit>>>,
     exit_notify: Arc<Notify>,
+    kill_notify: Arc<Notify>,
     truncated: Arc<RwLock<bool>>,
 }
 
@@ -165,6 +166,7 @@ impl AgentTerminalRegistry {
             subscribers: Arc::new(Mutex::new(Vec::new())),
             exit_status: Arc::new(RwLock::new(None)),
             exit_notify: Arc::new(Notify::new()),
+            kill_notify: Arc::new(Notify::new()),
             truncated: Arc::new(RwLock::new(false)),
         });
 
@@ -235,7 +237,13 @@ impl AgentTerminalRegistry {
         tokio::spawn(async move {
             let wait_result = {
                 let mut child = session.child.lock().await;
-                child.wait().await
+                tokio::select! {
+                    result = child.wait() => result,
+                    _ = session.kill_notify.notified() => {
+                        let _ = child.start_kill();
+                        child.wait().await
+                    }
+                }
             };
             tokio::time::sleep(READER_DRAIN_GRACE).await;
 
@@ -330,8 +338,11 @@ impl AgentTerminalRegistry {
             return false;
         };
 
-        let mut child = session.child.lock().await;
-        child.kill().await.is_ok()
+        session.kill_notify.notify_waiters();
+        match session.child.try_lock() {
+            Ok(mut child) => child.start_kill().is_ok(),
+            Err(_) => true,
+        }
     }
 
     pub async fn release_terminal(&self, terminal_id: AgentTerminalId) -> bool {
@@ -341,8 +352,10 @@ impl AgentTerminalRegistry {
         };
 
         {
-            let mut child = session.child.lock().await;
-            let _ = child.kill().await;
+            session.kill_notify.notify_waiters();
+            if let Ok(mut child) = session.child.try_lock() {
+                let _ = child.start_kill();
+            }
         }
 
         session.subscribers.lock().await.clear();
@@ -521,6 +534,7 @@ fn default_platform_shell() -> String {
 ///
 /// `System32\bash.exe` is the WSL stub and is skipped. Interactive Terminal
 /// panels keep their own PowerShell default.
+#[cfg(any(windows, test))]
 fn resolve_windows_agent_shell(
     git_bash: impl IntoIterator<Item = PathBuf>,
     cmd: impl IntoIterator<Item = PathBuf>,
@@ -535,6 +549,7 @@ fn resolve_windows_agent_shell(
         .unwrap_or_else(|| "cmd.exe".to_string())
 }
 
+#[cfg(any(windows, test))]
 fn is_wsl_bash(path: &Path) -> bool {
     let normalized = path
         .to_string_lossy()

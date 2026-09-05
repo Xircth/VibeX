@@ -20,10 +20,22 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 import { browserApi } from './browserApi';
+import {
+  isCancelledBrowserError,
+  type BrowserLoadErrorInfo,
+} from './chromiumNetError';
+import { BrowserLoadError } from './BrowserLoadError';
+import { reclaimBrowserTab, retainBrowserTab } from './browserTabRetention';
+import {
+  BLANK_PAGE,
+  browserUrlsEquivalent,
+  normalizeBrowserUrl,
+} from './browserUrl';
 import { BrowserDevToolsSession } from './devToolsSession';
 import { applyDevicePreset, type DevicePresetId } from './deviceEmulation';
 import { createFrameScheduler, type FrameScheduler } from './frameScheduler';
@@ -36,7 +48,8 @@ import type {
   BrowserTab,
 } from './browserTypes';
 
-const BLANK_PAGE = 'about:blank';
+export const DEFAULT_BROWSER_ZOOM_PERCENT = 80;
+export { normalizeBrowserUrl } from './browserUrl';
 const ZOOM_PERCENTAGES = [50, 80, 90, 100, 110, 125, 150] as const;
 const INSPECT_HIGHLIGHT_CONFIG = {
   showInfo: true,
@@ -50,11 +63,14 @@ interface BrowserPanelProps {
   initialUrl: string | null;
   requestNonce: number;
   workspaceId?: string;
+  /** Stable Dockview panel id used to keep the CEF tab across host remounts. */
+  panelId?: string;
   visible: boolean;
   layoutVersion?: number;
   className?: string;
   onTitleChange?: (title: string) => void;
   onFaviconChange?: (faviconUrl: string | null) => void;
+  onLocationChange?: (url: string) => void;
   onInspectElement?: (element: OpenInEditorPayload) => void;
   onOpenExternalTab?: (url: string) => void;
 }
@@ -210,19 +226,16 @@ function zoomPercentForLevel(level: number): number {
   );
 }
 
-export function normalizeBrowserUrl(value: string): string {
-  const target = value.trim();
-  if (!target) return BLANK_PAGE;
-  if (
-    /^(https?|file):\/\//i.test(target) ||
-    /^(about|data|view-source):/i.test(target)
-  ) {
-    return target;
-  }
-
-  const localHost =
-    /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?(?:[/#?]|$)/i;
-  return `${localHost.test(target) ? 'http' : 'https'}://${target}`;
+function isStaleNavigationUpdate(
+  tabUrl: string,
+  pendingUrl: string | null,
+  originUrl: string | null
+): boolean {
+  return (
+    pendingUrl != null &&
+    originUrl != null &&
+    browserUrlsEquivalent(tabUrl, originUrl)
+  );
 }
 
 function commandErrorMessage(error: unknown): string {
@@ -242,11 +255,13 @@ export function BrowserPanel({
   initialUrl,
   requestNonce,
   workspaceId,
+  panelId,
   visible,
   layoutVersion,
   className,
   onTitleChange,
   onFaviconChange,
+  onLocationChange,
   onInspectElement,
   onOpenExternalTab,
 }: BrowserPanelProps) {
@@ -267,6 +282,7 @@ export function BrowserPanel({
   const blankPageVisibleRef = useRef(initialUrl === null);
   const onInspectElementRef = useRef(onInspectElement);
   const onOpenExternalTabRef = useRef(onOpenExternalTab);
+  const onLocationChangeRef = useRef(onLocationChange);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
@@ -277,7 +293,11 @@ export function BrowserPanel({
   const [tabBootstrapUrl, setTabBootstrapUrl] = useState(initialUrl);
   const [tab, setTab] = useState<BrowserTab | null>(null);
   const [address, setAddress] = useState(initialUrl ?? '');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<BrowserLoadErrorInfo | null>(null);
+  const pendingNavigationUrlRef = useRef<string | null>(null);
+  const navigationOriginUrlRef = useRef<string | null>(null);
+  const lastRequestNonceRef = useRef(requestNonce);
+  const selectAllOnFocusRef = useRef(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
@@ -292,16 +312,18 @@ export function BrowserPanel({
   >([]);
   const requestToken = `${requestNonce}\u0000${initialUrl ?? ''}`;
   const lastRequestTokenRef = useRef(requestToken);
+  const requestTokenRef = useRef(requestToken);
+  requestTokenRef.current = requestToken;
 
-  const showError = useCallback((message: string) => {
+  const showError = useCallback((message: string, code = '') => {
     surfaceBlockedRef.current = true;
-    setErrorMessage(message);
+    setLoadError({ message, code });
     surfaceSchedulerRef.current?.request();
   }, []);
 
   const clearError = useCallback(() => {
     surfaceBlockedRef.current = false;
-    setErrorMessage(null);
+    setLoadError(null);
     surfaceSchedulerRef.current?.request();
   }, []);
 
@@ -322,21 +344,34 @@ export function BrowserPanel({
     [showError]
   );
 
-  const hideNativeSurfaces = useCallback(() => {
-    const currentSurface = currentSurfaceRef.current;
-    if (!currentSurface?.visible) return;
+  const nativeSurfaceShouldBeVisible = useCallback((showPage: boolean) => {
+    return (
+      showPage &&
+      panelVisibleRef.current &&
+      intersectionVisibleRef.current &&
+      !overlayOccludedRef.current &&
+      !surfaceBlockedRef.current &&
+      document.visibilityState !== 'hidden'
+    );
+  }, []);
 
-    const hiddenSurface = { ...currentSurface, visible: false };
-    currentSurfaceRef.current = hiddenSurface;
-    const tabId = tabIdRef.current;
-    if (!tabId) return;
-    void browserApi
-      .applyIntent(tabId, {
-        type: 'setSurface',
-        surface: hiddenSurface,
-      })
-      .catch((error: unknown) => showError(commandErrorMessage(error)));
-  }, [showError]);
+  const hideNativeSurfaces = useCallback(
+    (tabId = tabIdRef.current) => {
+      const currentSurface = currentSurfaceRef.current;
+      if (!currentSurface?.visible) return;
+
+      const hiddenSurface = { ...currentSurface, visible: false };
+      currentSurfaceRef.current = hiddenSurface;
+      if (!tabId) return;
+      void Promise.resolve(
+        browserApi.applyIntent(tabId, {
+          type: 'setSurface',
+          surface: hiddenSurface,
+        })
+      ).catch((error: unknown) => showError(commandErrorMessage(error)));
+    },
+    [showError]
+  );
 
   const attachDevToolsSession = useCallback(
     (tabId: string) => {
@@ -412,6 +447,10 @@ export function BrowserPanel({
   }, [onOpenExternalTab]);
 
   useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+  }, [onLocationChange]);
+
+  useEffect(() => {
     if (!initialUrl || tabIdRef.current || tabBootstrapUrl) return;
     lastRequestTokenRef.current = requestToken;
     updateBlankPageVisibility(false);
@@ -458,13 +497,7 @@ export function BrowserPanel({
       height: hasSize ? Math.round(rect.height) : (previous?.height ?? 1),
       scaleFactor: window.devicePixelRatio || 1,
       visible:
-        hasSize &&
-        panelVisibleRef.current &&
-        intersectionVisibleRef.current &&
-        !overlayOccludedRef.current &&
-        !surfaceBlockedRef.current &&
-        !blankPageVisibleRef.current &&
-        document.visibilityState !== 'hidden',
+        hasSize && nativeSurfaceShouldBeVisible(!blankPageVisibleRef.current),
     };
 
     if (previous && surfacesEqual(previous, surface)) return;
@@ -473,7 +506,7 @@ export function BrowserPanel({
     if (tabIdRef.current) {
       applyIntent({ type: 'setSurface', surface });
     }
-  }, [applyIntent]);
+  }, [applyIntent, nativeSurfaceShouldBeVisible]);
 
   useLayoutEffect(() => {
     const element = surfaceElementRef.current;
@@ -539,10 +572,13 @@ export function BrowserPanel({
   );
 
   useEffect(() => {
-    if (!surfaceReady || !currentSurfaceRef.current || !tabBootstrapUrl) return;
+    if (!surfaceReady || !currentSurfaceRef.current) return;
+    const reclaimed = panelId ? reclaimBrowserTab(panelId) : null;
+    if (!reclaimed && !tabBootstrapUrl) return;
 
     let disposed = false;
     let createdTabId: string | null = null;
+    let latestTab: BrowserTab | null = reclaimed;
     let unlisten: (() => void) | undefined;
     const pendingEvents: BrowserEvent[] = [];
     const pendingPopupTabIds = new Set<string>();
@@ -551,6 +587,19 @@ export function BrowserPanel({
       pendingPopupTabIds.delete(popupTab.id);
       void browserApi.closeTab(popupTab.id);
       onOpenExternalTabRef.current?.(popupTab.url);
+    };
+
+    const bindTab = (nextTab: BrowserTab, showPage: boolean) => {
+      latestTab = nextTab;
+      createdTabId = nextTab.id;
+      tabIdRef.current = nextTab.id;
+      attachDevToolsSession(nextTab.id);
+      setTab(nextTab);
+      updateBlankPageVisibility(!showPage);
+      setAddress(browserAddress(nextTab.url === BLANK_PAGE ? '' : nextTab.url));
+      onTitleChange?.(nextTab.title);
+      onFaviconChange?.(nextTab.faviconUrl);
+      onLocationChangeRef.current?.(nextTab.url);
     };
 
     const acceptEvent = (event: BrowserEvent) => {
@@ -611,21 +660,60 @@ export function BrowserPanel({
         devToolsSessionRef.current?.dispose();
         devToolsSessionRef.current = null;
         tabIdRef.current = null;
+        latestTab = null;
         setTab(null);
         return;
       }
       if (tabIdRef.current === event.tab.id) {
+        if (event.type === 'tabFailed') {
+          if (isCancelledBrowserError(event.code, event.message)) return;
+          if (
+            isStaleNavigationUpdate(
+              event.tab.url,
+              pendingNavigationUrlRef.current,
+              navigationOriginUrlRef.current
+            )
+          ) {
+            return;
+          }
+          pendingNavigationUrlRef.current = null;
+          navigationOriginUrlRef.current = null;
+          latestTab = event.tab;
+          setTab(event.tab);
+          showError(event.message, event.code);
+          return;
+        }
+        latestTab = event.tab;
+        const stale = isStaleNavigationUpdate(
+          event.tab.url,
+          pendingNavigationUrlRef.current,
+          navigationOriginUrlRef.current
+        );
         updateBlankPageVisibility(event.tab.url === BLANK_PAGE);
         setTab(event.tab);
-        if (!editingAddressRef.current)
-          setAddress(browserAddress(event.tab.url));
+        if (!stale) {
+          if (
+            pendingNavigationUrlRef.current &&
+            (!event.tab.loading ||
+              browserUrlsEquivalent(
+                event.tab.url,
+                pendingNavigationUrlRef.current
+              ))
+          ) {
+            pendingNavigationUrlRef.current = null;
+            navigationOriginUrlRef.current = null;
+          }
+          if (!editingAddressRef.current)
+            setAddress(browserAddress(event.tab.url));
+          onLocationChangeRef.current?.(event.tab.url);
+          if (!event.tab.loading && event.tab.url !== BLANK_PAGE) {
+            clearError();
+          }
+        }
         onTitleChange?.(event.tab.title);
         onFaviconChange?.(event.tab.faviconUrl);
-        if (event.type === 'tabFailed') showError(event.message);
-        if (event.type === 'tabUpdated') {
-          if (event.tab.loading) setHorizontalPageScroll(null);
-          else refreshHorizontalPageScroll();
-        }
+        if (event.tab.loading) setHorizontalPageScroll(null);
+        else refreshHorizontalPageScroll();
       }
     };
 
@@ -636,33 +724,59 @@ export function BrowserPanel({
           unlisten();
           return;
         }
+
+        const applyNativeSurface = async (tabId: string, showPage: boolean) => {
+          const current = currentSurfaceRef.current;
+          if (!current) return;
+          const surface = {
+            ...current,
+            visible: nativeSurfaceShouldBeVisible(showPage),
+          };
+          currentSurfaceRef.current = surface;
+          await browserApi.applyIntent(tabId, {
+            type: 'setSurface',
+            surface,
+          });
+        };
+
+        if (reclaimed) {
+          bindTab(reclaimed, reclaimed.url !== BLANK_PAGE);
+          lastRequestTokenRef.current = requestTokenRef.current;
+          await applyNativeSurface(reclaimed.id, reclaimed.url !== BLANK_PAGE);
+          pendingEvents.splice(0).forEach(acceptEvent);
+          return;
+        }
+
+        const requestedUrl = normalizeBrowserUrl(tabBootstrapUrl!);
         const createdTab = await browserApi.createTab({
-          initialUrl: normalizeBrowserUrl(tabBootstrapUrl),
+          initialUrl: requestedUrl,
           profile: browserProfile(workspaceId),
           surface: { ...currentSurfaceRef.current!, visible: false },
         });
         createdTabId = createdTab.id;
+        latestTab = createdTab;
         if (disposed) {
           await browserApi.closeTab(createdTab.id);
           return;
         }
-        tabIdRef.current = createdTab.id;
-        attachDevToolsSession(createdTab.id);
-        setTab(createdTab);
-        updateBlankPageVisibility(createdTab.url === BLANK_PAGE);
-        setAddress(browserAddress(createdTab.url));
-        onTitleChange?.(createdTab.title);
-        onFaviconChange?.(createdTab.faviconUrl);
+        const defaultZoom = zoomLevelForPercent(DEFAULT_BROWSER_ZOOM_PERCENT);
+        bindTab(
+          { ...createdTab, zoomLevel: defaultZoom },
+          requestedUrl !== BLANK_PAGE
+        );
+        const showPage = requestedUrl !== BLANK_PAGE;
+        if (showPage && createdTab.url === BLANK_PAGE) {
+          await browserApi.applyIntent(createdTab.id, {
+            type: 'navigate',
+            url: requestedUrl,
+          });
+        }
         await browserApi.applyIntent(createdTab.id, {
-          type: 'setSurface',
-          surface: {
-            ...currentSurfaceRef.current!,
-            visible:
-              currentSurfaceRef.current!.visible &&
-              createdTab.url !== BLANK_PAGE,
-          },
+          type: 'setZoom',
+          level: defaultZoom,
         });
-        if (createdTab.url === BLANK_PAGE) {
+        await applyNativeSurface(createdTab.id, showPage);
+        if (!showPage) {
           requestAnimationFrame(() => addressInputRef.current?.focus());
         }
         pendingEvents.splice(0).forEach(acceptEvent);
@@ -676,16 +790,29 @@ export function BrowserPanel({
       unlisten?.();
       devToolsSessionRef.current?.dispose();
       devToolsSessionRef.current = null;
+      if (createdTabId) {
+        hideNativeSurfaces(createdTabId);
+      }
       tabIdRef.current = null;
-      if (createdTabId) void browserApi.closeTab(createdTabId);
+      if (createdTabId && latestTab && panelId) {
+        retainBrowserTab(panelId, latestTab, (tabId) => {
+          void browserApi.closeTab(tabId);
+        });
+      } else if (createdTabId) {
+        void browserApi.closeTab(createdTabId);
+      }
       for (const popupTabId of pendingPopupTabIds) {
         void browserApi.closeTab(popupTabId);
       }
     };
   }, [
     attachDevToolsSession,
+    clearError,
+    hideNativeSurfaces,
+    nativeSurfaceShouldBeVisible,
     onTitleChange,
     onFaviconChange,
+    panelId,
     refreshHorizontalPageScroll,
     showError,
     surfaceReady,
@@ -695,15 +822,25 @@ export function BrowserPanel({
   ]);
 
   useEffect(() => {
-    if (!tab || requestToken === lastRequestTokenRef.current || !initialUrl) {
-      return;
-    }
+    if (!tab || !initialUrl) return;
+    if (requestNonce === lastRequestNonceRef.current) return;
+    lastRequestNonceRef.current = requestNonce;
     lastRequestTokenRef.current = requestToken;
     const url = normalizeBrowserUrl(initialUrl);
+    if (browserUrlsEquivalent(url, tab.url)) return;
+    navigationOriginUrlRef.current = tab.url;
+    pendingNavigationUrlRef.current = url;
     updateBlankPageVisibility(url === BLANK_PAGE);
     setAddress(url);
     applyIntent({ type: 'navigate', url });
-  }, [applyIntent, initialUrl, requestToken, tab, updateBlankPageVisibility]);
+  }, [
+    applyIntent,
+    initialUrl,
+    requestNonce,
+    requestToken,
+    tab,
+    updateBlankPageVisibility,
+  ]);
 
   useLayoutEffect(() => {
     const scrollbar = horizontalScrollbarRef.current;
@@ -725,6 +862,9 @@ export function BrowserPanel({
     clearError();
     updateBlankPageVisibility(url === BLANK_PAGE);
     setAddress(url);
+    lastRequestTokenRef.current = `${requestNonce}\u0000${url}`;
+    lastRequestNonceRef.current = requestNonce;
+    onLocationChangeRef.current?.(url);
     if (!tab) {
       if (url === BLANK_PAGE) {
         requestAnimationFrame(() => addressInputRef.current?.focus());
@@ -733,6 +873,8 @@ export function BrowserPanel({
       setTabBootstrapUrl(url);
       return;
     }
+    navigationOriginUrlRef.current = tab.url;
+    pendingNavigationUrlRef.current = url;
     applyIntent({ type: 'navigate', url });
   };
 
@@ -811,7 +953,19 @@ export function BrowserPanel({
     });
   };
 
-  const loading = tab?.loading ?? (tabBootstrapUrl !== null && !errorMessage);
+  const retryFailedLoad = () => {
+    const url = normalizeBrowserUrl(address);
+    clearError();
+    if (url === BLANK_PAGE) {
+      applyIntent({ type: 'reload' });
+      return;
+    }
+    navigationOriginUrlRef.current = tab?.url ?? null;
+    pendingNavigationUrlRef.current = url;
+    applyIntent({ type: 'navigate', url });
+  };
+
+  const loading = tab?.loading ?? (tabBootstrapUrl !== null && !loadError);
 
   return (
     <div
@@ -882,9 +1036,18 @@ export function BrowserPanel({
             autoCorrect="off"
             onFocus={() => {
               editingAddressRef.current = true;
+              selectAllOnFocusRef.current = true;
+              requestAnimationFrame(() => addressInputRef.current?.select());
+            }}
+            onMouseUp={(event) => {
+              if (!selectAllOnFocusRef.current) return;
+              selectAllOnFocusRef.current = false;
+              event.preventDefault();
+              event.currentTarget.select();
             }}
             onBlur={() => {
               editingAddressRef.current = false;
+              selectAllOnFocusRef.current = false;
             }}
             onChange={(event) => setAddress(event.target.value)}
             className="h-7 w-full rounded-md border border-border bg-background px-2.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary/70 focus:ring-1 focus:ring-primary/30"
@@ -892,39 +1055,41 @@ export function BrowserPanel({
           />
         </form>
 
-        <select
-          aria-label="Zoom"
-          title="Zoom"
-          value={String(zoomPercentForLevel(tab?.zoomLevel ?? 0))}
+        <AstryxSelect
+          ariaLabel="Zoom"
+          value={String(
+            zoomPercentForLevel(
+              tab?.zoomLevel ??
+                zoomLevelForPercent(DEFAULT_BROWSER_ZOOM_PERCENT)
+            )
+          )}
           disabled={!tab}
-          onChange={(event) =>
+          options={ZOOM_PERCENTAGES.map((percent) => ({
+            value: String(percent),
+            label: `${percent}%`,
+          }))}
+          onChange={(value) =>
             applyIntent({
               type: 'setZoom',
-              level: zoomLevelForPercent(Number(event.target.value)),
+              level: zoomLevelForPercent(Number(value)),
             })
           }
-          className="raised-control h-7 w-[4.25rem] px-1 text-[11px] text-foreground outline-none"
-        >
-          {ZOOM_PERCENTAGES.map((percent) => (
-            <option key={percent} value={percent}>
-              {percent}%
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Device"
-          title="Device emulation"
+          size="compact"
+          className="w-20 shrink-0"
+        />
+        <AstryxSelect
+          ariaLabel="Device emulation"
           value={devicePreset}
           disabled={!tab}
-          onChange={(event) =>
-            changeDevicePreset(event.target.value as DevicePresetId)
-          }
-          className="raised-control h-7 w-[4.75rem] px-1 text-[11px] text-foreground outline-none"
-        >
-          <option value="desktop">Desktop</option>
-          <option value="tablet">Tablet</option>
-          <option value="mobile">Mobile</option>
-        </select>
+          options={[
+            { value: 'desktop', label: 'Desktop' },
+            { value: 'tablet', label: 'Tablet' },
+            { value: 'mobile', label: 'Mobile' },
+          ]}
+          onChange={(value) => changeDevicePreset(value as DevicePresetId)}
+          size="compact"
+          className="w-24 shrink-0"
+        />
         <Button
           aria-label="Find in Page"
           title="Find in Page"
@@ -1113,11 +1278,11 @@ export function BrowserPanel({
           ref={surfaceElementRef}
           data-testid="native-browser-surface"
           aria-busy={loading}
-          aria-hidden={showBlankPage || !!errorMessage ? 'true' : undefined}
+          aria-hidden={showBlankPage || !!loadError ? 'true' : undefined}
           className="absolute inset-0 bg-background"
           onPointerDown={() => applyIntent({ type: 'focus' })}
         />
-        {!tab && !errorMessage && (
+        {!tab && !loadError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background text-muted-foreground">
             <LoaderCircle
               className="h-5 w-5 animate-spin"
@@ -1125,7 +1290,7 @@ export function BrowserPanel({
             />
           </div>
         )}
-        {showBlankPage && !errorMessage && (
+        {showBlankPage && !loadError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background px-8 text-center">
             <div className="flex -translate-y-6 flex-col items-center">
               <Globe2
@@ -1141,13 +1306,8 @@ export function BrowserPanel({
             </div>
           </div>
         )}
-        {errorMessage && (
-          <div
-            role="alert"
-            className="absolute inset-0 flex items-center justify-center bg-background p-8 text-center text-sm text-destructive"
-          >
-            {errorMessage}
-          </div>
+        {loadError && (
+          <BrowserLoadError error={loadError} onRetry={retryFailedLoad} />
         )}
       </div>
       {horizontalPageScroll ? (

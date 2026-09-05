@@ -1548,6 +1548,10 @@
     "crashReportsPrivacy": "崩溃时应用会把报告（时间、版本、系统、panic 信息与调用栈）写入本机数据目录，最多保留 20 份。开启后，下次启动会展示完整内容，由你决定是否在 GitHub 提交 issue；任何内容都不会自动上传。"
   },
   "agents": {
+    "presetAcp": "预设 ACP",
+    "communityAcp": "社区",
+    "presetAcpBuiltIn": "已内置",
+    "presetAcpAdded": "已添加",
     "loadFailed": "无法加载 Agent 设置。",
     "pluginsTab": "插件",
     "skillsChooseWorkspace": "请输入工作区路径以管理项目级 Skills。",
@@ -1772,6 +1776,15 @@
     "authDescClineOfficialApi": "使用 Cline 官方 API Key。",
     "authDescClineProvider": "为 Cline 配置 BYOK Provider。",
     "authDescCodebuddySubscription": "登录腾讯云 CodeBuddy 账号。",
+    "authDescQoderSubscription": "登录 Qoder 账号。",
+    "qoderTokenLabel": "QODER_PERSONAL_ACCESS_TOKEN",
+    "qoderTokenPlaceholder": "个人访问令牌",
+    "qoderTokenHint": "无浏览器环境使用同一账号的个人访问令牌。",
+    "qoderTokenSave": "保存",
+    "qoderTokenClear": "清除",
+    "qoderTokenSaved": "已保存",
+    "qoderTokenLoadFailed": "无法读取 Qoder 令牌",
+    "qoderTokenSaveFailed": "无法保存 Qoder 令牌",
     "authDescGenericProvider": "使用该 Agent 原生供应商配置。",
     "dshProviderLoadFailed": "无法读取 DeepSeek Harness 鉴权配置",
     "dshProviderSaveFailed": "保存 DeepSeek Harness 鉴权配置失败",
@@ -1879,6 +1892,12 @@
     "providerTestAria": "测试 {{name}} 连接",
     "providerTestOk": "连接成功，{{ms}} ms",
     "providerTestFailed": "连接失败（{{ms}} ms）",
+    "providerCustomModelTest": "连通测试",
+    "providerCustomModelTestAria": "连通测试自定义模型 {{slug}}",
+    "providerCustomModelTestOk": "模型可用",
+    "providerCustomModelTestMissing": "供应商未提供该模型",
+    "providerCustomModelTestRequired": "请先连通测试自定义模型",
+    "providerCustomModelTestNeedId": "请先填写模型 ID",
     "providerCopyAria": "复制 {{name}} 配置",
     "providerCopied": "已复制配置",
     "providerCopyFailed": "无法写入剪贴板",
@@ -1937,6 +1956,7 @@
     "providerModelFieldAria": "Provider {{label}}",
     "providerDetectModels": "检测模型",
     "providerDetectingModels": "正在检测模型…",
+    "providerDetectingCurrentModels": "正在检测当前供应商可用模型",
     "providerModelDetectionFailed": "无法检测 Provider 模型",
     "providerDetectedModelCount_one": "检测到 {{count}} 个模型",
     "providerDetectedModelCount_other": "检测到 {{count}} 个模型",
@@ -2142,6 +2162,12 @@
         "login": {
           "label": "登录 CodeBuddy",
           "description": "运行 CodeBuddy 官方登录流程。"
+        }
+      },
+      "qoder": {
+        "login": {
+          "label": "登录 Qoder",
+          "description": "打开浏览器完成 Qoder 官方账号登录。"
         }
       },
       "kimi_code": {

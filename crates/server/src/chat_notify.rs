@@ -6,7 +6,7 @@ use agents::conversation::{ConversationEvent, ConversationEventEnvelope};
 use async_trait::async_trait;
 use conversations::ConversationEventPublisher;
 use db::models::conversation_event::ConversationEventRecord;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::services::chat_delivery::{
     ImLang, build_conversation_rich, conversation_event_key, deliver_rich, load_channel_tokens,
@@ -15,7 +15,7 @@ use services::services::chat_delivery::{
 
 const SETTINGS_SECTION: &str = "chat_channels";
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ChatChannelRecord {
     id: String,
     kind: String,
@@ -24,7 +24,7 @@ struct ChatChannelRecord {
     config: Value,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct EventWebhook {
     url: String,
     #[serde(default)]
@@ -38,7 +38,7 @@ fn default_event_filter() -> Vec<String> {
         .collect()
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct ChatChannelStore {
     #[serde(default)]
     channels: Vec<ChatChannelRecord>,
@@ -145,6 +145,55 @@ pub async fn notify_conversation_event(envelope: &ConversationEventEnvelope) {
     }
 }
 
+pub async fn chat_event_webhooks() -> Result<Value, String> {
+    let store = load_store().await?;
+    serde_json::to_value(store.event_webhooks).map_err(|error| error.to_string())
+}
+
+pub async fn set_chat_event_webhooks(webhooks: Value) -> Result<Value, String> {
+    let cleaned = webhooks
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|hook| {
+            let url = hook.get("url")?.as_str()?.trim().to_string();
+            if url.starts_with("http://") || url.starts_with("https://") {
+                Some(EventWebhook {
+                    url,
+                    enabled: hook.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                })
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut store = load_store().await?;
+    store.event_webhooks = cleaned;
+    save_store(&store).await?;
+    serde_json::to_value(store.event_webhooks).map_err(|error| error.to_string())
+}
+
+pub async fn chat_message_language() -> Result<String, String> {
+    let lang = load_store().await?.message_language;
+    Ok(if lang.trim().is_empty() {
+        "en".to_string()
+    } else {
+        lang
+    })
+}
+
+pub async fn set_chat_message_language(language: String) -> Result<String, String> {
+    let language = match language.as_str() {
+        "zh-CN" | "zh" | "zh-cn" => "zh-CN".to_string(),
+        _ => "en".to_string(),
+    };
+    let mut store = load_store().await?;
+    store.message_language = language.clone();
+    save_store(&store).await?;
+    Ok(language)
+}
+
 async fn load_store() -> Result<ChatChannelStore, String> {
     let path = utils::assets::settings_path();
     match services::services::settings_store::read_section(&path, SETTINGS_SECTION)
@@ -154,4 +203,13 @@ async fn load_store() -> Result<ChatChannelStore, String> {
         Some(store) => Ok(store),
         None => Ok(ChatChannelStore::default()),
     }
+}
+
+async fn save_store(store: &ChatChannelStore) -> Result<(), String> {
+    let path = utils::assets::settings_path();
+    let value = serde_json::to_value(store).map_err(|error| error.to_string())?;
+    services::services::settings_store::write_section(&path, SETTINGS_SECTION, &value)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }

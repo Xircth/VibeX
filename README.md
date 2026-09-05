@@ -130,17 +130,18 @@ Download, verify, and start with the official helper:
 
 ```bash
 npx vibex
+# or: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibex` fetches `vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. Host-family archives are also available on Releases.
+`npx vibex` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
 
 The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `plugins/bundled/`.
 
 | Platform | Baseline | Artifacts |
 | --- | --- | --- |
-| macOS | 12 or later | macos-x64 / macos-arm64 |
-| Windows | 10 / 11 | windows-x64 |
-| Linux | Ubuntu 22.04 equivalent | linux-x64 / linux-arm64; Docker is also available |
+| macOS | 12 or later | darwin-aarch64 |
+| Windows | 10 / 11 | windows-x86_64 / windows-aarch64 |
+| Linux | Ubuntu 22.04 equivalent | linux-x86_64 / linux-aarch64; Docker is also available |
 
 The default listen address is `127.0.0.1:17891`. Open that address in a local browser for WebUI. Chrome-family browsers are recommended. LAN access requires `VIBEX_SERVER_ALLOW_LAN=1` and a TLS reverse proxy in front. The access token is at least 32 bytes and is printed to stdout only once when first generated.
 

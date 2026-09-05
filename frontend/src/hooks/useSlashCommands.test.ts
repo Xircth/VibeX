@@ -52,4 +52,26 @@ describe('useSlashCommands', () => {
       'new-runtime-command',
     ]);
   });
+
+  it('listens on the Host slash-command stream channel', () => {
+    useTauriPatchStream.mockReturnValue({
+      data: undefined,
+      isConnected: false,
+      isInitialized: false,
+      error: null,
+    });
+
+    renderHook(() =>
+      useSlashCommands(
+        { executor: 'codex', variant: 'default' } as never,
+        { workspaceId: 'ws-1', repoId: 'repo-1' }
+      )
+    );
+
+    expect(useTauriPatchStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventChannel: 'slash-commands-stream:codex:default:ws-1:repo-1',
+      })
+    );
+  });
 });

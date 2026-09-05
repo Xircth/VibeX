@@ -282,6 +282,9 @@ describe('session composer submit helpers', () => {
       getSubmitShortcutAction({ isAttemptRunning: true, isQueued: false })
     ).toBe('queue');
     expect(
+      getSubmitShortcutAction({ isAttemptRunning: false, isQueued: true })
+    ).toBe('queue');
+    expect(
       getSubmitShortcutAction({ isAttemptRunning: true, isQueued: true })
     ).toBe('queue');
   });

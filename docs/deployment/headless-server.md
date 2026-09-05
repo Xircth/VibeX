@@ -23,10 +23,12 @@ Apple Developer ID and Windows Authenticode are not required for this family.
 Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
 present.
 
-`npx vibex` downloads
-`vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64,windows-arm64}.tar.gz`
-from the matching GitHub Release, verifies the sidecar `.sha256` and the inner
-`SHA256SUMS`, then runs `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
+`npx vibex`, `install.sh`, and `install.ps1` download
+`VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
+from the matching GitHub Release, verify the sidecar `.sha256` and the inner
+`SHA256SUMS`, then run `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
+Those names are produced by `npx-cli/bin/release-assets.js`; CI and the
+installers all derive from it.
 
 Start the Web UI on the LAN and print the long-lived host token:
 

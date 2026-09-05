@@ -1,9 +1,9 @@
 use notify::{EventKind, RecursiveMode, Watcher};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 pub const SETTINGS_CHANGED_EVENT: &str = "vibex://settings-file-changed";
 
-pub fn start(app: AppHandle) {
+pub fn start(_app: AppHandle) {
     if let Err(error) = std::thread::Builder::new()
         .name("vibex-settings-watcher".to_string())
         .spawn(move || {
@@ -40,7 +40,7 @@ pub fn start(app: AppHandle) {
                 {
                     continue;
                 }
-                let _ = app.emit(SETTINGS_CHANGED_EVENT, ());
+                server::global_host_events().emit(SETTINGS_CHANGED_EVENT, ());
             }
         })
     {

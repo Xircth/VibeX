@@ -44,31 +44,31 @@ materials:
   reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
 typography:
   display:
-    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
+    fontFamily: "var(--font-ui)"
     fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1.55
     letterSpacing: "-0.01em"
   headline:
-    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
+    fontFamily: "var(--font-ui)"
     fontSize: "1rem"
     fontWeight: 600
     lineHeight: 1.5
     letterSpacing: "-0.01em"
   title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
+    fontFamily: "var(--font-ui)"
     fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.43
     letterSpacing: "0"
   body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
+    fontFamily: "var(--font-ui)"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.43
     letterSpacing: "0"
   label:
-    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
+    fontFamily: "var(--font-ui)"
     fontSize: "0.75rem"
     fontWeight: 500
     lineHeight: 1.33
@@ -243,12 +243,12 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 ## 4. Typography
 
-VibeX uses the same native system-font strategy as Codex: SF Pro on macOS,
-Segoe UI on Windows, and the platform UI sans elsewhere. Chinese follows the
-native platform face (PingFang SC on macOS and Microsoft YaHei on Windows),
-with bundled Noto Sans SC Variable retained as the offline Linux and missing
-glyph fallback. Monospace content remains governed separately by the
-user-configurable code-font setting.
+VibeX uses native SF Pro on macOS. Windows and Linux use bundled Inter
+Variable for Latin UI, because Segoe UI and typical Linux system sans render
+poorly in WebView2/Chromium with antialiased smoothing. Chinese follows
+PingFang SC on macOS, and bundled Noto Sans SC Variable (Source Han Sans /
+思源黑体) on Windows and Linux — not Microsoft YaHei. Monospace content
+remains governed separately by the user-configurable code-font setting.
 
 - **Display** (600 / 1.125rem): app titles, welcome and dense page headers only.
 - **Headline** (600 / 1rem): panel titles, major settings sections, top-level status.

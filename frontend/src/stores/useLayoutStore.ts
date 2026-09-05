@@ -18,6 +18,7 @@ export const PANEL_IDS = {
   TERMINAL: 'terminal',
   AI_CHAT: 'ai-chat',
   GIT: 'git',
+  MERGE: 'merge',
   WELCOME: 'welcome',
   LOGS: 'logs',
   NOTES: 'notes',

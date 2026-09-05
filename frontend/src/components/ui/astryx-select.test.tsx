@@ -27,6 +27,22 @@ describe('AstryxSelect', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('notifies when the listbox opens', async () => {
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AstryxSelect
+        ariaLabel="Effort"
+        value=""
+        options={options}
+        onChange={vi.fn()}
+        onOpenChange={onOpenChange}
+      />
+    );
+    await user.click(screen.getByLabelText('Effort'));
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
   it('opens the listbox and selects an option on click', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

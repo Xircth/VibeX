@@ -5,7 +5,7 @@
 //! adapters can observe the resulting conversation log through their normal
 //! snapshot/replay seam.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
@@ -18,9 +18,10 @@ use agents::{
     },
 };
 use db::models::{
-    conversation::{ConversationAgentBindingRecord, DbConversationSummary},
+    conversation::{BindingStatus, ConversationAgentBindingRecord, DbConversationSummary},
     conversation_event::AppendConversationEvent,
     conversation_turn::ConversationTurnRecord,
+    session::Session,
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
@@ -38,7 +39,6 @@ use crate::{
 pub struct ConversationAgentEventRecorder {
     pool: SqlitePool,
     deployment: Arc<dyn Deployment>,
-    active_turns: HashMap<Uuid, Uuid>,
     conversation_context: Option<ConversationContext>,
     event_publisher: Option<Arc<dyn ConversationEventPublisher>>,
     coalescer: ConversationEventCoalescer,
@@ -80,7 +80,6 @@ impl ConversationAgentEventRecorder {
         Self {
             pool,
             deployment,
-            active_turns: HashMap::new(),
             conversation_context: None,
             event_publisher: None,
             coalescer: ConversationEventCoalescer::default(),
@@ -91,7 +90,6 @@ impl ConversationAgentEventRecorder {
         Self {
             pool: context.deployment.db().pool.clone(),
             deployment: context.deployment.clone(),
-            active_turns: HashMap::new(),
             event_publisher: Some(context.event_publisher.clone()),
             conversation_context: Some(context),
             coalescer: ConversationEventCoalescer::default(),
@@ -144,21 +142,35 @@ impl ConversationAgentEventRecorder {
         };
         let conversation_id = session_id.0;
         let turn_id = self.event_turn_id(conversation_id, &envelope.event).await?;
-        let Some(event) = map_agent_event(envelope, turn_id) else {
+        if turn_id.is_none() && is_turn_scoped_content(&envelope.event) {
+            // Turn content with no in-flight Turn to own it: a cancelled prompt's
+            // tail, or output from an agent process the Host has already let go.
+            // Recording it would attach the text to a neighbouring Turn, which is
+            // how a stopped reply reappeared inside the next one.
+            tracing::debug!(
+                %conversation_id,
+                event = %conversation_event_source(&envelope.event),
+                "dropped agent turn content that has no in-flight turn"
+            );
+            return Ok(None);
+        }
+        let Some(mut event) = map_agent_event(envelope, turn_id) else {
             return Ok(None);
         };
+        attach_cached_plan_usage(&self.pool, conversation_id, &mut event).await;
 
-        if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event
-            && let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await?
-        {
-            ConversationAgentBindingRecord::bind_acp_session(
-                &self.pool,
-                binding_id,
-                acp_session_id,
-                None,
-                "ready",
-            )
-            .await?;
+        if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event {
+            persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id).await?;
+            if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
+                ConversationAgentBindingRecord::bind_acp_session(
+                    &self.pool,
+                    binding_id,
+                    acp_session_id,
+                    None,
+                    BindingStatus::Ready,
+                )
+                .await?;
+            }
         }
 
         if let AgentEvent::SessionInfoUpdated { patch } = &envelope.event
@@ -204,7 +216,7 @@ impl ConversationAgentEventRecorder {
         let mut batch = RecordedConversationBatch::default();
         for mapped in records {
             let normalized_json = serde_json::to_string(&mapped.event)?;
-            let record = ConversationEventAppender::append(
+            let record = match ConversationEventAppender::append(
                 &self.pool,
                 AppendConversationEvent {
                     id: Uuid::new_v4(),
@@ -220,7 +232,38 @@ impl ConversationAgentEventRecorder {
                     idempotency_key: Some(&mapped.idempotency_key),
                 },
             )
-            .await?;
+            .await
+            {
+                Ok(record) => record,
+                Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
+                    ConversationEventAppender::append(
+                        &self.pool,
+                        AppendConversationEvent {
+                            id: Uuid::new_v4(),
+                            conversation_id: mapped.conversation_id,
+                            turn_id: None,
+                            binding_id: None,
+                            connection_id: Some(&mapped.connection_id),
+                            prompt_id: None,
+                            source: mapped.source,
+                            event_kind: &mapped.event_kind,
+                            normalized_json: &normalized_json,
+                            raw_json: Some(&mapped.raw_json),
+                            idempotency_key: Some(&mapped.idempotency_key),
+                        },
+                    )
+                    .await?
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        conversation_id = %mapped.conversation_id,
+                        turn_id = ?mapped.turn_id,
+                        %error,
+                        "skipped conversation event that could not be persisted"
+                    );
+                    continue;
+                }
+            };
             let durable = ConversationEventEnvelope {
                 id: record.id,
                 conversation_id: record.conversation_id,
@@ -233,17 +276,16 @@ impl ConversationAgentEventRecorder {
             let terminal = is_terminal_conversation_event(&durable.event);
             batch.events.push(durable);
 
-            if terminal && let Some(turn_id) = mapped.turn_id {
-                if let Some(file_event) = finalize_checkpoint_file_changes(
+            if terminal
+                && let Some(turn_id) = mapped.turn_id
+                && let Some(file_event) = finalize_checkpoint_file_changes(
                     self.deployment.as_ref(),
                     mapped.conversation_id,
                     turn_id,
                 )
                 .await?
-                {
-                    batch.events.push(file_event);
-                }
-                self.active_turns.remove(&mapped.conversation_id);
+            {
+                batch.events.push(file_event);
             }
 
             // Publish only after the terminal checkpoint append. The desktop
@@ -312,30 +354,35 @@ impl ConversationAgentEventRecorder {
     }
 
     async fn event_turn_id(
-        &mut self,
+        &self,
         conversation_id: Uuid,
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        resolve_agent_event_turn_id(&self.pool, &mut self.active_turns, conversation_id, event)
-            .await
+        resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+    }
+}
+
+fn is_foreign_key_constraint(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(database) => {
+            database.code().as_deref() == Some("787")
+                || database
+                    .message()
+                    .to_ascii_uppercase()
+                    .contains("FOREIGN KEY")
+        }
+        _ => false,
     }
 }
 
 async fn resolve_agent_event_turn_id(
     pool: &SqlitePool,
-    active_turns: &mut HashMap<Uuid, Uuid>,
     conversation_id: Uuid,
     event: &AgentEvent,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     match event {
         AgentEvent::PromptStarted { snapshot } => {
-            bind_prompt_turn(
-                pool,
-                active_turns,
-                conversation_id,
-                &snapshot.id.to_string(),
-            )
-            .await
+            bind_prompt_turn(pool, conversation_id, &snapshot.id.to_string()).await
         }
         AgentEvent::PromptFinished { finished } => {
             let prompt_id = finished.prompt_id.to_string();
@@ -344,9 +391,7 @@ async fn resolve_agent_event_turn_id(
             {
                 return Ok(Some(turn.id));
             }
-            let Some(active_id) =
-                in_flight_active_turn_id(pool, active_turns, conversation_id).await?
-            else {
+            let Some(active_id) = in_flight_active_turn_id(pool, conversation_id).await? else {
                 return Ok(None);
             };
             let active_turn = ConversationTurnRecord::find_by_id(pool, active_id).await?;
@@ -355,12 +400,10 @@ async fn resolve_agent_event_turn_id(
                 .map(|turn| turn.id))
         }
         event if binds_only_to_in_flight_turn(event) => {
-            in_flight_active_turn_id(pool, active_turns, conversation_id).await
+            in_flight_active_turn_id(pool, conversation_id).await
         }
         _ => {
-            if let Some(turn_id) =
-                in_flight_active_turn_id(pool, active_turns, conversation_id).await?
-            {
+            if let Some(turn_id) = in_flight_active_turn_id(pool, conversation_id).await? {
                 return Ok(Some(turn_id));
             }
             Ok(
@@ -372,7 +415,17 @@ async fn resolve_agent_event_turn_id(
     }
 }
 
+/// Events that must never be attributed to an already-settled Turn. When there is no
+/// in-flight Turn they resolve to `None` rather than falling back to the conversation's
+/// latest Turn.
 fn binds_only_to_in_flight_turn(event: &AgentEvent) -> bool {
+    is_turn_scoped_content(event) || matches!(event, AgentEvent::Error { .. })
+}
+
+/// Events that only mean something *inside* a Turn. Unlike `AgentEvent::Error`, which
+/// has a conversation-level representation (`AgentBindingRecoveryFailed`), these have
+/// nowhere to go once their Turn is gone, so they are dropped instead of recorded.
+fn is_turn_scoped_content(event: &AgentEvent) -> bool {
     matches!(
         event,
         AgentEvent::MessageChunk { .. }
@@ -384,7 +437,6 @@ fn binds_only_to_in_flight_turn(event: &AgentEvent) -> bool {
             | AgentEvent::ElicitationRequested { .. }
             | AgentEvent::TerminalCreated { .. }
             | AgentEvent::TerminalOutput { .. }
-            | AgentEvent::Error { .. }
     )
 }
 
@@ -394,7 +446,6 @@ fn is_in_flight_turn_status(status: &str) -> bool {
 
 async fn bind_prompt_turn(
     pool: &SqlitePool,
-    active_turns: &mut HashMap<Uuid, Uuid>,
     conversation_id: Uuid,
     prompt_id: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
@@ -402,37 +453,32 @@ async fn bind_prompt_turn(
         ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, prompt_id).await?
         && is_in_flight_turn_status(&turn.status)
     {
-        active_turns.insert(conversation_id, turn.id);
         return Ok(Some(turn.id));
     }
-    in_flight_active_turn_id(pool, active_turns, conversation_id).await
+    in_flight_active_turn_id(pool, conversation_id).await
 }
 
+/// The conversation's in-flight Turn, read from the authoritative pointer.
+///
+/// This deliberately keeps no in-memory cache. A cache here went stale whenever a
+/// Turn reached a terminal state without passing through this recorder — `cancel_turn`
+/// and `interrupt_orphaned_turn` write the terminal event and null the pointer
+/// directly — after which every later agent event was attributed to the Turn the user
+/// had already stopped, and from there to whichever Turn the projection had open.
 async fn in_flight_active_turn_id(
     pool: &SqlitePool,
-    active_turns: &mut HashMap<Uuid, Uuid>,
     conversation_id: Uuid,
 ) -> Result<Option<Uuid>, sqlx::Error> {
-    if let Some(turn_id) = active_turns.get(&conversation_id).copied() {
-        return Ok(Some(turn_id));
-    }
-    let turn_id =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
-            .bind(conversation_id)
-            .fetch_optional(pool)
-            .await?
-            .flatten();
-    let Some(turn_id) = turn_id else {
-        return Ok(None);
-    };
-    let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
-        return Ok(None);
-    };
-    if !is_in_flight_turn_status(&turn.status) {
-        return Ok(None);
-    }
-    active_turns.insert(conversation_id, turn.id);
-    Ok(Some(turn.id))
+    sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT turns.id
+           FROM sessions
+           JOIN conversation_turns turns ON turns.id = sessions.active_turn_id
+           WHERE sessions.id = ?
+             AND turns.status IN ('pending', 'queued', 'running', 'blocked')"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -623,6 +669,20 @@ async fn latest_binding_id(
     .await
 }
 
+async fn attach_cached_plan_usage(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    event: &mut ConversationEvent,
+) {
+    let ConversationEvent::TurnFailed { error } = event else {
+        return;
+    };
+    let Ok(Some(session)) = Session::find_by_id(pool, conversation_id).await else {
+        return;
+    };
+    *error = std::mem::take(error).with_cached_plan_usage(session.agent_id.as_ref());
+}
+
 fn parse_json_payload(payload: &str) -> serde_json::Value {
     serde_json::from_str(payload).unwrap_or_else(|_| serde_json::Value::String(payload.to_string()))
 }
@@ -640,6 +700,9 @@ fn map_agent_event(
                     }
                     AgentConnectionStatus::Connecting => {
                         ConversationAgentConnectionStatus::Connecting
+                    }
+                    AgentConnectionStatus::Recovering => {
+                        ConversationAgentConnectionStatus::Recovering
                     }
                     AgentConnectionStatus::Ready => ConversationAgentConnectionStatus::Ready,
                     AgentConnectionStatus::Failed => ConversationAgentConnectionStatus::Error,
@@ -714,8 +777,8 @@ fn map_agent_event(
                 output_tokens: usage.output_tokens.unwrap_or(0),
                 cache_creation_input_tokens: usage.cache_write_tokens.unwrap_or(0),
                 cache_read_input_tokens: usage.cache_read_tokens.unwrap_or(0),
-                context_used: Some(usage.used),
-                context_window_max: usage.limit,
+                context_used: (usage.used > 0).then_some(usage.used),
+                context_window_max: usage.limit.filter(|limit| *limit > 0),
                 cost_amount: usage.cost_amount,
                 cost_currency: usage.cost_currency.clone(),
             },
@@ -860,11 +923,11 @@ fn map_agent_event(
                 },
                 agents::DelegationResultSummary::Err { error_code } => {
                     ConversationDelegationResult::Err {
-                        error: ConversationError {
-                            message: error_code.clone(),
-                            code: Some(error_code.clone()),
-                            raw: None,
-                        },
+                        error: ConversationError::new(
+                            error_code.clone(),
+                            Some(error_code.clone()),
+                            None,
+                        ),
                     }
                 }
             },
@@ -884,11 +947,11 @@ fn map_agent_event(
                     "agent turn failed"
                 );
                 ConversationEvent::TurnFailed {
-                    error: ConversationError {
-                        message: error.message.clone(),
-                        code: error.code.clone(),
-                        raw: error.raw.clone(),
-                    },
+                    error: ConversationError::new(
+                        error.message.clone(),
+                        error.code.clone(),
+                        error.raw.clone(),
+                    ),
                 }
             } else {
                 tracing::error!(
@@ -1004,6 +1067,15 @@ fn diagnostic_label(raw: &serde_json::Value) -> String {
         .to_string()
 }
 
+async fn persist_session_linked_external_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    acp_session_id: &str,
+) -> Result<(), RuntimeEventRecordError> {
+    Session::update_external_session_id(pool, conversation_id, acp_session_id).await?;
+    Ok(())
+}
+
 fn conversation_event_kind(event: &ConversationEvent) -> String {
     serde_json::to_value(event)
         .ok()
@@ -1013,7 +1085,7 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, str::FromStr};
+    use std::str::FromStr;
 
     use agents::{
         AgentConnectionId, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentPromptId,
@@ -1024,6 +1096,7 @@ mod tests {
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::Session,
     };
     use sqlx::{
         SqlitePool,
@@ -1032,8 +1105,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        ConversationEventCoalescer, MappedConversationEventRecord, conversation_event_kind,
-        conversation_event_source, map_agent_event, resolve_agent_event_turn_id,
+        ConversationEventCoalescer, MappedConversationEventRecord, binds_only_to_in_flight_turn,
+        conversation_event_kind, conversation_event_source, is_turn_scoped_content,
+        map_agent_event, persist_session_linked_external_id, resolve_agent_event_turn_id,
     };
 
     #[test]
@@ -1238,6 +1312,7 @@ mod tests {
                 finished: agents::AgentPromptFinished {
                     prompt_id: agents::AgentPromptId(Uuid::new_v4()),
                     stop_reason: Some(reason.to_string()),
+                    usage: None,
                 },
             });
             let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
@@ -1324,6 +1399,7 @@ mod tests {
             finished: agents::AgentPromptFinished {
                 prompt_id: agents::AgentPromptId(Uuid::new_v4()),
                 stop_reason: Some("EndTurn".to_string()),
+                usage: None,
             },
         });
         assert!(matches!(
@@ -1441,27 +1517,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_linked_writes_external_session_id() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_conversation_turn(&pool, "prompt-1", "hello").await;
+
+        persist_session_linked_external_id(&pool, conversation_id, "acp-live-session-9")
+            .await
+            .expect("persist SessionLinked");
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session exists");
+        assert_eq!(
+            session.external_session_id.as_deref(),
+            Some("acp-live-session-9")
+        );
+    }
+
+    #[tokio::test]
     async fn post_completion_events_do_not_pin_the_next_turn_to_the_previous() {
         let pool = setup_pool().await;
         let prompt_a = AgentPromptId::new();
         let (conversation_id, turn_a) =
             seed_conversation_turn(&pool, &prompt_a.to_string(), "A").await;
-        let mut cache = HashMap::new();
 
-        let first =
-            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
-                .await
-                .expect("bind A stream");
+        let first = resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+            .await
+            .expect("bind A stream");
         assert_eq!(first, Some(turn_a));
 
         ConversationTurnRecord::mark_completed(&pool, turn_a, Some("end_turn"), None, None)
             .await
             .expect("complete A");
-        cache.remove(&conversation_id);
 
         let usage = resolve_agent_event_turn_id(
             &pool,
-            &mut cache,
             conversation_id,
             &AgentEvent::Usage {
                 usage: AgentUsage::default(),
@@ -1470,10 +1561,6 @@ mod tests {
         .await
         .expect("bind usage");
         assert_eq!(usage, Some(turn_a));
-        assert!(
-            !cache.contains_key(&conversation_id),
-            "end-of-turn usage must not re-cache a completed turn"
-        );
 
         let prompt_b = AgentPromptId::new();
         let turn_b = ConversationTurnRecord::create_pending(
@@ -1495,7 +1582,6 @@ mod tests {
 
         let started = resolve_agent_event_turn_id(
             &pool,
-            &mut cache,
             conversation_id,
             &prompt_started(prompt_b, AgentSessionId(conversation_id)),
         )
@@ -1503,14 +1589,13 @@ mod tests {
         .expect("bind PromptStarted");
         assert_eq!(started, Some(turn_b));
 
-        let second =
-            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
-                .await
-                .expect("bind B stream");
+        let second = resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+            .await
+            .expect("bind B stream");
         assert_eq!(
             second,
             Some(turn_b),
-            "B's stream must not inherit A's cached turn id"
+            "B's stream must not inherit A's turn id"
         );
     }
 
@@ -1524,13 +1609,10 @@ mod tests {
             .await
             .expect("complete A");
 
-        let mut cache = HashMap::new();
-        let orphan =
-            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
-                .await
-                .expect("refuse completed pointer");
+        let orphan = resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+            .await
+            .expect("refuse completed pointer");
         assert_eq!(orphan, None);
-        assert!(!cache.contains_key(&conversation_id));
 
         let prompt_b = AgentPromptId::new();
         let turn_b = ConversationTurnRecord::create_pending(
@@ -1550,10 +1632,69 @@ mod tests {
             .await
             .expect("activate B");
 
-        let second =
-            resolve_agent_event_turn_id(&pool, &mut cache, conversation_id, &message_chunk())
-                .await
-                .expect("bind B");
+        let second = resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+            .await
+            .expect("bind B");
         assert_eq!(second, Some(turn_b));
+    }
+
+    /// Regression: a user cancel settles the Turn and nulls the active pointer
+    /// without passing through this recorder. The agent's still-arriving output must
+    /// be dropped, not attributed to the Turn the user stopped or to the next one.
+    #[tokio::test]
+    async fn a_cancelled_turns_trailing_output_is_dropped_immediately() {
+        let pool = setup_pool().await;
+        let prompt_a = AgentPromptId::new();
+        let (conversation_id, turn_a) =
+            seed_conversation_turn(&pool, &prompt_a.to_string(), "A").await;
+
+        assert_eq!(
+            resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+                .await
+                .expect("bind while in flight"),
+            Some(turn_a)
+        );
+
+        // What `ConversationSessionService::cancel_turn` does, in its order.
+        ConversationTurnRecord::mark_cancelled(&pool, turn_a, Some("user cancelled"))
+            .await
+            .expect("cancel A");
+        ConversationRecord::update_active_turn(&pool, conversation_id, None)
+            .await
+            .expect("clear active turn");
+
+        let trailing = resolve_agent_event_turn_id(&pool, conversation_id, &message_chunk())
+            .await
+            .expect("resolve trailing chunk");
+        assert_eq!(
+            trailing, None,
+            "a cancelled turn's trailing output must not be attributed to any turn"
+        );
+        assert!(
+            is_turn_scoped_content(&message_chunk()),
+            "turn content with no in-flight turn is dropped by `map_record`"
+        );
+    }
+
+    #[test]
+    fn an_untethered_error_is_recorded_as_a_binding_failure_rather_than_dropped() {
+        let error = AgentEvent::Error {
+            error: agents::events::AgentErrorEvent {
+                message: "agent exited before session/new".to_string(),
+                code: None,
+                raw: None,
+            },
+        };
+
+        // Errors resolve to the in-flight Turn or to nothing — never to a settled one.
+        assert!(binds_only_to_in_flight_turn(&error));
+        // But unlike Turn content they still carry conversation-level meaning, so
+        // `map_record` must not drop them: a failed binding recovery the user never
+        // sees is how "nothing happens when I send" became unexplainable.
+        assert!(!is_turn_scoped_content(&error));
+        assert!(matches!(
+            map_agent_event(&envelope(error), None),
+            Some(ConversationEvent::AgentBindingRecoveryFailed { .. })
+        ));
     }
 }

@@ -2,7 +2,7 @@ use agents::{
     AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface, ProfileComponent,
     ProfileInstallSource, ProfileManagementActionKind, RegistryEntryIdentity,
 };
-use api_types::AgentSettingsFeature;
+use api_types::{AgentKind, AgentSettingsFeature};
 
 fn native_field<'a>(
     catalog: &'a BuiltInProfileCatalog,
@@ -211,6 +211,103 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     ));
 }
 
+/// Every Profile must resolve to a non-ambiguous ACP invocation, and the two
+/// places that can declare it must not disagree. An external candidate that
+/// declares `acp_args` while its install source pins different args would make
+/// the same Agent launch differently depending on how it was obtained.
+#[test]
+fn acp_launch_args_have_one_answer_per_profile() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    for profile in catalog.profiles() {
+        for candidate in profile.external_candidates {
+            if candidate.acp_args.is_empty() {
+                continue;
+            }
+            let pinned = profile
+                .install_sources
+                .iter()
+                .find_map(|source| match source {
+                    ProfileInstallSource::Npx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Uvx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Binary {
+                        component, args, ..
+                    } if *component == candidate.component => Some(*args),
+                    _ => None,
+                });
+            if let Some(pinned) = pinned {
+                assert_eq!(
+                    candidate.acp_args,
+                    pinned,
+                    "{}: candidate `{}` declares ACP args that disagree with its install source",
+                    profile.agent_id.as_str(),
+                    candidate.executable
+                );
+            }
+        }
+
+        let acp_candidate = profile.external_candidates.iter().find(|candidate| {
+            matches!(
+                candidate.component,
+                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+            )
+        });
+        assert!(
+            acp_candidate.is_some(),
+            "{}: no external candidate can serve ACP",
+            profile.agent_id.as_str()
+        );
+    }
+}
+
+/// Qoder CLI starts its interactive TUI when launched bare; only `--acp` makes
+/// it an ACP stdio server. Both published bin names must resolve to it.
+#[test]
+fn qoder_launches_as_an_acp_server_under_both_bin_names() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let qoder = catalog.profile(&AgentId::parse("qoder").unwrap()).unwrap();
+
+    let names = qoder
+        .external_candidates
+        .iter()
+        .map(|candidate| candidate.executable)
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["qoder", "qodercli"]);
+
+    for candidate in qoder.external_candidates {
+        assert_eq!(candidate.acp_args, ["--acp"]);
+        assert_eq!(
+            agents::acp_launch_args(qoder, candidate.component),
+            vec!["--acp".to_string()]
+        );
+    }
+
+    assert!(matches!(
+        qoder.install_sources.first().unwrap(),
+        ProfileInstallSource::Npx {
+            component: ProfileComponent::CombinedRuntime,
+            package: "@qoder-ai/qodercli",
+            version: "1.1.44",
+            command: "qodercli",
+            args: ["--acp"],
+            ..
+        }
+    ));
+    assert_eq!(
+        qoder.registry_binding.as_ref().unwrap().registry_id,
+        "qoder"
+    );
+    assert_eq!(qoder.management_actions[0].args, &["login"]);
+    assert!(
+        qoder
+            .settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
+    );
+}
+
 #[test]
 fn built_in_profiles_are_declarative_and_bind_explicitly() {
     let catalog = BuiltInProfileCatalog::bundled();
@@ -221,20 +318,27 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         .collect::<Vec<_>>();
     assert_eq!(
         ids,
+        AgentKind::built_in_bar_order()
+            .map(AgentKind::as_str)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        ids,
         [
             "claude_code",
             "codex",
-            "antigravity",
-            "openclaw",
-            "opencode",
-            "cline",
-            "hermes",
-            "codebuddy",
-            "kimi_code",
             "pi",
+            "opencode",
             "grok",
             "cursor",
             "deepseek_harness",
+            "antigravity",
+            "cline",
+            "openclaw",
+            "hermes",
+            "codebuddy",
+            "kimi_code",
+            "qoder",
         ]
     );
 
@@ -299,17 +403,18 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         [
             ("claude_code", None),
             ("codex", None),
-            ("antigravity", None),
-            ("openclaw", None),
-            ("opencode", None),
-            ("cline", None),
-            ("hermes", None),
-            ("codebuddy", None),
-            ("kimi_code", None),
             ("pi", None),
+            ("opencode", None),
             ("grok", None),
             ("cursor", None),
             ("deepseek_harness", None),
+            ("antigravity", None),
+            ("cline", None),
+            ("openclaw", None),
+            ("hermes", None),
+            ("codebuddy", None),
+            ("kimi_code", None),
+            ("qoder", None),
         ]
     );
     assert!(
@@ -590,6 +695,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "kimi_code",
         "grok",
         "cursor",
+        "qoder",
     ] {
         assert!(
             profile(id)
@@ -620,6 +726,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "grok",
         "cursor",
         "deepseek_harness",
+        "qoder",
     ] {
         assert!(
             profile(id)

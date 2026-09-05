@@ -124,4 +124,34 @@ mod tests {
         assert_eq!(status.total_deletions, 0);
         assert!(status.unstaged_files.iter().all(|file| file.status == "?"));
     }
+
+    #[test]
+    fn https_clone_has_a_tls_backend() {
+        let td = TempDir::new().unwrap();
+        let target = td.path().join("clone");
+        let error =
+            match GitService::clone_repository("https://127.0.0.1:1/repo.git", &target, None) {
+                Ok(_) => panic!("closed local port must not clone"),
+                Err(error) => error,
+            };
+        let message = error.to_string();
+        assert!(
+            !message.contains("no TLS stream available"),
+            "HTTPS clone must use system Git TLS; got {message}"
+        );
+    }
+
+    #[test]
+    fn clone_repository_copies_a_local_repo() {
+        let td = TempDir::new().unwrap();
+        let source = td.path().join("source");
+        GitService::new()
+            .initialize_repo_with_main_branch(&source)
+            .unwrap();
+        let target = td.path().join("clone");
+        GitService::clone_repository(&source.to_string_lossy(), &target, None)
+            .map(|_| ())
+            .unwrap();
+        assert!(target.join(".git").exists() || target.join("HEAD").exists());
+    }
 }

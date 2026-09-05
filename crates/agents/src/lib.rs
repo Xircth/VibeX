@@ -73,7 +73,8 @@ pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
     apply_built_in_launch_policy, auth_mode_credential_env, auth_mode_kind,
     auto_approve_mode_for_launch, built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys,
-    official_api_url,
+    is_non_official_api_url, native_uses_custom_endpoint, official_api_url,
+    resolve_built_in_auth_mode,
 };
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,
@@ -125,7 +126,7 @@ pub use events::{
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
     AgentSessionListPage, AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt,
     AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage,
-    DelegationResultSummary,
+    DelegationResultSummary, SessionControlPreferences,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
@@ -200,7 +201,7 @@ pub use permissions::{
 };
 pub use plan_usage::{
     AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
-    probe_plan_usage,
+    cached_plan_usage, probe_plan_usage,
 };
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,
@@ -208,8 +209,8 @@ pub use profiles::{
     NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
     ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, adapter_bundles_runtime,
-    bundled_adapter_runtime_env_keys,
+    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, acp_launch_args,
+    adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,
@@ -227,8 +228,8 @@ pub use runtime::{
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{
     SessionBinding, SessionDefaultValidation, SessionGate, SessionGateError, SessionGateInput,
-    SessionLaunchAuthorization, SessionLaunchLock, session_launch_rejection_message,
-    validate_session_defaults,
+    SessionLaunchAuthorization, SessionLaunchLock, resolve_session_defaults,
+    session_launch_rejection_message, validate_session_defaults,
 };
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{

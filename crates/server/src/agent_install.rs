@@ -248,6 +248,14 @@ async fn load_registry_snapshot(
     }
 }
 
+pub async fn install_agent_unattended(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    raw_id: &str,
+) -> anyhow::Result<()> {
+    install_agent(pool, data_dir, raw_id, true).await
+}
+
 async fn install_agent(
     pool: &SqlitePool,
     data_dir: &Path,

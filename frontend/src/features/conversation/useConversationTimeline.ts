@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { getInvokeErrorMessage, isCanceledError } from '@/lib/errors';
+import { useBackendTransport } from '@/lib/transport';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
@@ -27,6 +29,13 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
   modes: [],
 };
 const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+
+function conversationLoadError(error: unknown): string | null {
+  if (isCanceledError(error)) {
+    return null;
+  }
+  return getInvokeErrorMessage(error);
+}
 
 export type UseConversationTimelineResult = {
   timeline: ConversationTimelineTurn[];
@@ -66,6 +75,7 @@ export type UseConversationTimelineResult = {
 export function useConversationTimeline(
   conversationId: string | null
 ): UseConversationTimelineResult {
+  const transport = useBackendTransport();
   const [state, dispatch] = useReducer(
     conversationStoreReducer,
     emptyConversationStoreState
@@ -74,14 +84,32 @@ export function useConversationTimeline(
   const pendingBatchesRef = useRef<ConversationRowOpBatch[]>([]);
   const flushFrameRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
+  const disposedRef = useRef(false);
+  const loadEpochRef = useRef(0);
   stateRef.current = state;
+
+  const reportLoadError = useCallback(
+    (error: unknown, targetConversationId = conversationId) => {
+      if (!targetConversationId || disposedRef.current) {
+        return;
+      }
+      dispatch({
+        type: 'load_error',
+        conversationId: targetConversationId,
+        error: conversationLoadError(error),
+      });
+    },
+    [conversationId]
+  );
 
   const loadDetail = useCallback((): Promise<void> => {
     if (!conversationId) return Promise.resolve();
+    const epoch = ++loadEpochRef.current;
     dispatch({ type: 'load_start', conversationId });
     return conversationApi
       .detail(conversationId)
       .then((detail) => {
+        if (disposedRef.current || loadEpochRef.current !== epoch) return;
         if (!detail) {
           dispatch({
             type: 'load_error',
@@ -92,11 +120,14 @@ export function useConversationTimeline(
         }
         dispatch({ type: 'load_success', conversationId, detail });
         const needsAuthoritativeZeroTurnControls =
-          detail.summary.message_count === 0n;
+          detail.summary.message_count === 0n ||
+          ((detail.session_config_options?.length ?? 0) === 0 &&
+            !detail.session_modes);
         if (detail.summary.agent_id && needsAuthoritativeZeroTurnControls) {
           return conversationApi
             .ensureSessionControls(conversationId)
             .then((controls) => {
+              if (disposedRef.current || loadEpochRef.current !== epoch) return;
               dispatch({
                 type: 'session_controls_hydrated',
                 conversationId,
@@ -106,13 +137,10 @@ export function useConversationTimeline(
         }
       })
       .catch((error: unknown) => {
-        dispatch({
-          type: 'load_error',
-          conversationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        if (loadEpochRef.current !== epoch) return;
+        reportLoadError(error);
       });
-  }, [conversationId]);
+  }, [conversationId, reportLoadError]);
 
   const resetAndReload = useCallback((): Promise<void> => {
     if (!conversationId) return Promise.resolve();
@@ -142,16 +170,17 @@ export function useConversationTimeline(
       });
       await loadDetail();
     } catch (error: unknown) {
-      dispatch({
-        type: 'load_error',
-        conversationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      reportLoadError(error);
     }
-  }, [conversationId, loadDetail]);
+  }, [conversationId, loadDetail, reportLoadError]);
 
   useEffect(() => {
+    disposedRef.current = false;
     loadDetail();
+    return () => {
+      disposedRef.current = true;
+      loadEpochRef.current += 1;
+    };
   }, [loadDetail]);
 
   const hasDetail = conversationId
@@ -222,14 +251,14 @@ export function useConversationTimeline(
               lastSequence: toBigInt(page.last_sequence),
             });
           })
-          .catch(() => {});
+          .catch((error: unknown) => {
+            if (!active) return;
+            reportLoadError(error, conversationId);
+          });
       })
       .catch((error: unknown) => {
-        dispatch({
-          type: 'load_error',
-          conversationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        if (!active) return;
+        reportLoadError(error, conversationId);
       });
 
     return () => {
@@ -238,7 +267,46 @@ export function useConversationTimeline(
       pendingBatchesRef.current = [];
       unlisten?.();
     };
-  }, [conversationId, hasDetail, loadDetail]);
+  }, [conversationId, hasDetail, loadDetail, reportLoadError]);
+
+  useEffect(() => {
+    if (
+      transport.environment === 'desktop' ||
+      !conversationId ||
+      !hasDetail
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const tick = () => {
+      const current =
+        stateRef.current.byConversationId[conversationId]?.lastSequence ?? 0n;
+      void conversationApi
+        .eventsSince({
+          conversationId,
+          afterSequence: Number(current),
+          limit: 500,
+        })
+        .then((page) => {
+          if (cancelled || page.rows.length === 0) return;
+          dispatch({
+            type: 'upsert_rows',
+            conversationId,
+            rows: page.rows,
+            lastSequence: toBigInt(page.last_sequence),
+          });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          reportLoadError(error, conversationId);
+        });
+    };
+    const timer = window.setInterval(tick, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [conversationId, hasDetail, reportLoadError, transport.environment]);
 
   const entry = conversationId
     ? (state.byConversationId[conversationId] ?? null)
@@ -264,11 +332,14 @@ export function useConversationTimeline(
           lastSequence: toBigInt(page.last_sequence),
         });
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        reportLoadError(error, conversationId);
+      });
     return () => {
       cancelled = true;
     };
-  }, [conversationId, gap]);
+  }, [conversationId, gap, reportLoadError]);
 
   const sendOptimisticTurn = useCallback(
     (turn: MessageTurn) => {

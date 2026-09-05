@@ -27,7 +27,10 @@ export function canvasNodesMatch(
       node.width === other.width &&
       node.height === other.height &&
       node.expanded === other.expanded &&
+      node.showAll === other.showAll &&
       node.collapsed === other.collapsed &&
+      node.manualColumns === other.manualColumns &&
+      node.manualRows === other.manualRows &&
       node.openedFromId === other.openedFromId
     );
   });

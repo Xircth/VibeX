@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { open } from '@tauri-apps/plugin-dialog';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { pickHostDirectory } from '@/lib/hostFs';
 import {
   Dialog,
   DialogContent,
@@ -45,7 +45,7 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
     parentDir && derivedName ? joinPath(parentDir, derivedName) : '';
 
   const pickDir = async () => {
-    const picked = await open({ directory: true, multiple: false });
+    const picked = await pickHostDirectory();
     if (typeof picked === 'string') {
       setParentDir(picked);
       setError(null);

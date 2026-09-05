@@ -16,6 +16,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import {
+  useBackendCapabilities,
+  useBackendTransport,
+} from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 
 function NativeSurfaceOcclusionBridge({
@@ -43,6 +47,10 @@ export function WorkspaceTabAddMenu({
   const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab } =
     usePanelActionsContext();
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
+  const transport = useBackendTransport();
+  const { supports } = useBackendCapabilities();
+  const canOpenWebPreview =
+    transport.environment === 'desktop' || supports('desktop.tauri');
 
   if (!isEditorGroup(group)) return null;
 
@@ -69,12 +77,14 @@ export function WorkspaceTabAddMenu({
         className="workspace-tab-add-menu w-44"
       >
         <NativeSurfaceOcclusionBridge setOccluded={setTabCreationMenuOpen} />
-        <DropdownMenuItem
-          onSelect={() => runInThisGroup(() => openWebPreview())}
-        >
-          <Globe2 />
-          {t('tabCreation.browser')}
-        </DropdownMenuItem>
+        {canOpenWebPreview ? (
+          <DropdownMenuItem
+            onSelect={() => runInThisGroup(() => openWebPreview())}
+          >
+            <Globe2 />
+            {t('tabCreation.browser')}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={() => runInThisGroup(openDiffPreview)}>
           <FileDiff />
           {t('tabCreation.review')}

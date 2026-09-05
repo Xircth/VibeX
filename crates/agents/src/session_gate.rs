@@ -45,6 +45,29 @@ pub fn validate_session_defaults(
     validation
 }
 
+/// Fold stored defaults against the current catalog. Missing catalog evidence
+/// keeps every stored option stale instead of inventing a usable value.
+pub fn resolve_session_defaults(
+    requested: BTreeMap<String, Value>,
+    mut stale_ids: Vec<String>,
+    advertised_options: Option<&[AgentSessionConfigOption]>,
+) -> SessionDefaultValidation {
+    let valid = match advertised_options {
+        Some(options) => {
+            let validation = validate_session_defaults(requested, options);
+            stale_ids.extend(validation.stale_ids);
+            validation.valid
+        }
+        None => {
+            stale_ids.extend(requested.into_keys());
+            BTreeMap::new()
+        }
+    };
+    stale_ids.sort();
+    stale_ids.dedup();
+    SessionDefaultValidation { valid, stale_ids }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionLaunchLock {
     pub agent_id: AgentId,

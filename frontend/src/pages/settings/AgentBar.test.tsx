@@ -238,15 +238,15 @@ describe('AgentBar', () => {
       expect(rail).not.toBeNull();
       expect(scroller).not.toBeNull();
       expect(rail!.contains(scroller)).toBe(false);
-      expect(getComputedStyle(rail!).bottom).toBe('14px');
+      expect(getComputedStyle(rail!).bottom).toBe('0px');
       expect(getComputedStyle(scroller!).height).toBe('66px');
       expect(style.textContent).toContain(
         '.agent-management-bar-scroll::-webkit-scrollbar'
       );
-      expect(style.textContent).toContain('height: 14px');
-      expect(style.textContent).toContain('border-top-width: 10px');
+      expect(style.textContent).toContain('height: 6px');
+      expect(style.textContent).not.toContain('border-top-width: 10px');
       expect(style.textContent).toMatch(
-        /agent-management-bar-scroll::-webkit-scrollbar-track\s*{[^}]*background:\s*transparent;/
+        /agent-management-bar-scroll::-webkit-scrollbar-track\s*,[\s\S]*background:\s*transparent;/
       );
       expect(style.textContent).toMatch(
         /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--border-strong\) \/ 0\.55\);/

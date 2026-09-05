@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { WorktreeProvider } from '@/contexts/WorktreeContext';
 import {
@@ -13,6 +14,9 @@ import { KanbanSessionConversationPlacementProvider } from '@/components/kanban/
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { attemptsApi } from '@/lib/api';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { resolveFocusDispatch } from '@/lib/projectFocusRouting';
+import { requestCanvasReveal } from '@/lib/canvasSessionReveal';
 
 interface WorkspaceLayoutProps {
   /** Content for the right fixed panel (AI Chat area) */
@@ -23,7 +27,12 @@ interface WorkspaceLayoutProps {
 
 function PendingProjectFocusBridge() {
   const { projectId } = useProject();
-  const { activateExecutionSession, goToBoard, isLayoutHydrated } =
+  const navigate = useNavigate();
+  const {
+    workspaceId: routeWorkspaceId,
+    sessionId: routeSessionId,
+  } = useParams();
+  const { activateExecutionSession, panelView, isLayoutHydrated } =
     useKanbanSessionContext();
   const consumeProjectFocus = useWindowProjectsStore(
     (state) => state.consumeProjectFocus
@@ -31,10 +40,14 @@ function PendingProjectFocusBridge() {
   const pendingProjectFocus = useWindowProjectsStore((state) =>
     projectId ? state.focusRequests[projectId] : undefined
   );
-  const setActiveTab = useLayoutStore((state) => state.setActiveTab);
+  const activeTab = useLayoutStore((state) => state.activeTab);
   const setRightPanelVisible = useLayoutStore(
     (state) => state.setRightPanelVisible
   );
+  const setKanbanSessionVisible = useLayoutStore(
+    (state) => state.setKanbanSessionVisible
+  );
+  const boardStyle = useKanbanBoardStyle();
 
   useEffect(() => {
     if (!projectId || !pendingProjectFocus || !isLayoutHydrated) {
@@ -46,25 +59,62 @@ function PendingProjectFocusBridge() {
       return;
     }
 
-    setActiveTab('kanban');
-    setRightPanelVisible(true);
-    goToBoard();
-    activateExecutionSession({
-      workspaceId: focusRequest.workspaceId,
-      sessionId: focusRequest.sessionId,
-    });
+    // A deep workspace/session route forces the workspace surface (mirroring
+    // IDELayout's `effectiveActiveTab`); otherwise the kanban/workspace surface
+    // is whatever tab the user is on. Never switch the tab itself — the session
+    // is revealed where the user already is.
+    const surface =
+      routeWorkspaceId || routeSessionId ? 'workspace' : activeTab;
+    const isCanvasHub =
+      surface === 'kanban' &&
+      boardStyle === 'canvas' &&
+      panelView === 'sessionHub';
+    const dispatch = resolveFocusDispatch(
+      { surface, isCanvasHub, routeWorkspaceId, routeSessionId },
+      {
+        projectId,
+        workspaceId: focusRequest.workspaceId,
+        sessionId: focusRequest.sessionId,
+      }
+    );
+
+    switch (dispatch.kind) {
+      case 'open-in-workspace':
+        setRightPanelVisible(true);
+        navigate(dispatch.navigateTo);
+        break;
+      case 'open-in-kanban-slot':
+        setKanbanSessionVisible(true);
+        activateExecutionSession(dispatch.placement);
+        break;
+      case 'reveal-on-canvas':
+        requestCanvasReveal({
+          projectId: dispatch.projectId,
+          workspaceId: dispatch.workspaceId,
+          sessionId: dispatch.sessionId,
+        });
+        break;
+      case 'noop':
+        // Already shown on the current surface — window focus alone is enough.
+        break;
+    }
 
     void attemptsApi.markSeen(focusRequest.workspaceId).catch(() => {
       // Ignore mark-seen failures for toast navigation.
     });
   }, [
+    activateExecutionSession,
+    activeTab,
+    boardStyle,
     consumeProjectFocus,
-    goToBoard,
     isLayoutHydrated,
+    navigate,
+    panelView,
     pendingProjectFocus,
     projectId,
-    activateExecutionSession,
-    setActiveTab,
+    routeSessionId,
+    routeWorkspaceId,
+    setKanbanSessionVisible,
     setRightPanelVisible,
   ]);
 

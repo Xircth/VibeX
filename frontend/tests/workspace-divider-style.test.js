@@ -114,6 +114,14 @@ test('Dockview 标签将状态背景绘制在圆角标题面而不是外层矩�
     source,
     /\.dv-tab:focus-within::after[\s\S]*?border-radius: var\(--radius\);[\s\S]*?outline: none !important;/
   );
+  assert.match(
+    panelRegistry,
+    /className="dv-default-tab-action rounded-full"/
+  );
+  assert.match(
+    source,
+    /\.dv-default-tab-action:hover[\s\S]*?border-radius: 999px;/
+  );
   assert.doesNotMatch(ideLayout, /dockview-ayu\.css\?raw/);
   assert.match(ideLayout, /import '@\/styles\/dockview-ayu\.css';/);
 });

@@ -532,6 +532,18 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     );
   });
 
+  it('keeps the form usable when session defaults omit the values field', async () => {
+    sessionDefaults.mockResolvedValue({});
+    renderForm('claude_code', vi.fn());
+
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'sessionCreation.submit' })
+    ).toBeInTheDocument();
+  });
+
   it('loads raw Agent defaults without exposing stale option diagnostics', async () => {
     sessionDefaults.mockResolvedValue({
       values: { model: 'opus' },

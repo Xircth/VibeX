@@ -376,32 +376,32 @@
   .legacy-design,
   .legacy-design * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+    scrollbar-gutter: auto;
   }
 
   .legacy-design ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
+    background: transparent;
   }
 
-  .legacy-design ::-webkit-scrollbar-track {
+  .legacy-design ::-webkit-scrollbar-track,
+  .legacy-design ::-webkit-scrollbar-track-piece,
+  .legacy-design ::-webkit-scrollbar-corner {
     background: transparent;
+    border: none;
+    box-shadow: none;
   }
 
   .legacy-design ::-webkit-scrollbar-thumb {
-    border: 2px solid transparent;
+    border: none;
     border-radius: 999px;
-    background: hsl(var(--muted-foreground) / 0.28);
-    background-clip: padding-box;
+    background: hsl(var(--muted-foreground) / 0.32);
   }
 
   .legacy-design ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.42);
-    background-clip: padding-box;
-  }
-
-  .legacy-design ::-webkit-scrollbar-corner {
-    background: transparent;
+    background: hsl(var(--muted-foreground) / 0.48);
   }
 
   :where(.legacy-design) button,
@@ -443,6 +443,17 @@
     color-scheme: unset;
   }
 
+  /* Desktop notifications are content surfaces: fully opaque, not glass. The
+     window shell stays transparent; only the cards paint solid. */
+  html.desktop-toast-shell .legacy-design {
+    --surface-popover: var(--surface-dialog);
+  }
+
+  html.desktop-toast-shell .legacy-design .vu-toast-surface {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
   html,
   body {
     margin: 0;
@@ -469,10 +480,7 @@
   }
 
   .legacy-design [data-astryx-theme] {
-    --font-family-body:
-      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
-      system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-      'Noto Sans SC Variable', sans-serif;
+    --font-family-body: var(--font-ui);
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-text-accent: hsl(var(--primary));
@@ -1119,6 +1127,11 @@
     line-height: 1.45;
   }
 
+  .settings-page .settings-row :where(label, .settings-row__label) {
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
   .settings-page .settings-card > .settings-worktree-board {
     padding: 0;
   }
@@ -1143,8 +1156,10 @@
   }
 
   .settings-page .settings-worktree-board__item {
-    display: block;
+    display: flex;
     width: 100%;
+    min-height: 2.5rem;
+    align-items: center;
     padding: 0.5rem 0.75rem;
     border: 0;
     border-radius: var(--radius);
@@ -1152,6 +1167,7 @@
     color: var(--text-primary);
     font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.25;
     text-align: left;
   }
 
@@ -1412,7 +1428,7 @@
   }
 
   .settings-page .settings-pairing-devices__row .settings-row__description {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
   }
 
   .settings-page .settings-pairing-devices__choose {
@@ -1950,6 +1966,7 @@
   .composer-select-list::-webkit-scrollbar {
     width: 4px;
     height: 4px;
+    background: transparent;
   }
 
   .composer-select-list::-webkit-scrollbar-thumb {
@@ -1958,8 +1975,12 @@
     background: hsl(var(--muted-foreground) / 0.3);
   }
 
-  .composer-select-list::-webkit-scrollbar-track {
+  .composer-select-list::-webkit-scrollbar-track,
+  .composer-select-list::-webkit-scrollbar-track-piece,
+  .composer-select-list::-webkit-scrollbar-corner {
     background: transparent;
+    border: none;
+    box-shadow: none;
   }
 
   /* Flowing blue gradient for the selected option's name. Explicit blues are
@@ -2161,6 +2182,18 @@
   .settings-page .pi-custom-provider-fields .astryx-select-trigger,
   .settings-page .pi-provider-fields .astryx-select-trigger {
     height: 32px;
+  }
+
+  .astryx-select--compact .astryx-select-trigger {
+    height: 28px;
+    gap: 4px;
+    padding: 0 8px;
+    font-size: 0.6875rem;
+  }
+
+  .astryx-select--compact .astryx-select-chevron {
+    width: 12px;
+    height: 12px;
   }
 
   .astryx-select-trigger-label {
@@ -3362,16 +3395,52 @@
   }
 
   .kanban-nav-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: auto;
+    padding: 0.125rem 0;
     color: var(--text-muted);
-    border-color: var(--border-subtle);
-    background: var(--surface-card-strong);
+    background: transparent;
+    border: none;
     box-shadow: none;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    filter: drop-shadow(0 0 8px var(--surface-page-solid));
   }
 
-  .kanban-nav-arrow:hover {
+  [data-panel='kanban']:hover .kanban-nav-arrow,
+  .kanban-nav-arrow:focus-visible {
+    pointer-events: auto;
+  }
+
+  .kanban-nav-arrow:hover,
+  .kanban-nav-arrow:focus-visible {
     color: var(--text-strong);
-    border-color: var(--border-strong);
-    background: var(--surface-control-hover);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-panel='kanban']:hover .kanban-nav-arrow,
+    .kanban-nav-arrow:focus-visible {
+      animation: kanban-nav-arrow-breathe 2.4s ease-in-out infinite;
+    }
+
+    .kanban-nav-arrow[data-side='left'] {
+      --kanban-nav-arrow-nudge: 3px;
+    }
+
+    .kanban-nav-arrow[data-side='right'] {
+      --kanban-nav-arrow-nudge: -3px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-panel='kanban']:hover .kanban-nav-arrow,
+    .kanban-nav-arrow:focus-visible {
+      opacity: 0.85;
+    }
   }
 
   .kanban-board-surface {
@@ -3442,7 +3511,7 @@
     min-width: 0;
     max-width: 100%;
     overflow-x: hidden;
-    padding: 0.25rem 0.75rem 0.75rem;
+    padding: 0 0.75rem 0.75rem;
   }
 
   .session-hub-inset {
@@ -3450,7 +3519,7 @@
     flex-shrink: 0;
     flex-direction: column;
     gap: 0.375rem;
-    min-height: 0.25rem;
+    min-height: 0;
     padding: 0 0.5rem;
   }
 
@@ -3458,8 +3527,13 @@
     padding: 0.25rem 0.5rem 0.375rem;
   }
 
+  .workspace-session-search-shell {
+    transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .workspace-session-row-actions {
+    .workspace-session-row-actions,
+    .workspace-session-search-shell {
       transition: none;
     }
   }
@@ -3472,7 +3546,6 @@
     min-width: 0;
     align-items: center;
     gap: 0.5rem;
-    overflow: hidden;
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
     color: var(--text-strong);
@@ -3517,18 +3590,8 @@
     min-width: 0;
     max-width: 100%;
     margin-top: 0.125rem;
-    padding-left: 1rem;
-  }
-
-  .workspace-session-rail::before {
-    content: '';
-    position: absolute;
-    top: 0.35rem;
-    bottom: 0.35rem;
-    left: 0.65rem;
-    width: 1px;
-    background: var(--border-subtle);
-    pointer-events: none;
+    padding-left: 0.75rem;
+    padding-right: 0.5rem;
   }
 
   .workspace-session-row {
@@ -3803,6 +3866,70 @@
     border-radius: var(--radius);
     background: var(--surface-content);
     box-shadow: none;
+  }
+
+  .kanban-usage-summary {
+    container-type: inline-size;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .kanban-usage-summary__primary {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .kanban-usage-summary__metrics {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-content: center;
+    column-gap: 1rem;
+    row-gap: 0.75rem;
+  }
+
+  .kanban-usage-stat__value {
+    font-size: 2.25rem;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  .kanban-usage-stat__value--compact {
+    font-size: 1.75rem;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  .kanban-usage-summary__cache {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .kanban-usage-summary__ring {
+    position: relative;
+    width: 8rem;
+    height: 8rem;
+    flex-shrink: 0;
+  }
+
+  .kanban-usage-summary__ring-value {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
   }
 
   .kanban-usage-card--pink,
@@ -5033,6 +5160,7 @@
      selected agent tab. No auto child padding (unlike .settings-card). */
   .settings-surface {
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
     background: var(--surface-card-strong);
     box-shadow:
       0 1px 2px hsl(220 36% 8% / 0.05),
@@ -5247,8 +5375,8 @@
     width: 34%;
     border-radius: inherit;
     background: hsl(var(--primary));
-    animation: import-local-progress-slide 1.15s
-      cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    animation: import-local-progress-slide 1.15s cubic-bezier(0.22, 1, 0.36, 1)
+      infinite;
   }
 
   .import-local-progress__meta {
@@ -5450,17 +5578,17 @@
     transform: none !important;
   }
 
-  :where(.legacy-design) .project-rail-liquid-glass {
+  html:not(.host-windows) :where(.legacy-design) .project-rail-liquid-glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
 
-  :where(.legacy-design) .settings-action-bar__glass {
+  html:not(.host-windows) :where(.legacy-design) .settings-action-bar__glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
 
-  :where(.legacy-design) .branch-info-liquid-glass {
+  html:not(.host-windows) :where(.legacy-design) .branch-info-liquid-glass {
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
@@ -6422,39 +6550,42 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page [data-settings-content] {
   padding-inline-end: 1.5rem;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+  scrollbar-gutter: auto;
 }
 
 .settings-page .agent-settings-scroll {
   padding-inline-end: 0.75rem;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+  scrollbar-gutter: auto;
 }
 
 .settings-page [data-settings-content]::-webkit-scrollbar,
 .settings-page .agent-settings-scroll::-webkit-scrollbar {
-  width: 14px;
+  width: 6px;
+  background: transparent;
 }
 
 .settings-page [data-settings-content]::-webkit-scrollbar-track,
-.settings-page .agent-settings-scroll::-webkit-scrollbar-track {
+.settings-page [data-settings-content]::-webkit-scrollbar-track-piece,
+.settings-page .agent-settings-scroll::-webkit-scrollbar-track,
+.settings-page .agent-settings-scroll::-webkit-scrollbar-track-piece {
   background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .settings-page [data-settings-content]::-webkit-scrollbar-thumb,
 .settings-page .agent-settings-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-left-width: 8px;
-  border-right-width: 2px;
+  border: none;
   border-radius: 999px;
-  background: hsl(var(--muted-foreground) / 0.28);
-  background-clip: padding-box;
+  background: hsl(var(--muted-foreground) / 0.32);
 }
 
 .settings-page [data-settings-content]::-webkit-scrollbar-thumb:hover,
 .settings-page .agent-settings-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.42);
-  background-clip: padding-box;
+  background: hsl(var(--muted-foreground) / 0.48);
 }
 
 :is(.settings-page, .plan-usage-page) .agent-management-bar {
@@ -6471,7 +6602,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 14px;
+  bottom: 0;
   left: 0;
   border: 1px solid var(--border-content);
   border-radius: var(--radius);
@@ -6503,13 +6634,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: 6px;
+  height: 6px;
   background: transparent;
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-track {
+  .agent-management-bar-scroll::-webkit-scrollbar-track,
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-scroll::-webkit-scrollbar-track-piece {
   background: transparent;
   border: none;
   box-shadow: none;
@@ -6517,18 +6650,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-top-width: 10px;
-  border-bottom-width: 2px;
+  border: none;
   border-radius: 999px;
   background: hsl(var(--border-strong) / 0.55);
-  background-clip: padding-box;
 }
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--border-strong) / 0.8);
-  background-clip: padding-box;
 }
 
 :is(.settings-page, .plan-usage-page)
@@ -6612,94 +6741,103 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   touch-action: auto;
 }
 
-.settings-page .agent-settings-loading {
+.agent-settings-loading {
   pointer-events: none;
 }
 
-.settings-page .agent-settings-loading-mark,
-.settings-page .agent-settings-loading-bone,
-.settings-page .agent-settings-loading-line,
-.settings-page .agent-settings-loading-chip,
-.settings-page .agent-settings-loading-action,
-.settings-page .agent-settings-loading-refresh,
-.settings-page .agent-settings-loading-rows > li {
+.agent-settings-loading .agent-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.agent-settings-loading-mark,
+.agent-settings-loading-bone,
+.agent-settings-loading-line,
+.agent-settings-loading-chip,
+.agent-settings-loading-action,
+.agent-settings-loading-refresh,
+.agent-settings-loading-rows > li {
   display: block;
   background: var(--surface-control);
   animation: agent-settings-loading-pulse 1.2s cubic-bezier(0.22, 1, 0.36, 1)
     infinite;
 }
 
-.settings-page .agent-settings-loading-mark {
+.agent-settings-loading-mark {
   border-color: var(--border-content);
   background: var(--surface-card-strong);
   cursor: default;
   box-shadow: inset 0 0 0 1px var(--border-content);
 }
 
-.settings-page .agent-settings-loading-mark:nth-child(1) {
+.agent-settings-loading-mark:nth-child(1) {
   animation-delay: 0ms;
 }
-.settings-page .agent-settings-loading-mark:nth-child(2) {
+.agent-settings-loading-mark:nth-child(2) {
   animation-delay: 70ms;
 }
-.settings-page .agent-settings-loading-mark:nth-child(3) {
+.agent-settings-loading-mark:nth-child(3) {
   animation-delay: 140ms;
 }
-.settings-page .agent-settings-loading-mark:nth-child(4) {
+.agent-settings-loading-mark:nth-child(4) {
   animation-delay: 210ms;
 }
-.settings-page .agent-settings-loading-mark:nth-child(5) {
+.agent-settings-loading-mark:nth-child(5) {
   animation-delay: 280ms;
 }
-.settings-page .agent-settings-loading-mark:nth-child(6) {
+.agent-settings-loading-mark:nth-child(6) {
   animation-delay: 350ms;
 }
 
-.settings-page .agent-settings-loading-refresh {
+.agent-settings-loading-refresh {
   width: 36px;
   height: 36px;
   flex: 0 0 36px;
   border-radius: var(--radius);
 }
 
-.settings-page .agent-settings-loading-copy {
+.agent-settings-loading-copy {
   display: grid;
   gap: 8px;
 }
 
-.settings-page .agent-settings-loading-line {
+.agent-settings-loading-line {
   height: 10px;
   border-radius: var(--radius);
 }
 
-.settings-page .agent-settings-loading-line-title {
+.agent-settings-loading-line-title {
   width: min(148px, 46%);
   height: 14px;
 }
 
-.settings-page .agent-settings-loading-line-meta {
+.agent-settings-loading-line-meta {
   width: min(280px, 72%);
   height: 8px;
 }
 
-.settings-page .agent-settings-loading-line-heading {
+.agent-settings-loading-line-heading {
   width: min(112px, 36%);
   height: 12px;
 }
 
-.settings-page .agent-settings-loading-chip {
+.agent-settings-loading-chip {
   width: 64px;
   height: 20px;
   border-radius: 999px;
 }
 
-.settings-page .agent-settings-loading-action {
+.agent-settings-loading-action {
   width: 72px;
   height: 32px;
   border-radius: var(--radius);
 }
 
-.settings-page .agent-settings-loading-rows {
+.agent-settings-loading-rows {
   display: grid;
   gap: 8px;
   margin: 0 16px 14px;
@@ -6707,16 +6845,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   list-style: none;
 }
 
-.settings-page .agent-settings-loading-rows > li {
+.agent-settings-loading-rows > li {
   height: 52px;
   border-radius: var(--radius);
 }
 
-.settings-page .agent-settings-loading-rows > li:nth-child(2) {
+.agent-settings-loading-rows > li:nth-child(2) {
   animation-delay: 80ms;
 }
 
-.settings-page .agent-settings-loading-rows > li:nth-child(3) {
+.agent-settings-loading-rows > li:nth-child(3) {
   animation-delay: 160ms;
 }
 
@@ -6731,13 +6869,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-page .agent-settings-loading-mark,
-  .settings-page .agent-settings-loading-bone,
-  .settings-page .agent-settings-loading-line,
-  .settings-page .agent-settings-loading-chip,
-  .settings-page .agent-settings-loading-action,
-  .settings-page .agent-settings-loading-refresh,
-  .settings-page .agent-settings-loading-rows > li {
+  .agent-settings-loading-mark,
+  .agent-settings-loading-bone,
+  .agent-settings-loading-line,
+  .agent-settings-loading-chip,
+  .agent-settings-loading-action,
+  .agent-settings-loading-refresh,
+  .agent-settings-loading-rows > li {
     animation: none;
   }
 }
@@ -6860,13 +6998,51 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-detail-header {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
   min-height: 72px;
   padding: 4px 0;
+}
+
+.settings-page .agent-detail-header-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-page .agent-detail-header-copy {
+  min-width: 0;
+}
+
+.settings-page .agent-detail-header-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .agent-detail-header-title h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .agent-detail-header-copy p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .agent-detail-header-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .settings-page .agent-detail-icon,
@@ -9200,6 +9376,26 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
 }
 
+.settings-page .codex-custom-model-test {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .codex-custom-model-test p {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.settings-page .codex-custom-model-test-ok {
+  color: var(--text-strong);
+}
+
+.settings-page .codex-custom-model-test-fail {
+  color: hsl(var(--destructive));
+}
+
 .settings-page .codex-custom-advanced {
   grid-column: 1 / -1;
   align-self: stretch;
@@ -10007,7 +10203,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 6px;
   background: var(--surface-page-solid);
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .settings-page .plugin-hub-resizer {
@@ -10114,7 +10310,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 18px;
   background: var(--surface-content);
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .settings-page .plugin-hub-detail > * {
@@ -12738,6 +12934,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   overflow: visible;
 }
 
+.canvas-surface .react-flow__nodesselection {
+  z-index: 20000;
+}
+
+.canvas-surface .react-flow__nodesselection-rect {
+  pointer-events: all;
+}
+
 .canvas-surface .react-flow__node.canvas-group-flow-node {
   overflow: visible;
 }
@@ -12838,7 +13042,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   z-index: 6;
 }
 
-.canvas-surface .react-flow__resize-control.line.canvas-node-resize-line::after {
+.canvas-surface
+  .react-flow__resize-control.line.canvas-node-resize-line::after {
   content: '';
   position: absolute;
 }
@@ -12942,15 +13147,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   pointer-events: none;
 }
 
-.canvas-surface .canvas-edge-anchor {
-  width: 6px;
-  height: 6px;
-  min-width: 0;
-  min-height: 0;
-  opacity: 0;
-  pointer-events: none;
-  border: none;
-  background: transparent;
+.canvas-surface .canvas-group-slot {
+  box-sizing: border-box;
+  border: 1.5px dashed
+    color-mix(in oklab, var(--primary) 55%, var(--border-strong));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
 }
 
 .canvas-surface .canvas-session-group {
@@ -13044,6 +13246,18 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     box-shadow:
       0 0 0 3px hsl(var(--warning) / 0.75),
       0 0 16px 2px hsl(var(--warning) / 0.5);
+  }
+}
+
+@keyframes kanban-nav-arrow-breathe {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(var(--kanban-nav-arrow-nudge, 0px));
   }
 }
 

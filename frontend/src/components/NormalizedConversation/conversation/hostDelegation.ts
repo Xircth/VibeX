@@ -270,6 +270,7 @@ function inferResult(
             readString(output, ['message', 'error']) ??
             result?.output_preview ??
             'delegation failed',
+          kind: 'unknown',
         },
       },
     };
@@ -286,6 +287,7 @@ function inferResult(
         error: {
           message: readString(output, ['message', 'error']) ?? 'canceled',
           code: outputStatus,
+          kind: 'cancelled',
         },
       },
     };

@@ -5,15 +5,18 @@ import { EqIcon } from './EquationIcons';
 
 type SlotItem = { id: string; label: string; kind: 'agent' | 'mark' };
 
-const SLOT_A: SlotItem[] = [
+export const SLOT_A: SlotItem[] = [
   { id: 'cursor', label: 'Cursor', kind: 'agent' },
   { id: 'trae', label: 'Trae', kind: 'mark' },
-  { id: 'qoder', label: 'Qoder', kind: 'mark' },
+  { id: 'qoder', label: 'Qoder', kind: 'agent' },
   { id: 'vscode', label: 'VS Code', kind: 'mark' },
   { id: 'jetbrains', label: 'JetBrains', kind: 'mark' },
 ];
 
-const SLOT_B: SlotItem[] = [
+/// Agents VibeX can actually run. Every entry must be selectable when starting
+/// a session; `SLOT_A` is the IDE the user is coming from, which is a
+/// different claim and is not held to this rule.
+export const SLOT_B: SlotItem[] = [
   { id: 'claude', label: 'Claude Code', kind: 'agent' },
   { id: 'codex', label: 'Codex', kind: 'agent' },
   { id: 'antigravity', label: 'Antigravity', kind: 'agent' },
@@ -25,7 +28,9 @@ const SLOT_B: SlotItem[] = [
   { id: 'kimi', label: 'Kimi Code', kind: 'agent' },
   { id: 'pi', label: 'Pi', kind: 'agent' },
   { id: 'grok', label: 'Grok', kind: 'agent' },
+  { id: 'cursor', label: 'Cursor', kind: 'agent' },
   { id: 'deepseek', label: 'DeepSeek', kind: 'agent' },
+  { id: 'qoder', label: 'Qoder', kind: 'agent' },
 ];
 
 const SLOT_C_ZH: SlotItem[] = [

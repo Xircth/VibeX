@@ -83,6 +83,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
+vi.mock('@/lib/hostAsset', () => ({
+  hostFileSrc: async (path: string) => `asset://${path}`,
+}));
+
 vi.mock('@/contexts/PanelActionsContext', () => ({
   useOptionalPanelActionsContext: () => panelActionsMock,
 }));
@@ -659,5 +663,81 @@ $$`);
         'const answer = 42;\nconsole.log(answer);'
       )
     );
+  });
+});
+
+describe('Markdown raw HTML', () => {
+  it('renders an allowlisted block element', async () => {
+    const { container } = renderMarkdown(
+      'before <div class="box">inner text</div> after'
+    );
+
+    await waitFor(() => {
+      const host = container.querySelector('.conv-md-raw-html');
+      expect(host).not.toBeNull();
+      expect(host).toHaveTextContent('inner text');
+    });
+  });
+
+  it('renders an inline element like <sub>', async () => {
+    const { container } = renderMarkdown('H<sub>2</sub>O');
+
+    await waitFor(() => {
+      expect(container.querySelector('sub')).toHaveTextContent('2');
+    });
+  });
+
+  it('strips event handlers, styles, and disallowed attributes', async () => {
+    const { container } = renderMarkdown(
+      '<div onclick="alert(1)" style="color:red" title="kept">hi</div>'
+    );
+
+    await waitFor(() => {
+      const inner = container.querySelector('.conv-md-raw-html > div');
+      expect(inner).not.toBeNull();
+      expect(inner).not.toHaveAttribute('onclick');
+      expect(inner).not.toHaveAttribute('style');
+      expect(inner).toHaveAttribute('title', 'kept');
+    });
+  });
+
+  it('resolves a raw <img> src against the workspace base path', async () => {
+    renderMarkdown('<img src="./assets/x.png" alt="raw local">');
+
+    const image = await screen.findByRole('img', { name: 'raw local' });
+    expect(image).toHaveAttribute(
+      'src',
+      'asset://C:/workspace/project/assets/x.png'
+    );
+  });
+
+  it('does not capture <script> or conversation pseudo-tags', () => {
+    const { container } = renderMarkdown(
+      '<script>const x = 1</script>\n<system-reminder>hint</system-reminder>'
+    );
+
+    expect(container.querySelector('script')).not.toBeInTheDocument();
+    expect(container.querySelector('.conv-md-raw-html')).not.toBeInTheDocument();
+    expect(container.textContent).toContain('<system-reminder>');
+    expect(container.textContent).toContain('<script>');
+  });
+
+  it('keeps HTML-looking text inside code spans as code', async () => {
+    const { container } = renderMarkdown('`<div>x</div>`');
+
+    await waitFor(() => {
+      const code = container.querySelector('code');
+      expect(code).not.toBeNull();
+      expect(code).toHaveTextContent('<div>x</div>');
+    });
+  });
+
+  it('falls back to literal text when rawHtml is disabled', () => {
+    const { container } = renderMarkdown('<div class="box">hi</div>', {
+      rawHtml: false,
+    });
+
+    expect(container.querySelector('.conv-md-raw-html')).not.toBeInTheDocument();
+    expect(container.textContent).toContain('<div class="box">hi</div>');
   });
 });

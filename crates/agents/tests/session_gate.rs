@@ -4,7 +4,7 @@ use agents::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentManagementSnapshot,
     AgentSessionConfigChoice, AgentSessionConfigOption, ComponentProbeState,
     RequiredComponentProbe, SessionBinding, SessionGate, SessionGateError, SessionGateInput,
-    SessionLaunchLock, validate_session_defaults,
+    SessionLaunchLock, resolve_session_defaults, validate_session_defaults,
 };
 
 fn snapshot(id: &str, lifecycle: AgentLifecycleState, enabled: bool) -> AgentManagementSnapshot {
@@ -204,4 +204,13 @@ fn session_defaults_keep_only_current_raw_acp_values() {
         BTreeMap::from([("fast".to_string(), serde_json::json!(true))])
     );
     assert_eq!(validation.stale_ids, ["missing", "model"]);
+}
+
+#[test]
+fn resolve_session_defaults_keeps_all_ids_stale_without_a_catalog() {
+    let requested = BTreeMap::from([("model".to_string(), serde_json::json!("opus"))]);
+    let validation = resolve_session_defaults(requested, vec!["broken".to_string()], None);
+
+    assert!(validation.valid.is_empty());
+    assert_eq!(validation.stale_ids, ["broken", "model"]);
 }

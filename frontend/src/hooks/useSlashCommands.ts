@@ -24,22 +24,11 @@ export function useSlashCommands(
   const executor = executorProfile?.executor;
   const variant = executorProfile?.variant ?? null;
 
-  const profileStr = [
-    executor ?? 'none',
-    variant ?? 'default',
-    executorProfile?.model ?? 'default-model',
-    executorProfile?.fast_mode == null
-      ? 'default-fast'
-      : String(executorProfile.fast_mode),
-    executorProfile?.reasoning_effort ?? 'default-reasoning',
-  ]
-    .join(':')
-    .replace(/[^a-zA-Z0-9_.:-]/g, '_');
   const wsStr = workspaceId ?? 'none';
   const repoStr = repoId ?? 'none';
 
   const eventChannel = executor
-    ? `slash-commands-stream:${profileStr}:${wsStr}:${repoStr}`
+    ? `slash-commands-stream:${executor}:${variant ?? 'default'}:${wsStr}:${repoStr}`
     : '';
 
   const subscribeArgs = useMemo(

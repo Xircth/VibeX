@@ -651,7 +651,7 @@ fn parse_management_lifecycle(value: &str) -> AgentLifecycleState {
     }
 }
 
-fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
+pub(crate) fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
     match value {
         "account" => AgentAuthenticationStatus::Account,
         "api_key" => AgentAuthenticationStatus::ApiKey,

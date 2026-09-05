@@ -443,9 +443,70 @@ pub async fn continue_rebase_workspace(
         .repo_path(&repo)
         .unwrap_or_else(|| workspace_path.to_path_buf());
 
-    state.deployment.git().continue_rebase(&worktree_path)?;
+    state.deployment.git().continue_conflicts(&worktree_path)?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn continue_conflicts_workspace(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    continue_rebase_workspace(state, workspace_id, repo_id).await
+}
+
+#[tauri::command]
+pub async fn get_workspace_conflict_file(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<git::ConflictFileDetail, AppError> {
+    let worktree_path = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    Ok(state
+        .deployment
+        .git()
+        .get_conflict_file_detail(&worktree_path, &file_path)?)
+}
+
+#[tauri::command]
+pub async fn write_workspace_conflict_resolution(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    file_path: String,
+    content: String,
+) -> Result<git::WriteConflictResolutionResult, AppError> {
+    let worktree_path = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    Ok(state
+        .deployment
+        .git()
+        .write_conflict_resolution(&worktree_path, &file_path, &content)?)
+}
+
+async fn resolve_worktree_path(
+    state: &tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<PathBuf, AppError> {
+    let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+    let repo = Repo::find_by_id(pool, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let workspace_path = Path::new(&container_ref);
+    Ok(workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf()))
 }
 
 #[tauri::command]

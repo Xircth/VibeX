@@ -1,9 +1,8 @@
 import { memo } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
 import { SessionMonitorCard } from '@/components/kanban/session-hub/SessionMonitorCard';
-import { CanvasNodeAnchors } from './CanvasNodeAnchors';
 import { DETAIL_MIN_HEIGHT, DETAIL_MIN_WIDTH } from './canvasModel';
-import { useSessionCanvasView } from './CanvasViewContext';
+import { useCanvasSession, useSessionCanvasView } from './CanvasViewContext';
 
 export interface SessionCanvasDetailData {
   sessionId: string;
@@ -23,7 +22,6 @@ export const SessionCanvasDetailNode = memo(
     selected,
   }: NodeProps<SessionCanvasDetailFlowNode>) {
     const {
-      sessionsById,
       sessionsReady,
       collapseCard,
       previewResize,
@@ -31,7 +29,7 @@ export const SessionCanvasDetailNode = memo(
       resetCardSize,
     } = useSessionCanvasView();
     const instanceId = data.instanceId ?? data.sessionId;
-    const session = sessionsById.get(data.sessionId);
+    const session = useCanvasSession(data.sessionId);
     if (!session) {
       if (!sessionsReady) {
         return (
@@ -43,7 +41,6 @@ export const SessionCanvasDetailNode = memo(
 
     return (
       <div className="canvas-board-units relative h-full w-full cursor-auto select-text">
-        <CanvasNodeAnchors />
         <NodeResizer
           isVisible
           minWidth={DETAIL_MIN_WIDTH}

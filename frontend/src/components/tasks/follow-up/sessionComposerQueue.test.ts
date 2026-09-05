@@ -7,6 +7,7 @@ import {
   getQueueSnapshot,
   getQueueStatusQueryKey,
   inputViewToQueuedMessage,
+  waitingQueueMessages,
   type QueueStatus,
 } from './sessionComposerQueue';
 
@@ -42,6 +43,7 @@ describe('durable session composer queue projection', () => {
     expect(inputViewToQueuedMessage(input)).toMatchObject({
       id: 'input-1',
       session_id: 'session-1',
+      operationId: 'operation-1',
       revision: 2n,
       sortKey: 1024n,
       status: 'queued',
@@ -53,17 +55,34 @@ describe('durable session composer queue projection', () => {
     });
   });
 
+  it('keeps only waiting queued inputs in the composer indicator', () => {
+    expect(
+      waitingQueueMessages([
+        input,
+        { ...input, id: 'input-claimed', status: 'claimed' },
+        { ...input, id: 'input-done', status: 'dispatched' },
+      ])
+    ).toEqual([inputViewToQueuedMessage(input)]);
+  });
+
+  it('hides the input this composer is currently submitting', () => {
+    expect(
+      waitingQueueMessages([input], { excludeOperationId: 'operation-1' })
+    ).toEqual([]);
+    expect(
+      getQueueIndicatorState(queuedStatus(), {
+        excludeOperationId: 'operation-1',
+      })
+    ).toEqual({ isQueued: false, queuedMessages: [] });
+  });
+
   it('derives compact visibility while preserving every queued message', () => {
     const status = queuedStatus();
     expect(getQueueSnapshot(status)).toEqual({
       isQueued: true,
       queuedMessage: status.messages[0],
     });
-    expect(getQueueIndicatorState(status, true)).toEqual({
-      isQueued: true,
-      queuedMessages: status.messages,
-    });
-    expect(getQueueIndicatorState(status, false)).toEqual({
+    expect(getQueueIndicatorState(status)).toEqual({
       isQueued: true,
       queuedMessages: status.messages,
     });

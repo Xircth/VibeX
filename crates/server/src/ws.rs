@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use application::{
-    ApplicationCore, ApplicationError, ConversationRepository, ConversationSubscriptionRegistrar,
-    Principal,
+    ApplicationCore, ApplicationError, CommandRegistry, ConversationRepository,
+    ConversationSubscriptionRegistrar, Principal,
 };
 use async_trait::async_trait;
 use axum::{
@@ -37,7 +37,7 @@ impl ConversationSubscriptionRegistrar for DurablePollingRegistration {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ActiveSubscription {
     Conversation {
         conversation_id: ConversationId,
@@ -47,20 +47,26 @@ enum ActiveSubscription {
         run_id: uuid::Uuid,
         after_sequence: i64,
     },
+    HostEvent {
+        channel: String,
+        after_sequence: i64,
+    },
 }
 
 impl ActiveSubscription {
-    const fn after_sequence(self) -> i64 {
+    const fn after_sequence(&self) -> i64 {
         match self {
             Self::Conversation { after_sequence, .. }
-            | Self::WorkflowRun { after_sequence, .. } => after_sequence,
+            | Self::WorkflowRun { after_sequence, .. }
+            | Self::HostEvent { after_sequence, .. } => *after_sequence,
         }
     }
 
     fn advance(&mut self, sequence: i64) {
         match self {
             Self::Conversation { after_sequence, .. }
-            | Self::WorkflowRun { after_sequence, .. } => *after_sequence = sequence,
+            | Self::WorkflowRun { after_sequence, .. }
+            | Self::HostEvent { after_sequence, .. } => *after_sequence = sequence,
         }
     }
 }
@@ -94,6 +100,7 @@ async fn handle_socket<R>(
     let mut revocation_ticker = tokio::time::interval(REVOCATION_POLL_INTERVAL);
     revocation_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let principal = credential.principal();
+    let mut host_events = crate::global_host_events().subscribe();
 
     loop {
         tokio::select! {
@@ -128,6 +135,7 @@ async fn handle_socket<R>(
                 };
                 if handle_client_message(
                     &state.core,
+                    &state.commands,
                     &principal,
                     message,
                     &mut subscriptions,
@@ -160,13 +168,49 @@ async fn handle_socket<R>(
                     Err(_) => break,
                 }
             }
+            host_event = host_events.recv() => {
+                let Ok(event) = host_event else { continue };
+                let matches = subscriptions
+                    .iter()
+                    .filter(|(_, subscription)| match subscription {
+                        ActiveSubscription::HostEvent { channel, .. } => {
+                            *channel == event.channel
+                                || event.channel.starts_with(&format!("{channel}:"))
+                        }
+                        _ => false,
+                    })
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<_>>();
+                for subscription_id in matches {
+                    if let Some(subscription) = subscriptions.get_mut(&subscription_id) {
+                        subscription.advance(event.sequence);
+                    }
+                    if send_message(
+                        &mut sender,
+                        SubscriptionServerMessage::Event {
+                            subscription_id,
+                            event: RemoteEvent {
+                                sequence: event.sequence,
+                                kind: event.channel.clone(),
+                                payload: event.payload.clone(),
+                            },
+                        },
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
             _ = live_ticker.tick(), if !subscriptions.is_empty() => {
                 let active = subscriptions
                     .iter()
-                    .map(|(id, subscription)| (*id, *subscription))
+                    .map(|(id, subscription)| (*id, subscription.clone()))
                     .collect::<Vec<_>>();
                 for (subscription_id, subscription) in active {
                     let bootstrap = match subscription {
+                        ActiveSubscription::HostEvent { .. } => continue,
                         ActiveSubscription::Conversation {
                             conversation_id,
                             after_sequence,
@@ -224,6 +268,7 @@ async fn handle_socket<R>(
 
 async fn handle_client_message<R, S>(
     core: &ApplicationCore<R>,
+    commands: &CommandRegistry<R>,
     principal: &Principal,
     message: SubscriptionClientMessage,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
@@ -271,6 +316,51 @@ where
                         after_sequence,
                     },
                 ),
+                SubscriptionResource::HostEvent {
+                    channel,
+                    after_sequence,
+                } => {
+                    if !crate::HostEventBus::channel_allowed(&channel) {
+                        return Err(());
+                    }
+                    (
+                        SubscriptionBootstrap {
+                            subscription_id: request.subscription_id,
+                            ready: true,
+                            snapshot: None,
+                            replay: Vec::new(),
+                            high_water_mark: after_sequence,
+                        },
+                        ActiveSubscription::HostEvent {
+                            channel,
+                            after_sequence,
+                        },
+                    )
+                }
+                SubscriptionResource::PatchStream { stream, args } => {
+                    let command = crate::patch_stream_subscribe_command(&stream).ok_or(())?;
+                    let channel = crate::patch_stream_channel(&stream, &args).map_err(|_| ())?;
+                    if !crate::HostEventBus::channel_allowed(&channel) {
+                        return Err(());
+                    }
+                    commands
+                        .execute_name(principal, command, OperationId::new(), args)
+                        .await
+                        .map_err(|_| ())?;
+                    (
+                        SubscriptionBootstrap {
+                            subscription_id: request.subscription_id,
+                            ready: true,
+                            snapshot: None,
+                            replay: Vec::new(),
+                            high_water_mark: 0,
+                        },
+                        ActiveSubscription::HostEvent {
+                            channel,
+                            after_sequence: 0,
+                        },
+                    )
+                }
             };
             send_message(
                 sender,

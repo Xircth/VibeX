@@ -270,7 +270,7 @@ export function WorkspaceSessionList({
           onDragCancel={() => setActiveId(null)}
         />
       ) : null}
-      <div className="workspace-session-list space-y-3">
+      <div className="workspace-session-list space-y-2">
         {pinnedSessions.length > 0 ? (
           <WorkspaceSessionSection
             sectionId={PINNED_SESSION_GROUP_ID}

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type CSSProperties,
   type DragEvent,
   type FocusEvent,
@@ -57,6 +58,10 @@ import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { cn } from '@/lib/utils';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
+import {
+  extractImageFilesFromClipboardData,
+  readImageFilesFromNavigatorClipboard,
+} from '@/utils/clipboard';
 import { formatFileRangeRef } from '@/utils/codeSelection';
 import {
   FILE_REFERENCE_DRAG_MIME,
@@ -120,6 +125,38 @@ function imageFilesFromFileList(files: FileList | null | undefined): File[] {
   return Array.from(files ?? []).filter((file) =>
     file.type.startsWith('image/')
   );
+}
+
+/**
+ * Paste handler for screenshots. Astryx reads `clipboardData.files` before
+ * calling this prop, so image payloads usually arrive here either as file
+ * clipboard *items* (recovered synchronously) or through the async
+ * `navigator.clipboard.read()` fallback (e.g. an image copied off a webpage).
+ * Returns `true` when an image was handed to `onAttachImages`, telling Astryx
+ * to skip its default text insert; plain-text and empty pastes return `false`
+ * so normal composer behavior is untouched.
+ */
+export function handleComposerImagePaste(
+  event: { clipboardData: DataTransfer | null },
+  onAttachImages: (files: File[]) => void,
+  disabled = false
+): boolean {
+  if (disabled) {
+    return false;
+  }
+  const files = extractImageFilesFromClipboardData(event.clipboardData);
+  if (files.length > 0) {
+    onAttachImages(files);
+    return true;
+  }
+  void readImageFilesFromNavigatorClipboard()
+    .then((fallbackFiles) => {
+      if (fallbackFiles.length > 0) {
+        onAttachImages(fallbackFiles);
+      }
+    })
+    .catch(() => undefined);
+  return false;
 }
 
 function getDroppedFileReference(
@@ -1188,6 +1225,12 @@ export function SessionComposerInput({
     [insertDroppedFileReference, onAttachImages]
   );
 
+  const handleComposerPaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) =>
+      handleComposerImagePaste(event, onAttachImages, disabled),
+    [disabled, onAttachImages]
+  );
+
   return (
     <div
       ref={dropZoneRef}
@@ -1243,6 +1286,7 @@ export function SessionComposerInput({
           }}
           onSubmit={onSubmit}
           onFiles={onAttachImages}
+          onPaste={handleComposerPaste}
           onDrop={handleDrop}
           onDragOver={(event) => {
             if (hasFileReferenceDrag(event.dataTransfer)) {

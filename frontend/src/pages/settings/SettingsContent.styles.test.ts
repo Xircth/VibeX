@@ -114,21 +114,83 @@ describe('settings page alignment', () => {
     expect(notes.get('overflow')).toBe('auto');
   });
 
-  it('keeps the page scrollbar off the settings cards', () => {
+  it('keeps setting labels and descriptions on the same type scale', () => {
+    const description = declarationsFor(
+      '.settings-page .settings-row__description'
+    );
+    const label = declarationsFor(
+      '.settings-page .settings-row :where(label, .settings-row__label)'
+    );
+
+    expect(description.get('font-size')).toBe('0.875rem');
+    expect(label.get('font-size')).toBe('0.875rem');
+
+    const pairingDescription = declarationsFor(
+      '.settings-page .settings-pairing-devices__row .settings-row__description'
+    );
+    expect(pairingDescription.get('font-size')).toBe('0.875rem');
+  });
+
+  it('centers project names in the worktree list items', () => {
+    const item = declarationsFor(
+      '.settings-page .settings-worktree-board__item'
+    );
+
+    expect(item.get('display')).toBe('flex');
+    expect(item.get('align-items')).toBe('center');
+    expect(item.get('min-height')).toBe('2.5rem');
+  });
+
+  it('does not patch the Windows save bar with a LiquidGlass centering transform', () => {
+    const glass = declarationsFor(
+      'html.host-windows .settings-page .settings-action-bar__glass'
+    );
+
+    expect(glass.get('transform')).toBeUndefined();
+  });
+
+  it('keeps the Agent header on one row when switching Agents', () => {
+    const header = declarationsFor('.settings-page .agent-detail-header');
+    const title = declarationsFor(
+      '.settings-page .agent-detail-header-title h2'
+    );
+    const description = declarationsFor(
+      '.settings-page .agent-detail-header-copy p'
+    );
+    const actions = declarationsFor(
+      '.settings-page .agent-detail-header-actions'
+    );
+
+    expect(header.get('display')).toBe('grid');
+    expect(header.get('grid-template-columns')).toBe('minmax(0, 1fr) auto');
+    expect(header.get('flex-wrap')).toBeUndefined();
+    expect(title.get('white-space')).toBe('nowrap');
+    expect(description.get('white-space')).toBe('nowrap');
+    expect(actions.get('flex-wrap')).toBe('nowrap');
+  });
+
+  it('keeps the page scrollbar as a thumb without a track', () => {
     const pane = declarationsFor('.settings-page [data-settings-content]');
-    const agentScroll = declarationsFor('.settings-page .agent-settings-scroll');
+    const agentScroll = declarationsFor(
+      '.settings-page .agent-settings-scroll'
+    );
     const gutter = declarationsMatching(
       '[data-settings-content]::-webkit-scrollbar'
     );
     const paneThumb = declarationsMatching(
       '[data-settings-content]::-webkit-scrollbar-thumb'
     );
+    const paneTrack = declarationsMatching(
+      '[data-settings-content]::-webkit-scrollbar-track'
+    );
 
     expect(pane.get('padding-inline-end')).toBe('1.5rem');
+    expect(pane.get('scrollbar-gutter')).toBe('auto');
     expect(agentScroll.get('padding-inline-end')).toBe('0.75rem');
-    expect(gutter.get('width')).toBe('14px');
-    expect(paneThumb.get('border-left-width')).toBe('8px');
-    expect(paneThumb.get('background-clip')).toBe('padding-box');
+    expect(gutter.get('width')).toBe('6px');
+    expect(gutter.get('background')).toBe('transparent');
+    expect(paneThumb.get('border')).toBe('none');
+    expect(paneTrack.get('background')).toBe('transparent');
   });
 
   it('clips model provider rows to the list radius', () => {
@@ -145,6 +207,20 @@ describe('settings page alignment', () => {
     expect(list.get('background')).toBe(surface.get('background'));
     expect(list.get('background')).toBe('var(--surface-card-strong)');
     expect(card.get('background')).toBe('var(--surface-content)');
+  });
+
+  it('keeps grouped settings surfaces lifted so loading shells show their shadow', () => {
+    const surface = declarationsFor('.settings-surface');
+    expect(surface.get('border-radius')).toBe('var(--radius)');
+    expect(surface.get('box-shadow')?.replace(/\s+/g, ' ')).toBe(
+      '0 1px 2px hsl(220 36% 8% / 0.05), 0 10px 30px hsl(220 36% 8% / 0.06)'
+    );
+  });
+
+  it('animates loading bones outside the settings page wrapper', () => {
+    const line = declarationsMatching('.agent-settings-loading-line');
+    expect(line.get('animation')).toContain('agent-settings-loading-pulse');
+    expect(line.get('background')).toBe('var(--surface-control)');
   });
 
   it('shrinks the preflight version-to-status spacer before wrapping the version row', () => {

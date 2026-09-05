@@ -252,13 +252,16 @@ describe('VersionControlSettings', () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText('提交指令')).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: '提醒方式' })).toHaveValue(
-      'smart'
-    );
+    expect(
+      screen.getByRole('combobox', { name: '提醒方式' })
+    ).toHaveTextContent('智能模式');
 
     await user.click(screen.getByRole('switch', { name: '启用提交提醒' }));
 
-    expect(screen.getByRole('combobox', { name: '提醒方式' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '提醒方式' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
     expect(
       screen.getByRole('spinbutton', { name: '更改行数边界' })
     ).toBeDisabled();
@@ -293,10 +296,8 @@ describe('VersionControlSettings', () => {
     const user = userEvent.setup();
     render(<VersionControlSettings />);
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: '提醒方式' }),
-      'separate_turn'
-    );
+    await user.click(screen.getByRole('combobox', { name: '提醒方式' }));
+    await user.click(screen.getByRole('option', { name: '独立提醒' }));
     const threshold = screen.getByRole('spinbutton', {
       name: '更改行数边界',
     });

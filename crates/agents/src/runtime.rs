@@ -136,6 +136,8 @@ pub struct EnsureAgentSessionInput {
     pub acp_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
+    /// Applied at `session/new` before the first controls event (CodeG).
+    pub preferences: crate::SessionControlPreferences,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +151,8 @@ pub struct ResumeAgentSessionInput {
     pub external_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
+    /// Applied at `session/load` / `session/resume` before the first controls event.
+    pub preferences: crate::SessionControlPreferences,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -207,7 +211,7 @@ pub struct AgentRuntime {
     connection_manager: Arc<AgentConnectionManager>,
     event_sink: Arc<dyn RuntimeEventSink>,
     event_tx: broadcast::Sender<AgentEventEnvelope>,
-    session_locks: Arc<Mutex<HashMap<EnsureSessionKey, Arc<Mutex<()>>>>>,
+    session_locks: EnsureSessionLocks,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -215,6 +219,33 @@ struct EnsureSessionKey {
     agent_id: AgentId,
     working_dir: PathBuf,
     session_id: AgentSessionId,
+}
+
+type EnsureSessionLocks = Arc<Mutex<HashMap<EnsureSessionKey, Arc<Mutex<()>>>>>;
+
+/// Holds the `ensure_session` serialization lock and drops its map entry once no
+/// other task references it. Pruning is best-effort: it is skipped when the map is
+/// momentarily contended, and never when the mutex is still referenced — evicting a
+/// referenced mutex would let the next `or_insert` mint a second lock for one key.
+struct EnsureSessionGuard {
+    locks: EnsureSessionLocks,
+    key: EnsureSessionKey,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+
+impl Drop for EnsureSessionGuard {
+    fn drop(&mut self) {
+        self.guard.take();
+        let Ok(mut locks) = self.locks.try_lock() else {
+            return;
+        };
+        if locks
+            .get(&self.key)
+            .is_some_and(|lock| Arc::strong_count(lock) == 1)
+        {
+            locks.remove(&self.key);
+        }
+    }
 }
 
 impl Default for AgentRuntime {
@@ -606,16 +637,27 @@ impl AgentRuntime {
         &self,
         input: EnsureAgentSessionInput,
     ) -> AgentResult<AgentSessionSnapshot> {
-        let session_lock = {
-            let key = EnsureSessionKey {
-                agent_id: input.agent_id.clone(),
-                working_dir: input.working_dir.clone(),
-                session_id: input.session_id,
-            };
-            let mut locks = self.session_locks.lock().await;
-            Arc::clone(locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))))
+        let key = EnsureSessionKey {
+            agent_id: input.agent_id.clone(),
+            working_dir: input.working_dir.clone(),
+            session_id: input.session_id,
         };
-        let _session_guard = session_lock.lock().await;
+        let session_lock = {
+            let mut locks = self.session_locks.lock().await;
+            Arc::clone(
+                locks
+                    .entry(key.clone())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        // `lock_owned` consumes the Arc so the map holds the only other reference.
+        // The guard prunes its map entry on drop — without that, `session_locks` grew
+        // one mutex per conversation for the process's lifetime (ADR-0061 §3).
+        let _ensure_guard = EnsureSessionGuard {
+            locks: Arc::clone(&self.session_locks),
+            key,
+            guard: Some(session_lock.lock_owned().await),
+        };
 
         let existing_session = self
             .state
@@ -647,52 +689,24 @@ impl AgentRuntime {
             }
         }
 
-        let existing_connection = {
-            let state = self.state.read().await;
-            let candidates = state
-                .connections
-                .values()
-                .filter(|connection| {
-                    connection.snapshot.status == AgentConnectionStatus::Ready
-                        && connection.snapshot.agent_id == input.agent_id
-                        && connection.snapshot.workspace_id == input.workspace_id
-                        && connection.snapshot.working_dir
-                            == input.working_dir.display().to_string()
-                        && !state.sessions.values().any(|session| {
-                            session.snapshot.connection_id == connection.snapshot.id
-                                && session.queue.active().is_some()
-                        })
-                })
-                .map(|connection| connection.snapshot.id)
-                .collect::<Vec<_>>();
-            drop(state);
-
-            let mut active_connection = None;
-            for connection_id in candidates {
-                if self.connection_manager.has_connection(connection_id).await {
-                    active_connection = Some(connection_id);
-                    break;
-                }
-            }
-            active_connection
-        };
-
-        let connection_id = match existing_connection {
-            Some(connection_id) => connection_id,
-            None => {
-                self.connect(ConnectAgentInput {
-                    agent_id: input.agent_id,
-                    launch_lock: input.launch_lock,
-                    workspace_id: input.workspace_id,
-                    working_dir: input.working_dir,
-                    additional_directories: input.additional_directories,
-                    auto_approve_mode: input.auto_approve_mode,
-                    env: env_with_conversation_id(input.env, input.session_id),
-                })
-                .await?
-                .id
-            }
-        };
+        // A connection serves exactly one conversation. `run_prompt` owns the
+        // connection's command loop for the whole turn, so two conversations sharing
+        // one connection serialize behind each other: the second `Prompt` command
+        // cannot be served and its Turn never settles, while their `session/update`
+        // streams interleave on the same process. Always start a fresh connection
+        // instead of adopting another conversation's (ADR-0069).
+        let connection_id = self
+            .connect(ConnectAgentInput {
+                agent_id: input.agent_id,
+                launch_lock: input.launch_lock,
+                workspace_id: input.workspace_id,
+                working_dir: input.working_dir,
+                additional_directories: input.additional_directories,
+                auto_approve_mode: input.auto_approve_mode,
+                env: env_with_conversation_id(input.env, input.session_id),
+            })
+            .await?
+            .id;
 
         if let Some(existing) = self.state.write().await.sessions.get_mut(&input.session_id) {
             existing.snapshot.connection_id = connection_id;
@@ -728,7 +742,7 @@ impl AgentRuntime {
         }
         let mut prepared = self
             .connection_manager
-            .prepare_session(session.connection_id, session.id)
+            .prepare_session(session.connection_id, session.id, input.preferences.clone())
             .await;
         if prepared
             .as_ref()
@@ -739,10 +753,11 @@ impl AgentRuntime {
                 .expect_err("connection-loss predicate only matches errors");
             self.retire_failed_connection(session.connection_id, first_error)
                 .await;
+            let preferences = input.preferences.clone();
             let rebound = self.ensure_session(input).await?;
             prepared = self
                 .connection_manager
-                .prepare_session(rebound.connection_id, rebound.id)
+                .prepare_session(rebound.connection_id, rebound.id, preferences)
                 .await;
         }
         let (acp_session_id, controls) = match prepared {
@@ -903,7 +918,10 @@ impl AgentRuntime {
     pub async fn resume_session(
         &self,
         input: ResumeAgentSessionInput,
-    ) -> AgentResult<AgentSessionSnapshot> {
+    ) -> AgentResult<(
+        AgentSessionSnapshot,
+        Option<crate::conversation::SessionRecoveryStrategy>,
+    )> {
         let session = self
             .ensure_session(EnsureAgentSessionInput {
                 agent_id: input.agent_id,
@@ -915,14 +933,16 @@ impl AgentRuntime {
                 acp_session_id: input.external_session_id.clone(),
                 auto_approve_mode: input.auto_approve_mode,
                 env: input.env,
+                preferences: input.preferences.clone(),
             })
             .await?;
-        let (acp_session_id, controls) = self
+        let (acp_session_id, controls, restore_strategy) = self
             .connection_manager
             .resume_session(
                 session.connection_id,
                 input.session_id,
                 input.external_session_id,
+                input.preferences,
             )
             .await?;
 
@@ -934,7 +954,7 @@ impl AgentRuntime {
         session_state.snapshot.status = AgentSessionStatus::Ready;
         session_state.snapshot.updated_at = Utc::now();
         session_state.controls = controls;
-        Ok(session_state.snapshot.clone())
+        Ok((session_state.snapshot.clone(), restore_strategy))
     }
 
     /// Return the controls retained for a live session. Resume/prepare paths
@@ -1189,6 +1209,18 @@ impl AgentRuntime {
         Ok(prompt)
     }
 
+    pub async fn live_cancel_target(
+        &self,
+        session_id: AgentSessionId,
+    ) -> Option<(AgentConnectionId, AgentPromptId)> {
+        let state = self.state.read().await;
+        let session = state.sessions.get(&session_id)?;
+        Some((
+            session.snapshot.connection_id,
+            session.snapshot.active_prompt_id?,
+        ))
+    }
+
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;
@@ -1254,6 +1286,7 @@ impl AgentRuntime {
                             finished: crate::AgentPromptFinished {
                                 prompt_id: input.prompt_id,
                                 stop_reason: Some("cancelled".to_string()),
+                                usage: None,
                             },
                         }
                     },
@@ -2305,6 +2338,7 @@ mod tests {
                 finished: AgentPromptFinished {
                     prompt_id: active_prompt.id,
                     stop_reason: Some("end_turn".to_string()),
+                    usage: None,
                 },
             },
         };
@@ -2362,6 +2396,7 @@ mod tests {
                 acp_session_id: session.acp_session_id.clone(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();
@@ -2398,6 +2433,7 @@ mod tests {
             acp_session_id: format!("pending-{session_id}"),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
+            preferences: Default::default(),
         };
 
         let discarded_id = AgentSessionId::new();
@@ -2488,10 +2524,10 @@ mod tests {
             acp_session_id: format!("pending-{session_id}"),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
+            preferences: Default::default(),
         };
         let initial = runtime.ensure_session(input.clone()).await.unwrap();
         let failed_connection_id = initial.connection_id;
-        runtime.state.write().await.sessions.remove(&session_id);
 
         // Model an ACP process that accepts PrepareSession and then exits while
         // session/new is in flight. The command send succeeds, but its reply
@@ -2516,6 +2552,8 @@ mod tests {
 
         assert_ne!(recovered.session.connection_id, failed_connection_id);
         assert!(recovered.session.acp_session_id.starts_with("prepared-"));
+        // The dead connection is retired instead of lingering: a conversation owns
+        // exactly one connection, so a leftover would be a candidate for adoption.
         assert_eq!(runtime.connection_manager.list_connections().await.len(), 1);
         assert_eq!(
             runtime
@@ -2524,9 +2562,10 @@ mod tests {
                 .await
                 .sessions
                 .get(&session_id)
-                .expect("recovered draft session")
-                .ownership,
-            RuntimeSessionOwnership::Prepared
+                .expect("rebound session")
+                .snapshot
+                .connection_id,
+            recovered.session.connection_id
         );
     }
 
@@ -2546,6 +2585,7 @@ mod tests {
                 acp_session_id: format!("pending-{session_id}"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();
@@ -2636,6 +2676,7 @@ mod tests {
                         acp_session_id: "shared-acp-session".to_string(),
                         auto_approve_mode: AgentAutoApproveMode::Off,
                         env: HashMap::new(),
+                        preferences: Default::default(),
                     })
                     .await
                     .unwrap()
@@ -2673,6 +2714,7 @@ mod tests {
                 acp_session_id: "active-acp-session".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();
@@ -2710,6 +2752,7 @@ mod tests {
                 acp_session_id: format!("pending-{new_session_id}"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             }),
         )
         .await
@@ -2740,13 +2783,14 @@ mod tests {
                 external_session_id: "codex-session-123".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();
 
-        assert_eq!(resumed.id, session_id);
-        assert_eq!(resumed.acp_session_id, "codex-session-123");
-        assert_eq!(resumed.status, AgentSessionStatus::Ready);
+        assert_eq!(resumed.0.id, session_id);
+        assert_eq!(resumed.0.acp_session_id, "codex-session-123");
+        assert_eq!(resumed.0.status, AgentSessionStatus::Ready);
         assert_eq!(
             runtime
                 .session_controls_snapshot(session_id)
@@ -2772,6 +2816,7 @@ mod tests {
                 acp_session_id: "external-session".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();
@@ -2806,6 +2851,7 @@ mod tests {
                 acp_session_id: "external-acp-session".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
+                preferences: Default::default(),
             })
             .await
             .unwrap();

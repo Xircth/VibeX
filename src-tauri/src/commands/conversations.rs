@@ -25,8 +25,8 @@ use conversations::{
 };
 use db::models::{
     conversation::{
-        ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
-        CreateConversationRecord, DbConversationSummary,
+        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
+        CreateConversationAgentBinding, CreateConversationRecord, DbConversationSummary,
     },
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
@@ -406,32 +406,35 @@ pub async fn conversation_list(
 #[tauri::command]
 pub async fn application_call(
     state: tauri::State<'_, AppState>,
+    preview_proxy: tauri::State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
     command: String,
     operation_id: remote_protocol::OperationId,
     args: serde_json::Value,
 ) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
-    use application::{
-        ApplicationCore, CommandRegistry, ConversationSessionExecutionPort, Principal,
-        SqliteConversationRepository, WorkflowStoreExecutionPort,
-    };
+    use application::{CommandRegistry, Principal};
 
-    CommandRegistry::new(ApplicationCore::with_execution_and_workflows(
-        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
-        std::sync::Arc::new(ConversationSessionExecutionPort::with_companion(
+    let core = server::host_application_core(server::HostApplicationCoreDeps {
+        pool: state.deployment.db().pool.clone(),
+        conversations: state.conversation_context(),
+        plugin_control_plane: state.plugin_control_plane.clone(),
+        companion_memory: Some(state.delegation.features.clone()),
+        preview_host: state.plugin_preview_host.clone(),
+        capability_broker: state.plugin_capability_broker.clone(),
+        app_surfaces: state.plugin_app_surfaces.clone(),
+        preview_proxy: preview_proxy.registry(),
+        automation: server::HeadlessAutomationRuntime::new(
+            state.local_deployment.clone(),
             state.conversation_context(),
-            Some(std::sync::Arc::new(server::CompanionSessionAdapter::new(
-                state.delegation.features.clone(),
-                state.conversation_context(),
-                state.plugin_control_plane.official_product_mcp_gate(),
-            ))),
-        )),
-        std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
-            state.deployment.db().pool.clone(),
-            state.conversation_context(),
-        )),
-    ))
-    .execute_name(&Principal::local_desktop(), &command, operation_id, args)
-    .await
+            state.plugin_control_plane.clone(),
+        ),
+        owns_automation_engine: crate::commands::automation::this_host_owns_automation_engine(),
+        deployment: state.local_deployment.clone(),
+        runtime_root: utils::assets::asset_dir().join("plugins/runtimes"),
+        worker_runtime: state.plugin_worker_runtime.clone(),
+    });
+    CommandRegistry::new(core)
+        .execute_name(&Principal::local_desktop(), &command, operation_id, args)
+        .await
 }
 
 #[tauri::command]
@@ -492,6 +495,11 @@ pub async fn conversation_attach(
                 after_sequence,
             )
             .await
+        }
+        SubscriptionResource::HostEvent { .. } | SubscriptionResource::PatchStream { .. } => {
+            Err(ApplicationError::bad_request(
+                "host_event and patch_stream attach over the Host WebSocket",
+            ))
         }
     }
     .map_err(application::ApplicationError::into_envelope)
@@ -1098,7 +1106,8 @@ pub async fn conversation_fork(
                     modes_json: &source_binding.modes_json,
                     config_options_json: &source_binding.config_options_json,
                     current_mode: source_binding.current_mode.as_deref(),
-                    status: "closed",
+                    config_selection_json: &source_binding.config_selection_json,
+                    status: BindingStatus::Closed,
                 },
             )
             .await;
@@ -1376,7 +1385,8 @@ async fn import_agent_session_on_connection(
             modes_json: "[]",
             config_options_json: "[]",
             current_mode: None,
-            status: "closed",
+            config_selection_json: "{}",
+            status: BindingStatus::Closed,
         },
     )
     .await?;

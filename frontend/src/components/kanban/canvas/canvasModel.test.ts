@@ -9,6 +9,7 @@ import {
   DETAIL_MIN_WIDTH,
   applyMoves,
   collapseNode,
+  alignGuidesEqual,
   computeAlignment,
   expandNode,
   filterRecentSessions,
@@ -344,6 +345,12 @@ describe('computeAlignment', () => {
       dy: 0,
       guides: [],
     });
+  });
+
+  it('compares alignment guides by geometry', () => {
+    const guide = { axis: 'x' as const, at: 1, from: 0, to: 10 };
+    expect(alignGuidesEqual([guide], [{ ...guide }])).toBe(true);
+    expect(alignGuidesEqual([guide], [{ ...guide, to: 12 }])).toBe(false);
   });
 });
 

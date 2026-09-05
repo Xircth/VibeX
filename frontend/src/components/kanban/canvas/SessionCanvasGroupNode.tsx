@@ -2,14 +2,13 @@ import { memo, useState } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
 import { Folder } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { CanvasNodeAnchors } from './CanvasNodeAnchors';
 import {
   GROUP_COLLAPSED_HEIGHT,
   GROUP_HEADER_HEIGHT,
   groupHeightForRows,
   groupWidthForColumns,
 } from './canvasGrouping';
-import { DRAG_HANDLE_CLASS } from './canvasModel';
+import { CARD_HEIGHT, CARD_WIDTH } from './canvasModel';
 import { useSessionCanvasView } from './CanvasViewContext';
 import { cn } from '@/lib/utils';
 
@@ -19,10 +18,14 @@ export interface SessionCanvasGroupData {
   index: number;
   count: number;
   overflow: number;
+  placeholderX?: number;
+  placeholderY?: number;
   showAll: boolean;
   collapsed: boolean;
   isRunning?: boolean;
   isReviewing?: boolean;
+  minWidth?: number;
+  minHeight?: number;
   [key: string]: unknown;
 }
 
@@ -36,19 +39,22 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
   selected,
 }: NodeProps<SessionCanvasGroupFlowNode>) {
   const { t } = useTranslation(['tasks']);
-  const { renameGroup, toggleGroupShowAll, previewGroupResize, resizeGroup } =
-    useSessionCanvasView();
+  const {
+    renameGroup,
+    toggleGroupShowAll,
+    beginGroupResize,
+    previewGroupResize,
+    resizeGroup,
+  } = useSessionCanvasView();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.name);
   const collapsed = data.collapsed;
 
   return (
-    <div className="relative h-full w-full">
-      <CanvasNodeAnchors />
+    <div className="relative h-full w-full cursor-grab active:cursor-grabbing">
       <div
         className={cn(
-          DRAG_HANDLE_CLASS,
-          'canvas-board-units canvas-session-group flex h-full w-full flex-col overflow-hidden border bg-[var(--surface-card-strong)]',
+          'canvas-board-units canvas-session-group flex h-full w-full cursor-grab flex-col overflow-hidden border bg-[var(--surface-card-strong)] active:cursor-grabbing',
           collapsed ? 'rounded-full' : 'rounded-xl',
           selected && 'is-selected',
           data.isRunning === true && 'is-running',
@@ -57,7 +63,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
       >
         <div
           className={cn(
-            'flex shrink-0 cursor-grab items-center gap-2 px-2.5 active:cursor-grabbing',
+            'flex shrink-0 items-center gap-2 px-2.5',
             collapsed ? 'h-full' : undefined
           )}
           style={{
@@ -88,7 +94,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
           ) : (
             <button
               type="button"
-              className="nodrag min-w-0 flex-1 truncate text-left text-[14px] font-semibold text-[var(--text-strong)]"
+              className="min-w-0 flex-1 truncate text-left text-[14px] font-semibold text-[var(--text-strong)]"
               onDoubleClick={(event) => {
                 event.stopPropagation();
                 setDraft(data.name);
@@ -105,7 +111,9 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
             {data.count}
           </span>
         </div>
-        {data.count === 0 && !collapsed ? (
+        {data.count === 0 &&
+        !collapsed &&
+        typeof data.placeholderX !== 'number' ? (
           <div className="flex flex-1 items-center justify-center p-4">
             <p className="text-[11px] text-muted-foreground">
               {t('hubCanvas.emptyGroup')}
@@ -129,13 +137,27 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
           </button>
         ) : null}
       </div>
+      {typeof data.placeholderX === 'number' &&
+      typeof data.placeholderY === 'number' &&
+      !collapsed ? (
+        <div
+          className="canvas-group-slot pointer-events-none absolute"
+          style={{
+            left: data.placeholderX,
+            top: data.placeholderY,
+            width: CARD_WIDTH,
+            height: CARD_HEIGHT,
+          }}
+        />
+      ) : null}
       {!collapsed ? (
         <NodeResizer
           isVisible={selected}
-          minWidth={groupWidthForColumns(1)}
-          minHeight={groupHeightForRows(1)}
+          minWidth={data.minWidth ?? groupWidthForColumns(1)}
+          minHeight={data.minHeight ?? groupHeightForRows(1)}
           lineClassName="canvas-node-resize-line"
           handleClassName="canvas-node-resize-handle"
+          onResizeStart={() => beginGroupResize(data.instanceId)}
           onResize={(_event, params) =>
             previewGroupResize(data.instanceId, params)
           }

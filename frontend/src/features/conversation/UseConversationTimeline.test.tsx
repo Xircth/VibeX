@@ -565,4 +565,44 @@ describe('useConversationTimeline', () => {
       { type: 'text', text: 'x'.repeat(24) },
     ]);
   });
+
+  it('surfaces the Host error envelope message instead of [object Object]', async () => {
+    detailMock.mockRejectedValue({
+      code: 'bad_request',
+      message: 'missing field conversationId',
+      retryable: false,
+      operation_id: 'op-1',
+      details: null,
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe('missing field conversationId');
+  });
+
+  it('ignores a canceled Host command so tab switches do not toast', async () => {
+    let rejectDetail: ((error: unknown) => void) | undefined;
+    detailMock.mockImplementation(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectDetail = reject;
+        })
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(detailMock).toHaveBeenCalled());
+    unmount();
+    rejectDetail?.({ message: 'Request cancelled' });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBeNull();
+  });
 });

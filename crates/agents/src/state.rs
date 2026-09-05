@@ -15,6 +15,7 @@ use crate::{
 pub enum AgentConnectionStatus {
     Disconnected,
     Connecting,
+    Recovering,
     Ready,
     Failed,
 }

@@ -115,8 +115,19 @@
     "connectionClosedDetail": "The agent connection was closed before this turn completed.",
     "authRequiredTitle": "Re-authentication required",
     "authRequiredDetail": "The agent requires re-authentication before continuing.",
+    "rejectedTitle": "Request rejected",
+    "rejectedDetail": "The agent rejected this request. Sending it again will fail the same way.",
+    "serviceErrorTitle": "Service error",
+    "rateLimitedTitle": "Rate limited",
     "defaultTitle": "Conversation error",
-    "detailWithCode": "{{message}} ({{code}})"
+    "detailWithCode": "{{message}} ({{code}})",
+    "planUsageAside": "Plan window is at {{percent}}% and resets {{reset}}.",
+    "planUsagePercent": "Plan window is at {{percent}}%.",
+    "planUsageResetOnly": "Plan window resets {{reset}}.",
+    "planUsageResetSoon": "soon",
+    "planUsageReset_minutes": "in {{count}} min",
+    "planUsageReset_hours": "in {{count}} h",
+    "planUsageReset_days": "in {{count}} d"
   },
   "generatedImageCard": {
     "generating": "Generating image…",
@@ -254,7 +265,8 @@
   },
   "preview": {
     "switchToFileView": "Switch to file view",
-    "switchToDiffView": "Switch to diff view"
+    "switchToDiffView": "Switch to diff view",
+    "pasteImageError": "Failed to paste image into the markdown file"
   },
   "fileTool": {
     "openPreview": "Open preview",

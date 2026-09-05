@@ -11,10 +11,7 @@ use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
 };
-use conversations::{
-    ConversationContext, DefaultConversationHost, IncrementalRowProjector,
-    start_agent_event_persistence,
-};
+use conversations::{ConversationAgentEventRecorder, ConversationContext, DefaultConversationHost};
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
@@ -98,30 +95,112 @@ impl HeadlessServer {
         let provisioned = SqliteTokenHashStore::new(pool.clone())
             .provision(config.token)
             .await?;
-        let (agent_event_sink, agent_events) = runtime_event_channel();
+        let (agent_event_sink, mut agent_events) = runtime_event_channel();
         let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
         let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
             SqlitePluginRegistry::new(pool.clone()),
         )));
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
+        let row_projectors = Arc::new(Mutex::new(HashMap::new()));
         let conversation_context = ConversationContext {
             deployment: application_deployment,
             agent_runtime: agent_runtime.clone(),
             turn_locks: Arc::new(Mutex::new(HashMap::new())),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
-            row_projectors: Arc::new(Mutex::new(
-                HashMap::<uuid::Uuid, IncrementalRowProjector>::new(),
-            )),
+            row_projectors: row_projectors.clone(),
             host: Arc::new(DefaultConversationHost::with_product_mcp_server_names({
                 let gate = plugin_control_plane.official_product_mcp_gate();
                 std::sync::Arc::new(move || gate.product_mcp_names())
             })),
             event_publisher: Arc::new(crate::chat_notify::ChatDeliveryPublisher::new(Arc::new(
-                conversations::NoopConversationEventPublisher,
+                crate::host::HostRowOpPublisher::new(pool.clone(), row_projectors),
             ))),
         };
-        let agent_event_task =
-            start_agent_event_persistence(conversation_context.clone(), agent_events);
+        let agent_event_task = {
+            let context = conversation_context.clone();
+            tokio::spawn(async move {
+                let mut recorder = ConversationAgentEventRecorder::with_context(context);
+                while let Some(envelope) = agent_events.recv().await {
+                    if let Err(error) = recorder.record(&envelope).await {
+                        tracing::warn!(
+                            sequence = envelope.sequence,
+                            %error,
+                            "failed to persist agent runtime event"
+                        );
+                    }
+                    if !matches!(
+                        envelope.event,
+                        agents::AgentEvent::MessageChunk { .. }
+                            | agents::AgentEvent::ThoughtChunk { .. }
+                            | agents::AgentEvent::ToolCallUpdate { .. }
+                            | agents::AgentEvent::TerminalOutput { .. }
+                            | agents::AgentEvent::RawAcpDiagnostic { .. }
+                    ) {
+                        crate::host::events::global_host_events().emit("agent-events", &envelope);
+                    }
+                }
+            })
+        };
+        let _terminal_task = {
+            let pool = pool.clone();
+            tokio::spawn(async move {
+                use agents::terminal::AgentTerminalLifecycleEvent;
+                use db::models::session::Session;
+                let mut rx = agents::terminal::agent_terminal_registry().subscribe_lifecycle();
+                loop {
+                    match rx.recv().await {
+                        Ok(AgentTerminalLifecycleEvent::Created(event)) => {
+                            let workspace_id = Session::find_by_id(&pool, event.session_id.0)
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|session| session.workspace_id);
+                            crate::host::events::global_host_events().emit(
+                                "agent-terminal-events",
+                                serde_json::json!({
+                                    "Created": {
+                                        "source": "acp",
+                                        "session_id": event.terminal_id.0,
+                                        "agent_session_id": event.session_id.0,
+                                        "workspace_id": workspace_id,
+                                        "title": format!("ACP {}", event.command.split_whitespace().next().unwrap_or("Terminal")),
+                                        "command": event.command,
+                                        "agent_label": "Agent",
+                                        "cwd": event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
+                                    }
+                                }),
+                            );
+                        }
+                        Ok(AgentTerminalLifecycleEvent::Exited { terminal_id, .. }) => {
+                            crate::host::events::global_host_events().emit(
+                                "agent-terminal-events",
+                                serde_json::json!({
+                                    "Exited": {
+                                        "source": "acp",
+                                        "session_id": terminal_id.0,
+                                        "workspace_id": null,
+                                    }
+                                }),
+                            );
+                        }
+                        Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
+                            crate::host::events::global_host_events().emit(
+                                "agent-terminal-events",
+                                serde_json::json!({
+                                    "Released": {
+                                        "source": "acp",
+                                        "session_id": terminal_id.0,
+                                        "workspace_id": null,
+                                    }
+                                }),
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            })
+        };
         let conversation_service =
             conversations::ConversationSessionService::new(conversation_context.clone());
         conversation_service

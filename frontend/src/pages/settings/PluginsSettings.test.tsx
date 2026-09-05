@@ -534,7 +534,7 @@ describe('PluginsSettings', () => {
     expect(backend.call).not.toHaveBeenCalledWith('plugin_dev_connection');
   });
 
-  it('allows remote writes by capability while keeping local ZIP import desktop-only', async () => {
+  it('allows remote writes and Host ZIP import when plugin.write is present', async () => {
     const backend = transport();
     const remoteTransport: BackendTransport = {
       ...backend.value,
@@ -551,8 +551,8 @@ describe('PluginsSettings', () => {
     await screen.findByText('Research Toolkit');
 
     expect(
-      screen.queryByRole('button', { name: '导入插件' })
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: '导入插件' })
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole('switch', { name: /VibeX Office/ })).toBeEnabled()
     );

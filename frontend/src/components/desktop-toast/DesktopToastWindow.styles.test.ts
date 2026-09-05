@@ -9,17 +9,15 @@ function stylesheetRoot() {
   );
 }
 
-function toastShellWrapperRule() {
-  const matches: Array<{
-    selector: string;
-    decls: Map<string, { value: string; important: boolean }>;
-  }> = [];
+type Rule = {
+  selector: string;
+  decls: Map<string, { value: string; important: boolean }>;
+};
+
+function collectRules() {
+  const matches: Rule[] = [];
   stylesheetRoot().walkRules((rule) => {
     if (rule.parent?.type === 'atrule' && rule.parent.name !== 'layer') {
-      return;
-    }
-    const parts = rule.selector.split(',').map((part) => part.trim());
-    if (!parts.includes('html.desktop-toast-shell')) {
       return;
     }
     const decls = new Map<string, { value: string; important: boolean }>();
@@ -31,8 +29,22 @@ function toastShellWrapperRule() {
     });
     matches.push({ selector: rule.selector, decls });
   });
-  return matches.find(
-    (rule) => rule.decls.get('background')?.value === 'transparent'
+  return matches;
+}
+
+function toastShellWrapperRule() {
+  return collectRules().find((rule) => {
+    const parts = rule.selector.split(',').map((part) => part.trim());
+    return (
+      parts.includes('html.desktop-toast-shell') &&
+      rule.decls.get('background')?.value === 'transparent'
+    );
+  });
+}
+
+function toastShellRulesFor(selectorPart: string) {
+  return collectRules().filter((rule) =>
+    rule.selector.split(',').map((part) => part.trim()).includes(selectorPart)
   );
 }
 
@@ -53,6 +65,32 @@ describe('desktop toast window surface', () => {
     );
     expect(rule!.decls.get('background')).toEqual({
       value: 'transparent',
+      important: true,
+    });
+  });
+
+  it('paints notification cards on an opaque surface instead of translucent glass', () => {
+    const tokenRule = toastShellRulesFor(
+      'html.desktop-toast-shell .legacy-design'
+    ).find((rule) => rule.decls.has('--surface-popover'));
+
+    expect(tokenRule).toBeDefined();
+    expect(tokenRule!.decls.get('--surface-popover')?.value).toBe(
+      'var(--surface-dialog)'
+    );
+    expect(tokenRule!.decls.get('--surface-popover')?.important).toBeFalsy();
+
+    const surfaceRule = toastShellRulesFor(
+      'html.desktop-toast-shell .legacy-design .vu-toast-surface'
+    ).find((rule) => rule.decls.get('backdrop-filter')?.value === 'none');
+
+    expect(surfaceRule).toBeDefined();
+    expect(surfaceRule!.decls.get('backdrop-filter')).toEqual({
+      value: 'none',
+      important: true,
+    });
+    expect(surfaceRule!.decls.get('-webkit-backdrop-filter')).toEqual({
+      value: 'none',
       important: true,
     });
   });

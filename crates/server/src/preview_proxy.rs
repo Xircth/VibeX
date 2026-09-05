@@ -106,6 +106,19 @@ impl PreviewProxyRegistry {
         self.registrations.write().await.remove(&lease_id);
     }
 
+    pub async fn renew(
+        &self,
+        lease_id: Uuid,
+        expires_at_unix_ms: u64,
+    ) -> Result<(), PreviewRegistrationError> {
+        let mut registrations = self.registrations.write().await;
+        let Some(registration) = registrations.get_mut(&lease_id) else {
+            return Err(PreviewRegistrationError::UnknownLease);
+        };
+        registration.expires_at_unix_ms = expires_at_unix_ms;
+        Ok(())
+    }
+
     async fn authorize(
         &self,
         lease_id: Uuid,
@@ -139,6 +152,8 @@ pub enum PreviewRegistrationError {
     InvalidPort,
     #[error("preview capability must contain at least 16 bytes")]
     WeakCapability,
+    #[error("preview lease is not registered")]
+    UnknownLease,
 }
 
 #[derive(Debug, thiserror::Error)]

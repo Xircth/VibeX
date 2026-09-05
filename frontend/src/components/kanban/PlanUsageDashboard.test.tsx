@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
 import { PlanUsageDashboard } from './PlanUsageDashboard';
 
 const mocks = vi.hoisted(() => ({
+  authMode: vi.fn(),
   planUsage: vi.fn(),
   runAction: vi.fn(),
   useAgentManagement: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/features/agent-management', () => ({
   agentManagementApi: {
+    authMode: mocks.authMode,
     planUsage: mocks.planUsage,
     runAction: mocks.runAction,
   },
@@ -24,7 +26,8 @@ vi.mock('@/features/agent-management', () => ({
 function agent(
   agentId: string,
   displayName: string,
-  enabled = true
+  enabled = true,
+  authentication: AgentManagementView['authentication'] = 'not_required'
 ): AgentManagementView {
   return {
     agent_id: agentId,
@@ -39,7 +42,7 @@ function agent(
     enabled,
     position: 0,
     lifecycle: 'ready',
-    authentication: 'not_required',
+    authentication,
     runtime_version: '1.0.0',
     acp_version: '1.0.0',
     active_operation: null,
@@ -62,23 +65,82 @@ describe('PlanUsageDashboard', () => {
   beforeEach(() => {
     window.localStorage.clear();
     mocks.planUsage.mockReset();
+    mocks.authMode.mockReset();
     mocks.runAction.mockReset();
     mocks.useAgentManagement.mockReset();
     mocks.planUsage.mockResolvedValue({
       type: 'UNAVAILABLE',
       reason: 'NOT_LOGGED_IN',
     });
+    mocks.authMode.mockImplementation(async (agentId: string) => ({
+      agent_id: agentId,
+      mode:
+        agentId === 'grok'
+          ? 'subscription'
+          : agentId === 'codex'
+            ? 'chatgpt_subscription'
+            : 'official_subscription',
+      modes: [
+        agentId === 'grok'
+          ? 'subscription'
+          : agentId === 'codex'
+            ? 'chatgpt_subscription'
+            : 'official_subscription',
+        'official_api',
+      ],
+      options: [
+        {
+          value:
+            agentId === 'grok'
+              ? 'subscription'
+              : agentId === 'codex'
+                ? 'chatgpt_subscription'
+                : 'official_subscription',
+          kind: 'subscription',
+          label_key: 'subscription',
+          description_key: 'subscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'api_key',
+          kind: 'official_api',
+          label_key: 'api_key',
+          description_key: 'api_key',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: true,
+        },
+      ],
+      credential_env: '',
+      credential_present: true,
+    }));
     mocks.runAction.mockResolvedValue({});
   });
 
-  it('shows only enabled plan-capable agents and loads the selected plan', async () => {
+  it('shows the settings surface skeleton while agent list is loading', () => {
+    mocks.useAgentManagement.mockReturnValue({
+      loading: true,
+      state: { agents: [] },
+    });
+
+    renderDashboard();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveClass('agent-settings-loading');
+    expect(status.querySelectorAll('.settings-surface')).toHaveLength(2);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('renders every enabled signed-in subscription agent as its own card', async () => {
     mocks.useAgentManagement.mockReturnValue({
       loading: false,
       state: {
         agents: [
-          agent('claude_code', 'Claude Code'),
+          agent('claude_code', 'Claude Code', true, 'account'),
           agent('codex', 'Codex', false),
-          agent('grok', 'Grok'),
+          agent('grok', 'Grok', true, 'account'),
           agent('gemini', 'Gemini'),
           agent('cursor', 'Cursor', false),
         ],
@@ -87,23 +149,28 @@ describe('PlanUsageDashboard', () => {
 
     renderDashboard();
 
-    expect(screen.getByRole('button', { name: 'Claude Code' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Grok' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Codex' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cursor' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Gemini' })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByText('Claude Code 套餐')).toBeVisible();
+      expect(screen.getByText('Grok 套餐')).toBeVisible();
+      expect(mocks.authMode).toHaveBeenCalledWith('claude_code');
+      expect(mocks.authMode).toHaveBeenCalledWith('grok');
+      expect(mocks.planUsage).toHaveBeenCalledWith('grok');
+      expect(mocks.planUsage).toHaveBeenCalledWith('claude_code');
+    });
+  });
 
-    expect(screen.getByText('Claude Code 套餐')).toBeVisible();
-    expect(screen.queryByText('Grok 套餐')).toBeNull();
+  it('does not render agents that are not signed in to an official subscription', async () => {
+    mocks.useAgentManagement.mockReturnValue({
+      loading: false,
+      state: { agents: [agent('claude_code', 'Claude Code', true, 'api_key')] },
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Grok' }));
-
-    expect(screen.getByText('Grok 套餐')).toBeVisible();
-    expect(screen.queryByText('Claude Code 套餐')).toBeNull();
+    renderDashboard();
 
     await waitFor(() => {
-      expect(mocks.planUsage).toHaveBeenCalledWith('grok');
+      expect(screen.getByText('没有已登录的官方订阅 Agent')).toBeVisible();
     });
+    expect(mocks.planUsage).not.toHaveBeenCalled();
   });
 
   it('hides the selector when no enabled plan-capable agent exists', () => {
@@ -116,7 +183,7 @@ describe('PlanUsageDashboard', () => {
 
     renderDashboard();
 
-    expect(screen.getByText('没有已启用且支持套餐用量的 Agent')).toBeVisible();
+    expect(screen.getByText('没有已登录的官方订阅 Agent')).toBeVisible();
     expect(screen.queryByRole('navigation')).toBeNull();
   });
 });

@@ -100,7 +100,7 @@ export type ConversationStoreAction =
       conversationId: string;
       detail: DbConversationDetail;
     }
-  | { type: 'load_error'; conversationId: string; error: string }
+  | { type: 'load_error'; conversationId: string; error: string | null }
   | {
       type: 'session_controls_hydrated';
       conversationId: string;
@@ -149,7 +149,9 @@ export function conversationStoreReducer(
           ...entry,
           detail: action.detail,
           rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
-          liveText: keepRealtimeRows ? entry.liveText : {},
+          liveText: keepRealtimeRows
+            ? entry.liveText
+            : retainStreamingLiveText(reconciledTimeline.rows, entry.liveText),
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
             : detailLastSequence,
@@ -427,10 +429,13 @@ function preserveStructuredUserText(
 function appendLiveText(
   liveText: Record<string, LiveTextOverlay>,
   rows: TimelineRow[],
-  currentTurnId: string | null,
+  _currentTurnId: string | null,
   op: Extract<ConversationRowOp, { op: 'append_text' }>
 ): Record<string, LiveTextOverlay> {
-  const rowId = retargetStreamingRowId(rows, currentTurnId, op.row_id);
+  if (isLateSettledAssistantAppend(rows, op.row_id)) {
+    return liveText;
+  }
+  const rowId = op.row_id;
   const revision = toBigInt(op.revision);
   const existing = liveText[rowId];
   if (existing && revision <= existing.revision) return liveText; // already applied
@@ -452,25 +457,43 @@ const TERMINAL_ROW_PHASES = new Set([
   'interrupted',
 ]);
 
-/** If a text-append names a settled predecessor after the next user turn is
- * already open, attach it to that open turn instead of growing the previous
- * assistant bubble. */
-function retargetStreamingRowId(
+/** Late chunks that still name a settled predecessor belong to that finished
+ * turn. Drop them instead of grafting onto the open turn (ADR-0071). */
+function isLateSettledAssistantAppend(
   rows: TimelineRow[],
-  currentTurnId: string | null,
   rowId: string
-): string {
-  if (!currentTurnId || !rowId.endsWith(':assistant')) return rowId;
-  const expected = `${currentTurnId}:assistant`;
-  if (rowId === expected) return rowId;
+): boolean {
+  if (!rowId.endsWith(':assistant')) return false;
   const existing = rows.find((row) => row.row_id === rowId);
-  if (
+  return (
     existing?.row.kind === 'message_turn' &&
     TERMINAL_ROW_PHASES.has(existing.row.phase)
-  ) {
-    return expected;
+  );
+}
+
+function retainStreamingLiveText(
+  rows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>
+): Record<string, LiveTextOverlay> {
+  const next: Record<string, LiveTextOverlay> = {};
+  const rowById = new Map(rows.map((row) => [row.row_id, row]));
+  for (const [rowId, overlay] of Object.entries(liveText)) {
+    const existing = rowById.get(rowId);
+    if (!existing) {
+      next[rowId] = overlay;
+      continue;
+    }
+    if (
+      existing.row.kind === 'message_turn' &&
+      TERMINAL_ROW_PHASES.has(existing.row.phase)
+    ) {
+      continue;
+    }
+    if (overlay.revision > toBigInt(existing.revision)) {
+      next[rowId] = overlay;
+    }
   }
-  return rowId;
+  return next;
 }
 
 export function timelineTurnsForEntry(

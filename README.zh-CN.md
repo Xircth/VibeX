@@ -130,17 +130,18 @@ macOS 若拦截首次打开，先确认安装包来自[官方 Releases](https://
 
 ```bash
 npx vibex
+# 或: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibex` 按平台拉取 `vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。也可以从 Releases 直接下载 Host 家族包。
+`npx vibex` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
 
 解压后的目录包含 `vibex-server`、`vibex-mcp`、`web/` 与 `plugins/bundled/`。
 
 | 平台 | 系统基线 | 发行物 |
 | --- | --- | --- |
-| macOS | 12 或更高版本 | macos-x64 / macos-arm64 |
-| Windows | 10 / 11 | windows-x64 |
-| Linux | Ubuntu 22.04 同等基线 | linux-x64 / linux-arm64，也可使用 Docker |
+| macOS | 12 或更高版本 | darwin-aarch64 |
+| Windows | 10 / 11 | windows-x86_64 / windows-aarch64 |
+| Linux | Ubuntu 22.04 同等基线 | linux-x86_64 / linux-aarch64，也可使用 Docker |
 
 默认只监听本机 `127.0.0.1:17891`。本机浏览器打开该地址即可使用 WebUI，推荐 Chrome 系列浏览器。局域网访问需要设置 `VIBEX_SERVER_ALLOW_LAN=1`，并在前面加 TLS 反代。访问令牌至少 32 字节，首次生成时标准输出只出现一次。
 

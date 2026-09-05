@@ -6,8 +6,40 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ResendCheckpointDialog,
+  shouldConfirmResendCheckpoint,
   type ResendCheckpointDialogProps,
 } from './ResendCheckpointDialog';
+
+describe('shouldConfirmResendCheckpoint', () => {
+  it('skips the dialog when rollback would change no files', () => {
+    expect(
+      shouldConfirmResendCheckpoint({ files: [], previewUnavailable: false })
+    ).toBe(false);
+  });
+
+  it('asks before resend when files would roll back', () => {
+    expect(
+      shouldConfirmResendCheckpoint({
+        files: [
+          {
+            path: 'src/app.ts',
+            change_kind: 'modified',
+          },
+        ],
+        previewUnavailable: false,
+      })
+    ).toBe(true);
+  });
+
+  it('asks before resend when rollback files cannot be previewed', () => {
+    expect(
+      shouldConfirmResendCheckpoint({
+        files: [],
+        previewUnavailable: true,
+      })
+    ).toBe(true);
+  });
+});
 
 describe('ResendCheckpointDialog', () => {
   it('renders one bounded dialog material without a nested glass renderer', async () => {

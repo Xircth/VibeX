@@ -19,11 +19,11 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
         manifest.summary,
         "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
     );
-    assert_eq!(manifest.content_index.items.len(), 9);
+    assert_eq!(manifest.content_index.items.len(), 16);
     assert_eq!(manifest.config["idleTimeoutMinutes"], 10);
     assert_eq!(manifest.runtimes[0].id, "officecli");
     assert_eq!(manifest.invocations.len(), 12);
-    assert_eq!(manifest.skills.len(), 3);
+    assert_eq!(manifest.skills.len(), 10);
     assert_eq!(manifest.app.file_openers.len(), 1);
     assert_eq!(manifest.app.preview_providers.len(), 1);
     let detail = manifest.product_detail().unwrap();
@@ -36,16 +36,44 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
     );
     let embedded_skills = [
         (
-            "office-pptx",
-            include_str!("../../../assets/plugins/office/contents/skills/office-pptx/SKILL.md"),
+            "pptx",
+            include_str!("../../../assets/plugins/office/contents/skills/pptx/SKILL.md"),
         ),
         (
-            "office-docx",
-            include_str!("../../../assets/plugins/office/contents/skills/office-docx/SKILL.md"),
+            "word",
+            include_str!("../../../assets/plugins/office/contents/skills/word/SKILL.md"),
         ),
         (
-            "office-xlsx",
-            include_str!("../../../assets/plugins/office/contents/skills/office-xlsx/SKILL.md"),
+            "excel",
+            include_str!("../../../assets/plugins/office/contents/skills/excel/SKILL.md"),
+        ),
+        (
+            "morph-ppt",
+            include_str!("../../../assets/plugins/office/contents/skills/morph-ppt/SKILL.md"),
+        ),
+        (
+            "morph-ppt-3d",
+            include_str!("../../../assets/plugins/office/contents/skills/morph-ppt-3d/SKILL.md"),
+        ),
+        (
+            "pitch-deck",
+            include_str!("../../../assets/plugins/office/contents/skills/pitch-deck/SKILL.md"),
+        ),
+        (
+            "academic-paper",
+            include_str!("../../../assets/plugins/office/contents/skills/academic-paper/SKILL.md"),
+        ),
+        (
+            "data-dashboard",
+            include_str!("../../../assets/plugins/office/contents/skills/data-dashboard/SKILL.md"),
+        ),
+        (
+            "financial-model",
+            include_str!("../../../assets/plugins/office/contents/skills/financial-model/SKILL.md"),
+        ),
+        (
+            "word-form",
+            include_str!("../../../assets/plugins/office/contents/skills/word-form/SKILL.md"),
         ),
     ];
     for skill in &manifest.skills {
@@ -124,7 +152,7 @@ fn bundled_office_is_a_full_stack_portable_package() {
 
     assert_eq!(package.id.as_str(), "vibex.office");
     assert_eq!(package.formats, vec![PackageFormat::VibeX]);
-    assert_eq!(package.skills.len(), 3);
+    assert_eq!(package.skills.len(), 10);
     assert_eq!(package.runtimes[0].command, "officecli");
     assert_eq!(
         package.entrypoints.worker.as_deref(),
@@ -234,14 +262,14 @@ async fn office_action_resolves_skill_runtime_and_artifact_intent() {
         .resolve_action("vibex.office", "create-document")
         .await
         .unwrap();
-    assert_eq!(action.required_skills[0].as_str(), "office-docx");
+    assert_eq!(action.required_skills[0].as_str(), "word");
     assert_eq!(action.required_tools[0].as_str(), "officecli");
     assert_eq!(action.artifact_intent.unwrap().provider, "office-preview");
     // Resolved paths are native, so compare on the logical suffixes.
     assert!(action.prompt_blocks.iter().any(|block| {
         let plugins::PromptBlock::Text { text } = block;
         let unified = text.replace('\\', "/");
-        unified.contains("/verified/officecli") && unified.contains("office-docx/SKILL.md")
+        unified.contains("/verified/officecli") && unified.contains("word/SKILL.md")
     }));
 }
 

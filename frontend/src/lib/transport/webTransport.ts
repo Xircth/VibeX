@@ -150,7 +150,7 @@ export class WebTransport implements BackendTransport {
   ): Promise<() => void> {
     const prefix = 'terminal-output:';
     if (!event.startsWith(prefix)) {
-      return () => undefined;
+      return this.listenHostEvent(event, handler);
     }
     const controller = new AbortController();
     void this.consumeTerminalOutput(
@@ -183,7 +183,7 @@ export class WebTransport implements BackendTransport {
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
     const subscription: ActiveSubscription = {
       request,
-      cursor: request.after_sequence,
+      cursor: 'after_sequence' in request ? request.after_sequence : 0n,
       queue: new AsyncEventQueue(),
     };
     this.subscriptions.set(request.subscription_id, subscription);
@@ -348,6 +348,31 @@ export class WebTransport implements BackendTransport {
     }
     subscription.cursor = sequence;
     subscription.queue.push({ ...message.event, sequence });
+  }
+
+  private async listenHostEvent<T>(
+    channel: string,
+    handler: (payload: T) => void
+  ): Promise<() => void> {
+    const request = {
+      subscription_id: globalThis.crypto.randomUUID(),
+      resource: 'host_event',
+      channel,
+      after_sequence: 0n,
+    } as SubscriptionRequest;
+    const iterator = this.subscribe(request)[Symbol.asyncIterator]();
+    let stopped = false;
+    void (async () => {
+      while (!stopped) {
+        const next = await iterator.next();
+        if (next.done || stopped) return;
+        handler(next.value.payload as T);
+      }
+    })();
+    return () => {
+      stopped = true;
+      void iterator.return?.();
+    };
   }
 
   private async consumeTerminalOutput(

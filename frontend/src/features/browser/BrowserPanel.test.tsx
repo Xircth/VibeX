@@ -11,6 +11,7 @@ import {
   WorkspaceOverlayProvider,
 } from '@/contexts/WorkspaceOverlayContext';
 import { BrowserPanel } from './BrowserPanel';
+import { discardRetainedBrowserTabs } from './browserTabRetention';
 import type { BrowserEvent, BrowserTab } from './browserTypes';
 
 const {
@@ -138,6 +139,7 @@ describe('BrowserPanel', () => {
   });
 
   afterEach(() => {
+    discardRetainedBrowserTabs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -591,6 +593,174 @@ describe('BrowserPanel', () => {
     });
   });
 
+  it('hides the native surface while a toolbar select is open', async () => {
+    render(
+      <WorkspaceOverlayProvider>
+        <BrowserPanel
+          initialUrl="https://example.test"
+          requestNonce={1}
+          workspaceId="workspace-1"
+          visible
+        />
+      </WorkspaceOverlayProvider>
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    applyBrowserIntentMock.mockClear();
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Zoom' }));
+
+    expect(screen.getByRole('listbox', { name: 'Zoom' })).toBeInTheDocument();
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+  });
+
+  it('keeps the native Chromium tab when the preview host remounts', async () => {
+    const view = render(
+      <BrowserPanel
+        initialUrl="https://www.baidu.com"
+        requestNonce={1}
+        panelId="web-preview:1"
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    applyBrowserIntentMock.mockClear();
+
+    view.unmount();
+    expect(closeBrowserTabMock).not.toHaveBeenCalled();
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+
+    render(
+      <BrowserPanel
+        initialUrl="https://www.baidu.com"
+        requestNonce={1}
+        panelId="web-preview:1"
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    expect(createBrowserTabMock).toHaveBeenCalledOnce();
+    expect(closeBrowserTabMock).not.toHaveBeenCalled();
+  });
+
+  it('does not reveal a reclaimed tab while the workspace is hidden', async () => {
+    const view = render(
+      <BrowserPanel
+        initialUrl="https://www.baidu.com"
+        requestNonce={1}
+        panelId="web-preview:hidden"
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+
+    view.unmount();
+    applyBrowserIntentMock.mockClear();
+
+    render(
+      <BrowserPanel
+        initialUrl="https://www.baidu.com"
+        requestNonce={1}
+        panelId="web-preview:hidden"
+        workspaceId="workspace-1"
+        visible={false}
+      />
+    );
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: false }),
+        })
+      )
+    );
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({
+        type: 'setSurface',
+        surface: expect.objectContaining({ visible: true }),
+      })
+    );
+  });
+
+  it('creates a restored tab hidden when the workspace panel is not visible', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible={false}
+      />
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: false }),
+        })
+      )
+    );
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({
+        type: 'setSurface',
+        surface: expect.objectContaining({ visible: true }),
+      })
+    );
+  });
+
   it('shows a horizontal page scrollbar when Chromium content exceeds the viewport', async () => {
     render(
       <BrowserPanel
@@ -760,6 +930,94 @@ describe('BrowserPanel', () => {
     expect(createBrowserTabMock).toHaveBeenCalledOnce();
   });
 
+  it('selects the current address when the URL field is focused', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const select = vi.spyOn(HTMLInputElement.prototype, 'select');
+    fireEvent.focus(screen.getByRole('textbox', { name: 'Address' }));
+    expect(select).toHaveBeenCalled();
+  });
+
+  it('keeps a submitted address while the previous page is still reporting', async () => {
+    const onLocationChange = vi.fn();
+    const view = render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onLocationChange={onLocationChange}
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    fireEvent.change(address, { target: { value: 'gmail.com' } });
+    fireEvent.submit(address.closest('form')!);
+
+    expect(address).toHaveValue('https://gmail.com');
+    expect(onLocationChange).toHaveBeenCalledWith('https://gmail.com');
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({
+        type: 'navigate',
+        url: 'https://gmail.com',
+      })
+    );
+    applyBrowserIntentMock.mockClear();
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ url: 'https://example.test/', loading: true }),
+      });
+    });
+    expect(address).toHaveValue('https://gmail.com');
+
+    view.rerender(
+      <BrowserPanel
+        initialUrl="https://gmail.com"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onLocationChange={onLocationChange}
+      />
+    );
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({ type: 'navigate' })
+    );
+  });
+
+  it('ignores aborted load errors from a superseded navigation', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabFailed',
+        tab: tab({ loading: false }),
+        code: 'ERR_ABORTED',
+        message: 'net::ERR_ABORTED',
+      });
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('requires an explicit user decision for Chromium permissions', async () => {
     render(
       <BrowserPanel
@@ -866,32 +1124,16 @@ describe('BrowserPanel', () => {
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
 
-    const zoom = screen.getByRole('combobox', {
-      name: 'Zoom',
-    }) as HTMLSelectElement;
-    expect(Array.from(zoom.options, (option) => option.textContent)).toEqual([
-      '50%',
-      '80%',
-      '90%',
-      '100%',
-      '110%',
-      '125%',
-      '150%',
-    ]);
-    expect(Array.from(zoom.options, (option) => option.value)).toEqual([
-      '50',
-      '80',
-      '90',
-      '100',
-      '110',
-      '125',
-      '150',
-    ]);
-    expect(zoom).toHaveValue('100');
+    const zoom = screen.getByRole('combobox', { name: 'Zoom' });
+    expect(zoom).toHaveTextContent('80%');
+
+    fireEvent.click(zoom);
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent)
+    ).toEqual(['50%', '80%', '90%', '100%', '110%', '125%', '150%']);
+
     const level80 = Math.log(0.8) / Math.log(1.2);
-    fireEvent.change(zoom, {
-      target: { value: '80' },
-    });
+    fireEvent.click(screen.getByRole('option', { name: '80%' }));
     expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
       type: 'setZoom',
       level: level80,
@@ -903,7 +1145,7 @@ describe('BrowserPanel', () => {
         tab: tab({ zoomLevel: -1 }),
       });
     });
-    expect(zoom).toHaveValue('80');
+    expect(zoom).toHaveTextContent('80%');
 
     fireEvent.click(screen.getByRole('button', { name: 'Find in Page' }));
     const findInput = screen.getByRole('textbox', { name: 'Find in Page' });
@@ -943,8 +1185,16 @@ describe('BrowserPanel', () => {
       });
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The host could not be resolved.'
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('ERR_NAME_NOT_RESOLVED');
+    expect(alert).not.toHaveTextContent('The host could not be resolved.');
+    fireEvent.click(screen.getByRole('button', { name: /try again|重试/i }));
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({
+        type: 'navigate',
+        url: 'https://example.test/',
+      })
     );
     await waitFor(() =>
       expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {

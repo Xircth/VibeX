@@ -198,18 +198,18 @@ export function AgentDetail({
   return (
     <div className="space-y-4">
       <header className="agent-detail-header">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="agent-detail-header-identity">
           <div className="agent-detail-icon">
             <AgentManagementIcon agent={agent} className="h-8 w-8" />
           </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-base font-semibold text-foreground">
+          <div className="agent-detail-header-copy">
+            <div className="agent-detail-header-title">
+              <h2 className="text-base font-semibold text-foreground">
                 {agent.display_name}
               </h2>
               <span
                 className={cn(
-                  'agent-auth-status',
+                  'agent-auth-status shrink-0',
                   authenticationTone(agent.authentication)
                 )}
               >
@@ -221,7 +221,7 @@ export function AgentDetail({
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="agent-detail-header-actions">
           <label className="agent-detail-enable">
             <span>{t('agents.enable')}</span>
             <Switch
@@ -373,9 +373,7 @@ export function AgentDetail({
                       }
                       spellCheck={false}
                       value={customVersion}
-                      onChange={(event) =>
-                        setCustomVersion(event.target.value)
-                      }
+                      onChange={(event) => setCustomVersion(event.target.value)}
                     />
                   </label>
                   <Button

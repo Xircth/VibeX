@@ -1,7 +1,7 @@
 {
   "name": "vibex",
   "private": false,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "main": "index.js",
   "bin": {
     "vibex": "bin/cli.js"
@@ -27,6 +27,7 @@
     "bin/download.js",
     "bin/help.js",
     "bin/plugin.js",
+    "bin/release-assets.js",
     "dist",
     "plugin-cli"
   ]

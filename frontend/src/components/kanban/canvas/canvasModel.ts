@@ -41,6 +41,8 @@ export interface SessionCanvasNode {
   createdAt: number;
   showAll: boolean;
   collapsed?: boolean;
+  manualColumns?: number;
+  manualRows?: number;
   x: number;
   y: number;
   width: number;
@@ -303,6 +305,24 @@ function snapToLattice(value: number, gap: number, tolerance: number): number {
  * dot lattice). `tolerance` is in flow units — callers should divide a
  * screen-pixel distance by the current zoom.
  */
+export function alignGuidesEqual(
+  left: readonly AlignmentGuide[],
+  right: readonly AlignmentGuide[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((guide, index) => {
+    const other = right[index];
+    return (
+      other != null &&
+      guide.axis === other.axis &&
+      guide.at === other.at &&
+      guide.from === other.from &&
+      guide.to === other.to
+    );
+  });
+}
+
 export function computeAlignment(
   moving: CanvasRect,
   others: readonly CanvasRect[],

@@ -5,6 +5,10 @@ import type {
   SubscriptionRequest,
 } from './backendTransport';
 import type { SubscriptionBootstrap } from 'shared/types';
+import {
+  HOST_CAPABILITY_SCOPES,
+  HOST_COMMANDS,
+} from 'shared/hostCommands';
 
 type ApplicationCommandResponse = {
   operation_id: string;
@@ -24,45 +28,7 @@ type WireSubscriptionBootstrap = Omit<
   high_water_mark: number;
 };
 
-const APPLICATION_COMMANDS = new Set([
-  'conversation_list',
-  'conversation_list_recent',
-  'conversation_create',
-  'conversation_child_create',
-  'conversation_output',
-  'conversation_start_turn',
-  'conversation_steer',
-  'conversation_submit_feedback',
-  'conversation_list_feedback',
-  'conversation_input_submit',
-  'conversation_input_list',
-  'conversation_relation_list',
-  'conversation_input_update',
-  'conversation_input_reorder',
-  'conversation_input_cancel',
-  'conversation_respond_permission',
-  'conversation_cancel_turn',
-  'workflow_publish',
-  'workflow_validate',
-  'workflow_start',
-  'workflow_debug',
-  'workflow_show',
-  'workflow_version',
-  'workflow_list',
-  'workflow_versions',
-  'workflow_steps',
-  'workflow_events',
-  'workflow_complete_step',
-  'workflow_decide',
-  'workflow_cancel',
-  'workflow_resume',
-  'workflow_pause',
-  'workflow_resume_run',
-  'workflow_accept_candidate',
-  'workflow_pause_step',
-  'workflow_step_input',
-  'workflow_fork',
-]);
+const APPLICATION_COMMANDS = new Set<string>(HOST_COMMANDS);
 
 function sequenceToWire(sequence: bigint): number {
   if (
@@ -123,41 +89,7 @@ export class TauriTransport implements BackendTransport {
       server_version: 'desktop',
       protocol_version: '1.0',
       minimum_client_version: '0.1.0',
-      capabilities: [
-        'conversation.read',
-        'conversation.write',
-        'conversation.attach',
-        'conversation.permission',
-        'conversation.question',
-        'conversation.cancel',
-        'conversation.steer',
-        'plugin.read',
-        'plugin.write',
-        'plugin.surface',
-        'artifact.read',
-        'artifact.preview',
-        'automation.read',
-        'automation.write',
-        'delegation.read',
-        'workflow.read',
-        'workflow.write',
-        'workflow.run',
-        'workflow.approve',
-        'application.call',
-        'file.read',
-        'file.write',
-        'git.read',
-        'git.write',
-        'terminal',
-        'workspace.read',
-        'workspace.write',
-        'project.write',
-        'session.write',
-        'agent.read',
-        'agent.write',
-        'device.pair',
-        'desktop.tauri',
-      ],
+      capabilities: [...HOST_CAPABILITY_SCOPES, 'desktop.tauri'],
     };
   }
 
@@ -175,6 +107,14 @@ export class TauriTransport implements BackendTransport {
   }
 
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+    if (request.resource === 'patch_stream') {
+      yield* this.subscribePatchStream(request);
+      return;
+    }
+    if (request.resource === 'host_event') {
+      yield* this.subscribeHostEvent(request);
+      return;
+    }
     const isWorkflowRun = request.resource === 'workflow_run';
     let dirty = true;
     let wake: (() => void) | undefined;
@@ -235,6 +175,156 @@ export class TauriTransport implements BackendTransport {
     } finally {
       unlisten();
     }
+  }
+
+  private async *subscribePatchStream(
+    request: SubscriptionRequest
+  ): AsyncIterable<RemoteEvent> {
+    if (request.resource !== 'patch_stream') {
+      return;
+    }
+    const command = PATCH_STREAM_COMMAND[request.stream];
+    if (!command) {
+      throw new Error(`unknown patch stream \`${request.stream}\``);
+    }
+    const channel = patchStreamChannel(request.stream, request.args);
+    yield* this.subscribeChannel(channel, async () => {
+      await this.call(command, objectArgs(request.args));
+    });
+  }
+
+  private async *subscribeHostEvent(
+    request: SubscriptionRequest
+  ): AsyncIterable<RemoteEvent> {
+    if (request.resource !== 'host_event') {
+      return;
+    }
+    yield* this.subscribeChannel(request.channel, async () => undefined);
+  }
+
+  private async *subscribeChannel(
+    channel: string,
+    start: () => Promise<void>
+  ): AsyncIterable<RemoteEvent> {
+    const queue: RemoteEvent[] = [];
+    let wake: (() => void) | undefined;
+    let closed = false;
+    let sequence = 0n;
+    const unlisten = await this.listen(channel, (payload) => {
+      sequence += 1n;
+      queue.push({
+        sequence,
+        kind: channel,
+        payload: payload as RemoteEvent['payload'],
+      });
+      wake?.();
+      wake = undefined;
+    });
+    try {
+      await start();
+      while (!closed) {
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+        }
+        const next = queue.shift();
+        if (next) {
+          yield next;
+        }
+      }
+    } finally {
+      closed = true;
+      unlisten();
+    }
+  }
+}
+
+const PATCH_STREAM_COMMAND: Record<string, string> = {
+  projects: 'subscribe_projects_stream',
+  project_workspaces: 'subscribe_project_workspaces_stream',
+  execution_processes: 'subscribe_execution_processes_stream',
+  diff: 'subscribe_diff_stream',
+  file_tree: 'subscribe_file_tree_stream',
+  scratch: 'subscribe_scratch_stream',
+  slash_commands: 'subscribe_slash_commands_stream',
+  log: 'subscribe_log_stream',
+  conversation: 'subscribe_conversation_stream',
+};
+
+function objectArgs(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function field(
+  args: Record<string, unknown>,
+  camel: string,
+  snake: string
+): string | undefined {
+  const raw = args[camel] ?? args[snake];
+  if (typeof raw === 'string' && raw.length > 0) {
+    return raw;
+  }
+  if (typeof raw === 'number') {
+    return String(raw);
+  }
+  return undefined;
+}
+
+function patchStreamChannel(stream: string, rawArgs: unknown): string {
+  const args = objectArgs(rawArgs);
+  switch (stream) {
+    case 'projects':
+      return 'projects-stream';
+    case 'file_tree':
+      return 'file-tree-stream';
+    case 'project_workspaces': {
+      const id = field(args, 'projectId', 'project_id');
+      if (!id) throw new Error('projectId is required');
+      return `project-workspaces-stream:${id}`;
+    }
+    case 'execution_processes': {
+      const id = field(args, 'sessionId', 'session_id');
+      if (!id) throw new Error('sessionId is required');
+      return `execution-processes-stream:${id}`;
+    }
+    case 'diff': {
+      const id = field(args, 'workspaceId', 'workspace_id');
+      if (!id) throw new Error('workspaceId is required');
+      return `diff-stream:${id}`;
+    }
+    case 'scratch': {
+      const id = field(args, 'scratchId', 'scratch_id');
+      if (!id) throw new Error('scratchId is required');
+      return `scratch-stream:${id}`;
+    }
+    case 'log': {
+      const id = field(args, 'processId', 'process_id');
+      if (!id) throw new Error('processId is required');
+      return `log-stream:${id}`;
+    }
+    case 'conversation': {
+      const process = field(args, 'executionProcessId', 'execution_process_id');
+      if (!process) throw new Error('executionProcessId is required');
+      const streamId = field(args, 'streamId', 'stream_id');
+      return streamId
+        ? `conversation-stream:${process}:${streamId}`
+        : `conversation-stream:${process}`;
+    }
+    case 'slash_commands': {
+      const profile = (args.executorProfileId ?? args.executor_profile_id) as
+        | { executor?: string; variant?: string }
+        | undefined;
+      const executor = profile?.executor ?? 'none';
+      const variant = profile?.variant ?? 'default';
+      const workspace = field(args, 'workspaceId', 'workspace_id') ?? 'none';
+      const repo = field(args, 'repoId', 'repo_id') ?? 'none';
+      return `slash-commands-stream:${executor}:${variant}:${workspace}:${repo}`;
+    }
+    default:
+      throw new Error(`unknown patch stream \`${stream}\``);
   }
 }
 

@@ -9,6 +9,7 @@ const {
   familyTag,
   hostBinary,
 } = require("./download");
+const { PLATFORMS, platformFromNode } = require("./release-assets");
 
 function getEffectiveArch() {
   const platform = process.platform;
@@ -39,20 +40,16 @@ function getEffectiveArch() {
 }
 
 function getPlatformDir() {
-  const platform = process.platform;
-  const arch = getEffectiveArch();
-  if (platform === "linux" && arch === "x64") return "linux-x64";
-  if (platform === "linux" && arch === "arm64") return "linux-arm64";
-  if (platform === "win32" && arch === "x64") return "windows-x64";
-  if (platform === "win32" && arch === "arm64") return "windows-arm64";
-  if (platform === "darwin" && arch === "x64") return "macos-x64";
-  if (platform === "darwin" && arch === "arm64") return "macos-arm64";
+  // `getEffectiveArch` sees through Rosetta, so a translated x64 Node process
+  // on Apple silicon still resolves to the native arm64 build.
+  const resolved = platformFromNode(process.platform, getEffectiveArch());
+  if (resolved) {
+    return resolved;
+  }
 
-  console.error(`Unsupported platform: ${platform}-${arch}`);
+  console.error(`Unsupported platform: ${process.platform}-${getEffectiveArch()}`);
   console.error("Host family tarballs are published for:");
-  console.error(
-    "  linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64, windows-arm64",
-  );
+  console.error(`  ${PLATFORMS.join(", ")}`);
   process.exit(1);
 }
 

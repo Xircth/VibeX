@@ -16,7 +16,6 @@ use services::services::{
     worktree_manager::WorktreeManager,
 };
 use sqlx::Acquire;
-use tauri::Emitter;
 
 use crate::{error::AppError, state::AppState};
 
@@ -132,7 +131,7 @@ pub async fn get_user_system_info(
 
 #[tauri::command]
 pub async fn update_config(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     new_config: Config,
 ) -> Result<Config, AppError> {
@@ -159,11 +158,10 @@ pub async fn update_config(
     WorktreeManager::set_workspace_dir_override(workspace_dir_override);
 
     if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
-        app.emit(
+        server::global_host_events().emit(
             "theme-changed",
             json!({ "theme": new_config.theme.clone() }),
-        )
-        .map_err(|e| AppError::Internal(format!("Failed to emit theme change: {}", e)))?;
+        );
     }
 
     Ok(new_config)
@@ -327,7 +325,6 @@ pub async fn clear_local_app_data(
 
     state.file_tree_watchers.lock().await.clear();
     state.conversation_streams.lock().await.clear();
-    state.local_usage_cache.lock().await.clear();
     state.agent_management_runtime.reset().await;
     let agent_management_runtime = state.agent_management_runtime.clone();
     tauri::async_runtime::spawn(async move {

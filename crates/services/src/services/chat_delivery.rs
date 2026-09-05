@@ -782,6 +782,7 @@ pub fn event_key(event: &AgentEvent) -> Option<&'static str> {
             AgentConnectionStatus::Failed
             | AgentConnectionStatus::Disconnected
             | AgentConnectionStatus::Connecting
+            | AgentConnectionStatus::Recovering
             | AgentConnectionStatus::Ready => Some("connection_status_changed"),
         },
         _ => None,

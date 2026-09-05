@@ -5,6 +5,7 @@ import { GROUP_IDS, PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   collapsedEditorColumnWidths,
   editorColumnShouldDismiss,
+  groupsHiddenWhenEditorAreaCollapsed,
   shouldDismissEditorColumnAfterPanelRemoval,
 } from './lastPreviewTabLayout';
 
@@ -59,6 +60,17 @@ describe('last preview tab layout', () => {
         [{ panels: [{ id: PANEL_IDS.WELCOME }] }]
       )
     ).toBe(true);
+  });
+
+  it('hides editor and terminal without the file tree or session', () => {
+    expect(
+      groupsHiddenWhenEditorAreaCollapsed({
+        dock: 'file-tree',
+        workspace: ['editor-1', 'editor-2'],
+        terminal: 'terminal',
+        session: 'session',
+      })
+    ).toEqual(['editor-1', 'editor-2', 'terminal']);
   });
 
   it('keeps the file tree pinned and gives the rest to the session', () => {

@@ -56,7 +56,10 @@ import {
   setColumnsVisible,
   shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
-import { shouldDismissEditorColumnAfterPanelRemoval } from '@/utils/lastPreviewTabLayout';
+import {
+  groupsHiddenWhenEditorAreaCollapsed,
+  shouldDismissEditorColumnAfterPanelRemoval,
+} from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   ACTIVITY_RAIL_PANEL_TITLES,
@@ -1149,24 +1152,19 @@ export function IDELayout({
     setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
   }, [ensureSessionPanel, isRightPanelVisible, rightPanelContent]);
 
-  // Collapsed editor area: hide every zone except the session zone so it can
-  // take over the full dockview canvas.
+  // Collapsed editor area: hide the editor column and terminal strip. The
+  // file-tree dock stays; the session column takes the leftover width.
   useEffect(() => {
     const api = apiRef.current;
     if (!api || effectiveActiveTab !== 'workspace') return;
 
     if (isWorkspaceEditorAreaCollapsed) {
-      const updates: Array<{
-        group: NonNullable<ReturnType<DockviewApi['getGroup']>>;
-        visible: boolean;
-      }> = [];
-      const leftGroup = getLeftGroup(api);
-      if (leftGroup) updates.push({ group: leftGroup, visible: false });
-      const bottomGroup = getBottomGroup(api);
-      if (bottomGroup) updates.push({ group: bottomGroup, visible: false });
-      for (const group of getEditorGroups(api)) {
-        updates.push({ group, visible: false });
-      }
+      const updates = groupsHiddenWhenEditorAreaCollapsed({
+        dock: getLeftGroup(api),
+        workspace: getEditorGroups(api),
+        terminal: getBottomGroup(api),
+        session: getRightGroup(api),
+      }).map((group) => ({ group, visible: false }));
       setColumnsVisible(api, getLayoutArrangement(), updates);
       wasEditorAreaCollapsedRef.current = true;
       return;

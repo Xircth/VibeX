@@ -261,6 +261,26 @@ describe('slot column visibility leftover width', () => {
     api.dispose();
   });
 
+  it('keeps the file tree when hiding the editor and terminal together', () => {
+    const api = createApi();
+    const { welcome, fileTree, session, terminal } = buildWorkspace(api);
+    terminal.api.setVisible(true);
+    const leftBefore = fileTree.api.width;
+    const rightBefore = session.api.width;
+
+    setColumnsVisible(api, DEFAULT_LAYOUT_ARRANGEMENT, [
+      { group: terminal, visible: false },
+      { group: welcome, visible: false },
+    ]);
+
+    expect(fileTree.api.isVisible).toBe(true);
+    expect(welcome.api.isVisible).toBe(false);
+    expect(terminal.api.isVisible).toBe(false);
+    expectWidthNear(fileTree.api.width, leftBefore);
+    expect(session.api.width).toBeGreaterThan(rightBefore);
+    api.dispose();
+  });
+
   it('gives leftover to the right when hiding several non-session columns at once', () => {
     const api = createApi();
     const { welcome, fileTree, session, terminal } = buildWorkspace(api);

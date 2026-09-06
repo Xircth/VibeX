@@ -359,6 +359,8 @@
   },
   "turnStats": {
     "copyReply": "复制回复",
+    "forkFromHere": "从此处分叉",
+    "forkBusy": "请等当前回合结束后再分叉",
     "jumpBack": "回到上一条用户消息",
     "statusLabel": "状态",
     "generating": "生成中",

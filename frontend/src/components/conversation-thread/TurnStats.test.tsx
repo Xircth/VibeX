@@ -76,6 +76,9 @@ describe('TurnStats', () => {
     expect(screen.queryByText('300')).not.toBeInTheDocument();
     expect(screen.queryByText('45')).not.toBeInTheDocument();
     expect(screen.getByText('1m 5s')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '从此处分叉' })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('完成')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '耗时 1m 5s' }));
@@ -90,6 +93,26 @@ describe('TurnStats', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '回到上一条用户消息' }));
     expect(onJumpBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('places fork next to copy and keeps it readable when disabled', () => {
+    const onForkFromHere = vi.fn();
+    const { rerender } = render(
+      <TurnStats copyText="assistant answer" onForkFromHere={onForkFromHere} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '从此处分叉' }));
+    expect(onForkFromHere).toHaveBeenCalledTimes(1);
+    rerender(
+      <TurnStats
+        copyText="assistant answer"
+        onForkFromHere={onForkFromHere}
+        forkDisabled
+      />
+    );
+    expect(screen.getByRole('button', { name: '从此处分叉' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
   });
 
   it('shows only consumed tokens, not the context-window ratio', () => {

@@ -359,6 +359,8 @@
   },
   "turnStats": {
     "copyReply": "Copy reply",
+    "forkFromHere": "Fork from here",
+    "forkBusy": "Wait until this turn finishes",
     "jumpBack": "Back to previous user message",
     "statusLabel": "Status",
     "generating": "Generating",

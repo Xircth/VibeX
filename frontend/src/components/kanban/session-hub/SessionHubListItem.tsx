@@ -16,6 +16,7 @@ import {
 import { toast } from '@/components/ui/toast';
 import { exportConversation } from '@/lib/exportConversation';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -66,6 +67,7 @@ export function SessionHubListItem({
   isOpening = false,
 }: SessionHubListItemProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const kanbanSessions = useOptionalKanbanSessionContext();
   const agentKey = sessionListAgentKey(session);
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const isCanvasMode = displayMode === 'canvas';
@@ -387,9 +389,13 @@ export function SessionHubListItem({
                         reason: result.continuityNote,
                       })
                     );
-                    return;
+                  } else {
+                    toast.success(t('hubListItem.forkSuccess'));
                   }
-                  toast.success(t('hubListItem.forkSuccess'));
+                  kanbanSessions?.placeCreatedSession({
+                    sessionId: result.conversationId,
+                    workspaceId: session.workspace.id,
+                  });
                 })
                 .catch((error) =>
                   toast.error(

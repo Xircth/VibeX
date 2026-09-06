@@ -364,8 +364,14 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<ConversationImportResult> =>
       call('conversation_import', { request }),
 
-    fork: (conversationId: string): Promise<ConversationForkResult> =>
-      call('conversation_fork', { conversationId }),
+    fork: (
+      conversationId: string,
+      atTurnId?: string
+    ): Promise<ConversationForkResult> =>
+      call('conversation_fork', {
+        conversationId,
+        atTurnId: atTurnId ?? null,
+      }),
   };
 }
 

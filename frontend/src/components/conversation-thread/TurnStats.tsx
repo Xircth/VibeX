@@ -7,6 +7,7 @@ import {
   CornerUpLeft,
   Cpu,
   Gauge,
+  GitFork,
   Timer,
 } from 'lucide-react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -17,6 +18,8 @@ export type TurnStatsProps = {
   stats?: TurnStatsData | null;
   copyText?: string | null;
   onJumpBack?: (() => void) | null;
+  onForkFromHere?: (() => void) | null;
+  forkDisabled?: boolean;
   live?: boolean;
   className?: string;
 };
@@ -86,6 +89,8 @@ export function TurnStats({
   stats,
   copyText,
   onJumpBack,
+  onForkFromHere,
+  forkDisabled = false,
   live = false,
   className,
 }: TurnStatsProps) {
@@ -118,7 +123,7 @@ export function TurnStats({
     }
   }, [copyText, triggerCopied]);
 
-  if (!hasCopy && !onJumpBack && !hasStats) {
+  if (!hasCopy && !onJumpBack && !onForkFromHere && !hasStats) {
     return null;
   }
 
@@ -139,6 +144,26 @@ export function TurnStats({
               ) : (
                 <Copy className="h-3.5 w-3.5" />
               )}
+            </button>
+          ) : null}
+          {onForkFromHere ? (
+            <button
+              type="button"
+              className={cn(
+                'conv-turn-stat-button',
+                forkDisabled &&
+                  'cursor-not-allowed opacity-50 hover:bg-transparent'
+              )}
+              onClick={forkDisabled ? undefined : onForkFromHere}
+              aria-disabled={forkDisabled || undefined}
+              aria-label={t('turnStats.forkFromHere')}
+              title={
+                forkDisabled
+                  ? t('turnStats.forkBusy')
+                  : t('turnStats.forkFromHere')
+              }
+            >
+              <GitFork className="h-3.5 w-3.5" />
             </button>
           ) : null}
           {onJumpBack ? (

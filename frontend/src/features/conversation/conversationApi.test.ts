@@ -167,6 +167,22 @@ describe('conversationApi', () => {
     });
   });
 
+  it('forks from the tail or a named turn', async () => {
+    call.mockResolvedValue({ conversationId: 'child-1' });
+
+    await conversationApi.fork('conversation-1');
+    expect(call).toHaveBeenCalledWith('conversation_fork', {
+      conversationId: 'conversation-1',
+      atTurnId: null,
+    });
+
+    await conversationApi.fork('conversation-1', 'turn-9');
+    expect(call).toHaveBeenLastCalledWith('conversation_fork', {
+      conversationId: 'conversation-1',
+      atTurnId: 'turn-9',
+    });
+  });
+
   it('loads conversation detail by conversationId', async () => {
     call.mockResolvedValue({ summary: { id: 'conversation-1' } });
 

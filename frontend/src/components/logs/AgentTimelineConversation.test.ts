@@ -8,6 +8,7 @@ import {
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
   shouldLoadOlderTimelinePage,
+  vibexTurnIdFromTimelineRowId,
 } from './AgentTimelineConversation';
 
 function row(
@@ -27,6 +28,14 @@ function row(
     },
   };
 }
+
+describe('vibexTurnIdFromTimelineRowId', () => {
+  it('strips user, assistant, and steered assistant suffixes', () => {
+    expect(vibexTurnIdFromTimelineRowId('turn-1:user')).toBe('turn-1');
+    expect(vibexTurnIdFromTimelineRowId('turn-1:assistant')).toBe('turn-1');
+    expect(vibexTurnIdFromTimelineRowId('turn-1:assistant:2')).toBe('turn-1');
+  });
+});
 
 describe('shouldLoadOlderTimelinePage', () => {
   it('does not page older history while the open path is pinned to the bottom', () => {

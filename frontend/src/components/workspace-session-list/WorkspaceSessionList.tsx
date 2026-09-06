@@ -45,6 +45,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
 import { cn } from '@/lib/utils';
@@ -784,6 +785,7 @@ function WorkspaceSessionRow({
   isDragging?: boolean;
 }) {
   const { t } = useTranslation(['panels', 'tasks']);
+  const kanbanSessions = useOptionalKanbanSessionContext();
   const title = sessionListTitle(session);
   const tone = workspaceSessionStatusTone(session);
   const statusLabel = t(STATUS_LABEL_KEY[tone]);
@@ -1092,9 +1094,13 @@ function WorkspaceSessionRow({
                         reason: result.continuityNote,
                       })
                     );
-                    return;
+                  } else {
+                    toast.success(t('tasks:hubListItem.forkSuccess'));
                   }
-                  toast.success(t('tasks:hubListItem.forkSuccess'));
+                  kanbanSessions?.placeCreatedSession({
+                    sessionId: result.conversationId,
+                    workspaceId: session.workspace.id,
+                  });
                 })
                 .catch((error) =>
                   toast.error(

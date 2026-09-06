@@ -14,7 +14,7 @@ import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
 
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AgentElicitationResponse,
   AgentKind,
@@ -74,6 +74,7 @@ import { useConversationTimeline } from '@/features/conversation/useConversation
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
 import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import {
   resolveResendExecutorProfile,
   useActiveExecutorProfile,
@@ -165,6 +166,10 @@ export function buildTimelineNavEntries(
   return entries;
 }
 
+export function vibexTurnIdFromTimelineRowId(rowId: string): string {
+  return rowId.replace(/:(?:assistant(?::\d+)?|user)$/u, '');
+}
+
 export function isTimelineTurnInFlight(
   timeline: ConversationTimelineTurn[]
 ): boolean {
@@ -175,9 +180,8 @@ export function isTimelineTurnInFlight(
     if (row.turn.role !== 'assistant') {
       return true;
     }
-    const userId = row.turn.id.endsWith(':assistant')
-      ? `${row.turn.id.slice(0, -':assistant'.length)}:user`
-      : null;
+    const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+    const userId = baseId !== row.turn.id ? `${baseId}:user` : null;
     if (!userId) {
       return true;
     }
@@ -220,7 +224,7 @@ export function contextCompactPresentationForRow(
 ): ContextCompactPresentation | null {
   const row = timeline[index];
   if (!row || row.turn.role !== 'assistant') return null;
-  const baseId = row.turn.id.replace(/:assistant$/, '');
+  const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
   const userTurn = timeline
     .slice(0, index)
     .findLast((candidate) => candidate.turn.id === `${baseId}:user`)?.turn;
@@ -387,7 +391,7 @@ const AgentTimelineConversation = forwardRef<
   { attempt, task, onAtBottomChange, widthMode = 'bounded' },
   ref
 ) {
-  const { t } = useTranslation(['panels', 'conversation', 'common']);
+  const { t } = useTranslation(['panels', 'conversation', 'common', 'tasks']);
   const queryClient = useQueryClient();
   const { config } = useUserSystem();
   const { collapseAiMessages: collapseProcess, expandFileChanges } =
@@ -411,6 +415,17 @@ const AgentTimelineConversation = forwardRef<
   const { repos } = useAttemptRepo(attempt.id);
   const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
   const conversation = useConversationTimeline(sessionId);
+  const kanbanSessions = useOptionalKanbanSessionContext();
+  const { data: forkSupported = false } = useQuery({
+    queryKey: ['conversation-fork-supported', sessionId],
+    queryFn: async () => {
+      if (!sessionId) return false;
+      const detail = await conversationApi.detail(sessionId);
+      return Boolean(detail?.active_binding?.capabilities.fork_session);
+    },
+    enabled: Boolean(sessionId),
+    staleTime: 5_000,
+  });
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
@@ -924,6 +939,35 @@ const AgentTimelineConversation = forwardRef<
   }, [onAtBottomChange, sessionId]);
 
   // Inline turn stats are sourced from the parsed MessageTurn / live usage.
+  const handleForkFromTurn = useCallback(
+    async (turnId: string) => {
+      if (!sessionId) return;
+      try {
+        const result = await conversationApi.fork(sessionId, turnId);
+        if (result.continuity === 'history_only') {
+          toast.warning(
+            t('tasks:hubListItem.forkHistoryOnly', {
+              reason: result.continuityNote,
+            })
+          );
+        } else {
+          toast.success(t('tasks:hubListItem.forkSuccess'));
+        }
+        kanbanSessions?.placeCreatedSession({
+          sessionId: result.conversationId,
+          workspaceId: attempt.id,
+        });
+      } catch (error) {
+        toast.error(
+          t('tasks:hubListItem.forkFailed', {
+            error: getErrorMessage(error),
+          })
+        );
+      }
+    },
+    [attempt.id, kanbanSessions, sessionId, t]
+  );
+
   const renderTurnStats = useCallback(
     (row: ConversationTimelineTurn, index: number) => {
       if (row.turn.role !== 'assistant') return null;
@@ -942,6 +986,16 @@ const AgentTimelineConversation = forwardRef<
               });
             };
       const copyText = assistantCopyText(row.turn);
+      const vibexTurnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+      const canFork =
+        forkSupported &&
+        row.phase !== 'streaming' &&
+        row.phase !== 'optimistic';
+      const onForkFromHere = canFork
+        ? () => {
+            void handleForkFromTurn(vibexTurnId);
+          }
+        : null;
       return row.phase === 'streaming' ? (
         <LiveTurnStats
           stats={liveStats}
@@ -954,11 +1008,16 @@ const AgentTimelineConversation = forwardRef<
           stats={buildSettledTurnStats(row.turn)}
           copyText={copyText}
           onJumpBack={onJumpBack}
+          onForkFromHere={onForkFromHere}
+          forkDisabled={isTurnInFlight}
         />
       );
     },
     [
       detachFromBottom,
+      forkSupported,
+      handleForkFromTurn,
+      isTurnInFlight,
       liveStats,
       rowVirtualizer,
       scrollBehavior,
@@ -1353,15 +1412,14 @@ const AgentTimelineConversation = forwardRef<
                               )
                             )}
                             hasTurnError={turnIdsWithErrors.has(
-                              row.turn.id.replace(/:(?:assistant|user)$/u, '')
+                              vibexTurnIdFromTimelineRowId(row.turn.id)
                             )}
                           />
                         ) : null}
                         {row?.turn.role === 'assistant'
                           ? (() => {
-                              const turnId = row.turn.id.replace(
-                                /:assistant$/,
-                                ''
+                              const turnId = vibexTurnIdFromTimelineRowId(
+                                row.turn.id
                               );
                               const fileChanges =
                                 fileChangesByTurnId.get(turnId);

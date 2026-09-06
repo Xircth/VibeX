@@ -51,12 +51,9 @@ impl ConnectionSpawner for RuntimeSpawner {
         let working_dir = working_dir
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(&parent_conn.working_dir));
-        let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
-            &self.pool,
-            &agent_type,
-        )
-        .await
-        .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
+        let launch = conversations::resolve_agent_runtime_launch_settings(&self.pool, &agent_type)
+            .await
+            .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
         let child = self
             .runtime
             .connect(ConnectAgentInput {

@@ -20,17 +20,6 @@ use db::models::{conversation_event::ConversationEventRecord, repo::Repo, worksp
 use sqlx::SqlitePool;
 use tauri::AppHandle;
 
-fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError {
-    match error {
-        crate::error::AppError::NotFound(message) => ConversationServiceError::NotFound(message),
-        crate::error::AppError::BadRequest(message) => {
-            ConversationServiceError::BadRequest(message)
-        }
-        crate::error::AppError::Conflict(message) => ConversationServiceError::Conflict(message),
-        crate::error::AppError::Internal(message) => ConversationServiceError::Internal(message),
-    }
-}
-
 /// src-tauri-coupled host operations for the conversation turn lifecycle. Implements
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
 /// `AppState` and the command layer.
@@ -107,9 +96,7 @@ impl conversations::ConversationHost for AppConversationHost {
         pool: &SqlitePool,
         agent_id: &agents::AgentId,
     ) -> Result<conversations::AgentRuntimeLaunchSettings, ConversationServiceError> {
-        crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(pool, agent_id)
-            .await
-            .map_err(app_err_to_service)
+        conversations::resolve_agent_runtime_launch_settings(pool, agent_id).await
     }
 
     fn product_mcp_server_names(&self) -> Vec<String> {

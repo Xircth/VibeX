@@ -26,7 +26,7 @@ pub async fn open_capability_catalog_fingerprint(
     let mut digest = Sha256::new();
     // v3 invalidates catalogs captured before effort/permission were merged
     // from Grok's vendor `_meta` into the standard session-control snapshot.
-    digest.update(b"open-agent-capability-catalog-v4:");
+    digest.update(b"open-agent-capability-catalog-v5:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(
@@ -98,7 +98,7 @@ pub async fn open_capability_catalog_fingerprint(
     }
     if let Some(row) = sqlx::query(
         r#"SELECT authentication, observation_generation,
-                  runtime_available, acp_handshake, authentication_required
+                  acp_handshake, authentication_required
            FROM agent_probe WHERE agent_id = ?"#,
     )
     .bind(launch_lock.agent_id.as_str())
@@ -119,7 +119,7 @@ pub async fn open_capability_catalog_fingerprint(
                 .to_le_bytes(),
         );
         digest.update(b"\0");
-        for index in 2..5 {
+        for index in 2..4 {
             digest.update(
                 if row
                     .try_get::<bool, _>(index)

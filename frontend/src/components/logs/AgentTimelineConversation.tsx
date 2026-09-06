@@ -84,6 +84,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
+import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   findPreviousUserMessageVirtualIndex,
@@ -677,6 +678,19 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setConversationTurnInFlight?.(isTurnInFlight);
   }, [isTurnInFlight, setConversationTurnInFlight]);
+
+  const setUserMessageHistory = entries?.setUserMessageHistory;
+  const composerUserMessageHistory = useMemo(
+    () =>
+      composerMessageHistoryFromTurns(
+        timeline.map((row) => row.turn),
+        isContextCompactPrompt
+      ),
+    [timeline]
+  );
+  useEffect(() => {
+    setUserMessageHistory?.(composerUserMessageHistory);
+  }, [composerUserMessageHistory, setUserMessageHistory]);
 
   const liveStats = useMemo<TurnStatsData>(
     () => ({

@@ -11,8 +11,8 @@ use agents::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
         ConversationInputBlock, ConversationRowPage, ConversationSessionModes,
-        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
-        ConversationToolCallPatch, ConversationWorkflowRef, MessageTurn, SessionStats, TurnUsage,
+        ConversationTimeline, ConversationTimelinePage, ConversationToolCallPatch,
+        ConversationWorkflowRef, MessageTurn, SessionStats,
     },
 };
 use automation::{
@@ -21,7 +21,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    workbench_status,
+    OPEN_TIMELINE_ROW_LIMIT, workbench_status,
 };
 use db::models::{
     conversation::{
@@ -247,10 +247,9 @@ pub async fn conversation_detail_core(
     let Some(summary) = DbConversationSummary::find_by_id(pool, id).await? else {
         return Ok(None);
     };
-    let mut timeline = ConversationProjector::project(pool, id).await?;
-    agents::conversation::cap_timeline_preview_fields(&mut timeline);
-    let session_stats = session_stats_from_turns(&message_turns_from_timeline(&timeline));
-    truncate_timeline_for_open(&mut timeline);
+    let open = ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT).await?;
+    let timeline = open.timeline;
+    let session_stats = open.session_stats;
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
@@ -483,29 +482,23 @@ pub async fn conversation_timeline_page_core(
     cursor: Option<String>,
     limit: usize,
 ) -> Result<ConversationTimelinePage, AppError> {
-    let mut timeline = ConversationProjector::project(pool, conversation_id).await?;
-    agents::conversation::cap_timeline_preview_fields(&mut timeline);
     let start = cursor
         .as_deref()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
     let bounded_limit = limit.clamp(1, 200);
-    let rows = timeline
-        .rows
-        .iter()
-        .skip(start)
-        .take(bounded_limit)
-        .cloned()
-        .collect::<Vec<_>>();
-    let next_index = start + rows.len();
-    let next_cursor = (next_index < timeline.rows.len()).then(|| next_index.to_string());
+    let window =
+        ConversationProjector::project_row_window(pool, conversation_id, start, bounded_limit)
+            .await?;
+    let next_index = start + window.rows.len();
+    let next_cursor = (next_index < window.total_rows).then(|| next_index.to_string());
 
     Ok(ConversationTimelinePage {
         conversation_id,
-        projection_version: timeline.projection_version,
+        projection_version: window.projection_version,
         cursor,
         next_cursor,
-        rows,
+        rows: window.rows,
     })
 }
 
@@ -914,73 +907,6 @@ pub async fn conversation_import(
     let workspace_id = Uuid::parse_str(&request.workspace_id)
         .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
     import_conversation_bundle(&state.deployment.db().pool, request.bundle, workspace_id).await
-}
-
-const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
-
-fn truncate_timeline_for_open(timeline: &mut ConversationTimeline) {
-    let len = timeline.rows.len();
-    if len <= OPEN_TIMELINE_ROW_LIMIT {
-        timeline.truncated_from_start = false;
-        timeline.older_cursor = None;
-        return;
-    }
-    let start = len - OPEN_TIMELINE_ROW_LIMIT;
-    timeline.rows = timeline.rows.split_off(start);
-    timeline.truncated_from_start = true;
-    timeline.older_cursor = Some(start.to_string());
-}
-
-fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTurn> {
-    timeline
-        .rows
-        .iter()
-        .filter_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-fn session_stats_from_turns(turns: &[MessageTurn]) -> Option<SessionStats> {
-    let total_usage = turns.iter().filter_map(|turn| turn.usage.clone()).fold(
-        TurnUsage::default(),
-        |mut acc, usage| {
-            acc.input_tokens += usage.input_tokens;
-            acc.output_tokens += usage.output_tokens;
-            acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
-            acc.cache_read_input_tokens += usage.cache_read_input_tokens;
-            acc
-        },
-    );
-    let total_tokens = total_usage.input_tokens
-        + total_usage.output_tokens
-        + total_usage.cache_creation_input_tokens
-        + total_usage.cache_read_input_tokens;
-    // Latest agent-reported context-window snapshot (ACP usage), when available.
-    let context_window = turns.iter().rev().find_map(|turn| {
-        let usage = turn.usage.clone()?;
-        let max = usage.context_window_max?;
-        let used = usage.input_tokens
-            + usage.output_tokens
-            + usage.cache_creation_input_tokens
-            + usage.cache_read_input_tokens;
-        Some((used, max))
-    });
-    (total_tokens > 0).then_some(SessionStats {
-        total_usage: Some(total_usage),
-        total_tokens: Some(total_tokens),
-        total_duration_ms: turns.iter().filter_map(|turn| turn.duration_ms).sum(),
-        context_window_used_tokens: context_window.map(|(used, _)| used),
-        context_window_max_tokens: context_window.map(|(_, max)| max),
-        context_window_usage_percent: context_window.map(|(used, max)| {
-            if max > 0 {
-                (used as f64 / max as f64) * 100.0
-            } else {
-                0.0
-            }
-        }),
-    })
 }
 
 async fn active_binding_for_conversation(

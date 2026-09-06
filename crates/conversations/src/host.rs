@@ -206,6 +206,11 @@ pub async fn resolve_agent_runtime_launch_settings(
     })?;
 
     let mut lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
+    // Persisted NeedsAuth cannot block a real session/new. ACP AuthRequired is
+    // the authority (ADR-0021).
+    if lifecycle == AgentLifecycleState::NeedsAuth {
+        lifecycle = AgentLifecycleState::Ready;
+    }
     let resolved_json = row.try_get::<Option<String>, _>("resolved_json")?;
     let lock_id = row.try_get::<Option<String>, _>("id")?;
     let mut current_lock = match (resolved_json.as_deref(), lock_id.as_deref()) {

@@ -1058,8 +1058,6 @@ impl ConversationSessionService {
                 unused_prompt_snapshot(conversation_id),
             ));
         }
-        let turn_lock = self.turn_lock(input.conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
         self.start_turn_under_lock(input, origin).await
     }
 
@@ -1124,6 +1122,8 @@ impl ConversationSessionService {
                 "Agent prompt must include text or an image".to_string(),
             ));
         }
+        let turn_lock = self.turn_lock(input.conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
         self.interrupt_orphaned_turn(input.conversation_id).await?;
 
         let pool = &self.ctx.deployment.db().pool;
@@ -1349,6 +1349,16 @@ impl ConversationSessionService {
             state.event_sequence = created.sequence;
         })
         .await;
+        drop(_turn_guard);
+
+        if !self
+            .turn_is_still_in_flight(input.conversation_id, turn.id)
+            .await?
+        {
+            return Err(ConversationServiceError::Conflict(
+                "Turn was cancelled before the Agent handshake".to_string(),
+            ));
+        }
 
         let result = self
             .send_turn_to_agent(
@@ -2366,27 +2376,28 @@ impl ConversationSessionService {
         // the new Turn. Holding this guard makes Pause an acknowledged boundary:
         // when it returns, any concurrent start has either committed and been
         // cancelled, or never existed.
-        let turn_lock = self.turn_lock(conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
-        let snapshot = self.runtime_snapshot(conversation_id).await;
-        let pool = &self.ctx.deployment.db().pool;
-        // Runtime coordination is deliberately ephemeral. After a failed session
-        // recovery it may be empty even though the event-sourced conversation still
-        // has a persisted in-flight turn, so use the database as the fallback.
-        let persisted_turn_id = ConversationRecord::find_by_id(pool, conversation_id)
-            .await?
-            .and_then(|conversation| conversation.active_turn_id);
-        let turn_id = persisted_turn_id.or(snapshot.active_turn_id);
-        let turn_id = match turn_id {
-            Some(turn_id) => ConversationTurnRecord::find_by_id(pool, turn_id)
+        let (snapshot, turn_id) = {
+            let turn_lock = self.turn_lock(conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            let snapshot = self.runtime_snapshot(conversation_id).await;
+            let pool = &self.ctx.deployment.db().pool;
+            let persisted_turn_id = ConversationRecord::find_by_id(pool, conversation_id)
                 .await?
-                .filter(|turn| is_in_flight_turn_status(&turn.status))
-                .map(|turn| turn.id),
-            None => None,
+                .and_then(|conversation| conversation.active_turn_id);
+            let turn_id = persisted_turn_id.or(snapshot.active_turn_id);
+            let turn_id = match turn_id {
+                Some(turn_id) => ConversationTurnRecord::find_by_id(pool, turn_id)
+                    .await?
+                    .filter(|turn| is_in_flight_turn_status(&turn.status))
+                    .map(|turn| turn.id),
+                None => None,
+            };
+            (snapshot, turn_id)
         };
         let Some(turn_id) = turn_id else {
             return Ok(());
         };
+        let pool = &self.ctx.deployment.db().pool;
         let cancel_target = match (
             snapshot
                 .connection_id
@@ -2444,7 +2455,6 @@ impl ConversationSessionService {
             state.recovery_status = reason;
         })
         .await;
-        drop(_turn_guard);
         if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
             tracing::warn!(
                 %conversation_id,
@@ -2853,6 +2863,24 @@ impl ConversationSessionService {
 
     async fn prune_turn_lock(&self, conversation_id: Uuid) {
         prune_unreferenced_turn_lock(&mut *self.ctx.turn_locks.lock().await, conversation_id);
+    }
+
+    async fn turn_is_still_in_flight(
+        &self,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<bool, ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
+            return Ok(false);
+        };
+        if !is_in_flight_turn_status(&turn.status) {
+            return Ok(false);
+        }
+        let active = ConversationRecord::find_by_id(pool, conversation_id)
+            .await?
+            .and_then(|conversation| conversation.active_turn_id);
+        Ok(active == Some(turn_id))
     }
 
     async fn ensure_conversation(

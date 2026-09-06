@@ -9,7 +9,7 @@ use agents::conversation::{
     ConversationInputEvent, ConversationPermissionView, ConversationRowOp,
     ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
     ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
-    SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    SessionRecoveryStrategy, SessionStats, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
     cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 use db::models::{
@@ -38,7 +38,20 @@ use uuid::Uuid;
 // v17 attributes streaming deltas to the recorder's turn_id, which is now read from
 // the authoritative active-turn pointer instead of a cache that could go stale.
 pub const CONVERSATION_PROJECTION_VERSION: u32 = 18;
+pub const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
+
+pub struct OpenConversationProjection {
+    pub timeline: ConversationTimeline,
+    pub session_stats: Option<SessionStats>,
+}
+
+pub struct ConversationRowWindow {
+    pub rows: Vec<TimelineRow>,
+    pub last_sequence: i64,
+    pub projection_version: u32,
+    pub total_rows: usize,
+}
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
@@ -613,6 +626,39 @@ impl ConversationProjector {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<ConversationTimeline, sqlx::Error> {
+        Ok(Self::fold(pool, conversation_id)
+            .await?
+            .into_timeline(conversation_id))
+    }
+
+    /// Open-conversation window: last `limit` rows on the wire, stats from the
+    /// full fold so truncated history is not treated as the session total.
+    pub async fn project_open(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        limit: usize,
+    ) -> Result<OpenConversationProjection, sqlx::Error> {
+        let fold = Self::fold(pool, conversation_id).await?;
+        let session_stats = fold.session_stats();
+        Ok(OpenConversationProjection {
+            timeline: fold.into_open_timeline(conversation_id, limit),
+            session_stats,
+        })
+    }
+
+    /// Page a row window without cloning the unrequested rows onto the response.
+    pub async fn project_row_window(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        start: usize,
+        limit: usize,
+    ) -> Result<ConversationRowWindow, sqlx::Error> {
+        Ok(Self::fold(pool, conversation_id)
+            .await?
+            .into_row_window(start, limit))
+    }
+
+    async fn fold(pool: &SqlitePool, conversation_id: Uuid) -> Result<ProjectionFold, sqlx::Error> {
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
             pool,
@@ -628,7 +674,7 @@ impl ConversationProjector {
             .await?
             .and_then(|session| session.initial_prompt);
         fold.seed_user_prompt_from_session(conversation_id, prompt.as_deref());
-        Ok(fold.into_timeline(conversation_id))
+        Ok(fold)
     }
 
     /// Fold a fixed slice of records into a timeline (no snapshot). Used by import
@@ -1934,7 +1980,7 @@ impl ProjectionFold {
         Ok(ops)
     }
 
-    fn into_timeline(self, conversation_id: Uuid) -> ConversationTimeline {
+    fn collect_rows(self) -> (Vec<TimelineRow>, i64) {
         let ProjectionFold {
             mut turns,
             turn_order,
@@ -1989,7 +2035,11 @@ impl ProjectionFold {
             }
         }
         rows.extend(side_rows);
+        (rows, last_sequence)
+    }
 
+    fn into_timeline(self, conversation_id: Uuid) -> ConversationTimeline {
+        let (rows, last_sequence) = self.collect_rows();
         let mut timeline = ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
@@ -2000,6 +2050,68 @@ impl ProjectionFold {
         };
         cap_timeline_preview_fields(&mut timeline);
         timeline
+    }
+
+    fn into_open_timeline(self, conversation_id: Uuid, limit: usize) -> ConversationTimeline {
+        let (mut rows, last_sequence) = self.collect_rows();
+        let total = rows.len();
+        let truncated = limit > 0 && total > limit;
+        let start = if truncated { total - limit } else { 0 };
+        if truncated {
+            rows = rows.split_off(start);
+        }
+        let mut timeline = ConversationTimeline {
+            conversation_id,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+            last_sequence,
+            rows,
+            truncated_from_start: truncated,
+            older_cursor: truncated.then(|| start.to_string()),
+        };
+        cap_timeline_preview_fields(&mut timeline);
+        timeline
+    }
+
+    fn into_row_window(self, start: usize, limit: usize) -> ConversationRowWindow {
+        let (mut rows, last_sequence) = self.collect_rows();
+        let total_rows = rows.len();
+        let bounded_limit = limit.max(1);
+        let end = start.saturating_add(bounded_limit).min(total_rows);
+        let mut window = if start >= total_rows {
+            Vec::new()
+        } else {
+            rows.drain(start..end).collect()
+        };
+        for row in &mut window {
+            cap_timeline_row_preview_fields(row);
+        }
+        ConversationRowWindow {
+            rows: window,
+            last_sequence,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+            total_rows,
+        }
+    }
+
+    fn session_stats(&self) -> Option<SessionStats> {
+        let mut turns = Vec::new();
+        for turn_id in &self.turn_order {
+            let Some(turn) = self.turns.get(turn_id) else {
+                continue;
+            };
+            if !turn.user.blocks.is_empty() {
+                turns.push(&turn.user);
+            }
+            for segment in &turn.prefix_segments {
+                if !segment.blocks.is_empty() {
+                    turns.push(segment);
+                }
+            }
+            if !turn.assistant.blocks.is_empty() {
+                turns.push(&turn.assistant);
+            }
+        }
+        session_stats_from_turns(&turns)
     }
 
     fn changed_rows_since(&self, after_sequence: i64) -> Vec<TimelineRow> {
@@ -2243,6 +2355,46 @@ fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
             phase: turn.phase.clone(),
         },
     }
+}
+
+fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
+    let total_usage = turns.iter().filter_map(|turn| turn.usage.clone()).fold(
+        TurnUsage::default(),
+        |mut acc, usage| {
+            acc.input_tokens += usage.input_tokens;
+            acc.output_tokens += usage.output_tokens;
+            acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            acc.cache_read_input_tokens += usage.cache_read_input_tokens;
+            acc
+        },
+    );
+    let total_tokens = total_usage.input_tokens
+        + total_usage.output_tokens
+        + total_usage.cache_creation_input_tokens
+        + total_usage.cache_read_input_tokens;
+    let context_window = turns.iter().rev().find_map(|turn| {
+        let usage = turn.usage.clone()?;
+        let max = usage.context_window_max?;
+        let used = usage.input_tokens
+            + usage.output_tokens
+            + usage.cache_creation_input_tokens
+            + usage.cache_read_input_tokens;
+        Some((used, max))
+    });
+    (total_tokens > 0).then_some(SessionStats {
+        total_usage: Some(total_usage),
+        total_tokens: Some(total_tokens),
+        total_duration_ms: turns.iter().filter_map(|turn| turn.duration_ms).sum(),
+        context_window_used_tokens: context_window.map(|(used, _)| used),
+        context_window_max_tokens: context_window.map(|(_, max)| max),
+        context_window_usage_percent: context_window.map(|(used, max)| {
+            if max > 0 {
+                (used as f64 / max as f64) * 100.0
+            } else {
+                0.0
+            }
+        }),
+    })
 }
 
 fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
@@ -4022,6 +4174,63 @@ mod tests {
                 .any(|row| row.row_id == format!("{turn_id}:assistant")),
             "the assistant row (bumped by turn completion) is included"
         );
+    }
+
+    #[tokio::test]
+    async fn project_open_keeps_the_tail_without_shipping_the_full_row_vec() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_turn(&pool).await;
+        for index in 0..12 {
+            let turn = ConversationTurnRecord::create_pending(
+                &pool,
+                Uuid::new_v4(),
+                CreateConversationTurn {
+                    conversation_id,
+                    prompt_id: Some("prompt-1"),
+                    text_preview: Some("hello"),
+                    input_blocks_json: "[]",
+                },
+            )
+            .await
+            .expect("create turn");
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn.id),
+                "user",
+                ConversationEvent::UserTurnCreated {
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: format!("turn {index}"),
+                    }],
+                    workflow_refs: Vec::new(),
+                },
+                None,
+            )
+            .await;
+        }
+        let full = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("full project");
+        let open = ConversationProjector::project_open(&pool, conversation_id, 5)
+            .await
+            .expect("open project");
+        assert!(full.rows.len() > 5);
+        assert_eq!(open.timeline.rows.len(), 5);
+        assert!(open.timeline.truncated_from_start);
+        assert_eq!(
+            open.timeline.older_cursor,
+            Some((full.rows.len() - 5).to_string())
+        );
+        assert_eq!(
+            open.timeline.rows.last().map(|row| row.row_id.as_str()),
+            full.rows.last().map(|row| row.row_id.as_str())
+        );
+        let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
+            .await
+            .expect("window");
+        assert_eq!(window.total_rows, full.rows.len());
+        assert_eq!(window.rows.len(), 3);
+        assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
     }
 
     #[tokio::test]

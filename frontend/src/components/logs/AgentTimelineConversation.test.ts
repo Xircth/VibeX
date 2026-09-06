@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ConversationTimelineTurn } from '@/features/conversation/conversationStore';
+import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
+import { isContextCompactPrompt } from '@/lib/contextCompact';
 import {
   contextCompactPresentationForRow,
   conversationThreadMaxWidthClass,
@@ -129,6 +131,22 @@ describe('AgentTimelineConversation composer runtime bridge', () => {
       { content: 'Repair queue state', status: 'in_progress' },
       { content: 'Verify the composer', status: 'pending' },
     ]);
+  });
+
+  it('exposes chronological user prompts to the composer, skipping compact', () => {
+    const first = row('turn-1', 'user', 'settled');
+    first.turn.blocks = [{ type: 'text', text: 'fix the dashboard' }];
+    const compact = row('turn-2', 'user', 'settled');
+    compact.turn.blocks = [{ type: 'text', text: '/compact' }];
+    const latest = row('turn-3', 'user', 'settled');
+    latest.turn.blocks = [{ type: 'text', text: 'add docs' }];
+
+    expect(
+      composerMessageHistoryFromTurns(
+        [first, compact, latest].map((item) => item.turn),
+        isContextCompactPrompt
+      )
+    ).toEqual(['fix the dashboard', 'add docs']);
   });
 });
 

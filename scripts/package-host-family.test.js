@@ -24,6 +24,12 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   );
   fs.mkdirSync(path.join(root, "plugins", "scratch"));
   fs.writeFileSync(path.join(root, "plugins", "scratch", "notes.txt"), "ignore");
+  const sample = path.join(root, "plugins", "host-chrome");
+  fs.mkdirSync(path.join(sample, ".vibex-plugin"), { recursive: true });
+  fs.writeFileSync(
+    path.join(sample, ".vibex-plugin", "plugin.json"),
+    JSON.stringify({ id: "vibex.host-chrome" }),
+  );
 
   const output = packageHostFamily({
     server,
@@ -50,6 +56,10 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
     ),
   );
   assert.equal(fs.existsSync(path.join(output, "plugins", "bundled", "scratch")), false);
+  assert.equal(
+    fs.existsSync(path.join(output, "plugins", "bundled", "host-chrome")),
+    false,
+  );
 
   const checksums = fs.readFileSync(path.join(output, "SHA256SUMS"), "utf8");
   assert.match(checksums, /  vibex-server\n/);

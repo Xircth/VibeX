@@ -42,30 +42,6 @@
     },
     {
       "publisher": "vibex",
-      "pluginId": "vibex.host-chrome",
-      "version": "1.0.0",
-      "summary": "官方参考插件，演示命令面板、工具栏、状态栏、斜杠命令、时间线卡片与设置分区六个宿主界面槽位。",
-      "packageDigest": "builtin:vibex.host-chrome",
-      "archive": "builtin://vibex.host-chrome"
-    },
-    {
-      "publisher": "vibex",
-      "pluginId": "vibex.provider-import",
-      "version": "1.0.0",
-      "summary": "把已经导出到环境变量里的 OpenAI 兼容供应商，一次性导入 Model Provider 预设。",
-      "packageDigest": "builtin:vibex.provider-import",
-      "archive": "builtin://vibex.provider-import"
-    },
-    {
-      "publisher": "vibex",
-      "pluginId": "vibex.host-surface",
-      "version": "1.0.0",
-      "summary": "官方样例插件，用公开 SDK 贡献一个顶级 Tab、一个面板和一个看板视图。",
-      "packageDigest": "builtin:vibex.host-surface",
-      "archive": "builtin://vibex.host-surface"
-    },
-    {
-      "publisher": "vibex",
       "pluginId": "vibex.remote-ssh",
       "version": "1.0.0",
       "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",

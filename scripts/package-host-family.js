@@ -54,10 +54,17 @@ function copyDirectory(source, destination) {
   }
 }
 
+const AUTHORING_SAMPLE_PLUGIN_DIRS = new Set([
+  "host-chrome",
+  "host-surface",
+  "provider-import",
+]);
+
 function bundledPluginRoots(pluginsDir) {
   return fs
     .readdirSync(pluginsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
+    .filter((entry) => !AUTHORING_SAMPLE_PLUGIN_DIRS.has(entry.name))
     .map((entry) => path.join(pluginsDir, entry.name))
     .filter((directory) =>
       fs.existsSync(path.join(directory, ".vibex-plugin", "plugin.json")),

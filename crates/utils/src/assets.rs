@@ -236,7 +236,16 @@ pub struct ScriptAssets;
 
 #[derive(RustEmbed)]
 #[folder = "../../assets/plugins"]
+#[exclude = "host-chrome/**"]
+#[exclude = "host-surface/**"]
+#[exclude = "provider-import/**"]
 pub struct BuiltinPluginAssets;
+
+const AUTHORING_SAMPLE_PLUGIN_DIRS: &[&str] = &["host-chrome", "host-surface", "provider-import"];
+
+fn is_authoring_sample_plugin_dir(directory: &str) -> bool {
+    AUTHORING_SAMPLE_PLUGIN_DIRS.contains(&directory)
+}
 
 /// Materializes every bundled VibeX plugin from application-owned bytes.
 /// Builtin product plugins live in git submodules under `assets/plugins/<name>`.
@@ -265,12 +274,14 @@ fn embedded_builtin_directories() -> Vec<String> {
         if let Some(directory) = path
             .strip_suffix("/.vibex-plugin/plugin.json")
             .filter(|directory| !directory.is_empty() && !directory.contains('/'))
+            .filter(|directory| !is_authoring_sample_plugin_dir(directory))
         {
             directories.insert(directory.to_owned());
         }
         if let Some(directory) = path.split('/').next()
             && !directory.is_empty()
             && directory != "index"
+            && !is_authoring_sample_plugin_dir(directory)
             && BuiltinPluginAssets::get(&format!("{directory}/.vibex-plugin/plugin.json")).is_some()
         {
             directories.insert(directory.to_owned());
@@ -477,6 +488,18 @@ mod tests {
     };
 
     #[test]
+    fn does_not_embed_authoring_sample_plugins() {
+        assert!(super::BuiltinPluginAssets::get("host-chrome/.vibex-plugin/plugin.json").is_none());
+        assert!(
+            super::BuiltinPluginAssets::get("host-surface/.vibex-plugin/plugin.json").is_none()
+        );
+        assert!(
+            super::BuiltinPluginAssets::get("provider-import/.vibex-plugin/plugin.json").is_none()
+        );
+        assert!(super::BuiltinPluginAssets::get("office/.vibex-plugin/plugin.json").is_some());
+    }
+
+    #[test]
     fn discovers_builtin_packages_without_plugin_specific_host_code() {
         let data = tempfile::tempdir().unwrap();
         let roots = materialize_builtin_plugins(data.path()).unwrap();
@@ -498,6 +521,7 @@ mod tests {
                 "vibex.multi-agent",
                 "vibex.office",
                 "vibex.plugin-development",
+                "vibex.remote-ssh",
                 "vibex.session-enhance",
                 "vibex.workflow-creator",
             ]
@@ -538,7 +562,7 @@ mod tests {
             roots.iter().any(|root| root == &extra),
             "already materialized packages must stay visible to Host import"
         );
-        assert_eq!(roots.len(), 6);
+        assert_eq!(roots.len(), 7);
     }
 
     #[test]

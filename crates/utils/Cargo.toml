@@ -17,7 +17,7 @@ tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 ts-rs = { workspace = true }
-rust-embed = "8.2"
+rust-embed = { version = "8.2", features = ["include-exclude"] }
 directories = "6.0.0"
 open = "5.3.2"
 regex = { workspace = true }

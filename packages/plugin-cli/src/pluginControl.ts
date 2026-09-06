@@ -3,14 +3,13 @@ import { join, resolve } from "node:path";
 
 import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
 
-import {
-  type ActivatedGeneration,
-  PluginDevHostClient,
-  type PluginDoctorReport,
-  type PluginIdentity,
-} from "./hostClient.js";
 import { createPackageLock } from "./package.js";
 import { validatePlugin } from "./validation.js";
+
+export type PluginIdentity = {
+  publisher: string;
+  id: string;
+};
 
 export interface LinkedPackage {
   root: string;
@@ -40,68 +39,6 @@ export async function inspectLinkedPackage(
   };
 }
 
-export async function installLinkedPlugin(
-  root: string,
-  client: PluginDevHostClient,
-): Promise<ActivatedGeneration> {
-  const plugin = await inspectLinkedPackage(root);
-  const result = await client.installLinked({
-    sourcePath: plugin.root,
-    expected: {
-      publisher: plugin.manifest.publisher,
-      pluginId: plugin.manifest.id,
-      version: plugin.manifest.version,
-      packageDigest: plugin.packageDigest,
-    },
-  });
-  assertActivatedPackage(plugin, result);
-  return result;
-}
-
-export async function reloadLinkedPlugin(
-  root: string,
-  client: PluginDevHostClient,
-): Promise<ActivatedGeneration> {
-  const plugin = await inspectLinkedPackage(root);
-  const result = await client.reloadCandidate(plugin.identity, {
-    sourcePath: plugin.root,
-    expectedPackageDigest: plugin.packageDigest,
-  });
-  assertActivatedPackage(plugin, result);
-  return result;
-}
-
-export async function doctorPlugin(
-  root: string,
-  client: PluginDevHostClient,
-): Promise<PluginDoctorReport> {
-  const plugin = await readPluginReference(root);
-  const report = await client.doctor(plugin.identity);
-  if (
-    report.plugin.publisher !== plugin.identity.publisher ||
-    report.plugin.id !== plugin.identity.id
-  ) {
-    throw new Error("plugin_dev_host_response_mismatch");
-  }
-  return report;
-}
-
-export async function uninstallLinkedPlugin(
-  root: string,
-  client: PluginDevHostClient,
-  retainData = true,
-) {
-  const plugin = await readPluginReference(root);
-  const result = await client.uninstallLinked(plugin.identity, retainData);
-  if (
-    result.plugin.publisher !== plugin.identity.publisher ||
-    result.plugin.id !== plugin.identity.id
-  ) {
-    throw new Error("plugin_dev_host_response_mismatch");
-  }
-  return result;
-}
-
 async function readPluginReference(root: string) {
   const sourceRoot = await realpath(resolve(root));
   if (!(await stat(sourceRoot)).isDirectory()) {
@@ -122,17 +59,4 @@ async function readPluginReference(root: string) {
     root: sourceRoot,
     identity: { publisher: manifest.publisher, id: manifest.id },
   };
-}
-
-function assertActivatedPackage(
-  plugin: LinkedPackage,
-  result: ActivatedGeneration,
-) {
-  if (
-    result.plugin.publisher !== plugin.identity.publisher ||
-    result.plugin.id !== plugin.identity.id ||
-    result.packageDigest !== plugin.packageDigest
-  ) {
-    throw new Error("plugin_dev_host_response_mismatch");
-  }
 }

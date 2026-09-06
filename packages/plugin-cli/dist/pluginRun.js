@@ -2,8 +2,7 @@ import { resolve } from "node:path";
 import { buildPlugin } from "./build.js";
 import { watchPluginSources } from "./dev.js";
 import { loadHostSession, mergeHostSession, parseHostFlags, requireHostSession, resolveHostSession, saveHostSession, } from "./hostSession.js";
-import { PluginDevHostClient, discoverPluginDevConnection, } from "./hostClient.js";
-import { inspectLinkedPackage, installLinkedPlugin, reloadLinkedPlugin, } from "./pluginControl.js";
+import { inspectLinkedPackage } from "./pluginControl.js";
 import { testPlugin } from "./pluginTest.js";
 import { enableOnProductHost, importLinkedOnProductHost, pingProductHost, } from "./productHost.js";
 import { readPluginRemotes, startPluginRemoteDev } from "./remoteDev.js";
@@ -37,14 +36,7 @@ export async function runPluginDev(root, options = {}) {
     const resolved = resolve(root);
     await buildPlugin(resolved);
     const plugin = await inspectLinkedPackage(resolved);
-    const desktop = discoverPluginDevConnection();
-    const client = desktop ? new PluginDevHostClient(desktop) : null;
     const publish = async (reload) => {
-        if (client) {
-            return reload
-                ? reloadLinkedPlugin(resolved, client)
-                : installLinkedPlugin(resolved, client);
-        }
         requireHostSession(resolveHostSession());
         const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
         if (installed.queued) {

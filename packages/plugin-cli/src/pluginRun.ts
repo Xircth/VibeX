@@ -12,15 +12,7 @@ import {
   resolveHostSession,
   saveHostSession,
 } from "./hostSession.js";
-import {
-  PluginDevHostClient,
-  discoverPluginDevConnection,
-} from "./hostClient.js";
-import {
-  inspectLinkedPackage,
-  installLinkedPlugin,
-  reloadLinkedPlugin,
-} from "./pluginControl.js";
+import { inspectLinkedPackage } from "./pluginControl.js";
 import { testPlugin } from "./pluginTest.js";
 import {
   enableOnProductHost,
@@ -88,14 +80,7 @@ export async function runPluginDev(
   const resolved = resolve(root);
   await buildPlugin(resolved);
   const plugin = await inspectLinkedPackage(resolved);
-  const desktop = discoverPluginDevConnection();
-  const client = desktop ? new PluginDevHostClient(desktop) : null;
   const publish = async (reload: boolean) => {
-    if (client) {
-      return reload
-        ? reloadLinkedPlugin(resolved, client)
-        : installLinkedPlugin(resolved, client);
-    }
     requireHostSession(resolveHostSession());
     const installed = await importLinkedOnProductHost(
       plugin.root,

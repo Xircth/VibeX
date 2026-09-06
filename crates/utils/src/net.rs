@@ -2,7 +2,7 @@
 
 use std::{
     collections::BTreeSet,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
 };
 
 use serde::{Deserialize, Serialize};
@@ -142,9 +142,36 @@ pub fn advertised_http_origins(port: u16, allow_lan: bool) -> Vec<String> {
 
 pub fn listen_allows_lan(listen_addr: SocketAddr) -> bool {
     match listen_addr.ip() {
-        IpAddr::V4(ip) => is_advertisable_ipv4(ip),
-        IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast()),
+        IpAddr::V4(ip) => ip.is_unspecified() || is_advertisable_ipv4(ip),
+        IpAddr::V6(ip) => ip.is_unspecified() || !(ip.is_loopback() || ip.is_multicast()),
     }
+}
+
+/// Best-effort public IPv4 as seen from the internet. Skipped when the
+/// lookup fails or returns a private address.
+pub fn public_ipv4() -> Option<Ipv4Addr> {
+    use std::{
+        io::{Read, Write},
+        time::Duration,
+    };
+
+    let addr = "api.ipify.org:80"
+        .to_socket_addrs()
+        .ok()?
+        .find(|candidate| candidate.is_ipv4())?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .ok()?;
+    stream
+        .write_all(b"GET / HTTP/1.0\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n")
+        .ok()?;
+    let mut body = String::new();
+    stream.read_to_string(&mut body).ok()?;
+    let text = body.split("\r\n\r\n").nth(1)?.trim();
+    let ip = text.parse::<Ipv4Addr>().ok()?;
+    (is_advertisable_ipv4(ip) && !ip.is_private()).then_some(ip)
 }
 
 /// Hosts that may use HTTP for a first-party LAN or loopback VibeX Host.
@@ -365,6 +392,7 @@ mod tests {
     use super::{
         advertised_http_origins, advertised_listen_addresses, http_origin, is_advertisable_ip,
         is_advertisable_ipv4, is_trusted_http_host, lan_ipv4_addrs, lan_probe_ipv4s,
+        listen_allows_lan,
     };
 
     #[test]
@@ -402,6 +430,17 @@ mod tests {
             );
         }
         let _ = lan_ipv4_addrs();
+    }
+
+    #[test]
+    fn unspecified_listen_is_treated_as_lan() {
+        assert!(listen_allows_lan("0.0.0.0:17891".parse().expect("listen")));
+        assert!(!listen_allows_lan(
+            "127.0.0.1:17891".parse().expect("listen")
+        ));
+        assert!(listen_allows_lan(
+            "192.168.1.10:17891".parse().expect("listen")
+        ));
     }
 
     #[test]

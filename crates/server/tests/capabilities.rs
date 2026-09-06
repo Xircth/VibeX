@@ -48,6 +48,7 @@ async fn health_is_public_and_names_the_host() {
     )
     .expect("health json");
     assert_eq!(body["status"], "ok");
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[tokio::test]

@@ -33,6 +33,7 @@ fn coding_loop_commands_share_the_workstation_application_scope() {
         "create_terminal",
         "write_terminal",
         "agent_management_detail",
+        "apply_host_upgrade",
     ] {
         let command = name
             .parse::<DomainCommand>()

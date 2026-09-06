@@ -42,7 +42,8 @@ pub use chat_inbound::{
 };
 pub use chat_notify::{ChatDeliveryPublisher, notify_conversation_event};
 pub use cli::{
-    AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, parse_args, usage,
+    AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, format_host_console,
+    parse_args, usage,
 };
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};

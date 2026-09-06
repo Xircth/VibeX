@@ -237,12 +237,11 @@ pub async fn preflight(
         runtime.is_some_and(|component| component.exists) || view.local_runtime.is_some() || acp_ok;
 
     let catalog = BuiltInProfileCatalog::bundled();
-    let (dependency_items, required_dependencies_ok) =
-        if let Some(profile) = catalog.profile(&agent_id) {
-            probe_profile_dependencies(profile).await
-        } else {
-            (Vec::new(), true)
-        };
+    let dependency_items = if let Some(profile) = catalog.profile(&agent_id) {
+        probe_profile_dependencies(profile).await
+    } else {
+        Vec::new()
+    };
 
     let authentication = observed_authentication(pool, &agent_id, &env).await;
     let authentication_required = catalog
@@ -263,7 +262,7 @@ pub async fn preflight(
             None => (None, true, true),
         };
 
-    let lifecycle = if !acp_ok || !required_dependencies_ok {
+    let lifecycle = if !acp_ok {
         AgentLifecycleState::NeedsRepair
     } else if !auth_mode_ready
         || (authentication_required
@@ -325,35 +324,6 @@ pub async fn preflight(
             path: acp
                 .map(|component| component.path.display().to_string())
                 .or_else(|| discovered_acp_path.map(|path| path.display().to_string())),
-            source: None,
-            repairable: true,
-            update_available: false,
-            available_version: None,
-            update_group: None,
-        },
-        AgentPreflightItemView {
-            id: "runtime".to_string(),
-            label: "运行时".to_string(),
-            status: status(runtime_ok),
-            detail: if runtime_ok {
-                String::new()
-            } else {
-                "未发现可用运行时。".to_string()
-            },
-            version: runtime
-                .map(|component| component.version.clone())
-                .or_else(|| {
-                    view.local_runtime
-                        .as_ref()
-                        .and_then(|runtime| runtime.version.clone())
-                }),
-            path: runtime
-                .map(|component| component.path.display().to_string())
-                .or_else(|| {
-                    view.local_runtime
-                        .as_ref()
-                        .map(|runtime| runtime.path.clone())
-                }),
             source: None,
             repairable: true,
             update_available: false,
@@ -1552,12 +1522,12 @@ async fn recorded_authentication(
     }
 }
 
-async fn probe_profile_dependencies(
-    profile: &BuiltInProfile,
-) -> (Vec<AgentPreflightItemView>, bool) {
-    let mut required_ok = true;
+async fn probe_profile_dependencies(profile: &BuiltInProfile) -> Vec<AgentPreflightItemView> {
     let mut items = Vec::with_capacity(profile.dependencies.len());
     for dependency in profile.dependencies {
+        if matches!(dependency.executable, "node" | "npm" | "uv") {
+            continue;
+        }
         let path = resolve_on_path(dependency.executable).await;
         let version = match path.as_ref() {
             Some(path) => probe_first_output_line(path, dependency.version_args).await,
@@ -1568,13 +1538,16 @@ async fn probe_profile_dependencies(
             .map(|version| dependency_version_ok(dependency.requirement, version))
             .unwrap_or(path.is_some());
         let healthy = path.is_some() && version_ok;
-        if dependency.required && !healthy {
-            required_ok = false;
-        }
         items.push(AgentPreflightItemView {
             id: format!("dependency.{}", dependency.id),
             label: dependency.label.to_string(),
-            status: if healthy { "pass" } else { "fail" }.to_string(),
+            status: if healthy {
+                "pass".to_string()
+            } else if dependency.required {
+                "fail".to_string()
+            } else {
+                "warning".to_string()
+            },
             detail: if healthy {
                 String::new()
             } else {
@@ -1592,7 +1565,7 @@ async fn probe_profile_dependencies(
             update_group: None,
         });
     }
-    (items, required_ok)
+    items
 }
 
 async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {

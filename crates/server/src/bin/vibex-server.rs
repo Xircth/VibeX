@@ -2,8 +2,8 @@ use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
 
 use server::{
     HeadlessServer, LaunchCommand, ParsedArgs, ServerBootstrapConfig, ServerConfig, ServerLaunch,
-    ServerToken, parse_args, read_host_token, resolve_console_token, run_agents_command, usage,
-    write_host_token,
+    ServerToken, format_host_console, parse_args, read_host_token, resolve_console_token,
+    run_agents_command, usage, write_host_token,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -31,9 +31,13 @@ async fn main() -> ExitCode {
 async fn run(launch: ServerLaunch) -> ExitCode {
     utils::shell::bootstrap_desktop_path();
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new(if launch.reveal_console {
+                "error"
+            } else {
+                "info"
+            })
+        }))
         .without_time()
         .init();
 
@@ -142,15 +146,16 @@ fn env_listen_override() -> Option<SocketAddr> {
 }
 
 fn print_console(launch: &ServerLaunch, token: &str) {
-    let origins = utils::net::advertised_http_origins(launch.port, launch.allow_lan);
-    println!("VibeX Host {}", env!("CARGO_PKG_VERSION"));
-    for origin in origins {
-        println!("  {origin}");
+    let mut origins = utils::net::advertised_http_origins(launch.port, launch.allow_lan);
+    if launch.allow_lan
+        && let Some(ip) = utils::net::public_ipv4()
+    {
+        let origin = format!("http://{ip}:{}", launch.port);
+        if !origins.iter().any(|item| item == &origin) {
+            origins.push(origin);
+        }
     }
-    if !token.is_empty() {
-        println!("Token");
-        println!("  {token}");
-    }
+    print!("{}", format_host_console("running", token, &origins));
 }
 
 fn sibling_web_root() -> Option<PathBuf> {

@@ -38,6 +38,8 @@ serde_yaml = "0.9"
 services = { path = "../services" }
 sha2 = "0.10"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+tar = "0.4"
+flate2 = "1.0"
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.29", features = ["connect", "rustls-tls-webpki-roots"] }
 tracing = { workspace = true }

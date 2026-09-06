@@ -123,10 +123,30 @@ where
     }))
 }
 
+pub fn format_host_console(status: &str, token: &str, origins: &[String]) -> String {
+    let mut out = format!("Status    {status}\n");
+    if !token.is_empty() {
+        out.push_str("Token     ");
+        out.push_str(token);
+        out.push('\n');
+    }
+    out.push_str("Addresses\n");
+    if origins.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for origin in origins {
+            out.push_str("  ");
+            out.push_str(origin);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 pub fn usage() -> &'static str {
     "Usage:\n  \
      vibex-server                      Start on loopback\n  \
-     vibex-server serve                Start the Web UI on the LAN and print the host token\n  \
+     vibex-server serve                Start the Host on every interface and print status, token, and addresses\n  \
      vibex-server serve --local        Start the Web UI on loopback only\n  \
      vibex-server serve --port N\n  \
      vibex-server serve --rotate-token\n  \
@@ -298,5 +318,23 @@ mod tests {
     fn install_requires_an_agent_id() {
         let error = parse_args(["install", "--yes"]).expect_err("missing id");
         assert!(error.to_string().contains("install <agent-id>"));
+    }
+
+    #[test]
+    fn host_console_prints_status_token_and_addresses() {
+        let text = super::format_host_console(
+            "running",
+            "vbx_test",
+            &[
+                "http://127.0.0.1:17891".to_string(),
+                "http://192.168.1.10:17891".to_string(),
+                "http://203.0.113.8:17891".to_string(),
+            ],
+        );
+        assert!(text.starts_with("Status    running\n"));
+        assert!(text.contains("Token     vbx_test\n"));
+        assert!(text.contains("  http://127.0.0.1:17891\n"));
+        assert!(text.contains("  http://203.0.113.8:17891\n"));
+        assert!(!text.contains("INFO"));
     }
 }

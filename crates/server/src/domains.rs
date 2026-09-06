@@ -137,6 +137,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
             DomainCommand::PluginCheckUpdates => self.plugin_check_updates().await,
             DomainCommand::PluginControlLogs => self.plugin_control_logs(args).await,
+            DomainCommand::PluginControlDiagnostics => self.plugin_control_diagnostics(args).await,
             DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
             DomainCommand::PluginControlGcRuntimes => self.plugin_control_gc_runtimes(args).await,
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
@@ -954,6 +955,43 @@ impl ServerApplicationDomains {
         let lines = plugins::recent_plugin_logs(&args.plugin_id, args.after);
         serde_json::to_value(json!({ "lines": lines }))
             .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn plugin_control_diagnostics(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginIdentityArgs = parse(args)?;
+        let control_plane = self.plugin_control_plane().await?;
+        let installed = control_plane
+            .catalog()
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .find(|item| item.id() == args.plugin_id);
+        let enabled = installed
+            .as_ref()
+            .is_some_and(|item| item.activation == plugins::PluginActivation::Enabled);
+        let declares_worker = installed
+            .as_ref()
+            .is_some_and(|item| item.entrypoints.worker.is_some());
+        let missing_runtimes = match installed.as_ref() {
+            Some(item) => control_plane
+                .missing_runtimes(item)
+                .await
+                .map_err(internal_error)?,
+            None => Vec::new(),
+        };
+        Ok(json!({
+            "workerExpected": enabled && declares_worker,
+            "workerRunning": control_plane.activation_lease(&args.plugin_id).await.is_some(),
+            "generation": control_plane.active_generation(&args.plugin_id).await,
+            "missingRuntimes": missing_runtimes,
+            "recentCrashes": plugins::recent_plugin_crashes(&args.plugin_id)
+                .into_iter()
+                .map(|crash| json!({
+                    "message": crash.message,
+                    "atUnixMs": crash.at_unix_ms as f64,
+                }))
+                .collect::<Vec<_>>(),
+        }))
     }
 
     pub(crate) async fn plugin_control_uninstall(

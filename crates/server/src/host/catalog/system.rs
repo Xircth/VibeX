@@ -129,7 +129,7 @@ struct LogRecord {
     fields: std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppReleaseStatus {
     current_version: String,
     latest_version: Option<String>,
@@ -459,6 +459,186 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
             checked_at: chrono::Utc::now().to_rfc3339(),
         }),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostUpgradeResult {
+    from_version: String,
+    to_version: String,
+}
+
+pub(super) async fn apply_host_upgrade() -> Result<Value, ApplicationError> {
+    let current = utils::version::APP_VERSION.to_string();
+    let latest = latest_release_version().await?;
+    if !utils::version::is_newer(&latest, &current) {
+        return Err(ApplicationError::bad_request(
+            "Host is already on the latest version",
+        ));
+    }
+    let platform = host_family_platform()?;
+    let version = utils::version::normalize(&latest).to_string();
+    let archive = format!("VibeX-{version}-{platform}-server.tar.gz");
+    let tag = format!("v{version}");
+    let repository = std::env::var("VIBEX_UPDATE_REPOSITORY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_UPDATE_REPOSITORY.to_string());
+    let canonical = format!("https://github.com/{repository}/releases/download/{tag}/{archive}");
+    let bytes = download_release_bytes(&canonical).await?;
+    let tmp = std::env::temp_dir().join(format!("vibex-upgrade-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&tmp)
+        .await
+        .map_err(internal_error)?;
+    let archive_path = tmp.join(&archive);
+    tokio::fs::write(&archive_path, bytes)
+        .await
+        .map_err(internal_error)?;
+    let release_dir = tmp.clone();
+    tokio::task::spawn_blocking({
+        let archive_path = archive_path.clone();
+        let release_dir = release_dir.clone();
+        move || extract_tar_gz(&archive_path, &release_dir)
+    })
+    .await
+    .map_err(|error| ApplicationError::internal(error.to_string()))?
+    .map_err(internal_error)?;
+    let install_dir = std::env::current_exe()
+        .map_err(internal_error)?
+        .parent()
+        .ok_or_else(|| ApplicationError::internal("Host executable has no parent directory"))?
+        .to_path_buf();
+    let data_dir = std::env::var("VIBEX_DATA_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(utils::assets::asset_dir);
+    let plan = crate::plan_host_upgrade(&release_dir, &install_dir, &data_dir)
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    crate::apply_host_upgrade(&plan)
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    schedule_host_restart();
+    serialize(HostUpgradeResult {
+        from_version: current,
+        to_version: version,
+    })
+}
+
+fn host_family_platform() -> Result<String, ApplicationError> {
+    let os = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        return Err(ApplicationError::internal(
+            "Host upgrades are not supported on this operating system",
+        ));
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        return Err(ApplicationError::internal(
+            "Host upgrades are not supported on this architecture",
+        ));
+    };
+    Ok(format!("{os}-{arch}"))
+}
+
+async fn latest_release_version() -> Result<String, ApplicationError> {
+    let status: AppReleaseStatus = serde_json::from_value(check_app_release().await?)
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    status
+        .latest_version
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            ApplicationError::internal(
+                status
+                    .error
+                    .unwrap_or_else(|| "latest Host version is unavailable".to_string()),
+            )
+        })
+}
+
+async fn download_release_bytes(canonical: &str) -> Result<Vec<u8>, ApplicationError> {
+    let mirrors = [
+        "",
+        "https://ghfast.top/",
+        "https://ghproxy.net/",
+        "https://mirror.ghproxy.com/",
+    ];
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(internal_error)?;
+    let mut last_error = None;
+    for prefix in mirrors {
+        let url = if prefix.is_empty() {
+            canonical.to_string()
+        } else {
+            format!("{prefix}{canonical}")
+        };
+        match client
+            .get(&url)
+            .header(reqwest::header::USER_AGENT, "VibeX")
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                return response
+                    .bytes()
+                    .await
+                    .map(|bytes| bytes.to_vec())
+                    .map_err(internal_error);
+            }
+            Ok(response) => {
+                last_error = Some(format!("{} returned {}", url, response.status()));
+            }
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+    Err(ApplicationError::internal(last_error.unwrap_or_else(
+        || "failed to download Host family".to_string(),
+    )))
+}
+
+fn extract_tar_gz(archive: &Path, destination: &Path) -> Result<(), String> {
+    let file = std::fs::File::open(archive).map_err(|error| error.to_string())?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    tar::Archive::new(decoder)
+        .unpack(destination)
+        .map_err(|error| error.to_string())?;
+    if destination.join("SHA256SUMS").is_file() {
+        return Ok(());
+    }
+    let nested = std::fs::read_dir(destination)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .find(|entry| entry.path().join("SHA256SUMS").is_file());
+    if let Some(entry) = nested {
+        let nested = entry.path();
+        for file in std::fs::read_dir(&nested).map_err(|error| error.to_string())? {
+            let file = file.map_err(|error| error.to_string())?;
+            let _ = std::fs::rename(file.path(), destination.join(file.file_name()));
+        }
+    }
+    Ok(())
+}
+
+fn schedule_host_restart() {
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = std::process::Command::new("systemctl")
+            .args(["restart", "vibex-server.service"])
+            .status();
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "restart", "vibex-server.service"])
+            .status();
+    });
 }
 
 pub(super) async fn worktree_cleanup(

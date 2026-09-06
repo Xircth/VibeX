@@ -233,7 +233,7 @@ impl HeadlessServer {
         let worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
             config.data_dir.clone(),
         ));
-        plugin_control_plane
+        let bundled_roots = plugin_control_plane
             .install_bundled_official_plugins(&config.data_dir, None)
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
@@ -246,23 +246,35 @@ impl HeadlessServer {
                 plugin.activation == plugins::PluginActivation::Enabled
                     && plugin.entrypoints.worker.is_some()
             });
-        let recovery_failures = if enabled_worker_exists {
-            match worker_runtime.resolve().await {
-                Ok(node) => plugin_control_plane
-                    .recover_enabled_workers(
-                        &node,
-                        &config.data_dir.join("plugins").join("dev-candidates"),
-                        capability_broker.clone(),
-                    )
+        let recovery_failures = match worker_runtime.resolve().await {
+            Ok(node) => {
+                let activation = plugins::BundledPluginActivation {
+                    node_executable: node.clone(),
+                    broker: capability_broker.clone(),
+                };
+                if let Err(error) = plugin_control_plane
+                    .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
                     .await
-                    .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?,
-                Err(error) => {
-                    tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                {
+                    tracing::warn!(%error, "official plugin packages could not be refreshed");
+                }
+                if enabled_worker_exists {
+                    plugin_control_plane
+                        .recover_enabled_workers(
+                            &node,
+                            &config.data_dir.join("plugins").join("dev-candidates"),
+                            capability_broker.clone(),
+                        )
+                        .await
+                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?
+                } else {
                     Vec::new()
                 }
             }
-        } else {
-            Vec::new()
+            Err(error) => {
+                tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                Vec::new()
+            }
         };
         for failure in recovery_failures {
             tracing::warn!(

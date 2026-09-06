@@ -567,7 +567,10 @@ async fn health<R>(State(state): State<Arc<ServerState<R>>>) -> Json<serde_json:
 where
     R: Send + Sync + 'static,
 {
-    let mut body = json!({ "status": "ok" });
+    let mut body = json!({
+        "status": "ok",
+        "version": state.config.server_version,
+    });
     if !state.config.host_id.is_empty() {
         body["host_id"] = json!(state.config.host_id);
     }

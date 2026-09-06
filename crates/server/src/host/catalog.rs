@@ -117,6 +117,7 @@ pub(crate) fn handles(command: DomainCommand) -> bool {
             | DomainCommand::GetProjectUsageStatistics
             | DomainCommand::ClearLocalAppData
             | DomainCommand::CheckAppRelease
+            | DomainCommand::ApplyHostUpgrade
             | DomainCommand::GetWorktreeCleanupStatus
             | DomainCommand::CrashReportsList
             | DomainCommand::CrashReportRead
@@ -233,6 +234,7 @@ pub(crate) async fn dispatch(
         DomainCommand::GetProjectUsageStatistics => ops::project_usage(domains, args).await,
         DomainCommand::ClearLocalAppData => system::clear_local_app_data(domains).await,
         DomainCommand::CheckAppRelease => system::check_app_release().await,
+        DomainCommand::ApplyHostUpgrade => system::apply_host_upgrade().await,
         DomainCommand::GetWorktreeCleanupStatus => system::worktree_cleanup(domains, args).await,
         DomainCommand::CrashReportsList => system::crash_reports_list().await,
         DomainCommand::CrashReportRead => system::crash_report_read(args).await,

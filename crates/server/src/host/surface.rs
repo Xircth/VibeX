@@ -18,7 +18,8 @@ use agents::{
     terminal::agent_terminal_registry,
 };
 use api_types::{
-    AgentOperationKind, AgentOperationReceipt, AgentOperationStatus, UserAgentDefinitionRequest,
+    AgentOperationEvent, AgentOperationKind, AgentOperationReceipt, AgentOperationStatus,
+    UserAgentDefinitionRequest,
 };
 use application::{ApplicationError, DomainCommand};
 use chrono::Utc;
@@ -247,6 +248,30 @@ struct ChatLanguageArgs {
 #[serde(rename_all = "camelCase")]
 struct ChatWebhooksArgs {
     webhooks: Value,
+}
+
+fn emit_host_agent_operation(
+    events: &crate::host::events::HostEventBus,
+    agent_id: &AgentId,
+    operation_id: &str,
+    kind: AgentOperationKind,
+    status: AgentOperationStatus,
+    progress_percent: Option<u8>,
+    message: Option<String>,
+) {
+    let sequence = u32::try_from(events.current_sequence().max(0) + 1).unwrap_or(u32::MAX);
+    events.emit(
+        "agent-management-event",
+        AgentOperationEvent {
+            sequence,
+            agent_id: agent_id.clone(),
+            operation_id: operation_id.to_string(),
+            kind,
+            status,
+            progress_percent,
+            message,
+        },
+    );
 }
 
 fn parse_uuid(field: &str, value: &str) -> Result<Uuid, ApplicationError> {
@@ -1477,17 +1502,12 @@ impl ServerApplicationDomains {
 
     async fn agent_registry_add_and_install(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentIdArgs = parse(args)?;
-        let view = self
-            .management()
+        self.management()
             .add(args.agent_id.clone())
             .await
             .map_err(internal_error)?;
-        if let Err(error) =
-            install_agent_unattended(&self.pool, &self.runtime_root, args.agent_id.as_str()).await
-        {
-            tracing::warn!(agent_id = %args.agent_id, %error, "agent install after add failed");
-        }
-        serialize(view)
+        self.queue_host_agent_install(args.agent_id, AgentOperationKind::Install)
+            .await
     }
 
     async fn agent_user_definition_add(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1532,11 +1552,102 @@ impl ServerApplicationDomains {
 
     async fn agent_management_install(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AgentInstallVersionArgs = parse(args)?;
-        install_agent_unattended(&self.pool, &self.runtime_root, args.agent_id.as_str())
+        self.queue_host_agent_install(args.agent_id, AgentOperationKind::Install)
             .await
-            .map_err(internal_error)?;
-        self.agent_management_detail_value(json!({ "agentId": args.agent_id.to_string() }))
-            .await
+    }
+
+    async fn queue_host_agent_install(
+        &self,
+        agent_id: AgentId,
+        kind: AgentOperationKind,
+    ) -> Result<Value, ApplicationError> {
+        let operation_id = Uuid::new_v4().to_string();
+        let receipt = AgentOperationReceipt {
+            operation_id: operation_id.clone(),
+            agent_id: agent_id.clone(),
+            kind,
+            status: AgentOperationStatus::Queued,
+        };
+        sqlx::query(
+            r#"INSERT INTO agent_installation
+               (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
+                active_operation, active_operation_id, updated_at)
+               VALUES (?, 'external', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(agent_id) DO UPDATE SET
+                 lifecycle = 'queued',
+                 active_operation = excluded.active_operation,
+                 active_operation_id = excluded.active_operation_id,
+                 updated_at = CURRENT_TIMESTAMP"#,
+        )
+        .bind(agent_id.as_str())
+        .bind(operation_kind_key(kind))
+        .bind(&operation_id)
+        .execute(&self.pool)
+        .await
+        .map_err(internal_error)?;
+        emit_host_agent_operation(
+            &self.events,
+            &agent_id,
+            &operation_id,
+            kind,
+            AgentOperationStatus::Queued,
+            Some(0),
+            None,
+        );
+        let pool = self.pool.clone();
+        let runtime_root = self.runtime_root.clone();
+        let events = self.events.clone();
+        tokio::spawn(async move {
+            emit_host_agent_operation(
+                &events,
+                &agent_id,
+                &operation_id,
+                kind,
+                AgentOperationStatus::Running,
+                Some(10),
+                None,
+            );
+            let result = install_agent_unattended(&pool, &runtime_root, agent_id.as_str()).await;
+            match result {
+                Ok(()) => emit_host_agent_operation(
+                    &events,
+                    &agent_id,
+                    &operation_id,
+                    kind,
+                    AgentOperationStatus::Succeeded,
+                    Some(100),
+                    None,
+                ),
+                Err(error) => {
+                    let _ = sqlx::query(
+                        r#"UPDATE agent_installation
+                           SET lifecycle = 'needs_repair',
+                               active_operation = NULL,
+                               active_operation_id = NULL,
+                               updated_at = CURRENT_TIMESTAMP
+                           WHERE agent_id = ? AND active_operation_id = ?"#,
+                    )
+                    .bind(agent_id.as_str())
+                    .bind(&operation_id)
+                    .execute(&pool)
+                    .await;
+                    emit_host_agent_operation(
+                        &events,
+                        &agent_id,
+                        &operation_id,
+                        kind,
+                        AgentOperationStatus::Failed,
+                        None,
+                        Some(error.to_string()),
+                    );
+                }
+            }
+            events.emit(
+                "agent-management-snapshot-invalidated",
+                json!({ "agentId": agent_id }),
+            );
+        });
+        serialize(receipt)
     }
 
     async fn agent_management_remove(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2173,6 +2284,18 @@ fn parse_payload<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, Appli
         return parse(request.clone());
     }
     parse(args)
+}
+
+fn operation_kind_key(kind: AgentOperationKind) -> &'static str {
+    match kind {
+        AgentOperationKind::Install => "install",
+        AgentOperationKind::Update => "update",
+        AgentOperationKind::Repair => "repair",
+        AgentOperationKind::Rollback => "rollback",
+        AgentOperationKind::Uninstall => "uninstall",
+        AgentOperationKind::Remove => "remove",
+        AgentOperationKind::Check => "check",
+    }
 }
 
 fn parse_operation_kind(value: &str) -> Option<AgentOperationKind> {

@@ -6,9 +6,9 @@ use std::{
     thread,
 };
 
+use agents::{TerminalOutputRx, TerminalOutputTx};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use thiserror::Error;
-use tokio::sync::mpsc;
 use utils::shell::{get_interactive_shell, resolve_executable_path};
 use uuid::Uuid;
 
@@ -88,7 +88,7 @@ struct PtySession {
     input_tx: std_mpsc::Sender<Vec<u8>>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     output_history: Arc<Mutex<Vec<u8>>>,
-    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
+    subscribers: Arc<Mutex<Vec<TerminalOutputTx>>>,
     _input_handle: thread::JoinHandle<()>,
     _output_handle: thread::JoinHandle<()>,
     closed: bool,
@@ -159,9 +159,9 @@ impl PtyService {
         rows: u16,
         shell_override: Option<String>,
         preset_session_id: Option<Uuid>,
-    ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
+    ) -> Result<(Uuid, TerminalOutputRx), PtyError> {
         let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
-        let (output_tx, output_rx) = mpsc::unbounded_channel();
+        let (output_tx, output_rx) = TerminalOutputTx::pair();
         let working_dir = Self::normalize_working_dir_for_shell(working_dir);
         let shell = resolve_pty_shell(shell_override).await;
         let output_history = Arc::new(Mutex::new(Vec::new()));
@@ -247,8 +247,13 @@ impl PtyService {
                             }
 
                             if let Ok(mut subscribers) = subscribers_for_thread.lock() {
-                                subscribers
-                                    .retain(|subscriber| subscriber.send(chunk.clone()).is_ok());
+                                subscribers.retain(|subscriber| {
+                                    if subscriber.is_closed() {
+                                        return false;
+                                    }
+                                    subscriber.push(chunk.clone());
+                                    true
+                                });
                             }
                         }
                         Err(_) => break,
@@ -282,11 +287,8 @@ impl PtyService {
         Ok((session_id, output_rx))
     }
 
-    pub async fn subscribe_output(
-        &self,
-        session_id: Uuid,
-    ) -> Result<mpsc::UnboundedReceiver<Vec<u8>>, PtyError> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub async fn subscribe_output(&self, session_id: Uuid) -> Result<TerminalOutputRx, PtyError> {
+        let (tx, rx) = TerminalOutputTx::pair();
         let sessions = self
             .sessions
             .lock()
@@ -302,7 +304,7 @@ impl PtyService {
         if let Ok(history) = session.output_history.lock()
             && !history.is_empty()
         {
-            let _ = tx.send(history.clone());
+            tx.push(history.clone());
         }
 
         session
@@ -373,7 +375,9 @@ impl PtyService {
         {
             session.closed = true;
             if let Ok(mut subscribers) = session.subscribers.lock() {
-                subscribers.clear();
+                for subscriber in subscribers.drain(..) {
+                    subscriber.close();
+                }
             }
         }
         Ok(())

@@ -13,7 +13,7 @@ use crate::{
 fn spawn_terminal_output_bridge(
     app: tauri::AppHandle,
     session_id: Uuid,
-    mut output_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    mut output_rx: agents::TerminalOutputRx,
 ) {
     let channel = format!("terminal-output:{}", session_id);
     tokio::spawn(async move {

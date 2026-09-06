@@ -262,7 +262,8 @@ impl AgentRuntime {
     #[doc(hidden)]
     pub fn new_with_driver(event_sink: Arc<dyn RuntimeEventSink>, driver_enabled: bool) -> Self {
         let (event_tx, _) = broadcast::channel(512);
-        let (manager_event_tx, manager_event_rx) = mpsc::unbounded_channel();
+        let (manager_event_tx, manager_event_rx) =
+            mpsc::channel(crate::manager::MANAGER_EVENT_BUFFER);
         let state = Arc::new(RwLock::new(RuntimeState::default()));
         let session_locks = Arc::new(Mutex::new(HashMap::new()));
         let connection_manager = Arc::new(AgentConnectionManager::new_with_driver(
@@ -291,7 +292,7 @@ impl AgentRuntime {
         connection_manager: Arc<AgentConnectionManager>,
         event_sink: Arc<dyn RuntimeEventSink>,
         event_tx: broadcast::Sender<AgentEventEnvelope>,
-        mut manager_event_rx: mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
+        mut manager_event_rx: mpsc::Receiver<AgentConnectionManagerEvent>,
     ) {
         tokio::spawn(async move {
             while let Some(manager_event) = manager_event_rx.recv().await {

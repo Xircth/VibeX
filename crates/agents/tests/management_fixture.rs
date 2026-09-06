@@ -121,7 +121,7 @@ async fn fixture_covers_auth_status_malformed_and_timeout_as_degraded() {
 
 #[tokio::test]
 async fn session_authentication_required_is_a_semantic_runtime_error() {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let agent_id = AgentId::parse("fixture.auth-required").unwrap();
@@ -162,7 +162,7 @@ async fn session_authentication_required_is_a_semantic_runtime_error() {
 async fn fixture_session_manager(
     discovery: bool,
 ) -> (AgentConnectionManager, AgentConnectionId, tempfile::TempDir) {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let agent_id = AgentId::parse("fixture.session-discovery").unwrap();
@@ -200,7 +200,7 @@ async fn fixture_session_manager(
 async fn fixture_additional_directories_manager(
     advertised: bool,
 ) -> (AgentConnectionManager, AgentConnectionId, tempfile::TempDir) {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let agent_id = AgentId::parse("fixture.additional-directories").unwrap();
@@ -255,7 +255,7 @@ impl agents::DelegationInjector for FixtureRemoteMcpInjector {
 #[tokio::test]
 async fn http_mcp_follows_advertised_capability() {
     for advertised in [true, false] {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
         let manager = AgentConnectionManager::new(event_tx);
         manager.install_delegation_injector(std::sync::Arc::new(FixtureRemoteMcpInjector));
         let connection_id = AgentConnectionId::new();

@@ -1,15 +1,18 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock, Mutex as StdMutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncReadExt,
     process::Child,
-    sync::{Mutex, Notify, RwLock, broadcast, mpsc},
+    sync::{Mutex, Notify, RwLock, broadcast},
 };
 use ts_rs::TS;
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
@@ -19,6 +22,117 @@ use crate::ids::{AgentSessionId, AgentTerminalId};
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 512 * 1024;
 const HARD_OUTPUT_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
+const TERMINAL_OUTPUT_BUFFER: usize = 256;
+
+struct OutputTap {
+    chunks: StdMutex<VecDeque<Vec<u8>>>,
+    notify: Notify,
+    closed: AtomicBool,
+}
+
+impl OutputTap {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            chunks: StdMutex::new(VecDeque::new()),
+            notify: Notify::new(),
+            closed: AtomicBool::new(false),
+        })
+    }
+
+    fn push(&self, chunk: Vec<u8>) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut chunks = self
+            .chunks
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        while chunks.len() >= TERMINAL_OUTPUT_BUFFER {
+            chunks.pop_front();
+        }
+        chunks.push_back(chunk);
+        self.notify.notify_waiters();
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    async fn recv(&self) -> Option<Vec<u8>> {
+        loop {
+            {
+                let mut chunks = self
+                    .chunks
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if let Some(chunk) = chunks.pop_front() {
+                    return Some(chunk);
+                }
+                if self.closed.load(Ordering::Acquire) {
+                    return None;
+                }
+            }
+            self.notify.notified().await;
+        }
+    }
+}
+
+/// Live terminal/PTY byte stream. Overflow drops the oldest unread chunk.
+pub struct TerminalOutputRx {
+    tap: Arc<OutputTap>,
+}
+
+impl TerminalOutputRx {
+    pub async fn recv(&mut self) -> Option<Vec<u8>> {
+        self.tap.recv().await
+    }
+}
+
+#[derive(Clone)]
+pub struct TerminalOutputTx {
+    tap: Arc<OutputTap>,
+}
+
+impl TerminalOutputTx {
+    pub fn pair() -> (Self, TerminalOutputRx) {
+        let tap = OutputTap::new();
+        (
+            Self {
+                tap: Arc::clone(&tap),
+            },
+            TerminalOutputRx { tap },
+        )
+    }
+
+    pub fn push(&self, chunk: Vec<u8>) {
+        self.tap.push(chunk);
+    }
+
+    pub fn close(&self) {
+        self.tap.close();
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.tap.closed.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for TerminalOutputRx {
+    fn drop(&mut self) {
+        self.tap.close();
+    }
+}
+
+fn push_output(subscribers: &mut Vec<TerminalOutputTx>, chunk: Vec<u8>) {
+    subscribers.retain(|tx| {
+        if tx.is_closed() {
+            return false;
+        }
+        tx.push(chunk.clone());
+        true
+    });
+}
 /// After the child exits, wait this long for stdout/stderr readers to drain
 /// before publishing the exit status. `wait_for_exit` then `terminal/output`
 /// (Grok's sequence) otherwise races an empty snapshot.
@@ -101,7 +215,7 @@ struct AgentTerminalSession {
     command: String,
     args: Vec<String>,
     output_history: Arc<Mutex<Vec<u8>>>,
-    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
+    subscribers: Arc<Mutex<Vec<TerminalOutputTx>>>,
     exit_status: Arc<RwLock<Option<AgentTerminalExit>>>,
     exit_notify: Arc<Notify>,
     kill_notify: Arc<Notify>,
@@ -256,7 +370,7 @@ impl AgentTerminalRegistry {
                         }
 
                         let mut subscribers = session.subscribers.lock().await;
-                        subscribers.retain(|subscriber| subscriber.send(chunk.clone()).is_ok());
+                        push_output(&mut subscribers, chunk);
                     }
                     Err(_) => break,
                 }
@@ -322,18 +436,13 @@ impl AgentTerminalRegistry {
         false
     }
 
-    pub async fn subscribe_output(
-        &self,
-        terminal_id: AgentTerminalId,
-    ) -> Option<mpsc::UnboundedReceiver<Vec<u8>>> {
+    pub async fn subscribe_output(&self, terminal_id: AgentTerminalId) -> Option<TerminalOutputRx> {
         let session = self.sessions.read().await.get(&terminal_id)?.clone();
-        let (tx, rx) = mpsc::unbounded_channel();
-
+        let (tx, rx) = TerminalOutputTx::pair();
         let history = session.output_history.lock().await.clone();
         if !history.is_empty() {
-            let _ = tx.send(history);
+            tx.push(history);
         }
-
         session.subscribers.lock().await.push(tx);
         Some(rx)
     }
@@ -390,7 +499,12 @@ impl AgentTerminalRegistry {
             }
         }
 
-        session.subscribers.lock().await.clear();
+        {
+            let mut subscribers = session.subscribers.lock().await;
+            for tap in subscribers.drain(..) {
+                tap.close();
+            }
+        }
         let _ = self
             .lifecycle_tx
             .send(AgentTerminalLifecycleEvent::Released { terminal_id });
@@ -797,10 +911,10 @@ mod tests {
 
     use super::{
         AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
-        HARD_OUTPUT_BYTE_LIMIT, ShellFamily, can_retry_command_through_shell,
-        classify_shell_family, default_platform_shell, effective_output_byte_limit,
-        is_utf8_boundary_byte, resolve_fallback_shell, resolve_terminal_cwd, shell_wrapped_command,
-        trim_output_history,
+        HARD_OUTPUT_BYTE_LIMIT, OutputTap, ShellFamily, TERMINAL_OUTPUT_BUFFER,
+        can_retry_command_through_shell, classify_shell_family, default_platform_shell,
+        effective_output_byte_limit, is_utf8_boundary_byte, resolve_fallback_shell,
+        resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
     };
     use crate::ids::AgentSessionId;
 
@@ -1197,5 +1311,20 @@ mod tests {
                 .first()
                 .is_none_or(|byte| is_utf8_boundary_byte(*byte))
         );
+    }
+
+    #[tokio::test]
+    async fn output_tap_drops_the_oldest_chunk_when_full() {
+        let tap = OutputTap::new();
+        for index in 0..=TERMINAL_OUTPUT_BUFFER {
+            tap.push(vec![index as u8]);
+        }
+        assert_eq!(tap.recv().await, Some(vec![1]));
+        for _ in 1..TERMINAL_OUTPUT_BUFFER - 1 {
+            assert!(tap.recv().await.is_some());
+        }
+        assert_eq!(tap.recv().await, Some(vec![TERMINAL_OUTPUT_BUFFER as u8]));
+        tap.close();
+        assert_eq!(tap.recv().await, None);
     }
 }

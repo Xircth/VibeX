@@ -503,6 +503,28 @@ pub struct AgentConnectionManagerEvent {
     pub event: AgentEvent,
 }
 
+pub const MANAGER_EVENT_BUFFER: usize = 8192;
+
+fn send_manager_event(
+    tx: &mpsc::Sender<AgentConnectionManagerEvent>,
+    event: AgentConnectionManagerEvent,
+) {
+    match tx.try_send(event) {
+        Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
+        Err(mpsc::error::TrySendError::Full(event)) => {
+            let blocking = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
+                handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+            });
+            if blocking {
+                let tx = tx.clone();
+                tokio::task::block_in_place(move || {
+                    let _ = tx.blocking_send(event);
+                });
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ManagedAgentConnection {
     snapshot: ManagedAgentConnectionSnapshot,
@@ -514,7 +536,7 @@ struct ManagedAgentConnection {
 #[derive(Debug)]
 pub struct AgentConnectionManager {
     connections: Mutex<HashMap<AgentConnectionId, ManagedAgentConnection>>,
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
     driver_enabled: bool,
     /// Installed once at startup. Lets the app splice a companion MCP server
     /// (the delegation companion) into each connection's `session/new`.
@@ -523,18 +545,18 @@ pub struct AgentConnectionManager {
 
 impl Default for AgentConnectionManager {
     fn default() -> Self {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         Self::new(event_tx)
     }
 }
 
 impl AgentConnectionManager {
-    pub fn new(event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>) -> Self {
+    pub fn new(event_tx: mpsc::Sender<AgentConnectionManagerEvent>) -> Self {
         Self::new_with_driver(event_tx, true)
     }
 
     pub fn new_with_driver(
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
         driver_enabled: bool,
     ) -> Self {
         Self {
@@ -979,7 +1001,7 @@ impl AgentConnectionManager {
 #[derive(Debug, Clone)]
 struct AgentConnectionRunner {
     snapshot: ManagedAgentConnectionSnapshot,
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
@@ -1105,7 +1127,7 @@ fn map_steer_response(response: AcpSteerResponse) -> AgentResult<AgentSteerRecei
 impl AgentConnectionRunner {
     fn new(
         snapshot: ManagedAgentConnectionSnapshot,
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
         delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
         let auto_approve_mode = snapshot.auto_approve_mode;
@@ -3393,12 +3415,15 @@ impl AgentConnectionRunner {
                 error.message
             );
         }
-        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-            connection_id: self.snapshot.connection_id,
-            session_id,
-            prompt_id,
-            event,
-        });
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.snapshot.connection_id,
+                session_id,
+                prompt_id,
+                event,
+            },
+        );
     }
 
     fn emit_connection_status(
@@ -3576,7 +3601,7 @@ fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str)
 struct AcpClientBridge {
     connection_id: AgentConnectionId,
     agent_id: crate::AgentId,
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     // Shared with the owning runner: session-notification pushes (mode / config
     // updates) must keep the stored controls authoritative for later
@@ -3602,7 +3627,7 @@ impl AcpClientBridge {
     fn new(
         connection_id: AgentConnectionId,
         agent_id: crate::AgentId,
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
@@ -3776,29 +3801,35 @@ impl AcpClientBridge {
                 .collect(),
         };
 
-        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-            connection_id: self.connection_id,
-            session_id: Some(session_id),
-            prompt_id: None,
-            event: AgentEvent::PermissionRequested {
-                request: request.clone(),
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::PermissionRequested {
+                    request: request.clone(),
+                },
             },
-        });
+        );
 
         let auto_approve_mode =
             effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
                 .await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
-            let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id: Some(session_id),
-                prompt_id: None,
-                event: AgentEvent::PermissionResponded {
-                    permission_id,
-                    response: response.clone(),
-                    auto: true,
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event: AgentEvent::PermissionResponded {
+                        permission_id,
+                        response: response.clone(),
+                        auto: true,
+                    },
                 },
-            });
+            );
             return Ok(RequestPermissionResponse::new(permission_response_outcome(
                 response,
             )));
@@ -3907,12 +3938,15 @@ impl AcpClientBridge {
             message,
             requested_schema,
         };
-        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-            connection_id: self.connection_id,
-            session_id: Some(session_id),
-            prompt_id: None,
-            event: AgentEvent::ElicitationRequested { request },
-        });
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::ElicitationRequested { request },
+            },
+        );
 
         let (tx, rx) = oneshot::channel();
         self.pending_elicitations.lock().await.insert(
@@ -3957,46 +3991,55 @@ impl AcpClientBridge {
             if let Some(update) = crate::grok_announcements::parse_update(&params) {
                 let notices =
                     crate::grok_announcements::notices_from_update(&update, &self.agent_id);
-                let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                    connection_id: self.connection_id,
-                    session_id,
-                    prompt_id: None,
-                    event: AgentEvent::AnnouncementsUpdated {
-                        generation: update.generation,
-                        notices,
+                send_manager_event(
+                    &self.event_tx,
+                    AgentConnectionManagerEvent {
+                        connection_id: self.connection_id,
+                        session_id,
+                        prompt_id: None,
+                        event: AgentEvent::AnnouncementsUpdated {
+                            generation: update.generation,
+                            notices,
+                        },
                     },
-                });
+                );
             }
             return Ok(());
         }
         if updates.is_empty() {
-            let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id,
-                prompt_id: None,
-                event: AgentEvent::RawAcpDiagnostic {
-                    raw: bounded_ext_notification(ext.method.as_ref(), &params),
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id,
+                    prompt_id: None,
+                    event: AgentEvent::RawAcpDiagnostic {
+                        raw: bounded_ext_notification(ext.method.as_ref(), &params),
+                    },
                 },
-            });
+            );
             return Ok(());
         }
         for update in updates {
-            let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id,
-                prompt_id: None,
-                event: AgentEvent::ToolCallUpdate {
-                    update: AgentToolCallUpdate {
-                        id: update.tool_call_id,
-                        title: None,
-                        status: None,
-                        content: None,
-                        input_preview: None,
-                        meta: Some(update.meta),
-                        images: Vec::new(),
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id,
+                    prompt_id: None,
+                    event: AgentEvent::ToolCallUpdate {
+                        update: AgentToolCallUpdate {
+                            id: update.tool_call_id,
+                            title: None,
+                            status: None,
+                            content: None,
+                            input_preview: None,
+                            meta: Some(update.meta),
+                            images: Vec::new(),
+                        },
                     },
                 },
-            });
+            );
         }
         Ok(())
     }
@@ -4170,12 +4213,15 @@ impl AcpClientBridge {
                     };
                     let (modes, current) = session_modes_from_config_options(&options);
                     if self.pending_session_id.lock().await.is_none() {
-                        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                            connection_id: self.connection_id,
-                            session_id: Some(session_id),
-                            prompt_id: None,
-                            event: AgentEvent::SessionModes { modes, current },
-                        });
+                        send_manager_event(
+                            &self.event_tx,
+                            AgentConnectionManagerEvent {
+                                connection_id: self.connection_id,
+                                session_id: Some(session_id),
+                                prompt_id: None,
+                                event: AgentEvent::SessionModes { modes, current },
+                            },
+                        );
                     }
                 }
                 Some(AgentEvent::ModeChanged { mode_id })
@@ -4224,12 +4270,15 @@ impl AcpClientBridge {
                 // (CodeG applies before `session_modes` / `session_config_options`).
                 return Ok(());
             }
-            let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id,
-                prompt_id: None,
-                event,
-            });
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id,
+                    prompt_id: None,
+                    event,
+                },
+            );
         }
         Ok(())
     }
@@ -4272,18 +4321,21 @@ impl AcpClientBridge {
             let mut controls = self.session_controls.write().await;
             controls.entry(session_id).or_default().last_grok_usage = Some((used, size));
         }
-        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-            connection_id: self.connection_id,
-            session_id: Some(session_id),
-            prompt_id: None,
-            event: AgentEvent::Usage {
-                usage: AgentUsage {
-                    used,
-                    limit: (size > 0).then_some(size),
-                    ..AgentUsage::default()
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::Usage {
+                    usage: AgentUsage {
+                        used,
+                        limit: (size > 0).then_some(size),
+                        ..AgentUsage::default()
+                    },
                 },
             },
-        });
+        );
     }
 
     async fn agent_session_for_acp(&self, acp_session_id: String) -> Option<AgentSessionId> {
@@ -5751,7 +5803,7 @@ mod tests {
             let agent_id = AgentId::parse(agent_id).unwrap();
             let mut launch_lock = test_launch_lock(agent_id.clone());
             launch_lock.absolute_acp_program = PathBuf::from("relative-acp");
-            let (event_tx, _event_rx) = mpsc::unbounded_channel();
+            let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
             let manager = AgentConnectionManager::new_with_driver(event_tx, true);
             let (_snapshot, ready_rx) = manager
                 .register_connection(AgentConnectionLaunch {
@@ -5782,7 +5834,7 @@ mod tests {
         let program = std::env::current_exe().expect("test binary path");
         let mut launch_lock = test_launch_lock(AgentId::parse("grok").unwrap());
         launch_lock.absolute_acp_program = program;
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         let manager = AgentConnectionManager::new_with_driver(event_tx, true);
         let (_snapshot, ready_rx) = manager
             .register_connection(AgentConnectionLaunch {
@@ -5812,7 +5864,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_registers_and_removes_connection() {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
 
@@ -5836,7 +5888,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_rejects_unknown_prompt_connection() {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         let err = AgentConnectionManager::new_with_driver(event_tx, false)
             .send_prompt(
                 AgentConnectionId::new(),
@@ -5856,7 +5908,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_response_regressions_command_channel_close_returns_runtime_error() {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
         let (_snapshot, ready_rx) = manager
@@ -5904,7 +5956,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_in_memory_resumes_session_with_external_id() {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
         let session_id = AgentSessionId::new();
@@ -5994,6 +6046,46 @@ mod tests {
             .await,
             AgentAutoApproveMode::Off
         );
+    }
+
+    #[tokio::test]
+    async fn manager_event_channel_is_bounded() {
+        let (event_tx, mut event_rx) = mpsc::channel(4);
+        let manager = AgentConnectionManager::new_with_driver(event_tx.clone(), false);
+        let _ = manager;
+        for _ in 0..4 {
+            event_tx
+                .try_send(AgentConnectionManagerEvent {
+                    connection_id: AgentConnectionId::new(),
+                    session_id: None,
+                    prompt_id: None,
+                    event: AgentEvent::Error {
+                        error: AgentErrorEvent {
+                            message: "fill".into(),
+                            code: None,
+                            raw: None,
+                        },
+                    },
+                })
+                .expect("capacity remains");
+        }
+        assert!(
+            event_tx
+                .try_send(AgentConnectionManagerEvent {
+                    connection_id: AgentConnectionId::new(),
+                    session_id: None,
+                    prompt_id: None,
+                    event: AgentEvent::Error {
+                        error: AgentErrorEvent {
+                            message: "overflow".into(),
+                            code: None,
+                            raw: None,
+                        },
+                    },
+                })
+                .is_err()
+        );
+        assert!(event_rx.recv().await.is_some());
     }
 
     #[test]

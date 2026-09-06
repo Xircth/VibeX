@@ -6,8 +6,14 @@ import {
 
 import { describe, expect, it } from "vitest";
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
+  PLUGIN_DEV_CONNECTION_FILE,
   PluginDevHostClient,
+  discoverPluginDevConnection,
   resolvePluginDevConnection,
 } from "./hostClient.js";
 
@@ -27,11 +33,50 @@ describe("PluginDevHostClient", () => {
       }),
     ).toThrow("dev_link_host_only");
 
-    expect(() =>
-      resolvePluginDevConnection([], {
-        VIBEX_AUTH_TOKEN: "main-bearer-must-not-be-read",
-      }),
-    ).toThrow("plugin_dev_host_missing");
+    const emptyHome = mkdtempSync(join(tmpdir(), "vibex-plugin-dev-empty-"));
+    try {
+      expect(() =>
+        resolvePluginDevConnection(
+          [],
+          {
+            VIBEX_AUTH_TOKEN: "main-bearer-must-not-be-read",
+            VIBEX_DATA_DIR: emptyHome,
+          },
+          { home: emptyHome },
+        ),
+      ).toThrow("plugin_dev_host_missing");
+    } finally {
+      rmSync(emptyHome, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers the Desktop Plugin Dev connection from Host data", () => {
+    const home = mkdtempSync(join(tmpdir(), "vibex-plugin-dev-"));
+    try {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(
+        join(home, PLUGIN_DEV_CONNECTION_FILE),
+        `${JSON.stringify({
+          url: "http://127.0.0.1:43100",
+          token: "desktop-grant",
+          protocolVersion: "1.0",
+        })}\n`,
+      );
+      expect(
+        discoverPluginDevConnection({ VIBEX_DATA_DIR: home }, home),
+      ).toEqual({
+        endpoint: "http://127.0.0.1:43100",
+        token: "desktop-grant",
+      });
+      expect(
+        resolvePluginDevConnection([], { VIBEX_DATA_DIR: home }, { home }),
+      ).toEqual({
+        endpoint: "http://127.0.0.1:43100",
+        token: "desktop-grant",
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("rejects non-loopback and authenticated URL endpoints", () => {

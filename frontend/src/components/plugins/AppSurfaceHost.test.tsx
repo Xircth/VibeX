@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AppSurfaceHost,
+  appSurfaceHostInvokeError,
   buildAppSurfaceDocument,
   type AppSurfaceHostTransport,
 } from './AppSurfaceHost';
@@ -101,6 +102,63 @@ function renderHost(
   );
 }
 
+describe('appSurfaceHostInvokeError', () => {
+  it('does not treat Host Conflict as an artifact revision mismatch', () => {
+    expect(
+      appSurfaceHostInvokeError(
+        new Error('Conflict: App surface session is still opening'),
+        'session.start'
+      )
+    ).toEqual({
+      code: 'host_request_failed',
+      message: 'App surface session is still opening',
+    });
+    expect(
+      appSurfaceHostInvokeError(
+        'Conflict: worker_failed: host and user are required',
+        'session.start'
+      )
+    ).toEqual({
+      code: 'host_request_failed',
+      message: 'worker_failed: host and user are required',
+    });
+    expect(
+      appSurfaceHostInvokeError(
+        new Error('Internal error: Worker request timed out'),
+        'session.status'
+      )
+    ).toEqual({
+      code: 'host_request_failed',
+      message: 'Worker request timed out',
+    });
+  });
+
+  it('maps only an artifact write revision mismatch to artifact_revision_conflict', () => {
+    expect(
+      appSurfaceHostInvokeError(
+        new Error(
+          'Conflict: Artifact changed outside this editor; reload before saving'
+        ),
+        'artifact.writeText'
+      )
+    ).toEqual({
+      code: 'artifact_revision_conflict',
+      message: 'Artifact changed outside this editor; reload before saving',
+    });
+    expect(
+      appSurfaceHostInvokeError(
+        new Error(
+          'Conflict: Artifact changed outside this editor; reload before saving'
+        ),
+        'session.start'
+      )
+    ).toEqual({
+      code: 'host_request_failed',
+      message: 'Artifact changed outside this editor; reload before saving',
+    });
+  });
+});
+
 describe('AppSurfaceHost lifecycle boundary', () => {
   it('preserves trusted plugin markup while adding the lifecycle bridge', () => {
     const html = buildAppSurfaceDocument({
@@ -164,6 +222,12 @@ describe('AppSurfaceHost lifecycle boundary', () => {
       }),
       expect.anything()
     );
+    expect(
+      screen.queryByText(/Generation|代次|surfaceGeneration/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Project health' })
+    ).not.toBeInTheDocument();
   });
 
   it('mounts an artifact editor without panel chrome and forwards document methods', async () => {
@@ -447,5 +511,43 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(
       screen.getByRole('region', { name: 'Project health' })
     ).toHaveFocus();
+  });
+
+  it('forwards Host Conflict to the plugin instead of an artifact reload', async () => {
+    const transport = createTransport();
+    transport.invoke.mockRejectedValue(
+      new Error('Conflict: worker_failed: host and user are required')
+    );
+    const bootstrapMessenger = vi.fn();
+    renderHost(transport, { bootstrapMessenger });
+    await screen.findByTitle('Project health');
+    await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
+    const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
+    const replies: unknown[] = [];
+    pluginPort.addEventListener('message', (event) => replies.push(event.data));
+
+    await act(async () =>
+      pluginPort.postMessage({
+        protocol: 'vibex.app-surface/1',
+        type: 'request',
+        token: authorityToken,
+        sequence: 1,
+        requestId: 'start-1',
+        method: 'app.navigation.open',
+        params: {},
+      })
+    );
+
+    await waitFor(() => expect(replies).toHaveLength(1));
+    expect(replies[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        requestId: 'start-1',
+        error: {
+          code: 'host_request_failed',
+          message: 'worker_failed: host and user are required',
+        },
+      })
+    );
   });
 });

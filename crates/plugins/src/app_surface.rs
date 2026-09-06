@@ -252,7 +252,7 @@ impl PluginAppSurfaceHost {
                     }),
                 )
                 .await
-                .map_err(|error| conflict(error.to_string()))?;
+                .map_err(internal)?;
             read_surface_document(&plugin.package).await
         }
         .await;
@@ -379,17 +379,11 @@ impl PluginAppSurfaceHost {
                 "App surface Worker generation changed; session was revoked",
             ));
         }
+        // App `bridge.invoke(method, params)` is the Worker handler input.
         lease
-            .invoke(
-                &request.method,
-                json!({
-                    "surfaceId": request.identity.surface_id,
-                    "requestId": request.request_id,
-                    "params": request.params,
-                }),
-            )
+            .invoke(&request.method, request.params)
             .await
-            .map_err(|error| conflict(error.to_string()))
+            .map_err(internal)
     }
 
     pub async fn revoke(&self, identity: &AppSurfaceIdentity) -> Result<(), AppSurfaceError> {

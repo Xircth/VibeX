@@ -8,6 +8,46 @@ import { Button } from '@/components/ui/button';
 const APP_SURFACE_PROTOCOL = 'vibex.app-surface/1';
 const LOCAL_METHODS = new Set(['surface.ready', 'surface.escape']);
 const ARTIFACT_METHODS = new Set(['artifact.readText', 'artifact.writeText']);
+const HOST_ERROR_KIND_PREFIX =
+  /^(Not found|Bad request|Internal error|Conflict):\s*/u;
+const ARTIFACT_CHANGED_OUTSIDE =
+  'Artifact changed outside this editor; reload before saving';
+
+function hostErrorMessage(cause: unknown): string {
+  if (typeof cause === 'string') return cause;
+  if (cause instanceof Error) return cause.message;
+  if (
+    cause &&
+    typeof cause === 'object' &&
+    'message' in cause &&
+    typeof (cause as { message: unknown }).message === 'string'
+  ) {
+    return (cause as { message: string }).message;
+  }
+  return String(cause);
+}
+
+export function appSurfaceHostInvokeError(
+  cause: unknown,
+  method: string
+): { code: string; message: string } {
+  const message = hostErrorMessage(cause)
+    .replace(HOST_ERROR_KIND_PREFIX, '')
+    .trim();
+  if (
+    method === 'artifact.writeText' &&
+    /changed outside this editor/iu.test(message)
+  ) {
+    return {
+      code: 'artifact_revision_conflict',
+      message: ARTIFACT_CHANGED_OUTSIDE,
+    };
+  }
+  return {
+    code: 'host_request_failed',
+    message: message || 'The VibeX Host could not complete this request',
+  };
+}
 
 type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -503,21 +543,9 @@ export function AppSurfaceHost({
         respond(port, mounted.token, requestId, { ok: true, result });
       } catch (cause) {
         if (tokenRef.current !== mounted.token) return;
-        const causeMessage =
-          cause instanceof Error ? cause.message : String(cause);
-        const revisionConflict = /changed outside|revision|conflict/iu.test(
-          causeMessage
-        );
         respond(port, mounted.token, requestId, {
           ok: false,
-          error: {
-            code: revisionConflict
-              ? 'artifact_revision_conflict'
-              : 'host_request_failed',
-            message: revisionConflict
-              ? 'Artifact changed outside this editor; reload before saving'
-              : 'The VibeX Host could not complete this request',
-          },
+          error: appSurfaceHostInvokeError(cause, method),
         });
       } finally {
         pendingRequestIdsRef.current.delete(requestId);
@@ -558,16 +586,6 @@ export function AppSurfaceHost({
       aria-label={descriptor.label}
       tabIndex={-1}
     >
-      {variant === 'panel' ? (
-        <header>
-          <strong>{descriptor.label}</strong>
-          <span>
-            {t('plugins.surfaceGeneration', {
-              generation: descriptor.generation,
-            })}
-          </span>
-        </header>
-      ) : null}
       {!enabled ? (
         <p className="plugin-app-surface-state">
           {t('plugins.surfaceDisabled')}

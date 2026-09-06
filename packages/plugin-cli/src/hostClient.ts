@@ -1,14 +1,45 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { hostDataDirs } from "./hostSession.js";
+
 export const PLUGIN_DEV_PROTOCOL_VERSION = "1.0" as const;
+export const PLUGIN_DEV_CONNECTION_FILE = "plugin-dev.json";
+
+export function discoverPluginDevConnection(
+  environment: Record<string, string | undefined> = process.env,
+  home = homedir(),
+): { endpoint: string; token: string } | null {
+  for (const dir of hostDataDirs(home, environment)) {
+    try {
+      const raw = JSON.parse(
+        readFileSync(join(dir, PLUGIN_DEV_CONNECTION_FILE), "utf8"),
+      ) as { url?: unknown; token?: unknown };
+      const endpoint = typeof raw.url === "string" ? raw.url.trim() : "";
+      const token = typeof raw.token === "string" ? raw.token.trim() : "";
+      if (endpoint && token) return { endpoint, token };
+    } catch {
+      /* try the next Host data directory */
+    }
+  }
+  return null;
+}
 
 export function resolvePluginDevConnection(
   args: readonly string[],
   environment: Record<string, string | undefined> = process.env,
+  options: { home?: string } = {},
 ) {
   if (option(args, "--token") || environment.VIBEX_PLUGIN_DEV_TOKEN) {
     throw new Error("dev_link_host_only");
   }
-  const endpoint = option(args, "--host") ?? environment.VIBEX_PLUGIN_DEV_HOST;
-  const token = environment.VIBEX_PLUGIN_DEV_GRANT;
+  const discovered = discoverPluginDevConnection(environment, options.home);
+  const endpoint =
+    option(args, "--host") ??
+    environment.VIBEX_PLUGIN_DEV_HOST ??
+    discovered?.endpoint;
+  const token = environment.VIBEX_PLUGIN_DEV_GRANT ?? discovered?.token;
   if (!endpoint) throw new Error("plugin_dev_host_missing");
   if (!token) throw new Error("dev_link_host_only");
   return { endpoint, token };

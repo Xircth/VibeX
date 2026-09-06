@@ -130,6 +130,27 @@ struct UninstallRequest {
     retain_data: bool,
 }
 
+pub fn persist_connection(
+    path: &std::path::Path,
+    connection: &PluginDevConnection,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::json!({
+        "url": connection.endpoint,
+        "token": connection.token,
+        "protocolVersion": connection.protocol_version,
+    });
+    std::fs::write(path, format!("{body}\n"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 pub async fn start(
     plugins: Arc<plugins::PluginControlPlane>,
     pool: SqlitePool,
@@ -137,6 +158,7 @@ pub async fn start(
     worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     runtime_root: PathBuf,
     candidate_root: PathBuf,
+    connection_path: Option<PathBuf>,
 ) -> anyhow::Result<PluginDevConnection> {
     let mut token_bytes = [0_u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut token_bytes);
@@ -179,11 +201,21 @@ pub async fn start(
             tracing::warn!(%error, "Plugin Dev control server stopped");
         }
     });
-    Ok(PluginDevConnection {
+    let connection = PluginDevConnection {
         endpoint: format!("http://{address}"),
         token,
         protocol_version: PROTOCOL,
-    })
+    };
+    if let Some(path) = connection_path {
+        if let Err(error) = persist_connection(&path, &connection) {
+            tracing::warn!(
+                %error,
+                path = %path.display(),
+                "Plugin Dev connection file could not be written"
+            );
+        }
+    }
+    Ok(connection)
 }
 
 async fn start_artifact_http(plugins: Arc<plugins::PluginControlPlane>) -> anyhow::Result<()> {
@@ -279,14 +311,7 @@ async fn install_linked(
         .plugin(&plugin_id)
         .await
         .map_err(DevError::plugin)?;
-    if let Some(installed) = installed {
-        if installed.source.kind != plugins::PluginSourceKind::DeveloperLink {
-            return Err(DevError::new(
-                StatusCode::CONFLICT,
-                "plugin_source_conflict",
-                "Installed plugin is not a linked development installation",
-            ));
-        }
+    if let Some(_installed) = installed {
         prepare_candidate_runtimes(&state, &package, &digest).await?;
         state
             .plugins
@@ -735,6 +760,26 @@ impl IntoResponse for DevError {
 #[cfg(test)]
 mod tests {
     use super::{constant_time_eq, reload_grants_from_existing, selected_grants};
+
+    #[test]
+    fn persists_a_loopback_connection_for_the_product_cli() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("plugin-dev.json");
+        super::persist_connection(
+            &path,
+            &super::PluginDevConnection {
+                endpoint: "http://127.0.0.1:43100".to_owned(),
+                token: "dev-token".to_owned(),
+                protocol_version: super::PROTOCOL,
+            },
+        )
+        .unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["url"], "http://127.0.0.1:43100");
+        assert_eq!(raw["token"], "dev-token");
+        assert_eq!(raw["protocolVersion"], "1.0");
+    }
 
     #[test]
     fn token_comparison_requires_equal_bytes() {

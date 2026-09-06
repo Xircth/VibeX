@@ -1363,11 +1363,67 @@ impl PluginControlPlane {
         &self,
         data_root: &Path,
         activation: Option<BundledPluginActivation>,
-    ) -> Result<(), PluginError> {
+    ) -> Result<Vec<PathBuf>, PluginError> {
         let roots = utils::assets::materialize_builtin_plugins(data_root)
             .map_err(|error| PluginError::io("materialize official plugins", error))?;
         self.migrate_builtin_memberships(&roots).await?;
-        let _ = activation;
+        self.refresh_installed_bundled_plugins(&roots, activation.as_ref())
+            .await?;
+        Ok(roots)
+    }
+
+    /// Replaces already-installed official packages when the Host embed changed.
+    /// Does not register plugins the user has not installed.
+    pub async fn refresh_installed_bundled_plugins(
+        &self,
+        roots: &[PathBuf],
+        activation: Option<&BundledPluginActivation>,
+    ) -> Result<(), PluginError> {
+        for builtin_root in roots {
+            let mut builtin =
+                crate::PluginPackage::inspect(builtin_root, crate::PluginSourceKind::Builtin)?;
+            let Some(installed) = self.plugin(builtin.id.as_str()).await? else {
+                continue;
+            };
+            if installed.source.kind == crate::PluginSourceKind::DeveloperLink {
+                continue;
+            }
+            let incoming_digest = crate::package_content_digest(builtin_root)?;
+            if installed.package_digest == incoming_digest {
+                continue;
+            }
+            if installed.config_schema.is_some() {
+                builtin.write_adopted_config(installed.config.clone())?;
+                builtin =
+                    crate::PluginPackage::inspect(builtin_root, crate::PluginSourceKind::Builtin)?;
+            }
+            builtin.source.kind = installed.source.kind;
+            builtin.source.origin = installed.source.origin.clone();
+            builtin.source.git_ref = installed.source.git_ref.clone();
+            builtin.source.git_sha = installed.source.git_sha.clone();
+            builtin.source.locked = installed.source.locked;
+            builtin.source.show_tree = installed.source.show_tree;
+            if installed.activation == PluginActivation::Enabled {
+                let Some(activation) = activation else {
+                    tracing::warn!(
+                        plugin_id = %builtin.id.as_str(),
+                        "official plugin package changed; Worker will update once the Runtime is ready"
+                    );
+                    continue;
+                };
+                let grants = crate::candidate_capability_grants(&builtin, &[], &[])?;
+                self.update_and_activate(
+                    &activation.node_executable,
+                    builtin,
+                    &grants,
+                    activation.broker.clone(),
+                )
+                .await
+                .map_err(|error| PluginError::registry(format!("{}: {error}", error.code())))?;
+            } else {
+                self.import(builtin, ConflictDecision::Replace).await?;
+            }
+        }
         Ok(())
     }
 

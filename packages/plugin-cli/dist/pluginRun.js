@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { buildPlugin } from "./build.js";
 import { watchPluginSources } from "./dev.js";
 import { loadHostSession, mergeHostSession, parseHostFlags, requireHostSession, resolveHostSession, saveHostSession, } from "./hostSession.js";
-import { inspectLinkedPackage } from "./pluginControl.js";
+import { PluginDevHostClient, discoverPluginDevConnection, } from "./hostClient.js";
+import { inspectLinkedPackage, installLinkedPlugin, reloadLinkedPlugin, } from "./pluginControl.js";
 import { testPlugin } from "./pluginTest.js";
 import { enableOnProductHost, importLinkedOnProductHost, pingProductHost, } from "./productHost.js";
 import { readPluginRemotes, startPluginRemoteDev } from "./remoteDev.js";
@@ -33,16 +34,28 @@ export async function bindHostServer(options) {
 }
 export async function runPluginDev(root, options = {}) {
     const log = options.log ?? console.log;
-    requireHostSession(resolveHostSession());
     const resolved = resolve(root);
     await buildPlugin(resolved);
     const plugin = await inspectLinkedPackage(resolved);
-    const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
-    if (installed.queued) {
-        requireHostSession(null);
-    }
-    await enableOnProductHost(plugin.identity.id);
-    log(`Published generation ${installed.generation}; watching ${resolved}`);
+    const desktop = discoverPluginDevConnection();
+    const client = desktop ? new PluginDevHostClient(desktop) : null;
+    const publish = async (reload) => {
+        if (client) {
+            return reload
+                ? reloadLinkedPlugin(resolved, client)
+                : installLinkedPlugin(resolved, client);
+        }
+        requireHostSession(resolveHostSession());
+        const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
+        if (installed.queued) {
+            requireHostSession(null);
+        }
+        if (!reload)
+            await enableOnProductHost(plugin.identity.id);
+        return installed;
+    };
+    const first = await publish(false);
+    log(`Linked ${plugin.identity.id} as a development plugin (generation ${first.generation}); watching ${resolved}`);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -60,7 +73,7 @@ export async function runPluginDev(root, options = {}) {
                 console.error(error instanceof Error ? error.message : String(error));
             },
         });
-        const published = await importLinkedOnProductHost(plugin.root, plugin.identity);
+        const published = await publish(true);
         log(`Published generation ${published.generation} with live remotes`);
     }
     try {
@@ -71,7 +84,7 @@ export async function runPluginDev(root, options = {}) {
                 await buildPlugin(resolved);
                 if (controller.signal.aborted)
                     return;
-                const candidate = await importLinkedOnProductHost(plugin.root, plugin.identity);
+                const candidate = await publish(true);
                 log(`Published generation ${candidate.generation}`);
             },
             onError(error) {

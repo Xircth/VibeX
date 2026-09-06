@@ -1,5 +1,12 @@
 export declare const PLUGIN_DEV_PROTOCOL_VERSION: "1.0";
-export declare function resolvePluginDevConnection(args: readonly string[], environment?: Record<string, string | undefined>): {
+export declare const PLUGIN_DEV_CONNECTION_FILE = "plugin-dev.json";
+export declare function discoverPluginDevConnection(environment?: Record<string, string | undefined>, home?: string): {
+    endpoint: string;
+    token: string;
+} | null;
+export declare function resolvePluginDevConnection(args: readonly string[], environment?: Record<string, string | undefined>, options?: {
+    home?: string;
+}): {
     endpoint: string;
     token: string;
 };

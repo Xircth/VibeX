@@ -19,6 +19,8 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
 } as const;
 
 export type OfficialPluginId = keyof typeof OFFICIAL_PLUGIN_I18N_KEY;
+export type OfficialPluginI18nKey =
+  (typeof OFFICIAL_PLUGIN_I18N_KEY)[OfficialPluginId];
 
 export function isOfficialPluginId(id: string): id is OfficialPluginId {
   return Object.prototype.hasOwnProperty.call(OFFICIAL_PLUGIN_I18N_KEY, id);

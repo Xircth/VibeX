@@ -149,7 +149,8 @@ async fn published_surface_opens_invokes_and_revokes_through_the_shared_host() {
         .await
         .unwrap();
     assert_eq!(result["handler"], "hello");
-    assert_eq!(result["input"]["params"]["name"], "VibeX");
+    assert_eq!(result["input"]["name"], "VibeX");
+    assert!(result["input"].get("params").is_none());
 
     host.revoke(&issued_identity).await.unwrap();
     let error = host
@@ -316,4 +317,97 @@ async fn artifact_editor_surface_reads_writes_and_detects_external_changes() {
         .await
         .expect_err("an external edit must not be overwritten silently");
     assert_eq!(error.kind(), plugins::AppSurfaceErrorKind::Conflict);
+    assert_eq!(
+        error.to_string(),
+        "Artifact changed outside this editor; reload before saving"
+    );
+}
+
+#[tokio::test]
+async fn worker_invoke_failure_is_not_a_session_conflict() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    write_package(root.path());
+    std::fs::write(
+        root.path().join("worker.mjs"),
+        r#"import { createInterface } from 'node:readline';
+const handlers = ['surface.createSession', 'hello'];
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: handlers, requestedFeatures: [] } }));
+  } else if (request.method === 'activate') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers } }));
+  } else if (request.method === 'dispose') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: null }));
+  } else if (request.params?.handler === 'hello') {
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: false,
+      error: { code: 'worker_failed', message: 'host and user are required' }
+    }));
+  } else {
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { handler: request.params.handler, input: request.params.input }
+    }));
+  }
+}"#,
+    )
+    .unwrap();
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::DeveloperLink).unwrap();
+    let control = Arc::new(PluginControlPlane::new(Arc::new(
+        InMemoryPluginRegistry::default(),
+    )));
+    control
+        .import(package, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .activate_and_enable(&node, "tests.surface", &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .unwrap();
+    let catalog = control.contributions().await.unwrap();
+    let surface = catalog
+        .items
+        .iter()
+        .find(|item| item.id == "dashboard")
+        .unwrap();
+    let identity = AppSurfaceIdentity {
+        plugin_id: "tests.surface".to_owned(),
+        surface_id: "dashboard".to_owned(),
+        generation: surface.generation,
+        token: "0123456789abcdef0123456789abcdef".to_owned(),
+    };
+    let host = PluginAppSurfaceHost::new(control);
+    let document = host
+        .open(AppSurfaceOpenRequest {
+            identity: identity.clone(),
+            artifact_path: None,
+        })
+        .await
+        .unwrap();
+    let issued = AppSurfaceIdentity {
+        token: document.token,
+        ..identity
+    };
+    let error = host
+        .invoke(AppSurfaceInvocation {
+            identity: issued,
+            request_id: "hello-1".to_owned(),
+            sequence: 1,
+            method: "hello".to_owned(),
+            params: json!(null),
+        })
+        .await
+        .expect_err("worker handler failures must reach the App");
+    assert_eq!(error.kind(), plugins::AppSurfaceErrorKind::Internal);
+    assert!(
+        error.to_string().contains("host and user are required"),
+        "{}",
+        error
+    );
 }

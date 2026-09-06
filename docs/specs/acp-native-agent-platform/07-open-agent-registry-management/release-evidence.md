@@ -87,8 +87,8 @@ The release probe spawns an absolute executable, sends a real ACP
 
 | Target | Exact execution | Result |
 | --- | --- | --- |
-| Claude Code Built-in | local `claude-agent-acp` 0.59.0 with absolute `CLAUDE_CODE_EXECUTABLE` | Passed |
-| Codex Built-in | local `codex-acp` 1.1.4 with absolute `CODEX_PATH` | Passed |
+| Claude Code Built-in | local `claude-agent-acp` 0.59.0; ACP adapter only, no `CLAUDE_CODE_EXECUTABLE` | Passed |
+| Codex Built-in | local `codex-acp` 1.1.4; ACP adapter only, no `CODEX_PATH` | Passed |
 | OpenCode Built-in / Binary | absolute `opencode acp` 1.18.2 | Passed |
 | Pi Built-in | absolute `npx -y pi-acp@0.0.32` | Passed |
 | Grok Build / npx | isolated install of `@xai-official/grok@0.2.115`, `grok agent stdio`, production handshake verifier | Passed |

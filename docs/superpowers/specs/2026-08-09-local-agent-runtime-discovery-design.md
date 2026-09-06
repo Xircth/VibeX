@@ -1,9 +1,15 @@
 # Local Agent Runtime Discovery Design
 
 **Date:** 2026-08-09
-**Status:** Implemented
+**Status:** Superseded (2026-09-06)
 **Scope:** First-run Agent selection and Agent settings preflight on Windows,
 Linux, and macOS compatibility paths
+
+> **Superseded by [ADR-0010](../../../adr/0010-agent-runtime-topology.md) (amended 2026-09-02).**
+> Session launch and “installed” are ACP-only. PATH vendor CLI is optional local
+> evidence, not a preflight health item or launch gate. Claude Code / Codex do
+> not inject `CLAUDE_CODE_EXECUTABLE` / `CODEX_PATH`. Keep this file as the
+> discovery-design history; do not implement the dual Runtime+ACP health items.
 
 ## Problem
 

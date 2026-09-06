@@ -219,10 +219,20 @@ impl LaunchGate {
         Self::verify_components(components).await?;
         Ok(lock)
     }
+    fn is_acp_launch_component(kind: &str) -> bool {
+        matches!(kind, "acp" | "acp_adapter" | "combined_runtime")
+    }
+
     pub async fn verify_components(
         components: &[LaunchComponentEvidence],
     ) -> Result<(), LaunchGateError> {
         for component in components {
+            // Adapter-backed Agents ship a vendor CLI as optional local evidence.
+            // Session launch and integrity repair only bind the ACP program
+            // (ADR-0010 / ADR-0060).
+            if !Self::is_acp_launch_component(&component.component_kind) {
+                continue;
+            }
             if !component.absolute_path.is_absolute() {
                 return Err(LaunchGateError::NonAbsolutePath {
                     component_kind: component.component_kind.clone(),

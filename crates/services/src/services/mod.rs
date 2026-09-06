@@ -1,4 +1,5 @@
 pub mod agent_management;
+pub mod agent_management_runtime;
 pub mod agent_plan_usage;
 pub mod agent_registry;
 pub mod approvals;
@@ -14,6 +15,7 @@ pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod git_host;
 pub mod image;
+pub mod local_runtime_discovery;
 pub mod mcp;
 pub mod notification;
 pub mod pr_description;

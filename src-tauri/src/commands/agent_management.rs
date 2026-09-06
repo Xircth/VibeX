@@ -2426,28 +2426,27 @@ use agents::{
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
-    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
-    AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
-    AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
-    AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
-    AgentEnvironmentView, AgentId, AgentLifecycleState, AgentLocalRuntimeView,
-    AgentManagementActionKind, AgentManagementActionReceipt, AgentManagementActionView,
-    AgentManagementActionsView, AgentManagementErrorCode, AgentManagementErrorView,
-    AgentManagementView, AgentModelCatalogView, AgentModelProviderImportPreviewView,
-    AgentModelProviderImportRequest, AgentModelProviderImportSource, AgentModelProviderProbeView,
-    AgentModelProviderSaveRequest, AgentModelProvidersView, AgentNativeConfigFieldKind,
-    AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
-    AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
-    AgentNativeConfigSurface, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
-    AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource,
-    AgentPreflightView, AgentRegistryView, AgentSource, AgentUpdateCheckView,
-    CodexDeviceCodePollView, CodexDeviceCodeView, CodexModelCatalogConfigRequest,
-    CodexModelCatalogConfigView, DshPluginSummaryView, DshProviderDiscoverRequest,
-    DshProviderModelView, DshProviderSaveRequest, DshProvidersView, GrokPluginSummaryView,
-    OpenCodePluginStatus, OpenCodePluginSummaryView, OpenCodeProviderCatalogView,
-    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionsView, PiCommandValidationView,
-    PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView, PiRuntimeSaveRequest,
-    UserAgentDefinitionRequest, UserAgentDefinitionView,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryProgressView,
+    AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
+    AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
+    AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView, AgentId,
+    AgentLifecycleState, AgentLocalRuntimeView, AgentManagementActionKind,
+    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
+    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementView, AgentModelCatalogView,
+    AgentModelProviderImportPreviewView, AgentModelProviderImportRequest,
+    AgentModelProviderImportSource, AgentModelProviderProbeView, AgentModelProviderSaveRequest,
+    AgentModelProvidersView, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
+    AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat,
+    AgentNativeConfigOptionView, AgentNativeConfigPatchRequest, AgentNativeConfigSurface,
+    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
+    AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource, AgentPreflightView,
+    AgentRegistryView, AgentSource, AgentUpdateCheckView, CodexDeviceCodePollView,
+    CodexDeviceCodeView, CodexModelCatalogConfigRequest, CodexModelCatalogConfigView,
+    DshPluginSummaryView, DshProviderDiscoverRequest, DshProviderModelView, DshProviderSaveRequest,
+    DshProvidersView, GrokPluginSummaryView, OpenCodePluginStatus, OpenCodePluginSummaryView,
+    OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionsView,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiPluginSummaryView,
+    PiRuntimeSaveRequest, UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
 use conversations::{invalidate_open_capability_catalog, refresh_open_capability_catalog};
@@ -2481,9 +2480,7 @@ const MAX_MANAGED_NODE_BYTES: usize = 128 * 1024 * 1024;
 const MANAGED_UV_VERSION: &str = "0.8.10";
 const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CONCURRENT_EXTERNAL_AGENT_PROBES: usize = 4;
-const MAX_CONCURRENT_LOCAL_RUNTIME_PROBES: usize = 12;
 const LOCAL_RUNTIME_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-const LOCAL_RUNTIME_DISCOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const EXTERNAL_COMPONENT_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2535,32 +2532,7 @@ where
 fn local_runtime_discovery_progress_view(
     progress: LocalRuntimeDiscoveryProgress,
 ) -> AgentDiscoveryProgressView {
-    let phase = if !progress.started {
-        AgentDiscoveryPhase::Pending
-    } else if progress.running {
-        AgentDiscoveryPhase::Checking
-    } else {
-        AgentDiscoveryPhase::Complete
-    };
-    let mut checked_agent_ids = progress.checked_agent_ids.into_iter().collect::<Vec<_>>();
-    checked_agent_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
-    AgentDiscoveryProgressView {
-        phase,
-        completed: progress.completed,
-        total: progress.total,
-        found: progress.found,
-        checked_agent_ids,
-        timed_out: progress.timed_out,
-    }
-}
-
-async fn emit_local_runtime_discovery_progress(
-    _app: &AppHandle,
-    runtime: &AgentManagementRuntimeState,
-) {
-    let progress =
-        local_runtime_discovery_progress_view(runtime.local_runtime_discovery_progress().await);
-    crate::host_bus::bus().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
+    services::services::agent_management_runtime::local_runtime_discovery_progress_view(progress)
 }
 
 struct ManagedNodeArtifact {
@@ -2994,106 +2966,35 @@ fn restore_managed_cli_switch(
     }
 }
 
-pub(crate) async fn reconcile_managed_cli_exposures(app: &AppHandle, pool: &sqlx::SqlitePool) {
-    let _ = utils::shell::refresh_process_path_after_install().await;
-    let installations = match sqlx::query_scalar::<_, String>(
-        r#"SELECT installation.agent_id
-           FROM agent_installation installation
-           WHERE installation.ownership = 'managed'
-             AND installation.current_lock_id IS NOT NULL
-           ORDER BY installation.agent_id"#,
+pub(crate) async fn reconcile_managed_cli_exposures(_app: &AppHandle, pool: &sqlx::SqlitePool) {
+    // Historical managed trees were a second install. ADR-0060: the lock is an
+    // observation of the user environment. Reclassify leftover rows so launch
+    // never SHA-checks a vendor CLI or republishes shims.
+    match sqlx::query(
+        r#"UPDATE agent_installation
+           SET ownership = 'external', updated_at = CURRENT_TIMESTAMP
+           WHERE ownership = 'managed'"#,
     )
-    .fetch_all(pool)
+    .execute(pool)
     .await
     {
-        Ok(installations) => installations,
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!(
+                count = result.rows_affected(),
+                "reclassified managed Agent installations as user-environment observations"
+            );
+        }
+        Ok(_) => {}
         Err(error) => {
-            tracing::warn!(%error, "failed to load managed Agent CLI exposures");
-            return;
-        }
-    };
-    let Ok(home_dir) = app.path().home_dir() else {
-        return;
-    };
-    let Ok(managed_artifacts_dir) = app_managed_artifacts_directory(app) else {
-        return;
-    };
-    for agent_id in installations {
-        let Ok(agent_id) = AgentId::parse(agent_id) else {
-            continue;
-        };
-        let already_reconciled = CLI_EXPOSURES
-            .get_or_init(|| AsyncMutex::new(HashSet::new()))
-            .lock()
-            .await
-            .contains(&agent_id);
-        if already_reconciled {
-            continue;
-        }
-        let agent_lock = OperationScheduler::shared().agent_lock(&agent_id);
-        let _agent_guard = agent_lock.lock().await;
-        let runtime = current_managed_runtime_cli(pool, &agent_id)
-            .await
-            .and_then(|runtime| {
-                runtime.ok_or_else(|| anyhow::anyhow!("安装记录没有本地 Runtime 组件"))
-            });
-        let result = runtime.and_then(|runtime| {
-            let root = managed_install_root(&managed_artifacts_dir, &agent_id)?;
-            publish_managed_runtime_cli(
-                &home_dir,
-                &agent_id,
-                &root,
-                &runtime.runtime_executable,
-                &runtime.runtime_path_entries,
-                configured_shell_family(),
-            )
-            .map_err(Into::into)
-        });
-        match result {
-            Ok(_) => {
-                CLI_EXPOSURES
-                    .get_or_init(|| AsyncMutex::new(HashSet::new()))
-                    .lock()
-                    .await
-                    .insert(agent_id);
-            }
-            Err(error) => {
-                tracing::warn!(
-                    agent_id = %agent_id,
-                    %error,
-                    "failed to reconcile managed Agent terminal command"
-                );
-                let redacted = redact_operation_output(&error.to_string());
-                let _ = sqlx::query(
-                    r#"UPDATE agent_installation
-                       SET lifecycle = 'needs_repair', updated_at = CURRENT_TIMESTAMP
-                       WHERE agent_id = ? AND ownership = 'managed'
-                         AND current_lock_id IS NOT NULL"#,
-                )
-                .bind(agent_id.as_str())
-                .execute(pool)
-                .await;
-                let _ = db::models::agent_management::DiagnosticRepository::new(pool.clone())
-                    .append_bounded(&db::models::agent_management::DiagnosticRecord {
-                        id: Uuid::new_v4(),
-                        agent_id,
-                        operation_kind: "terminal_cli".to_string(),
-                        severity: "error".to_string(),
-                        message: "本地终端命令发布失败".to_string(),
-                        redacted_output: Some(redacted),
-                        created_at: Utc::now().to_rfc3339(),
-                    })
-                    .await;
-            }
+            tracing::warn!(%error, "failed to reclassify managed Agent installations");
         }
     }
-    let _ = utils::shell::refresh_process_path_after_install().await;
 }
 
 async fn discover_built_in_local_runtimes(
-    app: &AppHandle,
+    _app: &AppHandle,
     pool: &sqlx::SqlitePool,
-    runtime: &AgentManagementRuntimeState,
+    runtime: Arc<AgentManagementRuntimeState>,
 ) {
     let _ = utils::shell::refresh_process_path().await;
     if let Some(home) = dirs::home_dir() {
@@ -3105,85 +3006,24 @@ async fn discover_built_in_local_runtimes(
             utils::shell::expose_user_bin_to_process_path(&directory);
         }
     }
-    let profiles = BuiltInProfileCatalog::bundled();
-    let candidates = profiles.profiles().to_vec();
-    runtime
-        .begin_local_runtime_discovery(u32::try_from(candidates.len()).unwrap_or(u32::MAX))
-        .await;
-    emit_local_runtime_discovery_progress(app, runtime).await;
-    let jobs = candidates
-        .into_iter()
-        .map(|profile| {
-            let app = app.clone();
-            async move {
-                let local_runtime = match discover_profile_local_runtime(pool, &profile).await {
-                    Ok(evidence) => Some(evidence),
-                    Err(error) => {
-                        tracing::debug!(
-                            agent_id = %profile.agent_id,
-                            %error,
-                            "built-in local Runtime candidate was not discovered"
-                        );
-                        None
-                    }
-                };
-                let acp_adapter = match profile.topology {
-                    ProfileTopology::NativeAcp => local_runtime.clone(),
-                    ProfileTopology::AdapterBacked => {
-                        match discover_profile_acp_adapter(&profile).await {
-                            Ok(evidence) => Some(evidence),
-                            Err(error) => {
-                                tracing::debug!(
-                                    agent_id = %profile.agent_id,
-                                    %error,
-                                    "built-in ACP adapter candidate was not discovered"
-                                );
-                                None
-                            }
-                        }
-                    }
-                };
-                runtime
-                    .replace_local_runtime(profile.agent_id.clone(), local_runtime.clone())
-                    .await;
-                runtime
-                    .replace_acp_adapter(profile.agent_id.clone(), acp_adapter.clone())
-                    .await;
-                runtime
-                    .record_local_runtime_discovery(
-                        profile.agent_id.clone(),
-                        acp_adapter.is_some() || local_runtime.is_some(),
-                    )
-                    .await;
-                emit_local_runtime_discovery_progress(&app, runtime).await;
-            }
-        })
-        .collect();
-
-    let timed_out = tokio::time::timeout(
-        LOCAL_RUNTIME_DISCOVERY_TIMEOUT,
-        run_bounded_agent_probes(jobs, MAX_CONCURRENT_LOCAL_RUNTIME_PROBES),
+    services::services::local_runtime_discovery::discover_built_in_local_runtimes(
+        pool.clone(),
+        runtime,
+        Arc::new(|progress| {
+            crate::host_bus::bus().emit(MANAGEMENT_DISCOVERY_PROGRESS_EVENT, progress);
+        }),
     )
-    .await
-    .is_err();
-    if timed_out {
-        tracing::warn!(
-            timeout_secs = LOCAL_RUNTIME_DISCOVERY_TIMEOUT.as_secs(),
-            "local Agent Runtime discovery reached its startup time budget"
-        );
-    }
-    runtime.finish_local_runtime_discovery(timed_out).await;
-    emit_local_runtime_discovery_progress(app, runtime).await;
+    .await;
 }
 
 async fn ensure_local_runtime_discovery(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
-    runtime: &AgentManagementRuntimeState,
+    runtime: &Arc<AgentManagementRuntimeState>,
 ) {
     run_local_runtime_discovery_once(
         runtime,
-        discover_built_in_local_runtimes(app, pool, runtime),
+        discover_built_in_local_runtimes(app, pool, Arc::clone(runtime)),
     )
     .await;
 }
@@ -3198,7 +3038,7 @@ async fn probe_built_in_external_installations(
         let _ = utils::shell::refresh_process_path_after_install().await;
         refresh_local_runtime_discovery_once(
             &runtime,
-            discover_built_in_local_runtimes(app, pool, &runtime),
+            discover_built_in_local_runtimes(app, pool, Arc::clone(&runtime)),
         )
         .await;
     } else {
@@ -3576,7 +3416,7 @@ pub(crate) async fn warm_agent_management(
 pub(crate) async fn warm_local_runtime_discovery(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
-    runtime: &AgentManagementRuntimeState,
+    runtime: &Arc<AgentManagementRuntimeState>,
 ) {
     ensure_local_runtime_discovery(app, pool, runtime).await;
     crate::host_bus::bus().emit(MANAGEMENT_INVALIDATED_EVENT, ());
@@ -4126,28 +3966,8 @@ async fn overlay_local_runtime_evidence(
     runtime: &AgentManagementRuntimeState,
     views: &mut [AgentManagementView],
 ) {
-    let local_runtimes = runtime.local_runtimes().await;
-    let acp_adapters = runtime.acp_adapters().await;
-    for view in views {
-        view.local_runtime =
-            local_runtimes
-                .get(&view.agent_id)
-                .map(|evidence| AgentLocalRuntimeView {
-                    path: evidence.path.display().to_string(),
-                    version: evidence.version.clone(),
-                });
-        if view
-            .acp_version
-            .as_deref()
-            .is_none_or(|version| version.is_empty())
-            && let Some(version) = acp_adapters
-                .get(&view.agent_id)
-                .and_then(|evidence| evidence.version.clone())
-                .filter(|version| !version.is_empty())
-        {
-            view.acp_version = Some(version);
-        }
-    }
+    services::services::agent_management_runtime::overlay_local_runtime_evidence(runtime, views)
+        .await;
 }
 
 async fn read_agent_management_snapshot(
@@ -5498,34 +5318,29 @@ pub async fn agent_management_rollback(
         let rollback_runtime =
             managed_runtime_cli_for_lock(&state.deployment.db().pool, rollback_lock_id)
                 .await
-                .map_err(internal_error)?
-                .ok_or_else(|| {
-                    management_error(
-                        AgentManagementErrorCode::InvalidState,
-                        "上一版本没有有效的本地 Runtime",
-                        Some(agent_id.clone()),
-                    )
-                })?;
-        let managed_artifacts_dir =
-            app_managed_artifacts_directory(&app).map_err(internal_error)?;
-        let home_dir = app.path().home_dir().map_err(internal_error)?;
-        let root =
-            managed_install_root(&managed_artifacts_dir, &agent_id).map_err(internal_error)?;
-        let shell = configured_shell_family();
-        let _ = utils::shell::refresh_process_path_after_install().await;
-        switch_managed_runtime_cli(
-            &home_dir,
-            &agent_id,
-            &root,
-            current_runtime
-                .as_ref()
-                .map(|runtime| runtime.runtime_executable.as_path()),
-            &rollback_runtime.runtime_executable,
-            &rollback_runtime.runtime_path_entries,
-            shell,
-        )
-        .map_err(internal_error)?;
-        cli_switch = Some((home_dir, root, current_runtime, rollback_runtime, shell));
+                .map_err(internal_error)?;
+        if let Some(rollback_runtime) = rollback_runtime {
+            let managed_artifacts_dir =
+                app_managed_artifacts_directory(&app).map_err(internal_error)?;
+            let home_dir = app.path().home_dir().map_err(internal_error)?;
+            let root =
+                managed_install_root(&managed_artifacts_dir, &agent_id).map_err(internal_error)?;
+            let shell = configured_shell_family();
+            let _ = utils::shell::refresh_process_path_after_install().await;
+            switch_managed_runtime_cli(
+                &home_dir,
+                &agent_id,
+                &root,
+                current_runtime
+                    .as_ref()
+                    .map(|runtime| runtime.runtime_executable.as_path()),
+                &rollback_runtime.runtime_executable,
+                &rollback_runtime.runtime_path_entries,
+                shell,
+            )
+            .map_err(internal_error)?;
+            cli_switch = Some((home_dir, root, current_runtime, rollback_runtime, shell));
+        }
     }
     let update = sqlx::query(
         r#"UPDATE agent_installation
@@ -8315,7 +8130,7 @@ async fn verify_acp_handshake(
     working_dir: &Path,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<()> {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let (_snapshot, ready) = manager
@@ -8350,7 +8165,7 @@ async fn probe_acp_capabilities(
     working_dir: &Path,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<AcpCapabilitySnapshot> {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let (_snapshot, ready) = manager

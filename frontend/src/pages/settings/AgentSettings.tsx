@@ -1401,36 +1401,20 @@ function applyUpdateCheckToPreflight(
   current: AgentPreflightView,
   check: AgentUpdateCheckView
 ): AgentPreflightView {
-  const runtimeUpdate = Boolean(
-    check.runtime_available &&
-      check.runtime_current &&
-      check.runtime_available !== check.runtime_current
-  );
   const acpUpdate = Boolean(
     check.acp_available &&
       check.acp_current &&
       check.acp_available !== check.acp_current
   );
-  const grouped = runtimeUpdate && acpUpdate;
   return {
     ...current,
     items: current.items.map((item) => {
-      if (item.id === 'runtime') {
-        return {
-          ...item,
-          update_available: runtimeUpdate,
-          available_version: runtimeUpdate
-            ? (check.runtime_available ?? null)
-            : null,
-          update_group: grouped ? 'runtime_acp' : null,
-        };
-      }
       if (item.id === 'acp') {
         return {
           ...item,
           update_available: acpUpdate,
           available_version: acpUpdate ? (check.acp_available ?? null) : null,
-          update_group: grouped ? 'runtime_acp' : null,
+          update_group: null,
         };
       }
       return item;

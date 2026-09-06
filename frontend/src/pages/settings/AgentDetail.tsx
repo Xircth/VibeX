@@ -734,7 +734,7 @@ function localizedOperationLogLine(
   if (!language?.startsWith('en')) return line;
   const key = {
     正在解析已锁定的安装方案: 'resolvePlan',
-    '正在安装 ACP': 'installRuntime',
+    '正在安装 ACP': 'installAcp',
     '正在验证 ACP 握手': 'verifyAcp',
     正在绑定用户环境命令: 'publishCommand',
     正在发布本地终端命令: 'publishCommand',
@@ -745,6 +745,7 @@ function localizedOperationLogLine(
   }[line] as
     | 'resolvePlan'
     | 'installRuntime'
+    | 'installAcp'
     | 'verifyAcp'
     | 'publishCommand'
     | 'complete'

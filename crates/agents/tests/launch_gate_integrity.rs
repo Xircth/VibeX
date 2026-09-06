@@ -31,21 +31,25 @@ async fn launch_gate_integrity_rejects_tampered_components_before_spawn() {
         },
         LaunchComponentEvidence {
             component_kind: "acp_adapter".to_string(),
-            absolute_path: acp,
+            absolute_path: acp.clone(),
             expected_sha256: digest(b"trusted acp"),
         },
     ];
 
     LaunchGate::verify(lock.clone(), &components).await.unwrap();
     fs::write(&runtime, b"tampered runtime").unwrap();
+    LaunchGate::verify(lock.clone(), &components)
+        .await
+        .expect("vendor CLI fingerprint is not a session launch gate");
 
+    fs::write(&acp, b"tampered acp").unwrap();
     let error = LaunchGate::verify(lock, &components).await.unwrap_err();
     assert!(matches!(
         error,
         LaunchGateError::HashMismatch {
             component_kind,
             ..
-        } if component_kind == "agent_runtime"
+        } if component_kind == "acp_adapter"
     ));
 }
 
@@ -71,12 +75,31 @@ async fn launch_gate_integrity_rejects_missing_or_relative_components() {
     ));
 
     let relative = LaunchComponentEvidence {
-        component_kind: "agent_runtime".to_string(),
-        absolute_path: PathBuf::from("relative/runtime"),
+        component_kind: "acp_adapter".to_string(),
+        absolute_path: PathBuf::from("relative/acp"),
         expected_sha256: digest(b"trusted"),
     };
     assert!(matches!(
         LaunchGate::verify(lock, &[relative]).await,
         Err(LaunchGateError::NonAbsolutePath { .. })
     ));
+
+    let ignored_runtime = LaunchComponentEvidence {
+        component_kind: "agent_runtime".to_string(),
+        absolute_path: PathBuf::from("relative/runtime"),
+        expected_sha256: String::new(),
+    };
+    LaunchGate::verify(
+        SessionLaunchLock {
+            agent_id: AgentId::parse("vendor.fixture").unwrap(),
+            absolute_acp_program: PathBuf::from("/fixture/acp"),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            runtime_version: "1.0.0".to_string(),
+            acp_version: "1.0.0".to_string(),
+        },
+        &[ignored_runtime],
+    )
+    .await
+    .expect("non-ACP components are ignored");
 }

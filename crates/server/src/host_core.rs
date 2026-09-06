@@ -8,6 +8,7 @@ use application::{
 use async_trait::async_trait;
 use conversations::ConversationContext;
 use plugins::PluginControlPlane;
+use services::services::agent_management_runtime::AgentManagementRuntimeState;
 use sqlx::SqlitePool;
 
 use crate::{
@@ -155,6 +156,7 @@ pub fn host_application_core(
     worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     events: Arc<HostEventBus>,
     terminal_bridges: Arc<TerminalBridgeRegistry>,
+    agent_management_runtime: Arc<AgentManagementRuntimeState>,
 ) -> ApplicationCore<SqliteConversationRepository> {
     let domains = Arc::new(ServerApplicationDomains::new(ServerDomainDependencies {
         pool: pool.clone(),
@@ -171,6 +173,7 @@ pub fn host_application_core(
         worker_runtime,
         events,
         terminal_bridges,
+        agent_management_runtime,
     }));
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(

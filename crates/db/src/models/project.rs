@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
@@ -60,13 +62,15 @@ pub enum SearchMatchType {
 
 impl Project {
     pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM projects"#)
+        let total = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM projects"#)
             .fetch_one(pool)
-            .await
+            .await?;
+        let hidden = plugin_scratch_project_ids(pool).await?.len() as i64;
+        Ok((total - hidden).max(0))
     }
 
     pub async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let projects = sqlx::query_as!(
             Project,
             r#"SELECT id as "id!: Uuid",
                       name,
@@ -78,12 +82,13 @@ impl Project {
                ORDER BY created_at DESC"#
         )
         .fetch_all(pool)
-        .await
+        .await?;
+        exclude_plugin_scratch_projects(pool, projects).await
     }
 
     /// Find the most actively used projects based on recent task activity
     pub async fn find_most_active(pool: &SqlitePool, limit: i32) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let projects = sqlx::query_as!(
             Project,
             r#"
             SELECT p.id as "id!: Uuid", p.name,
@@ -102,7 +107,8 @@ impl Project {
             limit
         )
         .fetch_all(pool)
-        .await
+        .await?;
+        exclude_plugin_scratch_projects(pool, projects).await
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
@@ -206,4 +212,31 @@ impl Project {
             .await?;
         Ok(result.rows_affected())
     }
+}
+
+async fn plugin_scratch_project_ids(pool: &SqlitePool) -> Result<HashSet<Uuid>, sqlx::Error> {
+    match sqlx::query_scalar::<_, Uuid>("SELECT project_id FROM plugin_scratch_workspaces")
+        .fetch_all(pool)
+        .await
+    {
+        Ok(ids) => Ok(ids.into_iter().collect()),
+        Err(sqlx::Error::Database(error)) if error.message().contains("no such table") => {
+            Ok(HashSet::new())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn exclude_plugin_scratch_projects(
+    pool: &SqlitePool,
+    projects: Vec<Project>,
+) -> Result<Vec<Project>, sqlx::Error> {
+    let hidden = plugin_scratch_project_ids(pool).await?;
+    if hidden.is_empty() {
+        return Ok(projects);
+    }
+    Ok(projects
+        .into_iter()
+        .filter(|project| !hidden.contains(&project.id))
+        .collect())
 }

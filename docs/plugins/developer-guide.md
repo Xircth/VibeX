@@ -10,7 +10,7 @@
 
 最少要有一项 Host 认得出的 integration。不再要求必须带 Skill。
 
-安装或链接这个包，就按 Full Trust 跑。Worker、App 和声明的 Runtime 使用与 Host 相同的本机权限。独立进程和 App frame 管热更新、崩溃和 dispose，不是安全沙箱。只有 `packageClass` 为 `isolated` 的包才走 OS 沙箱。
+安装或链接这个包，就按 Full Trust 跑。Worker、App 和声明的 Runtime 使用与 Host 相同的本机权限。独立进程和 App frame 管热更新、崩溃和 dispose，不是安全沙箱。`packageClass=isolated` 已被忽略，不会启用 OS 沙箱。
 
 ## 平台纪律
 
@@ -319,13 +319,27 @@ catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话
 - `storage.settings.get` / `put` 读写该插件的 `config.json`
 - `remote.profile.list` / `upsert` / `forget` 操作客户端已保存 Host。`provisionKind` 是 Host 拥有的来源标记（如 `ssh`），不是插件 ID。卸载插件不得调用 `forget`；已保存 Host 属于 Host。
 - `remote.connect` / `disconnect` 把应用壳接到某个已保存 Host。带 origin 的 connect 不再走供给器；从已保存列表只带 profileId 连接时，Host 按 `provisionKind` 调用匹配的 `provider.remote.provisioner`。
+- `conversation.create` `{ agentId, workspaceId?, title?, prompt? }` 创建一条 VibeX Conversation 并绑到这个插件。省略 `workspaceId` 时 Host 使用该插件自己的 scratch 工作区（独立 git 目录，不出现在项目列表），插件可以自建一套会话环境。传入当前窗口的 `workspaceId` 则挂到那个编码工作区。`prompt` 有值时立刻入队。
+- `conversation.list` 只返回这个插件创建或被 Host 授予的会话
+- `conversation.read.get` / `conversation.get` `{ conversationId }` 读摘要、最近 Turn、assistant 文本、排队输入和 sequence
+- `conversation.append.enqueueInput` `{ conversationId, text, images?, modeOverride? }` 走同一条 `submit` 控制面
+- `conversation.steer` `{ conversationId, expectedTurnId, text }` 向在途 Turn 纠偏，不创建新 Turn
+- `conversation.cancel` `{ conversationId }` 取消在途 Turn
+- `conversation.cancelInput` / `conversation.listInputs` 改排队输入
+- `conversation.respondPermission` / `conversation.respondQuestion` 应答权限与提问
+- `conversation.setMode` / `conversation.setConfigOption` 改会话配置
+- `conversation.catalog` 列出可选用的 Agent
+- `conversation.archive` 归档
+- `conversation.events.since` `{ conversationId, afterSequence? }` 拉变更过的时间线行
 - `log.*` 走 Worker 日志
+
+结构面（`app.tab` / `app.panel` / `app.kanban.view` / `app.settings.page`）的 Federation `mount(root, environment)` 会带上 `workspaceId` 和 `invoke(handler, input)`。`invoke` 打到本插件 Worker，再由 Worker 调 `host.call`。不要从 App 里自己 `invoke` Tauri 命令。
 
 会明确失败的
 
 - `network.fetch` 返回 `network_denied`。Full Trust 请用语言运行时自己访问网络。Isolated 默认没有 `socket`/`connect`
 - `files.*` 返回 `files_root_denied`，工作区根还没绑到这个 Worker
-- `conversation.read.get`、`conversation.append.enqueueInput` 返回 `conversation_scope_denied`，除非会话已经绑到这个 Worker
+- `conversation.*` 对未绑定会话返回 `conversation_scope_denied`
 - `agent.invoke` 返回 `handler_not_visible`
 
 占位或未做完的会 `capability_unimplemented`。`secrets.*` 目前只回 `{ "present": false }`。
@@ -473,7 +487,7 @@ fn main() {
 
 `run_stdio_plugin_worker` 是 async。`run_stdio_plugin_worker_blocking` 给 `main`。
 
-Isolated 构建建议 `--no-default-features --features isolated`，避免把文件系统和网络辅助编译进去。
+crate feature `isolated` 只去掉文件系统和网络辅助，不是 Host 沙箱。Host 仍按 Full Trust spawn。
 
 测试模块导出 `create_worker_harness`、`create_generation_harness`、`MemoryHost`。
 
@@ -532,11 +546,7 @@ Host 重启后，仍启用且有 Worker 的包会按活代恢复。链接包若�
 
 ## Isolated
 
-`packageClass` 为 `isolated` 才进沙箱。macOS 用 `sandbox-exec`。Linux 用 `bwrap --unshare-net` 加 seccomp，或 Landlock 加 seccomp。Windows 用 AppContainer（默认没有 `internetClient`）再加 Job（关 Job 杀进程，内存 256MiB）。
-
-默认不允许 `socket` / `connect` / `accept` / `bind`。清单在 `packages/plugin-contract/isolated/`。
-
-没有对应沙箱的机器上，Isolated 包硬失败，不会静默改成 Full Trust。
+`packageClass=isolated` 不是安全边界。Worker 一律按 Full Trust spawn，与普通包相同。`packages/plugin-contract/isolated/` 只是历史 syscall 记录，Host 不再套 Seatbelt / bwrap / Landlock / AppContainer。
 
 ## 注意事项
 

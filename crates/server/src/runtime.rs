@@ -200,7 +200,7 @@ impl ServerRuntime<application::SqliteConversationRepository> {
             host_id: config.host_id.clone(),
             reachability: config.reachability.clone(),
             capabilities: host
-                .capability_scopes()
+                .remote_capability_scopes()
                 .into_iter()
                 .map(CapabilityId::new)
                 .collect(),

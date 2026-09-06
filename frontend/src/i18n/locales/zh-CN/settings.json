@@ -533,35 +533,6 @@
     "diagnosticsNoLogs": "本次启动后该插件没有输出。",
     "installRuntime": "安装",
     "installRuntimeAria": "安装 {{id}}",
-    "permissionDialogTitle": "允许 {{name}} 使用这些能力？",
-    "permissionUpdateDialogTitle": "审查 {{name}} 更新后的能力",
-    "permissionDialogDescription": "授权绑定到当前发布者、插件包摘要与声明范围；插件包更新后必须重新确认。",
-    "permissionPublisher": "发布者",
-    "permissionPackageDigest": "插件包摘要",
-    "permissionEvidenceUnavailable": "当前 Host 未提供",
-    "permissionRequired": "必需",
-    "permissionOptional": "可选",
-    "permissionOptionalDescription": "仅在你选择后授权。",
-    "permissionDelta": "权限增量",
-    "permissionCapability": {
-      "artifact": {
-        "preview": "预览你选择的文档",
-        "write": "写入插件生成的文件"
-      },
-      "runtime": {
-        "execute": "运行插件声明的本地 Runtime"
-      },
-      "network": {
-        "fetch": "访问声明的网络地址"
-      }
-    },
-    "trustedNativeRuntimeTitle": "运行 {{runtime}}",
-    "trustedNativeDescription": "VibeX 会运行插件声明且经过校验的本地 Runtime。它只能接收本次授权范围内的文件和操作。",
-    "trustedNativeAcknowledgement": "我允许此插件运行经过校验的 {{runtime}}",
-    "permissionTechnicalEvidence": "发布者与包校验信息",
-    "reviewAndUpdate": "确认并更新",
-    "grantAndEnable": "允许并启用",
-    "grantInstallAndEnable": "允许、安装并启用",
     "enableFailed": "无法启用 {{name}}",
     "disableFailed": "无法停用 {{name}}",
     "operationFailed": "操作失败：{{error}}",
@@ -2305,6 +2276,7 @@
     "operationLog": {
       "resolvePlan": "正在解析已锁定的安装方案",
       "installRuntime": "正在安装 ACP",
+      "installAcp": "正在安装 ACP",
       "verifyAcp": "正在验证 ACP 握手",
       "publishCommand": "正在发布本地终端命令",
       "complete": "安装与 ACP 验证完成",

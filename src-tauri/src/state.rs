@@ -1,12 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
     sync::{Arc, Mutex as StdMutex},
 };
 
-use agents::{AgentEventEnvelope, AgentId, AgentRuntime, runtime_event_channel};
+use agents::{AgentEventEnvelope, AgentRuntime, runtime_event_channel};
 use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
+pub use services::services::agent_management_runtime::{
+    AgentManagementRuntimeState, LocalRuntimeDiscoveryProgress, LocalRuntimeEvidence,
+};
 use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};
 
@@ -18,156 +20,6 @@ use crate::commands::{
 pub struct DesktopToastRuntimeState {
     pub ready: bool,
     pub pending: Vec<DesktopToastPayload>,
-}
-
-#[derive(Default)]
-pub struct AgentManagementRuntimeState {
-    warmup_complete: Mutex<bool>,
-    local_runtime_discovery_complete: Mutex<bool>,
-    local_runtime_discovery_progress: Mutex<LocalRuntimeDiscoveryProgress>,
-    built_in_probes: Mutex<HashSet<AgentId>>,
-    local_runtimes: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
-    acp_adapters: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalRuntimeEvidence {
-    pub path: PathBuf,
-    pub version: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LocalRuntimeDiscoveryProgress {
-    pub started: bool,
-    pub running: bool,
-    pub completed: u32,
-    pub total: u32,
-    pub found: u32,
-    pub checked_agent_ids: HashSet<AgentId>,
-    pub timed_out: bool,
-}
-
-impl AgentManagementRuntimeState {
-    pub async fn run_warmup_once<Fut>(&self, work: Fut)
-    where
-        Fut: std::future::Future<Output = ()>,
-    {
-        let mut complete = self.warmup_complete.lock().await;
-        if *complete {
-            return;
-        }
-        work.await;
-        *complete = true;
-    }
-
-    pub async fn run_local_runtime_discovery_once<Fut>(&self, work: Fut)
-    where
-        Fut: std::future::Future<Output = ()>,
-    {
-        let mut complete = self.local_runtime_discovery_complete.lock().await;
-        if *complete {
-            return;
-        }
-        work.await;
-        *complete = true;
-    }
-
-    pub async fn refresh_local_runtime_discovery<Fut>(&self, work: Fut)
-    where
-        Fut: std::future::Future<Output = ()>,
-    {
-        let mut complete = self.local_runtime_discovery_complete.lock().await;
-        work.await;
-        *complete = true;
-    }
-
-    pub async fn reset(&self) {
-        *self.warmup_complete.lock().await = false;
-        *self.local_runtime_discovery_complete.lock().await = false;
-        *self.local_runtime_discovery_progress.lock().await = Default::default();
-        self.built_in_probes.lock().await.clear();
-        self.local_runtimes.lock().await.clear();
-        self.acp_adapters.lock().await.clear();
-    }
-
-    pub async fn begin_local_runtime_discovery(&self, total: u32) {
-        *self.local_runtime_discovery_progress.lock().await = LocalRuntimeDiscoveryProgress {
-            started: true,
-            running: true,
-            total,
-            ..Default::default()
-        };
-    }
-
-    pub async fn record_local_runtime_discovery(&self, agent_id: AgentId, found: bool) {
-        let mut progress = self.local_runtime_discovery_progress.lock().await;
-        if progress.checked_agent_ids.insert(agent_id) {
-            progress.completed =
-                u32::try_from(progress.checked_agent_ids.len()).unwrap_or(u32::MAX);
-            if found {
-                progress.found = progress.found.saturating_add(1);
-            }
-        }
-    }
-
-    pub async fn finish_local_runtime_discovery(&self, timed_out: bool) {
-        let mut progress = self.local_runtime_discovery_progress.lock().await;
-        progress.started = true;
-        progress.running = false;
-        progress.timed_out = timed_out;
-    }
-
-    pub async fn local_runtime_discovery_progress(&self) -> LocalRuntimeDiscoveryProgress {
-        self.local_runtime_discovery_progress.lock().await.clone()
-    }
-
-    pub async fn should_probe_built_in(&self, agent_id: &AgentId, force: bool) -> bool {
-        self.built_in_probes.lock().await.insert(agent_id.clone()) || force
-    }
-
-    pub async fn replace_local_runtime(
-        &self,
-        agent_id: AgentId,
-        evidence: Option<LocalRuntimeEvidence>,
-    ) {
-        let mut local_runtimes = self.local_runtimes.lock().await;
-        match evidence {
-            Some(evidence) => {
-                local_runtimes.insert(agent_id, evidence);
-            }
-            None => {
-                local_runtimes.remove(&agent_id);
-            }
-        }
-    }
-
-    pub async fn local_runtime(&self, agent_id: &AgentId) -> Option<LocalRuntimeEvidence> {
-        self.local_runtimes.lock().await.get(agent_id).cloned()
-    }
-
-    pub async fn local_runtimes(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
-        self.local_runtimes.lock().await.clone()
-    }
-
-    pub async fn replace_acp_adapter(
-        &self,
-        agent_id: AgentId,
-        evidence: Option<LocalRuntimeEvidence>,
-    ) {
-        let mut acp_adapters = self.acp_adapters.lock().await;
-        match evidence {
-            Some(evidence) => {
-                acp_adapters.insert(agent_id, evidence);
-            }
-            None => {
-                acp_adapters.remove(&agent_id);
-            }
-        }
-    }
-
-    pub async fn acp_adapters(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
-        self.acp_adapters.lock().await.clone()
-    }
 }
 
 pub struct AppState {
@@ -198,7 +50,7 @@ pub struct AppState {
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
-    pub plugin_provider_presets: Arc<crate::plugin_provider_presets::TauriProviderPresetHost>,
+    pub plugin_provider_presets: Arc<server::HostProviderPresetHost>,
     pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
     pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
@@ -219,6 +71,7 @@ impl AppState {
         let plugin_control_plane = Arc::new(plugins::PluginControlPlane::new(Arc::new(
             plugins::SqlitePluginRegistry::new(pool.clone()),
         )));
+        plugin_control_plane.watch_worker_crashes();
         let plugin_worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
             crate::managed_artifacts::directory(&app_handle).map_err(|error| {
                 deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string()))
@@ -227,18 +80,35 @@ impl AppState {
         let plugin_preview_host: Arc<dyn plugins::PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
-        let provider_preset_host = Arc::new(
-            crate::plugin_provider_presets::TauriProviderPresetHost::new(app_handle.clone()),
-        );
-        let remote_profile_host = Arc::new(
+        let events = std::sync::Arc::new(server::HostEventBus::new());
+        crate::host_bus::install(events.clone());
+        let bind_prompts = std::sync::Arc::new(plugins::ProviderBindPrompts::default());
+        let provider_preset_host = std::sync::Arc::new(server::HostProviderPresetHost::new(
+            pool.clone(),
+            events.clone(),
+            bind_prompts.clone(),
+            plugin_control_plane.clone(),
+        ));
+        let remote_profile_host = std::sync::Arc::new(
             crate::plugin_remote_profiles::TauriRemoteProfileHost::new(app_handle.clone()),
         );
-        let plugin_capability_broker = Arc::new(plugins::HostCapabilityBroker::with_hosts(
-            plugin_control_plane.clone(),
-            plugin_preview_host.clone(),
-            provider_preset_host.clone(),
-            remote_profile_host,
-        ));
+        let plugin_conversation_host =
+            std::sync::Arc::new(server::HostPluginConversationHost::new(
+                pool.clone(),
+                utils::assets::host_data_dir()
+                    .join("scratch")
+                    .join("plugins"),
+            ));
+        let plugin_capability_broker = std::sync::Arc::new(
+            plugins::HostCapabilityBroker::with_hosts_and_prompts(
+                plugin_control_plane.clone(),
+                plugin_preview_host.clone(),
+                provider_preset_host.clone(),
+                remote_profile_host,
+                bind_prompts,
+            )
+            .with_conversation_host(plugin_conversation_host.clone()),
+        );
         let bundled_roots = plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await
@@ -314,10 +184,6 @@ impl AppState {
                 );
             }
         }
-        crate::events::spawn_plugin_contribution_bridge(
-            app_handle.clone(),
-            plugin_control_plane.clone(),
-        );
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
@@ -377,8 +243,7 @@ impl AppState {
         .await
         .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string())))?;
         let preview_proxy = server::PreviewProxyRegistry::default();
-        let events = std::sync::Arc::new(server::HostEventBus::new());
-        crate::host_bus::install(events.clone());
+        let agent_management_runtime = Arc::new(AgentManagementRuntimeState::default());
         let host_conversations = conversations::ConversationContext {
             deployment: deployment.clone(),
             agent_runtime: agent_runtime.clone(),
@@ -437,6 +302,8 @@ impl AppState {
             adapter: application::AdapterCapabilities::desktop_host(),
             events: Some(events),
             terminal_bridges: None,
+            agent_management_runtime: Some(agent_management_runtime.clone()),
+            conversation_host: Some(plugin_conversation_host),
         });
         Ok(Self {
             app_handle,
@@ -446,7 +313,7 @@ impl AppState {
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
-            agent_management_runtime: Arc::new(AgentManagementRuntimeState::default()),
+            agent_management_runtime,
             agent_runtime,
             conversation_agent_events: StdMutex::new(Some(conversation_agent_events)),
             delegation,
@@ -486,122 +353,5 @@ impl AppState {
                 },
             ))),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    use super::{AgentManagementRuntimeState, LocalRuntimeEvidence};
-
-    #[tokio::test]
-    async fn local_runtime_discovery_reports_real_progress() {
-        let runtime = AgentManagementRuntimeState::default();
-        let claude = agents::AgentId::parse("claude_code").unwrap();
-        let codex = agents::AgentId::parse("codex").unwrap();
-
-        runtime.begin_local_runtime_discovery(12).await;
-        runtime
-            .record_local_runtime_discovery(claude.clone(), true)
-            .await;
-        runtime
-            .record_local_runtime_discovery(codex.clone(), false)
-            .await;
-
-        let progress = runtime.local_runtime_discovery_progress().await;
-        assert!(progress.running);
-        assert_eq!(progress.completed, 2);
-        assert_eq!(progress.total, 12);
-        assert_eq!(progress.found, 1);
-        assert!(progress.checked_agent_ids.contains(&claude));
-        assert!(progress.checked_agent_ids.contains(&codex));
-
-        runtime.finish_local_runtime_discovery(false).await;
-        let progress = runtime.local_runtime_discovery_progress().await;
-        assert!(!progress.running);
-        assert!(!progress.timed_out);
-    }
-
-    #[tokio::test]
-    async fn local_data_reset_allows_agent_discovery_to_run_again() {
-        let runtime = AgentManagementRuntimeState::default();
-        let runs = Arc::new(AtomicUsize::new(0));
-        let local_runs = Arc::new(AtomicUsize::new(0));
-
-        let first_runs = runs.clone();
-        runtime
-            .run_warmup_once(async move {
-                first_runs.fetch_add(1, Ordering::SeqCst);
-            })
-            .await;
-        runtime
-            .run_warmup_once(async {
-                panic!("warmup must remain shared before reset");
-            })
-            .await;
-        let first_local_runs = local_runs.clone();
-        runtime
-            .run_local_runtime_discovery_once(async move {
-                first_local_runs.fetch_add(1, Ordering::SeqCst);
-            })
-            .await;
-        runtime.run_local_runtime_discovery_once(async {}).await;
-
-        runtime.reset().await;
-
-        let second_runs = runs.clone();
-        runtime
-            .run_warmup_once(async move {
-                second_runs.fetch_add(1, Ordering::SeqCst);
-            })
-            .await;
-        let second_local_runs = local_runs.clone();
-        runtime
-            .run_local_runtime_discovery_once(async move {
-                second_local_runs.fetch_add(1, Ordering::SeqCst);
-            })
-            .await;
-
-        assert_eq!(runs.load(Ordering::SeqCst), 2);
-        assert_eq!(local_runs.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn local_data_reset_forgets_previous_agent_probe_attempts() {
-        let runtime = AgentManagementRuntimeState::default();
-        let claude = agents::AgentId::parse("claude_code").unwrap();
-
-        assert!(runtime.should_probe_built_in(&claude, false).await);
-        assert!(!runtime.should_probe_built_in(&claude, false).await);
-        runtime
-            .replace_local_runtime(
-                claude.clone(),
-                Some(LocalRuntimeEvidence {
-                    path: r"C:\Users\developer\AppData\Roaming\npm\claude.cmd".into(),
-                    version: Some("2.1.173".to_string()),
-                }),
-            )
-            .await;
-        assert!(runtime.local_runtime(&claude).await.is_some());
-        runtime
-            .replace_acp_adapter(
-                claude.clone(),
-                Some(LocalRuntimeEvidence {
-                    path: r"C:\Users\developer\AppData\Roaming\npm\claude-agent-acp.cmd".into(),
-                    version: Some("0.69.0".to_string()),
-                }),
-            )
-            .await;
-        assert!(!runtime.acp_adapters().await.is_empty());
-
-        runtime.reset().await;
-
-        assert!(runtime.should_probe_built_in(&claude, false).await);
-        assert!(runtime.local_runtime(&claude).await.is_none());
-        assert!(runtime.acp_adapters().await.is_empty());
     }
 }

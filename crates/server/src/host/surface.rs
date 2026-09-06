@@ -416,7 +416,7 @@ impl ServerApplicationDomains {
                 super::management::dispatch_account_flow(&self.pool, args).await
             }
             DomainCommand::AgentManagementDiscoveryProgress => {
-                super::management::dispatch_discovery_progress(&self.pool).await
+                super::management::dispatch_discovery_progress(&self.agent_management_runtime).await
             }
             DomainCommand::AgentManagementDiagnostics => {
                 super::management::dispatch_diagnostics(&self.pool, args).await

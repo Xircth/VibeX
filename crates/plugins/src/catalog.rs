@@ -12,6 +12,14 @@ pub const COMMUNITY_PAGE_SIZE: u32 = 50;
 /// Retired package id → successor. Official marketplace must show one product.
 pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[("vibex.collaboration", "vibex.multi-agent")];
 
+/// SDK authoring samples. They stay in-repo for templates and Host tests, but
+/// they are not product marketplace listings and must not ship in a release Host.
+pub const AUTHORING_SAMPLE_PLUGIN_IDS: &[&str] = &[
+    "vibex.host-chrome",
+    "vibex.provider-import",
+    "vibex.host-surface",
+];
+
 /// Topic categories for Host-bundled packages. "official" is the vibex owner, not a topic.
 const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.office", "productivity"),
@@ -225,7 +233,30 @@ pub fn normalize_listing_category(listing: &mut CatalogListing) {
     }
 }
 
+pub fn is_authoring_sample_plugin_id(id: &str) -> bool {
+    AUTHORING_SAMPLE_PLUGIN_IDS
+        .iter()
+        .any(|sample| plugin_ids_match(id, sample))
+}
+
+pub fn listing_is_authoring_sample(listing: &CatalogListing) -> bool {
+    is_authoring_sample_plugin_id(listing_package_id(listing))
+        || is_authoring_sample_plugin_id(&listing.plugin_name)
+}
+
+fn reject_authoring_sample(owner: &str, plugin_name: &str) -> Result<(), PluginError> {
+    let qualified = format!("{owner}.{plugin_name}");
+    if is_authoring_sample_plugin_id(plugin_name) || is_authoring_sample_plugin_id(&qualified) {
+        return Err(PluginError::not_found(&format!("{owner}/{plugin_name}")));
+    }
+    Ok(())
+}
+
 pub fn prepare_marketplace_page(page: &mut CatalogPage) {
+    page.official
+        .retain(|listing| !listing_is_authoring_sample(listing));
+    page.community
+        .retain(|listing| !listing_is_authoring_sample(listing));
     for listing in page.official.iter_mut().chain(page.community.iter_mut()) {
         normalize_listing_category(listing);
     }
@@ -267,7 +298,7 @@ pub fn collapse_replaced_official(listings: Vec<CatalogListing>) -> Vec<CatalogL
     let mut seen = HashSet::new();
     let mut kept = Vec::with_capacity(listings.len());
     for listing in listings {
-        if listing_is_retired(&listing) {
+        if listing_is_authoring_sample(&listing) || listing_is_retired(&listing) {
             continue;
         }
         if !seen.insert(canonical_listing_id(&listing)) {
@@ -328,13 +359,15 @@ pub async fn fetch_catalog(query: Option<&str>) -> Result<CatalogPage, PluginErr
         .await
     };
     if official.is_ok() || community.is_ok() {
-        return Ok(CatalogPage {
+        let mut page = CatalogPage {
             official: collapse_replaced_official(official.unwrap_or_default()),
             community: community.unwrap_or_default(),
             community_limit: COMMUNITY_PAGE_SIZE,
             query: query.unwrap_or_default().to_owned(),
             remote: true,
-        });
+        };
+        prepare_marketplace_page(&mut page);
+        return Ok(page);
     }
     let published = fetch_list(&client, &format!("{origin}/api/marketplace/list")).await?;
     Ok(page_from_published(published, query))
@@ -344,6 +377,7 @@ pub async fn fetch_versions(
     owner: &str,
     plugin_name: &str,
 ) -> Result<Vec<CatalogVersion>, PluginError> {
+    reject_authoring_sample(owner, plugin_name)?;
     let origin = marketplace_origin();
     let client = marketplace_client(8)?;
     let url = format!("{origin}/api/marketplace/v1/listing/{owner}/{plugin_name}/versions");
@@ -359,16 +393,24 @@ pub async fn fetch_versions(
 }
 
 pub async fn fetch_listing(owner: &str, plugin_name: &str) -> Result<CatalogListing, PluginError> {
+    reject_authoring_sample(owner, plugin_name)?;
     let origin = marketplace_origin();
     let client = marketplace_client(8)?;
     let v1 = format!("{origin}/api/marketplace/v1/listing/{owner}/{plugin_name}");
     if let Ok(listing) = fetch_record(&client, &v1).await {
+        if listing_is_authoring_sample(&listing) {
+            return Err(PluginError::not_found(&format!("{owner}/{plugin_name}")));
+        }
         return Ok(listing);
     }
     fetch_list(&client, &format!("{origin}/api/marketplace/list"))
         .await?
         .into_iter()
-        .find(|item| item.owner == owner && item.plugin_name == plugin_name)
+        .find(|item| {
+            item.owner == owner
+                && item.plugin_name == plugin_name
+                && !listing_is_authoring_sample(item)
+        })
         .ok_or_else(|| PluginError::not_found(&format!("{owner}/{plugin_name}")))
 }
 
@@ -397,6 +439,7 @@ pub async fn fetch_artifact(
     plugin_name: &str,
     tag: Option<&str>,
 ) -> Result<CatalogListing, PluginError> {
+    reject_authoring_sample(owner, plugin_name)?;
     let origin = marketplace_origin();
     let client = marketplace_client(15)?;
     let mut v1 = format!("{origin}/api/marketplace/v1/artifact/{owner}/{plugin_name}");
@@ -404,13 +447,20 @@ pub async fn fetch_artifact(
         v1.push_str(&format!("?tag={}", utf8_percent_encode(tag)));
     }
     if let Ok(listing) = fetch_record(&client, &v1).await {
+        if listing_is_authoring_sample(&listing) {
+            return Err(PluginError::not_found(&format!("{owner}/{plugin_name}")));
+        }
         return Ok(listing);
     }
-    fetch_record(
+    let listing = fetch_record(
         &client,
         &format!("{origin}/api/marketplace/artifact/{owner}/{plugin_name}"),
     )
-    .await
+    .await?;
+    if listing_is_authoring_sample(&listing) {
+        return Err(PluginError::not_found(&format!("{owner}/{plugin_name}")));
+    }
+    Ok(listing)
 }
 
 pub fn marketplace_archive_suffix(url: &str) -> &'static str {
@@ -748,13 +798,15 @@ fn page_from_published(items: Vec<CatalogListing>, query: Option<&str>) -> Catal
     if needle.is_none() {
         community.truncate(COMMUNITY_PAGE_SIZE as usize);
     }
-    CatalogPage {
+    let mut page = CatalogPage {
         official,
         community,
         community_limit: COMMUNITY_PAGE_SIZE,
         query: query.unwrap_or_default().to_owned(),
         remote: true,
-    }
+    };
+    prepare_marketplace_page(&mut page);
+    page
 }
 
 fn marketplace_client(timeout_secs: u64) -> Result<reqwest::Client, PluginError> {
@@ -1070,5 +1122,63 @@ mod tests {
             bundled_topic_category("vibex.workflow-creator"),
             Some("workflow")
         );
+    }
+
+    #[test]
+    fn marketplace_omits_authoring_sample_plugins() {
+        let chrome = listing("vibex.host-chrome", "宿主界面示例", "chrome sample");
+        let surface = listing("vibex.host-surface", "结构面示例", "surface sample");
+        let providers = listing(
+            "vibex.provider-import",
+            "环境变量导入供应商",
+            "provider sample",
+        );
+        let office = listing("vibex.office", "办公套件", "Office files");
+        let folded = fold_official_listings(
+            vec![
+                chrome.clone(),
+                office.clone(),
+                surface.clone(),
+                providers.clone(),
+            ],
+            None,
+        );
+        assert_eq!(
+            folded
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["vibex.office"]
+        );
+
+        let mut community_chrome = chrome.clone();
+        community_chrome.category = "community".into();
+        let mut notes = listing("notes", "Notes", "Take notes");
+        notes.owner = "acme".into();
+        notes.category = "community".into();
+        let mut page = CatalogPage {
+            official: vec![chrome, office, surface, providers],
+            community: vec![community_chrome, notes],
+            ..CatalogPage::default()
+        };
+        prepare_marketplace_page(&mut page);
+        assert_eq!(
+            page.official
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["vibex.office"]
+        );
+        assert_eq!(
+            page.community
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["notes"]
+        );
+        assert!(is_authoring_sample_plugin_id("host-chrome"));
+        assert!(is_authoring_sample_plugin_id("vibex.host-surface"));
+        assert!(is_authoring_sample_plugin_id("provider-import"));
+        assert!(!is_authoring_sample_plugin_id("vibex.office"));
     }
 }

@@ -5,16 +5,16 @@ use agents::{
     conversation::{
         AcpCapabilitySnapshot, ConversationBundlePayload, ConversationEvent, ConversationRowPage,
         ConversationSessionModes, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-        SessionStats, TurnUsage,
+        SessionStats,
     },
 };
 use application::ApplicationError;
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationBundleError, ConversationForkResult,
     ConversationImportResult, ConversationProjector, ConversationRelationControl,
-    CreateConversationRelation, ForkVisibleConversation, export_conversation_bundle,
-    fork_visible_conversation, import_conversation_bundle, preview_checkpoint_file_changes,
-    render_html, render_markdown,
+    CreateConversationRelation, ForkVisibleConversation, OPEN_TIMELINE_ROW_LIMIT,
+    export_conversation_bundle, fork_visible_conversation, import_conversation_bundle,
+    preview_checkpoint_file_changes, render_html, render_markdown,
 };
 use db::models::{
     conversation::{
@@ -30,8 +30,6 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::domains::{ServerApplicationDomains, internal_error, parse, serialize};
-
-const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConversationDetail {
@@ -174,31 +172,28 @@ impl ServerApplicationDomains {
         }
         let args: TimelinePageArgs = parse(args)?;
         let conversation_id = parse_uuid(&args.conversation_id)?;
-        let mut timeline = ConversationProjector::project(&self.pool, conversation_id)
-            .await
-            .map_err(internal_error)?;
-        agents::conversation::cap_timeline_preview_fields(&mut timeline);
         let start = args
             .cursor
             .as_deref()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(0);
         let bounded_limit = args.limit.unwrap_or(100).clamp(1, 200);
-        let rows = timeline
-            .rows
-            .iter()
-            .skip(start)
-            .take(bounded_limit)
-            .cloned()
-            .collect::<Vec<_>>();
-        let next_index = start + rows.len();
-        let next_cursor = (next_index < timeline.rows.len()).then(|| next_index.to_string());
+        let window = ConversationProjector::project_row_window(
+            &self.pool,
+            conversation_id,
+            start,
+            bounded_limit,
+        )
+        .await
+        .map_err(internal_error)?;
+        let next_index = start + window.rows.len();
+        let next_cursor = (next_index < window.total_rows).then(|| next_index.to_string());
         serialize(json!({
             "conversation_id": conversation_id,
-            "projection_version": timeline.projection_version,
+            "projection_version": window.projection_version,
             "cursor": args.cursor,
             "next_cursor": next_cursor,
-            "rows": rows,
+            "rows": window.rows,
         }))
     }
 
@@ -572,12 +567,11 @@ pub async fn load_conversation_detail(
     else {
         return Ok(None);
     };
-    let mut timeline = ConversationProjector::project(pool, id)
+    let open = ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT)
         .await
         .map_err(internal_error)?;
-    agents::conversation::cap_timeline_preview_fields(&mut timeline);
-    let session_stats = session_stats_from_turns(&message_turns_from_timeline(&timeline));
-    truncate_timeline_for_open(&mut timeline);
+    let timeline = open.timeline;
+    let session_stats = open.session_stats;
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
@@ -637,70 +631,6 @@ async fn latest_event<T>(
             .ok()
             .and_then(map)
     }))
-}
-
-fn truncate_timeline_for_open(timeline: &mut ConversationTimeline) {
-    let len = timeline.rows.len();
-    if len <= OPEN_TIMELINE_ROW_LIMIT {
-        timeline.truncated_from_start = false;
-        timeline.older_cursor = None;
-        return;
-    }
-    let start = len - OPEN_TIMELINE_ROW_LIMIT;
-    timeline.rows = timeline.rows.split_off(start);
-    timeline.truncated_from_start = true;
-    timeline.older_cursor = Some(start.to_string());
-}
-
-fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTurn> {
-    timeline
-        .rows
-        .iter()
-        .filter_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-fn session_stats_from_turns(turns: &[MessageTurn]) -> Option<SessionStats> {
-    let total_usage = turns.iter().filter_map(|turn| turn.usage.clone()).fold(
-        TurnUsage::default(),
-        |mut acc, usage| {
-            acc.input_tokens += usage.input_tokens;
-            acc.output_tokens += usage.output_tokens;
-            acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
-            acc.cache_read_input_tokens += usage.cache_read_input_tokens;
-            acc
-        },
-    );
-    let total_tokens = total_usage.input_tokens
-        + total_usage.output_tokens
-        + total_usage.cache_creation_input_tokens
-        + total_usage.cache_read_input_tokens;
-    let context_window = turns.iter().rev().find_map(|turn| {
-        let usage = turn.usage.clone()?;
-        let max = usage.context_window_max?;
-        let used = usage.input_tokens
-            + usage.output_tokens
-            + usage.cache_creation_input_tokens
-            + usage.cache_read_input_tokens;
-        Some((used, max))
-    });
-    (total_tokens > 0).then_some(SessionStats {
-        total_usage: Some(total_usage),
-        total_tokens: Some(total_tokens),
-        total_duration_ms: turns.iter().filter_map(|turn| turn.duration_ms).sum(),
-        context_window_used_tokens: context_window.map(|(used, _)| used),
-        context_window_max_tokens: context_window.map(|(_, max)| max),
-        context_window_usage_percent: context_window.map(|(used, max)| {
-            if max > 0 {
-                (used as f64 / max as f64) * 100.0
-            } else {
-                0.0
-            }
-        }),
-    })
 }
 
 async fn active_binding_for_conversation(

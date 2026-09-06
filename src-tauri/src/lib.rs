@@ -35,7 +35,7 @@ mod logging;
 mod managed_artifacts;
 mod oneshot_agent;
 mod plugin_dev_server;
-mod plugin_provider_presets;
+
 mod plugin_remote_profiles;
 mod pr_description;
 mod prompt_enhancement;
@@ -432,22 +432,21 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
 
         let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
             .expect("Failed to initialize app state");
-        let _workflow_mcp_ready = match tauri::async_runtime::block_on(
-            workflow_mcp_gateway::start(&state),
-        ) {
-            Ok(connection) => {
-                tracing::info!(
-                    endpoint = %connection.endpoint,
-                    "Workflow Plugin MCP gateway is ready"
-                );
-                app.manage(connection);
-                true
-            }
-            Err(error) => {
-                tracing::error!(%error, "Workflow Plugin MCP gateway failed to start");
-                false
-            }
-        };
+        let _workflow_mcp_ready =
+            match tauri::async_runtime::block_on(workflow_mcp_gateway::start(&state)) {
+                Ok(connection) => {
+                    tracing::info!(
+                        endpoint = %connection.endpoint,
+                        "Workflow Plugin MCP gateway is ready"
+                    );
+                    app.manage(connection);
+                    true
+                }
+                Err(error) => {
+                    tracing::error!(%error, "Workflow Plugin MCP gateway failed to start");
+                    false
+                }
+            };
         tauri::async_runtime::block_on(
             commands::plugin_control::refresh_enabled_plugin_projections(&state),
         );
@@ -468,11 +467,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             .expect("Failed to resolve managed executable directory")
             .join("plugins")
             .join("runtimes");
-        let plugin_dev_file = app
-            .path()
-            .app_data_dir()
-            .ok()
-            .map(|dir| dir.join("plugin-dev.json"));
         match tauri::async_runtime::block_on(plugin_dev_server::start(
             state.plugin_control_plane.clone(),
             state.deployment.db().pool.clone(),
@@ -480,16 +474,16 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             state.plugin_worker_runtime.clone(),
             plugin_runtime_root,
             plugin_candidate_root,
-            plugin_dev_file,
+            None,
         )) {
             Ok(connection) => {
                 tracing::info!(
                     endpoint = %connection.endpoint,
-                    "Plugin Dev control server is ready; retrieve its token through the local app session"
+                    "Plugin artifact HTTP is ready"
                 );
                 app.manage(connection);
             }
-            Err(error) => tracing::error!(%error, "Plugin Dev control server failed to start"),
+            Err(error) => tracing::error!(%error, "Plugin artifact HTTP failed to start"),
         }
         // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
         // process lifecycle before the UI connects. Best-effort — a failure here
@@ -743,8 +737,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::host_client::host_client_delete,
         commands::settings_window::open_settings_window,
         commands::app_window::open_app_window,
-        commands::plugin_control::plugin_resolve_provider_bind,
-        commands::plugin_control::plugin_control_import_cli,
         plugin_dev_server::plugin_dev_connection,
     ])
     .build(tauri::generate_context!())

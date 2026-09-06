@@ -104,6 +104,7 @@ impl HeadlessServer {
         let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
             SqlitePluginRegistry::new(pool.clone()),
         )));
+        plugin_control_plane.watch_worker_crashes();
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
         let row_projectors = Arc::new(Mutex::new(HashMap::new()));
         let events = Arc::new(crate::HostEventBus::new());
@@ -226,10 +227,31 @@ impl HeadlessServer {
         let preview_host: Arc<dyn PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
-        let capability_broker = Arc::new(plugins::HostCapabilityBroker::new(
-            plugin_control_plane.clone(),
-            preview_host.clone(),
+        let bind_prompts = Arc::new(plugins::ProviderBindPrompts::default());
+        let provider_preset_host =
+            Arc::new(crate::host::provider_bind::HostProviderPresetHost::new(
+                pool.clone(),
+                events.clone(),
+                bind_prompts.clone(),
+                plugin_control_plane.clone(),
+            ));
+        let remote_profile_host = Arc::new(
+            crate::host::remote_profiles::FileRemoteProfileHost::load(&config.data_dir),
+        );
+        let conversation_host = Arc::new(crate::HostPluginConversationHost::new(
+            pool.clone(),
+            config.data_dir.join("scratch").join("plugins"),
         ));
+        let capability_broker = Arc::new(
+            plugins::HostCapabilityBroker::with_hosts_and_prompts(
+                plugin_control_plane.clone(),
+                preview_host.clone(),
+                provider_preset_host,
+                remote_profile_host,
+                bind_prompts,
+            )
+            .with_conversation_host(conversation_host.clone()),
+        );
         let worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
             config.data_dir.clone(),
         ));
@@ -354,7 +376,28 @@ impl HeadlessServer {
             adapter: application::AdapterCapabilities::server_http(),
             events: Some(events),
             terminal_bridges: None,
+            agent_management_runtime: None,
+            conversation_host: Some(conversation_host),
         });
+        {
+            let runtime = host.agent_management_runtime.clone();
+            let events = host.events.clone();
+            let pool = pool.clone();
+            tokio::spawn(async move {
+                services::services::local_runtime_discovery::warm_local_runtime_discovery(
+                    &pool,
+                    &runtime,
+                    {
+                        let events = events.clone();
+                        move |progress| {
+                            events.emit("agent-management-discovery-progress", progress);
+                        }
+                    },
+                )
+                .await;
+                events.emit("agent-management-snapshot-invalidated", ());
+            });
+        }
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {

@@ -522,23 +522,23 @@ export function createPluginControlApi(transport: BackendTransport) {
         packageKind,
         permissionIds,
       }) as Promise<PluginControlItem>,
-    importCli: (
+    importCli: async (
       ecosystem: PluginCliImportEcosystem,
       command: string,
       onEvent: (event: PluginCliImportEvent) => void
     ) => {
-      if (!transport.stream) {
-        return Promise.reject(
-          new Error(
-            'Streaming plugin import is unavailable in this environment'
-          )
-        );
-      }
-      return transport.stream<PluginCliImportResult>(
-        'plugin_control_import_cli',
-        { ecosystem, command },
-        (message) => onEvent(message as PluginCliImportEvent)
-      );
+      onEvent({ event: 'started', command });
+      const result = (await transport.call('plugin_control_import_cli', {
+        ecosystem,
+        command,
+      })) as PluginCliImportResult;
+      onEvent({
+        event: 'command_finished',
+        command,
+        success: result.success,
+        exitCode: result.success ? 0 : 1,
+      });
+      return result;
     },
     setEnabled: (pluginId: string, enabled: boolean) =>
       transport.call('plugin_control_set_enabled', {

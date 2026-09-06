@@ -26,30 +26,6 @@ pub mod channels {
     pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
     pub const DESKTOP_SESSION_ATTENTION: &str = "desktop-session-attention";
-    pub const PLUGIN_CONTRIBUTIONS: &str = "plugin-contributions-changed";
-    /// A plugin is asking to re-point an agent at a provider preset. The
-    /// Worker is parked until the user answers.
-    pub const PROVIDER_BIND_CONFIRM: &str = "provider-bind-confirm";
-}
-
-/// Mirrors live contribution-catalog changes to the webview so plugin chrome
-/// tracks activation, whether the change came from Settings or the CLI.
-pub fn spawn_plugin_contribution_bridge(
-    app: tauri::AppHandle,
-    control_plane: Arc<plugins::PluginControlPlane>,
-) {
-    tokio::spawn(async move {
-        let mut changes = control_plane.subscribe_catalog_changes();
-        loop {
-            match changes.recv().await {
-                Ok(generation) => {
-                    let _ = app.emit(channels::PLUGIN_CONTRIBUTIONS, generation);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
 }
 
 pub use conversations::ConversationRowProjectors;

@@ -78,6 +78,20 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
         "plugin.write"
     );
     assert_eq!(
+        "plugin_control_import_cli"
+            .parse::<DomainCommand>()
+            .expect("native plugin import command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
+        "plugin_resolve_provider_bind"
+            .parse::<DomainCommand>()
+            .expect("provider bind confirmation command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
         "plugin_marketplace_install"
             .parse::<DomainCommand>()
             .expect("marketplace install command")

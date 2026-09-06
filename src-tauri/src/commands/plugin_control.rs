@@ -461,7 +461,9 @@ pub async fn plugin_resolve_provider_bind(
     request_id: String,
     approved: bool,
 ) -> Result<bool, AppError> {
-    Ok(state.plugin_provider_presets.resolve(&request_id, approved))
+    Ok(state
+        .plugin_capability_broker
+        .resolve_provider_bind(&request_id, approved))
 }
 
 #[tauri::command]
@@ -769,6 +771,11 @@ pub async fn plugin_marketplace_listing(
     owner: String,
     plugin_name: String,
 ) -> Result<plugins::CatalogPluginDetail, AppError> {
+    if plugins::is_authoring_sample_plugin_id(&plugin_name)
+        || plugins::is_authoring_sample_plugin_id(&format!("{owner}.{plugin_name}"))
+    {
+        return Err(AppError::NotFound(format!("{owner}/{plugin_name}")));
+    }
     let mut listing = plugins::fetch_listing(&owner, &plugin_name).await.ok();
     let data_root = utils::assets::asset_dir();
     if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
@@ -834,6 +841,11 @@ pub async fn plugin_marketplace_install(
     tag: Option<String>,
     conflict: Option<String>,
 ) -> Result<PluginControlItemDto, AppError> {
+    if plugins::is_authoring_sample_plugin_id(&plugin_name)
+        || plugins::is_authoring_sample_plugin_id(&format!("{owner}.{plugin_name}"))
+    {
+        return Err(AppError::NotFound(format!("{owner}/{plugin_name}")));
+    }
     let conflict_decision = conflict.unwrap_or_else(|| "reject".into());
     if let Ok(listing) = plugins::fetch_artifact(&owner, &plugin_name, tag.as_deref()).await
         && let Some(url) = listing.download_url.clone()
@@ -1143,11 +1155,7 @@ pub async fn plugin_dev_link(
         plugins::PluginSourceKind::DeveloperLink,
     )
     .map_err(plugin_error)?;
-    if package.package_class == "isolated" && !plugins::isolated_spawn_supported() {
-        return Err(AppError::BadRequest(
-            "Isolated packages cannot be linked on this host".into(),
-        ));
-    }
+
     let digest = plugins::package_content_digest(std::path::Path::new(&source_path))
         .map_err(plugin_error)?;
     state
@@ -2477,11 +2485,7 @@ pub async fn plugin_control_grant_permissions(
     plugin_id: String,
     permission_ids: Vec<String>,
 ) -> Result<Vec<plugins::CapabilityGrant>, AppError> {
-    state
-        .plugin_control_plane
-        .grant_permissions(&plugin_id, &permission_ids)
-        .await
-        .map_err(plugin_error)?;
+    let _ = permission_ids;
     state
         .plugin_control_plane
         .capability_grants(&plugin_id)

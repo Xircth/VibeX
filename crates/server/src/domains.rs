@@ -49,6 +49,8 @@ pub struct ServerApplicationDomains {
     pub(crate) worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub(crate) events: Arc<HostEventBus>,
     pub(crate) terminal_bridges: Arc<TerminalBridgeRegistry>,
+    pub(crate) agent_management_runtime:
+        Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
 }
 
 pub struct ServerDomainDependencies {
@@ -66,6 +68,8 @@ pub struct ServerDomainDependencies {
     pub worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub events: Arc<HostEventBus>,
     pub terminal_bridges: Arc<TerminalBridgeRegistry>,
+    pub agent_management_runtime:
+        Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
 }
 
 impl ServerApplicationDomains {
@@ -85,6 +89,7 @@ impl ServerApplicationDomains {
             worker_runtime,
             events,
             terminal_bridges,
+            agent_management_runtime,
         } = dependencies;
         Self {
             pool,
@@ -101,6 +106,7 @@ impl ServerApplicationDomains {
             worker_runtime,
             events,
             terminal_bridges,
+            agent_management_runtime,
         }
     }
 
@@ -132,6 +138,10 @@ impl ServerApplicationDomains {
                 self.plugin_control_install_runtime(args).await
             }
             DomainCommand::PluginControlImport => self.plugin_control_import(args).await,
+            DomainCommand::PluginControlImportCli => self.plugin_control_import_cli(args).await,
+            DomainCommand::PluginResolveProviderBind => {
+                self.plugin_resolve_provider_bind(args).await
+            }
             DomainCommand::PluginMarketplaceCatalog => self.plugin_marketplace_catalog(args).await,
             DomainCommand::PluginMarketplaceListing => self.plugin_marketplace_listing(args).await,
             DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
@@ -612,11 +622,8 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         let args: PluginGrantPermissionsArgs = parse(args)?;
+        let _ = args.permission_ids;
         let control_plane = self.plugin_control_plane().await?;
-        control_plane
-            .grant_permissions(&args.plugin_id, &args.permission_ids)
-            .await
-            .map_err(internal_error)?;
         serialize(
             control_plane
                 .capability_grants(&args.plugin_id)
@@ -791,6 +798,95 @@ impl ServerApplicationDomains {
         Ok(plugin_control_item(&imported.plugin))
     }
 
+    async fn plugin_resolve_provider_bind(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BindArgs {
+            request_id: String,
+            approved: bool,
+        }
+        let args: BindArgs = parse(args)?;
+        Ok(json!(
+            self.capability_broker
+                .resolve_provider_bind(&args.request_id, args.approved)
+        ))
+    }
+
+    async fn plugin_control_import_cli(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ImportCliArgs {
+            ecosystem: String,
+            command: String,
+        }
+        let args: ImportCliArgs = parse(args)?;
+        let (ecosystem, program_name) = match args.ecosystem.as_str() {
+            "codex" => (plugins::NativeEcosystem::Codex, "codex"),
+            "claude_code" => (plugins::NativeEcosystem::ClaudeCode, "claude"),
+            other => {
+                return Err(ApplicationError::bad_request(format!(
+                    "unsupported native plugin ecosystem `{other}`"
+                )));
+            }
+        };
+        let commands = plugins::parse_official_plugin_import_commands(ecosystem, &args.command)
+            .map_err(plugin_error)?;
+        let program = utils::shell::resolve_executable_path(program_name)
+            .await
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!(
+                    "official `{program_name}` executable was not found"
+                ))
+            })?;
+        let adapter: Box<dyn plugins::NativePluginAdapter> = match ecosystem {
+            plugins::NativeEcosystem::Codex => {
+                Box::new(plugins::OfficialCliNativePluginAdapter::codex(&program))
+            }
+            plugins::NativeEcosystem::ClaudeCode => Box::new(
+                plugins::OfficialCliNativePluginAdapter::claude_code(&program),
+            ),
+        };
+        let before = adapter
+            .discover()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|plugin| plugin.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        for parsed in &commands {
+            let status = utils::process::new_hidden_tokio_command(&program, &parsed.args)
+                .kill_on_drop(true)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .status()
+                .await
+                .map_err(|error| {
+                    ApplicationError::internal(format!("start plugin import command: {error}"))
+                })?;
+            if !status.success() {
+                return Err(ApplicationError::internal(format!(
+                    "plugin import command failed: {}",
+                    parsed.display
+                )));
+            }
+        }
+        let mut imported_plugin_ids = adapter
+            .discover()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|plugin| plugin.id)
+            .filter(|plugin_id| !before.contains(plugin_id))
+            .collect::<Vec<_>>();
+        imported_plugin_ids.sort();
+        Ok(json!({
+            "success": true,
+            "commandsRun": commands.len() as u32,
+            "importedPluginIds": imported_plugin_ids,
+        }))
+    }
+
     pub(crate) async fn plugin_marketplace_catalog(
         &self,
         args: Value,
@@ -821,6 +917,17 @@ impl ServerApplicationDomains {
             plugin_name: String,
         }
         let args: ListingArgs = parse(args)?;
+        if plugins::is_authoring_sample_plugin_id(&args.plugin_name)
+            || plugins::is_authoring_sample_plugin_id(&format!(
+                "{}.{}",
+                args.owner, args.plugin_name
+            ))
+        {
+            return Err(ApplicationError::not_found(format!(
+                "{}/{}",
+                args.owner, args.plugin_name
+            )));
+        }
         let mut listing = plugins::fetch_listing(&args.owner, &args.plugin_name)
             .await
             .ok();
@@ -865,6 +972,17 @@ impl ServerApplicationDomains {
             conflict: Option<String>,
         }
         let args: InstallArgs = parse(args)?;
+        if plugins::is_authoring_sample_plugin_id(&args.plugin_name)
+            || plugins::is_authoring_sample_plugin_id(&format!(
+                "{}.{}",
+                args.owner, args.plugin_name
+            ))
+        {
+            return Err(ApplicationError::not_found(format!(
+                "{}/{}",
+                args.owner, args.plugin_name
+            )));
+        }
         let decision = match args.conflict.as_deref() {
             Some("keep") => plugins::ConflictDecision::KeepInstalled,
             Some("replace") => plugins::ConflictDecision::Replace,
@@ -1272,14 +1390,19 @@ impl ServerApplicationDomains {
     }
 
     async fn agent_management_bar(&self) -> Result<Value, ApplicationError> {
-        serialize(
+        let mut views =
             services::services::agent_management::AgentManagementApplicationService::new(
                 self.pool.clone(),
             )
             .list()
             .await
-            .map_err(internal_error)?,
+            .map_err(internal_error)?;
+        services::services::agent_management_runtime::overlay_local_runtime_evidence(
+            &self.agent_management_runtime,
+            &mut views,
         )
+        .await;
+        serialize(views)
     }
 
     pub(crate) async fn agent_capability_catalog(

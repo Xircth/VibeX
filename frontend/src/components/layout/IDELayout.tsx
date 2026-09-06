@@ -1343,6 +1343,7 @@ export function IDELayout({
                     item={activePluginTab}
                     slot="app.tab"
                     enabled
+                    workspaceId={effectiveWorkspaceId}
                   />
                 </div>
               ) : null}

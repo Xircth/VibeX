@@ -59,8 +59,8 @@ describe('TauriTransport application command adapter', () => {
 
     await expect(
       new TauriTransport().stream(
-        'plugin_control_import_cli',
-        { ecosystem: 'codex', command: 'codex plugin add browser@official' },
+        'backup_inspect',
+        { path: '/tmp/backup' },
         onMessage
       )
     ).resolves.toEqual({ success: true });
@@ -69,9 +69,8 @@ describe('TauriTransport application command adapter', () => {
       event: 'log',
       line: 'installed',
     });
-    expect(tauriInvoke).toHaveBeenCalledWith('plugin_control_import_cli', {
-      ecosystem: 'codex',
-      command: 'codex plugin add browser@official',
+    expect(tauriInvoke).toHaveBeenCalledWith('backup_inspect', {
+      path: '/tmp/backup',
       onEvent: expect.any(Object),
     });
   });

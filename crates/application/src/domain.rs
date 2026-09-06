@@ -145,6 +145,8 @@ domain_commands! {
     PluginControlGrantPermissions => "plugin_control_grant_permissions" / "plugin.write",
     PluginControlInstallRuntime => "plugin_control_install_runtime" / "plugin.write",
     PluginControlImport => "plugin_control_import" / "plugin.write",
+    PluginControlImportCli => "plugin_control_import_cli" / "plugin.write",
+    PluginResolveProviderBind => "plugin_resolve_provider_bind" / "plugin.write",
     PluginMarketplaceCatalog => "plugin_marketplace_catalog" / "plugin.read",
     PluginMarketplaceListing => "plugin_marketplace_listing" / "plugin.read",
     PluginMarketplaceInstall => "plugin_marketplace_install" / "plugin.write",

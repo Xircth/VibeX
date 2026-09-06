@@ -8,6 +8,7 @@ import {
   loadPluginRemote,
   mountRemoteModule,
   parseRemoteRef,
+  unloadPluginRemote,
 } from '@/lib/pluginFederation';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
@@ -15,14 +16,26 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, Component } from 
 
 const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
 
+function opaqueToken(): string {
+  const bytes = new Uint8Array(24);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
+}
+
 export function PluginRemoteView({
   item,
   slot,
   enabled = true,
+  workspaceId = null,
+  projectId = null,
 }: {
   item: PluginContributionCatalogItem | null;
   slot: 'app.panel' | 'app.tab' | 'app.kanban.view' | 'app.settings.page';
   enabled?: boolean;
+  workspaceId?: string | null;
+  projectId?: string | null;
 }) {
   const [retry, setRetry] = useState(0);
   if (!enabled) {
@@ -33,7 +46,13 @@ export function PluginRemoteView({
   }
   return (
     <RemoteViewErrorBoundary onRetry={() => setRetry((current) => current + 1)}>
-      <PluginRemoteViewBody key={`${item.pluginId}:${item.id}:${retry}`} item={item} slot={slot} />
+      <PluginRemoteViewBody
+        key={`${item.pluginId}:${item.id}:${retry}`}
+        item={item}
+        slot={slot}
+        workspaceId={workspaceId}
+        projectId={projectId}
+      />
     </RemoteViewErrorBoundary>
   );
 }
@@ -67,9 +86,13 @@ class RemoteViewErrorBoundary extends Component<
 function PluginRemoteViewBody({
   item,
   slot,
+  workspaceId,
+  projectId,
 }: {
   item: PluginContributionCatalogItem;
   slot: 'app.panel' | 'app.tab' | 'app.kanban.view' | 'app.settings.page';
+  workspaceId: string | null;
+  projectId: string | null;
 }) {
   const metadata = contributionMetadata(item);
   const remote = useMemo(
@@ -81,6 +104,7 @@ function PluginRemoteViewBody({
   const [remoteState, setRemoteState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
     remote && isHttpRemoteEntry(remote.entry) ? 'loading' : 'idle'
   );
+  const surfaceId = item.id;
 
   useEffect(() => {
     if (!remote || !isHttpRemoteEntry(remote.entry)) return;
@@ -88,11 +112,58 @@ function PluginRemoteViewBody({
     if (!root) return;
     let disposed = false;
     let dispose: (() => void) | void;
+    let revoke: (() => void) | undefined;
     setRemoteState('loading');
+    const clientToken = opaqueToken();
     void loadPluginRemote(remote)
-      .then((module) => {
+      .then(async (module) => {
         if (disposed) return;
-        dispose = mountRemoteModule(module, root);
+        let sequence = 0;
+        let sessionToken: string | null = null;
+        try {
+          const session = await transport.load({
+            pluginId: item.pluginId,
+            surfaceId,
+            generation: item.generation,
+            token: clientToken,
+          });
+          sessionToken = session.token;
+          revoke = () => {
+            void transport.revoke({
+              pluginId: item.pluginId,
+              surfaceId,
+              generation: item.generation,
+              token: session.token,
+              reason: 'unmount',
+            });
+          };
+        } catch {
+          sessionToken = null;
+        }
+        if (disposed) return;
+        dispose = mountRemoteModule(module, root, {
+          pluginId: item.pluginId,
+          surfaceId,
+          slot,
+          workspaceId,
+          projectId,
+          invoke: (handler, input) => {
+            if (!sessionToken) {
+              return Promise.reject(new Error('Plugin Worker is not available'));
+            }
+            sequence += 1;
+            return transport.invoke({
+              pluginId: item.pluginId,
+              surfaceId,
+              generation: item.generation,
+              token: sessionToken,
+              requestId: crypto.randomUUID(),
+              sequence,
+              method: handler,
+              params: (input ?? {}) as never,
+            });
+          },
+        });
         setRemoteState('ready');
       })
       .catch(() => {
@@ -101,13 +172,15 @@ function PluginRemoteViewBody({
     return () => {
       disposed = true;
       dispose?.();
+      revoke?.();
+      unloadPluginRemote(remote.name);
     };
-  }, [remote, retry]);
+  }, [item.generation, item.pluginId, projectId, remote, retry, slot, surfaceId, workspaceId]);
 
   const surface = useMemo(
     () => ({
       pluginId: item.pluginId,
-      surfaceId: String(metadata.surfaceId ?? item.id),
+      surfaceId,
       label: item.label,
       generation: item.generation,
       allowedMethods: Array.isArray(metadata.allowedMethods)
@@ -115,7 +188,7 @@ function PluginRemoteViewBody({
         : [],
       slot,
     }),
-    [item, metadata.allowedMethods, metadata.surfaceId, slot]
+    [item, metadata.allowedMethods, slot, surfaceId]
   );
 
   if (remote && isHttpRemoteEntry(remote.entry)) {

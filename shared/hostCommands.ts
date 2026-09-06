@@ -359,6 +359,7 @@ export const HOST_COMMANDS = [
   'plugin_control_gc_runtimes',
   'plugin_control_grant_permissions',
   'plugin_control_import',
+  'plugin_control_import_cli',
   'plugin_control_install_runtime',
   'plugin_control_logs',
   'plugin_control_preview_import',
@@ -376,6 +377,7 @@ export const HOST_COMMANDS = [
   'plugin_product_detail',
   'plugin_renew_file_preview',
   'plugin_resolve_file_opener',
+  'plugin_resolve_provider_bind',
   'plugin_save_config',
   'plugin_surface_invoke',
   'plugin_surface_open',
@@ -569,8 +571,6 @@ export const DESKTOP_SHELL_COMMANDS = [
   'start_create_host_tunnel',
   'take_tauri_inspector_capture',
   'update_web_service_config',
-  'plugin_control_import_cli',
-  'plugin_resolve_provider_bind',
 ] as const;
 
 export const HOST_CAPABILITY_SCOPES = [
@@ -956,6 +956,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
   { name: 'plugin_control_gc_runtimes', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_grant_permissions', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_import', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
+  { name: 'plugin_control_import_cli', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_install_runtime', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_logs', scope: 'plugin.read', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_preview_import', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
@@ -973,6 +974,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
   { name: 'plugin_product_detail', scope: 'plugin.read', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_renew_file_preview', scope: 'artifact.preview', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_resolve_file_opener', scope: 'plugin.read', kind: 'domain', argShape: 'compat' },
+  { name: 'plugin_resolve_provider_bind', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_save_config', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_surface_invoke', scope: 'plugin.surface', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_surface_open', scope: 'plugin.surface', kind: 'domain', argShape: 'compat' },
@@ -1122,6 +1124,8 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'local-history-scan-progress', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'agent-events', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'terminal-output', durability: 'best_effort', scope: 'application.call' },
+  { prefix: 'plugin-contributions-changed', durability: 'invalidation', scope: 'plugin.read' },
+  { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;
 
 export type HostCommand = (typeof HOST_COMMANDS)[number];

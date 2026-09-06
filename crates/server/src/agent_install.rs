@@ -880,7 +880,7 @@ async fn verify_handshake(
     lock: &SessionLaunchLock,
     working_dir: &Path,
 ) -> anyhow::Result<()> {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let (_snapshot, ready) = manager

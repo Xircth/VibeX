@@ -36,6 +36,8 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'local-history-scan-progress',
   'agent-events',
   'terminal-output',
+  'plugin-contributions-changed',
+  'provider-bind-confirm',
 ] as const;
 
 function isHostPushEvent(event: string): boolean {

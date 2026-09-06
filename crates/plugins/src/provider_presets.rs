@@ -1,5 +1,38 @@
+use std::{collections::HashMap, sync::Mutex, time::Duration};
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
+
+/// A prompt left unanswered this long is treated as a decline.
+pub const PROVIDER_BIND_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Shared parking lot for `provider.presets.bind` confirmation. Desktop and
+/// headless Hosts use the same map so a bound App can answer a prompt that a
+/// Worker on the Host parked.
+#[derive(Default)]
+pub struct ProviderBindPrompts {
+    waiting: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+}
+
+impl ProviderBindPrompts {
+    pub fn park(&self, request_id: String) -> oneshot::Receiver<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.waiting.lock().unwrap().insert(request_id, tx);
+        rx
+    }
+
+    pub fn answer(&self, request_id: &str, approved: bool) -> bool {
+        let Some(sender) = self.waiting.lock().unwrap().remove(request_id) else {
+            return false;
+        };
+        sender.send(approved).is_ok()
+    }
+
+    pub fn abandon(&self, request_id: &str) {
+        self.waiting.lock().unwrap().remove(request_id);
+    }
+}
 
 /// One saved model-provider preset, as a plugin is allowed to see it.
 ///

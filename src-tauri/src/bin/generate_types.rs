@@ -379,8 +379,6 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "start_create_host_tunnel",
     "take_tauri_inspector_capture",
     "update_web_service_config",
-    "plugin_control_import_cli",
-    "plugin_resolve_provider_bind",
 ];
 
 fn workspace_root() -> PathBuf {

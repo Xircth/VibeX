@@ -220,7 +220,7 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
     None
 }
 
-/// Product key (`delegation`, `session`, `workflow`, `plugin-dev`) declared on a
+/// Product key (`delegation`, `session`, `workflow`) declared on a
 /// `hostFamilyBinary` MCP resource.
 pub fn host_family_product(spec: &Value) -> Option<&'static str> {
     let managed = spec.get("managedRuntime")?.as_object()?;
@@ -235,7 +235,6 @@ pub fn host_family_product(spec: &Value) -> Option<&'static str> {
         (Some("session"), _) => Some("session"),
         (Some("delegation"), _) => Some("delegation"),
         (Some("workflow"), _) | (_, "vibex-workflow-mcp") => Some("workflow"),
-        (Some("plugin-dev"), _) => Some("plugin-dev"),
         _ => None,
     }
 }
@@ -245,7 +244,6 @@ pub fn official_product_mcp_name(spec: &Value) -> Option<&'static str> {
     match host_family_product(spec)? {
         "session" => Some(SESSION_MCP_NAME),
         "delegation" => Some(DELEGATION_MCP_NAME),
-        "plugin-dev" => Some(PLUGIN_DEV_MCP_NAME),
         "workflow" => Some(WORKFLOW_MCP_NAME),
         _ => None,
     }

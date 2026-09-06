@@ -7,15 +7,13 @@ use std::{
     },
 };
 
+use agents::TerminalOutputRx;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use remote_protocol::{
     EventDurability, SubscriptionBootstrap, SubscriptionId, SubscriptionSnapshot,
 };
 use serde::Serialize;
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-};
+use tokio::{sync::broadcast, task::JoinHandle};
 use uuid::Uuid;
 
 const BUS_CAPACITY: usize = 4096;
@@ -165,6 +163,16 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         prefix: "terminal-output",
         durability: EventDurability::BestEffort,
         required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "plugin-contributions-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "plugin.read",
+    },
+    HostEventChannel {
+        prefix: "provider-bind-confirm",
+        durability: EventDurability::BestEffort,
+        required_scope: "plugin.write",
     },
 ];
 
@@ -321,12 +329,7 @@ impl TerminalBridgeRegistry {
             .unwrap_or(0)
     }
 
-    pub fn ensure(
-        &self,
-        bus: Arc<HostEventBus>,
-        session_id: Uuid,
-        output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    ) {
+    pub fn ensure(&self, bus: Arc<HostEventBus>, session_id: Uuid, output_rx: TerminalOutputRx) {
         let mut inner = self
             .inner
             .lock()
@@ -383,7 +386,7 @@ pub fn spawn_terminal_output_bridge(
     bus: Arc<HostEventBus>,
     bridges: &TerminalBridgeRegistry,
     session_id: Uuid,
-    output_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    output_rx: TerminalOutputRx,
 ) {
     bridges.ensure(bus, session_id, output_rx);
 }
@@ -573,7 +576,7 @@ mod tests {
     async fn terminal_output_bridge_emits_base64_on_the_host_bus() {
         let bus = std::sync::Arc::new(HostEventBus::new());
         let bridges = TerminalBridgeRegistry::new();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = agents::TerminalOutputTx::pair();
         let session_id = uuid::Uuid::from_u128(0x1111_2222_3333_4444_5555_6666_7777_8888);
         let mut events = bus.subscribe();
         super::spawn_terminal_output_bridge(bus.clone(), &bridges, session_id, rx);
@@ -581,10 +584,10 @@ mod tests {
             bus.clone(),
             &bridges,
             session_id,
-            tokio::sync::mpsc::unbounded_channel().1,
+            agents::TerminalOutputTx::pair().1,
         );
         assert_eq!(bridges.subscriber_count(session_id), 2);
-        tx.send(b"prompt>\n".to_vec()).unwrap();
+        tx.push(b"prompt>\n".to_vec());
         let channel = super::terminal_output_channel(session_id);
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {

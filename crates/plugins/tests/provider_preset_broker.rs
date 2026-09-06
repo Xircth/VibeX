@@ -31,6 +31,13 @@ impl PluginPreviewHost for UnusedPreviewHost {
     ) -> Result<(), PluginPreviewHostError> {
         unreachable!("provider preset tests never open a preview")
     }
+
+    async fn renew_preview(
+        &self,
+        _lease_id: &str,
+    ) -> Result<PluginPreviewSession, PluginPreviewHostError> {
+        unreachable!("provider preset tests never open a preview")
+    }
 }
 
 #[derive(Default)]

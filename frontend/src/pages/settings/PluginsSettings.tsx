@@ -1,14 +1,5 @@
 import { pickHostFile } from '@/lib/hostFs';
 import {
-  Button as AstryxButton,
-  CheckboxInput,
-  Dialog as AstryxDialog,
-  DialogHeader as AstryxDialogHeader,
-  Layout as AstryxLayout,
-  LayoutContent as AstryxLayoutContent,
-  LayoutFooter as AstryxLayoutFooter,
-} from '@astryxdesign/core';
-import {
   AlertTriangle,
   Archive,
   ArrowLeft,
@@ -73,7 +64,6 @@ import {
   type PluginControlItem,
   type PluginImportPackageKind,
   type PluginImportPreview,
-  type PluginPermission,
   type PluginRuntimeInventoryItem,
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
@@ -151,13 +141,6 @@ function runtimeLockIsReady(
       installed.target === contribution.target &&
       installed.contentDigest === contribution.contentDigest
   );
-}
-
-interface PermissionReview {
-  plugin: PluginControlItem;
-  intent: 'enable' | 'update' | 'replace' | 'install-runtime';
-  permissions: PluginPermission[];
-  runtimeId?: string;
 }
 
 type PluginDetailMode = 'overview' | 'skills' | 'mcp';
@@ -1067,13 +1050,6 @@ export function PluginsSettings({
     useState<PluginControlItem | null>(null);
   const [uninstallTarget, setUninstallTarget] =
     useState<PluginControlItem | null>(null);
-  const [permissionReview, setPermissionReview] =
-    useState<PermissionReview | null>(null);
-  const [selectedPermissionIds, setSelectedPermissionIds] = useState<
-    Set<string>
-  >(new Set());
-  const [trustedNativeAcknowledged, setTrustedNativeAcknowledged] =
-    useState(false);
   const [backendCapabilities, setBackendCapabilities] = useState<Set<string>>(
     new Set()
   );
@@ -1081,10 +1057,7 @@ export function PluginsSettings({
   const canSurface = backendCapabilities.has('plugin.surface');
   const canManagePackage = canWrite;
   const canUseLocalPluginFiles = canWrite;
-  const canUseCliImport =
-    canUseLocalPluginFiles &&
-    (transport.environment === 'desktop' ||
-      backendCapabilities.has('desktop.tauri'));
+  const canUseCliImport = canUseLocalPluginFiles;
 
   useEffect(() => {
     let active = true;
@@ -1102,23 +1075,6 @@ export function PluginsSettings({
       active = false;
     };
   }, [transport]);
-
-  const openPermissionReview = (
-    plugin: PluginControlItem,
-    intent: PermissionReview['intent'],
-    permissions: PluginPermission[],
-    runtimeId?: string
-  ) => {
-    setTrustedNativeAcknowledged(false);
-    setSelectedPermissionIds(
-      new Set(
-        permissions
-          .filter((permission) => !permission.optional)
-          .map((permission) => permission.id)
-      )
-    );
-    setPermissionReview({ plugin, intent, permissions, runtimeId });
-  };
 
   const reload = useCallback(async () => {
     setIsLoading(true);
@@ -1310,25 +1266,9 @@ export function PluginsSettings({
 
   const applyImport = async (
     decision: 'reject' | 'keep' | 'replace',
-    permissionIds: string[] = [],
-    permissionsConfirmed = false
+    permissionIds: string[] = []
   ) => {
     if (!importPath || !canUseLocalPluginFiles) return;
-    if (
-      decision === 'replace' &&
-      !permissionsConfirmed &&
-      importPreview &&
-      importPreview.conflict?.installedEnabled === true &&
-      (importPreview.plugin.permissionDelta?.length ?? 0) > 0
-    ) {
-      openPermissionReview(
-        importPreview.plugin,
-        'replace',
-        importPreview.plugin.permissionDelta ?? []
-      );
-      setImportPreview(null);
-      return;
-    }
     setBusy(true);
     try {
       const imported = await api.import(
@@ -1351,21 +1291,8 @@ export function PluginsSettings({
     }
   };
 
-  const setEnabled = async (
-    plugin: PluginControlItem,
-    enabled: boolean,
-    permissionsConfirmed = false
-  ) => {
+  const setEnabled = async (plugin: PluginControlItem, enabled: boolean) => {
     if (!canWrite) return;
-    if (
-      enabled &&
-      !permissionsConfirmed &&
-      !plugin.nativeManaged &&
-      (plugin.permissions?.length ?? 0) > 0
-    ) {
-      openPermissionReview(plugin, 'enable', plugin.permissions ?? []);
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
@@ -1440,19 +1367,8 @@ export function PluginsSettings({
     }
   };
 
-  const updatePlugin = async (
-    plugin: PluginControlItem,
-    permissionsConfirmed = false
-  ) => {
+  const updatePlugin = async (plugin: PluginControlItem) => {
     if (!canWrite) return;
-    if (
-      !permissionsConfirmed &&
-      !plugin.nativeManaged &&
-      (plugin.permissionDelta?.length ?? 0) > 0
-    ) {
-      openPermissionReview(plugin, 'update', plugin.permissionDelta ?? []);
-      return;
-    }
     await performUpdate(plugin);
   };
 
@@ -1487,36 +1403,6 @@ export function PluginsSettings({
     }
   };
 
-  const confirmPermissionReview = async () => {
-    if (!permissionReview || !canWrite) return;
-    const { plugin, intent } = permissionReview;
-    const grantedPermissionIds = permissionReview.permissions
-      .filter(
-        (permission) =>
-          !permission.optional || selectedPermissionIds.has(permission.id)
-      )
-      .map((permission) => permission.id);
-    setBusy(true);
-    setError(null);
-    try {
-      if (intent === 'replace') {
-        setPermissionReview(null);
-        await applyImport('replace', grantedPermissionIds, true);
-        return;
-      }
-      await api.grantPermissions(plugin.id, grantedPermissionIds);
-      setPermissionReview(null);
-      if (intent === 'enable') await setEnabled(plugin, true, true);
-      else if (intent === 'install-runtime' && permissionReview.runtimeId) {
-        await installRuntime(plugin, permissionReview.runtimeId, true);
-      } else await updatePlugin(plugin, true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const uninstall = async () => {
     if (!uninstallTarget || !canWrite) return;
     setBusy(true);
@@ -1533,22 +1419,9 @@ export function PluginsSettings({
 
   const installRuntime = async (
     plugin: PluginControlItem,
-    runtimeId: string,
-    permissionsConfirmed = false
+    runtimeId: string
   ) => {
     if (!canWrite) return;
-    const trustedPermissions = (plugin.permissions ?? []).filter(
-      (permission) => permission.trustTier === 'trusted_native'
-    );
-    if (!permissionsConfirmed && trustedPermissions.length > 0) {
-      openPermissionReview(
-        plugin,
-        'install-runtime',
-        trustedPermissions,
-        runtimeId
-      );
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
@@ -2141,189 +2014,6 @@ export function PluginsSettings({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AstryxDialog
-        isOpen={Boolean(permissionReview)}
-        onOpenChange={(open) => !open && setPermissionReview(null)}
-        purpose="required"
-        width={560}
-        maxHeight="min(760px, 88vh)"
-        padding={0}
-        aria-label={t(
-          permissionReview?.intent === 'update' ||
-            permissionReview?.intent === 'replace'
-            ? 'plugins.permissionUpdateDialogTitle'
-            : 'plugins.permissionDialogTitle',
-          { name: permissionReview?.plugin.name ?? '' }
-        )}
-      >
-        <AstryxLayout
-          height="auto"
-          header={
-            <AstryxDialogHeader
-              title={t(
-                permissionReview?.intent === 'update' ||
-                  permissionReview?.intent === 'replace'
-                  ? 'plugins.permissionUpdateDialogTitle'
-                  : 'plugins.permissionDialogTitle',
-                {
-                  name: permissionReview?.plugin.name ?? '',
-                }
-              )}
-              subtitle={t('plugins.permissionDialogDescription')}
-            />
-          }
-          content={
-            <AstryxLayoutContent padding={4}>
-              {permissionReview ? (
-                <div className="plugin-permission-review">
-                  <div className="plugin-permission-publisher">
-                    <CheckCircle2 aria-hidden="true" />
-                    <span>
-                      {permissionReview.plugin.publisher ??
-                        t('plugins.permissionEvidenceUnavailable')}
-                    </span>
-                    <small>{t('plugins.permissionPublisher')}</small>
-                  </div>
-                  {permissionReview.intent === 'update' ||
-                  permissionReview.intent === 'replace' ? (
-                    <strong className="plugin-permission-delta-title">
-                      {t('plugins.permissionDelta')}
-                    </strong>
-                  ) : null}
-                  <div className="plugin-permission-list">
-                    {permissionReview.permissions.map((permission) => (
-                      <div
-                        className="plugin-permission-item"
-                        key={permission.id}
-                      >
-                        {permission.optional ? (
-                          <CheckboxInput
-                            label={permission.reason}
-                            description={t(
-                              'plugins.permissionOptionalDescription'
-                            )}
-                            value={selectedPermissionIds.has(permission.id)}
-                            isOptional
-                            size="sm"
-                            onChange={(checked) => {
-                              setSelectedPermissionIds((current) => {
-                                const next = new Set(current);
-                                if (checked) next.add(permission.id);
-                                else next.delete(permission.id);
-                                return next;
-                              });
-                            }}
-                          />
-                        ) : (
-                          <>
-                            <CheckCircle2 aria-hidden="true" />
-                            <span>
-                              <strong>
-                                {t(
-                                  `plugins.permissionCapability.${permission.capability}`
-                                )}
-                              </strong>
-                              <small>{permission.reason}</small>
-                            </span>
-                            <em>{t('plugins.permissionRequired')}</em>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {permissionReview.permissions.some(
-                    (permission) => permission.trustTier === 'trusted_native'
-                  ) ? (
-                    <div className="plugin-native-runtime-consent">
-                      <strong>
-                        {t('plugins.trustedNativeRuntimeTitle', {
-                          runtime: runtimeDisplayName(
-                            permissionReview.plugin.runtimes[0]?.id ?? 'Runtime'
-                          ),
-                        })}
-                      </strong>
-                      <p>{t('plugins.trustedNativeDescription')}</p>
-                      <CheckboxInput
-                        label={t('plugins.trustedNativeAcknowledgement', {
-                          runtime: runtimeDisplayName(
-                            permissionReview.plugin.runtimes[0]?.id ?? 'Runtime'
-                          ),
-                        })}
-                        value={trustedNativeAcknowledged}
-                        size="sm"
-                        onChange={setTrustedNativeAcknowledged}
-                      />
-                    </div>
-                  ) : null}
-                  <details className="plugin-permission-evidence">
-                    <summary>
-                      {t('plugins.permissionTechnicalEvidence')}
-                    </summary>
-                    <dl>
-                      <div>
-                        <dt>{t('plugins.permissionPublisher')}</dt>
-                        <dd>
-                          {permissionReview.plugin.publisher ??
-                            t('plugins.permissionEvidenceUnavailable')}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>{t('plugins.permissionPackageDigest')}</dt>
-                        <dd>
-                          <code>
-                            {(permissionReview.intent === 'update' ||
-                            permissionReview.intent === 'replace'
-                              ? permissionReview.plugin.updatePackageDigest
-                              : permissionReview.plugin.packageDigest) ??
-                              t('plugins.permissionEvidenceUnavailable')}
-                          </code>
-                        </dd>
-                      </div>
-                    </dl>
-                  </details>
-                </div>
-              ) : null}
-            </AstryxLayoutContent>
-          }
-          footer={
-            <AstryxLayoutFooter hasDivider padding={3}>
-              <div className="plugin-permission-actions">
-                <AstryxButton
-                  label={t('common:cancel')}
-                  variant="secondary"
-                  onClick={() => setPermissionReview(null)}
-                />
-                <AstryxButton
-                  label={t(
-                    permissionReview?.intent === 'update' ||
-                      permissionReview?.intent === 'replace'
-                      ? 'plugins.reviewAndUpdate'
-                      : permissionReview?.intent === 'enable' &&
-                          permissionReview.permissions.some(
-                            (permission) =>
-                              permission.trustTier === 'trusted_native'
-                          ) &&
-                          (permissionReview?.plugin.runtimes.length ?? 0) > 0
-                        ? 'plugins.grantInstallAndEnable'
-                        : 'plugins.grantAndEnable'
-                  )}
-                  variant="primary"
-                  isLoading={busy}
-                  isDisabled={
-                    !canWrite ||
-                    (permissionReview?.permissions.some(
-                      (permission) => permission.trustTier === 'trusted_native'
-                    ) === true &&
-                      !trustedNativeAcknowledged)
-                  }
-                  onClick={() => void confirmPermissionReview()}
-                />
-              </div>
-            </AstryxLayoutFooter>
-          }
-        />
-      </AstryxDialog>
 
       <Dialog
         open={Boolean(uninstallTarget)}

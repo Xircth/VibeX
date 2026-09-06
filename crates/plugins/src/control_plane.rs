@@ -1563,9 +1563,31 @@ impl PluginControlPlane {
         Ok(())
     }
 
+    pub fn watch_worker_crashes(self: &std::sync::Arc<Self>) {
+        let plane = std::sync::Arc::clone(self);
+        tokio::spawn(async move {
+            let mut crashes = crate::subscribe_worker_crashes();
+            loop {
+                match crashes.recv().await {
+                    Ok(plugin_id) => {
+                        if let Err(error) = plane.withdraw_live_generation(&plugin_id).await {
+                            tracing::warn!(
+                                plugin_id = %plugin_id,
+                                %error,
+                                "failed to withdraw plugin generation after Worker crash"
+                            );
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
     /// Reverse of publishing a generation: stop host.service, dispose Worker,
     /// then drop contribution descriptors. Enable intent is unchanged.
-    async fn withdraw_live_generation(&self, plugin_id: &str) -> Result<(), PluginError> {
+    pub async fn withdraw_live_generation(&self, plugin_id: &str) -> Result<(), PluginError> {
         if !self.plugin_is_live(plugin_id).await? {
             self.host_services.stop(plugin_id);
             let _ = self.activations.deactivate(plugin_id).await;
@@ -1875,9 +1897,6 @@ impl PluginControlPlane {
         package: PluginPackage,
         decision: ConflictDecision,
     ) -> Result<ImportResult, PluginError> {
-        if package.package_class == "isolated" && !crate::isolated_spawn_supported() {
-            return Err(PluginError::class_unsupported(package.id.as_str()));
-        }
         let existing = self.registry.plugin(package.id.as_str()).await?;
         if let Some(ref installed) = existing {
             if package_publisher(&installed.package) != package_publisher(&package) {
@@ -3124,31 +3143,6 @@ struct PluginDependency {
     required: bool,
 }
 
-fn plugin_dependencies(package: &PluginPackage) -> Vec<PluginDependency> {
-    package
-        .manifest
-        .get("depends")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|value| {
-            let object = value.as_object()?;
-            if object.get("kind").and_then(serde_json::Value::as_str) != Some("plugin") {
-                return None;
-            }
-            Some(PluginDependency {
-                publisher: object.get("publisher")?.as_str()?.to_owned(),
-                id: object.get("id")?.as_str()?.to_owned(),
-                version_range: object
-                    .get("versionRange")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("*")
-                    .to_owned(),
-                required: object
-                    .get("required")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(true),
-            })
-        })
-        .collect()
+fn plugin_dependencies(_package: &PluginPackage) -> Vec<PluginDependency> {
+    Vec::new()
 }

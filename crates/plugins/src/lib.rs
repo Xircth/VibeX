@@ -7,6 +7,7 @@ mod artifact_preview;
 mod catalog;
 mod contribution;
 mod control_plane;
+mod conversation_host;
 mod error;
 mod host_capability_broker;
 mod host_service;
@@ -37,14 +38,15 @@ pub use app_surface::{
 pub use artifact_http::{artifact_origin, rewrite_remote_entry, set_artifact_origin};
 pub use artifact_preview::PluginArtifactPreviewService;
 pub use catalog::{
-    COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage, CatalogPluginDetail, CatalogVersion,
-    DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin, PluginUpdateStatus, REPLACED_PLUGIN_IDS,
-    canonical_listing_id, canonical_plugin_id, check_installed_updates, collapse_replaced_official,
-    detail_from_package, fetch_artifact, fetch_catalog, fetch_listing, fetch_versions,
-    fold_official_listings, github_latest_tag, is_newer_version, listing_from_package,
-    listing_identity, listing_is_retired, marketplace_archive_suffix, marketplace_listing_url,
-    marketplace_origin, merge_offline_official, origin_kind, origin_owner_name,
-    prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
+    AUTHORING_SAMPLE_PLUGIN_IDS, COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage,
+    CatalogPluginDetail, CatalogVersion, DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin,
+    PluginUpdateStatus, REPLACED_PLUGIN_IDS, canonical_listing_id, canonical_plugin_id,
+    check_installed_updates, collapse_replaced_official, detail_from_package, fetch_artifact,
+    fetch_catalog, fetch_listing, fetch_versions, fold_official_listings, github_latest_tag,
+    is_authoring_sample_plugin_id, is_newer_version, listing_from_package, listing_identity,
+    listing_is_authoring_sample, listing_is_retired, marketplace_archive_suffix,
+    marketplace_listing_url, marketplace_origin, merge_offline_official, origin_kind,
+    origin_owner_name, prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
 };
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
@@ -54,6 +56,13 @@ pub use control_plane::{
     ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginAuditEvent,
     PluginControlPlane, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
     candidate_capability_grants,
+};
+pub use conversation_host::{
+    PluginConversationCancelInput, PluginConversationCreate, PluginConversationEnqueue,
+    PluginConversationError, PluginConversationErrorCode, PluginConversationEventPage,
+    PluginConversationHost, PluginConversationInputReceipt, PluginConversationPermission,
+    PluginConversationQuestion, PluginConversationSteer, PluginConversationSummary,
+    PluginConversationTurn, PluginConversationView, UnavailablePluginConversationHost,
 };
 pub use error::PluginError;
 pub use host_capability_broker::HostCapabilityBroker;
@@ -104,9 +113,9 @@ pub use preview_host::{
 };
 pub use process_preview_host::ExternalProcessPreviewHost;
 pub use provider_presets::{
-    ProviderBindDecision, ProviderBindRequest, ProviderPreset, ProviderPresetDraft,
-    ProviderPresetError, ProviderPresetErrorCode, ProviderPresetHost,
-    UnavailableProviderPresetHost,
+    PROVIDER_BIND_CONFIRMATION_TIMEOUT, ProviderBindDecision, ProviderBindPrompts,
+    ProviderBindRequest, ProviderPreset, ProviderPresetDraft, ProviderPresetError,
+    ProviderPresetErrorCode, ProviderPresetHost, UnavailableProviderPresetHost,
 };
 pub use readiness::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, PluginActivation,
@@ -126,7 +135,6 @@ pub use runtime::{
 pub use service::PluginService;
 pub use worker_host::{
     CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginCrash, PluginLogLine,
-    ScopedCapabilityBroker, WorkerActivation, WorkerHost, WorkerHostError,
-    isolated_spawn_supported, recent_plugin_crashes, recent_plugin_logs, record_plugin_crash,
-    record_plugin_log,
+    ScopedCapabilityBroker, WorkerActivation, WorkerHost, WorkerHostError, recent_plugin_crashes,
+    recent_plugin_logs, record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
 };

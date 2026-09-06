@@ -162,15 +162,140 @@
       ]
     },
     {
+      "id": "conversation.create",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.list",
+      "deny": [
+        "conversation_unavailable"
+      ]
+    },
+    {
       "id": "conversation.read.get",
       "deny": [
-        "conversation_scope_denied"
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid"
       ]
     },
     {
       "id": "conversation.append.enqueueInput",
       "deny": [
-        "conversation_scope_denied"
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.steer",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.cancel",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.cancelInput",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.listInputs",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid"
+      ]
+    },
+    {
+      "id": "conversation.respondPermission",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.respondQuestion",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.setMode",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.setConfigOption",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.catalog",
+      "deny": [
+        "conversation_unavailable"
+      ]
+    },
+    {
+      "id": "conversation.archive",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid",
+        "conversation_failed"
+      ]
+    },
+    {
+      "id": "conversation.events.since",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid"
       ]
     },
     {

@@ -30,6 +30,13 @@ impl PluginPreviewHost for UnusedPreviewHost {
     ) -> Result<(), PluginPreviewHostError> {
         unreachable!("remote profile tests never open a preview")
     }
+
+    async fn renew_preview(
+        &self,
+        _lease_id: &str,
+    ) -> Result<PluginPreviewSession, PluginPreviewHostError> {
+        unreachable!("remote profile tests never open a preview")
+    }
 }
 
 #[derive(Default)]

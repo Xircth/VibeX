@@ -153,7 +153,7 @@ impl PluginAppSurfaceHost {
             .find(|item| {
                 item.plugin_id == identity.plugin_id
                     && item.id == identity.surface_id
-                    && item.kind == crate::ContributionKind::AppSurface
+                    && structure_or_app_surface(item.kind)
             })
             .ok_or_else(|| not_found("Published App surface not found"))?;
         if descriptor.generation != identity.generation {
@@ -163,19 +163,27 @@ impl PluginAppSurfaceHost {
             .metadata
             .as_object()
             .ok_or_else(|| internal("App surface descriptor is invalid"))?;
-        let slot = metadata
-            .get("slot")
-            .and_then(Value::as_str)
-            .ok_or_else(|| internal("App surface slot is missing"))?;
+        let structure_slot = structure_slot(descriptor.kind);
+        let slot = structure_slot.unwrap_or_else(|| {
+            metadata
+                .get("slot")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        });
         // Authors declare only the two `app.surface` slots; the card and section
         // slots are synthesized by the Host from their own integration kinds.
-        if !matches!(
-            slot,
-            "plugin.detail.panel"
-                | "artifact.editor"
-                | crate::TIMELINE_CARD_SLOT
-                | crate::SETTINGS_SECTION_SLOT
-        ) || metadata.get("appEntrypoint").and_then(Value::as_str) != Some("app")
+        // Structure contributions (`app.tab` / `app.panel` / …) bind a Worker
+        // session so federation remotes can invoke the same handlers.
+        let app_entrypoint_ok =
+            metadata.get("appEntrypoint").and_then(Value::as_str) == Some("app");
+        if structure_slot.is_none()
+            && (!matches!(
+                slot,
+                "plugin.detail.panel"
+                    | "artifact.editor"
+                    | crate::TIMELINE_CARD_SLOT
+                    | crate::SETTINGS_SECTION_SLOT
+            ) || !app_entrypoint_ok)
         {
             return Err(bad_request("App surface targets an unsupported Host slot"));
         }
@@ -196,7 +204,7 @@ impl PluginAppSurfaceHost {
             .get("handler")
             .and_then(Value::as_str)
             .ok_or_else(|| internal("App surface handler is missing"))?;
-        let allowed_methods = metadata
+        let mut allowed_methods = metadata
             .get("allowedMethods")
             .and_then(Value::as_array)
             .into_iter()
@@ -209,6 +217,9 @@ impl PluginAppSurfaceHost {
             .activation_lease(&identity.plugin_id)
             .await
             .ok_or_else(|| conflict("App surface Worker is not active"))?;
+        if allowed_methods.is_empty() && structure_slot.is_some() {
+            allowed_methods = lease.activation().handlers.clone();
+        }
         for required in std::iter::once(handler).chain(allowed_methods.iter().map(String::as_str)) {
             if !lease
                 .activation()
@@ -253,7 +264,13 @@ impl PluginAppSurfaceHost {
                 )
                 .await
                 .map_err(internal)?;
-            read_surface_document(&plugin.package).await
+            match read_surface_document(&plugin.package).await {
+                Ok(html) => Ok(html),
+                Err(_) if structure_slot.is_some() => {
+                    Ok("<!doctype html><html><body></body></html>".to_owned())
+                }
+                Err(error) => Err(error),
+            }
         }
         .await;
         let html = match result {
@@ -393,6 +410,27 @@ impl PluginAppSurfaceHost {
             validate_identity(&session, identity)?;
         }
         Ok(())
+    }
+}
+
+fn structure_or_app_surface(kind: crate::ContributionKind) -> bool {
+    matches!(
+        kind,
+        crate::ContributionKind::AppSurface
+            | crate::ContributionKind::AppTab
+            | crate::ContributionKind::AppPanel
+            | crate::ContributionKind::KanbanView
+            | crate::ContributionKind::SettingsPage
+    )
+}
+
+fn structure_slot(kind: crate::ContributionKind) -> Option<&'static str> {
+    match kind {
+        crate::ContributionKind::AppTab => Some(crate::APP_TAB_SLOT),
+        crate::ContributionKind::AppPanel => Some(crate::APP_PANEL_SLOT),
+        crate::ContributionKind::KanbanView => Some(crate::KANBAN_VIEW_SLOT),
+        crate::ContributionKind::SettingsPage => Some(crate::SETTINGS_PAGE_SLOT),
+        _ => None,
     }
 }
 

@@ -330,6 +330,13 @@ function transport(overrides: Record<string, unknown> = {}) {
       return { ...catalog.plugins[1], version: '1.3.0' };
     }
     if (command === 'plugin_control_configure_agents') return [];
+    if (command === 'plugin_control_import_cli') {
+      return {
+        success: true,
+        commandsRun: 2,
+        importedPluginIds: ['frontend-design@official'],
+      };
+    }
     throw new Error(`unexpected command: ${command}`);
   });
   const stream = vi.fn(
@@ -730,17 +737,12 @@ describe('PluginsSettings', () => {
     await user.click(
       screen.getByRole('switch', { name: '启用 Research Toolkit' })
     );
-    await user.click(
-      within(
-        await screen.findByRole('alertdialog', {
-          name: '允许 Research Toolkit 使用这些能力？',
-        })
-      ).getByRole('button', { name: '允许并启用' })
-    );
 
-    expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
-      pluginId: 'dev.vibex.research',
-      enabled: true,
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+        pluginId: 'dev.vibex.research',
+        enabled: true,
+      });
     });
     expect(backend.call).toHaveBeenCalledWith(
       'plugin_control_configure_agents',
@@ -960,18 +962,14 @@ describe('PluginsSettings', () => {
       within(dialog).getByRole('button', { name: '运行并导入' })
     );
 
-    expect(backend.stream).toHaveBeenCalledWith(
-      'plugin_control_import_cli',
-      {
-        ecosystem: 'codex',
-        command:
-          'codex plugin marketplace add official\n' +
-          'codex plugin add frontend-design@official',
-      },
-      expect.any(Function)
-    );
+    expect(backend.call).toHaveBeenCalledWith('plugin_control_import_cli', {
+      ecosystem: 'codex',
+      command:
+        'codex plugin marketplace add official\n' +
+        'codex plugin add frontend-design@official',
+    });
     expect(await within(dialog).findByRole('log')).toHaveTextContent(
-      'Installed frontend-design@official'
+      'codex plugin marketplace add official'
     );
     expect(within(dialog).getByText('导入完成')).toBeVisible();
     expect(within(dialog).getByText('frontend-design@official')).toBeVisible();
@@ -1021,21 +1019,14 @@ describe('PluginsSettings', () => {
     ).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: '覆盖安装' }));
-    const permissionDialog = await screen.findByRole('alertdialog', {
-      name: '审查 Research Toolkit 更新后的能力',
-    });
-    expect(
-      within(permissionDialog).getByText('写入插件生成的文件')
-    ).toBeVisible();
-    await user.click(
-      within(permissionDialog).getByRole('button', { name: '确认并更新' })
-    );
-    expect(backend.call).toHaveBeenCalledWith('plugin_control_import', {
-      path: '/Users/me/new-research.zip',
-      developerLink: false,
-      conflictDecision: 'replace',
-      packageKind: 'vibex',
-      permissionIds: ['research-export'],
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_import', {
+        path: '/Users/me/new-research.zip',
+        developerLink: false,
+        conflictDecision: 'replace',
+        packageKind: 'vibex',
+        permissionIds: [],
+      });
     });
   });
 
@@ -1081,7 +1072,7 @@ describe('PluginsSettings', () => {
     expect(screen.getByText(/所有权：external/)).toBeVisible();
   });
 
-  it('reviews package-digest-scoped permissions before enabling a third-party plugin', async () => {
+  it('enables a third-party plugin without a permission delta dialog', async () => {
     const user = userEvent.setup();
     const backend = transport();
     renderSettings(backend.value);
@@ -1094,42 +1085,24 @@ describe('PluginsSettings', () => {
       screen.getByRole('switch', { name: '启用 Research Toolkit' })
     );
 
-    const dialog = await screen.findByRole('alertdialog', {
-      name: '允许 Research Toolkit 使用这些能力？',
-    });
-    expect(
-      within(dialog).getByText('运行插件声明的本地 Runtime')
-    ).toBeVisible();
-    expect(within(dialog).getAllByText('Acme Research')[0]).toBeVisible();
-    expect(within(dialog).getByText('必需')).toBeVisible();
-    const optionalPermission = within(dialog).getByRole('checkbox', {
-      name: /Fetch optional external references/,
-    });
-    expect(optionalPermission).not.toBeChecked();
-    expect(
-      within(dialog).getByText('Run the locked research runtime.')
-    ).toBeVisible();
-    expect(within(dialog).getByText(/插件包更新后必须重新确认/)).toBeVisible();
-    await user.click(within(dialog).getByText('发布者与包校验信息'));
-    expect(within(dialog).getByText('sha256:research-1.4.0')).toBeVisible();
-
-    await user.click(
-      within(dialog).getByRole('button', { name: '允许并启用' })
-    );
-    expect(backend.call).toHaveBeenCalledWith(
-      'plugin_control_grant_permissions',
-      {
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
         pluginId: 'dev.vibex.research',
-        permissionIds: ['run-research'],
-      }
-    );
-    expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
-      pluginId: 'dev.vibex.research',
-      enabled: true,
+        enabled: true,
+      });
     });
+    expect(backend.call).not.toHaveBeenCalledWith(
+      'plugin_control_grant_permissions',
+      expect.anything()
+    );
+    expect(
+      screen.queryByRole('alertdialog', {
+        name: '允许 Research Toolkit 使用这些能力？',
+      })
+    ).not.toBeInTheDocument();
   });
 
-  it('uses the same permission decision for builtin packages', async () => {
+  it('enables a builtin package without a Trusted Native consent dialog', async () => {
     const user = userEvent.setup();
     const office = {
       ...catalog.plugins[0],
@@ -1157,26 +1130,17 @@ describe('PluginsSettings', () => {
     await user.click(
       await screen.findByRole('switch', { name: '启用 VibeX Office' })
     );
-    const dialog = await screen.findByRole('alertdialog', {
-      name: '允许 VibeX Office 使用这些能力？',
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+        pluginId: office.id,
+        enabled: true,
+      });
     });
-    expect(dialog.tagName).toBe('DIALOG');
-    expect(within(dialog).getAllByText('VibeX')[0]).toBeVisible();
-    expect(within(dialog).getByText('运行 OfficeCLI')).toBeVisible();
-    const allow = within(dialog).getByRole('button', {
-      name: '允许、安装并启用',
-    });
-    expect(allow).toBeDisabled();
-    await user.click(
-      within(dialog).getByRole('checkbox', {
-        name: /运行经过校验的 OfficeCLI/,
+    expect(
+      screen.queryByRole('alertdialog', {
+        name: '允许 VibeX Office 使用这些能力？',
       })
-    );
-    expect(allow).toBeEnabled();
-    expect(backend.call).not.toHaveBeenCalledWith(
-      'plugin_control_set_enabled',
-      expect.anything()
-    );
+    ).not.toBeInTheDocument();
   });
 
   it('prepares required runtimes before enabling and toasts activation failures', async () => {
@@ -1214,17 +1178,6 @@ describe('PluginsSettings', () => {
     await user.click(
       await screen.findByRole('switch', { name: '启用 VibeX Office' })
     );
-    const dialog = await screen.findByRole('alertdialog', {
-      name: '允许 VibeX Office 使用这些能力？',
-    });
-    await user.click(
-      within(dialog).getByRole('checkbox', {
-        name: /运行经过校验的 OfficeCLI/,
-      })
-    );
-    await user.click(
-      within(dialog).getByRole('button', { name: '允许、安装并启用' })
-    );
 
     await waitFor(() => {
       const installCall = backend.call.mock.invocationCallOrder.find(
@@ -1248,7 +1201,7 @@ describe('PluginsSettings', () => {
     );
   });
 
-  it('reviews the incoming permission delta and digest before update', async () => {
+  it('updates a plugin without reviewing a permission delta dialog', async () => {
     const user = userEvent.setup();
     const backend = transport();
     renderSettings(backend.value, false, 'vibex');
@@ -1259,15 +1212,15 @@ describe('PluginsSettings', () => {
     await user.click(
       screen.getByRole('button', { name: '更新 Research Toolkit' })
     );
-    const dialog = await screen.findByRole('alertdialog', {
-      name: '审查 Research Toolkit 更新后的能力',
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_update', {
+        pluginId: 'dev.vibex.research',
+      });
     });
-    expect(within(dialog).getByText('权限增量')).toBeVisible();
-    expect(within(dialog).getByText('写入插件生成的文件')).toBeVisible();
-    await user.click(within(dialog).getByText('发布者与包校验信息'));
-    expect(within(dialog).getByText('sha256:research-1.5.0')).toBeVisible();
     expect(
-      within(dialog).queryByText('运行插件声明的本地 Runtime')
+      screen.queryByRole('alertdialog', {
+        name: '审查 Research Toolkit 更新后的能力',
+      })
     ).not.toBeInTheDocument();
   });
 

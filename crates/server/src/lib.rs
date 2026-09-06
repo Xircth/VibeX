@@ -53,6 +53,9 @@ pub use host::{
     HostEvent, HostEventBus, account_flow,
     events::{HOST_EVENT_CHANNELS, TerminalBridgeRegistry, current_host_events},
     native, patch_stream_channel, patch_stream_subscribe_command,
+    plugin_conversation::HostPluginConversationHost,
+    provider_bind::HostProviderPresetHost,
+    remote_profiles::FileRemoteProfileHost,
 };
 pub use host_core::host_application_core;
 pub use host_runtime::{AutomationOwnership, HostRuntime, HostRuntimeParts};

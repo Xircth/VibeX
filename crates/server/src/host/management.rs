@@ -15,13 +15,13 @@ use agents::{
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
-    AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryPhase,
-    AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
-    AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
-    AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
-    AgentEnvironmentView, AgentLifecycleState, AgentManagementActionKind,
-    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
-    AgentPreflightItemView, AgentPreflightView, AgentUpdateCheckView,
+    AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryProgressView,
+    AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
+    AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
+    AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView,
+    AgentLifecycleState, AgentManagementActionKind, AgentManagementActionReceipt,
+    AgentManagementActionView, AgentManagementActionsView, AgentPreflightItemView,
+    AgentPreflightView, AgentUpdateCheckView,
 };
 use application::ApplicationError;
 use chrono::Utc;
@@ -183,8 +183,10 @@ pub async fn dispatch_check_update(
     serialize(check_update(pool, args.agent_id).await?)
 }
 
-pub async fn dispatch_discovery_progress(pool: &SqlitePool) -> Result<Value, ApplicationError> {
-    serialize(discovery_progress(pool).await?)
+pub async fn dispatch_discovery_progress(
+    runtime: &services::services::agent_management_runtime::AgentManagementRuntimeState,
+) -> Result<Value, ApplicationError> {
+    serialize(discovery_progress(runtime).await?)
 }
 
 pub async fn preflight(
@@ -907,25 +909,13 @@ pub async fn check_update(
 }
 
 pub async fn discovery_progress(
-    pool: &SqlitePool,
+    runtime: &services::services::agent_management_runtime::AgentManagementRuntimeState,
 ) -> Result<AgentDiscoveryProgressView, ApplicationError> {
-    let ids = sqlx::query_scalar::<_, String>("SELECT agent_id FROM agent_membership")
-        .fetch_all(pool)
-        .await
-        .map_err(internal_error)?;
-    let checked_agent_ids = ids
-        .iter()
-        .filter_map(|id| AgentId::parse(id).ok())
-        .collect::<Vec<_>>();
-    let total = checked_agent_ids.len() as u32;
-    Ok(AgentDiscoveryProgressView {
-        phase: AgentDiscoveryPhase::Complete,
-        completed: total,
-        total,
-        found: total,
-        checked_agent_ids,
-        timed_out: false,
-    })
+    Ok(
+        services::services::agent_management_runtime::local_runtime_discovery_progress_view(
+            runtime.local_runtime_discovery_progress().await,
+        ),
+    )
 }
 
 async fn project_auth_mode_view(

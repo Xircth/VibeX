@@ -1,4 +1,5 @@
 import type { IDockviewPanelProps } from 'dockview-react';
+import { useParams } from 'react-router-dom';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import {
   usePluginHostContributions,
@@ -10,6 +11,7 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
     pluginId?: string;
     contributionId?: string;
   };
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
   const parsed = parsePluginSurfaceId(props.api.id);
   const pluginId = params.pluginId ?? parsed?.pluginId ?? '';
   const contributionId = params.contributionId ?? parsed?.contributionId ?? '';
@@ -19,5 +21,12 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
       (panel) => panel.pluginId === pluginId && panel.id === contributionId
     ) ?? null;
 
-  return <PluginRemoteView item={item} slot="app.panel" enabled />;
+  return (
+    <PluginRemoteView
+      item={item}
+      slot="app.panel"
+      enabled
+      workspaceId={workspaceId ?? null}
+    />
+  );
 }

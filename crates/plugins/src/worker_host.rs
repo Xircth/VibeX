@@ -1,5 +1,3 @@
-#[cfg(target_os = "linux")]
-use std::os::unix::process::CommandExt;
 use std::{
     collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
@@ -19,11 +17,6 @@ use tokio::{
 };
 
 use crate::PluginPackage;
-#[cfg(target_os = "linux")]
-use crate::isolated::{
-    apply_linux_seccomp, build_seccomp_filter, isolated_linux_syscalls, isolated_runtime_kind,
-    linux_seccomp_file,
-};
 
 const MAX_PROTOCOL_FRAME_BYTES: usize = 1024 * 1024;
 
@@ -168,31 +161,20 @@ pub struct WorkerHost {
     request_timeout: Duration,
 }
 
-struct IsolatedLaunch {
-    command: Command,
-    _retain: Option<std::fs::File>,
-}
-
 enum HostedChild {
     Command(Child),
-    #[cfg(windows)]
-    AppContainer(crate::isolated::WindowsAppContainerProcess),
 }
 
 impl HostedChild {
     async fn kill(&mut self) -> std::io::Result<()> {
         match self {
             Self::Command(child) => child.kill().await,
-            #[cfg(windows)]
-            Self::AppContainer(child) => child.kill().await,
         }
     }
 
     async fn wait(&mut self) -> std::io::Result<()> {
         match self {
             Self::Command(child) => child.wait().await.map(|_| ()),
-            #[cfg(windows)]
-            Self::AppContainer(child) => child.wait().await,
         }
     }
 }
@@ -247,12 +229,6 @@ impl WorkerHost {
             )
         })?;
         let entrypoint = confined_path(&package_root, entrypoint)?;
-        if package.package_class == "isolated" && !isolated_spawn_supported() {
-            return Err(WorkerHostError::new(
-                "plugin_class_unsupported",
-                "Isolated packages cannot spawn until the sandboxed Worker host is published",
-            ));
-        }
         let runtime = package
             .entrypoints
             .worker_runtime
@@ -264,14 +240,8 @@ impl WorkerHost {
             _ => node_executable.clone(),
         };
         let plugin_id = package.id.as_str().to_owned();
-        let (child, stdin, stdout, stderr) = spawn_hosted_worker(
-            &program,
-            &package_root,
-            &entrypoint,
-            runtime,
-            package.package_class == "isolated",
-            grants,
-        )?;
+        let (child, stdin, stdout, stderr) =
+            spawn_hosted_worker(&program, &package_root, &entrypoint, runtime)?;
         if let Some(stderr) = stderr {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
@@ -454,7 +424,18 @@ pub struct PluginCrash {
     pub at_unix_ms: u64,
 }
 
+pub fn subscribe_worker_crashes() -> tokio::sync::broadcast::Receiver<String> {
+    worker_crash_bus().subscribe()
+}
+
+fn worker_crash_bus() -> &'static tokio::sync::broadcast::Sender<String> {
+    static BUS: std::sync::OnceLock<tokio::sync::broadcast::Sender<String>> =
+        std::sync::OnceLock::new();
+    BUS.get_or_init(|| tokio::sync::broadcast::channel(64).0)
+}
+
 pub fn record_plugin_crash(plugin_id: &str, message: impl Into<String>) {
+    let _ = worker_crash_bus().send(plugin_id.to_owned());
     let Ok(mut crashes) = PLUGIN_CRASHES.lock() else {
         return;
     };
@@ -541,32 +522,6 @@ pub fn recent_plugin_logs(plugin_id: &str, after: u64) -> Vec<PluginLogLine> {
         .collect()
 }
 
-pub fn isolated_spawn_supported() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        Path::new("/usr/bin/sandbox-exec").is_file()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Path::new("/usr/bin/bwrap").is_file() || linux_landlock_available()
-    }
-    #[cfg(windows)]
-    {
-        true
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
-        false
-    }
-}
-
-fn isolated_unsupported() -> WorkerHostError {
-    WorkerHostError::new(
-        "plugin_class_unsupported",
-        "Isolated spawn is not available on this host",
-    )
-}
-
 async fn resolve_python_executable(node_executable: &Path) -> Result<PathBuf, WorkerHostError> {
     let data_root = node_executable
         .ancestors()
@@ -601,70 +556,24 @@ fn spawn_hosted_worker(
     package_root: &Path,
     entrypoint: &Path,
     runtime: &str,
-    isolated: bool,
-    grants: &[CapabilityGrant],
 ) -> Result<SpawnedWorkerIo, WorkerHostError> {
-    #[cfg(windows)]
-    if isolated {
-        let launched = crate::isolated::spawn_windows_appcontainer(
-            program,
-            package_root,
-            entrypoint,
-            grants,
-            package_root,
-        )?;
-        return Ok((
-            HostedChild::AppContainer(launched.process),
-            Box::new(tokio::fs::File::from_std(launched.stdin)),
-            Box::new(tokio::fs::File::from_std(launched.stdout)),
-            None,
-        ));
-    }
-    #[cfg(not(windows))]
-    let _ = grants;
-
-    let mut launch = if isolated {
-        isolated_launch(program, package_root, entrypoint)?
-    } else if runtime == "native" {
-        IsolatedLaunch {
-            command: Command::new(program),
-            _retain: None,
-        }
-    } else if runtime == "python" {
-        let mut command = Command::new(program);
+    let mut command = Command::new(program);
+    if runtime == "python" {
         command.arg(entrypoint);
-        IsolatedLaunch {
-            command,
-            _retain: None,
-        }
-    } else {
-        let mut command = Command::new(program);
+    } else if runtime != "native" {
         command.arg("--max-old-space-size=128").arg(entrypoint);
-        IsolatedLaunch {
-            command,
-            _retain: None,
-        }
-    };
-    launch
-        .command
+    }
+    command
         .current_dir(package_root)
         .env("NO_COLOR", "1")
-        .env(
-            "VIBEX_PACKAGE_CLASS",
-            if isolated { "isolated" } else { "full-trust" },
-        )
+        .env("VIBEX_PACKAGE_CLASS", "full-trust")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let mut child = launch
-        .command
+    let mut child = command
         .spawn()
         .map_err(|error| WorkerHostError::new("worker_spawn_failed", error.to_string()))?;
-    drop(launch);
-    if isolated {
-        confine_isolated_child(&child)?;
-    }
     let stdin = child.stdin.take().ok_or_else(|| {
         WorkerHostError::new("worker_transport_failed", "Worker stdin is unavailable")
     })?;
@@ -678,408 +587,6 @@ fn spawn_hosted_worker(
         Box::new(stdout),
         stderr,
     ))
-}
-
-fn isolated_launch(
-    node_executable: &Path,
-    package_root: &Path,
-    entrypoint: &Path,
-) -> Result<IsolatedLaunch, WorkerHostError> {
-    #[cfg(target_os = "macos")]
-    {
-        if isolated_spawn_supported() {
-            return Ok(IsolatedLaunch {
-                command: macos_isolated_command(node_executable, package_root, entrypoint)?,
-                _retain: None,
-            });
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if Path::new("/usr/bin/bwrap").is_file() {
-            return linux_isolated_command(node_executable, package_root, entrypoint);
-        }
-        if linux_landlock_available() {
-            return linux_landlock_command(node_executable, package_root, entrypoint);
-        }
-    }
-    let _ = (node_executable, package_root, entrypoint);
-    Err(isolated_unsupported())
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn isolated_command(
-    node_executable: &Path,
-    package_root: &Path,
-    entrypoint: &Path,
-) -> Result<Command, WorkerHostError> {
-    isolated_launch(node_executable, package_root, entrypoint).map(|launch| launch.command)
-}
-
-fn confine_isolated_child(child: &tokio::process::Child) -> Result<(), WorkerHostError> {
-    #[cfg(windows)]
-    {
-        assign_windows_job(child)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = child;
-        Ok(())
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn isolated_plugin_name(package_root: &Path) -> &str {
-    package_root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("plugin")
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn isolated_plugin_data(package_root: &Path) -> PathBuf {
-    std::env::temp_dir()
-        .join("vibex-isolated-data")
-        .join(isolated_plugin_name(package_root))
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn runtime_lock_root(runtime_bin: &Path) -> PathBuf {
-    match runtime_bin.parent() {
-        Some(bin_dir) if bin_dir.file_name().is_some_and(|name| name == "bin") => {
-            bin_dir.parent().unwrap_or(bin_dir).to_path_buf()
-        }
-        Some(parent) => parent.to_path_buf(),
-        None => runtime_bin.to_path_buf(),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn seatbelt_quote(path: &Path) -> String {
-    path.display()
-        .to_string()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-}
-
-#[cfg(target_os = "macos")]
-fn macos_isolated_command(
-    runtime_bin: &Path,
-    package_root: &Path,
-    worker_path: &Path,
-) -> Result<Command, WorkerHostError> {
-    let runtime_lock = runtime_lock_root(runtime_bin);
-    let plugin_tmp = std::env::temp_dir();
-    let plugin_data = isolated_plugin_data(package_root);
-    std::fs::create_dir_all(&plugin_data)
-        .map_err(|error| WorkerHostError::new("isolated_profile_failed", error.to_string()))?;
-    let profile = format!(
-        "(version 1)\n\
-         (deny default)\n\
-         (deny network*)\n\
-         (allow process-exec (literal \"{runtime}\") (literal \"{worker}\"))\n\
-         (allow process-fork)\n\
-         (allow signal (target same-sandbox))\n\
-         (allow file-read* (subpath \"{package}\") (subpath \"{runtime_lock}\") (subpath \"/usr/lib\") (subpath \"/System/Library\"))\n\
-         (allow file-write* (subpath \"{plugin_data}\") (subpath \"{plugin_tmp}\"))\n\
-         (allow sysctl-read)\n",
-        runtime = seatbelt_quote(runtime_bin),
-        worker = seatbelt_quote(worker_path),
-        package = seatbelt_quote(package_root),
-        runtime_lock = seatbelt_quote(&runtime_lock),
-        plugin_data = seatbelt_quote(&plugin_data),
-        plugin_tmp = seatbelt_quote(&plugin_tmp),
-    );
-    let profile_path = plugin_tmp.join(format!(
-        "vibex-isolated-{}.sb",
-        isolated_plugin_name(package_root)
-    ));
-    std::fs::write(&profile_path, profile)
-        .map_err(|error| WorkerHostError::new("isolated_profile_failed", error.to_string()))?;
-    let mut command = Command::new("sandbox-exec");
-    command.arg("-f").arg(profile_path).arg(runtime_bin);
-    if worker_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        == Some("py")
-    {
-        command.arg(worker_path);
-    } else if runtime_bin.file_name().and_then(|name| name.to_str())
-        != worker_path.file_name().and_then(|name| name.to_str())
-    {
-        command.arg("--max-old-space-size=128").arg(worker_path);
-    }
-    Ok(command)
-}
-
-#[cfg(target_os = "linux")]
-fn linux_isolated_command(
-    runtime_bin: &Path,
-    package_root: &Path,
-    worker_path: &Path,
-) -> Result<IsolatedLaunch, WorkerHostError> {
-    use std::os::unix::io::AsRawFd;
-
-    let plugin_tmp = std::env::temp_dir();
-    let plugin_data = isolated_plugin_data(package_root);
-    std::fs::create_dir_all(&plugin_data)
-        .map_err(|error| WorkerHostError::new("isolated_profile_failed", error.to_string()))?;
-    let kind = isolated_runtime_kind(runtime_bin, worker_path);
-    let seccomp = linux_seccomp_file(kind, false)?;
-    let seccomp_fd = seccomp.as_raw_fd();
-    let mut command = Command::new("/usr/bin/bwrap");
-    command
-        .arg("--die-with-parent")
-        .arg("--unshare-net")
-        .arg("--seccomp")
-        .arg(seccomp_fd.to_string())
-        .arg("--proc")
-        .arg("/proc")
-        .arg("--dev")
-        .arg("/dev");
-    for dir in ["/usr/lib", "/lib", "/lib64", "/usr/lib64"] {
-        if Path::new(dir).exists() {
-            command.arg("--ro-bind").arg(dir).arg(dir);
-        }
-    }
-    command.arg("--ro-bind").arg(package_root).arg(package_root);
-    linux_bind_runtime(&mut command, runtime_bin);
-    command
-        .arg("--bind")
-        .arg(&plugin_tmp)
-        .arg(&plugin_tmp)
-        .arg("--bind")
-        .arg(&plugin_data)
-        .arg(&plugin_data)
-        .arg("--chdir")
-        .arg(package_root)
-        .arg(runtime_bin);
-    append_isolated_runtime_args(&mut command, runtime_bin, worker_path);
-    Ok(IsolatedLaunch {
-        command,
-        _retain: Some(seccomp),
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn append_isolated_runtime_args(command: &mut Command, runtime_bin: &Path, worker_path: &Path) {
-    if worker_path.extension().and_then(|ext| ext.to_str()) == Some("py") {
-        command.arg(worker_path);
-    } else if runtime_bin.file_name() != worker_path.file_name() {
-        command.arg("--max-old-space-size=128").arg(worker_path);
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_bind_runtime(command: &mut Command, runtime_bin: &Path) {
-    let parent = runtime_bin.parent();
-    if parent.is_some_and(|dir| {
-        dir == Path::new("/usr/bin")
-            || dir == Path::new("/bin")
-            || dir == Path::new("/usr/local/bin")
-    }) {
-        command.arg("--ro-bind").arg(runtime_bin).arg(runtime_bin);
-        return;
-    }
-    let runtime_lock = runtime_lock_root(runtime_bin);
-    command
-        .arg("--ro-bind")
-        .arg(&runtime_lock)
-        .arg(&runtime_lock);
-}
-
-#[cfg(target_os = "linux")]
-fn linux_landlock_available() -> bool {
-    apply_linux_landlock(Path::new("/"), Path::new("/"), &std::env::temp_dir(), true).is_ok()
-}
-
-#[cfg(target_os = "linux")]
-fn linux_landlock_command(
-    runtime_bin: &Path,
-    package_root: &Path,
-    worker_path: &Path,
-) -> Result<IsolatedLaunch, WorkerHostError> {
-    let plugin_data = isolated_plugin_data(package_root);
-    std::fs::create_dir_all(&plugin_data)
-        .map_err(|error| WorkerHostError::new("isolated_profile_failed", error.to_string()))?;
-    let mut command = Command::new(runtime_bin);
-    append_isolated_runtime_args(&mut command, runtime_bin, worker_path);
-    let package_root = package_root.to_path_buf();
-    let runtime_lock = runtime_lock_root(runtime_bin);
-    let plugin_tmp = std::env::temp_dir();
-    let kind = isolated_runtime_kind(runtime_bin, worker_path);
-    let filters = build_seccomp_filter(&isolated_linux_syscalls(kind, false))?;
-    unsafe {
-        command.pre_exec(move || {
-            apply_linux_landlock(&package_root, &runtime_lock, &plugin_tmp, false)
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
-            apply_linux_seccomp(&filters).map_err(|error| std::io::Error::other(error.to_string()))
-        });
-    }
-    Ok(IsolatedLaunch {
-        command,
-        _retain: None,
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn apply_linux_landlock(
-    package_root: &Path,
-    runtime_lock: &Path,
-    tmp: &Path,
-    probe_only: bool,
-) -> Result<(), WorkerHostError> {
-    const SYS_LANDLOCK_CREATE_RULESET: libc::c_long = 444;
-    const SYS_LANDLOCK_ADD_RULE: libc::c_long = 445;
-    const SYS_LANDLOCK_RESTRICT_SELF: libc::c_long = 446;
-    const LANDLOCK_ACCESS_FS_READ: u64 = 1 << 2 | 1 << 3 | 1 << 4 | 1 << 5 | 1 << 6 | 1 << 10;
-    const LANDLOCK_ACCESS_FS_WRITE: u64 = 1 << 1 | 1 << 7 | 1 << 8 | 1 << 9;
-    #[repr(C)]
-    struct RulesetAttr {
-        handled_access_fs: u64,
-        handled_access_net: u64,
-    }
-    #[repr(C)]
-    struct PathBeneath {
-        allowed_access: u64,
-        parent_fd: i32,
-    }
-    let attr = RulesetAttr {
-        handled_access_fs: LANDLOCK_ACCESS_FS_READ | LANDLOCK_ACCESS_FS_WRITE,
-        handled_access_net: 1 << 0 | 1 << 1,
-    };
-    let ruleset = unsafe {
-        libc::syscall(
-            SYS_LANDLOCK_CREATE_RULESET,
-            &attr as *const RulesetAttr,
-            std::mem::size_of::<RulesetAttr>(),
-            0,
-        )
-    };
-    if ruleset < 0 {
-        return Err(WorkerHostError::new(
-            "plugin_class_unsupported",
-            "Landlock is not available on this kernel",
-        ));
-    }
-    if probe_only {
-        unsafe { libc::close(ruleset as i32) };
-        return Ok(());
-    }
-    let _ = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
-    for (path, access) in [
-        (package_root, LANDLOCK_ACCESS_FS_READ),
-        (runtime_lock, LANDLOCK_ACCESS_FS_READ),
-        (Path::new("/usr/lib"), LANDLOCK_ACCESS_FS_READ),
-        (Path::new("/lib"), LANDLOCK_ACCESS_FS_READ),
-        (tmp, LANDLOCK_ACCESS_FS_READ | LANDLOCK_ACCESS_FS_WRITE),
-    ] {
-        if !path.exists() {
-            continue;
-        }
-        let Ok(c_path) = std::ffi::CString::new(path.to_string_lossy().as_bytes()) else {
-            continue;
-        };
-        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
-        if fd < 0 {
-            continue;
-        }
-        let beneath = PathBeneath {
-            allowed_access: access,
-            parent_fd: fd,
-        };
-        unsafe {
-            libc::syscall(
-                SYS_LANDLOCK_ADD_RULE,
-                ruleset,
-                1,
-                &beneath as *const PathBeneath,
-                0,
-            );
-            libc::close(fd);
-        }
-    }
-    let restricted = unsafe { libc::syscall(SYS_LANDLOCK_RESTRICT_SELF, ruleset, 0) };
-    unsafe { libc::close(ruleset as i32) };
-    if restricted < 0 {
-        return Err(WorkerHostError::new(
-            "plugin_class_unsupported",
-            "Landlock restrict failed",
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn windows_isolated_command(
-    runtime_bin: &Path,
-    worker_path: &Path,
-) -> Result<Command, WorkerHostError> {
-    let mut command = Command::new(runtime_bin);
-    if worker_path.extension().and_then(|ext| ext.to_str()) == Some("py") {
-        command.arg(worker_path);
-    } else if runtime_bin.file_name() != worker_path.file_name() {
-        command.arg("--max-old-space-size=128").arg(worker_path);
-    }
-    Ok(command)
-}
-
-#[cfg(windows)]
-fn assign_windows_job(child: &tokio::process::Child) -> Result<(), WorkerHostError> {
-    use windows_sys::Win32::{
-        Foundation::CloseHandle,
-        System::{
-            JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_JOB_MEMORY,
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-                JobObjectExtendedLimitInformation, SetInformationJobObject,
-            },
-            Threading::OpenProcess,
-        },
-    };
-    let Some(pid) = child.id() else {
-        return Ok(());
-    };
-    unsafe {
-        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job.is_null() {
-            return Err(WorkerHostError::new(
-                "plugin_class_unsupported",
-                "CreateJobObjectW failed",
-            ));
-        }
-        let mut info = std::mem::zeroed::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
-        info.BasicLimitInformation.LimitFlags =
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_JOB_MEMORY;
-        info.JobMemoryLimit = 256 * 1024 * 1024;
-        if SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            (&raw const info).cast(),
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        ) == 0
-        {
-            CloseHandle(job);
-            return Err(WorkerHostError::new(
-                "plugin_class_unsupported",
-                "SetInformationJobObject failed",
-            ));
-        }
-        let process = OpenProcess(0x1F0FFF, 0, pid);
-        if process.is_null() || AssignProcessToJobObject(job, process) == 0 {
-            if !process.is_null() {
-                CloseHandle(process);
-            }
-            CloseHandle(job);
-            return Err(WorkerHostError::new(
-                "plugin_class_unsupported",
-                "AssignProcessToJobObject failed",
-            ));
-        }
-        CloseHandle(process);
-        std::mem::forget(job);
-    }
-    Ok(())
 }
 
 fn resolve_executable(executable: &Path) -> Result<PathBuf, WorkerHostError> {
@@ -1321,40 +828,8 @@ fn confined_path(root: &Path, relative: &str) -> Result<PathBuf, WorkerHostError
 }
 
 #[cfg(test)]
-mod isolated_spawn_tests {
+mod worker_host_tests {
     use super::*;
-
-    #[test]
-    fn isolated_spawn_supported_is_true_on_macos_when_sandbox_exec_exists() {
-        let sandbox_exec = Path::new("/usr/bin/sandbox-exec").is_file();
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(isolated_spawn_supported(), sandbox_exec);
-            assert!(
-                isolated_spawn_supported(),
-                "macOS Isolated spawn requires /usr/bin/sandbox-exec"
-            );
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = sandbox_exec;
-        }
-    }
-
-    #[test]
-    fn isolated_command_fails_with_plugin_class_unsupported_on_unsupported_os() {
-        assert_eq!(isolated_unsupported().code(), "plugin_class_unsupported");
-        if isolated_spawn_supported() {
-            return;
-        }
-        let error = isolated_command(
-            Path::new("node"),
-            Path::new("/tmp"),
-            Path::new("/tmp/worker.mjs"),
-        )
-        .expect_err("unsupported hosts must not wrap Isolated spawn");
-        assert_eq!(error.code(), "plugin_class_unsupported");
-    }
 
     #[test]
     fn a_worker_crash_is_kept_for_the_diagnostics_panel() {

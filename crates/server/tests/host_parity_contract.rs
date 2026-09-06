@@ -37,3 +37,14 @@ fn desktop_adapter_capabilities_include_desktop_tauri() {
     assert!(scopes.contains(&"desktop.tauri"));
     assert!(scopes.contains(&"preview.proxy"));
 }
+
+#[test]
+fn paired_clients_do_not_receive_desktop_tauri() {
+    let remote: Vec<&'static str> =
+        DomainCommand::derived_capability_scopes(AdapterCapabilities::desktop_host())
+            .into_iter()
+            .filter(|scope| *scope != "desktop.tauri")
+            .collect();
+    assert!(!remote.contains(&"desktop.tauri"));
+    assert!(remote.contains(&"preview.proxy"));
+}

@@ -30,7 +30,7 @@ import {
   pluginSurfaceId,
   shouldOpenContributedPanel,
 } from '@/lib/hostSurfaceIds';
-import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
+import { useBackendTransport } from '@/lib/transport';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   editorTerminalPanelId,
@@ -214,9 +214,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     (state) => state.setSelectedFilePath
   );
   const transport = useBackendTransport();
-  const { supports } = useBackendCapabilities();
-  const canOpenWebPreview =
-    transport.environment === 'desktop' || supports('desktop.tauri');
+  const canOpenWebPreview = transport.environment === 'desktop';
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
     imagePanelRemovalDisposableRef.current?.dispose();

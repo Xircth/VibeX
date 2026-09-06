@@ -6,15 +6,14 @@
 
 ## 交付结论
 
-平台主路径已经可交付：v4 产品包、协议 1.1、四语言写作面、官方 MCP Registry 注入、App 孔、开发 Skill/CLI、Isolated 在 macOS（及 Linux bwrap）上可 spawn、Marketplace 本机 index + TOFU、Remote install 命令、doctor 崩溃记录。
+平台主路径已经可交付：v4 产品包、协议 1.1、四语言写作面、官方 MCP Registry 注入、App 孔、开发 Skill/CLI、Full Trust Worker、Marketplace 本机 index + TOFU、Remote install 命令、doctor 崩溃记录。`packageClass=isolated` 不再作为 OS 沙箱执行。
 
 下列方案项**未按字面 38-PR 全量关闭**，交付时必须当作已知边界，而不是「以后默认会有」：
 
 | 方案项 | 边界 |
 | --- | --- |
 | P20 公共类型名 | 会话协议类型已是 `ConversationWorkflowRef.workflowId`；serde 仍可读旧 JSON `pluginActions` / `actionId`。Automation `TurnLaunchSpec.plugin_actions` 保持 `PluginActionRef`。 |
-| P27b Windows Isolated | `CreateProcessW` + AppContainer（默认无 `internetClient`）+ Job Object（KILL_ON_JOB_CLOSE + 256MiB）。需在 Windows 上实测。 |
-| P27b Linux Isolated | `bwrap --unshare-net --seccomp` 或 Landlock + `PR_SET_SECCOMP`；allowlist 来自 `packages/plugin-contract/isolated/*.linux.syscalls`。需在 Linux 上实测。 |
+| P27b Isolated spawn | 已废止。Worker 一律 Full Trust；不再把 Isolated 宣传成沙箱。 |
 | P29 registry 发布 | Host 发行物会打包 `sdk/`；npm/PyPI/crates.io 上传仍属发行账号操作。 |
 | P32 三 OS E2E | `scripts/plugin-platform-e2e.sh` 本机门禁；未在外发 Windows/Linux runner 上签核。 |
 

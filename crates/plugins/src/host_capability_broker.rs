@@ -23,6 +23,8 @@ pub struct HostCapabilityBroker {
     previews: Arc<dyn crate::PluginPreviewHost>,
     provider_presets: Arc<dyn crate::ProviderPresetHost>,
     remote_profiles: Arc<dyn crate::RemoteProfileHost>,
+    bind_prompts: Arc<crate::ProviderBindPrompts>,
+    conversations: Arc<dyn crate::PluginConversationHost>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
 }
@@ -58,14 +60,48 @@ impl HostCapabilityBroker {
         provider_presets: Arc<dyn crate::ProviderPresetHost>,
         remote_profiles: Arc<dyn crate::RemoteProfileHost>,
     ) -> Self {
+        Self::with_hosts_and_prompts(
+            plugins,
+            previews,
+            provider_presets,
+            remote_profiles,
+            Arc::new(crate::ProviderBindPrompts::default()),
+        )
+    }
+
+    pub fn with_hosts_and_prompts(
+        plugins: Arc<crate::PluginControlPlane>,
+        previews: Arc<dyn crate::PluginPreviewHost>,
+        provider_presets: Arc<dyn crate::ProviderPresetHost>,
+        remote_profiles: Arc<dyn crate::RemoteProfileHost>,
+        bind_prompts: Arc<crate::ProviderBindPrompts>,
+    ) -> Self {
         Self {
             plugins,
             previews,
             provider_presets,
             remote_profiles,
+            bind_prompts,
+            conversations: Arc::new(crate::UnavailablePluginConversationHost),
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn with_conversation_host(
+        mut self,
+        conversations: Arc<dyn crate::PluginConversationHost>,
+    ) -> Self {
+        self.conversations = conversations;
+        self
+    }
+
+    pub fn bind_prompts(&self) -> Arc<crate::ProviderBindPrompts> {
+        Arc::clone(&self.bind_prompts)
+    }
+
+    pub fn resolve_provider_bind(&self, request_id: &str, approved: bool) -> bool {
+        self.bind_prompts.answer(request_id, approved)
     }
 
     /// Issues a short-lived, one-shot authorization for one concrete Artifact.
@@ -177,6 +213,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                     .await
             }
             "remote" => self.call_remote(plugin_id, operation, input).await,
+            "conversation" => self.call_conversation(plugin_id, operation, input).await,
             "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
@@ -188,8 +225,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 "diagnostics": [],
                 "recentCrashes": [],
             })),
-            "storage" | "secrets" | "files" | "network" | "events" | "agent" | "conversation"
-            | "app" => {
+            "storage" | "secrets" | "files" | "network" | "events" | "agent" | "app" => {
                 self.call_plugin_data(plugin_id, generation, capability, operation, input)
                     .await
             }
@@ -519,6 +555,200 @@ impl HostCapabilityBroker {
         }))
     }
 
+    async fn call_conversation(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match operation {
+            "create" => {
+                let request: crate::PluginConversationCreate = serde_json::from_value(input)
+                    .map_err(|error| broker_error("conversation_invalid", error))?;
+                if request.agent_id.trim().is_empty() {
+                    return Err(broker_error("conversation_invalid", "agentId is required"));
+                }
+                let created = self
+                    .conversations
+                    .create(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                self.audit(
+                    plugin_id,
+                    "conversation_created",
+                    json!({ "conversationId": created.summary.id }),
+                )
+                .await;
+                serde_json::to_value(created)
+                    .map_err(|error| broker_error("conversation_invalid", error))
+            }
+            "list" => {
+                let conversations = self
+                    .conversations
+                    .list(plugin_id)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "conversations": conversations }))
+            }
+            "read.get" | "get" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                let view = self
+                    .conversations
+                    .get(plugin_id, &conversation_id)
+                    .await
+                    .map_err(conversation_error)?;
+                serde_json::to_value(view)
+                    .map_err(|error| broker_error("conversation_invalid", error))
+            }
+            "append.enqueueInput" | "enqueue" => {
+                let request: crate::PluginConversationEnqueue = serde_json::from_value(input)
+                    .map_err(|error| broker_error("conversation_invalid", error))?;
+                if request.conversation_id.trim().is_empty() {
+                    return Err(broker_error(
+                        "conversation_invalid",
+                        "conversationId is required",
+                    ));
+                }
+                if request.text.trim().is_empty() {
+                    return Err(broker_error("conversation_invalid", "text is required"));
+                }
+                let receipt = self
+                    .conversations
+                    .enqueue(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                self.audit(
+                    plugin_id,
+                    "conversation_enqueued",
+                    json!({
+                        "conversationId": receipt.conversation_id,
+                        "inputId": receipt.input_id,
+                    }),
+                )
+                .await;
+                serde_json::to_value(receipt)
+                    .map_err(|error| broker_error("conversation_invalid", error))
+            }
+            "steer" => {
+                let request: crate::PluginConversationSteer = serde_json::from_value(input)
+                    .map_err(|error| broker_error("conversation_invalid", error))?;
+                if request.conversation_id.trim().is_empty()
+                    || request.expected_turn_id.trim().is_empty()
+                    || request.text.trim().is_empty()
+                {
+                    return Err(broker_error(
+                        "conversation_invalid",
+                        "conversationId, expectedTurnId, and text are required",
+                    ));
+                }
+                let receipt = self
+                    .conversations
+                    .steer(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(receipt)
+            }
+            "cancel" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                self.conversations
+                    .cancel(plugin_id, &conversation_id)
+                    .await
+                    .map_err(conversation_error)?;
+                self.audit(
+                    plugin_id,
+                    "conversation_cancelled",
+                    json!({ "conversationId": conversation_id }),
+                )
+                .await;
+                Ok(json!({ "cancelled": true }))
+            }
+            "cancelInput" => {
+                let request: crate::PluginConversationCancelInput =
+                    serde_json::from_value(input)
+                        .map_err(|error| broker_error("conversation_invalid", error))?;
+                self.conversations
+                    .cancel_input(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)
+            }
+            "listInputs" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                self.conversations
+                    .list_inputs(plugin_id, &conversation_id)
+                    .await
+                    .map_err(conversation_error)
+            }
+            "respondPermission" => {
+                let request: crate::PluginConversationPermission = serde_json::from_value(input)
+                    .map_err(|error| broker_error("conversation_invalid", error))?;
+                self.conversations
+                    .respond_permission(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "ok": true }))
+            }
+            "respondQuestion" => {
+                let request: crate::PluginConversationQuestion = serde_json::from_value(input)
+                    .map_err(|error| broker_error("conversation_invalid", error))?;
+                self.conversations
+                    .respond_question(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "ok": true }))
+            }
+            "setMode" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                let mode_id = required_id(&input, "modeId")?;
+                self.conversations
+                    .set_mode(plugin_id, &conversation_id, &mode_id)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "ok": true }))
+            }
+            "setConfigOption" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                let key = required_id(&input, "key")?;
+                let value = input.get("value").cloned().unwrap_or(Value::Null);
+                self.conversations
+                    .set_config_option(plugin_id, &conversation_id, &key, value)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "ok": true }))
+            }
+            "catalog" => self
+                .conversations
+                .catalog(plugin_id)
+                .await
+                .map_err(conversation_error),
+            "archive" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                self.conversations
+                    .archive(plugin_id, &conversation_id)
+                    .await
+                    .map_err(conversation_error)?;
+                Ok(json!({ "archived": true }))
+            }
+            "events.since" => {
+                let conversation_id = required_id(&input, "conversationId")?;
+                let after_sequence = input
+                    .get("afterSequence")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                let page = self
+                    .conversations
+                    .events_since(plugin_id, &conversation_id, after_sequence)
+                    .await
+                    .map_err(conversation_error)?;
+                serde_json::to_value(page)
+                    .map_err(|error| broker_error("conversation_invalid", error))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("conversation.{operation} is not implemented"),
+            )),
+        }
+    }
+
     async fn call_plugin_data(
         &self,
         plugin_id: &str,
@@ -601,10 +831,6 @@ impl HostCapabilityBroker {
             "agent.invoke" => Err(broker_error(
                 "handler_not_visible",
                 "Cross-plugin handlers are not visible",
-            )),
-            "conversation.read.get" | "conversation.append.enqueueInput" => Err(broker_error(
-                "conversation_scope_denied",
-                "No conversation is bound to this Worker",
             )),
             "app.notify.toast" => Ok(json!({})),
             _ => Err(broker_error(
@@ -690,6 +916,20 @@ fn broker_error(code: &'static str, message: impl std::fmt::Display) -> crate::W
 /// broker code, so a plugin can tell a missing preset from a broken store.
 fn preset_error(error: crate::ProviderPresetError) -> crate::WorkerHostError {
     crate::WorkerHostError::broker(error.code().as_str(), error)
+}
+
+fn conversation_error(error: crate::PluginConversationError) -> crate::WorkerHostError {
+    crate::WorkerHostError::broker(error.code().as_str(), error)
+}
+
+fn required_id(input: &Value, field: &str) -> Result<String, crate::WorkerHostError> {
+    let value = input
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| broker_error("conversation_invalid", format!("{field} is required")))?;
+    Ok(value.to_owned())
 }
 
 fn remote_error(error: crate::RemoteProfileError) -> crate::WorkerHostError {

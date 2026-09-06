@@ -6,7 +6,7 @@
 use agents::{
     AgentAvailableCommand, AgentElicitationResponse, AgentId, AgentPermissionResponse,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
-    AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
+    ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -21,7 +21,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    ConversationRelationControl, CreateConversationRelation, workbench_status,
+    workbench_status,
 };
 use db::models::{
     conversation::{
@@ -42,8 +42,8 @@ use uuid::Uuid;
 
 use crate::{
     conversation_bundle::{
-        ConversationExportResult, ConversationForkResult, ConversationImportResult,
-        export_conversation_bundle, import_conversation_bundle,
+        ConversationExportResult, ConversationImportResult, export_conversation_bundle,
+        import_conversation_bundle,
     },
     conversation_service::{
         ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
@@ -914,132 +914,6 @@ pub async fn conversation_import(
     let workspace_id = Uuid::parse_str(&request.workspace_id)
         .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
     import_conversation_bundle(&state.deployment.db().pool, request.bundle, workspace_id).await
-}
-
-/// Fork a conversation (P1-4): produce an independent, non-destructive copy of
-/// its full history, then—when the agent advertised `session/fork` and has a
-/// live session—branch the agent's server-side context into the new session so
-/// continuing the fork keeps the pre-fork context. If ACP fork is unavailable,
-/// the fork is a context-free copy that cold-starts on the next turn.
-///
-/// Forks from the CURRENT state, not a past turn:
-/// truncating the copy would desync the visible history from the agent context.
-#[tauri::command]
-pub async fn conversation_fork(
-    state: tauri::State<'_, AppState>,
-    conversation_id: String,
-) -> Result<ConversationForkResult, AppError> {
-    let source_id = Uuid::parse_str(&conversation_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    let pool = &state.deployment.db().pool;
-
-    let summary = DbConversationSummary::find_by_id(pool, source_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
-    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await? {
-        if let Some(active_turn_id) = conversation.active_turn_id
-            && let Some(active_turn) =
-                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
-            && matches!(
-                active_turn.status.as_str(),
-                "pending" | "queued" | "running" | "blocked"
-            )
-        {
-            return Err(AppError::Conflict(
-                "Cannot fork a conversation while a turn is in flight".to_string(),
-            ));
-        }
-    }
-
-    // Full non-destructive copy with fresh ids via the tested export→import path.
-    let exported = export_conversation_bundle(pool, source_id, None).await?;
-    let result = import_conversation_bundle(pool, exported.bundle, summary.workspace_id).await?;
-    let new_id = result.conversation_id;
-    let conversation_context = state.conversation_context();
-    ConversationRelationControl::with_publisher(pool.clone(), conversation_context.event_publisher)
-        .create(CreateConversationRelation {
-            parent_conversation_id: source_id,
-            child_conversation_id: new_id,
-            kind: agents::ConversationRelationKind::Fork,
-            visibility: agents::ConversationRelationVisibility::Visible,
-            metadata: serde_json::json!({ "source": "conversation_fork" }),
-        })
-        .await?;
-
-    let base = summary
-        .title
-        .as_deref()
-        .filter(|title| !title.trim().is_empty())
-        .unwrap_or("会话");
-    if let Err(error) =
-        DbConversationSummary::set_title(pool, new_id, &format!("{base}（分叉）")).await
-    {
-        tracing::warn!(%error, conversation_id = %new_id, "forked conversation title was not updated");
-    }
-
-    let Some(agent_id) = summary.agent_id.as_ref() else {
-        return Ok(ConversationForkResult::history_only(
-            result,
-            "The source conversation has no Agent binding; only visible history was copied",
-        ));
-    };
-    let source_binding =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, source_id).await?;
-    let Some(source_binding) = source_binding else {
-        return Ok(ConversationForkResult::history_only(
-            result,
-            "The source Agent session has no resumable binding; only visible history was copied",
-        ));
-    };
-
-    match state
-        .agent_runtime
-        .fork_session(AgentSessionId(source_id))
-        .await
-    {
-        Ok(forked_external_id) => {
-            let binding = ConversationAgentBindingRecord::create(
-                pool,
-                Uuid::new_v4(),
-                CreateConversationAgentBinding {
-                    conversation_id: new_id,
-                    agent_id,
-                    working_dir: &source_binding.working_dir,
-                    acp_session_id: Some(&forked_external_id),
-                    acp_protocol_version: source_binding.acp_protocol_version.as_deref(),
-                    runtime_version: source_binding.runtime_version.as_deref(),
-                    acp_version: source_binding.acp_version.as_deref(),
-                    load_supported: source_binding.load_supported,
-                    resume_supported: source_binding.resume_supported,
-                    close_supported: source_binding.close_supported,
-                    terminal_supported: source_binding.terminal_supported,
-                    additional_directories_supported: source_binding
-                        .additional_directories_supported,
-                    prompt_capabilities_json: &source_binding.prompt_capabilities_json,
-                    session_capabilities_json: &source_binding.session_capabilities_json,
-                    client_capabilities_json: &source_binding.client_capabilities_json,
-                    mcp_servers_json: &source_binding.mcp_servers_json,
-                    modes_json: &source_binding.modes_json,
-                    config_options_json: &source_binding.config_options_json,
-                    current_mode: source_binding.current_mode.as_deref(),
-                    config_selection_json: &source_binding.config_selection_json,
-                    status: BindingStatus::Closed,
-                },
-            )
-            .await;
-            match binding {
-                Ok(_) => Ok(ConversationForkResult::with_agent_context(result)),
-                Err(error) => Ok(ConversationForkResult::history_only(
-                    result,
-                    format!("Agent context was forked but could not be attached: {error}"),
-                )),
-            }
-        }
-        Err(error) => Ok(ConversationForkResult::history_only(
-            result,
-            format!("Agent context could not be forked: {error}"),
-        )),
-    }
 }
 
 const OPEN_TIMELINE_ROW_LIMIT: usize = 80;

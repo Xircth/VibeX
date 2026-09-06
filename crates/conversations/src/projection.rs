@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 // v17 attributes streaming deltas to the recorder's turn_id, which is now read from
 // the authoritative active-turn pointer instead of a cache that could go stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 17;
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 18;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
@@ -1219,6 +1219,14 @@ impl ProjectionFold {
             };
             ensure_turn(&mut self.turns, &mut self.turn_order, turn_id, record);
             let turn = self.turns.get_mut(&turn_id).expect("turn exists");
+            if let ConversationEvent::AssistantTextDelta {
+                message_id: Some(message_id),
+                ..
+            } = &event
+                && turn.assistant.agent_message_id.is_none()
+            {
+                turn.assistant.agent_message_id = Some(message_id.clone());
+            }
             match stream {
                 TimelineTextStream::Text => {
                     append_text_block(&mut turn.assistant.blocks, text.clone())
@@ -1871,6 +1879,38 @@ impl ProjectionFold {
                     ));
                 }
             }
+            ConversationEvent::ConversationSteering { event } => match event {
+                agents::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    expected_turn_id,
+                    blocks,
+                    ..
+                } => {
+                    ensure_turn(turns, turn_order, expected_turn_id, record);
+                    let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
+                    turn.pending_steering = Some((steering_id, content_blocks_from_input(&blocks)));
+                    turn.revision = record.sequence;
+                }
+                agents::ConversationSteeringEvent::Accepted {
+                    steering_id,
+                    expected_turn_id,
+                } => {
+                    ensure_turn(turns, turn_order, expected_turn_id, record);
+                    let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
+                    apply_accepted_steering(turn, steering_id, record);
+                }
+                agents::ConversationSteeringEvent::Rejected {
+                    expected_turn_id, ..
+                }
+                | agents::ConversationSteeringEvent::Unknown {
+                    expected_turn_id, ..
+                } => {
+                    if let Some(turn) = turns.get_mut(&expected_turn_id) {
+                        turn.pending_steering = None;
+                        turn.revision = record.sequence;
+                    }
+                }
+            },
             _ => {}
         }
 
@@ -1882,15 +1922,8 @@ impl ProjectionFold {
             && let Some(turn) = self.turns.get(&turn_id)
             && turn.revision == record.sequence
         {
-            if !turn.user.blocks.is_empty() {
-                ops.push(ConversationRowOp::Upsert {
-                    row: message_row(turn, TurnRole::User),
-                });
-            }
-            if !turn.assistant.blocks.is_empty() {
-                ops.push(ConversationRowOp::Upsert {
-                    row: message_row(turn, TurnRole::Assistant),
-                });
+            for row in message_rows(turn) {
+                ops.push(ConversationRowOp::Upsert { row });
             }
         }
         for row in &self.side_rows {
@@ -1915,6 +1948,7 @@ impl ProjectionFold {
                 let ProjectedTurn {
                     user,
                     assistant,
+                    prefix_segments,
                     phase,
                     revision,
                     ..
@@ -1925,6 +1959,19 @@ impl ProjectionFold {
                         revision,
                         row: ConversationTimelineRow::MessageTurn {
                             turn: user,
+                            phase: phase.clone(),
+                        },
+                    });
+                }
+                for segment in prefix_segments {
+                    if segment.blocks.is_empty() {
+                        continue;
+                    }
+                    rows.push(TimelineRow {
+                        row_id: segment.id.clone(),
+                        revision,
+                        row: ConversationTimelineRow::MessageTurn {
+                            turn: segment,
                             phase: phase.clone(),
                         },
                     });
@@ -1964,12 +2011,7 @@ impl ProjectionFold {
             if turn.revision <= after_sequence {
                 continue;
             }
-            if !turn.user.blocks.is_empty() {
-                rows.push(message_row(turn, TurnRole::User));
-            }
-            if !turn.assistant.blocks.is_empty() {
-                rows.push(message_row(turn, TurnRole::Assistant));
-            }
+            rows.extend(message_rows(turn));
         }
         rows.extend(
             self.side_rows
@@ -2012,6 +2054,7 @@ impl ProjectionFold {
                         duration_ms: None,
                         model: None,
                         completed_at: None,
+                        agent_message_id: None,
                     },
                     assistant: MessageTurn {
                         id: format!("{turn_id}:assistant"),
@@ -2022,7 +2065,10 @@ impl ProjectionFold {
                         duration_ms: None,
                         model: None,
                         completed_at: None,
+                        agent_message_id: None,
                     },
+                    prefix_segments: Vec::new(),
+                    pending_steering: None,
                     phase: "settled".into(),
                     revision: self.last_sequence.max(1),
                 },
@@ -2042,6 +2088,12 @@ struct ProjectedTurn {
     turn_id: Uuid,
     user: MessageTurn,
     assistant: MessageTurn,
+    /// Closed assistant/user slices that preceded the current assistant bubble
+    /// after in-turn steering.
+    #[serde(default)]
+    prefix_segments: Vec<MessageTurn>,
+    #[serde(default)]
+    pending_steering: Option<(Uuid, Vec<ContentBlock>)>,
     phase: String,
     /// Sequence of the latest event that touched this turn; the revision both message
     /// rows carry. `#[serde(default)]` lets pre-v2 snapshots load (they are discarded
@@ -2074,6 +2126,7 @@ fn ensure_turn(
                 duration_ms: None,
                 model: None,
                 completed_at: None,
+                agent_message_id: None,
             },
             assistant: MessageTurn {
                 id: format!("{turn_id}:assistant"),
@@ -2084,7 +2137,10 @@ fn ensure_turn(
                 duration_ms: None,
                 model: None,
                 completed_at: None,
+                agent_message_id: None,
             },
+            prefix_segments: Vec::new(),
+            pending_steering: None,
             phase: "streaming".into(),
             revision: record.sequence,
         },
@@ -2187,6 +2243,96 @@ fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
             phase: turn.phase.clone(),
         },
     }
+}
+
+fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
+    let mut rows = Vec::new();
+    if !turn.user.blocks.is_empty() {
+        rows.push(message_row(turn, TurnRole::User));
+    }
+    for segment in &turn.prefix_segments {
+        if segment.blocks.is_empty() {
+            continue;
+        }
+        rows.push(TimelineRow {
+            row_id: segment.id.clone(),
+            revision: turn.revision,
+            row: ConversationTimelineRow::MessageTurn {
+                turn: segment.clone(),
+                phase: turn.phase.clone(),
+            },
+        });
+    }
+    if !turn.assistant.blocks.is_empty() {
+        rows.push(message_row(turn, TurnRole::Assistant));
+    }
+    rows
+}
+
+fn content_blocks_from_input(
+    blocks: &[agents::conversation::ConversationInputBlock],
+) -> Vec<ContentBlock> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            agents::conversation::ConversationInputBlock::Text { text } => {
+                Some(ContentBlock::Text { text: text.clone() })
+            }
+            agents::conversation::ConversationInputBlock::Image { uri, mime_type, .. } => {
+                Some(ContentBlock::Image {
+                    data: String::new(),
+                    mime_type: mime_type.clone(),
+                    uri: Some(uri.clone()),
+                })
+            }
+            agents::conversation::ConversationInputBlock::Resource { .. }
+            | agents::conversation::ConversationInputBlock::Protocol { .. } => None,
+        })
+        .collect()
+}
+
+fn apply_accepted_steering(
+    turn: &mut ProjectedTurn,
+    steering_id: Uuid,
+    record: &ConversationEventRecord,
+) {
+    if !turn.assistant.blocks.is_empty() {
+        let mut closed = turn.assistant.clone();
+        closed.completed_at = Some(record.created_at);
+        turn.prefix_segments.push(closed);
+        let next = turn.prefix_segments.len() + 1;
+        turn.assistant = MessageTurn {
+            id: format!("{}:assistant:{next}", turn.turn_id),
+            role: TurnRole::Assistant,
+            blocks: Vec::new(),
+            timestamp: record.created_at,
+            usage: None,
+            duration_ms: None,
+            model: None,
+            completed_at: None,
+            agent_message_id: None,
+        };
+    }
+    let blocks = turn
+        .pending_steering
+        .take()
+        .filter(|(id, _)| *id == steering_id)
+        .map(|(_, blocks)| blocks)
+        .unwrap_or_default();
+    if !blocks.is_empty() {
+        turn.prefix_segments.push(MessageTurn {
+            id: format!("{}:steer:{steering_id}", turn.turn_id),
+            role: TurnRole::User,
+            blocks,
+            timestamp: record.created_at,
+            usage: None,
+            duration_ms: None,
+            model: None,
+            completed_at: Some(record.created_at),
+            agent_message_id: None,
+        });
+    }
+    turn.revision = record.sequence;
 }
 
 fn append_text_block(blocks: &mut Vec<ContentBlock>, text: String) {
@@ -3267,6 +3413,140 @@ mod tests {
                 .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
             "renamed same-version fields should remain readable"
         );
+    }
+
+    #[tokio::test]
+    async fn accepted_steering_splits_the_assistant_bubble() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let steering_id = Uuid::new_v4();
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "write it".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "first half".into(),
+                message_id: Some("msg_1".into()),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::ConversationSteering {
+                event: agents::conversation::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    operation_id: Uuid::new_v4(),
+                    expected_turn_id: turn_id,
+                    payload_digest: "d".into(),
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: "stop".into(),
+                    }],
+                    principal: serde_json::json!({}),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::ConversationSteering {
+                event: agents::conversation::ConversationSteeringEvent::Accepted {
+                    steering_id,
+                    expected_turn_id: turn_id,
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "second half".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project steered turn");
+        let texts: Vec<(TurnRole, String)> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    let text = turn.blocks.iter().find_map(|block| match block {
+                        ContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })?;
+                    Some((turn.role, text))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                (TurnRole::User, "write it".into()),
+                (TurnRole::Assistant, "first half".into()),
+                (TurnRole::User, "stop".into()),
+                (TurnRole::Assistant, "second half".into()),
+            ]
+        );
+        let assistant_ids: Vec<String> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(turn.id.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            assistant_ids,
+            vec![
+                format!("{turn_id}:assistant"),
+                format!("{turn_id}:assistant:2"),
+            ]
+        );
+        let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.id == format!("{turn_id}:assistant") =>
+            {
+                turn.agent_message_id.clone()
+            }
+            _ => None,
+        });
+        assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
     }
 
     #[tokio::test]

@@ -1371,7 +1371,12 @@ export type MessageTurn = { id: string, role: TurnRole, blocks: Array<ContentBlo
 /**
  * Wall-clock end of the turn (NOT `timestamp + duration_ms`).
  */
-completed_at?: string | null, };
+completed_at?: string | null,
+/**
+ * Agent-stamped message id from ACP chunks, used to name a historical
+ * `session/fork` cut. Absent when the adapter never labelled the bubble.
+ */
+agent_message_id?: string | null, };
 
 export type SessionStats = { total_usage?: TurnUsage | null, total_tokens?: bigint | null, total_duration_ms: bigint, context_window_used_tokens?: bigint | null, context_window_max_tokens?: bigint | null, context_window_usage_percent?: number | null, };
 

@@ -354,6 +354,10 @@ pub struct MessageTurn {
     /// Wall-clock end of the turn (NOT `timestamp + duration_ms`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
+    /// Agent-stamped message id from ACP chunks, used to name a historical
+    /// `session/fork` cut. Absent when the adapter never labelled the bubble.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_message_id: Option<String>,
 }
 
 /// Session-level rollups derived from a transcript.
@@ -1490,6 +1494,7 @@ mod event_sourced_tests {
                         duration_ms: None,
                         model: None,
                         completed_at: None,
+                        agent_message_id: None,
                     },
                     phase: "settled".into(),
                 },

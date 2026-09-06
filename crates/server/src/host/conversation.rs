@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use agents::{
     AgentAvailableCommand, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
     conversation::{
@@ -9,14 +11,15 @@ use agents::{
 use application::ApplicationError;
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationBundleError, ConversationForkResult,
-    ConversationProjector, ConversationRelationControl, CreateConversationRelation,
-    export_conversation_bundle, import_conversation_bundle, preview_checkpoint_file_changes,
+    ConversationImportResult, ConversationProjector, ConversationRelationControl,
+    CreateConversationRelation, ForkVisibleConversation, export_conversation_bundle,
+    fork_visible_conversation, import_conversation_bundle, preview_checkpoint_file_changes,
     render_html, render_markdown,
 };
 use db::models::{
     conversation::{
-        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
-        CreateConversationAgentBinding, DbConversationSummary,
+        BindingStatus, ConversationAgentBindingRecord, CreateConversationAgentBinding,
+        DbConversationSummary,
     },
     conversation_event::ConversationEventRecord,
     conversation_turn::ConversationTurnRecord,
@@ -82,6 +85,15 @@ pub struct HostConversationCurrentTurn {
 struct ConversationIdArgs {
     #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
     conversation_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationForkArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
+    conversation_id: String,
+    #[serde(default, alias = "at_turn_id")]
+    at_turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -339,14 +351,16 @@ impl ServerApplicationDomains {
         &self,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        let args: ConversationIdArgs = parse(args)?;
+        let args: ConversationForkArgs = parse(args)?;
         let source_id = parse_uuid(&args.conversation_id)?;
-        serialize(self.fork_conversation(source_id).await?)
+        let until_turn_id = args.at_turn_id.as_deref().map(parse_uuid).transpose()?;
+        serialize(self.fork_conversation(source_id, until_turn_id).await?)
     }
 
     async fn fork_conversation(
         &self,
         source_id: Uuid,
+        until_turn_id: Option<Uuid>,
     ) -> Result<ConversationForkResult, ApplicationError> {
         let summary = DbConversationSummary::find_by_id(&self.pool, source_id)
             .await
@@ -354,33 +368,26 @@ impl ServerApplicationDomains {
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("conversation {source_id} not found"))
             })?;
-        if let Some(conversation) = ConversationRecord::find_by_id(&self.pool, source_id)
-            .await
-            .map_err(internal_error)?
-            && let Some(active_turn_id) = conversation.active_turn_id
-            && let Some(active_turn) =
-                ConversationTurnRecord::find_by_id(&self.pool, active_turn_id)
-                    .await
-                    .map_err(internal_error)?
-            && matches!(
-                active_turn.status.as_str(),
-                "pending" | "queued" | "running" | "blocked"
-            )
-        {
-            return Err(ApplicationError::conflict(
-                "Cannot fork a conversation while a turn is in flight",
-            ));
-        }
-
-        let exported =
-            export_conversation_bundle(&self.pool, source_id, None, env!("CARGO_PKG_VERSION"))
-                .await
-                .map_err(bundle_error)?;
-        let imported =
-            import_conversation_bundle(&self.pool, exported.bundle, summary.workspace_id)
-                .await
-                .map_err(bundle_error)?;
-        let new_id = imported.conversation_id;
+        let (new_id, imported_event_count) = fork_visible_conversation(
+            &self.pool,
+            ForkVisibleConversation {
+                source_id,
+                until_turn_id,
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            conversations::ConversationServiceError::NotFound(message) => {
+                ApplicationError::not_found(message)
+            }
+            conversations::ConversationServiceError::BadRequest(message) => {
+                ApplicationError::bad_request(message)
+            }
+            conversations::ConversationServiceError::Conflict(message) => {
+                ApplicationError::conflict(message)
+            }
+            other => ApplicationError::internal(other.to_string()),
+        })?;
         ConversationRelationControl::with_publisher(
             self.pool.clone(),
             self.conversations.event_publisher.clone(),
@@ -390,7 +397,10 @@ impl ServerApplicationDomains {
             child_conversation_id: new_id,
             kind: agents::ConversationRelationKind::Fork,
             visibility: agents::ConversationRelationVisibility::Visible,
-            metadata: serde_json::json!({ "source": "conversation_fork" }),
+            metadata: serde_json::json!({
+                "source": "conversation_fork",
+                "forkTurnId": until_turn_id,
+            }),
         })
         .await
         .map_err(internal_error)?;
@@ -406,6 +416,11 @@ impl ServerApplicationDomains {
             tracing::warn!(%error, conversation_id = %new_id, "forked conversation title was not updated");
         }
 
+        let imported = ConversationImportResult {
+            conversation_id: new_id,
+            imported_event_count,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+        };
         let Some(agent_id) = summary.agent_id.as_ref() else {
             return Ok(ConversationForkResult::history_only(
                 imported,
@@ -423,10 +438,27 @@ impl ServerApplicationDomains {
             ));
         };
 
+        let fork_point = self
+            .resolve_agent_fork_point(source_id, until_turn_id, agent_id)
+            .await?;
+        let is_tail = match until_turn_id {
+            None => true,
+            Some(turn_id) => ConversationTurnRecord::latest_for_conversation(&self.pool, source_id)
+                .await
+                .map_err(internal_error)?
+                .is_some_and(|latest| latest.id == turn_id),
+        };
+        if !is_tail && fork_point.is_none() {
+            return Ok(ConversationForkResult::history_only(
+                imported,
+                "This Agent cannot name that message, so only visible history was copied",
+            ));
+        }
+
         match self
             .conversations
             .agent_runtime
-            .fork_session(AgentSessionId(source_id))
+            .fork_session(AgentSessionId(source_id), fork_point)
             .await
         {
             Ok(forked_external_id) => {
@@ -472,6 +504,36 @@ impl ServerApplicationDomains {
                 format!("Agent context could not be forked: {error}"),
             )),
         }
+    }
+
+    async fn resolve_agent_fork_point(
+        &self,
+        source_id: Uuid,
+        until_turn_id: Option<Uuid>,
+        agent_id: &agents::AgentId,
+    ) -> Result<Option<agents::ForkPoint>, ApplicationError> {
+        let Some(until_turn_id) = until_turn_id else {
+            return Ok(None);
+        };
+        let Ok(agent_kind) = agents::AgentKind::from_str(agent_id.as_str()) else {
+            return Ok(None);
+        };
+        let timeline = ConversationProjector::project(&self.pool, source_id)
+            .await
+            .map_err(internal_error)?;
+        let turns: Vec<MessageTurn> = timeline
+            .rows
+            .into_iter()
+            .filter_map(|row| match row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn),
+                _ => None,
+            })
+            .collect();
+        Ok(agents::resolve_fork_point_for_turn(
+            &turns,
+            &until_turn_id.to_string(),
+            agent_kind,
+        ))
     }
 }
 

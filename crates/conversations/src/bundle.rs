@@ -389,7 +389,9 @@ fn checksum_str(path: &str, value: &str) -> ConversationBundleChecksum {
 mod tests {
     use std::str::FromStr;
 
-    use agents::conversation::{ConversationEvent, ConversationInputBlock};
+    use agents::conversation::{
+        ConversationEvent, ConversationInputBlock, ConversationTimelineRow,
+    };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_event::AppendConversationEvent,
@@ -558,5 +560,179 @@ mod tests {
             result.continuity_note.as_deref(),
             Some("agent did not advertise session/fork")
         );
+    }
+
+    #[tokio::test]
+    async fn fork_visible_conversation_copies_only_up_to_the_cut_turn() {
+        let pool = migrated_pool().await;
+        let (conversation_id, _) = seed_conversation(&pool).await;
+        let second = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("second"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("second turn");
+        append_event(
+            &pool,
+            conversation_id,
+            second.id,
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second".to_string(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            second.id,
+            ConversationEvent::AssistantTextDelta {
+                text: "later".to_string(),
+                message_id: None,
+            },
+        )
+        .await;
+        sqlx::query("UPDATE conversation_turns SET status = 'completed' WHERE conversation_id = ?")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .expect("complete turns");
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .ok();
+        let first = ConversationTurnRecord::list_for_conversation(&pool, conversation_id)
+            .await
+            .expect("list")
+            .into_iter()
+            .next()
+            .expect("first turn");
+
+        let (child_id, count) = crate::fork_visible_conversation(
+            &pool,
+            crate::ForkVisibleConversation {
+                source_id: conversation_id,
+                until_turn_id: Some(first.id),
+            },
+        )
+        .await
+        .expect("fork");
+        assert!(count >= 2);
+        let timeline = ConversationProjector::project(&pool, child_id)
+            .await
+            .expect("child timeline");
+        let texts: Vec<String> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    turn.blocks.iter().find_map(|block| match block {
+                        agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|text| text == "hello" || text == "hi"));
+        assert!(!texts.iter().any(|text| text == "second" || text == "later"));
+    }
+
+    #[tokio::test]
+    async fn fork_copies_steering_so_the_child_keeps_split_bubbles() {
+        let pool = migrated_pool().await;
+        let (conversation_id, _) = seed_conversation(&pool).await;
+        let turns = ConversationTurnRecord::list_for_conversation(&pool, conversation_id)
+            .await
+            .expect("list");
+        let turn_id = turns[0].id;
+        let steering_id = Uuid::new_v4();
+        append_event(
+            &pool,
+            conversation_id,
+            turn_id,
+            ConversationEvent::ConversationSteering {
+                event: agents::conversation::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    operation_id: Uuid::new_v4(),
+                    expected_turn_id: turn_id,
+                    payload_digest: "d".into(),
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: "steer now".into(),
+                    }],
+                    principal: serde_json::json!({}),
+                },
+            },
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            turn_id,
+            ConversationEvent::ConversationSteering {
+                event: agents::conversation::ConversationSteeringEvent::Accepted {
+                    steering_id,
+                    expected_turn_id: turn_id,
+                },
+            },
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            turn_id,
+            ConversationEvent::AssistantTextDelta {
+                text: "after steer".into(),
+                message_id: None,
+            },
+        )
+        .await;
+        sqlx::query("UPDATE conversation_turns SET status = 'completed' WHERE conversation_id = ?")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .expect("complete turns");
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .ok();
+
+        let (child_id, _) = crate::fork_visible_conversation(
+            &pool,
+            crate::ForkVisibleConversation {
+                source_id: conversation_id,
+                until_turn_id: None,
+            },
+        )
+        .await
+        .expect("fork");
+        let timeline = ConversationProjector::project(&pool, child_id)
+            .await
+            .expect("child timeline");
+        let texts: Vec<String> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    turn.blocks.iter().find_map(|block| match block {
+                        agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|text| text == "steer now"));
+        assert!(texts.iter().any(|text| text == "after steer"));
     }
 }

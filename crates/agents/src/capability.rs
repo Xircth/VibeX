@@ -85,8 +85,9 @@ mod tests {
 
     #[test]
     fn steering_requires_the_exact_negotiated_initialize_marker() {
+        let advertised = serde_json::json!({ "steering": { "supported": true } });
         assert!(AcpCapabilityNormalizer::steering_is_advertised(Some(
-            &serde_json::json!({ "steering": { "supported": true } })
+            &advertised
         )));
         for meta in [
             serde_json::json!({}),

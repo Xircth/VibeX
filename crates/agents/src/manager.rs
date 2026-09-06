@@ -20,10 +20,10 @@ use agent_client_protocol::{
             CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
             DeleteSessionRequest, ElicitationAcceptAction, ElicitationAction,
             ElicitationCapabilities, ElicitationContentValue, ElicitationFormCapabilities,
-            ElicitationMode, ElicitationScope, ExtRequest, ExtResponse, ForkSessionRequest,
-            ImageContent, Implementation, InitializeRequest, KillTerminalRequest,
-            KillTerminalResponse, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
-            PermissionOptionKind, PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
+            ElicitationMode, ElicitationScope, ExtRequest, ExtResponse, ImageContent,
+            Implementation, InitializeRequest, KillTerminalRequest, KillTerminalResponse,
+            ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PermissionOptionKind,
+            PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
             RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
             ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigKind,
             SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
@@ -426,6 +426,7 @@ pub enum AgentConnectionCommand {
     /// new server-side session; the returned id is the new (forked) session.
     ForkSession {
         session_id: AgentSessionId,
+        fork_point: Option<crate::ForkPoint>,
         result_tx: oneshot::Sender<AgentResult<String>>,
     },
     ListSessions {
@@ -795,12 +796,14 @@ impl AgentConnectionManager {
         &self,
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
+        fork_point: Option<crate::ForkPoint>,
     ) -> AgentResult<String> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
             AgentConnectionCommand::ForkSession {
                 session_id,
+                fork_point,
                 result_tx,
             },
         )
@@ -1055,6 +1058,16 @@ struct RunPromptRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
+#[request(method = "session/fork", response = acp::schema::v1::ForkSessionResponse)]
+#[serde(rename_all = "camelCase")]
+struct AcpForkSessionRequest {
+    session_id: String,
+    cwd: PathBuf,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    meta: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
 #[request(method = "_session/steering", response = AcpSteerResponse)]
 #[serde(rename_all = "camelCase")]
 struct AcpSteerRequest {
@@ -1214,6 +1227,7 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::ForkSession {
                     session_id,
                     result_tx,
+                    ..
                 } => {
                     // The in-memory agent has no server-side session; hand back a
                     // synthetic forked id so the fork flow is exercisable in tests.
@@ -1980,6 +1994,7 @@ impl AgentConnectionRunner {
                         }
                         AgentConnectionCommand::ForkSession {
                             session_id,
+                            fork_point,
                             result_tx,
                         } => {
                             let result = if supports_fork {
@@ -1989,6 +2004,7 @@ impl AgentConnectionRunner {
                                         &working_dir,
                                         session_id,
                                         companion_capabilities,
+                                        fork_point,
                                     )
                                     .await
                                     .map_err(|error| {
@@ -2166,6 +2182,67 @@ impl AgentConnectionRunner {
             return Ok((existing, None));
         }
 
+        if support.resume {
+            let mut request = ResumeSessionRequest::new(
+                SessionId::new(external_session_id.clone()),
+                working_dir.to_path_buf(),
+            );
+            if self.capabilities.read().await.additional_directories {
+                request =
+                    request.additional_directories(self.snapshot.additional_directories.clone());
+            }
+            request = request.mcp_servers(
+                self.session_mcp_servers_with_companion(
+                    working_dir,
+                    session_id,
+                    companion_capabilities,
+                )
+                .await,
+            );
+            *self.pending_session_id.lock().await = Some(session_id);
+            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
+            let resume_result = conn.send_request(request).block_task().await;
+            match resume_result {
+                Ok(response) => {
+                    self.session_map
+                        .write()
+                        .await
+                        .insert(session_id, external_session_id.clone());
+                    self.emit_session_linked(session_id, external_session_id.clone())
+                        .await;
+                    let (modes, config_options, vendor_config) =
+                        session_controls_with_vendor_fallback(
+                            response.modes,
+                            response.config_options,
+                            response.meta.as_ref(),
+                        );
+                    self.emit_session_controls(
+                        conn,
+                        &external_session_id,
+                        session_id,
+                        modes,
+                        config_options,
+                        vendor_config,
+                        response.meta.as_ref(),
+                    )
+                    .await;
+                    *self.pending_session_id.lock().await = None;
+                    return Ok((
+                        external_session_id,
+                        Some(crate::conversation::SessionRecoveryStrategy::Resumed),
+                    ));
+                }
+                Err(error) => {
+                    *self.pending_session_id.lock().await = None;
+                    if !support.load {
+                        let reason = classify_session_load_error(&error);
+                        self.emit_session_load_failed(session_id, reason.clone());
+                        return Err(map_session_restore_error(error));
+                    }
+                }
+            }
+        }
+
         if support.load {
             let mut request = LoadSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
@@ -2225,65 +2302,6 @@ impl AgentConnectionRunner {
             }
         }
 
-        if support.resume {
-            let mut request = ResumeSessionRequest::new(
-                SessionId::new(external_session_id.clone()),
-                working_dir.to_path_buf(),
-            );
-            if self.capabilities.read().await.additional_directories {
-                request =
-                    request.additional_directories(self.snapshot.additional_directories.clone());
-            }
-            request = request.mcp_servers(
-                self.session_mcp_servers_with_companion(
-                    working_dir,
-                    session_id,
-                    companion_capabilities,
-                )
-                .await,
-            );
-            *self.pending_session_id.lock().await = Some(session_id);
-            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
-            let resume_result = conn.send_request(request).block_task().await;
-            match resume_result {
-                Ok(response) => {
-                    self.session_map
-                        .write()
-                        .await
-                        .insert(session_id, external_session_id.clone());
-                    self.emit_session_linked(session_id, external_session_id.clone())
-                        .await;
-                    let (modes, config_options, vendor_config) =
-                        session_controls_with_vendor_fallback(
-                            response.modes,
-                            response.config_options,
-                            response.meta.as_ref(),
-                        );
-                    self.emit_session_controls(
-                        conn,
-                        &external_session_id,
-                        session_id,
-                        modes,
-                        config_options,
-                        vendor_config,
-                        response.meta.as_ref(),
-                    )
-                    .await;
-                    *self.pending_session_id.lock().await = None;
-                    return Ok((
-                        external_session_id,
-                        Some(crate::conversation::SessionRecoveryStrategy::Resumed),
-                    ));
-                }
-                Err(error) => {
-                    *self.pending_session_id.lock().await = None;
-                    let reason = classify_session_load_error(&error);
-                    self.emit_session_load_failed(session_id, reason.clone());
-                    return Err(map_session_restore_error(error));
-                }
-            }
-        }
-
         self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
         Err(AgentError::SessionLoadFailed(
             SessionLoadFailureReason::Unsupported,
@@ -2299,17 +2317,17 @@ impl AgentConnectionRunner {
         working_dir: &Path,
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
+        fork_point: Option<crate::ForkPoint>,
     ) -> Result<String, acp::Error> {
         let acp_session_id = self
             .ensure_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await?;
-        let response = conn
-            .send_request(ForkSessionRequest::new(
-                SessionId::new(acp_session_id),
-                working_dir.to_path_buf(),
-            ))
-            .block_task()
-            .await?;
+        let request = AcpForkSessionRequest {
+            session_id: acp_session_id,
+            cwd: working_dir.to_path_buf(),
+            meta: fork_point.map(|point| point.to_meta()),
+        };
+        let response = conn.send_request(request).block_task().await?;
         Ok(response.session_id.0.to_string())
     }
 

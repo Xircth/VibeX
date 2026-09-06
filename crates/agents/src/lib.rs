@@ -23,6 +23,7 @@ pub mod error;
 pub mod events;
 mod ext_question;
 pub mod filesystem;
+pub mod fork;
 mod grok_announcements;
 mod grok_ask;
 mod grok_mcp;
@@ -129,6 +130,9 @@ pub use events::{
     DelegationResultSummary, SessionControlPreferences,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
+pub use fork::{
+    ForkPoint, fingerprint_agent_message, resolve_fork_point, resolve_fork_point_for_turn,
+};
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
 pub use history::{
     AgentHistoryError, AgentHistorySource, HistoryPathDestination, HistoryScanEntry,

@@ -992,7 +992,11 @@ impl AgentRuntime {
     /// forked external session id (the agent branched its context). Errors when
     /// the session has no live connection or the agent doesn't support fork —
     /// the caller then falls back to a context-free (import-semantics) branch.
-    pub async fn fork_session(&self, session_id: AgentSessionId) -> AgentResult<String> {
+    pub async fn fork_session(
+        &self,
+        session_id: AgentSessionId,
+        fork_point: Option<crate::ForkPoint>,
+    ) -> AgentResult<String> {
         let connection_id = {
             let state = self.state.read().await;
             state
@@ -1004,7 +1008,7 @@ impl AgentRuntime {
             return Err(AgentError::SessionNotFound(session_id.to_string()));
         };
         self.connection_manager
-            .fork_session(connection_id, session_id)
+            .fork_session(connection_id, session_id, fork_point)
             .await
     }
 

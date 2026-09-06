@@ -32,6 +32,7 @@ fn absent_agent_capabilities_remain_unsupported() {
     assert!(!snapshot.resume_session);
     assert!(!snapshot.close_session);
     assert!(!snapshot.fork_session);
+    assert!(!snapshot.steering);
     assert!(!snapshot.list_sessions);
     assert!(!snapshot.delete_session);
     assert!(!snapshot.additional_directories);
@@ -87,6 +88,7 @@ fn negotiated_capabilities_are_normalized_without_agent_name_rules() {
     assert!(snapshot.load_session);
     assert!(snapshot.resume_session);
     assert!(snapshot.close_session);
+    assert!(!snapshot.steering);
     assert!(snapshot.list_sessions);
     assert!(snapshot.delete_session);
     assert!(snapshot.additional_directories);

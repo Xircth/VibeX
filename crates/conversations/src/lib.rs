@@ -68,10 +68,10 @@ pub use service::{
     ConversationRuntimeState, ConversationServiceError, ConversationSessionService,
     ConversationStartTurnInput, ConversationSteerInput, ConversationSteeringReceipt,
     ConversationSteeringStatus, ConversationTurnSnapshot, CreateDelegatedConversation,
-    CreateForkConversation, CreateWorkflowConversation, NoopConversationEventPublisher,
-    QueuedConversationInputClaim, create_delegated_conversation, create_fork_conversation,
-    create_workflow_conversation, finalize_checkpoint_file_changes,
-    preview_checkpoint_file_changes,
+    CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
+    NoopConversationEventPublisher, QueuedConversationInputClaim, create_delegated_conversation,
+    create_fork_conversation, create_workflow_conversation, finalize_checkpoint_file_changes,
+    fork_visible_conversation, preview_checkpoint_file_changes,
 };
 pub use session_info::{
     SessionInfo, load_compact_transcript, resolve_referenced_session, session_info_value,

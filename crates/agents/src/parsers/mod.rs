@@ -168,6 +168,7 @@ pub fn group_into_turns(records: Vec<ParsedRecord>) -> Vec<MessageTurn> {
             duration_ms: None,
             model: record.model,
             completed_at: Some(record.timestamp),
+            agent_message_id: None,
         });
     }
 

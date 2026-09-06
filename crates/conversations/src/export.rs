@@ -296,6 +296,7 @@ mod tests {
                     duration_ms: None,
                     model: Some("claude".into()),
                     completed_at: None,
+                    agent_message_id: None,
                 },
                 phase: "completed".into(),
             },

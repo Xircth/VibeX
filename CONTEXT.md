@@ -171,6 +171,7 @@ Workflow 领域与 Automation 的关系见
 - **Derived plugin（派生插件）** — 复制并修改另一插件源码、以新 Publisher + Plugin ID 打包的完全独立插件，携带 `derivedFrom` 溯源元数据；不继承原插件的授权、设置与数据。它是复用他人插件能力的唯一路径。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Single-layer extension（单层扩展）** — 插件只能面向宿主贡献点开发：不存在插件依赖插件、跨插件服务调用或插件自声明扩展点。同一贡献点上多个插件的并存与替换由宿主冲突解析处理，不由插件互相协商。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
+- **Plugin conversation capability（插件会话能力）** — 插件通过 `host.call conversation.*` 使用与工作区会话面板同一套 Application Core 控制面：创建、入队、纠偏、取消、权限/提问应答、会话配置、时间线与归档。插件只能操作它创建的 Conversation，或 Host 授予的 Conversation。省略 `workspaceId` 时，Host 为该插件准备独立 scratch 工作区（专用 git 目录，不出现在项目列表），插件 Tab 可以自建一套会话环境而不借用当前编码工作区。
 - **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与多智能体协同的产品拆分见 ADR-0057。
 - **Session enhancement plugin（会话增强插件）** — 官网市场官方分类中的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；安装后默认禁用，可以卸载。启停与单工具开关属于该插件。见 ADR-0057 与 ADR-0066。
 - **Multi-agent collaboration plugin（多智能体协同插件）** — 官网市场官方分类中的产品插件，向会话提供 LLM-mediated 委派；安装后默认禁用，可以卸载。插件启停即委托启停。见 ADR-0057 与 ADR-0066。
@@ -186,8 +187,8 @@ Workflow 领域与 Automation 的关系见
 - **Plugin activation（插件启用意图）** — 用户是否允许已安装 Plugin 发布可用 contributions 的持久意图；新安装（含内置插件）默认禁用，启用不能伪造 permission、Runtime、Agent binding 或 contribution readiness。
 - **Activation Generation（激活代）** — 一个 Plugin 的 package、permission、Runtime locks 与全部已就绪 contributions 一次原子发布的不可变运行快照；候选代在完整验证前不可见，失败更新必须保留上一完整激活代。
 - **Plugin capability request（插件能力请求）** — Package 在执行前静态声明可能需要使用的宿主能力及最大 scope；声明只形成待决请求，不构成授权。
-- **Plugin capability grant（插件能力授权）** — 用户在一个 Host 上对明确 Publisher、Plugin identity、能力集合、scope 与信任等级作出的可撤销授权；能力扩大、发布者变化或高风险执行入口变化必须重新授权。
-- **Full-trust Plugin（全信任插件）** — 用户安装或启用 VibeX Plugin Package，即信任该包以与 VibeX Host 相同的本机权限运行 Worker、App 与声明的 Runtime；不再存在逐 capability、scope 或 Trusted Native 二次授权。独立 Worker/App frame 只提供生命周期、热更新与崩溃隔离，不是安全沙箱。见 ADR-0048。
+- **Plugin capability grant（插件能力授权）** — 已废止。安装或启用 VibeX Plugin Package 即 Full Trust；不再按 capability、scope 或 Trusted Native 二次授权。`plugin_control_grant_permissions` 仅为兼容无操作。
+- **Full-trust Plugin（全信任插件）** — 用户安装或启用 VibeX Plugin Package，即信任该包以与 VibeX Host 相同的本机权限运行 Worker、App 与声明的 Runtime；不再存在逐 capability、scope 或 Trusted Native 二次授权。独立 Worker/App frame 只提供生命周期、热更新与崩溃隔离，不是安全沙箱。`packageClass=isolated` 不改变执行模型。见 ADR-0048。
 - **Plugin Worker（插件工作进程）** — 在 VibeX Host 上隔离执行插件后端代码、且只能通过已授权宿主能力产生副作用的运行实例；它的存活不等于 Plugin 安装或激活事实。
 - **App surface（应用扩展面）** — App contribution 在 VibeX 用户界面中的一个宿主渲染或隔离渲染实例；其能力受客户端兼容性、激活代和短期 surface 授权共同约束。
 - **Sandboxed plugin surface（沙箱插件扩展面）** — 与主应用文档、存储、凭据和宿主运行时隔离的自定义 App surface；只通过带作用域和期限的消息桥访问声明且已授权的能力。

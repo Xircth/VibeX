@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::LazyLock,
     time::Duration,
@@ -7,7 +7,9 @@ use std::{
 
 use chrono::Utc;
 use futures::{StreamExt, stream};
-use remote_protocol::{DeviceCredential, RedeemPairingRequest, ServerCapabilities};
+use remote_protocol::{
+    CommandResponse, DeviceCredential, OperationId, RedeemPairingRequest, ServerCapabilities,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use url::Url;
@@ -19,10 +21,14 @@ use crate::{
 };
 
 pub const ACTIVE_PROFILE_ID: &str = "active-host-client";
+pub const HOST_CLIENT_CHANGED: &str = "host-client-changed";
 const STORE_FILE_NAME: &str = "host-client-profiles.json";
 const DEFAULT_PORT: u16 = 17891;
 const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(400);
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const HOST_UPGRADE_TIMEOUT: Duration = Duration::from_secs(180);
 const NEEDS_TOKEN: &str = "needs_token";
+const HOST_UPDATE_UNREACHABLE: &str = "host_update_unreachable";
 
 static RUNTIME: LazyLock<HostClientRuntime> = LazyLock::new(HostClientRuntime::new);
 
@@ -107,26 +113,41 @@ pub struct HostClientStatus {
     pub profiles: Vec<HostClientProfileView>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct SavedHostUpdateView {
+    pub profile_id: String,
+    pub current_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+    pub reachable: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyHostUpdateResult {
+    pub from_version: String,
+    pub to_version: String,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct HealthBody {
     status: Option<String>,
     ok: Option<bool>,
     host_id: Option<String>,
     name: Option<String>,
-}
-
-#[derive(Clone)]
-struct ActiveClient {
-    profile_id: String,
+    version: Option<String>,
 }
 
 pub struct HostClientRuntime {
     path: PathBuf,
     client: reqwest::Client,
     probe_client: reqwest::Client,
-    active: Mutex<Option<ActiveClient>>,
+    version_client: reqwest::Client,
+    active: Mutex<HashMap<String, String>>,
     local_host_id: Mutex<Option<String>>,
 }
+
+pub use crate::host_windows::{host_app_window_label, host_window_label};
 
 impl HostClientRuntime {
     pub fn new() -> Self {
@@ -147,7 +168,12 @@ impl HostClientRuntime {
                 .timeout(DISCOVERY_TIMEOUT)
                 .build()
                 .expect("host client probe http"),
-            active: Mutex::new(None),
+            version_client: reqwest::Client::builder()
+                .connect_timeout(VERSION_PROBE_TIMEOUT)
+                .timeout(VERSION_PROBE_TIMEOUT)
+                .build()
+                .expect("host client version http"),
+            active: Mutex::new(HashMap::new()),
             local_host_id: Mutex::new(None),
         }
     }
@@ -159,15 +185,12 @@ impl HostClientRuntime {
     pub async fn status(
         &self,
         registry: &RemoteDesktopRegistry,
+        window_label: &str,
     ) -> Result<HostClientStatus, AppError> {
         self.refresh_active(registry).await?;
         let state = self.load().await?;
-        let active_id = self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .map(|item| item.profile_id.clone());
+        let lookup = host_app_window_label(window_label).unwrap_or(window_label);
+        let active_id = self.active.lock().await.get(lookup).cloned();
         let profiles = views(&state, active_id.as_deref());
         let profile = active_id
             .as_deref()
@@ -177,6 +200,92 @@ impl HostClientRuntime {
             profile,
             profiles,
         })
+    }
+
+    pub async fn probe_updates(&self) -> Result<Vec<SavedHostUpdateView>, AppError> {
+        let latest = fetch_latest_host_version(&self.client).await;
+        let state = self.load().await?;
+        let mut updates = Vec::with_capacity(state.profiles.len());
+        for profile in &state.profiles {
+            let health = probe_health_version(&self.version_client, &profile.origin).await;
+            let current_version = health.as_ref().and_then(|body| {
+                body.version
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            });
+            let reachable = health.is_some();
+            let update_available =
+                host_update_available(latest.as_deref(), current_version.as_deref(), reachable);
+            updates.push(SavedHostUpdateView {
+                profile_id: profile.id.clone(),
+                current_version,
+                latest_version: latest.clone(),
+                update_available,
+                reachable,
+            });
+        }
+        Ok(updates)
+    }
+
+    pub async fn apply_host_upgrade(
+        &self,
+        origin: &str,
+        token: &str,
+    ) -> Result<ApplyHostUpdateResult, AppError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(HOST_UPGRADE_TIMEOUT)
+            .build()
+            .map_err(internal)?;
+        let response = client
+            .post(format!("{origin}/api/v1/call/apply_host_upgrade"))
+            .bearer_auth(token)
+            .header(
+                "x-vibex-protocol-version",
+                remote_protocol::PROTOCOL_VERSION,
+            )
+            .json(&serde_json::json!({
+                "operation_id": OperationId::new(),
+                "args": {}
+            }))
+            .send()
+            .await
+            .map_err(|_| AppError::BadRequest(HOST_UPDATE_UNREACHABLE.to_string()))?;
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map_err(|_| AppError::BadRequest(HOST_UPDATE_UNREACHABLE.to_string()))?;
+        if !status.is_success() {
+            if let Ok(envelope) = serde_json::from_slice::<remote_protocol::ErrorEnvelope>(&body) {
+                return Err(AppError::BadRequest(envelope.message));
+            }
+            return Err(AppError::BadRequest(HOST_UPDATE_UNREACHABLE.to_string()));
+        }
+        let payload = serde_json::from_slice::<CommandResponse<ApplyHostUpdateResult>>(&body)
+            .map_err(internal)?;
+        Ok(payload.data)
+    }
+
+    pub async fn windows_bound_to(&self, profile_id: &str) -> Vec<String> {
+        self.active
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, bound)| *bound == profile_id)
+            .map(|(window, _)| window.clone())
+            .collect()
+    }
+
+    pub async fn profile_id_for_window(&self, window_label: &str) -> Option<String> {
+        let lookup = host_app_window_label(window_label).unwrap_or(window_label);
+        self.active.lock().await.get(lookup).cloned()
+    }
+
+    pub async fn unbind_window(&self, window_label: &str) {
+        self.active.lock().await.remove(window_label);
     }
 
     pub async fn discover(&self) -> Result<Vec<DiscoveredHost>, AppError> {
@@ -234,10 +343,9 @@ impl HostClientRuntime {
 
     pub async fn connect(
         &self,
-        window_label: &str,
+        caller_window: &str,
         registry: &RemoteDesktopRegistry,
         request: ConnectHostRequest,
-        stop_host: impl std::future::Future<Output = bool>,
     ) -> Result<ConnectHostResult, AppError> {
         let mut state = self.load().await?;
         let selected = request
@@ -245,13 +353,19 @@ impl HostClientRuntime {
             .as_deref()
             .and_then(|id| state.profiles.iter().find(|profile| profile.id == id))
             .cloned();
-        let origin = normalize_origin(
-            request
-                .origin
-                .as_deref()
-                .or(selected.as_ref().map(|profile| profile.origin.as_str()))
-                .unwrap_or(""),
-        )?;
+        let candidate = request
+            .origin
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or(selected.as_ref().map(|profile| profile.origin.as_str()))
+            .unwrap_or("");
+        let origin = normalize_origin(&advertised_connect_origin(
+            candidate,
+            selected
+                .as_ref()
+                .and_then(|profile| profile.provision.as_ref()),
+        ))?;
         let supplied_token = request
             .token
             .as_deref()
@@ -306,23 +420,23 @@ impl HostClientRuntime {
                 }
             })?;
         let host_id = empty_to_none(capabilities.host_id);
-        let name = discover_name(&self.client, &origin)
-            .await
-            .or_else(|| selected.as_ref().map(|profile| profile.name.clone()))
-            .filter(|value| !value.is_empty())
+        let discovered_name = discover_name(&self.client, &origin).await;
+        let name = selected
+            .as_ref()
+            .map(|profile| profile.name.clone())
+            .filter(|value| !value.is_empty() && !value.contains("127.0.0.1"))
+            .or_else(|| {
+                discovered_name.filter(|value| !value.is_empty() && !value.contains("127.0.0.1"))
+            })
+            .or_else(|| {
+                selected
+                    .as_ref()
+                    .map(|profile| profile.name.clone())
+                    .filter(|value| !value.is_empty())
+            })
             .unwrap_or_else(|| origin.clone());
 
-        let stopped_host = stop_host.await;
-        registry.disconnect_profile(ACTIVE_PROFILE_ID).await;
-        registry
-            .connect(
-                window_label,
-                ACTIVE_PROFILE_ID,
-                &origin,
-                credential.access_token.clone(),
-            )
-            .await?;
-
+        let origin_for_bind = origin.clone();
         let now = Utc::now().to_rfc3339();
         let profile_id = upsert_profile(
             &mut state,
@@ -330,32 +444,48 @@ impl HostClientRuntime {
             origin,
             host_id,
             name,
-            credential,
+            credential.clone(),
             now,
         );
-        state.active_profile_id = Some(profile_id.clone());
+        state.active_profile_id = None;
         self.save(&state).await?;
-        *self.active.lock().await = Some(ActiveClient {
-            profile_id: profile_id.clone(),
-        });
 
-        let views = views(&state, Some(&profile_id));
+        let target_window = host_window_label(&profile_id);
+        registry
+            .connect(
+                &target_window,
+                ACTIVE_PROFILE_ID,
+                &origin_for_bind,
+                credential.access_token.clone(),
+            )
+            .await?;
+        self.active
+            .lock()
+            .await
+            .insert(target_window.clone(), profile_id.clone());
+
+        let bound_here = caller_window == target_window;
+        let views = views(&state, bound_here.then_some(profile_id.as_str()));
         let profile = views
             .into_iter()
             .find(|item| item.id == profile_id)
             .expect("connected profile");
         Ok(ConnectHostResult {
             profile,
-            stopped_host,
+            stopped_host: false,
         })
     }
 
-    pub async fn disconnect(&self, registry: &RemoteDesktopRegistry) -> Result<(), AppError> {
-        registry.disconnect_profile(ACTIVE_PROFILE_ID).await;
-        *self.active.lock().await = None;
-        let mut state = self.load().await?;
-        state.active_profile_id = None;
-        self.save(&state).await?;
+    pub async fn disconnect_window(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        window_label: &str,
+    ) -> Result<(), AppError> {
+        let root = host_app_window_label(window_label)
+            .unwrap_or(window_label)
+            .to_string();
+        registry.disconnect_window(&root).await;
+        self.unbind_window(&root).await;
         Ok(())
     }
 
@@ -363,7 +493,7 @@ impl HostClientRuntime {
         &self,
         registry: &RemoteDesktopRegistry,
         profile_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Vec<String>, AppError> {
         let mut state = self.load().await?;
         let Some(index) = state
             .profiles
@@ -373,22 +503,19 @@ impl HostClientRuntime {
             return Err(AppError::NotFound("saved Host was not found".to_string()));
         };
         let removed = state.profiles.remove(index);
-        if self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|active| active.profile_id == profile_id)
-        {
-            registry.disconnect_profile(ACTIVE_PROFILE_ID).await;
-            *self.active.lock().await = None;
+        let bound_windows = self.windows_bound_to(profile_id).await;
+        for window in &bound_windows {
+            registry.disconnect_window(window).await;
+            self.unbind_window(window).await;
+        }
+        if state.active_profile_id.as_deref() == Some(profile_id) {
             state.active_profile_id = None;
         }
         self.save(&state).await?;
         if let (Some(device_id), Some(token)) = (removed.device_id, removed.access_token) {
             let _ = revoke_remote_device(&self.client, &removed.origin, &device_id, &token).await;
         }
-        Ok(())
+        Ok(bound_windows)
     }
 
     pub async fn upsert_provisioned(
@@ -413,8 +540,21 @@ impl HostClientRuntime {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         let display_name = named.clone().unwrap_or_else(|| origin.clone());
+        let target_key = provision_target_key(kind, provision.as_ref());
         let existing_index = draft_id
             .and_then(|id| state.profiles.iter().position(|profile| profile.id == id))
+            .or_else(|| {
+                target_key.as_ref().and_then(|key| {
+                    state.profiles.iter().position(|profile| {
+                        provision_target_key(
+                            profile.provision_kind.as_deref().unwrap_or(""),
+                            profile.provision.as_ref(),
+                        )
+                        .as_ref()
+                            == Some(key)
+                    })
+                })
+            })
             .or_else(|| {
                 state
                     .profiles
@@ -447,13 +587,7 @@ impl HostClientRuntime {
             id
         };
         self.save(&state).await?;
-        let active_id = self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .map(|item| item.profile_id.clone());
-        Ok(views(&state, active_id.as_deref())
+        Ok(views(&state, None)
             .into_iter()
             .find(|profile| profile.id == id)
             .expect("upserted profile"))
@@ -464,67 +598,79 @@ impl HostClientRuntime {
         profile_id: &str,
     ) -> Result<Option<HostClientProfileView>, AppError> {
         let state = self.load().await?;
-        let active_id = self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .map(|item| item.profile_id.clone());
-        Ok(views(&state, active_id.as_deref())
+        Ok(views(&state, None)
             .into_iter()
             .find(|profile| profile.id == profile_id))
     }
 
-    async fn refresh_active(&self, registry: &RemoteDesktopRegistry) -> Result<(), AppError> {
-        let active_id = self
-            .active
-            .lock()
-            .await
-            .as_ref()
-            .map(|item| item.profile_id.clone());
-        let Some(profile_id) = active_id else {
-            return Ok(());
-        };
-        let mut state = self.load().await?;
-        let Some(profile) = state
+    pub async fn access_token(&self, profile_id: &str) -> Result<Option<String>, AppError> {
+        let state = self.load().await?;
+        Ok(state
             .profiles
             .iter()
             .find(|profile| profile.id == profile_id)
-            .cloned()
-        else {
-            registry.disconnect_profile(ACTIVE_PROFILE_ID).await;
-            *self.active.lock().await = None;
-            return Ok(());
-        };
-        let Some(token) = profile.access_token.clone() else {
-            self.forget_active(registry, &mut state, &profile_id)
-                .await?;
-            return Ok(());
-        };
-        match verify_device_token(&self.client, &profile.origin, &token).await {
-            Ok(_) => Ok(()),
-            Err(error) if is_needs_token(&error) => {
-                mark_needs_token(&mut state, &profile_id);
-                self.forget_active(registry, &mut state, &profile_id)
-                    .await?;
-                Err(AppError::BadRequest(NEEDS_TOKEN.to_string()))
-            }
-            Err(_) => {
-                self.forget_active(registry, &mut state, &profile_id)
-                    .await?;
-                Ok(())
-            }
-        }
+            .and_then(|profile| profile.access_token.clone())
+            .filter(|token| !token.is_empty()))
     }
 
-    async fn forget_active(
+    async fn refresh_active(&self, registry: &RemoteDesktopRegistry) -> Result<(), AppError> {
+        let entries: Vec<(String, String)> = self
+            .active
+            .lock()
+            .await
+            .iter()
+            .map(|(window, profile_id)| (window.clone(), profile_id.clone()))
+            .collect();
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let mut state = self.load().await?;
+        let mut needs_token = false;
+        for (window, profile_id) in entries {
+            let Some(profile) = state
+                .profiles
+                .iter()
+                .find(|profile| profile.id == profile_id)
+                .cloned()
+            else {
+                registry.disconnect_window(&window).await;
+                self.unbind_window(&window).await;
+                continue;
+            };
+            let Some(token) = profile.access_token.clone() else {
+                self.forget_window(registry, &mut state, &window, &profile_id)
+                    .await?;
+                continue;
+            };
+            match verify_device_token(&self.client, &profile.origin, &token).await {
+                Ok(_) => {}
+                Err(error) if is_needs_token(&error) => {
+                    mark_needs_token(&mut state, &profile_id);
+                    self.forget_window(registry, &mut state, &window, &profile_id)
+                        .await?;
+                    needs_token = true;
+                }
+                Err(_) => {
+                    self.forget_window(registry, &mut state, &window, &profile_id)
+                        .await?;
+                }
+            }
+        }
+        if needs_token {
+            return Err(AppError::BadRequest(NEEDS_TOKEN.to_string()));
+        }
+        Ok(())
+    }
+
+    async fn forget_window(
         &self,
         registry: &RemoteDesktopRegistry,
         state: &mut StoredState,
+        window_label: &str,
         profile_id: &str,
     ) -> Result<(), AppError> {
-        registry.disconnect_profile(ACTIVE_PROFILE_ID).await;
-        *self.active.lock().await = None;
+        registry.disconnect_window(window_label).await;
+        self.unbind_window(window_label).await;
         if state.active_profile_id.as_deref() == Some(profile_id) {
             state.active_profile_id = None;
         }
@@ -536,7 +682,11 @@ impl HostClientRuntime {
             return Ok(StoredState::default());
         }
         let bytes = tokio::fs::read(&self.path).await.map_err(internal)?;
-        serde_json::from_slice(&bytes).map_err(internal)
+        let mut state: StoredState = serde_json::from_slice(&bytes).map_err(internal)?;
+        if collapse_provisioned_duplicates(&mut state) {
+            self.save(&state).await?;
+        }
+        Ok(state)
     }
 
     async fn save(&self, state: &StoredState) -> Result<(), AppError> {
@@ -568,6 +718,7 @@ struct DiscoveredProbe {
     name: Option<String>,
 }
 
+#[derive(Clone)]
 struct DeviceCredentialParts {
     device_id: Option<String>,
     access_token: String,
@@ -679,6 +830,129 @@ fn same_host(profile: &StoredProfile, host_id: Option<&str>, origin: &str) -> bo
         return saved == found;
     }
     profile.origin == origin
+}
+
+fn provision_target_key(kind: &str, provision: Option<&serde_json::Value>) -> Option<String> {
+    let kind = kind.trim();
+    if kind.is_empty() || kind == "manual" || kind == "discovered" {
+        return None;
+    }
+    let provision = provision?.as_object()?;
+    let host = provision
+        .get("host")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let user = provision
+        .get("user")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let port = provision
+        .get("port")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(22);
+    Some(format!("{kind}\n{user}\n{host}\n{port}"))
+}
+
+fn collapse_provisioned_duplicates(state: &mut StoredState) -> bool {
+    let mut keepers: HashMap<String, usize> = HashMap::new();
+    let mut drop = HashSet::new();
+    for (index, profile) in state.profiles.iter().enumerate() {
+        let Some(key) = provision_target_key(
+            profile.provision_kind.as_deref().unwrap_or(""),
+            profile.provision.as_ref(),
+        ) else {
+            continue;
+        };
+        if let Some(&kept) = keepers.get(&key) {
+            let kept_profile = &state.profiles[kept];
+            let keep_current = match (
+                profile.access_token.is_some(),
+                kept_profile.access_token.is_some(),
+            ) {
+                (true, false) => true,
+                (false, true) => false,
+                _ => profile.last_connected_at >= kept_profile.last_connected_at,
+            };
+            if keep_current {
+                drop.insert(kept);
+                keepers.insert(key, index);
+            } else {
+                drop.insert(index);
+            }
+        } else {
+            keepers.insert(key, index);
+        }
+    }
+    if drop.is_empty() {
+        return false;
+    }
+    let mut merged = Vec::with_capacity(state.profiles.len() - drop.len());
+    for (index, profile) in state.profiles.drain(..).enumerate() {
+        if !drop.contains(&index) {
+            merged.push(profile);
+        }
+    }
+    state.profiles = merged;
+    true
+}
+
+pub(crate) fn advertised_connect_origin(
+    origin: &str,
+    provision: Option<&serde_json::Value>,
+) -> String {
+    let origin = origin.trim().trim_end_matches('/');
+    if !origin.is_empty() && !is_loopback_http_origin(origin) {
+        return origin.to_string();
+    }
+    origin_from_provision(provision).unwrap_or_else(|| origin.to_string())
+}
+
+fn is_loopback_http_origin(origin: &str) -> bool {
+    let candidate = if origin.contains("://") {
+        origin.to_string()
+    } else {
+        format!("http://{origin}")
+    };
+    match Url::parse(&candidate) {
+        Ok(url) => matches!(
+            url.host_str()
+                .map(|host| host.to_ascii_lowercase())
+                .as_deref(),
+            Some("127.0.0.1" | "localhost" | "::1")
+        ),
+        Err(_) => false,
+    }
+}
+
+fn origin_from_provision(provision: Option<&serde_json::Value>) -> Option<String> {
+    let provision = provision?;
+    if let Some(addresses) = provision
+        .get("addresses")
+        .and_then(serde_json::Value::as_array)
+    {
+        for address in addresses {
+            let Some(value) = address.as_str() else {
+                continue;
+            };
+            let value = value.trim().trim_end_matches('/');
+            if !value.is_empty() && !is_loopback_http_origin(value) {
+                return Some(value.to_string());
+            }
+        }
+    }
+    let host = provision
+        .get("host")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !is_loopback_http_origin(value))?;
+    let port = provision
+        .get("servicePort")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|port| *port > 0 && *port <= u64::from(u16::MAX))
+        .unwrap_or(u64::from(DEFAULT_PORT));
+    Some(format!("http://{host}:{port}"))
 }
 
 fn normalize_origin(value: &str) -> Result<String, AppError> {
@@ -832,6 +1106,51 @@ fn local_device_name() -> String {
         .collect()
 }
 
+async fn fetch_latest_host_version(client: &reqwest::Client) -> Option<String> {
+    let repository = std::env::var("VIBEX_UPDATE_REPOSITORY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Xircth/VibeX".to_string());
+    let url = format!("https://api.github.com/repos/{repository}/releases/latest");
+    let response = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "VibeX")
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = response.json().await.ok()?;
+    body.get("tag_name")
+        .and_then(serde_json::Value::as_str)
+        .map(|tag| tag.trim_start_matches('v').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn probe_health_version(client: &reqwest::Client, origin: &str) -> Option<HealthBody> {
+    let response = client.get(format!("{origin}/health")).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body = response.json::<HealthBody>().await.ok()?;
+    let ok = body.status.as_deref() == Some("ok") || body.ok == Some(true);
+    ok.then_some(body)
+}
+
+fn host_update_available(latest: Option<&str>, current: Option<&str>, reachable: bool) -> bool {
+    reachable
+        && latest
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some_and(|latest| {
+                current
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_none_or(|current| utils::version::is_newer(latest, current))
+            })
+}
+
 fn empty_to_none(value: String) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -862,10 +1181,22 @@ fn restrict_store(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{
-        HealthBody, HostClientRuntime, StoredProfile, StoredState, normalize_origin,
+        HealthBody, HostClientRuntime, StoredProfile, StoredState, advertised_connect_origin,
+        collapse_provisioned_duplicates, host_update_available, normalize_origin,
         pairing_token_from_input, parse_health, upsert_profile, views,
     };
     use crate::host_client::DeviceCredentialParts;
+
+    #[test]
+    fn saved_hosts_behind_latest_are_update_available() {
+        assert!(host_update_available(Some("0.2.1"), Some("0.2.0"), true));
+        assert!(host_update_available(Some("v0.3.0"), Some("0.2.9"), true));
+        assert!(host_update_available(Some("0.2.1"), None, true));
+        assert!(!host_update_available(Some("0.2.1"), Some("0.2.1"), true));
+        assert!(!host_update_available(Some("0.2.1"), Some("0.2.0"), false));
+        assert!(!host_update_available(None, Some("0.2.0"), true));
+        assert!(!host_update_available(Some(""), Some("0.2.0"), true));
+    }
 
     #[test]
     fn health_requires_ok_status() {
@@ -877,6 +1208,7 @@ mod tests {
                     ok: None,
                     host_id: Some("host-1".into()),
                     name: Some("Studio".into()),
+                    version: Some("0.2.0".into()),
                 }
             )
             .is_some()
@@ -889,6 +1221,7 @@ mod tests {
                     ok: None,
                     host_id: None,
                     name: None,
+                    version: None,
                 }
             )
             .is_none()
@@ -989,6 +1322,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn advertised_origin_replaces_a_stale_tunnel_with_the_host_address() {
+        let provision = serde_json::json!({
+            "host": "203.0.113.8",
+            "port": 22,
+            "user": "root",
+            "servicePort": 17891,
+            "addresses": ["http://127.0.0.1:17891", "http://203.0.113.8:17891"]
+        });
+        assert_eq!(
+            advertised_connect_origin("http://127.0.0.1:41234", Some(&provision)),
+            "http://203.0.113.8:17891"
+        );
+        assert_eq!(
+            advertised_connect_origin("http://203.0.113.8:17891", Some(&provision)),
+            "http://203.0.113.8:17891"
+        );
+        assert_eq!(
+            advertised_connect_origin("http://192.168.1.8:17891", None),
+            "http://192.168.1.8:17891"
+        );
+    }
+
     #[tokio::test]
     async fn provisioned_hosts_keep_their_kind_across_saves() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1014,11 +1370,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provisioned_hosts_with_the_same_target_share_one_record() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let runtime = HostClientRuntime::with_path(dir.path().join("profiles.json"));
+        let first = runtime
+            .upsert_provisioned(
+                None,
+                "http://127.0.0.1:56064".to_string(),
+                Some("root@lab".to_string()),
+                "ssh".to_string(),
+                Some(serde_json::json!({ "host": "203.0.113.8", "port": 22, "user": "root" })),
+            )
+            .await
+            .expect("first");
+        let second = runtime
+            .upsert_provisioned(
+                None,
+                "http://127.0.0.1:61091".to_string(),
+                Some("root@lab".to_string()),
+                "ssh".to_string(),
+                Some(serde_json::json!({ "host": "203.0.113.8", "port": 22, "user": "root" })),
+            )
+            .await
+            .expect("second");
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.origin, "http://127.0.0.1:61091");
+        let status = runtime
+            .status(
+                &crate::remote_desktop::RemoteDesktopRegistry::new().expect("registry"),
+                "main",
+            )
+            .await
+            .expect("status");
+        assert_eq!(status.profiles.len(), 1);
+    }
+
+    #[test]
+    fn collapse_merges_duplicate_ssh_targets() {
+        let mut state = StoredState {
+            active_profile_id: None,
+            profiles: vec![
+                StoredProfile {
+                    id: "old".into(),
+                    origin: "http://127.0.0.1:56064".into(),
+                    host_id: None,
+                    name: "root@lab".into(),
+                    device_id: None,
+                    access_token: None,
+                    last_connected_at: Some("2026-09-01T00:00:00Z".into()),
+                    needs_token: true,
+                    provision_kind: Some("ssh".into()),
+                    provision: Some(serde_json::json!({
+                        "host": "203.0.113.8",
+                        "port": 22,
+                        "user": "root"
+                    })),
+                },
+                StoredProfile {
+                    id: "new".into(),
+                    origin: "http://127.0.0.1:61091".into(),
+                    host_id: Some("host-ssh".into()),
+                    name: "root@lab".into(),
+                    device_id: None,
+                    access_token: Some("token".into()),
+                    last_connected_at: Some("2026-09-06T00:00:00Z".into()),
+                    needs_token: false,
+                    provision_kind: Some("ssh".into()),
+                    provision: Some(serde_json::json!({
+                        "host": "203.0.113.8",
+                        "port": 22,
+                        "user": "root"
+                    })),
+                },
+            ],
+        };
+        assert!(collapse_provisioned_duplicates(&mut state));
+        assert_eq!(state.profiles.len(), 1);
+        assert_eq!(state.profiles[0].id, "new");
+        assert!(!collapse_provisioned_duplicates(&mut state));
+    }
+
+    #[tokio::test]
     async fn store_round_trip_does_not_create_a_file_until_save() {
         let dir = tempfile::tempdir().expect("tempdir");
         let runtime = HostClientRuntime::with_path(dir.path().join("profiles.json"));
         let status = runtime
-            .status(&crate::remote_desktop::RemoteDesktopRegistry::new().expect("registry"))
+            .status(
+                &crate::remote_desktop::RemoteDesktopRegistry::new().expect("registry"),
+                "main",
+            )
             .await
             .expect("status");
         assert!(!status.connected);
@@ -1122,46 +1562,87 @@ mod tests {
         let origin = format!("http://{address}");
         let first = runtime
             .connect(
-                "window",
+                "settings",
                 &registry,
                 ConnectHostRequest {
                     origin: Some(origin.clone()),
                     token: Some("K7M2NPQX".into()),
                     profile_id: None,
                 },
-                async { false },
             )
             .await
             .expect("first connect");
         assert!(first.profile.has_credential);
         assert!(!first.profile.needs_token);
+        assert!(!first.profile.connected);
+        assert!(!first.stopped_host);
+
+        let host_window = super::host_window_label(&first.profile.id);
+        let local = runtime
+            .status(&registry, "settings")
+            .await
+            .expect("local status");
+        assert!(!local.connected);
+        assert!(
+            local
+                .profiles
+                .iter()
+                .any(|profile| profile.id == first.profile.id && !profile.connected)
+        );
+        let bound = runtime
+            .status(&registry, &host_window)
+            .await
+            .expect("host status");
+        assert!(bound.connected);
+        assert_eq!(
+            bound.profile.as_ref().map(|profile| profile.id.as_str()),
+            Some(first.profile.id.as_str())
+        );
+        assert!(bound.profiles[0].connected);
+        let settings_window = crate::host_windows::host_settings_window_label(&first.profile.id);
+        let companion = runtime
+            .status(&registry, &settings_window)
+            .await
+            .expect("companion settings");
+        assert!(companion.connected);
+        assert_eq!(
+            companion
+                .profile
+                .as_ref()
+                .map(|profile| profile.id.as_str()),
+            Some(first.profile.id.as_str())
+        );
+        let local_settings = runtime
+            .status(&registry, "settings")
+            .await
+            .expect("local settings");
+        assert!(!local_settings.connected);
 
         let second = runtime
             .connect(
-                "window",
+                "settings",
                 &registry,
                 ConnectHostRequest {
                     origin: None,
                     token: None,
                     profile_id: Some(first.profile.id.clone()),
                 },
-                async { false },
             )
             .await
             .expect("remembered connect");
         assert_eq!(second.profile.id, first.profile.id);
+        assert!(!second.profile.connected);
 
         revoked.store(true, std::sync::atomic::Ordering::SeqCst);
         let err = runtime
             .connect(
-                "window",
+                "settings",
                 &registry,
                 ConnectHostRequest {
                     origin: None,
                     token: None,
                     profile_id: Some(first.profile.id.clone()),
                 },
-                async { false },
             )
             .await
             .expect_err("revoked");

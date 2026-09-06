@@ -115,7 +115,6 @@ pub use readiness::{
 pub use remote_profiles::{
     RemoteConnectRequest, RemoteConnectResult, RemoteHostProfile, RemoteHostProfileDraft,
     RemoteProfileError, RemoteProfileErrorCode, RemoteProfileHost, UnavailableRemoteProfileHost,
-    provision_kind_needs_ensure,
 };
 pub use resolver::{
     Architecture, OperatingSystem, Platform, ResolvedToolDistribution, ToolDependencyResolver,

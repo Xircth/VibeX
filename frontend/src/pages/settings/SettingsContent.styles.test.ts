@@ -209,6 +209,26 @@ describe('settings page alignment', () => {
     expect(card.get('background')).toBe('var(--surface-content)');
   });
 
+  it('paints the saved Host list as a white settings surface', () => {
+    const list = declarationsFor('.settings-page .settings-saved-hosts');
+    const surface = declarationsFor('.settings-surface');
+
+    expect(list.get('background')).toBe(surface.get('background'));
+    expect(list.get('background')).toBe('var(--surface-card-strong)');
+  });
+
+  it('keeps the Host update action beside the saved-host summary', () => {
+    const header = declarationsFor('.settings-page .settings-host-row__header');
+    const summary = declarationsFor(
+      '.settings-page .settings-host-row__summary'
+    );
+    const update = declarationsFor('.settings-page .settings-host-row__update');
+
+    expect(header.get('display')).toBe('flex');
+    expect(summary.get('flex')).toBe('1');
+    expect(update.get('flex-shrink')).toBe('0');
+  });
+
   it('keeps grouped settings surfaces lifted so loading shells show their shadow', () => {
     const surface = declarationsFor('.settings-surface');
     expect(surface.get('border-radius')).toBe('var(--radius)');

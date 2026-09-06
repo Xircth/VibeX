@@ -239,7 +239,7 @@ impl AppState {
             provider_preset_host.clone(),
             remote_profile_host,
         ));
-        plugin_control_plane
+        let bundled_roots = plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await
             .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
@@ -252,9 +252,19 @@ impl AppState {
                 plugin.activation == plugins::PluginActivation::Enabled
                     && plugin.entrypoints.worker.is_some()
             });
-        let recovery_failures = if enabled_worker_exists {
-            match plugin_worker_runtime.resolve().await {
-                Ok(node) => {
+        let recovery_failures = match plugin_worker_runtime.resolve().await {
+            Ok(node) => {
+                let activation = plugins::BundledPluginActivation {
+                    node_executable: node.clone(),
+                    broker: plugin_capability_broker.clone(),
+                };
+                if let Err(error) = plugin_control_plane
+                    .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
+                    .await
+                {
+                    tracing::warn!(%error, "official plugin packages could not be refreshed");
+                }
+                if enabled_worker_exists {
                     let candidate_root = app_handle
                         .path()
                         .app_data_dir()
@@ -273,14 +283,14 @@ impl AppState {
                         .map_err(|error| {
                             deployment::DeploymentError::Other(anyhow::anyhow!(error))
                         })?
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                } else {
                     Vec::new()
                 }
             }
-        } else {
-            Vec::new()
+            Err(error) => {
+                tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                Vec::new()
+            }
         };
         for failure in recovery_failures {
             tracing::warn!(

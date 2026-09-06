@@ -51,7 +51,8 @@ export {
   hostClientApi,
   chatChannelApi,
 } from './config';
-export { settingsWindowApi } from './settingsWindow';
+export { settingsWindowApi, useOpenSettings } from './settingsWindow';
+export { appWindowApi, openLocalAppWindow } from './appWindow';
 export type {
   ClaudeSettings,
   PromptEnhancementModelsResponse,
@@ -85,6 +86,8 @@ export type {
   DiscoveredHost,
   HostClientStatus,
   ConnectHostResult,
+  SavedHostUpdateView,
+  ApplyHostUpdateResult,
   PortProbeResult,
   ChatChannel,
   ChatChannelStatus,

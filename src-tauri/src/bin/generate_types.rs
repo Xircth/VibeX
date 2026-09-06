@@ -359,11 +359,14 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "get_web_server_status",
     "get_web_service_config",
     "health_check",
+    "host_client_apply_host_update",
     "host_client_discover",
+    "host_client_host_updates",
     "host_client_status",
     "install_tauri_inspector",
     "is_main_window_focused",
     "list_host_devices",
+    "open_app_window",
     "open_external_terminal",
     "open_repo_in_editor",
     "open_settings_window",
@@ -377,6 +380,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "take_tauri_inspector_capture",
     "update_web_service_config",
     "plugin_control_import_cli",
+    "plugin_resolve_provider_bind",
 ];
 
 fn workspace_root() -> PathBuf {

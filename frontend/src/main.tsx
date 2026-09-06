@@ -20,6 +20,7 @@ import { warmDefaultSettingsSurface } from '@/lib/settingsPreload';
 import '@/i18n';
 // Import modal type definitions
 import './types/modals';
+import { DesktopHostBootstrap } from './DesktopHostBootstrap';
 import { isTauriRuntime, WebTransportBootstrap } from './WebTransportBootstrap';
 import { getAppRouteMode } from './appRouteMode';
 
@@ -75,7 +76,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <React.Suspense fallback={null}>
         {isTauriRuntime() ? (
-          <App />
+          <DesktopHostBootstrap>
+            <App />
+          </DesktopHostBootstrap>
         ) : (
           <WebTransportBootstrap>
             <App />

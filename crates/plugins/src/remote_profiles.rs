@@ -39,7 +39,7 @@ pub struct RemoteHostProfileDraft {
     pub provision: Option<Value>,
 }
 
-/// Ask the Host to attach the app shell to a saved or just-provisioned Host.
+/// Ask the Host to open a window bound to a saved or just-provisioned Host.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteConnectRequest {
@@ -161,10 +161,4 @@ impl RemoteProfileHost for UnavailableRemoteProfileHost {
     async fn disconnect(&self, _plugin_id: &str) -> Result<(), RemoteProfileError> {
         Err(unavailable())
     }
-}
-
-/// True when connecting this Host requires a matching remote provisioner.
-pub fn provision_kind_needs_ensure(kind: &str) -> bool {
-    let kind = kind.trim();
-    !kind.is_empty() && kind != "manual" && kind != "discovered"
 }

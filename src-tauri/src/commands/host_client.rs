@@ -1,22 +1,26 @@
-use std::time::Duration;
-
 use serde::Deserialize;
-use serde_json::{Value, json};
+use tauri::{Emitter, Manager};
 
 use crate::{
     error::AppError,
     host_client::{
-        ConnectHostRequest, ConnectHostResult, DiscoveredHost, HostClientStatus, runtime,
+        ApplyHostUpdateResult, ConnectHostRequest, ConnectHostResult, DiscoveredHost,
+        HOST_CLIENT_CHANGED, HostClientStatus, SavedHostUpdateView, advertised_connect_origin,
+        runtime,
     },
+    host_windows::host_app_window_label,
     state::AppState,
 };
 
 #[tauri::command]
 pub async fn host_client_status(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<HostClientStatus, AppError> {
     runtime().set_local_host_id(local_host_id().await).await;
-    runtime().status(&state.remote_desktop).await
+    runtime()
+        .status(&state.remote_desktop, window.label())
+        .await
 }
 
 #[tauri::command]
@@ -26,116 +30,83 @@ pub async fn host_client_discover() -> Result<Vec<DiscoveredHost>, AppError> {
 }
 
 #[tauri::command]
-pub async fn host_client_connect(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, AppState>,
-    mut request: ConnectHostRequest,
-) -> Result<ConnectHostResult, AppError> {
-    runtime().set_local_host_id(local_host_id().await).await;
-    if request
-        .origin
-        .as_deref()
-        .map(str::trim)
-        .is_none_or(str::is_empty)
-    {
-        ensure_provisioned_origin(&state, &mut request).await?;
-    }
-    runtime()
-        .connect(window.label(), &state.remote_desktop, request, async {
-            super::web_service::stop_if_running().await
-        })
-        .await
+pub async fn host_client_host_updates() -> Result<Vec<SavedHostUpdateView>, AppError> {
+    runtime().probe_updates().await
 }
 
-async fn ensure_provisioned_origin(
-    state: &tauri::State<'_, AppState>,
-    request: &mut ConnectHostRequest,
-) -> Result<(), AppError> {
-    let Some(profile_id) = request.profile_id.as_deref() else {
-        return Ok(());
+#[derive(Deserialize)]
+pub struct ApplyHostUpdateRequest {
+    pub profile_id: String,
+}
+
+const HOST_UPDATE_UNREACHABLE: &str = "host_update_unreachable";
+
+#[tauri::command]
+pub async fn host_client_apply_host_update(
+    request: ApplyHostUpdateRequest,
+) -> Result<ApplyHostUpdateResult, AppError> {
+    let Some(profile) = runtime().profile(&request.profile_id).await? else {
+        return Err(AppError::NotFound("saved Host was not found".to_string()));
     };
-    let Some(profile) = runtime().profile(profile_id).await? else {
-        return Ok(());
+    let origin = advertised_connect_origin(&profile.origin, profile.provision.as_ref());
+    let Some(token) = runtime().access_token(&request.profile_id).await? else {
+        return Err(AppError::BadRequest(HOST_UPDATE_UNREACHABLE.to_string()));
     };
-    let kind = profile.provision_kind.as_deref().unwrap_or("manual");
-    if !plugins::provision_kind_needs_ensure(kind) {
-        return Ok(());
+    runtime()
+        .apply_host_upgrade(&origin, &token)
+        .await
+        .map_err(map_host_update_error)
+}
+
+fn map_host_update_error(error: AppError) -> AppError {
+    match &error {
+        AppError::BadRequest(message)
+            if message == HOST_UPDATE_UNREACHABLE || message.contains("could not reach Host") =>
+        {
+            AppError::BadRequest(HOST_UPDATE_UNREACHABLE.to_string())
+        }
+        _ => error,
     }
-    let catalog = state
-        .plugin_control_plane
-        .contributions()
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    let provisioner = catalog.items.iter().find(|item| {
-        item.kind == plugins::ContributionKind::RemoteProvisioner
-            && item.metadata.get("provisionKind").and_then(Value::as_str) == Some(kind)
-    });
-    let Some(provisioner) = provisioner else {
-        return Err(AppError::BadRequest(
-            "this Host needs a provisioner that is not installed or not enabled".to_string(),
-        ));
-    };
-    let handler = provisioner
-        .metadata
-        .get("handler")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AppError::Internal("provisioner handler is missing".to_string()))?;
-    let timeout_seconds = provisioner
-        .metadata
-        .get("timeoutSeconds")
-        .and_then(Value::as_u64)
-        .unwrap_or(120)
-        .clamp(5, 600);
-    let lease = state
-        .plugin_control_plane
-        .activation_lease(&provisioner.plugin_id)
-        .await
-        .ok_or_else(|| {
-            AppError::BadRequest(
-                "this Host needs a provisioner that is not installed or not enabled".to_string(),
-            )
-        })?;
-    let ensured = lease
-        .invoke_with_timeout(
-            handler,
-            json!({
-                "operation": "ensure",
-                "profile": {
-                    "id": profile.id,
-                    "origin": profile.origin,
-                    "provisionKind": kind,
-                    "provision": profile.provision,
-                    "hasCredential": profile.has_credential,
-                }
-            }),
-            Duration::from_secs(timeout_seconds),
-        )
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    let origin = ensured
-        .get("origin")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            AppError::Internal("provisioner did not return a Host address".to_string())
-        })?;
-    request.origin = Some(origin.to_string());
-    if request
-        .token
-        .as_deref()
-        .map(str::trim)
-        .is_none_or(str::is_empty)
-        && let Some(token) = ensured.get("token").and_then(Value::as_str)
-    {
-        request.token = Some(token.to_string());
-    }
-    Ok(())
 }
 
 #[tauri::command]
-pub async fn host_client_disconnect(state: tauri::State<'_, AppState>) -> Result<(), AppError> {
-    runtime().disconnect(&state.remote_desktop).await
+pub async fn host_client_connect(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    request: ConnectHostRequest,
+) -> Result<ConnectHostResult, AppError> {
+    runtime().set_local_host_id(local_host_id().await).await;
+    connect_and_open_window(&app, window.label(), &state.remote_desktop, request).await
+}
+
+pub(crate) async fn connect_and_open_window(
+    app: &tauri::AppHandle,
+    caller_window: &str,
+    registry: &crate::remote_desktop::RemoteDesktopRegistry,
+    request: ConnectHostRequest,
+) -> Result<ConnectHostResult, AppError> {
+    let result = runtime().connect(caller_window, registry, request).await?;
+    super::host_window::open_or_focus_host_window(app, &result.profile)?;
+    let _ = app.emit(HOST_CLIENT_CHANGED, ());
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn host_client_disconnect(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), AppError> {
+    let label = window.label().to_string();
+    runtime()
+        .disconnect_window(&state.remote_desktop, &label)
+        .await?;
+    let _ = app.emit(HOST_CLIENT_CHANGED, ());
+    if host_app_window_label(&label).is_some() {
+        super::host_window::close_host_family(&app, &label);
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -145,12 +116,20 @@ pub struct DeleteHostRequest {
 
 #[tauri::command]
 pub async fn host_client_delete(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: DeleteHostRequest,
 ) -> Result<(), AppError> {
-    runtime()
+    let windows = runtime()
         .delete(&state.remote_desktop, &request.profile_id)
-        .await
+        .await?;
+    for label in windows {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.close();
+        }
+    }
+    let _ = app.emit(HOST_CLIENT_CHANGED, ());
+    Ok(())
 }
 
 async fn local_host_id() -> Option<String> {
@@ -160,4 +139,28 @@ async fn local_host_id() -> Option<String> {
     .await
     .ok()
     .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HOST_UPDATE_UNREACHABLE, map_host_update_error};
+    use crate::error::AppError;
+
+    #[test]
+    fn connection_failures_use_the_unreachable_update_error() {
+        match map_host_update_error(AppError::BadRequest(
+            "could not reach Host: timeout".to_string(),
+        )) {
+            AppError::BadRequest(message) => assert_eq!(message, HOST_UPDATE_UNREACHABLE),
+            other => panic!("unexpected {other:?}"),
+        }
+        match map_host_update_error(AppError::BadRequest(
+            "Host is already on the latest version".to_string(),
+        )) {
+            AppError::BadRequest(message) => {
+                assert_eq!(message, "Host is already on the latest version")
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
 }

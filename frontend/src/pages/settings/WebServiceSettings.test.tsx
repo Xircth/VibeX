@@ -25,6 +25,8 @@ const hostClientApiMock = vi.hoisted(() => ({
   connect: vi.fn(),
   disconnect: vi.fn(),
   delete: vi.fn(),
+  hostUpdates: vi.fn(),
+  applyHostUpdate: vi.fn(),
 }));
 
 const hostTunnelApiMock = vi.hoisted(() => ({
@@ -77,9 +79,11 @@ const runningStatus = {
   started_at: '2026-08-03T12:00:00Z',
 };
 
-function renderSettings() {
+function renderSettings(
+  environment: BackendTransport['environment'] = 'desktop'
+) {
   const transport: BackendTransport = {
-    environment: 'desktop',
+    environment,
     call: vi.fn(),
     createDevicePairing: vi.fn(async () => ({
       pairing_id: 'pair-1',
@@ -163,6 +167,87 @@ describe('WebServiceSettings', () => {
     });
     hostClientApiMock.disconnect.mockResolvedValue(undefined);
     hostClientApiMock.delete.mockResolvedValue(undefined);
+    hostClientApiMock.hostUpdates.mockResolvedValue([]);
+    hostClientApiMock.applyHostUpdate.mockResolvedValue({
+      fromVersion: '0.2.0',
+      toVersion: '0.2.1',
+    });
+  });
+
+  it('locks remote connection to the client role while bound to a Host', async () => {
+    hostClientApiMock.status.mockResolvedValue({
+      connected: true,
+      profile: {
+        id: 'ssh-1',
+        origin: 'http://127.0.0.1:61091',
+        host_id: 'host-ssh',
+        name: 'root@lab',
+        last_connected_at: '2026-09-06T00:00:00Z',
+        needs_token: false,
+        has_credential: true,
+        connected: true,
+        provision_kind: 'ssh',
+      },
+      profiles: [
+        {
+          id: 'ssh-1',
+          origin: 'http://127.0.0.1:61091',
+          host_id: 'host-ssh',
+          name: 'root@lab',
+          last_connected_at: '2026-09-06T00:00:00Z',
+          needs_token: false,
+          has_credential: true,
+          connected: true,
+          provision_kind: 'ssh',
+        },
+      ],
+    });
+    renderSettings('remote-desktop');
+
+    expect(
+      await screen.findByRole('heading', { name: '已保存 Host' })
+    ).toBeVisible();
+    expect(screen.getByText('root@lab')).toBeVisible();
+    expect(screen.getByText('已连接')).toBeVisible();
+    expect(
+      screen.queryByRole('tab', { name: '服务端' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: '客户端' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('spinbutton', { name: '监听端口' })
+    ).not.toBeInTheDocument();
+    expect(webServiceApiMock.start).not.toHaveBeenCalled();
+  });
+
+  it('lists a saved Host on the local client tab without enabling it', async () => {
+    hostClientApiMock.status.mockResolvedValue({
+      connected: false,
+      profile: null,
+      profiles: [
+        {
+          id: 'ssh-1',
+          origin: 'http://127.0.0.1:61091',
+          host_id: 'host-ssh',
+          name: 'root@lab',
+          last_connected_at: '2026-09-06T00:00:00Z',
+          needs_token: false,
+          has_credential: true,
+          connected: false,
+          provision_kind: 'ssh',
+        },
+      ],
+    });
+    renderSettings('desktop');
+
+    await userEvent.setup().click(await screen.findByRole('tab', { name: '客户端' }));
+    expect(
+      await screen.findByRole('heading', { name: '已保存 Host' })
+    ).toBeVisible();
+    expect(screen.getByText('root@lab')).toBeVisible();
+    expect(screen.queryByText('已连接')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '服务端' })).toBeInTheDocument();
   });
 
   it('puts server and client roles in top-right tabs', async () => {

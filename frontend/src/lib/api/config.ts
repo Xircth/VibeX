@@ -463,6 +463,19 @@ export interface ConnectHostResult {
   stopped_host: boolean;
 }
 
+export interface SavedHostUpdateView {
+  profile_id: string;
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+  reachable: boolean;
+}
+
+export interface ApplyHostUpdateResult {
+  fromVersion: string;
+  toVersion: string;
+}
+
 export const hostClientApi = {
   status: async (): Promise<HostClientStatus> => {
     return desktopShellCall<HostClientStatus>('host_client_status');
@@ -486,6 +499,17 @@ export const hostClientApi = {
     await desktopShellCall('host_client_delete', {
       request: { profile_id: profileId },
     });
+  },
+  hostUpdates: async (): Promise<SavedHostUpdateView[]> => {
+    return desktopShellCall<SavedHostUpdateView[]>('host_client_host_updates');
+  },
+  applyHostUpdate: async (
+    profileId: string
+  ): Promise<ApplyHostUpdateResult> => {
+    return desktopShellCall<ApplyHostUpdateResult>(
+      'host_client_apply_host_update',
+      { request: { profile_id: profileId } }
+    );
   },
 };
 

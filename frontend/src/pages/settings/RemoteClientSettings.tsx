@@ -8,7 +8,6 @@ import {
   RefreshCw,
   Server,
 } from 'lucide-react';
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -25,36 +24,156 @@ import {
   hostClientApi,
   type DiscoveredHost,
   type HostClientProfile,
+  type SavedHostUpdateView,
 } from '@/lib/api';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 
+import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { createBackendAppSurfaceTransport } from '@/lib/api/appSurfaceTransport';
+import { createPluginControlApi } from '@/lib/api/plugins';
+import { tauriBackendTransport } from '@/lib/transport';
+import {
+  localProvisionerSurfaces,
+  type LocalProvisionerSurface,
+} from './localProvisionerSurfaces';
+import {
+  provisionKindLabel,
+  savedHostAddress,
+  savedHostOrigin,
+  savedHostSource,
+  type SavedHostSource,
+} from './savedHostAddress';
 import { SettingsSection } from './SettingsUi';
 
 function isNeedsToken(error: unknown): boolean {
   return getErrorMessage(error).includes('needs_token');
 }
 
+function connectErrorMessage(error: unknown, failed: string, loginRejected: string): string {
+  const message = getErrorMessage(error);
+  if (/permission denied/i.test(message)) return loginRejected;
+  const cleaned = message
+    .replace(/^(internal error:\s*)+/i, '')
+    .replace(/^(worker_request_failed:\s*)+/i, '')
+    .replace(/^(worker_failed:\s*)+/i, '')
+    .trim();
+  return cleaned || failed;
+}
+
+const HOST_SOURCE_COPY: Record<SavedHostSource, string> = {
+  discovered: 'webService.hostSourceDiscovered',
+  manual: 'webService.hostSourceManual',
+  ssh: 'webService.hostSourceSsh',
+  other: 'webService.hostSourceOther',
+};
+
+function SavedHostFacts({ profile }: { profile: HostClientProfile }) {
+  const { t } = useTranslation('settings');
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={cn('settings-host-facts', open && 'is-open')}>
+      <button
+        type="button"
+        className="settings-host-facts__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {t('webService.hostDetails')}
+      </button>
+      {open ? (
+        <dl>
+          <div>
+            <dt>{t('webService.hostSourceLabel')}</dt>
+            <dd>
+              {t(HOST_SOURCE_COPY[savedHostSource(profile.provision_kind)])}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('webService.hostAddressLabel')}</dt>
+            <dd>
+              <code title={savedHostAddress(profile)}>
+                {savedHostAddress(profile)}
+              </code>
+            </dd>
+          </div>
+          {profile.host_id ? (
+            <div>
+              <dt>{t('webService.hostIdLabel')}</dt>
+              <dd>
+                <code title={profile.host_id}>{profile.host_id}</code>
+              </dd>
+            </div>
+          ) : null}
+          {profile.last_connected_at ? (
+            <div>
+              <dt>{t('webService.lastConnectedLabel')}</dt>
+              <dd>
+                {new Date(profile.last_connected_at).toLocaleString()}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
 function hostKey(host: { origin: string; host_id?: string | null }): string {
   return host.host_id?.trim() || host.origin;
 }
 
-function provisionKindLabel(
-  kind: string | null | undefined,
-  t: TFunction<'settings'>
-): string | null {
-  const value = kind?.trim();
-  if (!value || value === 'manual' || value === 'discovered') {
-    return null;
-  }
-  if (value === 'ssh') {
-    return t('webService.provisionKindSsh');
-  }
-  return value.toUpperCase();
+function useLocalProvisioners() {
+  const [panels, setPanels] = useState<LocalProvisionerSurface[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const api = useMemo(() => createPluginControlApi(tauriBackendTransport), []);
+  const surfaceTransport = useMemo(
+    () => createBackendAppSurfaceTransport(tauriBackendTransport),
+    []
+  );
+
+  const reload = useCallback(async () => {
+    const [catalog, contributions] = await Promise.all([
+      api.catalog(),
+      api.contributionCatalog(),
+    ]);
+    setPanels(localProvisionerSurfaces(catalog, contributions));
+  }, [api]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void reload().catch(() => {
+      if (!cancelled) setPanels([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
+  const open = useCallback(
+    (panel: LocalProvisionerSurface) => {
+      if (!panel.plugin.enabled) {
+        void api
+          .setEnabled(panel.plugin.id, true)
+          .then(() => reload())
+          .then(() => setOpenId(panel.plugin.id))
+          .catch(() => undefined);
+        return;
+      }
+      setOpenId((current) =>
+        current === panel.plugin.id ? null : panel.plugin.id
+      );
+    },
+    [api, reload]
+  );
+
+  return { panels, openId, open, surfaceTransport };
 }
 
 export function RemoteClientSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const provisioners = useLocalProvisioners();
   const [profiles, setProfiles] = useState<HostClientProfile[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredHost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +185,8 @@ export function RemoteClientSettings() {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualOrigin, setManualOrigin] = useState('');
   const [manualCode, setManualCode] = useState('');
+  const [hostUpdates, setHostUpdates] = useState<SavedHostUpdateView[]>([]);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const connected = profiles.find((profile) => profile.connected) ?? null;
 
@@ -73,6 +194,14 @@ export function RemoteClientSettings() {
     const status = await hostClientApi.status();
     setProfiles(status.profiles);
     return status;
+  }, []);
+
+  const loadHostUpdates = useCallback(async () => {
+    try {
+      setHostUpdates(await hostClientApi.hostUpdates());
+    } catch {
+      setHostUpdates([]);
+    }
   }, []);
 
   const scan = useCallback(async () => {
@@ -96,6 +225,7 @@ export function RemoteClientSettings() {
       try {
         await loadStatus();
         if (!cancelled) await scan();
+        if (!cancelled) await loadHostUpdates();
       } catch (error) {
         if (!cancelled) {
           toast.error(
@@ -111,7 +241,7 @@ export function RemoteClientSettings() {
     return () => {
       cancelled = true;
     };
-  }, [loadStatus, scan, t]);
+  }, [loadHostUpdates, loadStatus, scan, t]);
 
   useEffect(() => {
     if (!connected) return;
@@ -174,7 +304,9 @@ export function RemoteClientSettings() {
         setManualCode('');
         setTokenFor(null);
         setExpandedId(result.profile.id);
-        toast.success(t('webService.clientConnected'));
+        if (result.profile.connected) {
+          toast.success(t('webService.clientConnected'));
+        }
         if (result.stopped_host) {
           toast.success(t('webService.stoppedHostForClient'));
         }
@@ -185,9 +317,11 @@ export function RemoteClientSettings() {
           await loadStatus().catch(() => undefined);
         } else {
           toast.error(
-            error instanceof Error
-              ? error.message
-              : t('webService.clientConnectFailed')
+            connectErrorMessage(
+              error,
+              t('webService.clientConnectFailed'),
+              t('webService.sshLoginRejected')
+            )
           );
         }
       } finally {
@@ -220,10 +354,11 @@ export function RemoteClientSettings() {
 
   const connectSaved = useCallback(
     async (profile: HostClientProfile) => {
+      const origin = savedHostOrigin(profile);
       if (profile.has_credential && tokenFor !== profile.id) {
         await connect({
           profile_id: profile.id,
-          origin: profile.origin,
+          origin,
           key: profile.id,
         });
         return;
@@ -235,7 +370,7 @@ export function RemoteClientSettings() {
       }
       await connect({
         profile_id: profile.id,
-        origin: profile.origin,
+        origin,
         token: token.trim(),
         key: profile.id,
       });
@@ -285,6 +420,44 @@ export function RemoteClientSettings() {
     }
   }, [loadStatus, t]);
 
+  const confirmHostUpdate = useCallback(
+    async (profile: HostClientProfile, update: SavedHostUpdateView) => {
+      const confirmed = await ConfirmDialog.show({
+        title: t('webService.hostUpdateTitle'),
+        message: t('webService.hostUpdateMessage', {
+          name: profile.name,
+          address: savedHostAddress(profile),
+          from: update.current_version ?? '—',
+          to: update.latest_version ?? '—',
+        }),
+        confirmText: t('webService.hostUpdateConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'info',
+      });
+      if (confirmed !== 'confirmed') return;
+      setUpdatingId(profile.id);
+      try {
+        const result = await hostClientApi.applyHostUpdate(profile.id);
+        toast.success(
+          t('webService.hostUpdateDone', { version: result.toVersion })
+        );
+        await loadStatus();
+        await loadHostUpdates();
+      } catch (error) {
+        const message = getErrorMessage(error);
+        toast.error(
+          message.includes('host_update_unreachable')
+            ? t('webService.hostUpdateFailed')
+            : message
+        );
+        await loadHostUpdates();
+      } finally {
+        setUpdatingId(null);
+      }
+    },
+    [loadHostUpdates, loadStatus, t]
+  );
+
   const deleteHost = useCallback(
     async (profile: HostClientProfile) => {
       const confirmed = await ConfirmDialog.show({
@@ -329,6 +502,10 @@ export function RemoteClientSettings() {
     );
   }
 
+  const openProvisioner = provisioners.panels.find(
+    (panel) => panel.plugin.id === provisioners.openId
+  );
+
   return (
     <div className="settings-sections">
       <SettingsSection
@@ -336,6 +513,22 @@ export function RemoteClientSettings() {
         title={t('webService.discoverTitle')}
         action={
           <div className="flex items-center gap-2">
+            {provisioners.panels.map((panel) => {
+              const Icon = contributionIconComponent(panel.icon, Laptop);
+              return (
+                <Button
+                  key={panel.plugin.id}
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  aria-pressed={provisioners.openId === panel.plugin.id}
+                  onClick={() => provisioners.open(panel)}
+                >
+                  <Icon className="mr-1 h-3.5 w-3.5" />
+                  {panel.label}
+                </Button>
+              );
+            })}
             <Popover open={manualOpen} onOpenChange={setManualOpen}>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8">
@@ -466,6 +659,19 @@ export function RemoteClientSettings() {
         )}
       </SettingsSection>
 
+      {openProvisioner?.plugin.enabled ? (
+        <SettingsSection icon={Laptop} title={openProvisioner.label}>
+          {openProvisioner.surfaces.map((surface) => (
+            <AppSurfaceHost
+              key={`${surface.surfaceId}:${surface.generation}`}
+              descriptor={surface}
+              enabled
+              transport={provisioners.surfaceTransport}
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection icon={Server} title={t('webService.savedTitle')}>
         <div className="settings-saved-hosts">
           {profiles.length === 0 ? (
@@ -477,63 +683,79 @@ export function RemoteClientSettings() {
               const expanded = expandedId === profile.id;
               const asking = tokenFor === profile.id;
               const busy = connectingKey === profile.id;
+              const update = hostUpdates.find(
+                (item) =>
+                  item.profile_id === profile.id && item.update_available
+              );
               return (
                 <div
                   className={cn(
                     'settings-host-row',
-                    profile.connected && 'is-connected'
+                    profile.connected && 'is-connected',
+                    expanded && 'is-expanded'
                   )}
                   key={profile.id}
                 >
-                  <button
-                    type="button"
-                    className="settings-host-row__summary"
-                    aria-expanded={expanded}
-                    onClick={() =>
-                      setExpandedId((current) =>
-                        current === profile.id ? null : profile.id
-                      )
-                    }
-                  >
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-2 truncate text-sm font-medium">
-                        <span className="truncate">{profile.name}</span>
-                        {profile.connected ? (
-                          <span className="settings-status-success rounded-full px-2 py-0.5 text-xs font-medium">
-                            {t('webService.connectedBadge')}
-                          </span>
-                        ) : null}
-                        {provisionKindLabel(profile.provision_kind, t) ? (
-                          <span className="rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-xs font-medium text-[color:var(--text-muted)]">
-                            {provisionKindLabel(profile.provision_kind, t)}
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="settings-row__description font-mono">
-                        {profile.origin}
-                      </p>
-                    </div>
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
-                        expanded && 'rotate-180'
-                      )}
-                      aria-hidden="true"
-                    />
-                  </button>
+                  <div className="settings-host-row__header">
+                    <button
+                      type="button"
+                      className="settings-host-row__summary"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        setExpandedId((current) =>
+                          current === profile.id ? null : profile.id
+                        )
+                      }
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 truncate text-sm font-medium">
+                          <span className="truncate">{profile.name}</span>
+                          {profile.connected ? (
+                            <span className="settings-status-success rounded-full px-2 py-0.5 text-xs font-medium">
+                              {t('webService.connectedBadge')}
+                            </span>
+                          ) : null}
+                          {provisionKindLabel(
+                            profile.provision_kind,
+                            provisioners.panels
+                          ) ? (
+                            <span className="rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-xs font-medium text-[color:var(--text-muted)]">
+                              {provisionKindLabel(
+                                profile.provision_kind,
+                                provisioners.panels
+                              )}
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
+                          expanded && 'rotate-180'
+                        )}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    {update ? (
+                      <button
+                        type="button"
+                        className="settings-host-row__update settings-status-pill-warning text-xs font-medium"
+                        disabled={updatingId === profile.id}
+                        onClick={() => {
+                          void confirmHostUpdate(profile, update);
+                        }}
+                      >
+                        {updatingId === profile.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          t('webService.hostUpdateAvailable')
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                   {expanded ? (
                     <div className="settings-host-row__detail">
-                      {profile.host_id ? (
-                        <p className="settings-row__description font-mono">
-                          {t('webService.hostIdLabel')}: {profile.host_id}
-                        </p>
-                      ) : null}
-                      {profile.last_connected_at ? (
-                        <p className="settings-row__description">
-                          {t('webService.lastConnectedLabel')}:{' '}
-                          {new Date(profile.last_connected_at).toLocaleString()}
-                        </p>
-                      ) : null}
+                      <SavedHostFacts profile={profile} />
                       {asking ? (
                         <Input
                           value={token}

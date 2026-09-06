@@ -200,11 +200,3 @@ async fn unavailable_host_uses_the_documented_deny_code() {
         .expect_err("headless has no client store");
     assert_eq!(error.code(), "remote_profiles_unavailable");
 }
-
-#[test]
-fn ssh_kind_needs_ensure_and_manual_does_not() {
-    assert!(plugins::provision_kind_needs_ensure("ssh"));
-    assert!(!plugins::provision_kind_needs_ensure("manual"));
-    assert!(!plugins::provision_kind_needs_ensure("discovered"));
-    assert!(!plugins::provision_kind_needs_ensure(""));
-}

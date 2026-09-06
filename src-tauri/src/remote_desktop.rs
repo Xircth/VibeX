@@ -132,6 +132,27 @@ impl RemoteDesktopRegistry {
         }
     }
 
+    async fn profile(
+        &self,
+        window_label: &str,
+        profile_id: &str,
+    ) -> Result<RemoteProfile, AppError> {
+        let profiles = self.profiles.read().await;
+        if let Some(profile) = profiles.get(&(window_label.to_string(), profile_id.to_string())) {
+            return Ok(profile.clone());
+        }
+        if let Some(host_window) = window_label
+            .strip_prefix("settings-")
+            .filter(|rest| rest.starts_with("host-") && rest.len() > "host-".len())
+            && let Some(profile) = profiles.get(&(host_window.to_string(), profile_id.to_string()))
+        {
+            return Ok(profile.clone());
+        }
+        Err(AppError::NotFound(
+            "remote Server profile not connected".to_string(),
+        ))
+    }
+
     pub async fn call(
         &self,
         window_label: &str,
@@ -149,13 +170,7 @@ impl RemoteDesktopRegistry {
                 "remote command identifier is invalid".to_string(),
             ));
         }
-        let profile = self
-            .profiles
-            .read()
-            .await
-            .get(&(window_label.to_string(), profile_id.to_string()))
-            .cloned()
-            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let profile = self.profile(window_label, profile_id).await?;
         let response = self
             .client
             .post(format!("{}/api/v1/call/{command}", profile.base_url))
@@ -179,13 +194,7 @@ impl RemoteDesktopRegistry {
         window_label: &str,
         profile_id: &str,
     ) -> Result<ServerCapabilities, AppError> {
-        let profile = self
-            .profiles
-            .read()
-            .await
-            .get(&(window_label.to_string(), profile_id.to_string()))
-            .cloned()
-            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let profile = self.profile(window_label, profile_id).await?;
         let response = self
             .client
             .get(format!("{}/api/v1/capabilities", profile.base_url))
@@ -211,13 +220,7 @@ impl RemoteDesktopRegistry {
         event: String,
         subscription_id: Uuid,
     ) -> Result<Uuid, AppError> {
-        let profile = self
-            .profiles
-            .read()
-            .await
-            .get(&(window_label.to_string(), profile_id.to_string()))
-            .cloned()
-            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let profile = self.profile(window_label, profile_id).await?;
         let channel = format!("remote-desktop:{profile_id}:{event}");
         let (cancel_tx, cancel_rx) = oneshot::channel();
         self.pumps.write().await.insert(
@@ -249,13 +252,7 @@ impl RemoteDesktopRegistry {
         on_event: tauri::ipc::Channel<serde_json::Value>,
         subscription_id: Uuid,
     ) -> Result<Uuid, AppError> {
-        let profile = self
-            .profiles
-            .read()
-            .await
-            .get(&(window_label.to_string(), profile_id.to_string()))
-            .cloned()
-            .ok_or_else(|| AppError::NotFound("remote Server profile not connected".to_string()))?;
+        let profile = self.profile(window_label, profile_id).await?;
         let (cancel_tx, cancel_rx) = oneshot::channel();
         self.pumps.write().await.insert(
             subscription_id,
@@ -551,7 +548,7 @@ mod tests {
                 ))
             }),
         );
-        let task = tokio::spawn(async move { axum::serve(listener, router).await });
+        let _task = tokio::spawn(async move { axum::serve(listener, router).await });
         let registry = RemoteDesktopRegistry::new().expect("registry");
         let base_url = format!("http://{address}");
         registry
@@ -628,7 +625,70 @@ mod tests {
             format!("{:?}", RemoteCredential("super-secret".to_string())),
             "RemoteCredential([REDACTED])"
         );
-        task.abort();
+    }
+
+    #[tokio::test]
+    async fn remote_calls_stay_on_the_bound_window_and_its_settings() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("address");
+        let router = Router::new().route(
+            "/api/v1/call/{command}",
+            post(|_request: Request| async move {
+                Json(CommandResponse::new(
+                    OperationId::new(),
+                    serde_json::json!("bound"),
+                ))
+            }),
+        );
+        let _task = tokio::spawn(async move { axum::serve(listener, router).await });
+        let registry = RemoteDesktopRegistry::new().expect("registry");
+        let base_url = format!("http://{address}");
+        registry
+            .connect("host-abc", "active-host-client", &base_url, "x".repeat(32))
+            .await
+            .expect("host window");
+
+        assert!(
+            registry
+                .call(
+                    "main",
+                    "active-host-client",
+                    "get_projects",
+                    serde_json::json!({}),
+                    None
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "host-abc",
+                    "active-host-client",
+                    "get_projects",
+                    serde_json::json!({}),
+                    None
+                )
+                .await
+                .expect("host window"),
+            "bound"
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "settings-host-abc",
+                    "active-host-client",
+                    "get_projects",
+                    serde_json::json!({}),
+                    None
+                )
+                .await
+                .expect("host settings window"),
+            "bound"
+        );
+        _task.abort();
     }
 
     #[tokio::test]

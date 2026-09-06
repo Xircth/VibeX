@@ -22,7 +22,7 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { settingsWindowApi } from '@/lib/api';
+import { useOpenSettings } from '@/lib/api';
 import { checkAppUpdate } from '@/lib/appUpdate';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
@@ -31,7 +31,6 @@ import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { useTauriClient } from '@/lib/desktopShell';
-import { useBackendTransport } from '@/lib/transport';
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
 import {
@@ -64,9 +63,8 @@ function MainAppContent() {
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
   const crashPromptShownRef = useRef(false);
-  const transport = useBackendTransport();
-  const isDesktop = transport.environment === 'desktop';
-  const isMainDesktopWindow = isDesktop && getCurrentWindow().label === 'main';
+  const isTauri = useTauriClient();
+  const isMainDesktopWindow = isTauri && getCurrentWindow().label === 'main';
   const startupPromptStep = getStartupPromptStep({
     config,
     pathname: location.pathname,
@@ -108,13 +106,13 @@ function MainAppContent() {
   // Track previous path for back navigation
   usePreviousPath();
 
-  // Scratch streams are desktop-only; Web keeps UI preferences local.
-  useUiPreferencesScratch(isDesktop);
+  // Scratch streams are desktop-shell; Web keeps UI preferences local.
+  useUiPreferencesScratch(isTauri);
 
   useLegacyDesignBodyClass();
 
   useEffect(() => {
-    if (!isDesktop) return;
+    if (!isTauri) return;
     if (startupPromptStep !== 'dismiss-release-notes') return;
     let cancelled = false;
 
@@ -129,13 +127,13 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [isDesktop, startupPromptStep, updateAndSaveConfig]);
+  }, [isTauri, startupPromptStep, updateAndSaveConfig]);
 
   // Opt-in crash reporting: once the startup prompt chain is idle, surface the
   // newest locally captured crash report (full content, user decides whether to
   // file it). Runs at most once per app session.
   useEffect(() => {
-    if (!isDesktop) return;
+    if (!isTauri) return;
     if (!config?.crash_reports_enabled || crashPromptShownRef.current) return;
     const startupPromptStep = getStartupPromptStep({
       config,
@@ -174,10 +172,10 @@ function MainAppContent() {
         crashPromptShownRef.current = false;
       }
     };
-  }, [config, isDesktop, location.pathname]);
+  }, [config, isTauri, location.pathname]);
 
   useEffect(() => {
-    if (!isDesktop || !config?.disclaimer_acknowledged) return;
+    if (!isTauri || !config?.disclaimer_acknowledged) return;
     if (config.auto_update_enabled === false || maintenanceStartedRef.current)
       return;
 
@@ -219,17 +217,17 @@ function MainAppContent() {
         maintenanceStartedRef.current = false;
       }
     };
-  }, [config, isDesktop, navigate, t]);
+  }, [config, isTauri, navigate, t]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
         <AgentWorkbenchProvider>
           {isMainDesktopWindow ? <ProjectWindowManager /> : null}
-          {isDesktop ? <TrayBadgeSync /> : null}
+          {isTauri ? <TrayBadgeSync /> : null}
           <ThemedToaster />
           <MainAppRoutes />
-          {config && isDesktop && startupPromptStep === 'first-run' ? (
+          {config && isTauri && startupPromptStep === 'first-run' ? (
             <Suspense fallback={null}>
               <FirstRunExperience
                 open
@@ -270,23 +268,18 @@ function AppContent() {
 }
 
 function GlobalShortcutActionBridge() {
-  const navigate = useNavigate();
-  const tauriClient = useTauriClient();
+  const openSettings = useOpenSettings();
   useEffect(() => {
     const handleShortcut = (event: Event) => {
       const { actionId } = (event as CustomEvent<ShortcutActionEventDetail>)
         .detail;
       if (actionId !== 'settings') return;
-      if (tauriClient) {
-        void settingsWindowApi.open();
-        return;
-      }
-      navigate('/settings');
+      openSettings();
     };
     window.addEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
     return () =>
       window.removeEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
-  }, [navigate, tauriClient]);
+  }, [openSettings]);
   return null;
 }
 

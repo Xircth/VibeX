@@ -16,8 +16,9 @@ use browser_cef::{
 use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
+mod app_chrome;
 mod app_icon;
-mod app_surface;
+mod app_windows;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
@@ -28,6 +29,7 @@ mod error;
 mod events;
 mod host_bus;
 mod host_client;
+mod host_windows;
 pub mod linux_display;
 mod logging;
 mod managed_artifacts;
@@ -137,7 +139,9 @@ fn shutdown_cef_session() {
 }
 
 #[cfg(target_os = "macos")]
-fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+pub(crate) fn native_browser_parent(
+    window: &tauri::WebviewWindow,
+) -> Result<NativeBrowserParent, String> {
     let raw = window.ns_view().map_err(|error| error.to_string())? as usize;
     // SAFETY: Tauri owns this NSView for the lifetime of the main window and
     // setup runs on the UI thread before CEF creates any child view.
@@ -145,14 +149,18 @@ fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserP
 }
 
 #[cfg(target_os = "windows")]
-fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+pub(crate) fn native_browser_parent(
+    window: &tauri::WebviewWindow,
+) -> Result<NativeBrowserParent, String> {
     let raw = window.hwnd().map_err(|error| error.to_string())?.0 as usize;
     // SAFETY: Tauri owns this HWND for the lifetime of the main window.
     unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "linux")]
-fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+pub(crate) fn native_browser_parent(
+    window: &tauri::WebviewWindow,
+) -> Result<NativeBrowserParent, String> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let raw = match window
@@ -396,6 +404,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     // a second launch's args (carrying the vibex:// URL on Windows/Linux) into
     // the running instance.
     .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if app_chrome::apply_forwarded_launch_args(app, &args) {
+            return;
+        }
         deeplink::route_deep_link_args(app, &args);
     }))
     .plugin(tauri_plugin_deep_link::init())
@@ -457,6 +468,11 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             .expect("Failed to resolve managed executable directory")
             .join("plugins")
             .join("runtimes");
+        let plugin_dev_file = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|dir| dir.join("plugin-dev.json"));
         match tauri::async_runtime::block_on(plugin_dev_server::start(
             state.plugin_control_plane.clone(),
             state.deployment.db().pool.clone(),
@@ -464,6 +480,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             state.plugin_worker_runtime.clone(),
             plugin_runtime_root,
             plugin_candidate_root,
+            plugin_dev_file,
         )) {
             Ok(connection) => {
                 tracing::info!(
@@ -642,6 +659,8 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         if let Err(error) = tray::install_tray_icon(app.handle()) {
             tracing::warn!("Failed to install tray icon: {}", error);
         }
+        app_chrome::install(app.handle());
+        app_chrome::apply_startup_args(app.handle());
 
         // Deep links (P2-5). macOS delivers URLs here; register the scheme at
         // runtime too so it works in dev on Linux/Windows (best-effort).
@@ -657,8 +676,11 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         Ok(())
     })
     .on_menu_event(|app, event| {
-        // Tray menu clicks (Show / Hide / Quit) share this dispatcher (P2-5).
-        tray::handle_menu_event(app, event.id().as_ref());
+        let id = event.id().as_ref();
+        if tray::handle_menu_event(app, id) {
+            return;
+        }
+        let _ = app_chrome::handle_menu_event(app, id);
     })
     .invoke_handler(tauri::generate_handler![
         health_check,
@@ -714,10 +736,13 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::host_tunnel::remove_saved_host_tunnel,
         commands::host_client::host_client_status,
         commands::host_client::host_client_discover,
+        commands::host_client::host_client_host_updates,
+        commands::host_client::host_client_apply_host_update,
         commands::host_client::host_client_connect,
         commands::host_client::host_client_disconnect,
         commands::host_client::host_client_delete,
         commands::settings_window::open_settings_window,
+        commands::app_window::open_app_window,
         commands::plugin_control::plugin_resolve_provider_bind,
         commands::plugin_control::plugin_control_import_cli,
         plugin_dev_server::plugin_dev_connection,
@@ -735,9 +760,18 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                 .state::<state::AppState>()
                 .remote_desktop
                 .clone();
+            let app = _app_handle.clone();
             let label = label.clone();
+            if host_windows::is_host_window(&label)
+                && let Some(settings) = host_windows::host_settings_window_for_app(&label)
+                && let Some(window) = _app_handle.get_webview_window(&settings)
+            {
+                let _ = window.close();
+            }
             tauri::async_runtime::spawn(async move {
+                host_client::runtime().unbind_window(&label).await;
                 remote_desktop.disconnect_window(&label).await;
+                let _ = app.emit(host_client::HOST_CLIENT_CHANGED, ());
             });
         }
         #[cfg(target_os = "macos")]

@@ -161,6 +161,17 @@ export class RemoteDesktopTransport implements BackendTransport {
     );
   }
 
+  static attach(
+    profile: { profileId: string; baseUrl: string },
+    bridge: RemoteDesktopBridge = tauriBridge
+  ): RemoteDesktopTransport {
+    return new RemoteDesktopTransport(
+      profile.profileId,
+      profile.baseUrl,
+      bridge
+    );
+  }
+
   call(
     command: string,
     args?: Record<string, unknown>,

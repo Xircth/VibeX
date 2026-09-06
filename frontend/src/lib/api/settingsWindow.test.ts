@@ -3,16 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 
 const desktopShellCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const isTauriClient = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock('@/lib/desktopShell', () => ({
   desktopShellCall,
+  isTauriClient,
 }));
 
-import { settingsWindowApi } from './settingsWindow';
+import { openSettingsSurface, settingsWindowApi } from './settingsWindow';
 
 describe('settingsWindowApi', () => {
   beforeEach(() => {
     desktopShellCall.mockClear();
+    isTauriClient.mockReturnValue(true);
   });
 
   it('opens the settings window with the Chinese title', async () => {
@@ -33,5 +36,29 @@ describe('settingsWindowApi', () => {
     expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
       title: 'Settings',
     });
+  });
+
+  it('keeps Settings in a dedicated window on the local desktop', () => {
+    const navigate = vi.fn();
+    openSettingsSurface(navigate);
+    expect(desktopShellCall).toHaveBeenCalledOnce();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('opens a companion Settings window from a bound Host window', () => {
+    const navigate = vi.fn();
+    openSettingsSurface(navigate);
+    expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
+      title: expect.any(String),
+    });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('navigates in-place when Settings is not a desktop window', () => {
+    isTauriClient.mockReturnValue(false);
+    const navigate = vi.fn();
+    openSettingsSurface(navigate);
+    expect(navigate).toHaveBeenCalledWith('/settings');
+    expect(desktopShellCall).not.toHaveBeenCalled();
   });
 });

@@ -24,6 +24,7 @@ export {
   RemoteDesktopTransport,
   type RemoteDesktopProfile,
 } from './remoteDesktopTransport';
+export { BoundHostTransport } from './boundHostTransport';
 export {
   configureBackendTransport,
   configuredBackendTransport,

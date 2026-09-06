@@ -6,7 +6,10 @@
     "main",
     "settings",
     "desktop-toast",
-    "project-rail"
+    "project-rail",
+    "host-*",
+    "settings-host-*",
+    "app-*"
   ],
   "permissions": [
     "core:default",

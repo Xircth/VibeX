@@ -8,6 +8,8 @@
 
 use tauri::{AppHandle, Manager};
 
+use crate::app_chrome::{MENU_ID_NEW_WINDOW, MENU_ID_OPEN_SETTINGS};
+
 pub const TRAY_MENU_ID_SHOW: &str = "tray:show";
 pub const TRAY_MENU_ID_HIDE: &str = "tray:hide";
 pub const TRAY_MENU_ID_QUIT: &str = "tray:quit";
@@ -49,12 +51,23 @@ pub fn install_tray_icon(app: &AppHandle) -> tauri::Result<()> {
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     };
 
+    let new_window = MenuItem::with_id(app, MENU_ID_NEW_WINDOW, "新建窗口", true, None::<&str>)?;
+    let open_settings =
+        MenuItem::with_id(app, MENU_ID_OPEN_SETTINGS, "打开设置", true, None::<&str>)?;
     let show_item = MenuItem::with_id(app, TRAY_MENU_ID_SHOW, "显示 VibeX", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, TRAY_MENU_ID_HIDE, "隐藏窗口", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, TRAY_MENU_ID_QUIT, "退出 VibeX", true, None::<&str>)?;
     let menu = MenuBuilder::new(app)
-        .items(&[&show_item, &hide_item, &separator, &quit_item])
+        .items(&[
+            &new_window,
+            &open_settings,
+            &separator,
+            &show_item,
+            &hide_item,
+            &separator,
+            &quit_item,
+        ])
         .build()?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)

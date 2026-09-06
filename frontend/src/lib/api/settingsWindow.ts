@@ -1,5 +1,8 @@
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import i18n from '@/i18n';
-import { desktopShellCall } from '@/lib/desktopShell';
+import { desktopShellCall, isTauriClient } from '@/lib/desktopShell';
 
 export const settingsWindowApi = {
   open: async (): Promise<void> => {
@@ -8,3 +11,18 @@ export const settingsWindowApi = {
     });
   },
 };
+
+export function openSettingsSurface(navigate: (path: string) => void): void {
+  if (isTauriClient()) {
+    void settingsWindowApi.open();
+    return;
+  }
+  navigate('/settings');
+}
+
+export function useOpenSettings(): () => void {
+  const navigate = useNavigate();
+  return useCallback(() => {
+    openSettingsSurface(navigate);
+  }, [navigate]);
+}

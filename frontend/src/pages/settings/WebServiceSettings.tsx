@@ -13,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 import type { BackendTransport } from '@/lib/backendTransport';
+import { isTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
 
 import { Button } from '@/components/ui/button';
@@ -70,8 +71,11 @@ export function WebServiceSettings({
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
   const [tokenRevealed, setTokenRevealed] = useState(false);
-  const [role, setRole] = useState<RemoteRoleTab>('server');
-  const hostConsole = transport.environment === 'desktop';
+  const hostConsole = isTauriClient(transport.environment);
+  const boundToRemote = transport.environment === 'remote-desktop';
+  const [role, setRole] = useState<RemoteRoleTab>(() =>
+    hostConsole && boundToRemote ? 'client' : 'server'
+  );
   const serviceRunning = Boolean(status?.running);
 
   const dirty = useMemo(() => !sameConfig(config, draft), [config, draft]);
@@ -116,7 +120,7 @@ export function WebServiceSettings({
   };
 
   const load = useCallback(async () => {
-    if (!hostConsole) {
+    if (!hostConsole || boundToRemote) {
       setLoading(false);
       return;
     }
@@ -145,7 +149,11 @@ export function WebServiceSettings({
     } finally {
       setLoading(false);
     }
-  }, [hostConsole, t]);
+  }, [boundToRemote, hostConsole, t]);
+
+  useEffect(() => {
+    if (boundToRemote) setRole('client');
+  }, [boundToRemote]);
 
   useEffect(() => {
     void load();
@@ -325,7 +333,7 @@ export function WebServiceSettings({
             <span>{t('webService.title')}</span>
           </h2>
         </div>
-        {hostConsole ? (
+        {hostConsole && !boundToRemote ? (
           <div className="chat-channel-heading__actions">
             <div
               className="chat-channel-tabs"
@@ -371,7 +379,7 @@ export function WebServiceSettings({
 
       {role === 'client' && hostConsole ? <RemoteClientSettings /> : null}
 
-      {role === 'server' || !hostConsole ? (
+      {!boundToRemote && (role === 'server' || !hostConsole) ? (
         <div className="settings-sections">
           {hostConsole ? (
             <SettingsSection
@@ -710,7 +718,7 @@ export function WebServiceSettings({
         </div>
       ) : null}
 
-      {role === 'server' ? (
+      {role === 'server' && !boundToRemote ? (
         <SettingsActionBar
           dirty={dirty}
           saving={saving}

@@ -97,7 +97,7 @@ describe('isComposerImeComposing', () => {
 });
 
 describe('composerEnterAction', () => {
-  it('defers a normal Enter so Astryx can submit and record history', () => {
+  it('defers a normal Enter so Astryx can submit', () => {
     expect(composerEnterAction('Enter', enterEvent())).toBe('defer');
     expect(astryxHandlesComposerSubmit(enterEvent())).toBe(true);
   });

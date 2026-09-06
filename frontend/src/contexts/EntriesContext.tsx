@@ -23,6 +23,7 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
 
 const EMPTY_SESSION_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 const EMPTY_CONVERSATION_PLAN_ENTRIES: PlanEntry[] = [];
+const EMPTY_USER_MESSAGE_HISTORY: string[] = [];
 
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
@@ -32,12 +33,14 @@ interface EntriesContextType {
   setSessionConfigOptions: (options: AgentSessionConfigOption[]) => void;
   setConversationPlanEntries: (entries: PlanEntry[]) => void;
   setConversationTurnInFlight: (inFlight: boolean) => void;
+  setUserMessageHistory: (messages: string[]) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
+  userMessageHistory: string[];
 }
 
 type EntriesRuntimeValue = {
@@ -47,6 +50,7 @@ type EntriesRuntimeValue = {
   sessionConfigOptions: AgentSessionConfigOption[];
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
+  userMessageHistory: string[];
 };
 
 const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
@@ -56,7 +60,14 @@ const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   sessionConfigOptions: EMPTY_SESSION_CONFIG_OPTIONS,
   conversationPlanEntries: EMPTY_CONVERSATION_PLAN_ENTRIES,
   conversationTurnInFlight: false,
+  userMessageHistory: EMPTY_USER_MESSAGE_HISTORY,
 };
+
+function stringArraysEqual(a: string[], b: string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
 
 function planEntriesEqual(a: PlanEntry[], b: PlanEntry[]): boolean {
   if (a === b) return true;
@@ -320,6 +331,30 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setUserMessageHistory = useCallback(
+    (messages: string[]) => {
+      if (
+        stringArraysEqual(localValueRef.current.userMessageHistory, messages)
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        userMessageHistory:
+          messages.length === 0 ? EMPTY_USER_MESSAGE_HISTORY : messages,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const reset = useCallback(() => {
     localValueRef.current = EMPTY_RUNTIME_VALUE;
 
@@ -340,12 +375,14 @@ export const EntriesProvider = ({
       setSessionConfigOptions,
       setConversationPlanEntries,
       setConversationTurnInFlight,
+      setUserMessageHistory,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
       sessionModes: localValue.sessionModes,
       sessionConfigOptions: localValue.sessionConfigOptions,
       conversationPlanEntries: localValue.conversationPlanEntries,
       conversationTurnInFlight: localValue.conversationTurnInFlight,
+      userMessageHistory: localValue.userMessageHistory,
     }),
     [
       localValue,
@@ -356,6 +393,7 @@ export const EntriesProvider = ({
       setSessionConfigOptions,
       setConversationPlanEntries,
       setConversationTurnInFlight,
+      setUserMessageHistory,
     ]
   );
 

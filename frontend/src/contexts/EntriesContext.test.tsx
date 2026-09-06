@@ -83,6 +83,23 @@ function ConversationRuntimeSummary() {
   );
 }
 
+function SaveUserMessageHistoryOnMount({ messages }: { messages: string[] }) {
+  const { setUserMessageHistory } = useEntries();
+
+  useEffect(() => {
+    setUserMessageHistory(messages);
+  }, [messages, setUserMessageHistory]);
+
+  return null;
+}
+
+function UserMessageHistorySummary() {
+  const { userMessageHistory } = useEntries();
+  return (
+    <div data-testid="user-message-history">{userMessageHistory.join('|')}</div>
+  );
+}
+
 describe('EntriesProvider', () => {
   beforeEach(() => {
     clearEntriesRuntimeForTests();
@@ -191,6 +208,23 @@ describe('EntriesProvider', () => {
 
     expect(screen.getByTestId('conversation-runtime')).toHaveTextContent(
       'running:Repair queue state|Verify the composer'
+    );
+  });
+
+  it('shares user message history with the composer provider', () => {
+    render(
+      <>
+        <EntriesProvider runtimeKey="workspace-1:session-1">
+          <SaveUserMessageHistoryOnMount messages={['first', 'second']} />
+        </EntriesProvider>
+        <EntriesProvider runtimeKey="workspace-1:session-1">
+          <UserMessageHistorySummary />
+        </EntriesProvider>
+      </>
+    );
+
+    expect(screen.getByTestId('user-message-history')).toHaveTextContent(
+      'first|second'
     );
   });
 });

@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type FocusEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from 'react';
@@ -95,6 +96,13 @@ import {
   composerEnterAction,
   isComposerImeCommitEnter,
 } from './sessionComposerSubmitHotkey';
+import {
+  isComposerCaretAtDocumentStart,
+  isComposerHistoryNavigationKey,
+  mergeComposerMessageHistory,
+  shouldNavigateComposerHistory,
+  stepComposerHistory,
+} from './sessionComposerHistory';
 import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
 import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
 import {
@@ -131,6 +139,7 @@ type SessionComposerInputProps = {
   disabled?: boolean;
   className?: string;
   context?: SessionComposerInputContext;
+  messageHistory?: readonly string[];
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onAttachImages: (files: File[]) => void;
@@ -752,6 +761,7 @@ export function SessionComposerInput({
   disabled = false,
   className,
   context,
+  messageHistory,
   onChange,
   onSubmit,
   onAttachImages,
@@ -774,6 +784,9 @@ export function SessionComposerInput({
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRootRef = useRef<HTMLDivElement | null>(null);
   const lastCompositionEndAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const historyIndexRef = useRef(-1);
+  const historyDraftRef = useRef('');
+  const localSubmitsRef = useRef<string[]>([]);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
   const dropActiveRef = useRef(false);
   const [dropActive, setDropActive] = useState(false);
@@ -1385,6 +1398,66 @@ export function SessionComposerInput({
     [disabled, onAttachImages]
   );
 
+  useEffect(() => {
+    historyIndexRef.current = -1;
+    historyDraftRef.current = '';
+    localSubmitsRef.current = [];
+  }, [sessionId]);
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      if (text.trim()) {
+        localSubmitsRef.current = [...localSubmitsRef.current, text];
+      }
+      historyIndexRef.current = -1;
+      historyDraftRef.current = '';
+      onSubmit(text);
+    },
+    [onSubmit]
+  );
+
+  const handleHistoryKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return false;
+      if (!isComposerHistoryNavigationKey(event)) return false;
+
+      const history = mergeComposerMessageHistory(
+        messageHistory ?? [],
+        localSubmitsRef.current
+      );
+      const editor = composerRootRef.current?.querySelector<HTMLElement>(
+        '[contenteditable="true"], [contenteditable="false"][role="combobox"]'
+      );
+      if (
+        !shouldNavigateComposerHistory({
+          key: event.key,
+          isBrowsing: historyIndexRef.current !== -1,
+          isCaretAtStart: isComposerCaretAtDocumentStart(editor ?? null),
+          historyLength: history.length,
+        })
+      ) {
+        return false;
+      }
+
+      const next = stepComposerHistory({
+        history,
+        index: historyIndexRef.current,
+        draft: historyDraftRef.current,
+        currentValue: composerHandleRef.current?.getValue() ?? value,
+        direction: event.key === 'ArrowUp' ? 'older' : 'newer',
+      });
+      if (!next.applied) return false;
+
+      event.preventDefault();
+      historyIndexRef.current = next.index;
+      historyDraftRef.current = next.draft;
+      onChange(next.value);
+      queueMicrotask(() => atReference.detect());
+      return true;
+    },
+    [atReference, disabled, messageHistory, onChange, value]
+  );
+
   return (
     <div
       ref={dropZoneRef}
@@ -1431,7 +1504,7 @@ export function SessionComposerInput({
           maxRows={7}
           placeholder=""
           label={t('composer.inputLabel')}
-          hasHistory
+          hasHistory={false}
           pasteAsToken={false}
           triggers={triggers}
           handleRef={composerHandleRef}
@@ -1442,6 +1515,9 @@ export function SessionComposerInput({
               return;
             }
             if (atReference.handleKeyDown(event)) {
+              return;
+            }
+            if (handleHistoryKeyDown(event)) {
               return;
             }
             const action = composerEnterAction(
@@ -1457,7 +1533,7 @@ export function SessionComposerInput({
             }
             const text = composerHandleRef.current?.getValue().trim() ?? '';
             if (!text) return;
-            onSubmit(text);
+            handleSubmit(text);
             const editable =
               composerRootRef.current?.querySelector<HTMLElement>(
                 '[contenteditable="true"]'
@@ -1465,7 +1541,7 @@ export function SessionComposerInput({
             if (editable) editable.textContent = '';
             onChange('');
           }}
-          onSubmit={onSubmit}
+          onSubmit={handleSubmit}
           onFiles={(files) => {
             const images = files
               .filter(isImageFile)

@@ -213,6 +213,7 @@ export function TaskFollowUpSection({
     sessionConfigOptions,
     conversationPlanEntries,
     conversationTurnInFlight,
+    userMessageHistory,
   } = useEntries();
   const isComposerExecutionRunning = isComposerExecutionActive({
     isAttemptRunning,
@@ -1041,6 +1042,7 @@ export function TaskFollowUpSection({
               value={localMessage}
               onChange={handleEditorChange}
               disabled={!isEditable}
+              messageHistory={userMessageHistory}
               context={{
                 workspaceId: workspaceIdValue,
                 workspacePath: composerWorkspacePath,

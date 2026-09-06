@@ -1000,4 +1000,199 @@ describe('SessionComposerInput (Astryx)', () => {
       screen.getByRole('status', { name: /松开以放入文件|Drop files here/i })
     ).toBeVisible();
   });
+
+  it('recalls previous messages with ArrowUp when the caret is at the start', async () => {
+    const user = userEvent.setup();
+
+    function HistoryComposer() {
+      const [value, setValue] = useState('draft');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={vi.fn()}
+            onAttachImages={vi.fn()}
+            messageHistory={['oldest', 'newest']}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HistoryComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    await user.click(editor);
+
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('newest');
+
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('oldest');
+
+    await user.keyboard('{ArrowDown}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('newest');
+
+    await user.keyboard('{ArrowDown}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('draft');
+  });
+
+  it('does not recall history when the caret is after the first character', async () => {
+    const user = userEvent.setup();
+
+    function HistoryComposer() {
+      const [value, setValue] = useState('draft');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={vi.fn()}
+            onAttachImages={vi.fn()}
+            messageHistory={['previous']}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HistoryComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    await user.click(editor);
+
+    const text = editor.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(text, text.length);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('draft');
+  });
+
+  it('recalls history from before a leading token', async () => {
+    const user = userEvent.setup();
+    const token = formatSessionComposerCommand({
+      type: '@',
+      key: 'utils.ts',
+      value: 'src/lib/utils.ts',
+    });
+
+    function HistoryComposer() {
+      const [value, setValue] = useState(`${token} please`);
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={vi.fn()}
+            onAttachImages={vi.fn()}
+            messageHistory={['previous']}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HistoryComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    await user.click(editor);
+    await waitFor(() => {
+      expect(editor.querySelector('[data-astryx-token]')).toBeInTheDocument();
+    });
+
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('previous');
+  });
+
+  it('recalls a message submitted in this composer session', async () => {
+    const user = userEvent.setup();
+
+    function HistoryComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={() => setValue('')}
+            onAttachImages={vi.fn()}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HistoryComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, 'sent just now');
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(
+        screen.getByRole('status', { name: 'Composer value' })
+      ).toBeEmptyDOMElement();
+    });
+
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen.getByRole('status', { name: 'Composer value' })
+    ).toHaveTextContent('sent just now');
+  });
 });

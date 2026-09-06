@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, GitBranch, Loader2, Plus, Settings } from 'lucide-react';
@@ -11,7 +11,8 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { APP_NAME } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
-import { projectsApi, settingsWindowApi } from '@/lib/api';
+import { fileSystemApi, projectsApi, settingsWindowApi } from '@/lib/api';
+import { resolveDroppedProjectFolder } from './welcomeFolderDrop';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
@@ -110,6 +111,8 @@ export function WelcomePage() {
   const [contextMenu, setContextMenu] =
     useState<ProjectContextMenuState | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const openingDroppedFolderRef = useRef(false);
 
   const contextMenuStyle = useMemo(() => {
     if (!contextMenu || typeof window === 'undefined') {
@@ -137,6 +140,19 @@ export function WelcomePage() {
     };
   }, [contextMenu]);
 
+  const openExistingFolder = useCallback(
+    async (initialFolderPath?: string) => {
+      const result = await ProjectFormDialog.show({
+        autoOpenFolderPicker: !initialFolderPath,
+        initialFolderPath,
+      });
+      if (result?.status === 'saved' && result.project) {
+        navigate(`/local-projects/${result.project.id}/sessions`);
+      }
+    },
+    [navigate]
+  );
+
   const handleCreateProject = async () => {
     const result = await ProjectFormDialog.show({});
     if (result?.status === 'saved' && result.project) {
@@ -145,11 +161,59 @@ export function WelcomePage() {
   };
 
   const handleOpenFolder = async () => {
-    const result = await ProjectFormDialog.show({ autoOpenFolderPicker: true });
-    if (result?.status === 'saved' && result.project) {
-      navigate(`/local-projects/${result.project.id}/sessions`);
-    }
+    await openExistingFolder();
   };
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === 'enter' || payload.type === 'over') {
+            setDropActive(true);
+            return;
+          }
+          if (payload.type === 'leave') {
+            setDropActive(false);
+            return;
+          }
+          if (payload.type !== 'drop') return;
+
+          setDropActive(false);
+          const paths = payload.paths;
+          void (async () => {
+            const resolved = await resolveDroppedProjectFolder(
+              paths,
+              fileSystemApi.list
+            );
+            if (resolved.ok === false) {
+              toast.error(t('welcomePage.dropFolderInvalid'));
+              return;
+            }
+            if (openingDroppedFolderRef.current) return;
+            openingDroppedFolderRef.current = true;
+            try {
+              await openExistingFolder(resolved.path);
+            } finally {
+              openingDroppedFolderRef.current = false;
+            }
+          })();
+        })
+      )
+      .then((stopListening) => {
+        if (disposed) stopListening();
+        else unlisten = stopListening;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [openExistingFolder, t]);
 
   const handleCloneRepo = async () => {
     const result = await CloneRepoDialog.show();
@@ -245,6 +309,16 @@ export function WelcomePage() {
 
   return (
     <div className="welcome-page-surface h-full overflow-auto">
+      {dropActive ? (
+        <div
+          className="welcome-page-drop-overlay"
+          role="status"
+          aria-label={t('welcomePage.dropFolder')}
+        >
+          <FolderOpen aria-hidden="true" />
+          <strong>{t('welcomePage.dropFolder')}</strong>
+        </div>
+      ) : null}
       <div className="mx-auto max-w-2xl px-8 py-16">
         <div className="mb-12 flex items-start justify-between gap-4">
           <div className="-ml-3 flex items-center gap-3">

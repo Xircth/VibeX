@@ -33,6 +33,7 @@ describe('welcome project surfaces', () => {
     const surface = declarationsFor('.welcome-page-surface');
 
     expect(surface.get('background')).toBe('#fafafa');
+    expect(surface.get('position')).toBe('relative');
   });
 
   it('uses the requested background and a four-sided shadow on forms', () => {

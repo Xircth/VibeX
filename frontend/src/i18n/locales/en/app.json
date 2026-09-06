@@ -123,6 +123,8 @@
     "startSection": "Get Started",
     "createNewProject": "Create New Project",
     "selectFolder": "Select Folder",
+    "dropFolder": "Drop to open this folder",
+    "dropFolderInvalid": "Drop a folder",
     "cloneRepo": "Clone Repository",
     "recentProjects": "Recent Projects",
     "loadingProjects": "Loading projects...",

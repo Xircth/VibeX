@@ -123,6 +123,8 @@
     "startSection": "开始",
     "createNewProject": "创建新项目",
     "selectFolder": "选择文件夹",
+    "dropFolder": "松开以打开此文件夹",
+    "dropFolderInvalid": "请拖入一个文件夹",
     "cloneRepo": "克隆仓库",
     "recentProjects": "最近项目",
     "loadingProjects": "加载项目中...",

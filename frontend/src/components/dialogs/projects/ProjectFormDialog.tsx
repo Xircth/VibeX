@@ -25,6 +25,7 @@ import { normalizeDisplayPath } from '@/utils/displayPath';
 
 export interface ProjectFormDialogProps {
   autoOpenFolderPicker?: boolean;
+  initialFolderPath?: string;
 }
 
 export type ProjectFormDialogResult =
@@ -151,10 +152,11 @@ const MIT_LICENSE_TEMPLATE = [
 ].join('\n');
 
 const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
-  ({ autoOpenFolderPicker = false }) => {
+  ({ autoOpenFolderPicker = false, initialFolderPath }) => {
     const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
-    const isOpenExistingFolderMode = autoOpenFolderPicker;
+    const isOpenExistingFolderMode =
+      autoOpenFolderPicker || Boolean(initialFolderPath);
     const { createProject } = useProjectMutations();
 
     const [projectName, setProjectName] = useState('');
@@ -200,6 +202,14 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       setError('');
     }, [modal.visible]);
 
+    const applyExistingFolderPath = useCallback(async (selected: string) => {
+      const normalizedSelected = normalizeDisplayPath(selected);
+      const isGitRepo = await repoApi.checkGitRepoPath(normalizedSelected);
+      setSelectedFolderPath(normalizedSelected);
+      setSelectedFolderIsGitRepo(isGitRepo);
+      setProjectName(getPathName(normalizedSelected));
+    }, []);
+
     const handlePickFolder = useCallback(async () => {
       setError('');
       try {
@@ -216,10 +226,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         const normalizedSelected = normalizeDisplayPath(selected);
 
         if (isOpenExistingFolderMode) {
-          const isGitRepo = await repoApi.checkGitRepoPath(normalizedSelected);
-          setSelectedFolderPath(normalizedSelected);
-          setSelectedFolderIsGitRepo(isGitRepo);
-          setProjectName(getPathName(normalizedSelected));
+          await applyExistingFolderPath(normalizedSelected);
           return;
         }
 
@@ -231,20 +238,44 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       } finally {
         setIsPickingFolder(false);
       }
-    }, [isOpenExistingFolderMode, t]);
+    }, [applyExistingFolderPath, isOpenExistingFolderMode, t]);
 
     useEffect(() => {
-      if (
-        !modal.visible ||
-        !autoOpenFolderPicker ||
-        hasAutoOpenedFolderRef.current
-      ) {
+      if (!modal.visible || hasAutoOpenedFolderRef.current) {
+        return;
+      }
+
+      if (initialFolderPath) {
+        hasAutoOpenedFolderRef.current = true;
+        setIsPickingFolder(true);
+        void applyExistingFolderPath(initialFolderPath)
+          .catch((err) => {
+            setError(
+              err instanceof Error
+                ? err.message
+                : t('projectForm.pickFolderFailed')
+            );
+          })
+          .finally(() => {
+            setIsPickingFolder(false);
+          });
+        return;
+      }
+
+      if (!autoOpenFolderPicker) {
         return;
       }
 
       hasAutoOpenedFolderRef.current = true;
       void handlePickFolder();
-    }, [autoOpenFolderPicker, handlePickFolder, modal.visible]);
+    }, [
+      applyExistingFolderPath,
+      autoOpenFolderPicker,
+      handlePickFolder,
+      initialFolderPath,
+      modal.visible,
+      t,
+    ]);
 
     const handleCancel = () => {
       modal.resolve({ status: 'canceled' } as ProjectFormDialogResult);

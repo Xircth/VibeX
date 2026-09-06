@@ -5,8 +5,9 @@ import NiceModal, { type NiceModalHocProps } from '@ebay/nice-modal-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { repoApi } from '@/lib/api';
 import {
   ProjectFormDialog,
   type ProjectFormDialogProps,
@@ -33,6 +34,10 @@ function renderDialog(props: ProjectFormDialogProps = {}) {
 }
 
 describe('ProjectFormDialog', () => {
+  beforeEach(() => {
+    vi.spyOn(repoApi, 'checkGitRepoPath').mockResolvedValue(false);
+  });
+
   it('creates new projects through the Host command, not the client filesystem', () => {
     const source = readFileSync(
       join(import.meta.dirname, 'ProjectFormDialog.tsx'),
@@ -88,6 +93,23 @@ describe('ProjectFormDialog', () => {
       'h-7',
       'text-xs',
       'bg-[var(--surface-control-hover)]'
+    );
+  });
+
+  it('uses a dropped folder as the selected existing project folder', async () => {
+    vi.mocked(repoApi.checkGitRepoPath).mockResolvedValue(true);
+
+    renderDialog({
+      autoOpenFolderPicker: true,
+      initialFolderPath: '/Users/mac/Projects/app',
+    });
+
+    expect(
+      await screen.findByDisplayValue('/Users/mac/Projects/app')
+    ).toBeInTheDocument();
+    expect(await screen.findByText('已识别为 Git 仓库')).toBeInTheDocument();
+    expect(repoApi.checkGitRepoPath).toHaveBeenCalledWith(
+      '/Users/mac/Projects/app'
     );
   });
 

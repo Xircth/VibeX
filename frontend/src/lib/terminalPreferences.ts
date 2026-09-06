@@ -1,7 +1,11 @@
 import type { Config } from 'shared/types';
 
 import { isLocalDesktopHost } from '@/lib/desktopShell';
-import { getHostPlatform, type HostPlatform } from '@/utils/platform';
+import {
+  getHostPlatform,
+  terminalHostPlatform,
+  type HostPlatform,
+} from '@/utils/platform';
 
 export type TerminalShellValue =
   | 'powershell.exe'
@@ -78,9 +82,10 @@ export function normalizeTerminalShell(
 }
 
 export function getDefaultTerminalShell(
-  config: Config | null | undefined
+  config: Config | null | undefined,
+  hostOsType?: string | null
 ): TerminalShellValue {
-  const platform = getHostPlatform();
+  const platform = terminalHostPlatform(hostOsType);
   return normalizeTerminalShell(
     (config as ConfigWithTerminalPreferences | null | undefined)
       ?.default_terminal_shell,

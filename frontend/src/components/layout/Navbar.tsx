@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { settingsWindowApi } from '@/lib/api';
+import { useOpenSettings } from '@/lib/api';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -68,6 +68,7 @@ function NavDivider() {
 export function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const openSettings = useOpenSettings();
   const { projectId, project } = useProject();
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
@@ -210,7 +211,7 @@ export function Navbar() {
                 size="icon"
                 className="h-9 w-9"
                 aria-label="Settings"
-                onClick={() => settingsWindowApi.open()}
+                onClick={openSettings}
               >
                 <Settings className="h-4 w-4" />
               </Button>

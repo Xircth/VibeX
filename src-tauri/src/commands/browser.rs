@@ -55,10 +55,17 @@ pub fn create_tab(
 
 #[tauri::command]
 pub async fn browser_create_tab(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, BrowserCommandState>,
     request: CreateBrowserTab,
 ) -> Result<BrowserTab, BrowserCommandError> {
-    create_tab(&state.runtime, request)
+    let parent_handle = crate::native_browser_parent(&window)
+        .ok()
+        .map(|parent| parent.as_raw());
+    state
+        .runtime
+        .create_tab_with_parent(request, parent_handle)
+        .map_err(Into::into)
 }
 
 #[tauri::command]

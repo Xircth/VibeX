@@ -1,15 +1,17 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { sessionsApi, settingsWindowApi } from '@/lib/api';
+import { sessionsApi, useOpenSettings } from '@/lib/api';
 import { useMemo, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  AppWindow,
   FolderOpen,
   Settings,
   Plus,
@@ -49,6 +51,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useLocalDesktopHost, useTauriClient } from '@/lib/desktopShell';
+import { openLocalAppWindow } from '@/lib/api/appWindow';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
@@ -548,13 +551,7 @@ export function Toolbar() {
     handleOpenInEditor();
   };
 
-  const handleOpenSettings = useCallback(() => {
-    if (tauriClient) {
-      void settingsWindowApi.open();
-      return;
-    }
-    navigate('/settings');
-  }, [navigate, tauriClient]);
+  const handleOpenSettings = useOpenSettings();
 
   const handleOpenHome = useCallback(() => {
     navigate(paths.projects());
@@ -817,6 +814,15 @@ export function Toolbar() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {tauriClient ? (
+                  <>
+                    <DropdownMenuItem onSelect={() => openLocalAppWindow()}>
+                      <AppWindow className="mr-2 h-4 w-4" />
+                      {t('toolbar.newAppWindow')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
                 <DropdownMenuItem onSelect={handleOpenHome}>
                   <FolderOpen className="mr-2 h-4 w-4" />
                   {t('toolbar.backToHome')}

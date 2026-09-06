@@ -1,5 +1,35 @@
 export type HostPlatform = 'windows' | 'macos' | 'linux' | 'unknown';
 
+export function hostPlatformFromOsType(
+  osType: string | null | undefined
+): HostPlatform | null {
+  if (!osType) return null;
+  const value = osType.toLowerCase();
+  if (value.includes('win')) return 'windows';
+  if (
+    value.includes('mac') ||
+    value.includes('darwin') ||
+    value.includes('ios')
+  ) {
+    return 'macos';
+  }
+  if (
+    value.includes('linux') ||
+    value.includes('ubuntu') ||
+    value.includes('debian') ||
+    value.includes('fedora') ||
+    value.includes('alpine') ||
+    value.includes('arch') ||
+    value.includes('centos') ||
+    value.includes('red hat') ||
+    value.includes('suse') ||
+    value.includes('gentoo')
+  ) {
+    return 'linux';
+  }
+  return null;
+}
+
 export function getHostPlatform(): HostPlatform {
   const nav = navigator as Navigator & {
     userAgentData?: { platform?: string };
@@ -25,6 +55,10 @@ export function getHostPlatform(): HostPlatform {
   }
 
   return 'unknown';
+}
+
+export function terminalHostPlatform(osType?: string | null): HostPlatform {
+  return hostPlatformFromOsType(osType) ?? getHostPlatform();
 }
 
 export function isMac(): boolean {

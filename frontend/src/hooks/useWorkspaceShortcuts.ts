@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
-import { settingsWindowApi } from '@/lib/api';
+import { useOpenSettings } from '@/lib/api';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import {
   SHORTCUT_ACTION_EVENT,
@@ -21,6 +21,7 @@ export function useWorkspaceShortcuts() {
     isPanelOpen,
   } = usePanelActionsContext();
   const toggleRightPanel = useLayoutStore((state) => state.toggleRightPanel);
+  const openSettings = useOpenSettings();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -59,13 +60,19 @@ export function useWorkspaceShortcuts() {
 
       if (!event.shiftKey && event.key === ',') {
         event.preventDefault();
-        void settingsWindowApi.open();
+        openSettings();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPanelOpen, openOrFocusPanel, toggleFileTree, toggleSearchPanel]);
+  }, [
+    isPanelOpen,
+    openOrFocusPanel,
+    openSettings,
+    toggleFileTree,
+    toggleSearchPanel,
+  ]);
 
   useEffect(() => {
     const handleShortcutAction = (event: Event) => {

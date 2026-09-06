@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
-import { projectsApi, settingsWindowApi } from '@/lib/api';
+import { projectsApi, useOpenSettings } from '@/lib/api';
 import {
   Card,
   CardContent,
@@ -34,6 +34,7 @@ interface ProjectDetailProps {
 
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const navigate = useNavigateWithSearch();
+  const openSettings = useOpenSettings();
   const { projectsById, isLoading, error: projectsError } = useProjects();
   const project = projectsById[projectId] || null;
 
@@ -63,7 +64,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   };
 
   const handleEditClick = () => {
-    settingsWindowApi.open();
+    openSettings();
   };
 
   if (isLoading) {

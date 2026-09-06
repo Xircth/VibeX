@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{Read, Write},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc as std_mpsc},
@@ -12,21 +12,62 @@ use tokio::sync::mpsc;
 use utils::shell::{get_interactive_shell, resolve_executable_path};
 use uuid::Uuid;
 
+fn is_usable_pty_shell(name: &str) -> bool {
+    !name.is_empty() && !name.eq_ignore_ascii_case("warp")
+}
+
 async fn resolve_pty_shell(shell_override: Option<String>) -> PathBuf {
-    if let Some(shell) = shell_override.filter(|value| !value.is_empty()) {
-        if !shell.eq_ignore_ascii_case("warp") {
-            return resolve_executable_path(&shell)
-                .await
-                .unwrap_or_else(|| PathBuf::from(shell));
-        }
-    } else if let Some(configured) = agents::configured_terminal_shell().await
-        && !configured.eq_ignore_ascii_case("warp")
-    {
-        return resolve_executable_path(&configured)
-            .await
-            .unwrap_or_else(|| PathBuf::from(configured));
+    let mut preferred = Vec::new();
+    if let Some(shell) = shell_override.filter(|value| is_usable_pty_shell(value)) {
+        preferred.push(shell);
     }
-    get_interactive_shell().await
+    if let Some(configured) = agents::configured_terminal_shell().await
+        && is_usable_pty_shell(&configured)
+        && !preferred.iter().any(|item| item == &configured)
+    {
+        preferred.push(configured);
+    }
+    pick_existing_pty_shell(preferred, get_interactive_shell().await).await
+}
+
+/// Pick a shell that actually exists on this Host. Missing names (for example
+/// a macOS `zsh` default sent to a Linux Host) must not be spawned.
+pub(crate) async fn pick_existing_pty_shell(
+    preferred: Vec<String>,
+    interactive: PathBuf,
+) -> PathBuf {
+    let mut candidates = preferred;
+    let interactive_name = interactive.to_string_lossy().into_owned();
+    if is_usable_pty_shell(&interactive_name) {
+        candidates.push(interactive_name);
+    }
+    #[cfg(windows)]
+    {
+        candidates.extend(
+            ["powershell.exe", "pwsh.exe", "cmd.exe"]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        candidates.extend(
+            ["bash", "sh", "/bin/bash", "/bin/sh"]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+
+    let mut seen = HashSet::new();
+    for candidate in candidates {
+        if !is_usable_pty_shell(&candidate) || !seen.insert(candidate.clone()) {
+            continue;
+        }
+        if let Some(path) = resolve_executable_path(&candidate).await {
+            return path;
+        }
+    }
+    interactive
 }
 
 #[derive(Debug, Error)]
@@ -408,6 +449,35 @@ mod tests {
             history
                 .first()
                 .is_none_or(|byte| PtyService::is_utf8_boundary_byte(*byte))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn uses_an_existing_preferred_shell() {
+        let path =
+            super::pick_existing_pty_shell(vec!["/bin/sh".into()], PathBuf::from("/bin/bash"))
+                .await;
+        assert_eq!(path, PathBuf::from("/bin/sh"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn skips_a_missing_preferred_shell_instead_of_spawning_it() {
+        let path = super::pick_existing_pty_shell(
+            vec!["zsh-missing-on-this-host-xyz".into()],
+            PathBuf::from("/no/such/interactive-shell"),
+        )
+        .await;
+        assert!(
+            path.is_file(),
+            "expected a real shell after zsh was missing, got {}",
+            path.display()
+        );
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        assert!(
+            name == "bash" || name == "sh",
+            "unexpected fallback shell {name}"
         );
     }
 }

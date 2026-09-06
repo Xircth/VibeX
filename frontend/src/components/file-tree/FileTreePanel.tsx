@@ -318,12 +318,16 @@ export function FileTreePanel({
   }, []);
 
   const loadLazyDirectoryChildren = useCallback(
-    async (path: string) => {
+    async (path: string, options?: { force?: boolean }) => {
       if (
-        loadedLazyDirectoriesRef.current.has(path) ||
-        loadingLazyDirectoriesRef.current.has(path)
+        !options?.force &&
+        (loadedLazyDirectoriesRef.current.has(path) ||
+          loadingLazyDirectoriesRef.current.has(path))
       ) {
         return;
+      }
+      if (options?.force) {
+        loadedLazyDirectoriesRef.current.delete(path);
       }
       setLoadingLazyDirectories((prev) => {
         const next = new Set(prev);
@@ -761,18 +765,24 @@ export function FileTreePanel({
     [resolvePath, onRefreshFiles, t]
   );
 
-  const openNewFilePrompt = useCallback((parentFolder: string) => {
-    setNewFolderParent(null);
-    setNewFolderName('');
-    setNewFileParent(parentFolder);
-    setNewFileName('');
-    setExpandedFolders((prev) =>
-      ensureFileTreeParentFolderExpanded(prev, parentFolder)
-    );
-    requestAnimationFrame(() => {
-      newFileInputRef.current?.focus();
-    });
-  }, []);
+  const openNewFilePrompt = useCallback(
+    (parentFolder: string) => {
+      setNewFolderParent(null);
+      setNewFolderName('');
+      setNewFileParent(parentFolder);
+      setNewFileName('');
+      setExpandedFolders((prev) =>
+        ensureFileTreeParentFolderExpanded(prev, parentFolder)
+      );
+      if (parentFolder) {
+        void loadLazyDirectoryChildren(parentFolder);
+      }
+      window.setTimeout(() => {
+        newFileInputRef.current?.focus();
+      }, 0);
+    },
+    [loadLazyDirectoryChildren]
+  );
 
   const confirmNewFile = useCallback(async () => {
     if (newFileParent === null) return;
@@ -784,6 +794,14 @@ export function FileTreePanel({
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.saveFile(absolutePath, '');
+      setLazyFiles((prev) => {
+        const next = new Set(prev);
+        next.add(relativePath);
+        return next;
+      });
+      if (newFileParent) {
+        void loadLazyDirectoryChildren(newFileParent, { force: true });
+      }
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create file:', e);
@@ -791,25 +809,38 @@ export function FileTreePanel({
     }
     setNewFileParent(null);
     setNewFileName('');
-  }, [newFileName, newFileParent, resolvePath, onRefreshFiles, t]);
+  }, [
+    loadLazyDirectoryChildren,
+    newFileName,
+    newFileParent,
+    onRefreshFiles,
+    resolvePath,
+    t,
+  ]);
 
   const cancelNewFile = useCallback(() => {
     setNewFileParent(null);
     setNewFileName('');
   }, []);
 
-  const openNewFolderPrompt = useCallback((parentFolder: string) => {
-    setNewFileParent(null);
-    setNewFileName('');
-    setNewFolderParent(parentFolder);
-    setNewFolderName('');
-    setExpandedFolders((prev) =>
-      ensureFileTreeParentFolderExpanded(prev, parentFolder)
-    );
-    requestAnimationFrame(() => {
-      newFolderInputRef.current?.focus();
-    });
-  }, []);
+  const openNewFolderPrompt = useCallback(
+    (parentFolder: string) => {
+      setNewFileParent(null);
+      setNewFileName('');
+      setNewFolderParent(parentFolder);
+      setNewFolderName('');
+      setExpandedFolders((prev) =>
+        ensureFileTreeParentFolderExpanded(prev, parentFolder)
+      );
+      if (parentFolder) {
+        void loadLazyDirectoryChildren(parentFolder);
+      }
+      window.setTimeout(() => {
+        newFolderInputRef.current?.focus();
+      }, 0);
+    },
+    [loadLazyDirectoryChildren]
+  );
 
   const confirmNewFolder = useCallback(async () => {
     if (newFolderParent === null) return;
@@ -821,6 +852,19 @@ export function FileTreePanel({
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.createDirectory(absolutePath);
+      setLazyDirectories((prev) => {
+        const next = new Set(prev);
+        next.add(relativePath);
+        return next;
+      });
+      setLazyLoadableDirectories((prev) => {
+        const next = new Set(prev);
+        next.add(relativePath);
+        return next;
+      });
+      if (newFolderParent) {
+        void loadLazyDirectoryChildren(newFolderParent, { force: true });
+      }
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create folder:', e);
@@ -828,7 +872,14 @@ export function FileTreePanel({
     }
     setNewFolderParent(null);
     setNewFolderName('');
-  }, [newFolderName, newFolderParent, resolvePath, onRefreshFiles, t]);
+  }, [
+    loadLazyDirectoryChildren,
+    newFolderName,
+    newFolderParent,
+    onRefreshFiles,
+    resolvePath,
+    t,
+  ]);
 
   const cancelNewFolder = useCallback(() => {
     setNewFolderParent(null);
@@ -1257,7 +1308,11 @@ export function FileTreePanel({
               }
             }}
             onBlur={() => {
-              void doConfirm();
+              if (name.trim()) {
+                void doConfirm();
+                return;
+              }
+              doCancel();
             }}
           />
         </div>
@@ -1557,7 +1612,9 @@ export function FileTreePanel({
               <button
                 type="button"
                 className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onClick={() => {
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
                   closeContextMenu();
                   openNewFilePrompt(contextMenuParentFolder);
                 }}
@@ -1567,7 +1624,9 @@ export function FileTreePanel({
               <button
                 type="button"
                 className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onClick={() => {
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
                   closeContextMenu();
                   openNewFolderPrompt(contextMenuParentFolder);
                 }}

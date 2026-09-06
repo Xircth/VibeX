@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/lib/api', () => ({
-  settingsWindowApi: { open: () => Promise.resolve() },
+  useOpenSettings: () => () => undefined,
 }));
 
 function managementView(

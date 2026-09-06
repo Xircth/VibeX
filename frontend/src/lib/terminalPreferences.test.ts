@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getDefaultTerminalShell,
   getPlatformDefaultTerminalShell,
   getTerminalShellOptions,
   normalizeTerminalShell,
@@ -24,5 +25,9 @@ describe('terminalPreferences', () => {
   it('does not treat Git Bash as a macOS or Linux picker value', () => {
     expect(normalizeTerminalShell('bash.exe', 'macos')).toBe('zsh');
     expect(normalizeTerminalShell('bash.exe', 'linux')).toBe('bash');
+  });
+
+  it('defaults to bash on a Linux Host even when the client is macOS', () => {
+    expect(getDefaultTerminalShell(null, 'linux')).toBe('bash');
   });
 });

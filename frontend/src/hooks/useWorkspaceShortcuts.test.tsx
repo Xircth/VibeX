@@ -34,7 +34,7 @@ vi.mock('@/stores/useLayoutStore', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  settingsWindowApi: { open: mocks.openSettings },
+  useOpenSettings: () => mocks.openSettings,
 }));
 
 import {

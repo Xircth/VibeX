@@ -129,6 +129,7 @@
     "resetKanbanLayout": "重置看板布局",
     "homeOrRecentProjects": "返回首页或打开最近项目",
     "backToHome": "回到首页",
+    "newAppWindow": "新建应用窗口",
     "recentProjects": "最近项目",
     "noRecentProjects": "暂无最近项目"
   },

@@ -3,6 +3,7 @@ import type {
   AgentManagementView,
   AgentOperationEvent,
   AgentOperationKind,
+  AgentOperationReceipt,
   AgentRegistryViewRow,
 } from 'shared/types';
 
@@ -73,6 +74,21 @@ export function optimisticAddRegistryAgent(
     agents: [...state.agents, optimistic],
     selectedAgentId: row.agent_id,
   };
+}
+
+export function beginQueuedOperation(
+  state: AgentManagementState,
+  receipt: AgentOperationReceipt
+): AgentManagementState {
+  return reduceOperationEvent(state, {
+    sequence: Math.max(state.lastEventSequence, 0) + 1,
+    agent_id: receipt.agent_id,
+    operation_id: receipt.operation_id,
+    kind: receipt.kind,
+    status: receipt.status,
+    progress_percent: 0,
+    message: null,
+  });
 }
 
 export function reduceOperationEvent(

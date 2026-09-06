@@ -20,6 +20,7 @@ import {
   isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
+import { terminalHostPlatform } from '@/utils/platform';
 import { desktopShellCall } from '@/lib/desktopShell';
 
 /**
@@ -38,10 +39,11 @@ export function TerminalHeaderActions(props: IDockviewHeaderActionsProps) {
 function TerminalHeaderActionsInner() {
   const { t } = useTranslation(['panels', 'common']);
   const { activeWorktreeId } = useWorktree();
-  const { config } = useUserSystem();
+  const { config, environment } = useUserSystem();
   const workspaceKey = getTerminalWorkspaceKey(activeWorktreeId);
-  const defaultShell = getDefaultTerminalShell(config);
-  const terminalShellOptions = getTerminalShellOptions();
+  const hostPlatform = terminalHostPlatform(environment?.os_type);
+  const defaultShell = getDefaultTerminalShell(config, environment?.os_type);
+  const terminalShellOptions = getTerminalShellOptions(hostPlatform);
 
   const addSession = useTerminalStore((s) => s.addSession);
   const [selectedShell, setSelectedShell] =

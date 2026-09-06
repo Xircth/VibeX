@@ -714,24 +714,26 @@ export function AgentSettings() {
   const queueRepair = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
-      await agentManagementApi.repair(selectedAgentId);
+      const receipt = await agentManagementApi.repair(selectedAgentId);
+      management.beginOperation(receipt);
       toast.success(t('settings:agents.repairStarted'));
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.operationStartFailed'))
       );
     }
-  }, [selectedAgentId, t]);
+  }, [management, selectedAgentId, t]);
 
   const queueInstall = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
-      await agentManagementApi.addAndInstall(selectedAgentId);
+      const receipt = await agentManagementApi.addAndInstall(selectedAgentId);
+      management.beginOperation(receipt);
       toast.success(t('settings:agents.installStarted'));
     } catch (error) {
       toast.error(errorMessage(error, t('settings:agents.installStartFailed')));
     }
-  }, [selectedAgentId, t]);
+  }, [management, selectedAgentId, t]);
 
   const queueVersionInstall = useCallback(
     async (input: {
@@ -743,7 +745,11 @@ export function AgentSettings() {
       const version =
         input.acpVersion || input.runtimeVersion || input.version || '';
       try {
-        await agentManagementApi.installVersion(selectedAgentId, input);
+        const receipt = await agentManagementApi.installVersion(
+          selectedAgentId,
+          input
+        );
+        management.beginOperation(receipt);
         toast.success(
           t('settings:agents.customVersionInstallStarted', { version })
         );
@@ -753,7 +759,7 @@ export function AgentSettings() {
         );
       }
     },
-    [selectedAgentId, t]
+    [management, selectedAgentId, t]
   );
 
   const previewVersions = useCallback(

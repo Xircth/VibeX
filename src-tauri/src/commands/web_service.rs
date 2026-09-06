@@ -318,25 +318,8 @@ pub async fn get_web_server_status() -> Result<WebServerStatus, AppError> {
     Ok(status_from_runtime(config).await)
 }
 
-pub(crate) async fn stop_if_running() -> bool {
-    if WEB_SERVICE_RUNTIME.lock().await.is_none() {
-        return false;
-    }
-    let config = load_config().await.unwrap_or_default();
-    stop_web_server_with_config(config).await;
-    true
-}
-
-pub(crate) async fn disconnect_active_client(app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    let _ = crate::host_client::runtime()
-        .disconnect(&state.remote_desktop)
-        .await;
-}
-
 #[tauri::command]
 pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
-    disconnect_active_client(&app).await;
     let mut config = load_config().await?;
     let state = app.state::<AppState>();
     let pool = state.deployment.db().pool.clone();

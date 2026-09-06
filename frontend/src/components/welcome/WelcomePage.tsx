@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { APP_NAME } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
-import { fileSystemApi, projectsApi, settingsWindowApi } from '@/lib/api';
+import { fileSystemApi, projectsApi, useOpenSettings } from '@/lib/api';
 import { resolveDroppedProjectFolder } from './welcomeFolderDrop';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
@@ -107,6 +107,7 @@ type ProjectContextMenuState = {
 export function WelcomePage() {
   const { t } = useTranslation(['app', 'common']);
   const navigate = useNavigate();
+  const openSettings = useOpenSettings();
   const { projects, isLoading } = useProjects();
   const [contextMenu, setContextMenu] =
     useState<ProjectContextMenuState | null>(null);
@@ -342,7 +343,7 @@ export function WelcomePage() {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => settingsWindowApi.open()}
+              onClick={openSettings}
               aria-label="Settings"
             >
               <Settings className="h-4 w-4" />

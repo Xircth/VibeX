@@ -46,6 +46,7 @@ import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
 } from '@/lib/terminalPreferences';
+import { terminalHostPlatform } from '@/utils/platform';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { toPrettyCase } from '@/utils/string';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
@@ -75,7 +76,7 @@ function cloneConfig(config: Config): Config {
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
-  const { config, loading, updateAndSaveConfig } = useUserSystem();
+  const { config, environment, loading, updateAndSaveConfig } = useUserSystem();
   const localDesktopHost = useLocalDesktopHost();
 
   const [draft, setDraft] = useState<Config | null>(() =>
@@ -157,7 +158,8 @@ export function GeneralSettings() {
     return null;
   }
 
-  const terminalShellOptions = getTerminalShellOptions();
+  const hostPlatform = terminalHostPlatform(environment?.os_type);
+  const terminalShellOptions = getTerminalShellOptions(hostPlatform);
 
   return (
     <div className="settings-content">
@@ -175,7 +177,7 @@ export function GeneralSettings() {
               </p>
             </div>
             <Select
-              value={getDefaultTerminalShell(draft)}
+              value={getDefaultTerminalShell(draft, environment?.os_type)}
               onValueChange={(value) =>
                 updateDraft({ default_terminal_shell: value })
               }

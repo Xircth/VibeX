@@ -38,6 +38,7 @@ import {
   kanbanCarouselTranslateX,
   kanbanCarouselWidth,
   kanbanPageWidth,
+  kanbanViewHidesSessionSlot,
   kanbanViewIndex,
   resolveKanbanViewId,
 } from '@/lib/kanbanViews';
@@ -108,13 +109,12 @@ export function KanbanBoard() {
   }, [activeViewId, resolvedViewId, setActiveViewId]);
   const currentViewId = resolvedViewId ?? activeViewId;
   const currentIndex = kanbanViewIndex(views, currentViewId);
-  const canvasMode = currentViewId === 'builtin:canvas';
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
-  const canvasSessionView = canvasMode;
+  const hideSessionSlot = kanbanViewHidesSessionSlot(currentViewId);
   const outerSessionSide: 'left' | 'right' =
     sessionSlotSide === 'left' ? 'left' : 'right';
   const outerSessionActive =
-    !canvasSessionView &&
+    !hideSessionSlot &&
     (sessionSlotSide !== 'center' || currentViewId !== 'builtin:sessions');
 
   const showLeftArrow = currentIndex > 0;

@@ -83,6 +83,10 @@ impl NativeBrowserParent {
             Ok(Self(raw))
         }
     }
+
+    pub fn as_raw(self) -> usize {
+        self.0
+    }
 }
 
 pub enum CefProcess {
@@ -281,7 +285,8 @@ impl CefSession {
                 initial_url,
                 profile,
                 surface,
-            } => self.create_browser(tab_id, initial_url, profile, surface),
+                parent_handle,
+            } => self.create_browser(tab_id, initial_url, profile, surface, parent_handle),
             BrowserEngineCommand::ResolvePermission {
                 tab_id,
                 request_id,
@@ -358,10 +363,12 @@ impl CefSession {
         initial_url: String,
         profile: BrowserProfile,
         surface: BrowserSurface,
+        parent_handle: Option<usize>,
     ) -> Result<(), CefHostError> {
         let mut request_context = self.request_context(&profile, &tab_id)?;
+        let parent = parent_handle.unwrap_or(self.parent.0);
         let window_info = WindowInfo::default().set_as_child(
-            native::parent_handle(self.parent.0),
+            native::parent_handle(parent),
             &native::surface_rect(&surface),
         );
         let mut client =

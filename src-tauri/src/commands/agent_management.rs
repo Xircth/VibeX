@@ -11766,15 +11766,6 @@ where
     Ok(())
 }
 
-async fn write_json_document(
-    path: &Path,
-    value: &serde_json::Value,
-    sensitive: bool,
-) -> Result<(), AgentManagementErrorView> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(internal_error)?;
-    write_bytes_document(path, &bytes, sensitive).await
-}
-
 #[tauri::command]
 pub async fn agent_management_actions(
     state: tauri::State<'_, AppState>,

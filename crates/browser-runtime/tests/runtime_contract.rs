@@ -548,6 +548,7 @@ fn creating_a_tab_dispatches_chromium_work_and_publishes_initial_state() {
             initial_url: tab.url.clone(),
             profile: tab.profile.clone(),
             surface,
+            parent_handle: None,
         }]
     );
     assert_eq!(
@@ -603,6 +604,7 @@ fn popup_requests_create_a_managed_sibling_tab_in_the_same_profile() {
             tab_id: popup.id,
             initial_url: "https://example.com/popup".to_string(),
             profile: opener.profile,
+            parent_handle: None,
             surface: BrowserSurface {
                 visible: false,
                 ..opener.surface

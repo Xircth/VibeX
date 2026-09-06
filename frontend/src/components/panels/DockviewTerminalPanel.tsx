@@ -30,6 +30,7 @@ import {
   isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
+import { terminalHostPlatform } from '@/utils/platform';
 import { isTerminalTabCloseKey } from './terminalTabClosePolicy';
 import {
   clampTerminalListPaneWidth,
@@ -54,16 +55,17 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
   }>();
-  const { config } = useUserSystem();
+  const { config, environment } = useUserSystem();
   const { openOrFocusPanel } = usePanelActionsContext();
   const workspaceId =
     getTerminalWorkspaceKey(activeWorktreeId ?? routeWorkspaceId ?? null) ||
     undefined;
-  const defaultShell = getDefaultTerminalShell(config);
+  const hostPlatform = terminalHostPlatform(environment?.os_type);
+  const defaultShell = getDefaultTerminalShell(config, environment?.os_type);
   const editorShell = isExternalTerminalShell(defaultShell)
-    ? getPlatformDefaultTerminalShell()
+    ? getPlatformDefaultTerminalShell(hostPlatform)
     : defaultShell;
-  const terminalShellOptions = getTerminalShellOptions();
+  const terminalShellOptions = getTerminalShellOptions(hostPlatform);
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
   const panelParams = (props.params ?? {}) as Partial<TerminalPanelParams>;
   const editorTabId =

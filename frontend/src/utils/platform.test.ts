@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyHostPlatformToDocument, getHostPlatform } from './platform';
+import {
+  applyHostPlatformToDocument,
+  getHostPlatform,
+  hostPlatformFromOsType,
+  terminalHostPlatform,
+} from './platform';
 
 const originalUserAgentData = (
   navigator as Navigator & { userAgentData?: { platform?: string } }
@@ -51,6 +56,23 @@ describe('getHostPlatform', () => {
     expect(getHostPlatform()).toBe('macos');
     stubPlatform('Linux x86_64');
     expect(getHostPlatform()).toBe('linux');
+  });
+});
+
+describe('hostPlatformFromOsType', () => {
+  it('maps the bound Host OS, not the client webview', () => {
+    expect(hostPlatformFromOsType('linux')).toBe('linux');
+    expect(hostPlatformFromOsType('Ubuntu')).toBe('linux');
+    expect(hostPlatformFromOsType('macos')).toBe('macos');
+    expect(hostPlatformFromOsType('Mac OS')).toBe('macos');
+    expect(hostPlatformFromOsType('Windows')).toBe('windows');
+    expect(hostPlatformFromOsType(undefined)).toBeNull();
+  });
+
+  it('uses the Host OS for terminals even when the client is macOS', () => {
+    stubPlatform('MacIntel');
+    expect(getHostPlatform()).toBe('macos');
+    expect(terminalHostPlatform('linux')).toBe('linux');
   });
 });
 

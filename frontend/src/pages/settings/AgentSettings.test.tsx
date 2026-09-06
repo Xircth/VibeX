@@ -1383,7 +1383,8 @@ describe('AgentSettings', () => {
 
     render(<AgentSettings />);
     await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
-    expect(await screen.findByTitle('1.0.0')).toBeInTheDocument();
+    expect(await screen.findByTitle('1.1.0')).toBeInTheDocument();
+    expect(screen.queryByText('本地 Runtime')).not.toBeInTheDocument();
     expect(screen.queryByText('可更新')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '立即检查' })
@@ -1406,7 +1407,7 @@ describe('AgentSettings', () => {
       });
     });
 
-    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
   });
 
   it('refreshes login status after a terminal account flow finishes', async () => {

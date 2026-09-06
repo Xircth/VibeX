@@ -6,6 +6,7 @@ import type {
 } from 'shared/types';
 
 import {
+  beginQueuedOperation,
   createAgentManagementState,
   mergeManagementSnapshot,
   optimisticAddRegistryAgent,
@@ -49,6 +50,22 @@ const generic: AgentRegistryViewRow = {
 };
 
 describe('agentManagementStore', () => {
+  it('shows a queued install as soon as the Host returns a receipt', () => {
+    const queued = beginQueuedOperation(createAgentManagementState([codex]), {
+      operation_id: 'op-1',
+      agent_id: 'codex',
+      kind: 'install',
+      status: 'queued',
+    });
+    expect(queued.operations.codex).toMatchObject({
+      operationId: 'op-1',
+      kind: 'install',
+      status: 'queued',
+      progressPercent: 0,
+    });
+    expect(queued.agents[0]?.lifecycle).toBe('queued');
+  });
+
   it('reduces operation events, optimistic add, and authoritative refreshes', () => {
     const initial = createAgentManagementState([codex]);
     const optimistic = optimisticAddRegistryAgent(initial, generic);

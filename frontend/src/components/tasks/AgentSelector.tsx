@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useOpenSettings } from '@/lib/api';
 import { useTranslation } from 'react-i18next';
 import { Bot, ArrowDown, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,6 @@ import {
   useSelectableAgents,
   type SelectableAgent,
 } from '@/features/agents/useSelectableAgents';
-import { settingsWindowApi } from '@/lib/api';
 
 interface AgentSelectorProps {
   profiles: Record<string, Record<string, unknown>> | null;
@@ -63,6 +63,7 @@ export function AgentSelector({
   dropdownSide = 'bottom',
 }: AgentSelectorProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const openSettings = useOpenSettings();
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
     return selectable
@@ -183,7 +184,7 @@ export function AgentSelector({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => void settingsWindowApi.open()}
+            onSelect={openSettings}
             className="text-muted-foreground"
           >
             <span className="flex items-center gap-2">

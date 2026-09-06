@@ -75,6 +75,10 @@ export function migrateKanbanViewId(
   }
 }
 
+export function kanbanViewHidesSessionSlot(viewId: string): boolean {
+  return viewId === 'builtin:canvas' || viewId === 'builtin:usage';
+}
+
 export function legacyKanbanPanelView(viewId: string): LegacyKanbanPanelView {
   switch (viewId) {
     case 'builtin:columns':

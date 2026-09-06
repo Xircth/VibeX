@@ -3,6 +3,7 @@ import {
   adjacentKanbanViewId,
   kanbanCarouselTranslateX,
   kanbanCarouselWidth,
+  kanbanViewHidesSessionSlot,
   migrateKanbanViewId,
   resolveKanbanViewId,
   viewIdForBoardStyleChange,
@@ -76,6 +77,14 @@ describe('kanbanViews', () => {
     expect(adjacentKanbanViewId(views, 'plugin:sample/view', 1)).toBe(
       'plugin:sample/view'
     );
+  });
+
+  it('hides the execution column on canvas and usage views', () => {
+    expect(kanbanViewHidesSessionSlot('builtin:columns')).toBe(false);
+    expect(kanbanViewHidesSessionSlot('builtin:sessions')).toBe(false);
+    expect(kanbanViewHidesSessionSlot('plugin:sample/view')).toBe(false);
+    expect(kanbanViewHidesSessionSlot('builtin:canvas')).toBe(true);
+    expect(kanbanViewHidesSessionSlot('builtin:usage')).toBe(true);
   });
 
   it('sizes the carousel for N views', () => {

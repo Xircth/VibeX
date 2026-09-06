@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
+import { presentPreflightItems } from './agentPreflightSnapshot';
 import { AgentSectionHeading } from './SettingsSection';
 
 const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';
@@ -134,7 +135,9 @@ export function AgentDetail({
   ).length;
   const [preflightExpanded, setPreflightExpanded] = useState(true);
   const busy = operation != null || agent.active_operation != null;
-  const items = preflight?.items ?? fallbackPreflight(t, agent);
+  const items = presentPreflightItems(
+    preflight?.items ?? fallbackPreflight(t, agent)
+  );
   const hasRepairableFailure = items.some(
     (item) => item.status === 'fail' && item.repairable
   );

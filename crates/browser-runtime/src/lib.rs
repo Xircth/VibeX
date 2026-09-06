@@ -145,6 +145,7 @@ pub enum BrowserEngineCommand {
         initial_url: String,
         profile: BrowserProfile,
         surface: BrowserSurface,
+        parent_handle: Option<usize>,
     },
     Navigate {
         tab_id: BrowserTabId,
@@ -349,6 +350,14 @@ impl BrowserRuntime {
     }
 
     pub fn create_tab(&self, request: CreateBrowserTab) -> Result<BrowserTab, BrowserError> {
+        self.create_tab_with_parent(request, None)
+    }
+
+    pub fn create_tab_with_parent(
+        &self,
+        request: CreateBrowserTab,
+        parent_handle: Option<usize>,
+    ) -> Result<BrowserTab, BrowserError> {
         let tab = BrowserTab {
             id: BrowserTabId::new(),
             url: request.initial_url,
@@ -367,6 +376,7 @@ impl BrowserRuntime {
             initial_url: tab.url.clone(),
             profile: tab.profile.clone(),
             surface: tab.surface.clone(),
+            parent_handle,
         })?;
 
         self.tabs
@@ -540,6 +550,7 @@ impl BrowserRuntime {
                     initial_url: tab.url.clone(),
                     profile: tab.profile.clone(),
                     surface: tab.surface.clone(),
+                    parent_handle: None,
                 })?;
                 self.tabs
                     .lock()

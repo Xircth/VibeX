@@ -4,6 +4,7 @@ import type {
   AgentId,
   AgentManagementView,
   AgentOperationEvent,
+  AgentOperationReceipt,
   AgentRegistryViewRow,
 } from 'shared/types';
 
@@ -12,6 +13,7 @@ import { toast } from '@/components/ui/toast';
 
 import { agentManagementApi } from './api';
 import {
+  beginQueuedOperation,
   createAgentManagementState,
   mergeManagementSnapshot,
   optimisticAddRegistryAgent,
@@ -135,10 +137,15 @@ export function useAgentManagement() {
     setState((current) => ({ ...current, selectedAgentId: agentId }));
   }, []);
 
+  const beginOperation = useCallback((receipt: AgentOperationReceipt) => {
+    setState((current) => beginQueuedOperation(current, receipt));
+  }, []);
+
   const addAndInstall = useCallback(async (row: AgentRegistryViewRow) => {
     setState((current) => optimisticAddRegistryAgent(current, row));
     try {
-      await agentManagementApi.addAndInstall(row.agent_id);
+      const receipt = await agentManagementApi.addAndInstall(row.agent_id);
+      setState((current) => beginQueuedOperation(current, receipt));
     } catch (nextError) {
       await agentManagementApi
         .bar()
@@ -175,6 +182,7 @@ export function useAgentManagement() {
     refreshFresh,
     select,
     addAndInstall,
+    beginOperation,
     mergeAgent,
   };
 }

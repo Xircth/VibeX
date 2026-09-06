@@ -35,7 +35,7 @@ interface ActionBarProps {
   isCompactingContext: boolean;
   isStopping: boolean;
   isSteering?: boolean;
-  supportsSteering?: boolean;
+  steeringChannel?: 'native' | 'pull' | null;
   isSendingFollowUp: boolean;
   canSendFollowUp: boolean;
   promptEnhancementEnabled: boolean;
@@ -76,7 +76,7 @@ export function ActionBar({
   isCompactingContext,
   isStopping,
   isSteering = false,
-  supportsSteering = false,
+  steeringChannel = null,
   isSendingFollowUp,
   canSendFollowUp,
   promptEnhancementEnabled,
@@ -156,7 +156,7 @@ export function ActionBar({
           isCompactingContext={isCompactingContext}
           isStopping={isStopping}
           isSteering={isSteering}
-          supportsSteering={supportsSteering}
+          steeringChannel={steeringChannel}
           hasQueueableContent={Boolean(hasQueueableContent)}
           sessionId={sessionId}
           onQueueMessage={onQueueMessage}

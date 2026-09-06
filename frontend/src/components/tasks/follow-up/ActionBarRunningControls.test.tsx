@@ -30,20 +30,20 @@ describe('ActionBarRunningControls', () => {
     expect(onQueueMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('shows steering only when the live Agent negotiated it', () => {
+  it('offers native insert only when a native channel is live', () => {
     const onSteer = vi.fn();
     const { rerender } = renderRunningControls({
-      supportsSteering: false,
+      steeringChannel: null,
       onSteer,
     });
-    expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '插入当前回合' })).toBeNull();
 
     rerender(
       <ActionBarRunningControls
         isQueueLoading={false}
         isCompactingContext={false}
         isStopping={false}
-        supportsSteering={true}
+        steeringChannel="native"
         hasQueueableContent={true}
         sessionId="session-1"
         onQueueMessage={vi.fn()}
@@ -51,8 +51,17 @@ describe('ActionBarRunningControls', () => {
         onStopExecution={vi.fn()}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: '纠偏' }));
-    expect(onSteer).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '插入当前回合' })).toBeEnabled();
+  });
+
+  it('labels the pull channel as a note the Agent will read', () => {
+    renderRunningControls({
+      steeringChannel: 'pull',
+      onSteer: vi.fn(),
+    });
+    expect(
+      screen.getByRole('button', { name: '发给 Agent 查阅' })
+    ).toBeEnabled();
   });
 
   it('disables queueing without a session id or queueable content', () => {

@@ -18,6 +18,7 @@ import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpCo
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
+import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { useGitStatus } from '@/hooks/git';
 
@@ -639,7 +640,7 @@ export function TaskFollowUpSection({
     });
     if (!followUp) return;
     if (followUp.pluginActions.length > 0) {
-      setFollowUpError('运行中纠偏不执行插件动作，请改为加入队列。');
+      setFollowUpError(t('tasks:composer.steerPluginBlocked'));
       return;
     }
     setIsSteering(true);
@@ -657,11 +658,30 @@ export function TaskFollowUpSection({
           await handleAfterSendWithSessionControlCleanup();
           return;
         }
+        if (receipt.code === 'no_running_turn' && workspaceIdValue) {
+          await conversationApi.submitInput(sessionId, {
+            agentId: (session?.executor ?? 'claude_code') as AgentKind,
+            workspaceId: workspaceIdValue,
+            text: followUp.message,
+            images: followUp.images,
+            executorProfileId: effectiveExecutorProfile,
+          });
+          toast.info(t('tasks:composer.steerQueuedInstead'));
+          cancelDebouncedSave();
+          await handleAfterSendWithSessionControlCleanup();
+          return;
+        }
         setFollowUpError(
           receipt.status === 'unknown'
-            ? `纠偏送达状态未知；为避免重复注入，内容已保留。${receipt.message ? ` ${receipt.message}` : ''}`
-            : receipt.message || 'Agent 未接受本次运行中纠偏。'
+            ? [t('tasks:composer.steerUnknown'), receipt.message]
+                .filter(Boolean)
+                .join(' ')
+            : receipt.message || t('tasks:composer.steerRejected')
         );
+        return;
+      }
+      if (followUp.images.length > 0) {
+        setFollowUpError(t('tasks:composer.steerImagesBlocked'));
         return;
       }
       await conversationApi.submitFeedback({
@@ -672,8 +692,17 @@ export function TaskFollowUpSection({
       await handleAfterSendWithSessionControlCleanup();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/no active turn/i.test(message)) {
-        setFollowUpError('回合已结束，内容已保留。请发送或加入队列。');
+      if (/no active turn/i.test(message) && workspaceIdValue) {
+        await conversationApi.submitInput(sessionId, {
+          agentId: (session?.executor ?? 'claude_code') as AgentKind,
+          workspaceId: workspaceIdValue,
+          text: followUp.message,
+          images: followUp.images,
+          executorProfileId: effectiveExecutorProfile,
+        });
+        toast.info(t('tasks:composer.steerQueuedInstead'));
+        cancelDebouncedSave();
+        await handleAfterSendWithSessionControlCleanup();
         return;
       }
       setFollowUpError(message);
@@ -688,9 +717,12 @@ export function TaskFollowUpSection({
     handleAfterSendWithSessionControlCleanup,
     localMessage,
     reviewMarkdown,
+    session?.executor,
     sessionId,
     setFollowUpError,
     steeringTarget,
+    t,
+    workspaceIdValue,
   ]);
   const { isCompactingContext, canCompactContext, handleCompactContext } =
     useSessionComposerContextCompact({
@@ -1048,8 +1080,8 @@ export function TaskFollowUpSection({
             isCompactingContext={isCompactingContext}
             isStopping={isStopping}
             isSteering={isSteering}
-            supportsSteering={
-              Boolean(steeringTarget) || Boolean(liveFeedbackOn)
+            steeringChannel={
+              steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
             }
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}

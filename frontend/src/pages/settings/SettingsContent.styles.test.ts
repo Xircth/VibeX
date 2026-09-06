@@ -206,6 +206,8 @@ describe('settings page alignment', () => {
 
     expect(list.get('background')).toBe(surface.get('background'));
     expect(list.get('background')).toBe('var(--surface-card-strong)');
+    expect(list.get('border-radius')).toBe(surface.get('border-radius'));
+    expect(list.get('border-radius')).toBe('var(--radius)');
     expect(card.get('background')).toBe('var(--surface-content)');
   });
 

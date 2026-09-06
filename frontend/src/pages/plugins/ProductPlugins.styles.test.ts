@@ -79,16 +79,24 @@ describe('Product Plugin content layout', () => {
     expect(focused.get('box-shadow')).toBe('none');
   });
 
-  it('keeps plugin lists as uncontained rows', () => {
+  it('paints the installed plugin list as a rounded settings surface', () => {
     const list = declarationsFor('.settings-page .product-plugin-list');
+    const catalog = declarationsFor(
+      '.settings-page .product-plugin-catalog-body.product-plugin-list'
+    );
     const market = declarationsFor(
       '.settings-page .product-plugin-market-list'
     );
     const row = declarationsFor('.settings-page .product-plugin-row');
     expect(list.get('background')).toBe('var(--surface-card-strong)');
+    expect(list.get('border')).toBe('1px solid var(--border-subtle)');
+    expect(list.get('border-radius')).toBe('var(--radius)');
+    expect(catalog.get('overflow-x')).toBe('hidden');
+    expect(catalog.get('overflow-y')).toBe('auto');
     expect(market.get('background')).toBe('transparent');
     expect(market.get('border-radius')).toBeUndefined();
     expect(row.get('margin')).toBe('0');
+    expect(row.get('padding')).toBe('0 12px');
   });
 
   it('renders category and inspect tabs as an underline text strip', () => {

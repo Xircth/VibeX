@@ -6,6 +6,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       shared: path.resolve(__dirname, '../shared'),
+      '@module-federation/runtime': path.resolve(
+        __dirname,
+        './src/test/moduleFederationRuntimeStub.ts'
+      ),
     },
   },
   test: {

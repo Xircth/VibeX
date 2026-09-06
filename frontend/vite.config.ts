@@ -169,7 +169,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
   },
   optimizeDeps: {
     exclude: ['wa-sqlite'],
-    include: ['lucide-react'],
+    include: ['lucide-react', '@module-federation/runtime'],
   },
   build: {
     sourcemap: process.env.VITE_SOURCEMAP === 'true',

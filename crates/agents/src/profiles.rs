@@ -1158,34 +1158,34 @@ const OPENCODE_CONFIG: &[NativeConfigBinding] = &[
 ];
 
 const PI_AUTH_FIELDS: &[NativeConfigField] = &[
-    tagged_secret_field(
+    authentication(tagged_secret_field(
         "pi_anthropic_api_key",
         "Anthropic API Key",
         "Pi 的 Anthropic provider 凭据",
         &["anthropic", "key"],
         ("type", "api_key"),
-    ),
-    tagged_secret_field(
+    )),
+    authentication(tagged_secret_field(
         "pi_openai_api_key",
         "OpenAI API Key",
         "Pi 的 OpenAI provider 凭据",
         &["openai", "key"],
         ("type", "api_key"),
-    ),
-    tagged_secret_field(
+    )),
+    authentication(tagged_secret_field(
         "pi_google_api_key",
         "Google API Key",
         "Pi 的 Google provider 凭据",
         &["google", "key"],
         ("type", "api_key"),
-    ),
-    tagged_secret_field(
+    )),
+    authentication(tagged_secret_field(
         "pi_opencode_api_key",
         "OpenCode API Key",
         "Pi 的 OpenCode provider 凭据",
         &["opencode", "key"],
         ("type", "api_key"),
-    ),
+    )),
 ];
 const PI_THINKING_OPTIONS: &[(&str, &str)] = &[
     ("off", "关闭"),

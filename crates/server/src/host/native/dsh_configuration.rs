@@ -64,7 +64,7 @@ pub fn resolve_paths(user_home: &Path, environment: &HashMap<String, String>) ->
             std::env::var("DSH_HOME")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
-                .map(PathBuf::from)
+                .map(|value| expand_home(user_home, &value))
         })
         .unwrap_or_else(|| user_home.join(".dsh"));
     DshPaths {
@@ -1027,6 +1027,9 @@ fn expand_home(user_home: &Path, value: &str) -> PathBuf {
     }
     if value == "~" {
         return user_home.to_path_buf();
+    }
+    if let Some(rest) = value.strip_prefix("~\\") {
+        return user_home.join(rest);
     }
     PathBuf::from(value)
 }

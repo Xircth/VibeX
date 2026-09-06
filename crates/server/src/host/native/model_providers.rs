@@ -195,7 +195,7 @@ fn resolve_native_home(
         .or_else(|| {
             std::env::var_os(variable)
                 .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
+                .map(|value| super::expand_agent_home_path(home, &value.to_string_lossy()))
         })
         .unwrap_or_else(|| home.join(fallback))
 }

@@ -128,13 +128,17 @@ pub fn json_document_mutation(
 }
 
 pub fn expand_agent_home_path(home: &Path, value: &str) -> PathBuf {
-    let path = PathBuf::from(value.trim());
-    if path == Path::new("~") {
+    let trimmed = value.trim();
+    if trimmed == "~" {
         return home.to_path_buf();
     }
-    if let Ok(relative) = path.strip_prefix("~/") {
+    if let Some(relative) = trimmed
+        .strip_prefix("~/")
+        .or_else(|| trimmed.strip_prefix("~\\"))
+    {
         return home.join(relative);
     }
+    let path = PathBuf::from(trimmed);
     if path.is_relative() {
         return home.join(path);
     }
@@ -163,11 +167,41 @@ pub fn resolve_agent_home(
         .map(String::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+        .map(|value| expand_agent_home_path(home, value))
         .or_else(|| {
             std::env::var_os(override_env)
                 .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
+                .map(|value| expand_agent_home_path(home, &value.to_string_lossy()))
         })
         .unwrap_or_else(|| home.join(relative))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_agent_home_path_joins_tilde_and_windows_tilde_prefix() {
+        let home = PathBuf::from("/users/demo");
+        assert_eq!(expand_agent_home_path(&home, "~"), home);
+        assert_eq!(
+            expand_agent_home_path(&home, "~/.codex"),
+            home.join(".codex")
+        );
+        assert_eq!(
+            expand_agent_home_path(&home, "~\\.codex"),
+            home.join(".codex")
+        );
+    }
+
+    #[test]
+    fn resolve_agent_home_expands_tilde_overrides() {
+        let home = PathBuf::from("/users/demo");
+        let env =
+            std::collections::HashMap::from([("CODEX_HOME".to_string(), "~/.codex".to_string())]);
+        assert_eq!(
+            resolve_agent_home(&home, &env, "CODEX_HOME", ".codex"),
+            home.join(".codex")
+        );
+    }
 }

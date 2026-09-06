@@ -33,7 +33,10 @@ use sqlx::SqlitePool;
 
 use super::{
     account_flow,
-    native::{model_providers, provider_store_path},
+    native::{
+        dsh_configuration, expand_agent_home_path, model_providers, opencode_providers,
+        provider_store_path,
+    },
 };
 use crate::domains::{internal_error, parse, serialize};
 
@@ -990,6 +993,12 @@ async fn project_auth_mode_view_at(
     if agent_id.as_str() == "codex" {
         return read_codex_auth_mode(home, env, bound, &providers).await;
     }
+    if agent_id.as_str() == "deepseek_harness" {
+        return read_dsh_auth_mode(home, env).await;
+    }
+    if agent_id.as_str() == "opencode" {
+        return read_opencode_auth_mode(home, env, bound, &providers).await;
+    }
     let policy = built_in_auth_mode_policy(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
     let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
@@ -1038,11 +1047,7 @@ fn credential_present_for_mode(
     snapshot: Option<&NativeConfigSnapshot>,
 ) -> bool {
     match (agent_id.as_str(), mode) {
-        (_, "model_provider") => providers
-            .providers
-            .iter()
-            .find(|provider| Some(&provider.id) == providers.bound_provider_id.as_ref())
-            .is_some_and(|provider| provider.credential_present),
+        (_, "model_provider") => model_provider_credential_present(providers, snapshot),
         ("claude_code", "official_api" | "custom") => {
             snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key"))
         }
@@ -1057,10 +1062,35 @@ fn credential_present_for_mode(
                 || (snapshot.field_text("antigravity_cloud_project").is_some()
                     && snapshot.field_text("antigravity_cloud_location").is_some())
         }),
-        _ => env
-            .get(credential_env)
-            .is_some_and(|value| !value.trim().is_empty()),
+        _ => {
+            env.get(credential_env)
+                .is_some_and(|value| !value.trim().is_empty())
+                || native_secret_present(snapshot)
+        }
     }
+}
+
+fn model_provider_credential_present(
+    providers: &api_types::AgentModelProvidersView,
+    snapshot: Option<&NativeConfigSnapshot>,
+) -> bool {
+    providers
+        .providers
+        .iter()
+        .any(|provider| provider.credential_present)
+        || native_secret_present(snapshot)
+}
+
+fn native_secret_present(snapshot: Option<&NativeConfigSnapshot>) -> bool {
+    snapshot.is_some_and(|snapshot| {
+        matches!(
+            snapshot.authentication,
+            AgentAuthenticationStatus::ApiKey | AgentAuthenticationStatus::Account
+        ) || snapshot
+            .fields
+            .iter()
+            .any(|field| field.secret && field.present)
+    })
 }
 
 async fn read_native_auth_snapshot(
@@ -1089,9 +1119,11 @@ async fn read_codex_auth_mode(
     let auth = read_json_object_or_empty(&codex_home.join("auth.json")).await?;
     let projection = project_codex_auth_mode(&auth, bound);
     let mut credential_present = projection.credential_present;
-    if let Some(bound_provider) = providers.providers.iter().find(|provider| provider.bound) {
-        credential_present = credential_present || bound_provider.credential_present;
-    }
+    credential_present = credential_present
+        || providers
+            .providers
+            .iter()
+            .any(|provider| provider.credential_present);
     Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, agents::CODEX_AUTH_MODES),
         agent_id,
@@ -1104,6 +1136,112 @@ async fn read_codex_auth_mode(
         credential_present,
         account_label: None,
     })
+}
+
+async fn read_dsh_auth_mode(
+    home: &Path,
+    env: &HashMap<String, String>,
+) -> Result<AgentAuthModeView, ApplicationError> {
+    let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
+    let policy = built_in_auth_mode_policy(&agent_id)
+        .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
+    let paths = dsh_configuration::resolve_paths(home, env);
+    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
+    let mode =
+        dsh_configuration::inferred_auth_mode(&paths, env.get(policy.mode_env).map(String::as_str))
+            .to_string();
+    let credential_present = dsh_configuration::any_credential_present(&paths)
+        || env
+            .get(policy.credential_env)
+            .is_some_and(|value| !value.trim().is_empty())
+        || native_secret_present(snapshot.as_ref());
+    Ok(AgentAuthModeView {
+        options: project_auth_mode_options(&agent_id, policy.modes),
+        agent_id,
+        mode,
+        modes: policy
+            .modes
+            .iter()
+            .map(|mode| (*mode).to_string())
+            .collect(),
+        credential_env: policy.credential_env.to_string(),
+        credential_present,
+        account_label: None,
+    })
+}
+
+async fn read_opencode_auth_mode(
+    home: &Path,
+    env: &HashMap<String, String>,
+    bound: bool,
+    providers: &api_types::AgentModelProvidersView,
+) -> Result<AgentAuthModeView, ApplicationError> {
+    let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
+    let policy = built_in_auth_mode_policy(&agent_id)
+        .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
+    let (auth_path, config_path) = opencode_paths_at(home, env);
+    let auth = read_json_object_or_empty(&auth_path)
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let config = read_json_object_or_empty(&config_path)
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let connections = opencode_providers::project_opencode_provider_connections(&auth, &config);
+    let provider_ready = connections.providers.iter().any(|provider| {
+        provider.enabled
+            && provider.credential_present
+            && auth
+                .get(&provider.provider_id)
+                .and_then(|entry| entry.get("type"))
+                .and_then(Value::as_str)
+                != Some("oauth")
+    });
+    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
+    let mode = resolve_built_in_auth_mode(
+        &agent_id,
+        policy,
+        env,
+        bound || provider_ready,
+        false,
+        snapshot.as_ref(),
+    );
+    let credential_present = provider_ready
+        || model_provider_credential_present(providers, snapshot.as_ref())
+        || native_secret_present(snapshot.as_ref());
+    Ok(AgentAuthModeView {
+        options: project_auth_mode_options(&agent_id, policy.modes),
+        agent_id,
+        mode,
+        modes: policy
+            .modes
+            .iter()
+            .map(|mode| (*mode).to_string())
+            .collect(),
+        credential_env: policy.credential_env.to_string(),
+        credential_present,
+        account_label: None,
+    })
+}
+
+fn opencode_paths_at(home: &Path, env: &HashMap<String, String>) -> (PathBuf, PathBuf) {
+    let data = env
+        .get("XDG_DATA_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_agent_home_path(home, value))
+        .unwrap_or_else(|| home.join(".local").join("share"));
+    let config = env
+        .get("XDG_CONFIG_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_agent_home_path(home, value))
+        .unwrap_or_else(|| home.join(".config"));
+    (
+        data.join("opencode").join("auth.json"),
+        config.join("opencode").join("opencode.json"),
+    )
 }
 
 async fn set_codex_auth_mode(
@@ -1899,12 +2037,7 @@ fn resolve_agent_home(
     override_env: &str,
     relative: &str,
 ) -> PathBuf {
-    env.get(override_env)
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(relative))
+    super::native::resolve_agent_home(home, env, override_env, relative)
 }
 
 async fn read_json_object_or_empty(path: &Path) -> Result<Value, ApplicationError> {
@@ -2270,6 +2403,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn saved_provider_credentials_ready_the_provider_tab_without_binding() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let claude_home = home.join(".claude");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&claude_home).await.unwrap();
+        tokio::fs::create_dir_all(store_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            claude_home.join("settings.json"),
+            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com"}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            &store_path,
+            br#"{
+              "providers": [{
+                "id": "user-relay",
+                "name": "Relay",
+                "agent_id": "claude_code",
+                "api_url": "https://api.relay.example/v1",
+                "api_key": "sk-user",
+                "model": "deepseek-chat"
+              }],
+              "bindings": {}
+            }"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("claude_code").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(
+            view.credential_present,
+            "saved Model Provider credentials must satisfy preflight without a separate bind"
+        );
+    }
+
+    #[tokio::test]
     async fn official_claude_api_key_stays_on_the_official_api_tab() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
@@ -2292,5 +2473,119 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(view.mode, "official_api");
+    }
+
+    #[tokio::test]
+    async fn pi_custom_native_key_readies_the_default_provider_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let pi_home = home.join(".pi/agent");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&pi_home).await.unwrap();
+        tokio::fs::write(
+            pi_home.join("auth.json"),
+            br#"{"cc-switch-open-code-go":{"type":"api_key","key":"sk-go"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("pi").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
+    }
+
+    #[tokio::test]
+    async fn opencode_connected_provider_selects_the_provider_auth_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let auth_dir = home.join(".local/share/opencode");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&auth_dir).await.unwrap();
+        tokio::fs::write(
+            auth_dir.join("auth.json"),
+            br#"{"deepseek":{"type":"api","key":"sk-ds"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("opencode").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
+    }
+
+    #[tokio::test]
+    async fn dsh_custom_yaml_credential_readies_provider_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let dsh_home = home.join(".dsh");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&dsh_home).await.unwrap();
+        tokio::fs::write(
+            dsh_home.join(".credentials.yaml"),
+            "MY_GATEWAY_API_KEY: sk-test\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            dsh_home.join("settings.yaml"),
+            "llm-pi-ai:\n  providers:\n    my-gateway:\n      api: openai-completions\n      baseURL: https://gateway.example/v1\n      apiKeyEnv: MY_GATEWAY_API_KEY\n",
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("deepseek_harness").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "custom");
+        assert!(view.credential_present);
+    }
+
+    #[tokio::test]
+    async fn kimi_native_api_key_readies_official_api_without_env() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let kimi_home = home.join(".kimi-code");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&kimi_home).await.unwrap();
+        tokio::fs::write(
+            kimi_home.join("config.toml"),
+            "[providers.vibex]\ntype = \"openai\"\nbase_url = \"https://api.moonshot.ai/v1\"\napi_key = \"sk-kimi\"\n",
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("kimi_code").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert!(view.credential_present);
+        assert!(
+            view.mode == "official_api" || view.mode == "official_subscription",
+            "unexpected kimi mode {}",
+            view.mode
+        );
     }
 }

@@ -15,7 +15,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Image, Loader2, MousePointer2, X } from 'lucide-react';
+import { FolderOpen, Image, Loader2, MousePointer2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId } from 'shared/types';
 import {
@@ -60,6 +60,7 @@ import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
 import {
   extractImageFilesFromClipboardData,
+  prepareImageFileForUpload,
   readImageFilesFromNavigatorClipboard,
 } from '@/utils/clipboard';
 import { formatFileRangeRef } from '@/utils/codeSelection';
@@ -87,9 +88,20 @@ import {
   type SessionComposerStructuredTokenKind,
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
-import { composerBareEnterInsertsNewline } from './sessionComposerSubmitHotkey';
+import {
+  composerEnterAction,
+  isComposerImeCommitEnter,
+} from './sessionComposerSubmitHotkey';
 import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
 import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
+import {
+  fileFromHostPath,
+  hostPathFileName,
+  isImageFile,
+  isImageHostPath,
+  isPointInElement,
+  relativePathInsideRoot,
+} from './composerHostFileDrop';
 
 export type SessionComposerImage = {
   id: string;
@@ -122,9 +134,9 @@ type SessionComposerInputProps = {
 };
 
 function imageFilesFromFileList(files: FileList | null | undefined): File[] {
-  return Array.from(files ?? []).filter((file) =>
-    file.type.startsWith('image/')
-  );
+  return Array.from(files ?? [])
+    .filter(isImageFile)
+    .map(prepareImageFileForUpload);
 }
 
 /**
@@ -146,13 +158,13 @@ export function handleComposerImagePaste(
   }
   const files = extractImageFilesFromClipboardData(event.clipboardData);
   if (files.length > 0) {
-    onAttachImages(files);
+    onAttachImages(files.map(prepareImageFileForUpload));
     return true;
   }
   void readImageFilesFromNavigatorClipboard()
     .then((fallbackFiles) => {
       if (fallbackFiles.length > 0) {
-        onAttachImages(fallbackFiles);
+        onAttachImages(fallbackFiles.map(prepareImageFileForUpload));
       }
     })
     .catch(() => undefined);
@@ -758,7 +770,14 @@ export function SessionComposerInput({
   } = context ?? {};
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRootRef = useRef<HTMLDivElement | null>(null);
+  const lastCompositionEndAtRef = useRef(Number.NEGATIVE_INFINITY);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const dropActiveRef = useRef(false);
+  const [dropActive, setDropActive] = useState(false);
+  const setComposerDropActive = useCallback((active: boolean) => {
+    dropActiveRef.current = active;
+    setDropActive(active);
+  }, []);
   const elementTokenTooltipId = useId();
   const [activeElementToken, setActiveElementToken] = useState<{
     anchor: HTMLElement;
@@ -1184,6 +1203,49 @@ export function SessionComposerInput({
     [disabled, insertFileReferenceTokenAtCaret]
   );
 
+  const handleHostDroppedPaths = useCallback(
+    async (paths: string[]) => {
+      if (disabled || paths.length === 0) return;
+      const imagePaths = paths.filter(isImageHostPath);
+      const otherPaths = paths.filter((path) => !isImageHostPath(path));
+      if (imagePaths.length > 0) {
+        const { readFile } = await import('@tauri-apps/plugin-fs');
+        const files: File[] = [];
+        for (const path of imagePaths) {
+          try {
+            files.push(
+              await fileFromHostPath(path, (filePath) => readFile(filePath))
+            );
+          } catch {
+            // Keep going so a single unreadable image does not block the rest.
+          }
+        }
+        if (files.length > 0) {
+          onAttachImages(files.map(prepareImageFileForUpload));
+        }
+      }
+      for (const path of otherPaths) {
+        const relative =
+          relativePathInsideRoot(workspacePath, path) ?? hostPathFileName(path);
+        if (!relative) continue;
+        insertFileReferenceTokenAtCaret(relative);
+      }
+    },
+    [disabled, insertFileReferenceTokenAtCaret, onAttachImages, workspacePath]
+  );
+
+  useEffect(() => {
+    const root = composerRootRef.current;
+    if (!root) return;
+    const markCompositionEnd = () => {
+      lastCompositionEndAtRef.current = performance.now();
+    };
+    root.addEventListener('compositionend', markCompositionEnd, true);
+    return () => {
+      root.removeEventListener('compositionend', markCompositionEnd, true);
+    };
+  }, []);
+
   useEffect(() => {
     const dropZone = dropZoneRef.current;
     if (!dropZone) return;
@@ -1206,8 +1268,57 @@ export function SessionComposerInput({
     };
   }, [insertDroppedFileReference]);
 
+  useEffect(() => {
+    if (disabled) {
+      setComposerDropActive(false);
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          const payload = event.payload;
+          const zone = dropZoneRef.current;
+          if (payload.type === 'leave') {
+            setComposerDropActive(false);
+            return;
+          }
+          if (payload.type === 'enter' || payload.type === 'over') {
+            setComposerDropActive(
+              !!zone &&
+                'position' in payload &&
+                isPointInElement(zone, payload.position.x, payload.position.y)
+            );
+            return;
+          }
+          if (payload.type !== 'drop') return;
+          const overZone =
+            !!zone &&
+            isPointInElement(zone, payload.position.x, payload.position.y);
+          const accept = overZone || dropActiveRef.current;
+          setComposerDropActive(false);
+          if (!accept) return;
+          void handleHostDroppedPaths(payload.paths);
+        })
+      )
+      .then((stopListening) => {
+        if (disposed) stopListening();
+        else unlisten = stopListening;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [disabled, handleHostDroppedPaths, setComposerDropActive]);
+
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
+      setComposerDropActive(false);
       const fileReference = getDroppedFileReference(event.dataTransfer);
       if (fileReference) {
         event.preventDefault();
@@ -1222,7 +1333,34 @@ export function SessionComposerInput({
       event.preventDefault();
       onAttachImages(files);
     },
-    [insertDroppedFileReference, onAttachImages]
+    [insertDroppedFileReference, onAttachImages, setComposerDropActive]
+  );
+
+  const handleDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (hasFileReferenceDrag(event.dataTransfer)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        setComposerDropActive(true);
+        return;
+      }
+      if (Array.from(event.dataTransfer.types).includes('Files')) {
+        event.preventDefault();
+        setComposerDropActive(true);
+      }
+    },
+    [setComposerDropActive]
+  );
+
+  const handleDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && event.currentTarget.contains(next)) {
+        return;
+      }
+      setComposerDropActive(false);
+    },
+    [setComposerDropActive]
   );
 
   const handleComposerPaste = useCallback(
@@ -1234,10 +1372,23 @@ export function SessionComposerInput({
   return (
     <div
       ref={dropZoneRef}
-      className="min-w-0"
+      className="session-composer-file-drop-zone min-w-0"
       data-file-reference-drop-zone
       data-testid="session-composer-file-drop-zone"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {dropActive ? (
+        <div
+          className="session-composer-drop-overlay"
+          role="status"
+          aria-label={t('composer.dropFiles')}
+        >
+          <FolderOpen aria-hidden="true" />
+          <strong>{t('composer.dropFiles')}</strong>
+        </div>
+      ) : null}
       <div
         className={cn(
           'min-h-[40px] rounded-lg bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
@@ -1269,35 +1420,46 @@ export function SessionComposerInput({
           triggers={triggers}
           handleRef={composerHandleRef}
           onKeyDown={(event) => {
-            if (atReference.handleKeyDown(event)) {
-              return;
-            }
             if (
-              event.nativeEvent.isComposing ||
-              event.nativeEvent.keyCode === 229
+              isComposerImeCommitEnter(event, lastCompositionEndAtRef.current)
             ) {
               return;
             }
-            if (!composerBareEnterInsertsNewline(sendShortcut, event)) {
+            if (atReference.handleKeyDown(event)) {
               return;
             }
+            const action = composerEnterAction(
+              sendShortcut,
+              event,
+              lastCompositionEndAtRef.current
+            );
+            if (action === 'defer') return;
             event.preventDefault();
-            composerHandleRef.current?.insertText('\n');
+            if (action === 'newline') {
+              composerHandleRef.current?.insertText('\n');
+              return;
+            }
+            const text = composerHandleRef.current?.getValue().trim() ?? '';
+            if (!text) return;
+            onSubmit(text);
+            const editable =
+              composerRootRef.current?.querySelector<HTMLElement>(
+                '[contenteditable="true"]'
+              );
+            if (editable) editable.textContent = '';
+            onChange('');
           }}
           onSubmit={onSubmit}
-          onFiles={onAttachImages}
+          onFiles={(files) => {
+            const images = files
+              .filter(isImageFile)
+              .map(prepareImageFileForUpload);
+            if (images.length > 0) onAttachImages(images);
+          }}
           onPaste={handleComposerPaste}
           onDrop={handleDrop}
-          onDragOver={(event) => {
-            if (hasFileReferenceDrag(event.dataTransfer)) {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'copy';
-              return;
-            }
-            if (Array.from(event.dataTransfer.types).includes('Files')) {
-              event.preventDefault();
-            }
-          }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
           data-testid="session-composer-editor"
         />
         {activeElementToken ? (

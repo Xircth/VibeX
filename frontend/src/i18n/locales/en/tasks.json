@@ -2,6 +2,7 @@
   "composer": {
     "inputLabel": "Message",
     "attachments": "Attachments",
+    "dropFiles": "Drop files here",
     "commandSource": {
       "plugin": "Plugin",
       "skill": "Skill",

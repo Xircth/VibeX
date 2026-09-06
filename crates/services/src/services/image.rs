@@ -34,6 +34,61 @@ pub enum ImageError {
 /// - Spaces → underscores
 /// - Remove special characters (keep alphanumeric and underscores)
 /// - Truncate if too long
+fn mime_type_for_extension(extension: &str) -> &'static str {
+    match extension {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+}
+
+fn named_image_extension(filename: &str) -> Option<&'static str> {
+    match Path::new(filename)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => Some("png"),
+        Some("jpg" | "jpeg") => Some("jpg"),
+        Some("gif") => Some("gif"),
+        Some("webp") => Some("webp"),
+        Some("bmp") => Some("bmp"),
+        Some("svg") => Some("svg"),
+        _ => None,
+    }
+}
+
+fn sniffed_image_extension(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("png");
+    }
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpg");
+    }
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        return Some("gif");
+    }
+    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    if data.starts_with(b"BM") {
+        return Some("bmp");
+    }
+    if data.starts_with(b"<svg") || data.starts_with(b"<?xml") {
+        return Some("svg");
+    }
+    None
+}
+
+fn infer_image_extension(filename: &str, data: &[u8]) -> Option<&'static str> {
+    named_image_extension(filename).or_else(|| sniffed_image_extension(data))
+}
+
 fn sanitize_filename(name: &str) -> String {
     let stem = Path::new(name)
         .file_stem()
@@ -89,25 +144,10 @@ impl ImageService {
 
         let hash = format!("{:x}", Sha256::digest(data));
 
-        // Extract extension from original filename
-        let extension = Path::new(original_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("png");
+        let extension =
+            infer_image_extension(original_filename, data).ok_or(ImageError::InvalidFormat)?;
 
-        let mime_type = match extension.to_lowercase().as_str() {
-            "png" => Some("image/png".to_string()),
-            "jpg" | "jpeg" => Some("image/jpeg".to_string()),
-            "gif" => Some("image/gif".to_string()),
-            "webp" => Some("image/webp".to_string()),
-            "bmp" => Some("image/bmp".to_string()),
-            "svg" => Some("image/svg+xml".to_string()),
-            _ => None,
-        };
-
-        if mime_type.is_none() {
-            return Err(ImageError::InvalidFormat);
-        }
+        let mime_type = Some(mime_type_for_extension(extension).to_string());
 
         let existing_image = Image::find_by_hash(&self.pool, &hash).await?;
 
@@ -268,5 +308,19 @@ impl ImageService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infers_png_from_filename_or_magic_bytes() {
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 1, 2];
+        assert_eq!(infer_image_extension("shot.png", &[]), Some("png"));
+        assert_eq!(infer_image_extension("", &png), Some("png"));
+        assert_eq!(infer_image_extension("clipboard", &png), Some("png"));
+        assert_eq!(infer_image_extension("notes.txt", b"hello"), None);
     }
 }

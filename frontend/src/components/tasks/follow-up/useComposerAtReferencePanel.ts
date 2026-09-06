@@ -31,6 +31,10 @@ import {
   type AtReferenceTab,
 } from './composerAtReferences';
 import {
+  isComposerEnterKey,
+  isComposerImeComposing,
+} from './sessionComposerSubmitHotkey';
+import {
   atReferenceChipLabel,
   getSessionComposerStructuredTokenSegments,
 } from './sessionComposerStructuredTokens';
@@ -379,12 +383,19 @@ export function useComposerAtReferencePanel({
     (event: ReactKeyboardEvent<HTMLDivElement>): boolean => {
       const current = panelRef.current;
       if (!current) return false;
-      if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+      if (isComposerImeComposing(event)) {
         return false;
       }
       const activeItems =
         current.groups.find((group) => group.tab === current.activeTab)
           ?.items ?? [];
+      if (isComposerEnterKey(event)) {
+        const chosen = activeItems[current.selectedIndex];
+        if (!chosen) return false;
+        event.preventDefault();
+        selectItem(chosen);
+        return true;
+      }
       switch (event.key) {
         case 'ArrowDown': {
           event.preventDefault();
@@ -427,13 +438,6 @@ export function useComposerAtReferencePanel({
           setPanel((panel) =>
             panel ? { ...panel, activeTab: next, selectedIndex: 0 } : panel
           );
-          return true;
-        }
-        case 'Enter': {
-          const chosen = activeItems[current.selectedIndex];
-          if (!chosen) return false;
-          event.preventDefault();
-          selectItem(chosen);
           return true;
         }
         case 'Escape': {

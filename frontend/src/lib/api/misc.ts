@@ -20,6 +20,7 @@ import type {
 } from 'shared/types';
 
 import { desktopShellCall } from '@/lib/desktopShell';
+import { fileNameForImageUpload } from '@/utils/clipboard';
 
 import { backendCall } from './base';
 import { backendListen } from '@/lib/backendTransport';
@@ -73,9 +74,10 @@ export async function fileToBase64(file: File): Promise<string> {
 }
 
 async function imageUploadPayload(file: File) {
+  const fileName = fileNameForImageUpload(file);
   return {
-    file_name: file.name,
-    data_base64: await fileToBase64(file),
+    fileName,
+    dataBase64: await fileToBase64(file),
   };
 }
 

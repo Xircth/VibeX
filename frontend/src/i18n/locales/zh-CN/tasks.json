@@ -2,6 +2,7 @@
   "composer": {
     "inputLabel": "消息",
     "attachments": "附件",
+    "dropFiles": "松开以放入文件",
     "commandSource": {
       "plugin": "插件",
       "skill": "Skill",

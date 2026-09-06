@@ -214,4 +214,41 @@ describe('useSessionComposerImageUpload', () => {
     expect(onError).toHaveBeenCalledWith('disk full');
     expect(result.result.current.attachedImages).toEqual([]);
   });
+
+  it('reports string invoke failures from Tauri', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    uploadForAttemptMock.mockRejectedValue('missing field `fileName`');
+    const onError = vi.fn();
+    const result = renderHook(
+      () => {
+        const [attachedImages, setAttachedImages] = useState<
+          SessionComposerImage[]
+        >([]);
+        const { handleAttachImages } = useSessionComposerImageUpload({
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          draftMessage: 'local draft',
+          executorProfile: profile,
+          saveToScratch: vi.fn(),
+          setAttachedImages,
+          onError,
+        });
+        return { attachedImages, handleAttachImages };
+      },
+      { wrapper: wrapperFor(queryClient) }
+    );
+
+    await act(async () => {
+      await result.result.current.handleAttachImages([
+        new File(['a'], 'a.png'),
+      ]);
+    });
+
+    expect(onError).toHaveBeenCalledWith('missing field `fileName`');
+  });
 });

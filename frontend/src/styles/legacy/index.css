@@ -498,6 +498,40 @@
     border-radius: var(--radius);
   }
 
+  .legacy-design .session-composer-file-drop-zone {
+    position: relative;
+  }
+
+  .legacy-design .session-composer-drop-overlay {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    place-items: center;
+    gap: 6px;
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius);
+    background: color-mix(
+      in srgb,
+      var(--surface-card-strong) 92%,
+      var(--accent) 8%
+    );
+    color: var(--text-primary);
+    pointer-events: none;
+  }
+
+  .legacy-design .session-composer-drop-overlay > svg {
+    width: 20px;
+    height: 20px;
+    color: var(--accent);
+  }
+
+  .legacy-design .session-composer-drop-overlay > strong {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   .legacy-design .session-composer-editor > [contenteditable='true'] {
     min-height: 3.25rem;
     overflow-y: auto;
@@ -5448,7 +5482,38 @@
   }
 
   .welcome-page-surface {
+    position: relative;
     background: #fafafa;
+  }
+
+  .welcome-page-drop-overlay {
+    position: absolute;
+    z-index: 1;
+    inset: 12px;
+    display: grid;
+    place-content: center;
+    place-items: center;
+    gap: 8px;
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius);
+    background: color-mix(
+      in srgb,
+      var(--surface-card-strong) 94%,
+      var(--accent) 6%
+    );
+    color: var(--text-primary);
+    pointer-events: none;
+  }
+
+  .welcome-page-drop-overlay > svg {
+    width: 24px;
+    height: 24px;
+    color: var(--accent);
+  }
+
+  .welcome-page-drop-overlay > strong {
+    font-size: 13px;
+    font-weight: 600;
   }
 
   .welcome-project-form-surface {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clipboardDataHasTextPayload,
   extractImageFilesFromClipboardData,
+  fileNameForImageUpload,
   readImageFilesFromNavigatorClipboard,
 } from './clipboard';
 
@@ -33,6 +34,25 @@ afterEach(() => {
   });
 });
 
+describe('fileNameForImageUpload', () => {
+  it('keeps a filename that already has an image extension', () => {
+    expect(
+      fileNameForImageUpload(new File(['x'], 'shot.PNG', { type: 'image/png' }))
+    ).toBe('shot.PNG');
+  });
+
+  it('adds an extension for unnamed Windows clipboard images', () => {
+    expect(
+      fileNameForImageUpload(new File(['x'], '', { type: 'image/png' }))
+    ).toBe('pasted-image.png');
+    expect(
+      fileNameForImageUpload(
+        new File(['x'], 'clipboard', { type: 'image/jpeg' })
+      )
+    ).toBe('clipboard.jpg');
+  });
+});
+
 describe('extractImageFilesFromClipboardData', () => {
   it('returns image files from clipboard files', () => {
     const imageFile = new File(['image'], 'paste.png', { type: 'image/png' });
@@ -45,6 +65,15 @@ describe('extractImageFilesFromClipboardData', () => {
     );
 
     expect(result).toEqual([imageFile]);
+  });
+
+  it('treats unnamed-type files with image extensions as images', () => {
+    const imageFile = new File(['image'], 'shot.png', { type: '' });
+    expect(
+      extractImageFilesFromClipboardData(
+        createClipboardData({ files: [imageFile] })
+      )
+    ).toEqual([imageFile]);
   });
 
   it('falls back to clipboard items when files are empty', () => {

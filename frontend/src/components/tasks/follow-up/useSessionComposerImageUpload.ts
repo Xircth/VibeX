@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { ExecutorProfileId } from 'shared/types';
 import { imagesApi } from '@/lib/api';
+import { getInvokeErrorMessage } from '@/lib/errors';
 import type { SessionComposerImage } from './SessionComposerInput';
 import {
   getUploadedImageApplication,
@@ -56,11 +57,8 @@ export function useSessionComposerImageUpload({
             return nextApplication.attachments;
           });
         } catch (error) {
-          const message =
-            error instanceof Error && error.message.trim()
-              ? error.message
-              : 'Could not attach image';
-          onError?.(message);
+          const message = getInvokeErrorMessage(error).trim();
+          onError?.(message || 'Could not attach image');
         }
       }
     },

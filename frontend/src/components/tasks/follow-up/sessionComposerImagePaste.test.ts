@@ -8,6 +8,7 @@ import {
 vi.mock('@/utils/clipboard', () => ({
   extractImageFilesFromClipboardData: vi.fn(),
   readImageFilesFromNavigatorClipboard: vi.fn(),
+  prepareImageFileForUpload: (file: File) => file,
 }));
 
 const mockExtract = vi.mocked(extractImageFilesFromClipboardData);

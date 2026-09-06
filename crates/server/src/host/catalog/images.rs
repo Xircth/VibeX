@@ -22,7 +22,9 @@ const MAX_PASTED_IMAGE_BYTES: usize = 15 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UploadImageRequest {
+    #[serde(alias = "file_name")]
     file_name: String,
+    #[serde(alias = "data_base64")]
     data_base64: String,
 }
 
@@ -342,4 +344,43 @@ pub(super) async fn write_pasted(args: Value) -> Result<Value, ApplicationError>
         markdown_path: format!("assets/{file_name}"),
         file_name,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn upload_args_accept_frontend_snake_case_payload() {
+        let args: UploadArgs = parse(json!({
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "payload": {
+                "file_name": "shot.png",
+                "data_base64": "aaaa"
+            }
+        }))
+        .expect("snake_case payload from the desktop client");
+        assert_eq!(args.payload.file_name, "shot.png");
+        assert_eq!(args.payload.data_base64, "aaaa");
+        assert_eq!(
+            args.workspace_id.unwrap().to_string(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+    }
+
+    #[test]
+    fn upload_args_accept_camel_case_payload() {
+        let args: UploadArgs = parse(json!({
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "payload": {
+                "fileName": "shot.png",
+                "dataBase64": "aaaa"
+            }
+        }))
+        .expect("camelCase payload");
+        assert_eq!(args.payload.file_name, "shot.png");
+        assert_eq!(args.payload.data_base64, "aaaa");
+    }
 }

@@ -108,6 +108,87 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(editor).toBeEmptyDOMElement();
   });
 
+  it('sends on Enter when Windows WebView2 reports keyCode 229', () => {
+    const onSubmit = vi.fn();
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('send now');
+      return (
+        <SessionComposerInput
+          value={value}
+          onChange={setValue}
+          onSubmit={onSubmit}
+          onAttachImages={vi.fn()}
+        />
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    fireEvent.keyDown(editor, {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 229,
+      which: 229,
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith('send now');
+    expect(editor).toBeEmptyDOMElement();
+  });
+
+  it('sends on Unidentified Enter code used by some Windows WebView2 IMEs', () => {
+    const onSubmit = vi.fn();
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('send now');
+      return (
+        <SessionComposerInput
+          value={value}
+          onChange={setValue}
+          onSubmit={onSubmit}
+          onAttachImages={vi.fn()}
+        />
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    fireEvent.keyDown(editor, {
+      key: 'Unidentified',
+      code: 'Enter',
+      keyCode: 13,
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith('send now');
+  });
+
+  it('does not send Enter while IME composition is in progress', () => {
+    const onSubmit = vi.fn();
+    renderComposerInput({ value: 'hello', onSubmit });
+    const editor = getEditor();
+    fireEvent.keyDown(editor, {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 229,
+      isComposing: true,
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('clears the controlled draft and visible editor when submission is accepted', async () => {
     const user = userEvent.setup();
 
@@ -721,7 +802,7 @@ describe('SessionComposerInput (Astryx)', () => {
 
     await user.click(editor);
     await user.type(editor, '你好');
-    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.compositionEnd(editor);
     fireEvent.keyDown(editor, { key: 'Enter', keyCode: 229 });
 
     expect(onSubmit).not.toHaveBeenCalled();
@@ -907,5 +988,16 @@ describe('SessionComposerInput (Astryx)', () => {
         '[@:utils.ts](src/lib/utils.ts)'
       );
     });
+  });
+
+  it('shows a drop overlay while files are dragged over the composer', () => {
+    renderComposerInput();
+    const zone = screen.getByTestId('session-composer-file-drop-zone');
+    fireEvent.dragOver(zone, {
+      dataTransfer: { types: ['Files'], files: [] },
+    });
+    expect(
+      screen.getByRole('status', { name: /松开以放入文件|Drop files here/i })
+    ).toBeVisible();
   });
 });

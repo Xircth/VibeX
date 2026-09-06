@@ -63,8 +63,8 @@ watch(conversation_id, after_sequence, condition) -> WatchResult
 ```
 
 查询列表、详情、事件和输出继续是读 interface；fork 继续遵循 ADR-0005 的独立历史语义，
-但通过同一个 Application Core 和 operation id 暴露。Transport 可以组合更友好的 CLI
-命令，不能绕过上述写 interface。
+通过同一个 Application Core 和 operation id 暴露，并接受可选 `at_turn_id`（缺省为尾部）。
+Transport 可以组合更友好的 CLI 命令，不能绕过上述写 interface。
 
 `submit` 是普通输入的唯一入口。它总是先持久化，Conversation 空闲时立即被 dispatcher
 认领并创建 Turn；已有在途 Turn 时保持排队。调用方不再使用“先查状态，再选择 start 或

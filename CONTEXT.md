@@ -301,7 +301,7 @@ _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
 - **Registry snapshot（注册表快照）** — VibeX 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
-- **Session fork（会话分叉）** — 从**当前状态**分出一个新 Conversation：新会话是原会话完整历史的独立副本（非破坏性，原会话不受影响），此后独立演化。当 agent 广告了 ACP `session/fork` 且有活会话时，agent 侧上下文也随之分叉（继续对话保有分叉前上下文）；否则新会话为无上下文副本，下次发送冷启动。从当前分叉（非历史某点），以保持可见历史与 agent 上下文一致。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005（2026-07-06 更新）。
+- **Session fork（会话分叉）** — 从一条**已完成** assistant 消息所属 Turn（或会话尾部）分出一个新 Conversation：新会话是切点及之前历史的独立副本（非破坏性，原会话不受影响），此后独立演化。当 agent 广告了 ACP `session/fork` 且能命名该切点（或切点就是尾部）并有活会话时，agent 侧上下文也随之分叉；不能命名的历史切点只复制可见历史并冷启动，不得发尾部 `session/fork` 以免上下文长于时间线。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005。
 
 ## ACP 官方参考文档
 

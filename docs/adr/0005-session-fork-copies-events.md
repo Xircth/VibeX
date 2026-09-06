@@ -25,8 +25,21 @@ Option<SessionForkCapabilities>` 允许**从 initialize 响应动态探测**某 
 （下述）用于 VibeX 侧兄弟会话的可见历史 + 绑定 S2；(5) agent 未广告 fork 时按下述
 导入语义降级并明示。**下方"复制事件到分叉点"仍是 VibeX 侧会话历史的构建方式，不变。**
 
-> 状态：该实现为一项较大且触及事件溯源核心的工作，且真实可用性取决于目标 agent
-> 是否广告 fork（需实机验证），建议作为独立专项落地，不在长会话尾部仓促实现。
+## 2026-09-06 更新：允许从指定已完成 Turn 切开
+
+产品切点是一条**已完成** assistant 气泡所属的 VibeX Turn：新 Conversation 拷贝该 Turn
+及其之前的全部事件（含该轮工具/权限/计划），原 Conversation 不变。在途 Turn 仍拒绝。
+
+Agent 上下文：
+
+- 尾部（最后一条已完成 Turn，或未指定切点）且 Agent 广告了 `session/fork`：发
+  `session/fork`，子 binding 持有 S2，下一次发送 **先 resume 再 load**。
+- 历史切点且能按 AIR `_meta.jetbrains.air.fork` 命名该 assistant（Claude /
+  Codex / DeepSeek）：带着切点发 `session/fork`。
+- 历史切点但不能命名：只拷可见历史，**不**发尾部 `session/fork`（否则 Agent
+  上下文长于可见历史）。连续性为 `history_only`。
+
+新 Conversation 是一等 Dockview 面板；父会话不改挂到 S2。
 
 ## Considered Options
 

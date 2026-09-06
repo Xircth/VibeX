@@ -1,135 +1,629 @@
 :root {
   color-scheme: light dark;
+  --ssh-ink: canvastext;
+  --ssh-muted: color-mix(in srgb, canvastext 58%, canvas);
+  --ssh-hairline: color-mix(in srgb, canvastext 10%, transparent);
+  --ssh-control: color-mix(in srgb, canvastext 6%, canvas);
+  --ssh-danger: color-mix(in srgb, #f51818 82%, canvastext);
+  --ssh-success: color-mix(in srgb, #86b300 78%, canvastext);
+  --ssh-radius: 14px;
+  --ssh-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
-  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: canvastext;
   background: transparent;
 }
 
+body {
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+    system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif;
+  color: var(--ssh-ink);
+}
+
 .ssh {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-}
-
-.ssh h1 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.grid {
   display: grid;
-  grid-template-columns: 1fr 88px;
-  gap: 10px;
+  gap: 16px;
+  margin: 0;
+  min-width: 0;
 }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  opacity: 0.78;
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--ssh-hairline);
+  border-radius: var(--ssh-radius);
+  background: canvas;
 }
 
-input[type='text'],
-input[type='password'],
-input[type='number'] {
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, canvastext 16%, transparent);
-  background: color-mix(in srgb, canvas 88%, canvastext 4%);
-  color: canvastext;
-  padding: 0 10px;
-  font: inherit;
+.fields {
+  margin: 0;
+  padding: 4px 0 8px;
+  border: 0;
+  min-width: 0;
+}
+
+.fields:disabled {
+  opacity: 0.55;
 }
 
 .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 240px);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.remember {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  opacity: 0.86;
-}
-
-button {
-  height: 32px;
-  border-radius: 8px;
+  gap: 24px;
+  min-height: 52px;
+  margin: 0;
+  padding: 8px 16px;
   border: 0;
-  background: AccentColor;
-  color: AccentColorText;
-  font: inherit;
+}
+
+.copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.copy strong {
+  font-size: 13px;
   font-weight: 600;
-  padding: 0 14px;
+  letter-spacing: -0.01em;
+  color: var(--ssh-ink);
+}
+
+.copy small,
+.section-head small {
+  color: var(--ssh-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.control,
+.btn {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--ssh-hairline);
+  border-radius: var(--ssh-radius);
+  background: var(--ssh-control);
+  color: var(--ssh-ink);
+  padding: 0 10px;
+  font: inherit;
+  box-shadow: none;
+}
+
+.control::placeholder {
+  color: color-mix(in srgb, canvastext 40%, canvas);
+}
+
+.control-port {
+  max-width: 88px;
+  justify-self: end;
+}
+
+.control::-webkit-outer-spin-button,
+.control::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.control[type='number'] {
+  appearance: textfield;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.control:focus,
+.btn:focus {
+  outline: none;
+}
+
+.control:focus-visible,
+.btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, canvastext 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, canvastext 16%, transparent);
+}
+
+.switch {
+  justify-self: end;
+  position: relative;
+  width: 40px;
+  height: 24px;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
   cursor: pointer;
 }
 
-button[disabled] {
+.switch-ui {
+  display: block;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, canvastext 16%, canvas);
+  pointer-events: none;
+  transition: background 140ms var(--ssh-ease);
+}
+
+.switch-ui::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: canvas;
+  box-shadow: 0 1px 2px color-mix(in srgb, canvastext 24%, transparent);
+  transition: transform 140ms var(--ssh-ease);
+}
+
+.switch input:checked + .switch-ui {
+  background: canvastext;
+}
+
+.switch input:checked + .switch-ui::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .switch-ui {
+  box-shadow: 0 0 0 3px color-mix(in srgb, canvastext 16%, transparent);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 4px;
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+
+.actions .copy {
+  margin-right: auto;
+}
+
+.actions .copy:has(strong:empty):has(small:empty) {
+  display: none;
+}
+
+.controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.btn {
+  width: auto;
+  min-width: 72px;
+  padding: 0 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: canvastext;
+  color: canvas;
+  border-color: transparent;
+}
+
+.btn.ghost {
+  background: var(--ssh-control);
+  color: var(--ssh-ink);
+}
+
+.btn:hover:not([disabled]) {
+  filter: brightness(0.97);
+}
+
+.btn[disabled] {
   opacity: 0.55;
   cursor: default;
 }
 
-button.ghost {
-  background: color-mix(in srgb, canvastext 10%, transparent);
-  color: canvastext;
+.session {
+  margin: 0 16px 16px;
 }
 
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
+.session .progress {
+  border: 0;
+  padding: 0 0 12px;
 }
 
-.steps li {
-  display: grid;
-  grid-template-columns: 14px 72px 1fr;
-  gap: 8px;
-  align-items: baseline;
-  font-size: 12px;
+.session[hidden] {
+  display: none;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, canvastext 28%, transparent);
+.progress {
+  padding: 14px 14px 12px;
+  border: 1px solid color-mix(in srgb, canvastext 18%, transparent);
+  border-radius: var(--ssh-radius);
+  background: canvas;
 }
 
-.steps li.running .dot {
-  background: AccentColor;
+.progress.is-running {
+  border-color: color-mix(in srgb, canvastext 28%, transparent);
 }
 
-.steps li.done .dot {
-  background: color-mix(in srgb, AccentColor 70%, canvastext);
+.progress.is-failed {
+  border-color: color-mix(in srgb, var(--ssh-danger) 45%, transparent);
 }
 
-.steps li.failed .dot {
-  background: #c43;
+.progress-heading,
+.progress-copy {
+  display: flex;
+  align-items: center;
 }
 
-.detail {
-  opacity: 0.62;
+.progress-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.progress-copy {
+  min-width: 0;
+  gap: 10px;
+}
+
+.progress-copy strong,
+.progress-copy span {
+  display: block;
+}
+
+.progress-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.progress-copy span {
+  margin-top: 2px;
   overflow: hidden;
+  color: var(--ssh-muted);
+  font-size: 12px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.error {
-  margin: 0;
-  color: #c43;
+.progress-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, canvastext 16%, transparent);
+  border-top-color: canvastext;
+  border-radius: 999px;
+  animation: ssh-spin 800ms linear infinite;
+}
+
+.progress-spinner[hidden] {
+  display: none;
+}
+
+.progress-value {
+  flex: 0 0 auto;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.progress-track {
+  height: 6px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ssh-control);
+}
+
+.progress-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, canvastext 70%, canvas),
+    canvastext
+  );
+  box-shadow: 0 0 8px color-mix(in srgb, canvastext 22%, transparent);
+  transition: transform 240ms var(--ssh-ease);
+}
+
+.progress.is-running .progress-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, canvastext 55%, canvas),
+    canvastext 48%,
+    color-mix(in srgb, canvastext 55%, canvas)
+  );
+  background-size: 180% 100%;
+  animation: ssh-sheen 1.1s var(--ssh-ease) infinite;
+}
+
+.progress.is-complete .progress-fill {
+  background: var(--ssh-success);
+  box-shadow: none;
+}
+
+.progress.is-failed .progress-fill {
+  background: var(--ssh-danger);
+  box-shadow: none;
+}
+
+.progress-stages {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 11px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-stages li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, canvastext 42%, canvas);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-stages li > span {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, canvastext 28%, transparent);
+  border-radius: 50%;
+  background: canvas;
+  transition:
+    background 180ms var(--ssh-ease),
+    border-color 180ms var(--ssh-ease),
+    box-shadow 180ms var(--ssh-ease);
+}
+
+.progress-stages li[data-state='complete'] {
+  color: var(--ssh-muted);
+}
+
+.progress-stages li[data-state='complete'] > span {
+  border-color: color-mix(in srgb, var(--ssh-success) 58%, transparent);
+  background: var(--ssh-success);
+}
+
+.progress-stages li[data-state='current'] {
+  color: var(--ssh-ink);
+  font-weight: 600;
+}
+
+.progress-stages li[data-state='current'] > span {
+  border-color: canvastext;
+  background: canvastext;
+  box-shadow: 0 0 0 3px color-mix(in srgb, canvastext 12%, transparent);
+}
+
+.log {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  max-height: 148px;
+  overflow: auto;
+  border-radius: var(--ssh-radius);
+  background: var(--ssh-control);
+  color: var(--ssh-ink);
+  font: 12px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log:empty,
+.error:empty {
+  display: none;
+}
+
+.error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ssh-danger);
+}
+
+.history {
+  margin: 0;
+}
+
+.section-head {
+  display: grid;
+  gap: 2px;
+  padding: 8px 16px 6px;
+}
+
+.section-head strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 12px;
+}
+
+.history-empty {
+  padding: 8px 8px 4px;
+  color: var(--ssh-muted);
+  font-size: 12px;
+}
+
+.history-card + .history-card {
+  border-top: 1px solid var(--ssh-hairline);
+}
+
+.history-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: var(--ssh-control);
+}
+
+.history-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, canvastext 16%, transparent);
+}
+
+.history-item .copy {
+  gap: 1px;
+}
+
+.history-editor {
+  padding: 0 0 12px;
+}
+
+.secret {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.secret .control {
+  padding-right: 36px;
+}
+
+.secret-toggle {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ssh-radius);
+  background: transparent;
+  color: var(--ssh-muted);
+  cursor: pointer;
+}
+
+.secret-toggle:hover,
+.secret-toggle:focus-visible {
+  color: var(--ssh-ink);
+}
+
+.secret-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, canvastext 16%, transparent);
+}
+
+.history-note {
+  min-height: 1.2em;
+  margin: 4px 16px 0;
+  color: var(--ssh-muted);
+  font-size: 12px;
+}
+
+.history-note:empty {
+  display: none;
+}
+
+.history-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 10px 16px 0;
+}
+
+.ssh.is-busy .history-actions {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+@keyframes ssh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ssh-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .row,
+  .actions {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .control,
+  .control-port,
+  .switch,
+  .controls {
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .controls {
+    justify-content: flex-end;
+  }
+
+  .progress-stages {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-ui,
+  .switch-ui::after,
+  .progress-fill,
+  .progress-stages li > span {
+    transition: none;
+  }
+
+  .progress-spinner,
+  .progress.is-running .progress-fill {
+    animation: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ssh-hairline: color-mix(in srgb, canvastext 38%, transparent);
+    --ssh-muted: color-mix(in srgb, canvastext 78%, canvas);
+  }
 }

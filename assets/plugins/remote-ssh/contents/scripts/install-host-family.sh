@@ -14,6 +14,7 @@
 #   VIBEX_PLATFORM     Override platform detection (e.g. linux-x86_64).
 #   VIBEX_GITHUB_REPO        Source repository. Default Xircth/VibeX.
 #   VIBEX_HOST_FAMILY_BASE   Override the download origin (no trailing slash).
+#   VIBEX_DOWNLOAD_MIRRORS   Space-separated URL prefixes tried after GitHub.
 #   VIBEX_INSTALL_DIR        Where the `vibex` launcher goes. Default ~/.local/bin.
 #   VIBEX_PRINT_PLAN         Print the resolved platform and URLs, then exit.
 
@@ -74,16 +75,78 @@ assert_supported_platform() {
     fail "unsupported platform: $1. Supported: ${SUPPORTED_PLATFORMS}"
 }
 
+mirror_prefixes() {
+    if [ -n "${VIBEX_DOWNLOAD_MIRRORS:-}" ]; then
+        printf '%s\n' $VIBEX_DOWNLOAD_MIRRORS
+        return
+    fi
+    printf '%s\n' 'https://ghfast.top/' 'https://ghproxy.net/' 'https://mirror.ghproxy.com/'
+}
+
+candidate_urls() {
+    url="$1"
+    printf '%s\n' "$url"
+    if [ -n "${VIBEX_HOST_FAMILY_BASE:-}" ]; then
+        return
+    fi
+    for prefix in $(mirror_prefixes); do
+        case "$prefix" in
+            */) printf '%s%s\n' "$prefix" "$url" ;;
+            *) printf '%s/%s\n' "$prefix" "$url" ;;
+        esac
+    done
+}
+
 latest_tag() {
-    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
-        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-        head -n 1
+    page="https://github.com/${REPO}/releases/latest"
+    for url in $(candidate_urls "$page"); do
+        tag=$(curl -4 -sSI --connect-timeout 15 --max-time 20 "$url" 2>/dev/null |
+            tr -d '\r' |
+            sed -n 's/^[Ll]ocation: .*\/releases\/tag\/\([^[:space:]]*\).*/\1/p' |
+            head -n 1)
+        if [ -n "$tag" ]; then
+            printf '%s' "$tag"
+            return 0
+        fi
+        tag=$(curl -4 -fsSL --connect-timeout 15 --max-time 30 "$url" 2>/dev/null |
+            sed -n 's/.*\/releases\/tag\/\(v[0-9][^"<>[:space:]]*\).*/\1/p' |
+            head -n 1)
+        if [ -n "$tag" ]; then
+            printf '%s' "$tag"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Both the archive digest and the per-file SHA256SUMS inside it are checked.
 # There is deliberately no flag to skip either: a mismatch means the bytes are
 # not the published release, and installing them anyway defers the problem to
 # runtime.
+# GitHub release assets redirect to release-assets.githubusercontent.com (Azure).
+# ICMP to github.com can succeed while that HTTPS hop stalls at 0 bytes.
+curl_get() {
+    curl -4 -fL --http1.1 -sS \
+        --connect-timeout 15 \
+        --speed-limit 1024 --speed-time 15 \
+        --max-time 600 \
+        -o "$2" -w 'downloaded %{size_download} bytes\n' \
+        "$1"
+}
+
+download() {
+    url="$1"
+    dest="$2"
+    for candidate in $(candidate_urls "$url"); do
+        printf 'Downloading %s\n' "$candidate"
+        if curl_get "$candidate" "$dest" && [ -s "$dest" ]; then
+            return 0
+        fi
+        rm -f "$dest"
+    done
+    fail "could not download ${url}"
+}
+
 verify_digest() {
     file="$1"
     expected="$2"
@@ -118,7 +181,10 @@ write_launcher() {
     mkdir -p "$INSTALL_DIR"
     launcher="${INSTALL_DIR}/vibex"
     cat > "$launcher" <<LAUNCHER
-#!/usr/bin/env sh
+#!/bin/sh
+if [ \$# -eq 0 ]; then
+    exec "${family_root}/vibex-server" serve
+fi
 exec "${family_root}/vibex-server" "\$@"
 LAUNCHER
     chmod +x "$launcher"
@@ -164,10 +230,8 @@ main() {
     else
         TEMP_DIR=$(mktemp -d)
         printf 'Downloading VibeX Host family %s for %s...\n' "$tag" "$platform"
-        curl -fSL --progress-bar "${base_url}/${archive}" -o "${TEMP_DIR}/${archive}" ||
-            fail "could not download ${base_url}/${archive}"
-        curl -fsSL "${base_url}/${archive}.sha256" -o "${TEMP_DIR}/${archive}.sha256" ||
-            fail "could not download the checksum for ${archive}"
+        download "${base_url}/${archive}" "${TEMP_DIR}/${archive}"
+        download "${base_url}/${archive}.sha256" "${TEMP_DIR}/${archive}.sha256"
 
         expected=$(cut -d' ' -f1 < "${TEMP_DIR}/${archive}.sha256")
         [ -n "$expected" ] || fail "the published checksum file for ${archive} was empty"
@@ -195,8 +259,8 @@ main() {
     printf 'Launcher: %s\n' "$launcher"
 
     case ":${PATH}:" in
-        *":${INSTALL_DIR}:"*) printf '\nRun `vibex` to start the server on http://127.0.0.1:17891\n' ;;
-        *) printf '\nAdd %s to your PATH, then run `vibex`:\n  export PATH="%s:$PATH"\n' \
+        *":${INSTALL_DIR}:"*) printf '\nStart the Host with:\n  vibex\n' ;;
+        *) printf '\nAdd %s to PATH, then start the Host:\n  export PATH="%s:$PATH"\n  vibex\n' \
             "$INSTALL_DIR" "$INSTALL_DIR" ;;
     esac
 }

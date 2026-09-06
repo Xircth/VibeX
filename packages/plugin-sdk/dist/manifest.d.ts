@@ -250,11 +250,9 @@ export interface ComposerActionIntegrationManifest extends IntegrationBase {
     prompt?: string;
 }
 /**
- * Registers a Host-side provisioner for saved remote Hosts.
- *
- * `provisionKind` is a Host-owned source tag (for example `ssh`). Connecting a
- * saved Host with that kind invokes this handler so the plugin can restore
- * reachability. The Host never branches on plugin identity.
+ * Registers a Host-side provisioner that can install, start, and pair a remote
+ * Host, then save it to the client list. Later connects use the saved origin
+ * and token. The Host never branches on plugin identity.
  */
 export interface RemoteProvisionerIntegrationManifest extends IntegrationBase {
     kind: "provider.remote.provisioner";
@@ -263,7 +261,7 @@ export interface RemoteProvisionerIntegrationManifest extends IntegrationBase {
     label: string;
     handler: string;
     icon?: ContributionIcon;
-    /** 5–600. Default 120. Used when the Host waits on `ensure`. */
+    /** 5–600. Default 120. Used by the plugin's repair handler. */
     timeoutSeconds?: number;
 }
 export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest | PanelIntegrationManifest | TabIntegrationManifest | KanbanViewIntegrationManifest | SettingsPageIntegrationManifest | ComposerActionIntegrationManifest | RemoteProvisionerIntegrationManifest;

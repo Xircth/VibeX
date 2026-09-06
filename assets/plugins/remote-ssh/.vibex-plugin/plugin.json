@@ -20,6 +20,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "name": { "type": "string" },
         "host": { "type": "string" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "user": { "type": "string" },
@@ -54,9 +55,12 @@
         "session.status",
         "session.cancel",
         "session.load",
+        "session.history",
+        "session.historySave",
+        "session.test",
         "provision.ensure"
       ],
-      "minHeight": 420
+      "minHeight": 640
     },
     {
       "id": "ssh",

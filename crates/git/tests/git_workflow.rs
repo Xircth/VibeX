@@ -513,8 +513,8 @@ fn worktree_diff_permission_only_change() {
 }
 
 #[test]
-fn squash_merge_libgit2_sets_author_without_user() {
-    // Verify merge_changes (libgit2 path) uses fallback author when no config exists
+fn squash_merge_libgit2_uses_merger_identity() {
+    // Verify merge_changes (libgit2 path) authors the squash as the merger.
     use git2::Repository;
 
     let td = TempDir::new().unwrap();
@@ -553,21 +553,17 @@ fn squash_merge_libgit2_sets_author_without_user() {
     create_branch(&repo_path, "dev");
     checkout_branch(&repo_path, "dev");
 
+    configure_user(&repo_path, "Merge User", "merge@example.com");
+
     // Merge feature -> main (libgit2 squash)
     let merge_sha = s
         .merge_changes(&repo_path, &worktree_path, "feature", "main", "squash")
         .unwrap();
 
-    // The squash commit author should not be the feature commit's author, and must be present.
+    // The squash commit uses the merger identity, not the feature commit author.
     let (name, email) = get_commit_author(&repo_path, &merge_sha);
-    assert_ne!(name.as_deref(), Some("Other Author"));
-    assert_ne!(email.as_deref(), Some("other@example.com"));
-    if has_global_git_identity() {
-        assert!(name.is_some() && email.is_some());
-    } else {
-        assert_eq!(name.as_deref(), Some("VibeX"));
-        assert_eq!(email.as_deref(), Some("noreply@vibex.com"));
-    }
+    assert_eq!(name.as_deref(), Some("Merge User"));
+    assert_eq!(email.as_deref(), Some("merge@example.com"));
 }
 
 #[test]

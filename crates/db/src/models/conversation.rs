@@ -774,6 +774,7 @@ impl ConversationAgentBindingRecord {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_negotiated_capabilities<'e, E>(
         executor: E,
         conversation_id: Uuid,

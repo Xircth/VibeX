@@ -17,7 +17,7 @@
   "dependencies": {
     "@module-federation/vite": "^1.9.0",
     "@vibex/plugin-sdk": "workspace:*",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.0",
     "esbuild": "^0.25.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

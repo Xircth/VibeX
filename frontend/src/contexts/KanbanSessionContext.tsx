@@ -154,6 +154,16 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     });
   }, [boardStyle, hydratedProjectKey, projectKey]);
 
+  const setActiveViewId = useCallback((viewId: string) => {
+    setActiveViewIdState(viewId);
+    setPanelViewState(legacyKanbanPanelView(viewId));
+  }, []);
+
+  const setPanelView = useCallback((view: KanbanPanelView) => {
+    setPanelViewState(view);
+    setActiveViewIdState(migrateKanbanViewId(view, getKanbanBoardStyle()));
+  }, []);
+
   useEffect(() => {
     if (!projectId) {
       setPanelView(DEFAULT_KANBAN_VIEW);
@@ -164,7 +174,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
         .getState()
         .resetKanbanState(getProjectScopeKey(projectId));
     }
-  }, [projectId]);
+  }, [projectId, setPanelView]);
 
   // Seed the right panel from the active workspace when nothing is selected yet.
   // Once the user has chosen a session for the right panel, keep that selection
@@ -220,16 +230,6 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
   const canUseRightPanelForSessions = isKanbanSessionVisible;
   const isLayoutHydrated = hydratedProjectKey === projectKey;
-
-  const setActiveViewId = useCallback((viewId: string) => {
-    setActiveViewIdState(viewId);
-    setPanelViewState(legacyKanbanPanelView(viewId));
-  }, []);
-
-  const setPanelView = useCallback((view: KanbanPanelView) => {
-    setPanelViewState(view);
-    setActiveViewIdState(migrateKanbanViewId(view, getKanbanBoardStyle()));
-  }, []);
 
   const goToBoard = useCallback(() => {
     setActiveViewId('builtin:columns');

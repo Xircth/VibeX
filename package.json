@@ -62,7 +62,11 @@
       "devalue": "5.9.0",
       "fast-uri": "4.1.2",
       "lodash": "4.18.1",
-      "lodash-es": "4.18.1"
+      "lodash-es": "4.18.1",
+      "adm-zip": "0.6.0",
+      "nanoid@^3": "3.3.18",
+      "postcss": "8.5.28",
+      "rollup": "4.63.1"
     },
     "patchedDependencies": {
       "@astryxdesign/core@0.3.0": "patches/@astryxdesign__core@0.3.0.patch"

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanelSlotContext } from '@/contexts/RightPanelSlotContext';
 import {
   DEFAULT_KANBAN_ARRANGEMENT,
@@ -8,6 +8,14 @@ import {
 } from '@/lib/layoutArrangement';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { KanbanSessionSlot } from './KanbanSessionSlot';
+
+const kanbanSessionContext = vi.hoisted(() => ({
+  monitorSessions: [] as Array<{ sessionId: string; workspaceId: string }>,
+}));
+
+vi.mock('@/contexts/KanbanSessionContext', () => ({
+  useKanbanSessionContext: () => kanbanSessionContext,
+}));
 
 function renderSlot(side: 'left' | 'center' | 'right' = 'center') {
   const host = document.createElement('div');
@@ -27,6 +35,7 @@ function renderSlot(side: 'left' | 'center' | 'right' = 'center') {
 describe('KanbanSessionSlot', () => {
   beforeEach(() => {
     resetKanbanArrangement();
+    kanbanSessionContext.monitorSessions = [];
     useLayoutStore.getState().resetLayout();
     useLayoutStore.getState().setKanbanSessionWidth(520);
     useLayoutStore.getState().setKanbanSessionVisible(true);
@@ -37,7 +46,24 @@ describe('KanbanSessionSlot', () => {
     useLayoutStore.getState().resetLayout();
   });
 
+  it('lets the in-hub session fill leftover space when nothing is monitored', () => {
+    setKanbanArrangement({
+      left: 'list',
+      center: 'session',
+      right: 'monitor',
+    });
+
+    const { container } = renderSlot('center');
+    const slot = container.querySelector('[data-panel="kanban-session-slot"]');
+
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+    expect(slot).toHaveClass('flex-1');
+  });
+
   it('puts the resize handle on the monitor-facing edge after swapping zones', () => {
+    kanbanSessionContext.monitorSessions = [
+      { sessionId: 'monitor-1', workspaceId: 'workspace-1' },
+    ];
     setKanbanArrangement({
       left: 'list',
       center: 'session',
@@ -53,6 +79,9 @@ describe('KanbanSessionSlot', () => {
   });
 
   it('widens the session when the monitor-facing handle is dragged toward the monitor', () => {
+    kanbanSessionContext.monitorSessions = [
+      { sessionId: 'monitor-1', workspaceId: 'workspace-1' },
+    ];
     setKanbanArrangement({
       left: 'list',
       center: 'session',

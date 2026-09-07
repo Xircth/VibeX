@@ -26,11 +26,14 @@
       "listbox": "引用",
       "loading": "正在搜索…",
       "empty": "没有匹配项",
+      "localHost": "本机",
+      "materializeFailed": "无法写入 Host 连接文件",
       "tabs": {
         "file": "文件",
         "conversation": "会话",
         "commit": "提交",
         "instruction": "快捷指令",
+        "host": "Host",
         "action": "动作"
       }
     }

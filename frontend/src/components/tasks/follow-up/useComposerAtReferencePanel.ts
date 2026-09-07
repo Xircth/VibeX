@@ -6,11 +6,14 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   ChatComposerInputHandle,
   ChatComposerToken,
 } from '@astryxdesign/core/Chat';
 import { fileTreeApi, repoApi, tagsApi } from '@/lib/api';
+import { loadHostReferenceCatalog } from '@/lib/materializeHostReferences';
+import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import { attemptsApi } from '@/lib/api/attempts';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import {
@@ -28,6 +31,7 @@ import {
   mergeAtReferenceSearch,
   type AtReferenceAction,
   type AtReferenceGroup,
+  type AtReferenceHost,
   type AtReferenceItem,
   type AtReferenceTab,
 } from './composerAtReferences';
@@ -199,6 +203,20 @@ async function loadConversations(
   return Array.from(conversations.values());
 }
 
+async function loadHosts(localLabel: string): Promise<AtReferenceHost[]> {
+  const catalog = await loadHostReferenceCatalog();
+  return catalog.map((entry) => ({
+    id: entry.fileName,
+    label: entry.kind === 'local' ? localLabel : entry.label,
+    detail: entry.detail,
+    insertText: formatSessionComposerCommand({
+      type: '@',
+      key: entry.kind === 'local' ? localLabel : entry.label,
+      value: entry.workspacePath,
+    }),
+  }));
+}
+
 async function loadCommits(
   context: ComposerAtReferenceContext
 ): Promise<GitLogEntry[]> {
@@ -227,6 +245,7 @@ export function useComposerAtReferencePanel({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation('tasks');
   const [panel, setPanel] = useState<PanelState | null>(null);
   const triggerStartRef = useRef(-1);
   const requestRef = useRef(0);
@@ -247,20 +266,22 @@ export function useComposerAtReferencePanel({
       const requestId = ++requestRef.current;
       const ctx = context ?? {};
       const transport = ctx.transport;
-      const [files, conversations, commits, instructions] = await Promise.all([
-        loadFiles(query, ctx).catch(() => []),
-        transport
-          ? loadConversations(transport, ctx).catch(() => [])
-          : Promise.resolve([]),
-        loadCommits(ctx).catch(() => []),
-        loadInstructions(query).catch(async () => {
-          try {
-            return (await tagsApi.list()) ?? [];
-          } catch {
-            return [];
-          }
-        }),
-      ]);
+      const [files, conversations, commits, instructions, hosts] =
+        await Promise.all([
+          loadFiles(query, ctx).catch(() => []),
+          transport
+            ? loadConversations(transport, ctx).catch(() => [])
+            : Promise.resolve([]),
+          loadCommits(ctx).catch(() => []),
+          loadInstructions(query).catch(async () => {
+            try {
+              return (await tagsApi.list()) ?? [];
+            } catch {
+              return [];
+            }
+          }),
+          loadHosts(t('composer.atReference.localHost')).catch(() => []),
+        ]);
       if (requestId !== requestRef.current) return;
       const groups = buildAtReferenceGroups(query, {
         files,
@@ -270,6 +291,7 @@ export function useComposerAtReferencePanel({
         instructions,
         currentConversationId: ctx.sessionId,
         actions: ctx.actions ?? [],
+        hosts,
       });
       searchedQueryRef.current = query;
       setPanel((current) => {
@@ -292,7 +314,7 @@ export function useComposerAtReferencePanel({
         };
       });
     },
-    [context]
+    [context, t]
   );
 
   const openOrUpdate = useCallback(

@@ -36,6 +36,8 @@ import { createPluginControlApi } from '@/lib/api/plugins';
 import { tauriBackendTransport } from '@/lib/transport';
 import {
   localProvisionerSurfaces,
+  provisionedHostPayload,
+  provisionerForKind,
   type LocalProvisionerSurface,
 } from './localProvisionerSurfaces';
 import {
@@ -168,7 +170,7 @@ function useLocalProvisioners() {
     [api, reload]
   );
 
-  return { panels, openId, open, surfaceTransport };
+  return { panels, openId, open, surfaceTransport, api };
 }
 
 export function RemoteClientSettings() {
@@ -354,7 +356,54 @@ export function RemoteClientSettings() {
 
   const connectSaved = useCallback(
     async (profile: HostClientProfile) => {
-      const origin = savedHostOrigin(profile);
+      const source = savedHostSource(profile.provision_kind);
+      let origin = savedHostOrigin(profile);
+      if (source === 'ssh' || source === 'other') {
+        const provisioner = provisionerForKind(
+          provisioners.panels,
+          profile.provision_kind
+        );
+        if (!provisioner?.handler) {
+          toast.error(
+            t('webService.provisionerRequired', {
+              label:
+                provisionKindLabel(
+                  profile.provision_kind,
+                  provisioners.panels
+                ) || profile.provision_kind,
+            })
+          );
+          return;
+        }
+        setConnectingKey(profile.id);
+        try {
+          if (!provisioner.plugin.enabled) {
+            await provisioners.api.setEnabled(provisioner.plugin.id, true);
+          }
+          const ensured = (await provisioners.api.invokeContribution(
+            provisioner.plugin.id,
+            provisioner.handler,
+            { profile: provisionedHostPayload(profile) },
+            provisioner.timeoutSeconds
+          )) as { origin?: unknown };
+          const ensuredOrigin =
+            typeof ensured?.origin === 'string' ? ensured.origin.trim() : '';
+          if (!ensuredOrigin) {
+            throw new Error(t('webService.clientConnectFailed'));
+          }
+          origin = ensuredOrigin;
+        } catch (error) {
+          toast.error(
+            connectErrorMessage(
+              error,
+              t('webService.clientConnectFailed'),
+              t('webService.sshLoginRejected')
+            )
+          );
+          setConnectingKey(null);
+          return;
+        }
+      }
       if (profile.has_credential && tokenFor !== profile.id) {
         await connect({
           profile_id: profile.id,
@@ -375,7 +424,7 @@ export function RemoteClientSettings() {
         key: profile.id,
       });
     },
-    [connect, token, tokenFor]
+    [connect, provisioners.api, provisioners.panels, t, token, tokenFor]
   );
 
   const connectManual = useCallback(async () => {

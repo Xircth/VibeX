@@ -3,6 +3,7 @@
 
 mod chat;
 pub(crate) mod config;
+mod github_cli_install;
 mod images;
 mod instructions;
 mod mcp;

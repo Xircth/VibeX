@@ -567,6 +567,7 @@ fn spawn_hosted_worker(
         .current_dir(package_root)
         .env("NO_COLOR", "1")
         .env("VIBEX_PACKAGE_CLASS", "full-trust")
+        .env("VIBEX_HOST_DATA_DIR", utils::assets::host_data_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -35,6 +35,7 @@ import {
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
@@ -132,6 +133,7 @@ function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
 export function SystemSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
+  const localDesktopHost = useLocalDesktopHost();
 
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
     config ? structuredClone(config as SystemSettingsConfig) : null
@@ -634,6 +636,8 @@ export function SystemSettings() {
           </div>
         </SettingsSection>
 
+        {localDesktopHost ? (
+          <>
         <SettingsSection
           icon={Gauge}
           title={t('system.renderingTitle')}
@@ -846,6 +850,8 @@ export function SystemSettings() {
             <ConversationBundlePanel />
           </div>
         </SettingsSection>
+          </>
+        ) : null}
 
         <SettingsSection icon={Trash2} title={t('system.clearLocalDataTitle')}>
           <div className="flex items-center justify-between gap-4">

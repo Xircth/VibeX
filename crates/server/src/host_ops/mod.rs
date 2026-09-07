@@ -408,6 +408,7 @@ impl ServerApplicationDomains {
                 )
             }
             DomainCommand::FileSave => self.save_file(args).await,
+            DomainCommand::FileWriteSshHostFiles => self.write_ssh_host_files(args).await,
             DomainCommand::FileDelete => {
                 let args: PathArgs = parse(args)?;
                 let path = self.sandbox_existing_path(&args.path).await?;
@@ -1100,6 +1101,29 @@ impl ServerApplicationDomains {
             "truncated": truncated,
             "byteLength": bytes.len(),
         }))
+    }
+
+    async fn write_ssh_host_files(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: WriteSshHostFilesArgs = parse(args)?;
+        let dir = ssh_host_files_dir()?;
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(internal_error)?;
+        restrict_dir(&dir);
+        let mut files = Vec::new();
+        for file in args.files {
+            let file_name = sanitize_ssh_host_file_name(&file.file_name)?;
+            let path = dir.join(&file_name);
+            tokio::fs::write(&path, file.content)
+                .await
+                .map_err(internal_error)?;
+            restrict_file(&path);
+            files.push(json!({
+                "fileName": file_name,
+                "path": path.to_string_lossy(),
+            }));
+        }
+        Ok(json!({ "files": files }))
     }
 
     async fn save_file(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1848,6 +1872,48 @@ fn file_at_head_content(file_path: &str) -> Result<String, ApplicationError> {
         })
 }
 
+fn ssh_host_files_dir() -> Result<PathBuf, ApplicationError> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        ApplicationError::internal("home directory missing")
+    })?;
+    Ok(home.join(".vibex").join("ssh-hosts"))
+}
+
+fn sanitize_ssh_host_file_name(file_name: &str) -> Result<String, ApplicationError> {
+    let name = file_name.trim();
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || !name.ends_with(".sshconfig")
+    {
+        return Err(ApplicationError::bad_request(
+            "Host connection file name is invalid",
+        ));
+    }
+    Ok(name.to_string())
+}
+
+fn restrict_dir(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+fn restrict_file(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
 pub(crate) fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {
     let path = PathBuf::from(path);
     if !path.is_absolute() {
@@ -2252,6 +2318,19 @@ struct ReadTruncatedArgs {
 struct SaveFileArgs {
     path: String,
     content: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WriteSshHostFile {
+    file_name: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WriteSshHostFilesArgs {
+    files: Vec<WriteSshHostFile>,
 }
 
 #[derive(Deserialize)]

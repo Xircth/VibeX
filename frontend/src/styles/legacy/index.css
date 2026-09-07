@@ -11931,6 +11931,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  padding-inline-end: 16px;
   background: transparent;
 }
 
@@ -11947,7 +11948,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 0;
   align-items: flex-start;
   gap: 0;
-  padding: 14px 0;
+  padding: 18px 0;
 }
 
 .settings-page .product-plugin-market-list .product-plugin-row-summary {
@@ -11957,6 +11958,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  color: var(--text-muted);
 }
 
 .dialog-surface.product-plugin-trust-dialog {
@@ -12315,7 +12317,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-row-summary {
   overflow: hidden;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 13px;
   line-height: 1.45;
   text-overflow: ellipsis;

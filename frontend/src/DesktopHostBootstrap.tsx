@@ -55,8 +55,7 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
           setTransport(tauriBackendTransport);
         }
       } catch {
-        if (!cancelled) {
-          boundOrigin = null;
+        if (!cancelled && boundOrigin == null) {
           setTransport(tauriBackendTransport);
         }
       }

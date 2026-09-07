@@ -1,12 +1,12 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 和官网市场官方分类里的五份产品包。它们都是独立 git 子仓库，挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
+我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
 详情页能关，不能当第三方快照卸掉。关掉以后，这一代对外投影按反序拆掉。已经开着的会话通常不会热拆 STDIO MCP，新开会话才干净。
 
-五个包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。
+这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。
 
 ## VibeX Office
 
@@ -185,6 +185,14 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 关掉这个插件，Skill 投影应从当前代收回。开发目录里的源码不会被删。你自己用 CLI 链上的包，卸的是 VibeX 这一侧的引用。
 
+## Remote SSH
+
+身份 `vibex.remote-ssh`，版本 `1.0.2`，产品名 Remote SSH。简介是通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。源码在 `assets/plugins/remote-ssh`。它和会话增强一样走官方市场分类与 Host 内嵌快照，不依赖插件开发服务。
+
+启用后，插件详情页可以填写主机、端口、用户，然后连接。Worker 用本机 `ssh` 探测架构、投递 Host family、拉起 `vibex serve`、开隧道、配对，并写入「设置 → 远程连接」。认证走系统 SSH（密钥或 ssh-agent）；没有密钥时可以在连接时填密码，可选由 Host 记住。VibeX 不保存私钥。
+
+卸载后隧道关闭，插件配置清除。已保存的 SSH Host 默认保留，要忘掉服务器请在「设置 → 远程连接」里删除。
+
 ## 怎么一起用
 
 常见组合很直接。
@@ -195,4 +203,4 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 Office 卡在 Runtime 没锁住或探测失败。预览停了，先看空闲超时是不是到了。多智能体看不到 `&`，先确认开关是开的，再确认对方 Agent 已经装上。Workflow 保存失败，先看修订号冲不冲突。会话工具没出现，结束当前对话再开一次。
 
-这五个包覆盖的是文档、会话、委托、工作流创作和插件作者工具。页面布局、会话日志、Agent 连接和工作区隔离仍由 Host 自己负责。
+这些包覆盖的是文档、会话、委托、工作流创作、插件作者工具和 SSH 远端 Host。页面布局、会话日志、Agent 连接和工作区隔离仍由 Host 自己负责。

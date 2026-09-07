@@ -179,7 +179,7 @@ export function PluginCatalogPage() {
     let cancelled = false;
     setMarketLoading(true);
     void api
-      .marketplaceCatalog(query.trim() || undefined)
+      .marketplaceCatalog()
       .then((page) => {
         if (!cancelled) setMarketPage(page);
       })
@@ -196,7 +196,7 @@ export function PluginCatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [api, catalogMode, query, t]);
+  }, [api, catalogMode, t]);
 
   useEffect(() => {
     if (catalogMode !== 'installed' || !canInstall) return;
@@ -520,6 +520,7 @@ export function PluginCatalogPage() {
             official={marketPage?.official ?? []}
             community={marketPage?.community ?? []}
             plugins={plugins}
+            query={query}
             loading={marketLoading}
             installingId={installingId}
             canInstall={canInstall}

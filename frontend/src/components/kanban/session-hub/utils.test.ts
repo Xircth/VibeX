@@ -6,6 +6,7 @@ import {
   UNASSIGNED_EXECUTOR,
   filterKanbanSessions,
   getBulkDeleteSessionSummary,
+  getMonitorGridClassName,
   getCanCreateKanbanSession,
   getCreateProjectSessionRequest,
   getDisplayedSessionCount,
@@ -441,5 +442,18 @@ describe('sessionAttentionKind', () => {
     expect(
       sessionAttentionKind({ isRunning: false, status: 'inprogress' })
     ).toBe(null);
+  });
+});
+
+describe('getMonitorGridClassName', () => {
+  it('fills the monitor area when only one session is shown', () => {
+    expect(getMonitorGridClassName(0)).toBe('grid-cols-1 grid-rows-1');
+    expect(getMonitorGridClassName(1)).toBe('grid-cols-1 grid-rows-1');
+  });
+
+  it('keeps two sessions side by side and four in a 2x2', () => {
+    expect(getMonitorGridClassName(2)).toBe('grid-cols-2 grid-rows-1');
+    expect(getMonitorGridClassName(3)).toBe('grid-cols-2 grid-rows-2');
+    expect(getMonitorGridClassName(4)).toBe('grid-cols-2 grid-rows-2');
   });
 });

@@ -4,7 +4,7 @@
   "apiVersion": "1.0",
   "id": "vibex.remote-ssh",
   "publisher": "vibex",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "name": "Remote SSH",
   "readme": "README.md",
   "engines": {

@@ -92,11 +92,18 @@ export function legacyKanbanPanelView(viewId: string): LegacyKanbanPanelView {
 
 export function resolveKanbanViewId(
   requested: string | null | undefined,
-  views: readonly KanbanViewDescriptor[]
+  views: readonly KanbanViewDescriptor[],
+  boardStyle?: string
 ): string | null {
   if (views.length === 0) return null;
   if (requested && views.some((view) => view.id === requested)) {
     return requested;
+  }
+  if (requested && boardStyle) {
+    const remapped = viewIdForBoardStyleChange(boardStyle, requested);
+    if (views.some((view) => view.id === remapped)) {
+      return remapped;
+    }
   }
   return views[0]?.id ?? null;
 }
@@ -121,6 +128,16 @@ export function viewIdForBoardStyleChange(
     return 'builtin:sessions';
   }
   return activeViewId;
+}
+
+/** Sessions and canvas are twins of one preference; arrows must not rotate through both. */
+export function kanbanViewsForBoardStyle(
+  views: readonly KanbanViewDescriptor[],
+  boardStyle: string
+): KanbanViewDescriptor[] {
+  const hiddenId =
+    boardStyle === 'canvas' ? 'builtin:sessions' : 'builtin:canvas';
+  return views.filter((view) => view.id !== hiddenId);
 }
 
 export function adjacentKanbanViewId(

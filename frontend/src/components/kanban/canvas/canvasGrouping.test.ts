@@ -1035,6 +1035,12 @@ describe('grouping', () => {
         { type: 'group', groupId: 'g' }
       )
     ).toBe(true);
+    expect(
+      dropHintsEqual(
+        { type: 'group', groupId: 'g' },
+        { type: 'same', groupId: 'g' }
+      )
+    ).toBe(false);
   });
 
   it('grows an auto group on a two-column grid as cards are dropped in', () => {

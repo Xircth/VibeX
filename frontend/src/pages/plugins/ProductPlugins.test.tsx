@@ -743,6 +743,66 @@ describe('product plugin experience', () => {
     expect(screen.getByText('Notes')).toBeVisible();
   });
 
+  it('filters marketplace listings by the visible localized name', async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [plugin], runtimes: [] };
+      }
+      if (command === 'plugin_check_updates') return [];
+      if (command === 'plugin_marketplace_catalog') {
+        return {
+          official: [
+            {
+              owner: 'vibex',
+              pluginName: 'vibex.office',
+              tag: '1.0.0',
+              version: '1.0.0',
+              displayName: 'VibeX Office',
+              summary: 'Office files',
+              category: 'productivity',
+              sourceKind: 'official',
+            },
+          ],
+          community: [
+            {
+              owner: 'acme',
+              pluginName: 'notes',
+              tag: '2.0.0',
+              version: '2.0.0',
+              displayName: 'Notes',
+              summary: 'Take notes',
+              category: 'community',
+              sourceKind: 'github',
+            },
+          ],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+    expect(await screen.findByText('办公套件')).toBeVisible();
+    expect(screen.getByText('Notes')).toBeVisible();
+    fireEvent.change(
+      screen.getByRole('searchbox', { name: /搜索插件|search plugins/i }),
+      { target: { value: '办公' } }
+    );
+    expect(screen.getByText('办公套件')).toBeVisible();
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+    fireEvent.change(
+      screen.getByRole('searchbox', { name: /搜索插件|search plugins/i }),
+      { target: { value: '' } }
+    );
+    expect(screen.getByText('Notes')).toBeVisible();
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
   it('marks a marketplace listing as installed after install succeeds', async () => {
     const notesListing = {
       owner: 'acme',

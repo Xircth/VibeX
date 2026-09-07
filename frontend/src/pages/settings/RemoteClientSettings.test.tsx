@@ -19,6 +19,7 @@ const pluginControlApiMock = vi.hoisted(() => ({
   catalog: vi.fn(async () => ({ plugins: [], runtimes: [] })),
   contributionCatalog: vi.fn(async () => ({ generation: 0, items: [] })),
   setEnabled: vi.fn(async () => ({})),
+  invokeContribution: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -101,6 +102,8 @@ describe('RemoteClientSettings', () => {
       generation: 0,
       items: [],
     });
+    pluginControlApiMock.setEnabled.mockReset();
+    pluginControlApiMock.invokeContribution.mockReset();
     hostClientApiMock.status.mockResolvedValue({
       connected: true,
       profile: connectedHost,
@@ -275,7 +278,12 @@ describe('RemoteClientSettings', () => {
           kind: 'remote_provisioner',
           label: 'SSH',
           generation: 1,
-          metadata: { provisionKind: 'ssh', icon: 'cloud' },
+          metadata: {
+            provisionKind: 'ssh',
+            handler: 'provision.ensure',
+            timeoutSeconds: 300,
+            icon: 'cloud',
+          },
         },
         {
           pluginId: 'acme.tunnel',
@@ -311,10 +319,64 @@ describe('RemoteClientSettings', () => {
     expect(screen.getByRole('heading', { name: '已保存 Host' })).toBeVisible();
   });
 
-  it('connects a saved SSH Host with its Host address and token, not the provisioner', async () => {
+  it('reconnects a saved SSH Host through the provisioner tunnel', async () => {
     const user = userEvent.setup();
     const { toast } = await import('@/components/ui/toast');
     vi.mocked(toast.info).mockClear();
+    pluginControlApiMock.catalog.mockResolvedValue({
+      plugins: [
+        {
+          id: 'acme.tunnel',
+          name: 'Acme Tunnel',
+          version: '1.0.0',
+          description: null,
+          enabled: true,
+          builtin: true,
+          sourceKind: 'vibex',
+          sourcePath: '/plugins/acme.tunnel',
+          formats: ['vibex'],
+          skills: [],
+          runtimes: [],
+          warnings: [],
+        },
+      ],
+      runtimes: [],
+    });
+    pluginControlApiMock.contributionCatalog.mockResolvedValue({
+      generation: 1,
+      items: [
+        {
+          pluginId: 'acme.tunnel',
+          id: 'ssh',
+          kind: 'remote_provisioner',
+          label: 'SSH',
+          generation: 1,
+          metadata: {
+            provisionKind: 'ssh',
+            handler: 'provision.ensure',
+            timeoutSeconds: 300,
+            icon: 'cloud',
+          },
+        },
+        {
+          pluginId: 'acme.tunnel',
+          id: 'connect-panel',
+          kind: 'app_surface',
+          label: 'Acme Tunnel',
+          generation: 1,
+          metadata: {
+            slot: 'plugin.detail.panel',
+            handler: 'surface.createSession',
+            appEntrypoint: 'app',
+            allowedMethods: ['provision.ensure'],
+            minHeight: 640,
+          },
+        },
+      ],
+    });
+    pluginControlApiMock.invokeContribution.mockResolvedValue({
+      origin: 'http://127.0.0.1:56001',
+    });
     hostClientApiMock.status.mockResolvedValue({
       connected: false,
       profile: null,
@@ -328,12 +390,51 @@ describe('RemoteClientSettings', () => {
     await user.click(within(saved).getByRole('button', { name: '连接' }));
     expect(toast.info).not.toHaveBeenCalledWith('正在重新连接远程服务');
     await waitFor(() =>
+      expect(pluginControlApiMock.invokeContribution).toHaveBeenCalledWith(
+        'acme.tunnel',
+        'provision.ensure',
+        {
+          profile: {
+            id: 'ssh-lab',
+            origin: 'http://127.0.0.1:41234',
+            name: 'Lab',
+            provisionKind: 'ssh',
+            provision: { host: '203.0.113.8', port: 22, user: 'root' },
+            hasCredential: true,
+          },
+        },
+        300
+      )
+    );
+    await waitFor(() =>
       expect(hostClientApiMock.connect).toHaveBeenCalledWith({
-        origin: 'http://203.0.113.8:17891',
+        origin: 'http://127.0.0.1:56001',
         token: undefined,
         profile_id: 'ssh-lab',
       })
     );
+  });
+
+  it('does not connect a saved SSH Host when the provisioner is missing', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    hostClientApiMock.status.mockResolvedValue({
+      connected: false,
+      profile: null,
+      profiles: [sshHost],
+    });
+    render(<RemoteClientSettings />);
+    const saved = (
+      await screen.findByRole('heading', { name: '已保存 Host' })
+    ).closest('.settings-section') as HTMLElement;
+    await user.click(await within(saved).findByText('Lab'));
+    await user.click(within(saved).getByRole('button', { name: '连接' }));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        '请先启用 SSH 再连接这台 Host。'
+      )
+    );
+    expect(hostClientApiMock.connect).not.toHaveBeenCalled();
   });
 
   it('marks SSH-provisioned saved Hosts without treating them as the current connection', async () => {

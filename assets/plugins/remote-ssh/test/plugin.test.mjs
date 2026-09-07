@@ -16,12 +16,26 @@ import {
 } from '../runtime/download.mjs';
 import { appendJobLog, formatElapsed, sanitizeRemoteOutput } from '../runtime/log.mjs';
 import {
+  connectableOrigin,
   createPipeline,
   emptyJob,
+  formatSshHostConfig,
+  originAllowsPlaintextHttp,
   pickDurableOrigin,
   remoteInstallScript,
 } from '../runtime/pipeline.mjs';
-import { createSshSession, sshAgentAvailable, sshArgv } from '../runtime/ssh.mjs';
+import net from 'node:net';
+
+import {
+  askpassProgram,
+  askpassScript,
+  createSshSession,
+  sshAgentAvailable,
+  sshArgv,
+  sshControlMasterSupported,
+  sshTunnelOptions,
+  usesPasswordTty,
+} from '../runtime/ssh.mjs';
 import {
   formatHistoryWhen,
   friendlyError,
@@ -143,6 +157,45 @@ test('pickDurableOrigin prefers an advertised Host address over loopback', () =>
   );
 });
 
+test('ssh host config is a secret-free ssh config file', () => {
+  assert.equal(
+    formatSshHostConfig('Lab', {
+      host: '203.0.113.8',
+      user: 'root',
+      port: 22,
+      jump: 'bastion',
+    }),
+    [
+      '# VibeX Host: Lab',
+      'Host lab',
+      '  HostName 203.0.113.8',
+      '  User root',
+      '  Port 22',
+      '  ProxyJump bastion',
+      '',
+    ].join('\n')
+  );
+});
+
+test('connect origin rejects public plaintext HTTP', () => {
+  assert.equal(originAllowsPlaintextHttp('http://127.0.0.1:17891'), true);
+  assert.equal(originAllowsPlaintextHttp('http://192.168.1.20:17891'), true);
+  assert.equal(originAllowsPlaintextHttp('http://10.0.0.8:17891'), true);
+  assert.equal(originAllowsPlaintextHttp('http://studio.local:17891'), true);
+  assert.equal(originAllowsPlaintextHttp('http://100.64.1.8:17891'), true);
+  assert.equal(originAllowsPlaintextHttp('http://203.0.113.10:443'), false);
+  assert.equal(originAllowsPlaintextHttp('http://47.109.140.92:13630'), false);
+  assert.equal(connectableOrigin('http://203.0.113.8:17891'), '');
+  assert.equal(
+    connectableOrigin('http://192.168.1.8:17891'),
+    'http://192.168.1.8:17891'
+  );
+  assert.equal(
+    connectableOrigin('https://server.example'),
+    'https://server.example'
+  );
+});
+
 test('every contributed handler is registered', async () => {
   const harness = await createWorkerHarness(worker, { host: memoryHost() });
   assert.deepEqual(harness.handlers.sort(), [
@@ -157,6 +210,50 @@ test('every contributed handler is registered', async () => {
     'surface.createSession',
   ]);
   await harness.dispose();
+});
+
+test('plugin-owned askpass works on first connect without a system helper', () => {
+  const unix = askpassScript('/usr/bin/node', 'darwin');
+  assert.match(unix, /^#!\/bin\/sh\n/);
+  assert.match(unix, /VIBEX_SSH_SECRET/);
+  assert.equal(unix.includes('/bin/cat'), false);
+  const windows = askpassScript('C:\\Program Files\\nodejs\\node.exe', 'win32');
+  assert.match(windows, /^@echo off/);
+  assert.match(windows, /C:\\Program Files\\nodejs\\node.exe/);
+  assert.equal(
+    askpassProgram('/tmp/ask', 'win32'),
+    join('/tmp/ask', 'askpass.cmd')
+  );
+  assert.equal(sshControlMasterSupported('darwin'), true);
+  assert.equal(sshControlMasterSupported('linux'), true);
+  assert.equal(sshControlMasterSupported('win32'), false);
+});
+
+test('password ssh does not wrap macOS ssh in script without a tty', () => {
+  assert.equal(
+    usesPasswordTty(
+      'ssh',
+      { password: 'secret' },
+      { platform: 'darwin', stdinIsTty: false }
+    ),
+    false
+  );
+  assert.equal(
+    usesPasswordTty(
+      'ssh',
+      { password: 'secret' },
+      { platform: 'darwin', stdinIsTty: true }
+    ),
+    true
+  );
+  assert.equal(
+    usesPasswordTty(
+      'ssh',
+      { password: 'secret' },
+      { platform: 'linux', stdinIsTty: true }
+    ),
+    false
+  );
 });
 
 test('password ssh skips agent, GSSAPI, and pubkey delays', () => {
@@ -203,9 +300,11 @@ test('password ssh does not try keys when a password is present', async () => {
     assert.ok(calls[0].args.includes('PubkeyAuthentication=no'));
     assert.equal(calls[0].env.SSH_ASKPASS_REQUIRE, 'force');
     assert.equal(calls[0].env.SSH_AUTH_SOCK, undefined);
-    assert.match(calls[0].env.SSH_ASKPASS, /askpass\.sh$/);
+    assert.ok(calls[0].env.DISPLAY);
+    assert.match(calls[0].env.SSH_ASKPASS, /askpass\.(sh|cmd)$/);
+    assert.match(calls[0].env.VIBEX_SSH_SECRET, /secret$/);
     const script = await readFile(calls[0].env.SSH_ASKPASS, 'utf8');
-    assert.match(script, /exec \/bin\/cat /);
+    assert.match(script, /VIBEX_SSH_SECRET/);
     assert.equal(script.includes('p@ss-word'), false);
     await session.close();
   } finally {
@@ -302,6 +401,104 @@ test('ssh argv keeps local-forward options before the destination', () => {
   assert.deepEqual(args.slice(destination), ['--', 'root@203.0.113.8']);
 });
 
+test('ssh tunnel argv is a dedicated -n -N forward, not a ControlMaster slave', () => {
+  const args = sshArgv(
+    { host: '203.0.113.8', user: 'root', port: 22, password: 'secret' },
+    { options: sshTunnelOptions(41234, 17891) }
+  );
+  const destination = args.indexOf('--');
+  assert.ok(args.indexOf('-n') < destination);
+  assert.ok(args.indexOf('-N') < destination);
+  assert.ok(args.includes('ExitOnForwardFailure=yes'));
+  assert.ok(args.includes('ControlMaster=no'));
+  assert.ok(args.includes('127.0.0.1:41234:127.0.0.1:17891'));
+  assert.equal(
+    args.some((value) => String(value).startsWith('ControlPath=')),
+    false
+  );
+  assert.equal(
+    args.some((value) => String(value).includes('ControlPersist')),
+    false
+  );
+  assert.deepEqual(args.slice(destination), ['--', 'root@203.0.113.8']);
+});
+
+test('ssh tunnel spawn does not reuse the exec ControlMaster', async () => {
+  const calls = [];
+  let listener;
+  const io = {
+    async run() {
+      return { code: 0, stdout: 'ok\n', stderr: '' };
+    },
+    spawn(_command, args, options) {
+      calls.push({ args, options });
+      const spec = args.find((value) =>
+        /^127\.0\.0\.1:\d+:127\.0\.0\.1:\d+$/.test(String(value))
+      );
+      const localPort = Number(String(spec).split(':')[1]);
+      const child = {
+        exitCode: null,
+        killed: false,
+        stderr: { on() {} },
+        kill() {
+          this.killed = true;
+          this.exitCode = 1;
+        },
+      };
+      listener = net.createServer();
+      listener.unref();
+      listener.listen(localPort, '127.0.0.1');
+      return child;
+    },
+    async kill(child) {
+      child?.kill();
+      await new Promise((resolve) => listener?.close(resolve));
+      listener = undefined;
+    },
+  };
+  const session = createSshSession(
+    { host: '203.0.113.8', user: 'root', port: 22, password: 'secret' },
+    io
+  );
+  const tunnel = await session.forward(17891);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].args.includes('-n'));
+  assert.ok(calls[0].args.includes('-N'));
+  assert.ok(calls[0].args.includes('ControlMaster=no'));
+  assert.equal(
+    calls[0].args.some((value) => String(value).startsWith('ControlPath=')),
+    false
+  );
+  assert.match(tunnel.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
+  await tunnel.close();
+});
+
+test('ssh tunnel that exits before listen is an error', async () => {
+  const io = {
+    async run() {
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawn() {
+      return {
+        exitCode: 0,
+        killed: false,
+        stderr: { on() {} },
+        kill() {},
+      };
+    },
+    async kill() {},
+  };
+  const session = createSshSession(
+    { host: '203.0.113.8', user: 'root', port: 22 },
+    io
+  );
+  await assert.rejects(
+    () => session.forward(17891),
+    /tunnel closed before|tunnel exited 0/
+  );
+  await session.close();
+});
+
 test('ssh exec passes the remote script after the destination', async () => {
   const calls = [];
   const io = {
@@ -358,6 +555,7 @@ test('install ships the Host family script instead of curling GitHub raw', () =>
   assert.match(script, /ghfast\.top/);
   assert.match(script, /downloaded %\{size_download\} bytes/);
   assert.match(script, /vibex-server" serve/);
+  assert.match(script, /printf 'already-installed\\n'/);
 });
 
 test('glibc older than 2.34 is rejected before install', async () => {
@@ -565,6 +763,9 @@ test('ssh exec forwards live chunks to the caller', async () => {
 test('provision upserts an ssh Host and asks the Host to connect', async () => {
   const host = memoryHost();
   const session = fakeSession();
+  const dataDir = await mkdtemp(join(tmpdir(), 'vibex-hosts-'));
+  const previousDataDir = process.env.VIBEX_SSH_HOST_FILES_DIR;
+  process.env.VIBEX_SSH_HOST_FILES_DIR = dataDir;
   const pipeline = createPipeline({
     createSession: () => session,
     downloadRelease: async ({ dest, onChunk }) => {
@@ -608,7 +809,7 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
     },
     host
   );
-  assert.equal(result.origin, 'http://203.0.113.8:17891');
+  assert.equal(result.origin, 'http://127.0.0.1:41234');
   assert.equal(result.token, 'K7M2NPQX');
   assert.equal(host.profiles[0].origin, 'http://203.0.113.8:17891');
   assert.equal(host.profiles[0].provisionKind, 'ssh');
@@ -617,7 +818,7 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
   const connectCall = host.calls.find(
     (call) => call.capability === 'remote' && call.operation === 'connect'
   );
-  assert.equal(connectCall?.input.origin, 'http://203.0.113.8:17891');
+  assert.equal(connectCall?.input.origin, 'http://127.0.0.1:41234');
   assert.equal(host.calls.some((call) => call.operation === 'profile.forget'), false);
   assert.equal(job.status, 'completed');
   assert.equal(
@@ -633,6 +834,17 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
     session.commands.some((command) => String(command).includes('serve --port 17891')),
     true
   );
+  assert.equal(
+    session.commands.some((command) =>
+      String(command).includes("printf 'installed\\n'")
+    ),
+    true
+  );
+  const startScript = session.commands.find((command) =>
+    String(command).includes('already-running')
+  );
+  assert.match(String(startScript), /printf 'already-running\\n'/);
+  assert.match(String(startScript), /printf 'started\\n'/);
   assert.equal(host.profiles[0].provision.servicePort, 17891);
   assert.deepEqual(host.profiles[0].provision.addresses, [
     'http://127.0.0.1:17891',
@@ -642,6 +854,18 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
     session.commands.some((command) => String(command).includes('Restart=always')),
     true
   );
+  assert.equal(
+    session.commands.some((command) => String(command).includes('RUST_LOG=error')),
+    false
+  );
+  const hostFile = await readFile(
+    join(dataDir, `${result.profile.id}.sshconfig`),
+    'utf8'
+  );
+  assert.match(hostFile, /HostName 203.0.113.8/);
+  assert.equal(hostFile.includes('secret'), false);
+  if (previousDataDir === undefined) delete process.env.VIBEX_SSH_HOST_FILES_DIR;
+  else process.env.VIBEX_SSH_HOST_FILES_DIR = previousDataDir;
   await pipeline.dispose();
 });
 
@@ -805,11 +1029,11 @@ test('ensure uses a password from connection history when kv is empty', async ()
     host
   );
   assert.equal(usedPassword, 'from-history');
-  assert.equal(ensured.origin, 'http://203.0.113.8:17891');
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
   await pipeline.dispose();
 });
 
-test('ensure reuses a healthy advertised Host address without SSH', async () => {
+test('ensure reuses a live local tunnel without opening SSH again', async () => {
   const host = memoryHost();
   const session = fakeSession();
   const pipeline = createPipeline({
@@ -818,7 +1042,7 @@ test('ensure reuses a healthy advertised Host address without SSH', async () => 
       throw new Error('install must not run');
     },
     fetchImpl: async (url) => {
-      if (String(url).includes('203.0.113.8:17891/health')) {
+      if (String(url).includes('127.0.0.1:41234/health')) {
         return { ok: true };
       }
       throw new Error(`unexpected ${url}`);
@@ -841,10 +1065,93 @@ test('ensure reuses a healthy advertised Host address without SSH', async () => 
     },
     host
   );
-  assert.equal(ensured.origin, 'http://203.0.113.8:17891');
-  assert.equal(host.profiles[0].origin, 'http://203.0.113.8:17891');
-  assert.equal(host.profiles[0].name, 'Lab');
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
   assert.equal(session.commands.length, 0);
+  await pipeline.dispose();
+});
+
+test('ensure opens a tunnel when the advertised address is public HTTP', async () => {
+  const host = memoryHost();
+  const session = fakeSession();
+  const pipeline = createPipeline({
+    createSession: () => session,
+    downloadRelease: async () => {
+      throw new Error('install must not run');
+    },
+    fetchImpl: async (url) => {
+      if (String(url).includes('203.0.113.8:17891/health')) {
+        return { ok: true };
+      }
+      if (String(url).includes('/health')) {
+        const started = session.commands.some((command) =>
+          String(command).includes('serve --port 17891')
+        );
+        return { ok: started };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  const ensured = await pipeline.ensure(
+    {
+      profile: {
+        id: 'kept',
+        name: 'Lab',
+        origin: 'http://203.0.113.8:17891',
+        hasCredential: true,
+        provision: {
+          host: '203.0.113.8',
+          port: 22,
+          user: 'root',
+          addresses: ['http://127.0.0.1:17891', 'http://203.0.113.8:17891'],
+        },
+      },
+    },
+    host
+  );
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
+  assert.equal(session.commands.length > 0, true);
+  await pipeline.dispose();
+});
+
+test('ensure opens a tunnel instead of connecting to an advertised LAN address', async () => {
+  const host = memoryHost();
+  const session = fakeSession();
+  const pipeline = createPipeline({
+    createSession: () => session,
+    downloadRelease: async () => {
+      throw new Error('install must not run');
+    },
+    fetchImpl: async (url) => {
+      if (String(url).includes('192.168.1.8:17891/health')) {
+        return { ok: true };
+      }
+      if (String(url).includes('/health')) {
+        const started = session.commands.some((command) =>
+          String(command).includes('serve --port 17891')
+        );
+        return { ok: started };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  const ensured = await pipeline.ensure(
+    {
+      profile: {
+        id: 'kept',
+        origin: 'http://192.168.1.8:17891',
+        hasCredential: true,
+        provision: {
+          host: '192.168.1.8',
+          port: 22,
+          user: 'root',
+          addresses: ['http://127.0.0.1:17891', 'http://192.168.1.8:17891'],
+        },
+      },
+    },
+    host
+  );
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
+  assert.equal(session.commands.length > 0, true);
   await pipeline.dispose();
 });
 
@@ -877,7 +1184,7 @@ test('ensure starts the remote Host when the advertised address is down', async 
     },
     host
   );
-  assert.equal(ensured.origin, 'http://203.0.113.8:17891');
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
   assert.equal(
     host.calls.some((call) => call.operation === 'profile.forget'),
     false

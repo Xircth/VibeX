@@ -68,6 +68,7 @@ describe('composer @ references', () => {
       'conversation',
       'commit',
       'instruction',
+      'host',
       'action',
     ]);
     expect(groups[0]?.items[0]?.insertText).toBe('[@:App.tsx](src/App.tsx)');
@@ -78,6 +79,34 @@ describe('composer @ references', () => {
       `[${shortCommitSha(commit.sha)}](${commitReferenceUri('repo-1', commit.sha)})`
     );
     expect(groups[3]?.items[0]?.label).toBe('#review-changes');
+    expect(groups.find((group) => group.tab === 'host')?.items).toEqual([]);
+  });
+
+  it('lists Host references in their own tab', () => {
+    const groups = buildAtReferenceGroups('lab', {
+      files: [],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+      hosts: [
+        {
+          id: 'lab.sshconfig',
+          label: 'Lab',
+          detail: 'root@203.0.113.8',
+          insertText: '[@:Lab](.vibex/ssh-hosts/lab.sshconfig)',
+        },
+        {
+          id: 'edge.sshconfig',
+          label: 'Edge',
+          detail: 'deploy@198.51.100.8',
+          insertText: '[@:Edge](.vibex/ssh-hosts/edge.sshconfig)',
+        },
+      ],
+    });
+    expect(
+      groups.find((group) => group.tab === 'host')?.items.map((item) => item.label)
+    ).toEqual(['Lab']);
   });
 
   it('filters each tab independently and skips the current conversation', () => {
@@ -149,7 +178,8 @@ describe('composer @ references', () => {
 
   it('cycles tabs left and right', () => {
     expect(cycleAtReferenceTab('file', 1)).toBe('conversation');
-    expect(cycleAtReferenceTab('instruction', 1)).toBe('action');
+    expect(cycleAtReferenceTab('instruction', 1)).toBe('host');
+    expect(cycleAtReferenceTab('host', 1)).toBe('action');
     expect(cycleAtReferenceTab('action', 1)).toBe('file');
     expect(cycleAtReferenceTab('file', -1)).toBe('action');
     expect(cycleAtReferenceTab('conversation', -1)).toBe('file');

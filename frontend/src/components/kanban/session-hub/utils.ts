@@ -450,7 +450,10 @@ export function getBulkDeleteSessionSummary({
 }
 
 export function getMonitorGridClassName(count: number) {
-  if (count <= 2) {
+  if (count <= 1) {
+    return 'grid-cols-1 grid-rows-1';
+  }
+  if (count === 2) {
     return 'grid-cols-2 grid-rows-1';
   }
 

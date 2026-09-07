@@ -4,6 +4,8 @@ import {
   DEFAULT_KANBAN_ZONE_VISIBILITY,
   kanbanListFillsHub,
   kanbanSessionFillsHub,
+  shouldRevealKanbanMonitorOnPlacement,
+  shouldShowKanbanMonitor,
   visibleKanbanZones,
 } from './kanbanZoneVisibility';
 
@@ -55,5 +57,18 @@ describe('kanban zone visibility', () => {
         session: true,
       })
     ).toBe(false);
+  });
+
+  it('hides the monitor column until a session is actually monitored', () => {
+    expect(shouldShowKanbanMonitor(true, 0)).toBe(false);
+    expect(shouldShowKanbanMonitor(true, 1)).toBe(true);
+    expect(shouldShowKanbanMonitor(false, 2)).toBe(false);
+  });
+
+  it('reveals the monitor when a newly opened session is queued into it', () => {
+    expect(shouldRevealKanbanMonitorOnPlacement(0, 1)).toBe(true);
+    expect(shouldRevealKanbanMonitorOnPlacement(1, 2)).toBe(true);
+    expect(shouldRevealKanbanMonitorOnPlacement(2, 2)).toBe(false);
+    expect(shouldRevealKanbanMonitorOnPlacement(1, 0)).toBe(false);
   });
 });

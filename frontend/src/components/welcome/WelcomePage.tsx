@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, GitBranch, Loader2, Plus, Settings } from 'lucide-react';
+import {
+  AppWindow,
+  FolderOpen,
+  GitBranch,
+  Loader2,
+  Plus,
+  Settings,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectRepos } from '@/hooks';
@@ -12,6 +19,8 @@ import { APP_NAME } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { fileSystemApi, projectsApi, useOpenSettings } from '@/lib/api';
+import { openLocalAppWindow } from '@/lib/api/appWindow';
+import { useTauriClient } from '@/lib/desktopShell';
 import { resolveDroppedProjectFolder } from './welcomeFolderDrop';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
@@ -108,6 +117,7 @@ export function WelcomePage() {
   const { t } = useTranslation(['app', 'common']);
   const navigate = useNavigate();
   const openSettings = useOpenSettings();
+  const tauriClient = useTauriClient();
   const { projects, isLoading } = useProjects();
   const [contextMenu, setContextMenu] =
     useState<ProjectContextMenuState | null>(null);
@@ -352,6 +362,13 @@ export function WelcomePage() {
         </div>
 
         <WelcomeSection title={t('welcomePage.startSection')}>
+          {tauriClient ? (
+            <WelcomeAction
+              icon={AppWindow}
+              label={t('welcomePage.newWindow')}
+              onClick={openLocalAppWindow}
+            />
+          ) : null}
           <WelcomeAction
             icon={Plus}
             label={t('welcomePage.createNewProject')}

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { localProvisionerSurfaces } from './localProvisionerSurfaces';
+import {
+  localProvisionerSurfaces,
+  provisionedHostPayload,
+  provisionerForKind,
+} from './localProvisionerSurfaces';
 import type {
   PluginContributionCatalog,
   PluginControlCatalog,
@@ -66,6 +70,30 @@ describe('localProvisionerSurfaces', () => {
     expect(panels[0]?.plugin.id).toBe('acme.tunnel');
     expect(panels[0]?.label).toBe('Tunnel');
     expect(panels[0]?.kind).toBe('wireguard');
+    expect(panels[0]?.handler).toBeNull();
+    expect(panels[0]?.timeoutSeconds).toBe(120);
     expect(panels[0]?.surfaces[0]?.surfaceId).toBe('connect-panel');
+    expect(provisionerForKind(panels, 'wireguard')?.plugin.id).toBe(
+      'acme.tunnel'
+    );
+    expect(provisionerForKind(panels, 'ssh')).toBeNull();
+    expect(provisionerForKind(panels, 'manual')).toBeNull();
+    expect(
+      provisionedHostPayload({
+        id: 'ssh-lab',
+        origin: 'http://127.0.0.1:41234',
+        name: 'Lab',
+        provision_kind: 'ssh',
+        provision: { host: '203.0.113.8' },
+        has_credential: true,
+      })
+    ).toEqual({
+      id: 'ssh-lab',
+      origin: 'http://127.0.0.1:41234',
+      name: 'Lab',
+      provisionKind: 'ssh',
+      provision: { host: '203.0.113.8' },
+      hasCredential: true,
+    });
   });
 });

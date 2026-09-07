@@ -6,6 +6,7 @@ import {
   findInstalledPluginForListing,
   flattenMarketplaceListings,
   listingMatchesPlugin,
+  listingMatchesSearch,
   listingsInMarketplaceTab,
   listingTopicCategory,
   marketplaceCategoryTabIds,
@@ -57,6 +58,23 @@ describe('marketplace listing categories', () => {
     expect(
       listingsInMarketplaceTab(listings, 'all').map((item) => item.pluginName)
     ).toEqual(['vibex.session-enhance', 'notes', 'drawio']);
+  });
+});
+
+describe('marketplace search', () => {
+  it('matches the visible localized name, not only the package display name', () => {
+    const office = listing('vibex', 'vibex.office', 'productivity');
+    office.displayName = 'VibeX Office';
+    office.summary = 'Office files';
+    expect(
+      listingMatchesSearch(office, '办公套件', '办公套件', '在 VibeX 中预览文档')
+    ).toBe(true);
+    expect(
+      listingMatchesSearch(office, 'office', '办公套件', '在 VibeX 中预览文档')
+    ).toBe(true);
+    expect(
+      listingMatchesSearch(office, 'notes', '办公套件', '在 VibeX 中预览文档')
+    ).toBe(false);
   });
 });
 

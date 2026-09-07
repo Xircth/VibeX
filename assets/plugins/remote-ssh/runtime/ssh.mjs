@@ -93,6 +93,7 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
   const forwards = new Set();
 
   async function muxOptions() {
+    if (!sshControlMasterSupported()) return [];
     if (!controlPath) {
       const dir = await mkdtemp(join(tmpdir(), 'vibex-ssh-cm-'));
       controlPath = join(dir, 'c');
@@ -111,19 +112,15 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
     if (!password || askpassDir) return askpassDir;
     askpassDir = await mkdtemp(join(tmpdir(), 'vibex-ssh-'));
     const secret = join(askpassDir, 'secret');
-    const helper = join(askpassDir, 'askpass.sh');
+    const helper = askpassProgram(askpassDir);
     await writeFile(
       secret,
       password.endsWith('\n') ? password : `${password}\n`,
       { encoding: 'utf8', mode: 0o600 }
     );
     await chmod(secret, 0o600);
-    await writeFile(
-      helper,
-      `#!/bin/sh\nexec /bin/cat ${shellSingleQuote(secret)}\n`,
-      { encoding: 'utf8' }
-    );
-    await chmod(helper, 0o700);
+    await writeFile(helper, askpassScript(), { encoding: 'utf8' });
+    if (process.platform !== 'win32') await chmod(helper, 0o700);
     return askpassDir;
   }
 
@@ -131,10 +128,11 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
     const env = { ...process.env };
     if (!usePassword || !password) return env;
     delete env.SSH_AUTH_SOCK;
-    delete env.DISPLAY;
     const dir = await ensureAskpass();
-    env.SSH_ASKPASS = join(dir, 'askpass.sh');
+    env.VIBEX_SSH_SECRET = join(dir, 'secret');
+    env.SSH_ASKPASS = askpassProgram(dir);
     env.SSH_ASKPASS_REQUIRE = 'force';
+    if (!env.DISPLAY) env.DISPLAY = ':';
     return env;
   }
 
@@ -206,15 +204,7 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
 
   async function forward(remotePort = DEFAULT_REMOTE_PORT) {
     const localPort = await pickLocalPort();
-    const mux = await muxOptions();
-    const options = [
-      ...mux,
-      '-N',
-      '-o',
-      'ExitOnForwardFailure=yes',
-      '-L',
-      `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
-    ];
+    const options = sshTunnelOptions(localPort, remotePort);
     return runAuthenticated(async (mode) => {
       const child = io.spawn('ssh', sshArgv(destFor(mode), { options }), {
         env: await sshEnv(mode === 'password'),
@@ -283,7 +273,11 @@ export function defaultIo() {
       if (usesPasswordTty(command, options)) {
         return spawnPasswordTty(command, args, options);
       }
-      return spawn(command, args, sshSpawnOptions(options.env));
+      return spawn(
+        command,
+        args,
+        sshSpawnOptions(options.env, { detached: false })
+      );
     },
     async kill(child) {
       if (!child || child.killed || child.exitCode != null) return;
@@ -298,13 +292,54 @@ export function defaultIo() {
   };
 }
 
-function usesPasswordTty(command, options) {
+export function usesPasswordTty(
+  command,
+  options,
+  {
+    platform = process.platform,
+    stdinIsTty = Boolean(process.stdin?.isTTY),
+  } = {}
+) {
   return (
     Boolean(options?.password) &&
     command === 'ssh' &&
     !options.stdin &&
-    process.platform === 'darwin'
+    platform === 'darwin' &&
+    stdinIsTty
   );
+}
+
+export function sshControlMasterSupported(platform = process.platform) {
+  return platform !== 'win32';
+}
+
+export function sshTunnelOptions(localPort, remotePort = DEFAULT_REMOTE_PORT) {
+  return [
+    '-n',
+    '-N',
+    '-o',
+    'ExitOnForwardFailure=yes',
+    '-o',
+    'ControlMaster=no',
+    '-L',
+    `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+  ];
+}
+
+export function askpassProgram(dir, platform = process.platform) {
+  return join(dir, platform === 'win32' ? 'askpass.cmd' : 'askpass.sh');
+}
+
+export function askpassScript(
+  nodePath = process.execPath,
+  platform = process.platform
+) {
+  const payload =
+    "process.stdout.write(require('fs').readFileSync(process.env.VIBEX_SSH_SECRET,'utf8'))";
+  if (platform === 'win32') {
+    return `@echo off\r\n"${String(nodePath).replace(/"/g, '')}" -e "${payload}"\r\n`;
+  }
+  return `#!/bin/sh\nexec ${shellSingleQuote(nodePath)} -e ${shellSingleQuote(payload)}\n`;
 }
 
 function passwordTtyCommand(args) {
@@ -395,10 +430,10 @@ function redactSecret(text, password) {
   return text.split(password).join('********');
 }
 
-function sshSpawnOptions(env, { stdin } = {}) {
+function sshSpawnOptions(env, { stdin, detached } = {}) {
   return {
     env,
-    detached: process.platform !== 'win32',
+    detached: detached ?? process.platform !== 'win32',
     stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     windowsHide: true,
   };
@@ -484,7 +519,12 @@ async function waitForListen(port, child, timeoutMs) {
   });
   while (Date.now() < deadline) {
     if (child.exitCode != null) {
-      throw new Error((lastError || `ssh tunnel exited ${child.exitCode}`).trim());
+      throw new Error(
+        (
+          lastError ||
+          `SSH tunnel closed before the local port was listening (exit ${child.exitCode})`
+        ).trim()
+      );
     }
     const open = await probePort(port);
     if (open) return;

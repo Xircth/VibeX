@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -9,6 +9,7 @@ import { officialListingName, officialListingSummary } from './officialPlugins';
 import {
   flattenMarketplaceListings,
   listingMatchesPlugin,
+  listingMatchesSearch,
   listingsInMarketplaceTab,
   listingTopicCategory,
   marketplaceCategoryTabIds,
@@ -80,6 +81,7 @@ export function PluginMarketplaceList({
   official,
   community,
   plugins,
+  query,
   loading,
   installingId,
   canInstall,
@@ -88,6 +90,7 @@ export function PluginMarketplaceList({
   official: CatalogListing[];
   community: CatalogListing[];
   plugins: InstalledPluginIdentity[];
+  query: string;
   loading: boolean;
   installingId: string | null;
   canInstall: boolean;
@@ -99,11 +102,26 @@ export function PluginMarketplaceList({
     () => flattenMarketplaceListings(official, community),
     [community, official]
   );
+  const matches = useMemo(
+    () =>
+      listings.filter((listing) =>
+        listingMatchesSearch(
+          listing,
+          query,
+          officialListingName(listing, t),
+          officialListingSummary(listing, t)
+        )
+      ),
+    [listings, query, t]
+  );
   const tabs = useMemo(() => marketplaceCategoryTabIds(listings), [listings]);
+  useEffect(() => {
+    if (query.trim()) setCategory('all');
+  }, [query]);
   const selected = tabs.includes(category) ? category : 'all';
   const visible = useMemo(
-    () => listingsInMarketplaceTab(listings, selected),
-    [listings, selected]
+    () => listingsInMarketplaceTab(matches, selected),
+    [matches, selected]
   );
 
   if (loading) {
@@ -169,6 +187,11 @@ export function PluginMarketplaceList({
         ) : (
           <div className="product-plugin-empty">
             <strong>{t('plugins.marketplaceEmpty')}</strong>
+            {query.trim() ? (
+              <span className="product-plugin-muted">
+                {t('plugins.productEmptySearchHint')}
+              </span>
+            ) : null}
           </div>
         )}
       </div>

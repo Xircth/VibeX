@@ -498,6 +498,7 @@ export const HOST_COMMANDS = [
   'workflow_version',
   'workflow_versions',
   'write_pasted_image_asset',
+  'write_ssh_host_files',
   'write_terminal',
   'write_workspace_conflict_resolution',
 ] as const;
@@ -1095,6 +1096,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
   { name: 'workflow_version', scope: 'workflow.read', kind: 'core', argShape: 'compat' },
   { name: 'workflow_versions', scope: 'workflow.read', kind: 'core', argShape: 'compat' },
   { name: 'write_pasted_image_asset', scope: 'application.call', kind: 'domain', argShape: 'compat' },
+  { name: 'write_ssh_host_files', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'write_terminal', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'write_workspace_conflict_resolution', scope: 'application.call', kind: 'domain', argShape: 'compat' },
 ] as const;

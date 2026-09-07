@@ -258,6 +258,7 @@ domain_commands! {
     FileListDirectory => "list_directory" / "application.call",
     FileListGitRepos => "list_git_repos" / "application.call",
     FileAtHead => "get_file_at_head" / "application.call",
+    FileWriteSshHostFiles => "write_ssh_host_files" / "application.call",
     TerminalCreate => "create_terminal" / "application.call",
     TerminalWrite => "write_terminal" / "application.call",
     TerminalResize => "resize_terminal" / "application.call",

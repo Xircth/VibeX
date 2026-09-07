@@ -7,6 +7,7 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     process::Stdio,
+    time::Duration,
 };
 
 use plugins::NativePluginAdapter;
@@ -750,19 +751,7 @@ pub async fn plugin_marketplace_catalog(
         page.official = plugins::collapse_replaced_official(page.official);
         plugins::prepare_marketplace_page(&mut page);
     }
-    if let Some(query) = query
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let needle = query.to_ascii_lowercase();
-        page.official.retain(|item| {
-            item.display_name.to_ascii_lowercase().contains(&needle)
-                || item.summary.to_ascii_lowercase().contains(&needle)
-                || item.plugin_name.to_ascii_lowercase().contains(&needle)
-                || item.owner.to_ascii_lowercase().contains(&needle)
-        });
-    }
+    plugins::filter_catalog_page(&mut page, query.as_deref());
     Ok(page)
 }
 
@@ -1200,16 +1189,23 @@ pub async fn plugin_invoke_contribution(
     plugin_id: String,
     handler: String,
     input: Option<serde_json::Value>,
+    timeout_seconds: Option<u64>,
 ) -> Result<serde_json::Value, AppError> {
     let lease = state
         .plugin_control_plane
         .activation_lease(&plugin_id)
         .await
         .ok_or_else(|| AppError::NotFound(format!("plugin `{plugin_id}` is not active")))?;
-    lease
-        .invoke(&handler, input.unwrap_or(serde_json::Value::Null))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))
+    let payload = input.unwrap_or(serde_json::Value::Null);
+    let result = match timeout_seconds.filter(|value| (5..=600).contains(value)) {
+        Some(seconds) => {
+            lease
+                .invoke_with_timeout(&handler, payload, Duration::from_secs(seconds))
+                .await
+        }
+        None => lease.invoke(&handler, payload).await,
+    };
+    result.map_err(|error| AppError::Internal(error.to_string()))
 }
 
 #[tauri::command]

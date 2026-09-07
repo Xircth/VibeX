@@ -145,6 +145,7 @@ describe('VersionControlSettings', () => {
     expect(mocks.getGithubCliStatus).toHaveBeenCalledWith('github.com');
     await user.click(screen.getByRole('button', { name: '登录' }));
     expect(mocks.openGithubCliLogin).toHaveBeenCalledWith('github.com');
+    expect(mocks.toastInfo).toHaveBeenCalledWith('已打开 GitHub CLI 登录终端');
 
     const gitSection = screen.getByText('Git 版本设置').closest('section');
     expect(gitSection).not.toBeNull();
@@ -216,6 +217,56 @@ describe('VersionControlSettings', () => {
     expect(
       screen.queryByRole('button', { name: '安装 GitHub CLI' })
     ).not.toBeInTheDocument();
+  });
+
+  it('explains that GitHub login on a remote Host needs a Host terminal', async () => {
+    const user = userEvent.setup();
+    mocks.openGithubCliLogin.mockRejectedValue(
+      new Error('GitHub login requires an interactive Host terminal.')
+    );
+    render(<VersionControlSettings />);
+
+    await user.click(await screen.findByRole('button', { name: '登录' }));
+
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        '无法打开 GitHub 登录终端',
+        {
+          description:
+            'GitHub 登录要在这台 Host 的终端里完成。打开终端后运行 gh auth login。',
+        }
+      );
+    });
+  });
+
+  it('does not report success when the Host still has no GitHub CLI', async () => {
+    const user = userEvent.setup();
+    mocks.getGithubCliStatus.mockResolvedValue({
+      ...githubStatus,
+      gh_installed: false,
+      gh_path: null,
+    });
+    mocks.installGithubCli.mockResolvedValue({
+      ...githubStatus,
+      gh_installed: false,
+      gh_path: null,
+      message: 'GitHub CLI is not installed or not on PATH.',
+    });
+    render(<VersionControlSettings />);
+
+    await user.click(
+      await screen.findByRole('button', { name: '安装 GitHub CLI' })
+    );
+
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith('GitHub CLI 安装失败', {
+        description: 'GitHub CLI is not installed or not on PATH.',
+      });
+    });
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: '安装 GitHub CLI' })
+    ).toBeInTheDocument();
   });
 
   it('reports a one-click GitHub CLI installation failure', async () => {

@@ -83,6 +83,7 @@ export type {
   HostPairingChallenge,
   HostPairedDevice,
   HostClientProfile,
+  LocalSshTarget,
   DiscoveredHost,
   HostClientStatus,
   ConnectHostResult,

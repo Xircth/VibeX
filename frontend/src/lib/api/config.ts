@@ -452,10 +452,17 @@ export interface DiscoveredHost {
   saved: boolean;
 }
 
+export interface LocalSshTarget {
+  user: string;
+  host: string;
+  port: number;
+}
+
 export interface HostClientStatus {
   connected: boolean;
   profile: HostClientProfile | null;
   profiles: HostClientProfile[];
+  local_ssh?: LocalSshTarget | null;
 }
 
 export interface ConnectHostResult {

@@ -60,6 +60,7 @@ import { fallbackWorkspaceTab, pluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { shouldShowKanbanMonitor } from '@/lib/kanbanZoneVisibility';
 import {
   toggleKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
@@ -116,6 +117,7 @@ function CanvasSessionListToggleButton() {
 export function KanbanLayoutToggles() {
   const { t } = useTranslation('panels');
   const boardStyle = useKanbanBoardStyle();
+  const { monitorSessions } = useKanbanSessionContext();
   const isKanbanListVisible = useLayoutStore(
     (state) => state.isKanbanListVisible
   );
@@ -133,6 +135,10 @@ export function KanbanLayoutToggles() {
     (state) => state.toggleKanbanSession
   );
   const resetKanbanLayout = useLayoutStore((state) => state.resetKanbanLayout);
+  const monitorVisible = shouldShowKanbanMonitor(
+    isKanbanMonitorVisible,
+    monitorSessions.length
+  );
 
   if (boardStyle === 'canvas') {
     return null;
@@ -166,7 +172,7 @@ export function KanbanLayoutToggles() {
             className="workspace-toolbar-button h-7 w-7"
             onClick={toggleKanbanMonitor}
             aria-label={t('toolbar.toggleSessionMonitor')}
-            aria-pressed={isKanbanMonitorVisible}
+            aria-pressed={monitorVisible}
           >
             <Columns2 className="h-3.5 w-3.5" />
           </Button>

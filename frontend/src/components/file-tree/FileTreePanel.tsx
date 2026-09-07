@@ -1431,6 +1431,7 @@ export function FileTreePanel({
         </div>
         {isFolder &&
           isExpanded &&
+          !(isLazyFolder && node.children.length === 0) &&
           (hasChildren ||
             newFolderParent === node.path ||
             newFileParent === node.path) && (
@@ -1444,6 +1445,10 @@ export function FileTreePanel({
           )}
         {isLazyFolder && isExpanded && node.children.length === 0 && (
           <div className="file-tree-children">
+            {newFolderParent === node.path &&
+              renderInlineNewInput('folder', depth + 1)}
+            {newFileParent === node.path &&
+              renderInlineNewInput('file', depth + 1)}
             {isLazyLoading ? (
               <div className="file-tree-lazy-state">
                 {t('fileTreeMenu.loading')}

@@ -78,21 +78,23 @@ export function useAgentManagement() {
       'agent-management-event',
       (event) => {
         if (!active) return;
-        if (event.sequence <= lastEventSequence.current) return;
-        lastEventSequence.current = event.sequence;
-        if (event.status === 'failed') {
-          const message = event.message?.trim();
+        const next = coerceOperationEvent(event);
+        if (!next) return;
+        if (next.sequence <= lastEventSequence.current) return;
+        lastEventSequence.current = next.sequence;
+        if (next.status === 'failed') {
+          const message = next.message?.trim();
           toast.error(
             i18n.resolvedLanguage?.startsWith('en')
               ? t('agents.operationFailed')
               : message || t('agents.operationFailed')
           );
         }
-        setState((current) => reduceOperationEvent(current, event));
+        setState((current) => reduceOperationEvent(current, next));
         if (
-          event.status === 'succeeded' ||
-          event.status === 'failed' ||
-          event.status === 'canceled'
+          next.status === 'succeeded' ||
+          next.status === 'failed' ||
+          next.status === 'canceled'
         ) {
           void refresh().catch(() => undefined);
         }
@@ -184,5 +186,47 @@ export function useAgentManagement() {
     addAndInstall,
     beginOperation,
     mergeAgent,
+  };
+}
+
+function coerceOperationEvent(
+  raw: AgentOperationEvent | Record<string, unknown> | null | undefined
+): AgentOperationEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const nested = record.payload;
+  const source =
+    nested &&
+    typeof nested === 'object' &&
+    !Array.isArray(nested) &&
+    ('operation_id' in nested ||
+      'operationId' in nested ||
+      'agent_id' in nested ||
+      'agentId' in nested)
+      ? (nested as Record<string, unknown>)
+      : record;
+  const operationId = String(source.operation_id ?? source.operationId ?? '');
+  const agentId = String(source.agent_id ?? source.agentId ?? '');
+  if (!operationId || !agentId) return null;
+  const sequence = Number(source.sequence);
+  if (!Number.isFinite(sequence)) return null;
+  return {
+    sequence,
+    agent_id: agentId as AgentOperationEvent['agent_id'],
+    operation_id: operationId,
+    kind: source.kind as AgentOperationEvent['kind'],
+    status: source.status as AgentOperationEvent['status'],
+    progress_percent:
+      typeof source.progress_percent === 'number'
+        ? source.progress_percent
+        : typeof source.progressPercent === 'number'
+          ? source.progressPercent
+          : null,
+    message:
+      typeof source.message === 'string'
+        ? source.message
+        : source.message == null
+          ? null
+          : String(source.message),
   };
 }

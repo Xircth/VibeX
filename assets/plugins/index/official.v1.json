@@ -43,7 +43,7 @@
     {
       "publisher": "vibex",
       "pluginId": "vibex.remote-ssh",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
       "packageDigest": "builtin:vibex.remote-ssh",
       "archive": "builtin://vibex.remote-ssh"

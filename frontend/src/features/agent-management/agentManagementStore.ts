@@ -95,6 +95,7 @@ export function reduceOperationEvent(
   state: AgentManagementState,
   event: AgentOperationEvent
 ): AgentManagementState {
+  if (!event.agent_id || !event.operation_id) return state;
   if (event.sequence <= state.lastEventSequence) return state;
 
   const terminal =
@@ -117,7 +118,8 @@ export function reduceOperationEvent(
     delete operations[event.agent_id];
   } else {
     const previous = operations[event.agent_id];
-    const sameOperation = previous?.operationId === event.operation_id;
+    const sameOperation =
+      previous != null && previous.operationId === event.operation_id;
     const previousLogs = sameOperation ? (previous.logs ?? []) : [];
     const message = event.message?.trim();
     const logs =

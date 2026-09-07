@@ -262,6 +262,34 @@ pub fn prepare_marketplace_page(page: &mut CatalogPage) {
     }
 }
 
+pub fn listing_matches_query(listing: &CatalogListing, query: &str) -> bool {
+    let needle = query.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return true;
+    }
+    [
+        listing.display_name.as_str(),
+        listing.summary.as_str(),
+        listing.plugin_name.as_str(),
+        listing.owner.as_str(),
+        listing.version.as_str(),
+        listing.offline_plugin_id.as_deref().unwrap_or(""),
+    ]
+    .into_iter()
+    .any(|value| value.to_ascii_lowercase().contains(&needle))
+}
+
+pub fn filter_catalog_page(page: &mut CatalogPage, query: Option<&str>) {
+    let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    page.query = query.to_owned();
+    page.official
+        .retain(|listing| listing_matches_query(listing, query));
+    page.community
+        .retain(|listing| listing_matches_query(listing, query));
+}
+
 pub fn successor_plugin_id(id: &str) -> Option<&'static str> {
     REPLACED_PLUGIN_IDS
         .iter()
@@ -1180,5 +1208,42 @@ mod tests {
         assert!(is_authoring_sample_plugin_id("vibex.host-surface"));
         assert!(is_authoring_sample_plugin_id("provider-import"));
         assert!(!is_authoring_sample_plugin_id("vibex.office"));
+    }
+
+    #[test]
+    fn catalog_query_filters_official_and_community() {
+        let office = listing("vibex.office", "VibeX Office", "Office files");
+        let mut notes = listing("notes", "Notes", "Take notes");
+        notes.owner = "acme".into();
+        notes.category = "community".into();
+        let mut page = CatalogPage {
+            official: vec![office],
+            community: vec![notes.clone()],
+            ..CatalogPage::default()
+        };
+        filter_catalog_page(&mut page, Some("office"));
+        assert_eq!(
+            page.official
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["vibex.office"]
+        );
+        assert!(page.community.is_empty());
+
+        page = CatalogPage {
+            official: vec![listing("vibex.office", "VibeX Office", "Office files")],
+            community: vec![notes],
+            ..CatalogPage::default()
+        };
+        filter_catalog_page(&mut page, Some("notes"));
+        assert!(page.official.is_empty());
+        assert_eq!(
+            page.community
+                .iter()
+                .map(|item| item.plugin_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["notes"]
+        );
     }
 }

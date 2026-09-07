@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +25,79 @@ const STEPS = ['probe', 'install', 'start', 'tunnel', 'pair', 'save', 'connect']
 
 export function isLoopbackOrigin(origin) {
   return /127\.0\.0\.1|localhost|\[::1\]/i.test(String(origin ?? ''));
+}
+
+function hostFromOrigin(origin) {
+  try {
+    const url = new URL(
+      String(origin).includes('://') ? origin : `http://${origin}`
+    );
+    return url.hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+function ipv4Octets(host) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return null;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((value) => value > 255)) return null;
+  return octets;
+}
+
+export function originAllowsPlaintextHttp(origin) {
+  const value = String(origin ?? '').trim();
+  if (!/^http:\/\//i.test(value)) return false;
+  if (isLoopbackOrigin(value)) return true;
+  const host = hostFromOrigin(value).toLowerCase();
+  if (!host) return false;
+  if (host.endsWith('.local')) return true;
+  const ipv4 = ipv4Octets(host);
+  if (ipv4) {
+    const [a, b] = ipv4;
+    if (a === 10 || a === 127) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+  if (host.includes(':')) {
+    if (host === '::1') return true;
+    if (host.startsWith('fc') || host.startsWith('fd')) return true;
+    if (host.startsWith('fe80:')) return true;
+  }
+  return false;
+}
+
+export function formatSshHostConfig(name, target) {
+  const alias = String(name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32) || 'host';
+  const lines = [
+    `# VibeX Host: ${name}`,
+    `Host ${alias}`,
+    `  HostName ${target.host}`,
+    `  User ${target.user}`,
+    `  Port ${Number(target.port) > 0 ? Number(target.port) : 22}`,
+  ];
+  const jump = String(target.jump ?? '').trim();
+  if (jump) lines.push(`  ProxyJump ${jump}`);
+  return `${lines.join('\n')}\n`;
+}
+
+export function connectableOrigin(origin) {
+  const value = String(origin ?? '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!value) return '';
+  if (/^https:\/\//i.test(value)) return value;
+  if (originAllowsPlaintextHttp(value)) return value;
+  return '';
 }
 
 export function pickDurableOrigin(addresses, sshHost, servicePort = REMOTE_PORT) {
@@ -185,7 +258,7 @@ export function createPipeline(deps) {
       'printf \'#!/bin/sh\\nif [ $# -eq 0 ]; then exec "%s/vibex-server" serve; fi\\nexec "%s/vibex-server" "$@"\\n\' "$family_root" "$family_root" > "$HOME/.local/bin/vibex"',
       'chmod +x "$HOME/.local/bin/vibex"',
       'rm -f "$archive"',
-      'printf installed\\n',
+      "printf 'installed\\n'",
     ].join('\n');
   }
 
@@ -258,11 +331,6 @@ export function createPipeline(deps) {
       '  pub=$(curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)',
       '  if [ -n "$pub" ]; then printf \'http://%s:17891\\n\' "$pub"; fi',
       '}',
-      'if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
-      '  printf already-running\\n',
-      '  print_addrs',
-      '  exit 0',
-      'fi',
       'bin=""',
       'if [ -x "$HOME/.local/bin/vibex" ]; then bin="$HOME/.local/bin/vibex"',
       'elif command -v vibex >/dev/null 2>&1; then bin=$(command -v vibex)',
@@ -290,7 +358,6 @@ export function createPipeline(deps) {
       'ExecStart=$bin serve --port 17891',
       'Restart=always',
       'RestartSec=2',
-      'Environment=RUST_LOG=error',
       dir ? `Environment=VIBEX_DATA_DIR=${dir.replace(/'/g, '')}` : '',
       'StandardOutput=append:/tmp/vibex-server.log',
       'StandardError=append:/tmp/vibex-server.log',
@@ -299,6 +366,28 @@ export function createPipeline(deps) {
       'WantedBy=$wanted',
       'UNIT',
       '}',
+      'if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
+      '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/vibex-server.service ] && grep -q RUST_LOG= /etc/systemd/system/vibex-server.service; then',
+      '    write_unit /etc/systemd/system/vibex-server.service multi-user.target',
+      '    systemctl daemon-reload',
+      '    systemctl restart vibex-server.service',
+      '    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
+      '      if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then break; fi',
+      '      sleep 1',
+      '    done',
+      '  elif [ -f "$HOME/.config/systemd/user/vibex-server.service" ] && grep -q RUST_LOG= "$HOME/.config/systemd/user/vibex-server.service"; then',
+      '    write_unit "$HOME/.config/systemd/user/vibex-server.service" default.target',
+      '    systemctl --user daemon-reload',
+      '    systemctl --user restart vibex-server.service',
+      '    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
+      '      if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then break; fi',
+      '      sleep 1',
+      '    done',
+      '  fi',
+      "  printf 'already-running\\n'",
+      '  print_addrs',
+      '  exit 0',
+      'fi',
       'started_with=nohup',
       'if command -v systemctl >/dev/null 2>&1; then',
       '  if [ "$(id -u)" -eq 0 ] && [ -d /etc/systemd/system ]; then',
@@ -314,11 +403,11 @@ export function createPipeline(deps) {
       '  fi',
       'fi',
       'if [ "$started_with" = nohup ]; then',
-      '  nohup env RUST_LOG=error "$bin" serve --port 17891 >/tmp/vibex-server.log 2>&1 &',
+      '  nohup "$bin" serve --port 17891 >/tmp/vibex-server.log 2>&1 &',
       'fi',
       'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
       '  if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
-      '    printf started\\n',
+      "    printf 'started\\n'",
       '    print_addrs',
       '    exit 0',
       '  fi',
@@ -432,9 +521,10 @@ export function createPipeline(deps) {
       job.origin = tunnel.origin;
       return tunnel.origin;
     });
-    const origin = pickDurableOrigin(advertised, target.host);
+    const advertisedOrigin = pickDurableOrigin(advertised, target.host);
+    const origin = tunnel.origin;
     if (!origin) {
-      throw new Error('remote Host did not advertise a reachable address');
+      throw new Error('SSH tunnel did not become ready');
     }
     job.origin = origin;
     let pairingToken = options.pairingToken ?? null;
@@ -444,7 +534,7 @@ export function createPipeline(deps) {
           step: 'pair',
         });
         const hostToken = await readHostToken(session, onChunk);
-        pairingToken = await issuePairing(tunnel.origin, hostToken, fetchImpl);
+        pairingToken = await issuePairing(origin, hostToken, fetchImpl);
         return 'workstation';
       });
     } else {
@@ -456,7 +546,7 @@ export function createPipeline(deps) {
       const name = profileName(target);
       profile = await host.call('remote', 'profile.upsert', {
         id: options.profileId ?? undefined,
-        origin,
+        origin: advertisedOrigin || origin,
         name,
         provisionKind: 'ssh',
         provision: {
@@ -470,6 +560,11 @@ export function createPipeline(deps) {
         },
       });
       job.profileId = profile.id;
+      try {
+        await persistSshHostFile(profile);
+      } catch {
+        // Host upsert also writes the connection file.
+      }
       return name;
     });
     if (!options.skipConnect) {
@@ -502,18 +597,14 @@ export function createPipeline(deps) {
     const profile = input.profile ?? {};
     const provision = profile.provision ?? {};
     const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
-    let origin = pickDurableOrigin(provision.addresses, provision.host);
     const stored = String(profile.origin ?? '')
       .trim()
       .replace(/\/+$/, '');
-    if (!origin && stored && !isLoopbackOrigin(stored)) {
-      origin = stored;
-    }
-    if (origin && (await health(origin, fetchImpl))) {
-      if (origin !== stored && profile.id) {
-        await saveEnsuredProfile(host, profile, provision, origin);
-      }
-      return { origin };
+    const liveTunnel = isLoopbackOrigin(stored)
+      ? connectableOrigin(stored)
+      : '';
+    if (liveTunnel && (await health(liveTunnel, fetchImpl))) {
+      return { origin: liveTunnel };
     }
     const target = {
       host: provision.host,
@@ -532,25 +623,54 @@ export function createPipeline(deps) {
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.startsWith('http://') || line.startsWith('https://'));
-    origin = pickDurableOrigin(
+    if (typeof session.forward !== 'function') {
+      throw new Error('SSH session cannot open a tunnel');
+    }
+    const tunnel = await session.forward(REMOTE_PORT);
+    if (!(await health(tunnel.origin, fetchImpl))) {
+      throw new Error('remote Host did not become healthy');
+    }
+    const advertisedOrigin = pickDurableOrigin(
       advertised.length ? advertised : provision.addresses,
       target.host
     );
-    if (!origin || !(await health(origin, fetchImpl))) {
-      throw new Error('remote Host did not become healthy');
-    }
-    await saveEnsuredProfile(host, profile, {
-      ...provision,
-      addresses: advertised.length ? advertised : provision.addresses,
-    }, origin);
-    return { origin };
+    await saveEnsuredProfile(
+      host,
+      profile,
+      {
+        ...provision,
+        addresses: advertised.length ? advertised : provision.addresses,
+      },
+      advertisedOrigin || tunnel.origin
+    );
+    return { origin: tunnel.origin };
+  }
+
+  async function persistSshHostFile(profile) {
+    const override = String(process.env.VIBEX_SSH_HOST_FILES_DIR ?? '').trim();
+    const dir = override || join(homedir(), '.vibex', 'ssh-hosts');
+    const id = String(profile?.id ?? '').trim();
+    const provision = profile?.provision ?? {};
+    if (!id || !provision.host || !provision.user) return;
+    const name = String(profile.name ?? '').trim() || profileName({
+      user: provision.user,
+      host: provision.host,
+    });
+    const content = formatSshHostConfig(name, {
+      host: provision.host,
+      user: provision.user,
+      port: provision.port,
+      jump: provision.jump,
+    });
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `${id}.sshconfig`), content, { mode: 0o600 });
   }
 
   async function saveEnsuredProfile(host, profile, provision, origin) {
     const name =
       String(profile.name ?? '').trim() ||
       profileName({ user: provision.user, host: provision.host });
-    await host.call('remote', 'profile.upsert', {
+    const saved = await host.call('remote', 'profile.upsert', {
       id: profile.id || undefined,
       origin,
       name,
@@ -565,6 +685,20 @@ export function createPipeline(deps) {
         addresses: provision.addresses,
       },
     });
+    try {
+      await persistSshHostFile({
+        ...saved,
+        name,
+        provision: {
+          host: provision.host,
+          port: provision.port,
+          user: provision.user,
+          jump: provision.jump,
+        },
+      });
+    } catch {
+      // Host upsert also writes the connection file.
+    }
   }
 
   async function forgetTarget(target) {
@@ -637,7 +771,7 @@ export function remoteInstallScript() {
     'set -eu',
     'export PATH="$HOME/.local/bin:$PATH"',
     'if command -v vibex >/dev/null 2>&1 || command -v vibex-server >/dev/null 2>&1 || [ -x "$HOME/.local/bin/vibex" ]; then',
-    '  printf already-installed\\n',
+    "  printf 'already-installed\\n'",
     '  exit 0',
     'fi',
     hostFamilyInstaller(),

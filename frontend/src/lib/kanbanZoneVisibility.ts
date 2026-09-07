@@ -28,3 +28,19 @@ export function kanbanSessionFillsHub(
 ): boolean {
   return sessionInHub && visibility.session && !visibility.monitor;
 }
+
+/** The monitor is overflow: it does not occupy a column while empty. */
+export function shouldShowKanbanMonitor(
+  userPrefersVisible: boolean,
+  monitoredCount: number
+): boolean {
+  return userPrefersVisible && monitoredCount > 0;
+}
+
+/** Queuing another session into the monitor is a request to see that column. */
+export function shouldRevealKanbanMonitorOnPlacement(
+  previousCount: number,
+  nextCount: number
+): boolean {
+  return nextCount > previousCount;
+}

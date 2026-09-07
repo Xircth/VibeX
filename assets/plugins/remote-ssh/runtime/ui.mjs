@@ -213,6 +213,11 @@ export function friendlyError(message, zh) {
       ? '远端系统过旧。官方 Linux Host 需要 glibc 2.34+（Ubuntu 22.04 或 RHEL 9）。'
       : 'The remote OS is too old. The Linux Host needs glibc 2.34+ (Ubuntu 22.04 or RHEL 9).';
   }
+  if (/tunnel closed before|tunnel exited/i.test(text)) {
+    return zh
+      ? 'SSH 隧道没有建立。请再连一次。'
+      : 'The SSH tunnel did not stay open. Connect again.';
+  }
   if (/timed out|timeout/i.test(text)) {
     return zh
       ? 'SSH 连接超时。检查主机、端口和网络。'
@@ -220,6 +225,11 @@ export function friendlyError(message, zh) {
   }
   if (/host and user are required/i.test(text)) {
     return zh ? '请填写主机和用户' : 'Host and user are required';
+  }
+  if (/could not reach Host/i.test(text)) {
+    return zh
+      ? '本机连不上这台 Host。请再连一次。'
+      : 'This computer could not reach the Host. Connect again.';
   }
   return text;
 }

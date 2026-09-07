@@ -107,10 +107,19 @@ pub struct ConnectHostResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct LocalSshTargetView {
+    pub user: String,
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct HostClientStatus {
     pub connected: bool,
     pub profile: Option<HostClientProfileView>,
     pub profiles: Vec<HostClientProfileView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_ssh: Option<LocalSshTargetView>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -199,6 +208,7 @@ impl HostClientRuntime {
             connected: profile.is_some(),
             profile,
             profiles,
+            local_ssh: local_ssh_target(),
         })
     }
 
@@ -353,15 +363,9 @@ impl HostClientRuntime {
             .as_deref()
             .and_then(|id| state.profiles.iter().find(|profile| profile.id == id))
             .cloned();
-        let candidate = request
-            .origin
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .or(selected.as_ref().map(|profile| profile.origin.as_str()))
-            .unwrap_or("");
-        let origin = normalize_origin(&advertised_connect_origin(
-            candidate,
+        let origin = normalize_origin(&resolve_connect_origin(
+            request.origin.as_deref(),
+            selected.as_ref().map(|profile| profile.origin.as_str()),
             selected
                 .as_ref()
                 .and_then(|profile| profile.provision.as_ref()),
@@ -503,6 +507,7 @@ impl HostClientRuntime {
             return Err(AppError::NotFound("saved Host was not found".to_string()));
         };
         let removed = state.profiles.remove(index);
+        remove_saved_ssh_host_file(&self.path, profile_id);
         let bound_windows = self.windows_bound_to(profile_id).await;
         for window in &bound_windows {
             registry.disconnect_window(window).await;
@@ -587,6 +592,9 @@ impl HostClientRuntime {
             id
         };
         self.save(&state).await?;
+        if let Some(profile) = state.profiles.iter().find(|profile| profile.id == id) {
+            write_saved_ssh_host_file(&self.path, profile);
+        }
         Ok(views(&state, None)
             .into_iter()
             .find(|profile| profile.id == id)
@@ -651,8 +659,9 @@ impl HostClientRuntime {
                     needs_token = true;
                 }
                 Err(_) => {
-                    self.forget_window(registry, &mut state, &window, &profile_id)
-                        .await?;
+                    // An advertised origin can be unreachable (SSH tunnel, LAN
+                    // address, brief network blip) while the window still has a
+                    // live connection. Only a revoked credential drops it.
                 }
             }
         }
@@ -832,6 +841,137 @@ fn same_host(profile: &StoredProfile, host_id: Option<&str>, origin: &str) -> bo
     profile.origin == origin
 }
 
+fn hosts_dir(store_path: &Path) -> PathBuf {
+    store_path
+        .parent()
+        .unwrap_or(store_path)
+        .join("hosts")
+}
+
+fn ssh_host_alias(name: &str) -> String {
+    let alias = name
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let alias = alias
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let alias: String = alias.chars().take(32).collect();
+    if alias.is_empty() {
+        "host".to_string()
+    } else {
+        alias
+    }
+}
+
+fn format_ssh_host_config(
+    name: &str,
+    alias: &str,
+    host: &str,
+    user: &str,
+    port: u64,
+    jump: Option<&str>,
+) -> String {
+    let mut body = format!(
+        "# VibeX Host: {name}\nHost {alias}\n  HostName {host}\n  User {user}\n  Port {port}\n"
+    );
+    if let Some(jump) = jump.map(str::trim).filter(|value| !value.is_empty()) {
+        body.push_str("  ProxyJump ");
+        body.push_str(jump);
+        body.push('\n');
+    }
+    body
+}
+
+fn write_saved_ssh_host_file(store_path: &Path, profile: &StoredProfile) {
+    if profile.provision_kind.as_deref() != Some("ssh") {
+        return;
+    }
+    let Some(provision) = profile.provision.as_ref() else {
+        return;
+    };
+    let Some(host) = provision
+        .get("host")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Some(user) = provision
+        .get("user")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let port = provision
+        .get("port")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|port| *port > 0)
+        .unwrap_or(22);
+    let jump = provision
+        .get("jump")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let alias = ssh_host_alias(&profile.name);
+    let content = format_ssh_host_config(&profile.name, &alias, host, user, port, jump);
+    let dir = hosts_dir(store_path);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join(format!("{}.sshconfig", profile.id));
+    if std::fs::write(&path, content).is_ok() {
+        restrict_store(&path);
+    }
+}
+
+fn remove_saved_ssh_host_file(store_path: &Path, profile_id: &str) {
+    let path = hosts_dir(store_path).join(format!("{profile_id}.sshconfig"));
+    let _ = std::fs::remove_file(path);
+}
+
+fn local_ssh_target() -> Option<LocalSshTargetView> {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("localhost"))
+        .or_else(|| {
+            let output = std::process::Command::new("hostname").output().ok()?;
+            let name = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_string();
+            if name.is_empty() || name.eq_ignore_ascii_case("localhost") {
+                None
+            } else {
+                Some(name)
+            }
+        })?;
+    Some(LocalSshTargetView {
+        user,
+        host,
+        port: 22,
+    })
+}
+
 fn provision_target_key(kind: &str, provision: Option<&serde_json::Value>) -> Option<String> {
     let kind = kind.trim();
     if kind.is_empty() || kind == "manual" || kind == "discovered" {
@@ -907,6 +1047,24 @@ pub(crate) fn advertised_connect_origin(
         return origin.to_string();
     }
     origin_from_provision(provision).unwrap_or_else(|| origin.to_string())
+}
+
+/// An explicit connect origin wins, including a live SSH tunnel on loopback.
+/// Advertised Host addresses only replace a stored loopback when the caller
+/// did not pass an origin (reconnect from a saved profile).
+pub(crate) fn resolve_connect_origin(
+    requested: Option<&str>,
+    stored: Option<&str>,
+    provision: Option<&serde_json::Value>,
+) -> String {
+    let requested = requested
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.trim_end_matches('/').to_string());
+    if let Some(origin) = requested {
+        return origin;
+    }
+    advertised_connect_origin(stored.unwrap_or(""), provision)
 }
 
 fn is_loopback_http_origin(origin: &str) -> bool {
@@ -1182,10 +1340,20 @@ fn restrict_store(path: &Path) {
 mod tests {
     use super::{
         HealthBody, HostClientRuntime, StoredProfile, StoredState, advertised_connect_origin,
-        collapse_provisioned_duplicates, host_update_available, normalize_origin,
-        pairing_token_from_input, parse_health, upsert_profile, views,
+        collapse_provisioned_duplicates, format_ssh_host_config, host_update_available,
+        normalize_origin, pairing_token_from_input, parse_health, resolve_connect_origin,
+        ssh_host_alias, upsert_profile, views,
     };
     use crate::host_client::DeviceCredentialParts;
+
+    #[test]
+    fn ssh_host_config_omits_secrets() {
+        assert_eq!(ssh_host_alias("Root @ Lab"), "root-lab");
+        assert_eq!(
+            format_ssh_host_config("Lab", "lab", "203.0.113.8", "root", 22, Some("bastion")),
+            "# VibeX Host: Lab\nHost lab\n  HostName 203.0.113.8\n  User root\n  Port 22\n  ProxyJump bastion\n"
+        );
+    }
 
     #[test]
     fn saved_hosts_behind_latest_are_update_available() {
@@ -1343,6 +1511,18 @@ mod tests {
             advertised_connect_origin("http://192.168.1.8:17891", None),
             "http://192.168.1.8:17891"
         );
+        assert_eq!(
+            resolve_connect_origin(
+                Some("http://127.0.0.1:41234"),
+                Some("http://127.0.0.1:41234"),
+                Some(&provision)
+            ),
+            "http://127.0.0.1:41234"
+        );
+        assert_eq!(
+            resolve_connect_origin(None, Some("http://127.0.0.1:41234"), Some(&provision)),
+            "http://203.0.113.8:17891"
+        );
     }
 
     #[tokio::test]
@@ -1367,6 +1547,11 @@ mod tests {
             .expect("present");
         assert_eq!(again.name, "root@lab");
         assert_eq!(again.provision_kind.as_deref(), Some("ssh"));
+        let host_file = dir.path().join("hosts").join(format!("{}.sshconfig", saved.id));
+        let config = std::fs::read_to_string(&host_file).expect("host file");
+        assert!(config.contains("HostName 203.0.113.8"));
+        assert!(config.contains("User root"));
+        assert!(!config.contains("password"));
     }
 
     #[tokio::test]

@@ -26,6 +26,7 @@ vi.mock('../../lib/api', () => ({
   },
   fileTreeApi: {
     copyItem: vi.fn(),
+    createDirectory: vi.fn(),
     listDirectoryChildren: vi.fn(),
     saveFile: vi.fn(),
     trashItem: vi.fn(),
@@ -50,6 +51,7 @@ describe('FileTreePanel truncated root scans', () => {
   beforeEach(() => {
     vi.mocked(toast.error).mockReset();
     vi.mocked(fileTreeApi.copyItem).mockReset();
+    vi.mocked(fileTreeApi.createDirectory).mockReset();
     vi.mocked(fileTreeApi.listDirectoryChildren).mockReset();
     vi.mocked(fileTreeApi.saveFile).mockReset();
     vi.mocked(fileTreeApi.trashItem).mockReset();
@@ -137,6 +139,24 @@ describe('FileTreePanel truncated root scans', () => {
       expect(fileTreeApi.copyItem).toHaveBeenCalledWith('/repo/index.ts');
       expect(toast.error).toHaveBeenCalledWith('创建副本失败');
     });
+  });
+
+  it('shows an inline new-file field from a folder context menu', async () => {
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={['src']}
+        isLoading={false}
+        lazyLoadAllDirectories
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /src/i }));
+    const newFileButtons = screen.getAllByRole('button', { name: '新建文件' });
+    fireEvent.pointerDown(newFileButtons[newFileButtons.length - 1]);
+
+    expect(screen.getByPlaceholderText('untitled')).toBeInTheDocument();
   });
 
   it('shows a readable create-file failure toast from the inline input', async () => {

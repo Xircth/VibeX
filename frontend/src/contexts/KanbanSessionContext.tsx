@@ -39,6 +39,7 @@ import {
   getKanbanBoardStyle,
   useKanbanBoardStyle,
 } from '@/lib/kanbanBoardStyle';
+import { shouldRevealKanbanMonitorOnPlacement } from '@/lib/kanbanZoneVisibility';
 import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 
 interface KanbanSessionContextValue {
@@ -108,11 +109,12 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     const stored = useProjectViewStateStore
       .getState()
       .getKanbanState(projectKey);
-    setPanelViewState(stored.panelView);
-    setActiveViewIdState(
-      stored.activeViewId ??
-        migrateKanbanViewId(stored.panelView, getKanbanBoardStyle())
-    );
+    const style = getKanbanBoardStyle();
+    const migrated =
+      stored.activeViewId ?? migrateKanbanViewId(stored.panelView, style);
+    const viewId = viewIdForBoardStyleChange(style, migrated);
+    setPanelViewState(legacyKanbanPanelView(viewId));
+    setActiveViewIdState(viewId);
     setLayoutState(stored.layoutState);
     setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
     lastSyncedWorkspaceIdRef.current = null;
@@ -257,70 +259,96 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     [setActiveViewId]
   );
 
+  const commitLayoutState = useCallback(
+    (
+      updater: (current: KanbanSessionLayoutState) => KanbanSessionLayoutState
+    ) => {
+      setLayoutState((current) => {
+        const next = updater(current);
+        if (
+          shouldRevealKanbanMonitorOnPlacement(
+            current.monitorSessions.length,
+            next.monitorSessions.length
+          )
+        ) {
+          useLayoutStore.getState().setKanbanMonitorVisible(true);
+        }
+        return next;
+      });
+    },
+    []
+  );
+
   const openSessionFromList = useCallback(
     (session: KanbanSessionPlacement) => {
-      setLayoutState((current) =>
+      commitLayoutState((current) =>
         placeSessionFromList(current, session, {
           canUseRightPanel: canUseRightPanelForSessions,
         })
       );
     },
-    [canUseRightPanelForSessions]
+    [canUseRightPanelForSessions, commitLayoutState]
   );
 
   const placeCreatedSessionInLayout = useCallback(
     (session: KanbanSessionPlacement) => {
-      setLayoutState((current) =>
+      commitLayoutState((current) =>
         placeCreatedSession(current, session, {
           canUseRightPanel: canUseRightPanelForSessions,
         })
       );
     },
-    [canUseRightPanelForSessions]
+    [canUseRightPanelForSessions, commitLayoutState]
   );
 
   const replaceRightSessionInLayout = useCallback(
     (session: KanbanSessionPlacement) => {
-      setLayoutState((current) =>
+      commitLayoutState((current) =>
         replaceRightSession(current, session, {
           canUseRightPanel: canUseRightPanelForSessions,
         })
       );
     },
-    [canUseRightPanelForSessions]
+    [canUseRightPanelForSessions, commitLayoutState]
   );
 
   const activateExecutionSession = useCallback(
     (session: KanbanSessionPlacement) => {
-      setLayoutState((current) =>
+      commitLayoutState((current) =>
         activateSessionInExecutionArea(current, session, {
           canUseRightPanel: true,
         })
       );
     },
-    []
+    [commitLayoutState]
   );
 
   const promoteMonitorSession = useCallback(
     (sessionId: string) => {
-      setLayoutState((current) =>
+      commitLayoutState((current) =>
         promoteMonitorSessionToRight(current, sessionId, {
           canUseRightPanel: canUseRightPanelForSessions,
         })
       );
     },
-    [canUseRightPanelForSessions]
+    [canUseRightPanelForSessions, commitLayoutState]
   );
 
-  const cancelMonitorSession = useCallback((sessionId: string) => {
-    setLayoutState((current) => removeMonitorSession(current, sessionId));
-  }, []);
+  const cancelMonitorSession = useCallback(
+    (sessionId: string) => {
+      commitLayoutState((current) => removeMonitorSession(current, sessionId));
+    },
+    [commitLayoutState]
+  );
 
-  const pruneSessions = useCallback((availableSessionIds: Set<string>) => {
-    setLayoutState((current) =>
-      pruneUnavailableSessions(current, availableSessionIds)
-    );
-  }, []);
+  const pruneSessions = useCallback(
+    (availableSessionIds: Set<string>) => {
+      commitLayoutState((current) =>
+        pruneUnavailableSessions(current, availableSessionIds)
+      );
+    },
+    [commitLayoutState]
+  );
 
   const visibleRightSession = layoutState.rightSession;
   const isRightSessionPending =

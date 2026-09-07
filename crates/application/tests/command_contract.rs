@@ -28,6 +28,7 @@ fn coding_loop_commands_share_the_workstation_application_scope() {
         "get_file_tree",
         "read_file_content",
         "save_file_content",
+        "write_ssh_host_files",
         "get_workspace_git_status",
         "commit_workspace_changes",
         "create_terminal",

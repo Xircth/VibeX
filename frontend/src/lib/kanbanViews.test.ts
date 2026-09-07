@@ -4,6 +4,7 @@ import {
   kanbanCarouselTranslateX,
   kanbanCarouselWidth,
   kanbanViewHidesSessionSlot,
+  kanbanViewsForBoardStyle,
   migrateKanbanViewId,
   resolveKanbanViewId,
   viewIdForBoardStyleChange,
@@ -45,14 +46,45 @@ describe('kanbanViews', () => {
     expect(resolveKanbanViewId('plugin:gone/view', views)).toBe(
       'builtin:columns'
     );
+    expect(
+      resolveKanbanViewId(
+        'builtin:canvas',
+        kanbanViewsForBoardStyle(views, 'fixed'),
+        'fixed'
+      )
+    ).toBe('builtin:sessions');
   });
 
   it('lets arrows leave the default sessions page and reach a plugin view', () => {
+    const fixedViews = kanbanViewsForBoardStyle(views, 'fixed');
     let viewId = 'builtin:sessions';
-    viewId = adjacentKanbanViewId(views, viewId, 1);
-    viewId = adjacentKanbanViewId(views, viewId, 1);
-    viewId = adjacentKanbanViewId(views, viewId, 1);
+    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
+    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
     expect(viewId).toBe('plugin:sample/view');
+  });
+
+  it('hides the unused sessions/canvas twin from arrow rotation', () => {
+    const fixedViews = kanbanViewsForBoardStyle(views, 'fixed');
+    expect(fixedViews.map((view) => view.id)).toEqual([
+      'builtin:columns',
+      'builtin:sessions',
+      'builtin:usage',
+      'plugin:sample/view',
+    ]);
+    expect(adjacentKanbanViewId(fixedViews, 'builtin:sessions', 1)).toBe(
+      'builtin:usage'
+    );
+
+    const canvasViews = kanbanViewsForBoardStyle(views, 'canvas');
+    expect(canvasViews.map((view) => view.id)).toEqual([
+      'builtin:columns',
+      'builtin:canvas',
+      'builtin:usage',
+      'plugin:sample/view',
+    ]);
+    expect(adjacentKanbanViewId(canvasViews, 'builtin:canvas', 1)).toBe(
+      'builtin:usage'
+    );
   });
 
   it('remaps sessions and canvas only when the style preference changes', () => {

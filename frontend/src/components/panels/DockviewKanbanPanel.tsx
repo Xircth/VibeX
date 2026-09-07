@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
   adjacentKanbanViewId,
   kanbanCarouselTranslateX,
@@ -100,8 +101,13 @@ export function KanbanBoard() {
   const { activeViewId, setActiveViewId } = useKanbanSessionContext();
   const kanbanArrangement = useKanbanArrangement();
   const views = useKanbanViews();
+  const boardStyle = useKanbanBoardStyle();
   const pluginViews = usePluginHostContributions('kanban_view');
-  const resolvedViewId = resolveKanbanViewId(activeViewId, views);
+  const resolvedViewId = resolveKanbanViewId(
+    activeViewId,
+    views,
+    boardStyle
+  );
   useEffect(() => {
     if (resolvedViewId && resolvedViewId !== activeViewId) {
       setActiveViewId(resolvedViewId);

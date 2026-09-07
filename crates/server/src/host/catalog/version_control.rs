@@ -5,10 +5,17 @@ use std::{
 };
 
 use application::ApplicationError;
+use db::models::{
+    execution_process::ExecutionProcessRunReason,
+    session::{CreateSession, Session, SessionStatus},
+};
+use deployment::Deployment;
+use executors::actions::script::ScriptContext;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use services::services::settings_store::{read_section, write_section};
+use services::services::{container_actions, settings_store::{read_section, write_section}};
 use tokio::time::timeout;
+use uuid::Uuid;
 
 use crate::domains::{ServerApplicationDomains, internal_error, parse, serialize};
 
@@ -177,6 +184,10 @@ fn resolve_git_path(settings: &VersionControlCliSettings) -> PathBuf {
 }
 
 async fn resolve_gh_path() -> Option<PathBuf> {
+    let managed = super::github_cli_install::managed_executable_path();
+    if managed.is_file() {
+        return Some(managed);
+    }
     which::which("gh").ok()
 }
 
@@ -276,23 +287,13 @@ pub(super) async fn github_status(args: Value) -> Result<Value, ApplicationError
     serialize(github_status_for(host_from_args(&args)).await?)
 }
 
-pub(super) async fn open_login(args: Value) -> Result<Value, ApplicationError> {
-    let args: HostArgs = parse(args).unwrap_or(HostArgs {
-        host: None,
-        username: None,
-    });
-    let gh_path = resolve_gh_path()
+pub(super) async fn open_login(_args: Value) -> Result<Value, ApplicationError> {
+    let _ = resolve_gh_path()
         .await
         .ok_or_else(|| ApplicationError::bad_request("GitHub CLI is not installed."))?;
-    let host = host_from_args(&args);
-    let mut command_args = vec!["auth".to_string(), "login".to_string(), "--web".to_string()];
-    if host != DEFAULT_GITHUB_HOST {
-        command_args.push("--hostname".to_string());
-        command_args.push(host);
-    }
-    let arg_refs: Vec<&str> = command_args.iter().map(String::as_str).collect();
-    let _ = run_hidden_command(&gh_path, &arg_refs).await;
-    Ok(Value::Null)
+    Err(ApplicationError::bad_request(
+        "GitHub login requires an interactive Host terminal.",
+    ))
 }
 
 pub(super) async fn logout(args: Value) -> Result<Value, ApplicationError> {
@@ -322,6 +323,9 @@ pub(super) async fn logout(args: Value) -> Result<Value, ApplicationError> {
 }
 
 pub(super) async fn install_github_cli(args: Value) -> Result<Value, ApplicationError> {
+    if resolve_gh_path().await.is_none() {
+        super::github_cli_install::install().await?;
+    }
     github_status(args).await
 }
 
@@ -384,12 +388,65 @@ pub(super) async fn gh_cli_setup(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let args: WorkspaceIdArgs = parse(args)?;
-    let _ = domains.require_workspace(args.workspace_id).await?;
-    let status = github_status_for(DEFAULT_GITHUB_HOST.to_string()).await?;
+    let workspace = domains.require_workspace(args.workspace_id).await?;
+    if resolve_gh_path().await.is_none() {
+        super::github_cli_install::install().await?;
+    }
+    let Some(gh) = resolve_gh_path().await else {
+        return serialize(serde_json::json!({
+            "process": Value::Null,
+            "error": { "type": "cli_missing" },
+        }));
+    };
+    let quoted = format!("\"{}\"", gh.display().to_string().replace('"', "\\\""));
+    let action = container_actions::script_action(
+        format!(
+            "export GH_PROMPT_DISABLED=1\n{quoted} auth login --web --git-protocol https --skip-ssh-key\n"
+        ),
+        ScriptContext::ToolInstallScript,
+        None,
+        None,
+    );
+    domains
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await
+        .map_err(internal_error)?;
+    let session = match Session::find_latest_by_workspace_id(&domains.pool, workspace.id)
+        .await
+        .map_err(internal_error)?
+    {
+        Some(session) => session,
+        None => Session::create(
+            &domains.pool,
+            &CreateSession {
+                executor: Some("gh-cli".to_string()),
+                agent_id: None,
+                task_id: None,
+                name: None,
+                initial_prompt: None,
+                status: Some(SessionStatus::Todo),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .map_err(internal_error)?,
+    };
+    let process = domains
+        .deployment
+        .container()
+        .start_execution(
+            &workspace,
+            &session,
+            &action,
+            &ExecutionProcessRunReason::SetupScript,
+        )
+        .await
+        .map_err(internal_error)?;
     serialize(serde_json::json!({
-        "process": null,
-        "error": if status.gh_installed { Value::Null } else {
-            serde_json::json!({ "type": "cli_missing" })
-        },
+        "process": process,
+        "error": Value::Null,
     }))
 }

@@ -39,6 +39,9 @@ describe('SessionHubMonitor', () => {
     expect(screen.queryByText('会话监控区')).not.toBeInTheDocument();
     expect(screen.queryByText('1 / 4')).not.toBeInTheDocument();
     expect(screen.getByText('技术重构可行性')).toBeInTheDocument();
+    expect(screen.getByText('技术重构可行性').closest('.grid')).toHaveClass(
+      'grid-cols-1'
+    );
     expect(
       screen.getByRole('button', { name: '移入执行区' })
     ).toBeInTheDocument();

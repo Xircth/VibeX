@@ -26,11 +26,14 @@
       "listbox": "References",
       "loading": "Searching…",
       "empty": "No matches",
+      "localHost": "This computer",
+      "materializeFailed": "Could not copy Host connection files",
       "tabs": {
         "file": "Files",
         "conversation": "Sessions",
         "commit": "Commits",
         "instruction": "Quick instructions",
+        "host": "Host",
         "action": "Actions"
       }
     }

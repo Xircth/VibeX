@@ -3,6 +3,7 @@ import {
   Hash,
   MessageSquare,
   FileIcon,
+  Server,
   Sparkles,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -20,6 +21,7 @@ const TAB_ICON = {
   conversation: MessageSquare,
   commit: GitCommitHorizontal,
   instruction: Hash,
+  host: Server,
   action: Sparkles,
 } as const;
 

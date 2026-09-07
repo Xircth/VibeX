@@ -28,3 +28,4 @@ summary: 通过 SSH 在远端安装并启动 VibeX Server，并打开新窗口�
 - 装不上：看远端是否有 `curl`/`tar`。GitHub 直连失败时，本机会改走镜像再经 SSH 上传。
 - Linux Host 需要 glibc 2.34+（Ubuntu 22.04 / RHEL 9）。更旧的系统（CentOS 7/8、RHEL 8）会在探测阶段失败。
 - 从已保存列表再连：插件需要保持启用，以便重建隧道。
+- 第一次用密码连接：在插件页填写密码即可，不必本机先配 SSH askpass。Worker 会写一份临时助手。Windows 需要已安装 OpenSSH 客户端。

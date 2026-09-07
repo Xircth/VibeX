@@ -235,30 +235,39 @@ body {
 
 .session {
   margin: 0 16px 16px;
-}
-
-.session .progress {
-  border: 0;
-  padding: 0 0 12px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, canvastext 18%, transparent);
+  border-radius: var(--ssh-radius);
+  background: canvas;
 }
 
 .session[hidden] {
   display: none;
 }
 
-.progress {
-  padding: 14px 14px 12px;
-  border: 1px solid color-mix(in srgb, canvastext 18%, transparent);
-  border-radius: var(--ssh-radius);
-  background: canvas;
-}
-
-.progress.is-running {
+.session:has(.progress.is-running) {
   border-color: color-mix(in srgb, canvastext 28%, transparent);
 }
 
-.progress.is-failed {
+.session:has(.progress.is-failed) {
   border-color: color-mix(in srgb, var(--ssh-danger) 45%, transparent);
+}
+
+.session:has(.progress.is-complete) {
+  border-color: color-mix(in srgb, var(--ssh-success) 40%, transparent);
+}
+
+.session .progress {
+  border: 0;
+  padding: 0 0 12px;
+  background: transparent;
+}
+
+.progress {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .progress-heading,

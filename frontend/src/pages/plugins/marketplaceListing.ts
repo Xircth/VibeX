@@ -57,6 +57,28 @@ export function marketplaceCategoryTabIds(listings: CatalogListing[]) {
   ];
 }
 
+export function listingMatchesSearch(
+  listing: CatalogListing,
+  query: string,
+  localizedName: string,
+  localizedSummary: string
+) {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return true;
+  return [
+    localizedName,
+    localizedSummary,
+    listing.displayName,
+    listing.summary,
+    listing.owner,
+    listing.pluginName,
+    listing.offlinePluginId,
+    listing.version,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => value.toLocaleLowerCase().includes(needle));
+}
+
 export function listingsInMarketplaceTab(
   listings: CatalogListing[],
   tab: string

@@ -453,11 +453,17 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'plugin_contribution_catalog'
       ) as Promise<PluginContributionCatalog>,
-    invokeContribution: (pluginId: string, handler: string, input?: unknown) =>
+    invokeContribution: (
+      pluginId: string,
+      handler: string,
+      input?: unknown,
+      timeoutSeconds?: number
+    ) =>
       transport.call('plugin_invoke_contribution', {
         pluginId,
         handler,
         input: input ?? null,
+        timeoutSeconds: timeoutSeconds ?? null,
       }),
     productDetail: (pluginId: string) =>
       transport.call('plugin_product_detail', {

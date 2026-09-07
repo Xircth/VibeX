@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useLayoutStore } from '@/stores/useLayoutStore';
+import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   kanbanSessionResizeHandleSide,
   useKanbanArrangement,
 } from '@/lib/layoutArrangement';
-import { kanbanSessionFillsHub } from '@/lib/kanbanZoneVisibility';
+import {
+  kanbanSessionFillsHub,
+  shouldShowKanbanMonitor,
+} from '@/lib/kanbanZoneVisibility';
 import { cn } from '@/lib/utils';
 
 interface KanbanSessionSlotProps {
@@ -35,6 +39,7 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
   const isKanbanMonitorVisible = useLayoutStore(
     (state) => state.isKanbanMonitorVisible
   );
+  const { monitorSessions } = useKanbanSessionContext();
   // The kanban page has its own session width memory; it shares only the
   // DEFAULT with the workspace C zone (whose live width may be a flexible
   // center-slot remainder and is not a meaningful column width here).
@@ -49,7 +54,10 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
 
   const fill = kanbanSessionFillsHub(side === 'center', {
     list: true,
-    monitor: isKanbanMonitorVisible,
+    monitor: shouldShowKanbanMonitor(
+      isKanbanMonitorVisible,
+      monitorSessions.length
+    ),
     session: isKanbanSessionVisible,
   });
   const shouldShow = isKanbanSessionVisible && !!host && active;

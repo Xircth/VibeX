@@ -7,6 +7,8 @@ import { WelcomePage } from './WelcomePage';
 
 const showProjectForm = vi.hoisted(() => vi.fn());
 const listDirectory = vi.hoisted(() => vi.fn());
+const openLocalAppWindow = vi.hoisted(() => vi.fn());
+const useTauriClient = vi.hoisted(() => vi.fn(() => true));
 const webviewMock = vi.hoisted(() => ({
   handler: null as ((event: unknown) => void) | null,
   onDragDropEvent: vi.fn(),
@@ -32,6 +34,13 @@ vi.mock('@/lib/api', () => ({
   fileSystemApi: { list: listDirectory },
   projectsApi: { create: vi.fn(), delete: vi.fn() },
   settingsWindowApi: { open: vi.fn() },
+  useOpenSettings: () => vi.fn(),
+}));
+vi.mock('@/lib/api/appWindow', () => ({
+  openLocalAppWindow,
+}));
+vi.mock('@/lib/desktopShell', () => ({
+  useTauriClient,
 }));
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({
@@ -52,9 +61,35 @@ function renderWelcome() {
   );
 }
 
+describe('WelcomePage start menu', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTauriClient.mockReturnValue(true);
+    webviewMock.onDragDropEvent.mockResolvedValue(webviewMock.unlisten);
+  });
+
+  it('opens a local app window from the start menu', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWelcome();
+    await user.click(
+      screen.getByRole('button', { name: /新建窗口|New Window/i })
+    );
+    expect(openLocalAppWindow).toHaveBeenCalledOnce();
+  });
+
+  it('hides new window on Web', () => {
+    useTauriClient.mockReturnValue(false);
+    renderWelcome();
+    expect(
+      screen.queryByRole('button', { name: /新建窗口|New Window/i })
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('WelcomePage folder drop', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useTauriClient.mockReturnValue(true);
     webviewMock.handler = null;
     webviewMock.onDragDropEvent.mockImplementation(async (handler) => {
       webviewMock.handler = handler;

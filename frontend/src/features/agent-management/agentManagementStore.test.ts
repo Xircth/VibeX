@@ -116,6 +116,35 @@ describe('agentManagementStore', () => {
     expect(refreshed.snapshotRevision).toBe(initial.snapshotRevision + 1);
   });
 
+  it('does not crash when a Host event has no prior operation or identity', () => {
+    const initial = createAgentManagementState([codex]);
+    const missingIdentity = reduceOperationEvent(initial, {
+      sequence: 1,
+      agent_id: 'codex',
+      operation_id: '',
+      kind: 'install',
+      status: 'running',
+      progress_percent: 10,
+      message: 'installing',
+    });
+    expect(missingIdentity).toBe(initial);
+
+    const firstLive = reduceOperationEvent(initial, {
+      sequence: 1,
+      agent_id: 'codex',
+      operation_id: 'op-live',
+      kind: 'install',
+      status: 'running',
+      progress_percent: 10,
+      message: 'installing ACP',
+    });
+    expect(firstLive.operations.codex).toMatchObject({
+      operationId: 'op-live',
+      logs: ['installing ACP'],
+      progressPercent: 10,
+    });
+  });
+
   it('clears recovered interrupted operations instead of leaving the Agent busy', () => {
     const initial = createAgentManagementState([
       { ...codex, active_operation: 'install', lifecycle: 'installing' },

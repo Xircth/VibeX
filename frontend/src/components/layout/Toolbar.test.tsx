@@ -19,6 +19,13 @@ vi.mock('@/components/layout/WorktreeSelector', () => ({
   WorktreeSelector: () => <button type="button">Select workspace</button>,
 }));
 
+vi.mock('@/contexts/KanbanSessionContext', () => ({
+  useKanbanSessionContext: () => ({
+    rightSession: null,
+    monitorSessions: [],
+  }),
+}));
+
 vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
   useWorkspaceBranchStatus: () => ({
     data: [
@@ -59,6 +66,18 @@ describe('KanbanLayoutToggles', () => {
     useLayoutStore.getState().resetLayout();
     resetKanbanBoardStyle();
     resetKanbanCanvasListVisible();
+  });
+
+  it('does not mark the monitor toggle as pressed while nothing is monitored', () => {
+    render(
+      <TooltipProvider>
+        <KanbanLayoutToggles />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.getByRole('button', { name: '显示/隐藏会话监控区' })
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('toggles session list, monitor, and execution visibility', async () => {

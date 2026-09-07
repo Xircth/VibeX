@@ -37,6 +37,9 @@ import {
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { toast } from '@/components/ui/toast';
+import { materializeMentionedHostFiles } from '@/lib/materializeHostReferences';
+import { mentionedHostFileNames } from '@/lib/savedHostSshConfig';
 import {
   fileTreeApi,
   type AgentLocalSkill,
@@ -1411,9 +1414,23 @@ export function SessionComposerInput({
       }
       historyIndexRef.current = -1;
       historyDraftRef.current = '';
-      onSubmit(text);
+      if (mentionedHostFileNames(text).length === 0) {
+        onSubmit(text);
+        return;
+      }
+      void (async () => {
+        try {
+          const submitted = await materializeMentionedHostFiles({ text });
+          onSubmit(submitted);
+        } catch (error) {
+          toast.error(t('composer.atReference.materializeFailed'), {
+            description:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
     },
-    [onSubmit]
+    [onSubmit, t]
   );
 
   const handleHistoryKeyDown = useCallback(

@@ -121,6 +121,7 @@
     "projectDeleted": "Deleted project \"{{name}}\"",
     "deleteProjectFailed": "Failed to delete project",
     "startSection": "Get Started",
+    "newWindow": "New Window",
     "createNewProject": "Create New Project",
     "selectFolder": "Select Folder",
     "dropFolder": "Drop to open this folder",

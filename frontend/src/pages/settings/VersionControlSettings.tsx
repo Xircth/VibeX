@@ -318,11 +318,14 @@ export function VersionControlSettings() {
       await versionControlApi.openGithubCliLogin(githubHost);
       toast.info(t('versionControl.githubLoginTerminalOpened'));
     } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('versionControl.githubLoginStartFailed');
       toast.error(t('versionControl.githubLoginTerminalFailed'), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.githubLoginStartFailed'),
+        description: /interactive Host terminal/i.test(message)
+          ? t('versionControl.githubLoginNeedsHostTerminal')
+          : message,
       });
     }
   };
@@ -333,6 +336,13 @@ export function VersionControlSettings() {
       const status = await versionControlApi.installGithubCli(githubHost);
       setGithubStatus(status);
       setGithubHost(status.host);
+      if (!status.gh_installed) {
+        toast.error(t('versionControl.githubCliInstallFailed'), {
+          description:
+            status.message ?? t('versionControl.githubCliInstallFailedDesc'),
+        });
+        return;
+      }
       toast.success(t('versionControl.githubCliInstalled'), {
         description: status.gh_path ?? undefined,
       });

@@ -87,7 +87,16 @@ describe('Product Plugin content layout', () => {
     const market = declarationsFor(
       '.settings-page .product-plugin-market-list'
     );
+    const marketOpen = declarationsFor(
+      '.settings-page .product-plugin-market-list .product-plugin-open'
+    );
+    const marketSummary = declarationsFor(
+      '.settings-page .product-plugin-market-list .product-plugin-row-summary'
+    );
     const row = declarationsFor('.settings-page .product-plugin-row');
+    const summary = declarationsFor(
+      '.settings-page .product-plugin-row-summary'
+    );
     expect(list.get('background')).toBe('var(--surface-card-strong)');
     expect(list.get('border')).toBe('1px solid var(--border-subtle)');
     expect(list.get('border-radius')).toBe('var(--radius)');
@@ -95,6 +104,10 @@ describe('Product Plugin content layout', () => {
     expect(catalog.get('overflow-y')).toBe('auto');
     expect(market.get('background')).toBe('transparent');
     expect(market.get('border-radius')).toBeUndefined();
+    expect(market.get('padding-inline-end')).toBe('16px');
+    expect(marketOpen.get('padding')).toBe('18px 0');
+    expect(marketSummary.get('color')).toBe('var(--text-muted)');
+    expect(summary.get('color')).toBe('var(--text-muted)');
     expect(row.get('margin')).toBe('0');
     expect(row.get('padding')).toBe('0 12px');
   });

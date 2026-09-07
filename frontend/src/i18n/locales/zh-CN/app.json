@@ -121,6 +121,7 @@
     "projectDeleted": "已删除项目“{{name}}”",
     "deleteProjectFailed": "删除项目失败",
     "startSection": "开始",
+    "newWindow": "新建窗口",
     "createNewProject": "创建新项目",
     "selectFolder": "选择文件夹",
     "dropFolder": "松开以打开此文件夹",

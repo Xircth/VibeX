@@ -906,6 +906,7 @@ impl ServerApplicationDomains {
             page.official = plugins::collapse_replaced_official(page.official);
             plugins::prepare_marketplace_page(&mut page);
         }
+        plugins::filter_catalog_page(&mut page, args.query.as_deref());
         serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
     }
 

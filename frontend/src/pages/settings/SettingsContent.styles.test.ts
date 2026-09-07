@@ -211,12 +211,15 @@ describe('settings page alignment', () => {
     expect(card.get('background')).toBe('var(--surface-content)');
   });
 
-  it('paints the saved Host list as a white settings surface', () => {
+  it('stacks saved Host rows as independent control surfaces', () => {
     const list = declarationsFor('.settings-page .settings-saved-hosts');
-    const surface = declarationsFor('.settings-surface');
+    const row = declarationsFor(
+      '.settings-page .settings-saved-hosts .settings-host-row'
+    );
 
-    expect(list.get('background')).toBe(surface.get('background'));
-    expect(list.get('background')).toBe('var(--surface-card-strong)');
+    expect(list.get('background')).toBe('transparent');
+    expect(list.get('gap')).toBe('8px');
+    expect(row.get('background')).toBe('var(--surface-control)');
   });
 
   it('keeps the Host update action beside the saved-host summary', () => {

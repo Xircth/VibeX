@@ -1,5 +1,7 @@
-import { act, render } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, render, type RenderResult } from '@testing-library/react';
 import type { DockviewApi } from 'dockview-react';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
@@ -8,6 +10,15 @@ import {
   usePanelActionsContext,
   type PanelActions,
 } from './PanelActionsContext';
+
+function renderWithQueryClient(ui: ReactNode): RenderResult {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 function createDockviewApi() {
   const panels: Array<Record<string, unknown>> = [];
@@ -48,7 +59,7 @@ describe('PanelActionsContext Web Preview', () => {
       return null;
     }
 
-    render(
+    renderWithQueryClient(
       <PanelActionsProvider>
         <Probe />
       </PanelActionsProvider>
@@ -76,7 +87,7 @@ describe('PanelActionsContext Web Preview', () => {
       return null;
     }
 
-    render(
+    renderWithQueryClient(
       <PanelActionsProvider>
         <Probe />
       </PanelActionsProvider>
@@ -120,7 +131,7 @@ describe('PanelActionsContext image preview', () => {
       return null;
     }
 
-    render(
+    renderWithQueryClient(
       <PanelActionsProvider>
         <Probe />
       </PanelActionsProvider>
@@ -162,7 +173,7 @@ describe('PanelActionsContext terminal visibility', () => {
       return null;
     }
 
-    render(
+    renderWithQueryClient(
       <PanelActionsProvider>
         <Probe />
       </PanelActionsProvider>
@@ -202,7 +213,7 @@ describe('PanelActionsContext terminal editor tab', () => {
       return null;
     }
 
-    render(
+    renderWithQueryClient(
       <PanelActionsProvider>
         <Probe />
       </PanelActionsProvider>

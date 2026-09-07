@@ -3144,5 +3144,7 @@ struct PluginDependency {
 }
 
 fn plugin_dependencies(_package: &PluginPackage) -> Vec<PluginDependency> {
+    // ADR-0069: plugins cannot depend on plugins. Runtime requirements
+    // are resolved through Runtime locks, not this graph.
     Vec::new()
 }

@@ -996,7 +996,7 @@
     "hostIdLabel": "Host ID",
     "lastConnectedLabel": "上次连接",
     "hostDetails": "查看详细信息",
-    "hostAddressLabel": "地址",
+    "savedHostAddressLabel": "地址",
     "hostSourceLabel": "配置来源",
     "hostSourceDiscovered": "局域网 Host 扫描",
     "hostSourceManual": "手动连接",

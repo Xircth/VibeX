@@ -118,9 +118,7 @@ export function useConversationTimeline(
         }
         dispatch({ type: 'load_success', conversationId, detail });
         const needsAuthoritativeZeroTurnControls =
-          detail.summary.message_count === 0n ||
-          ((detail.session_config_options?.length ?? 0) === 0 &&
-            !detail.session_modes);
+          detail.summary.message_count === 0n;
         if (detail.summary.agent_id && needsAuthoritativeZeroTurnControls) {
           return conversationApi
             .ensureSessionControls(conversationId)

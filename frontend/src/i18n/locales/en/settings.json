@@ -996,7 +996,7 @@
     "hostIdLabel": "Host ID",
     "lastConnectedLabel": "Last connected",
     "hostDetails": "View details",
-    "hostAddressLabel": "Address",
+    "savedHostAddressLabel": "Address",
     "hostSourceLabel": "Source",
     "hostSourceDiscovered": "LAN scan",
     "hostSourceManual": "Manual connection",

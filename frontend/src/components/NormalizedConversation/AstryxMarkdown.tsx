@@ -97,18 +97,22 @@ function MarkdownImage({
       ? null
       : resolveLocalMarkdownImagePath(normalizedSrc, workspacePath);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
+  const [localImageFailed, setLocalImageFailed] = useState(false);
   useEffect(() => {
     if (!localImagePath) {
       setLocalImageUrl(null);
+      setLocalImageFailed(false);
       return;
     }
     let cancelled = false;
+    setLocalImageUrl(null);
+    setLocalImageFailed(false);
     void hostFileSrc(localImagePath)
       .then((url) => {
         if (!cancelled) setLocalImageUrl(url);
       })
       .catch(() => {
-        if (!cancelled) setLocalImageUrl(null);
+        if (!cancelled) setLocalImageFailed(true);
       });
     return () => {
       cancelled = true;
@@ -148,7 +152,10 @@ function MarkdownImage({
     [imageUrl, label, localImagePath, metadata, openImagePreview, panelActions]
   );
 
-  if (isVibeImage && isLoading) {
+  if (
+    (isVibeImage && isLoading) ||
+    (localImagePath && !localImageUrl && !localImageFailed)
+  ) {
     return <span className="conv-md-image-placeholder">Loading image...</span>;
   }
 

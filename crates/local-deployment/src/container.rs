@@ -1534,7 +1534,12 @@ impl ContainerService for LocalContainerService {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+    use std::{
+        collections::HashMap,
+        fs,
+        path::{Path, PathBuf},
+        sync::Arc,
+    };
 
     use db::{
         DBService,
@@ -1551,7 +1556,7 @@ mod tests {
         ExecutorAction, ExecutorActionType,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     };
-    use git::GitService;
+    use git::{GitCli, GitService};
     use services::services::{
         config::Config, image::ImageService, notification::NotificationService,
         workspace_manager::WorkspaceManager, worktree_manager::WorktreeManager,
@@ -1604,6 +1609,21 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
+    }
+
+    fn configure_commit_identity(repo_path: &Path) {
+        let git = GitCli::new();
+        git.git(repo_path, ["config", "user.name", "Test User"])
+            .expect("set test git user.name");
+        git.git(repo_path, ["config", "user.email", "test@example.com"])
+            .expect("set test git user.email");
+    }
+
+    fn seed_committed_repo(git: &GitService, repo_path: &Path) {
+        git.initialize_repo_with_main_branch(repo_path).unwrap();
+        configure_commit_identity(repo_path);
+        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
+        git.commit(repo_path, "seed").unwrap();
     }
 
     fn temp_external_path(name: &str) -> PathBuf {
@@ -2144,9 +2164,7 @@ mod tests {
         let temp_root = TempDir::new().unwrap();
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
-        git.initialize_repo_with_main_branch(&repo_path).unwrap();
-        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
-        git.commit(&repo_path, "seed").unwrap();
+        seed_committed_repo(&git, &repo_path);
         let expected_head = git.get_head_info(&repo_path).unwrap().oid;
         let workspace = sample_workspace(Some(&repo_path.to_string_lossy()), false, None);
         let repo = sample_repo("repo", &repo_path.to_string_lossy());
@@ -2308,9 +2326,7 @@ mod tests {
         let temp_root = TempDir::new().unwrap();
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
-        git.initialize_repo_with_main_branch(&repo_path).unwrap();
-        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
-        git.commit(&repo_path, "seed").unwrap();
+        seed_committed_repo(&git, &repo_path);
         let expected_head = git.get_head_info(&repo_path).unwrap().oid;
         let workspace = sample_workspace(Some(&repo_path.to_string_lossy()), false, None);
         let repo = sample_repo("repo", &repo_path.to_string_lossy());
@@ -2702,9 +2718,7 @@ mod tests {
         let temp_root = TempDir::new().unwrap();
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
-        git.initialize_repo_with_main_branch(&repo_path).unwrap();
-        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
-        git.commit(&repo_path, "seed").unwrap();
+        seed_committed_repo(&git, &repo_path);
 
         let branch = "feature/nested-worktree";
         let worktree_path = repo_path.join(".worktrees").join("nested-worktree");
@@ -2817,9 +2831,7 @@ mod tests {
         let temp_root = TempDir::new().unwrap();
         let repo_path = temp_root.path().join("repo");
         let git = GitService::new();
-        git.initialize_repo_with_main_branch(&repo_path).unwrap();
-        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
-        git.commit(&repo_path, "seed").unwrap();
+        seed_committed_repo(&git, &repo_path);
 
         let branch = "feature/discovered-worktree";
         let worktree_path = temp_root.path().join("direct-worktree");

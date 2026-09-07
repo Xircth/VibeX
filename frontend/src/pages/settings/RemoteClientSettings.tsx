@@ -97,7 +97,7 @@ function SavedHostFacts({ profile }: { profile: HostClientProfile }) {
             </dd>
           </div>
           <div>
-            <dt>{t('webService.hostAddressLabel')}</dt>
+            <dt>{t('webService.savedHostAddressLabel')}</dt>
             <dd>
               <code title={savedHostAddress(profile)}>
                 {savedHostAddress(profile)}

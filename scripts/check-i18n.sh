@@ -50,13 +50,20 @@ check_duplicate_keys() {
     return 2
   fi
 
-  # Strategy: Use jq's --stream flag to detect duplicate keys
-  # jq --stream processes JSON before parsing (preserves duplicates)
-  # jq tostream processes JSON after parsing (duplicates already collapsed)
-  # If the outputs differ, duplicate keys exist
+  # jq --stream preserves duplicate keys; jq tostream collapses them.
   if ! diff -q <(jq --stream . "$file" 2>/dev/null) <(jq tostream "$file" 2>/dev/null) > /dev/null 2>&1; then
-    # Duplicates found
-    echo "duplicate keys detected"
+    local dups
+    dups=$(jq -r --stream '
+      select(length == 2)
+      | .[0]
+      | map(tostring)
+      | join(".")
+    ' "$file" | LC_ALL=C sort | uniq -d)
+    if [ -n "$dups" ]; then
+      printf '%s\n' "$dups"
+    else
+      echo "duplicate keys detected"
+    fi
     return 1
   fi
   return 0
@@ -80,7 +87,9 @@ check_duplicate_json_keys() {
       : # No duplicates found
     else
       echo "❌ [$rel_path] Duplicate keys found:"
-      printf '   - %s\n' $duplicates
+      while IFS= read -r key; do
+        [ -n "$key" ] && printf '   - %s\n' "$key"
+      done <<< "$duplicates"
       echo "   JSON silently overwrites duplicate keys - only the last occurrence is used!"
       exit_code=1
     fi

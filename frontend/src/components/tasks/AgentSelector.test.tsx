@@ -22,7 +22,8 @@ vi.mock('@/lib/api', () => ({
 }));
 
 function managementView(
-  overrides: Partial<AgentManagementView> & Pick<AgentManagementView, 'agent_id'>
+  overrides: Partial<AgentManagementView> &
+    Pick<AgentManagementView, 'agent_id'>
 ): AgentManagementView {
   return {
     display_name: overrides.agent_id,

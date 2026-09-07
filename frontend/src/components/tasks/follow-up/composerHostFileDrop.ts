@@ -100,5 +100,7 @@ export async function fileFromHostPath(
 ): Promise<File> {
   const bytes = await readBytes(path);
   const name = hostPathFileName(path) || 'dropped-file';
-  return new File([bytes], name, { type: mimeForHostPath(path) });
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new File([copy], name, { type: mimeForHostPath(path) });
 }

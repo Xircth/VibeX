@@ -717,7 +717,9 @@ describe('Markdown raw HTML', () => {
     );
 
     expect(container.querySelector('script')).not.toBeInTheDocument();
-    expect(container.querySelector('.conv-md-raw-html')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('.conv-md-raw-html')
+    ).not.toBeInTheDocument();
     expect(container.textContent).toContain('<system-reminder>');
     expect(container.textContent).toContain('<script>');
   });
@@ -737,7 +739,9 @@ describe('Markdown raw HTML', () => {
       rawHtml: false,
     });
 
-    expect(container.querySelector('.conv-md-raw-html')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('.conv-md-raw-html')
+    ).not.toBeInTheDocument();
     expect(container.textContent).toContain('<div class="box">hi</div>');
   });
 });

@@ -16,24 +16,24 @@ const {
   sessionsMarkViewedMock,
   useWorkspaceSessionsMock,
 } = vi.hoisted(() => ({
-    attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
-    sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
-    sessionsMarkViewedMock: vi.fn().mockResolvedValue({}),
-    useWorkspaceSessionsMock: vi.fn(() => ({
-      sessions: [] as Array<Record<string, unknown>>,
-      selectedSession: undefined as Session | undefined,
-      selectedSessionId: undefined as string | undefined,
-      selectSession: vi.fn(),
-      selectLatestSession: vi.fn(),
-      isLoading: false,
-      isNewSessionMode: false,
-      isPendingNewSessionMode: false,
-      requestNewSession: vi.fn(),
-      confirmNewSession: vi.fn(),
-      cancelNewSession: vi.fn(),
-      startNewSession: vi.fn(),
-    })),
-  }));
+  attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
+  sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
+  sessionsMarkViewedMock: vi.fn().mockResolvedValue({}),
+  useWorkspaceSessionsMock: vi.fn(() => ({
+    sessions: [] as Array<Record<string, unknown>>,
+    selectedSession: undefined as Session | undefined,
+    selectedSessionId: undefined as string | undefined,
+    selectSession: vi.fn(),
+    selectLatestSession: vi.fn(),
+    isLoading: false,
+    isNewSessionMode: false,
+    isPendingNewSessionMode: false,
+    requestNewSession: vi.fn(),
+    confirmNewSession: vi.fn(),
+    cancelNewSession: vi.fn(),
+    startNewSession: vi.fn(),
+  })),
+}));
 
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({ projectId: 'project-1' }),

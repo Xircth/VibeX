@@ -103,11 +103,7 @@ export function KanbanBoard() {
   const views = useKanbanViews();
   const boardStyle = useKanbanBoardStyle();
   const pluginViews = usePluginHostContributions('kanban_view');
-  const resolvedViewId = resolveKanbanViewId(
-    activeViewId,
-    views,
-    boardStyle
-  );
+  const resolvedViewId = resolveKanbanViewId(activeViewId, views, boardStyle);
   useEffect(() => {
     if (resolvedViewId && resolvedViewId !== activeViewId) {
       setActiveViewId(resolvedViewId);

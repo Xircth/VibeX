@@ -227,8 +227,7 @@ export function AttentionInboxBadge() {
   const serverItems = data?.items ?? [];
   const items = [
     ...overlay.filter(
-      (extra) =>
-        !serverItems.some((item) => item.sessionId === extra.sessionId)
+      (extra) => !serverItems.some((item) => item.sessionId === extra.sessionId)
     ),
     ...serverItems,
   ];

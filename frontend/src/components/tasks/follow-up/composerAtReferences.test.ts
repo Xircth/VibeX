@@ -105,7 +105,9 @@ describe('composer @ references', () => {
       ],
     });
     expect(
-      groups.find((group) => group.tab === 'host')?.items.map((item) => item.label)
+      groups
+        .find((group) => group.tab === 'host')
+        ?.items.map((item) => item.label)
     ).toEqual(['Lab']);
   });
 

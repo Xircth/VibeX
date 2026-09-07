@@ -44,9 +44,9 @@ describe('conversationFind', () => {
   ];
 
   it('indexes user text, thinking, and plan entries only', () => {
-    expect(searchableTimelineFields(timeline[1]).map((field) => field.field)).toEqual(
-      ['thinking', 'plan', 'text']
-    );
+    expect(
+      searchableTimelineFields(timeline[1]).map((field) => field.field)
+    ).toEqual(['thinking', 'plan', 'text']);
   });
 
   it('finds case-insensitive matches across visible fields', () => {

@@ -486,9 +486,7 @@ describe('useConversationTimeline', () => {
     });
     eventsSinceMock
       .mockResolvedValueOnce(rowPage([], 1n))
-      .mockResolvedValueOnce(
-        rowPage([assistantRow('t1', 'hello', 6n)], 6n)
-      );
+      .mockResolvedValueOnce(rowPage([assistantRow('t1', 'hello', 6n)], 6n));
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)

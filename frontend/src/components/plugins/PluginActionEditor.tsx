@@ -196,9 +196,9 @@ export function PluginActionEditor({
       .then((catalog) => {
         const mapped = mapWorkflowCatalog(catalog);
         if (mapped) return mapped;
-        return transport.call('plugin_action_catalog').then((legacy) =>
-          isPluginActionCatalog(legacy) ? legacy : null
-        );
+        return transport
+          .call('plugin_action_catalog')
+          .then((legacy) => (isPluginActionCatalog(legacy) ? legacy : null));
       })
       .then((catalog) => {
         if (active && catalog) {

@@ -176,9 +176,7 @@ function maskCode(value: string): { text: string; code: string[] } {
     if (!inFence) {
       if (lineStart) {
         // Fence opening: up to three leading spaces, then ``` or ~~~.
-        const fenceMatch = value
-          .slice(index)
-          .match(/^ {0,3}(`{3,}|~{3,})/);
+        const fenceMatch = value.slice(index).match(/^ {0,3}(`{3,}|~{3,})/);
         if (fenceMatch) {
           inFence = true;
           fenceChar = fenceMatch[1][0];
@@ -369,9 +367,15 @@ function findBalancedClose(
   return null;
 }
 
-function capturePlaceholder(html: ProtectedHtmlEntry[], htmlString: string): string {
+function capturePlaceholder(
+  html: ProtectedHtmlEntry[],
+  htmlString: string
+): string {
   const index = html.length;
-  html.push({ html: htmlString, block: isBlockHtmlTag(firstTagName(htmlString)) });
+  html.push({
+    html: htmlString,
+    block: isBlockHtmlTag(firstTagName(htmlString)),
+  });
   return `HTML${index}`;
 }
 

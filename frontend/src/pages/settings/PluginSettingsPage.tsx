@@ -12,9 +12,8 @@ export function PluginSettingsPage() {
   const pages = usePluginHostContributions('settings_page');
   const item = useMemo(
     () =>
-      pages.find(
-        (page) => page.pluginId === pluginId && page.id === pageId
-      ) ?? null,
+      pages.find((page) => page.pluginId === pluginId && page.id === pageId) ??
+      null,
     [pageId, pages, pluginId]
   );
 

@@ -251,11 +251,7 @@ export function RightPanelContent() {
         options: workspaceBranchOptions,
         preferredWorkspaceIds:
           effectiveActiveTab === 'workspace'
-            ? [
-                workspaceId,
-                activeWorktreeId,
-                visibleRightSession?.workspaceId,
-              ]
+            ? [workspaceId, activeWorktreeId, visibleRightSession?.workspaceId]
             : [activeWorktreeId],
         lastActiveWorkspaceId,
         mainlineWorkspaceValue,

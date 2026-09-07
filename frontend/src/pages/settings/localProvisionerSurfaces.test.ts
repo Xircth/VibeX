@@ -31,10 +31,7 @@ function plugin(id: string, name: string): PluginControlItem {
 describe('localProvisionerSurfaces', () => {
   it('keeps provisioner panels by contribution kind, not plugin identity', () => {
     const catalog: PluginControlCatalog = {
-      plugins: [
-        plugin('acme.tunnel', 'Acme Tunnel'),
-        plugin('other', 'Other'),
-      ],
+      plugins: [plugin('acme.tunnel', 'Acme Tunnel'), plugin('other', 'Other')],
       runtimes: [],
     };
     const contributions: PluginContributionCatalog = {

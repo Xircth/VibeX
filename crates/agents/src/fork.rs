@@ -77,8 +77,7 @@ fn last_assistant_for_turn<'a>(
 ) -> Option<&'a MessageTurn> {
     turns
         .iter()
-        .filter(|turn| is_assistant_row_for_turn(turn, vibex_turn_id))
-        .next_back()
+        .rfind(|turn| is_assistant_row_for_turn(turn, vibex_turn_id))
 }
 
 /// Name the last assistant bubble of `vibex_turn_id`, or `None` when the

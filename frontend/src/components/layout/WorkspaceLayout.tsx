@@ -31,10 +31,8 @@ interface WorkspaceLayoutProps {
 function PendingProjectFocusBridge() {
   const { projectId } = useProject();
   const navigate = useNavigate();
-  const {
-    workspaceId: routeWorkspaceId,
-    sessionId: routeSessionId,
-  } = useParams();
+  const { workspaceId: routeWorkspaceId, sessionId: routeSessionId } =
+    useParams();
   const { activateExecutionSession, panelView, isLayoutHydrated } =
     useKanbanSessionContext();
   const consumeProjectFocus = useWindowProjectsStore(

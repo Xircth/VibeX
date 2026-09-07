@@ -62,10 +62,10 @@ describe('useSlashCommands', () => {
     });
 
     renderHook(() =>
-      useSlashCommands(
-        { executor: 'codex', variant: 'default' } as never,
-        { workspaceId: 'ws-1', repoId: 'repo-1' }
-      )
+      useSlashCommands({ executor: 'codex', variant: 'default' } as never, {
+        workspaceId: 'ws-1',
+        repoId: 'repo-1',
+      })
     );
 
     expect(useTauriPatchStream).toHaveBeenCalledWith(

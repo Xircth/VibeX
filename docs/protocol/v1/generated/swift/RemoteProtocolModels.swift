@@ -97,6 +97,7 @@ public struct RemoteEvent: Codable {
 public struct CreatePairingRequest: Codable {
     public let preset: JSONValue?
     public let requested_scopes: [String]?
+    public let ttl_seconds: Int64?
 }
 
 public enum DevicePermissionPreset: String, Codable {

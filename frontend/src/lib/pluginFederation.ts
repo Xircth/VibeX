@@ -93,7 +93,9 @@ export function unloadPluginRemote(name: string): void {
   }
 }
 
-export async function loadPluginRemote(remote: PluginRemoteRef): Promise<RemoteModule> {
+export async function loadPluginRemote(
+  remote: PluginRemoteRef
+): Promise<RemoteModule> {
   const runtime = federationHost();
   await runtime.registerRemotes(
     [{ name: remote.name, entry: remote.entry, type: 'module' }],

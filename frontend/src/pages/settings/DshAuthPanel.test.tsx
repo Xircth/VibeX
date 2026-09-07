@@ -126,9 +126,7 @@ describe('DshAuthPanel', () => {
       'aria-selected',
       'true'
     );
-    expect(
-      screen.getByRole('heading', { name: '模型供应商' })
-    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型供应商' })).toBeVisible();
     expect(screen.getByText('还没有供应商。')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '新建供应商' }));
     expect(await screen.findByLabelText('显示名称')).toBeInTheDocument();

@@ -3,10 +3,7 @@ import {
   DEFAULT_KANBAN_VIEW,
   type KanbanPanelView,
 } from '@/lib/kanbanPanelView';
-import {
-  DEFAULT_KANBAN_VIEW_ID,
-  migrateKanbanViewId,
-} from '@/lib/kanbanViews';
+import { DEFAULT_KANBAN_VIEW_ID, migrateKanbanViewId } from '@/lib/kanbanViews';
 import { getKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
   createEmptyKanbanSessionLayoutState,

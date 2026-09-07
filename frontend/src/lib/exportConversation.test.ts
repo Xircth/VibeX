@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { save, writeTextFile, exportMarkdown, exportHtml, toastSuccess, getBackendTransport } =
-  vi.hoisted(() => ({
-    save: vi.fn(),
-    writeTextFile: vi.fn(),
-    exportMarkdown: vi.fn(),
-    exportHtml: vi.fn(),
-    toastSuccess: vi.fn(),
-    getBackendTransport: vi.fn(),
-  }));
+const {
+  save,
+  writeTextFile,
+  exportMarkdown,
+  exportHtml,
+  toastSuccess,
+  getBackendTransport,
+} = vi.hoisted(() => ({
+  save: vi.fn(),
+  writeTextFile: vi.fn(),
+  exportMarkdown: vi.fn(),
+  exportHtml: vi.fn(),
+  toastSuccess: vi.fn(),
+  getBackendTransport: vi.fn(),
+}));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile }));

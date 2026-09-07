@@ -1579,7 +1579,9 @@
     font-size: 0.625rem;
   }
 
-  .settings-page .settings-host-facts.is-open .settings-host-facts__toggle::after {
+  .settings-page
+    .settings-host-facts.is-open
+    .settings-host-facts__toggle::after {
     content: '▾';
   }
 
@@ -1624,7 +1626,13 @@
   }
 
   .settings-page .settings-host-facts dd > code {
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-family: var(
+      --font-mono,
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      monospace
+    );
     font-size: inherit;
   }
 

@@ -50,14 +50,11 @@ export function formatSshHostConfig(
 export function sshTargetFromProvision(
   provision: Record<string, unknown> | null | undefined
 ): Omit<SshHostTarget, 'alias'> | null {
-  const host =
-    typeof provision?.host === 'string' ? provision.host.trim() : '';
-  const user =
-    typeof provision?.user === 'string' ? provision.user.trim() : '';
+  const host = typeof provision?.host === 'string' ? provision.host.trim() : '';
+  const user = typeof provision?.user === 'string' ? provision.user.trim() : '';
   if (!host || !user) return null;
   const port = Number(provision?.port);
-  const jump =
-    typeof provision?.jump === 'string' ? provision.jump.trim() : '';
+  const jump = typeof provision?.jump === 'string' ? provision.jump.trim() : '';
   return {
     host,
     user,

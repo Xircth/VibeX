@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import type {
+  PluginContributionCatalog,
+  PluginControlCatalog,
+} from '@/lib/api/plugins';
 import { RemoteClientSettings } from './RemoteClientSettings';
 
 const hostClientApiMock = vi.hoisted(() => ({
@@ -16,8 +20,15 @@ const hostClientApiMock = vi.hoisted(() => ({
 }));
 
 const pluginControlApiMock = vi.hoisted(() => ({
-  catalog: vi.fn(async () => ({ plugins: [], runtimes: [] })),
-  contributionCatalog: vi.fn(async () => ({ generation: 0, items: [] })),
+  catalog: vi.fn(
+    async (): Promise<PluginControlCatalog> => ({ plugins: [], runtimes: [] })
+  ),
+  contributionCatalog: vi.fn(
+    async (): Promise<PluginContributionCatalog> => ({
+      generation: 0,
+      items: [],
+    })
+  ),
   setEnabled: vi.fn(async () => ({})),
   invokeContribution: vi.fn(),
 }));
@@ -430,9 +441,7 @@ describe('RemoteClientSettings', () => {
     await user.click(await within(saved).findByText('Lab'));
     await user.click(within(saved).getByRole('button', { name: '连接' }));
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        '请先启用 SSH 再连接这台 Host。'
-      )
+      expect(toast.error).toHaveBeenCalledWith('请先启用 SSH 再连接这台 Host。')
     );
     expect(hostClientApiMock.connect).not.toHaveBeenCalled();
   });

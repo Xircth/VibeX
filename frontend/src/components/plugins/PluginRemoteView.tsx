@@ -12,7 +12,14 @@ import {
 } from '@/lib/pluginFederation';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
-import { useEffect, useMemo, useRef, useState, type ReactNode, Component } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  Component,
+} from 'react';
 
 const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
 
@@ -101,9 +108,9 @@ function PluginRemoteViewBody({
   );
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [retry, setRetry] = useState(0);
-  const [remoteState, setRemoteState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
-    remote && isHttpRemoteEntry(remote.entry) ? 'loading' : 'idle'
-  );
+  const [remoteState, setRemoteState] = useState<
+    'idle' | 'loading' | 'ready' | 'failed'
+  >(remote && isHttpRemoteEntry(remote.entry) ? 'loading' : 'idle');
   const surfaceId = item.id;
 
   useEffect(() => {
@@ -149,7 +156,9 @@ function PluginRemoteViewBody({
           projectId,
           invoke: (handler, input) => {
             if (!sessionToken) {
-              return Promise.reject(new Error('Plugin Worker is not available'));
+              return Promise.reject(
+                new Error('Plugin Worker is not available')
+              );
             }
             sequence += 1;
             return transport.invoke({
@@ -175,7 +184,16 @@ function PluginRemoteViewBody({
       revoke?.();
       unloadPluginRemote(remote.name);
     };
-  }, [item.generation, item.pluginId, projectId, remote, retry, slot, surfaceId, workspaceId]);
+  }, [
+    item.generation,
+    item.pluginId,
+    projectId,
+    remote,
+    retry,
+    slot,
+    surfaceId,
+    workspaceId,
+  ]);
 
   const surface = useMemo(
     () => ({
@@ -184,7 +202,9 @@ function PluginRemoteViewBody({
       label: item.label,
       generation: item.generation,
       allowedMethods: Array.isArray(metadata.allowedMethods)
-        ? metadata.allowedMethods.filter((method): method is string => typeof method === 'string')
+        ? metadata.allowedMethods.filter(
+            (method): method is string => typeof method === 'string'
+          )
         : [],
       slot,
     }),

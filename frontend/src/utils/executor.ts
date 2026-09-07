@@ -697,5 +697,3 @@ export function formatClaudePermissionLabel(
       return 'Auto';
   }
 }
-
-

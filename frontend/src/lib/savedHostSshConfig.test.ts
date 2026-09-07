@@ -58,8 +58,8 @@ describe('savedHostSshConfig', () => {
         'deploy [@:Lab](.vibex/ssh-hosts/lab-abc.sshconfig) and [@:本机](.vibex/ssh-hosts/local.sshconfig)'
       )
     ).toEqual(['lab-abc.sshconfig', 'local.sshconfig']);
-    expect(mentionedHostFileNames('[@:x](.vibex/ssh-hosts/../etc/passwd)')).toEqual(
-      []
-    );
+    expect(
+      mentionedHostFileNames('[@:x](.vibex/ssh-hosts/../etc/passwd)')
+    ).toEqual([]);
   });
 });

@@ -76,11 +76,7 @@ const GitConflictResolutionDialogImpl =
         }
         if (config?.executor_profile) return config.executor_profile;
         return getFirstAvailableProfile(profiles);
-      }, [
-        attempt?.session?.executor,
-        config?.executor_profile,
-        profiles,
-      ]);
+      }, [attempt?.session?.executor, config?.executor_profile, profiles]);
 
       const handleClose = () => {
         modal.resolve({

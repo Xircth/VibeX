@@ -16,10 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
-import {
-  useBackendCapabilities,
-  useBackendTransport,
-} from '@/lib/transport';
+import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import {
   contributionMetadata,
@@ -51,8 +48,13 @@ export function WorkspaceTabAddMenu({
   group,
 }: IDockviewHeaderActionsProps) {
   const { t } = useTranslation('panels');
-  const { openDiffPreview, openNotes, openWebPreview, openTerminalEditorTab, openPluginPanel } =
-    usePanelActionsContext();
+  const {
+    openDiffPreview,
+    openNotes,
+    openWebPreview,
+    openTerminalEditorTab,
+    openPluginPanel,
+  } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
   const transport = useBackendTransport();

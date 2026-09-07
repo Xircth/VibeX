@@ -81,8 +81,7 @@ vi.mock('@/components/NormalizedConversation/FileContentView', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@tanstack/react-query')>();
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
   return {
     ...actual,
     useQueryClient: () => ({ invalidateQueries: vi.fn() }),

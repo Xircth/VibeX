@@ -32,7 +32,10 @@ import {
   protectRawHtml,
 } from '@/lib/conversation-rendering/rawHtml';
 import { RawHtmlElement } from './RawHtmlElement';
-import { MarkdownResourceLink, resolveMarkdownInlineResource } from './MarkdownResourceLink';
+import {
+  MarkdownResourceLink,
+  resolveMarkdownInlineResource,
+} from './MarkdownResourceLink';
 import {
   isMarkdownImagePath,
   isRenderableRemoteImage,

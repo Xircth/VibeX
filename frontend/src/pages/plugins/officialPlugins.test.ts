@@ -55,9 +55,9 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.multi-agent', 'fallback', en)).toBe(
       'Multi-agent'
     );
-    expect(
-      officialPluginName('vibex.plugin-development', 'fallback', en)
-    ).toBe('Plugin Development');
+    expect(officialPluginName('vibex.plugin-development', 'fallback', en)).toBe(
+      'Plugin Development'
+    );
     expect(officialPluginName('vibex.host-chrome', 'fallback', en)).toBe(
       'Host chrome sample'
     );

@@ -1424,8 +1424,7 @@ export function SessionComposerInput({
           onSubmit(submitted);
         } catch (error) {
           toast.error(t('composer.atReference.materializeFailed'), {
-            description:
-              error instanceof Error ? error.message : String(error),
+            description: error instanceof Error ? error.message : String(error),
           });
         }
       })();

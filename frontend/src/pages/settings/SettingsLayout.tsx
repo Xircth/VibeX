@@ -231,37 +231,40 @@ export function SettingsLayout() {
                     })
                   ),
                 ] satisfies SettingsNavItem[]
-              ).filter((item) => {
-                if (item.anyOf) return item.anyOf.some((cap) => supports(cap));
-                return !item.capability || supports(item.capability);
-              }).map((item) => {
-                const Icon = item.icon;
-                const active =
-                  location.pathname === item.path ||
-                  location.pathname.startsWith(`${item.path}/`);
+              )
+                .filter((item) => {
+                  if (item.anyOf)
+                    return item.anyOf.some((cap) => supports(cap));
+                  return !item.capability || supports(item.capability);
+                })
+                .map((item) => {
+                  const Icon = item.icon;
+                  const active =
+                    location.pathname === item.path ||
+                    location.pathname.startsWith(`${item.path}/`);
 
-                return (
-                  <Button
-                    key={item.path}
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      'settings-nav-button h-8 w-full justify-start text-sm',
-                      active && 'is-active'
-                    )}
-                    type="button"
-                    onClick={() => navigateTo(item.path)}
-                    onMouseEnter={() => preloadSettingsPath(item.path)}
-                    onFocus={() => preloadSettingsPath(item.path)}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <Icon className="h-4 w-4" />
-                      {item.label ?? t(`nav.${item.labelKey}`)}
-                    </span>
-                  </Button>
-                );
-              })}
+                  return (
+                    <Button
+                      key={item.path}
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'settings-nav-button h-8 w-full justify-start text-sm',
+                        active && 'is-active'
+                      )}
+                      type="button"
+                      onClick={() => navigateTo(item.path)}
+                      onMouseEnter={() => preloadSettingsPath(item.path)}
+                      onFocus={() => preloadSettingsPath(item.path)}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Icon className="h-4 w-4" />
+                        {item.label ?? t(`nav.${item.labelKey}`)}
+                      </span>
+                    </Button>
+                  );
+                })}
             </nav>
           )}
         </aside>

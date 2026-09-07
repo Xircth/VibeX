@@ -5,10 +5,7 @@ import type {
   SubscriptionRequest,
 } from './backendTransport';
 import type { SubscriptionBootstrap } from 'shared/types';
-import {
-  HOST_CAPABILITY_SCOPES,
-  HOST_COMMANDS,
-} from 'shared/hostCommands';
+import { HOST_CAPABILITY_SCOPES, HOST_COMMANDS } from 'shared/hostCommands';
 
 type ApplicationCommandResponse = {
   operation_id: string;

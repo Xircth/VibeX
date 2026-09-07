@@ -842,10 +842,7 @@ fn same_host(profile: &StoredProfile, host_id: Option<&str>, origin: &str) -> bo
 }
 
 fn hosts_dir(store_path: &Path) -> PathBuf {
-    store_path
-        .parent()
-        .unwrap_or(store_path)
-        .join("hosts")
+    store_path.parent().unwrap_or(store_path).join("hosts")
 }
 
 fn ssh_host_alias(name: &str) -> String {
@@ -956,9 +953,7 @@ fn local_ssh_target() -> Option<LocalSshTargetView> {
         .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("localhost"))
         .or_else(|| {
             let output = std::process::Command::new("hostname").output().ok()?;
-            let name = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .to_string();
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if name.is_empty() || name.eq_ignore_ascii_case("localhost") {
                 None
             } else {
@@ -1547,7 +1542,10 @@ mod tests {
             .expect("present");
         assert_eq!(again.name, "root@lab");
         assert_eq!(again.provision_kind.as_deref(), Some("ssh"));
-        let host_file = dir.path().join("hosts").join(format!("{}.sshconfig", saved.id));
+        let host_file = dir
+            .path()
+            .join("hosts")
+            .join(format!("{}.sshconfig", saved.id));
         let config = std::fs::read_to_string(&host_file).expect("host file");
         assert!(config.contains("HostName 203.0.113.8"));
         assert!(config.contains("User root"));

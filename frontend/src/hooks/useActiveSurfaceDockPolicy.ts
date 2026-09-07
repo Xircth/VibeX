@@ -19,7 +19,8 @@ export function useActiveSurfaceHidesBottomDock(activeTab: string): boolean {
   const parsed = parsePluginSurfaceId(activeTab);
   if (!parsed) return true;
   const tab = pluginTabs.find(
-    (item) => item.pluginId === parsed.pluginId && item.id === parsed.contributionId
+    (item) =>
+      item.pluginId === parsed.pluginId && item.id === parsed.contributionId
   );
   if (!tab) return true;
   return contributionMetadata(tab).hidesBottomDock !== false;

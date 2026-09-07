@@ -39,9 +39,7 @@ export function AgentSessionConfigPicker({
   agentLabel: string;
 }) {
   const { t } = useTranslation('settings');
-  const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>(
-    []
-  );
+  const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>([]);
   const [sessionControls, setSessionControls] =
     useState<AgentSessionControlsSnapshot | null>(null);
   const [sessionControlsLoading, setSessionControlsLoading] = useState(false);

@@ -4,7 +4,10 @@ import {
   agentUsageToTokenUsageInfo,
   getLatestConversationTokenUsage,
 } from './conversationTokenUsage';
-import type { ExecutionProcessStateStore, PatchTypeWithKey } from './conversationEntries';
+import type {
+  ExecutionProcessStateStore,
+  PatchTypeWithKey,
+} from './conversationEntries';
 
 const scriptExecutorAction = {
   typ: {

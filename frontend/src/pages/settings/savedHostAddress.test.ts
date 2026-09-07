@@ -69,7 +69,9 @@ describe('savedHostOrigin', () => {
 describe('provisionKindLabel', () => {
   it('uses the matching provisioner label and does not special-case a kind', () => {
     expect(
-      provisionKindLabel('wireguard', [{ kind: 'wireguard', label: 'WireGuard' }])
+      provisionKindLabel('wireguard', [
+        { kind: 'wireguard', label: 'WireGuard' },
+      ])
     ).toBe('WireGuard');
     expect(provisionKindLabel('ssh')).toBe('SSH');
     expect(provisionKindLabel('discovered')).toBeNull();

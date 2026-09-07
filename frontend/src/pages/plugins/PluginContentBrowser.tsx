@@ -260,9 +260,7 @@ export function PluginContentsView({
   }, [groups]);
 
   if (groups.length === 0) {
-    return (
-      <p className="product-plugin-muted">{t('plugins.contentsEmpty')}</p>
-    );
+    return <p className="product-plugin-muted">{t('plugins.contentsEmpty')}</p>;
   }
 
   const toggleGroup = (kind: string) => {
@@ -307,8 +305,7 @@ export function PluginContentsView({
               <ul id={listId}>
                 {group.items.map((item) => (
                   <li key={item.path}>
-                    {item.title ||
-                      item.path.split('/').filter(Boolean).at(-1)}
+                    {item.title || item.path.split('/').filter(Boolean).at(-1)}
                   </li>
                 ))}
               </ul>

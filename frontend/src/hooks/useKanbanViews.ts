@@ -11,8 +11,7 @@ export function useKanbanViews(): KanbanViewDescriptor[] {
   const catalog = usePluginHostContributions();
   const boardStyle = useKanbanBoardStyle();
   return useMemo(
-    () =>
-      kanbanViewsForBoardStyle(kanbanViewsFromCatalog(catalog), boardStyle),
+    () => kanbanViewsForBoardStyle(kanbanViewsFromCatalog(catalog), boardStyle),
     [boardStyle, catalog]
   );
 }

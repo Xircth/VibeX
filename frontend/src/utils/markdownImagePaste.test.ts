@@ -61,17 +61,16 @@ describe('insertPastedImagesAsMarkdown', () => {
 
   it('joins multiple images onto separate lines', async () => {
     const { editor, edits } = makeEditor();
-    const writeAsset = vi.fn(async (_directory: string, _b64: string, ext: string) => ({
-      file_name: `pasted-image-${ext}-1.${ext}`,
-      markdown_path: `assets/pasted-image-${ext}-1.${ext}`,
-    }));
+    const writeAsset = vi.fn(
+      async (_directory: string, _b64: string, ext: string) => ({
+        file_name: `pasted-image-${ext}-1.${ext}`,
+        markdown_path: `assets/pasted-image-${ext}-1.${ext}`,
+      })
+    );
 
     const count = await insertPastedImagesAsMarkdown({
       editor,
-      files: [
-        makeFile('a.png', 'image/png'),
-        makeFile('b.jpeg', 'image/jpeg'),
-      ],
+      files: [makeFile('a.png', 'image/png'), makeFile('b.jpeg', 'image/jpeg')],
       assetDir: '/docs',
       readBase64: async (file) => `b64:${file.name}`,
       writeAsset,

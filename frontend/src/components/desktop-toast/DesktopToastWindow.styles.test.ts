@@ -44,7 +44,10 @@ function toastShellWrapperRule() {
 
 function toastShellRulesFor(selectorPart: string) {
   return collectRules().filter((rule) =>
-    rule.selector.split(',').map((part) => part.trim()).includes(selectorPart)
+    rule.selector
+      .split(',')
+      .map((part) => part.trim())
+      .includes(selectorPart)
   );
 }
 

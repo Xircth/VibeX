@@ -108,9 +108,7 @@ export async function materializeMentionedHostFiles(input: {
   const byName = new Map(catalog.map((entry) => [entry.fileName, entry]));
   const files = fileNames.flatMap((fileName) => {
     const entry = byName.get(fileName);
-    return entry
-      ? [{ fileName: entry.fileName, content: entry.content }]
-      : [];
+    return entry ? [{ fileName: entry.fileName, content: entry.content }] : [];
   });
   if (files.length === 0) return input.text;
   const result = await backendCall<{

@@ -67,9 +67,8 @@ export function AskQuestionResultCard({
       ? action.arguments.questions
       : null
   )
-    ? (
-        action.arguments as { questions: Array<{ question?: unknown }> }
-      ).questions
+    ? (action.arguments as { questions: Array<{ question?: unknown }> })
+        .questions
     : [];
   const question =
     (typeof questions[0]?.question === 'string'

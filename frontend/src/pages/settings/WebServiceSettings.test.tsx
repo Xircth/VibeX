@@ -241,7 +241,9 @@ describe('WebServiceSettings', () => {
     });
     renderSettings('desktop');
 
-    await userEvent.setup().click(await screen.findByRole('tab', { name: '客户端' }));
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('tab', { name: '客户端' }));
     expect(
       await screen.findByRole('heading', { name: '已保存 Host' })
     ).toBeVisible();

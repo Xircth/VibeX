@@ -84,7 +84,9 @@ describe('workflow API IPC payloads', () => {
     const { args } = calls[0];
     // Regression: deadlineSeconds used to be a BigInt literal (3600n), which
     // makes Tauri's JSON.stringify-based IPC throw before the command is sent.
-    expect(() => serializeAsTauriIpc({ command: 'workflow_debug', args })).not.toThrow();
+    expect(() =>
+      serializeAsTauriIpc({ command: 'workflow_debug', args })
+    ).not.toThrow();
     const serialized = serializeAsTauriIpc(args);
     expect(serialized).toContain('"deadlineSeconds":3600');
   });

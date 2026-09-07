@@ -9,7 +9,10 @@ const PROJECT_ID = 'project-1';
 describe('isIdeRouteForProjectPathname', () => {
   it('accepts the sessions IDE route', () => {
     expect(
-      isIdeRouteForProjectPathname(`/local-projects/${PROJECT_ID}/sessions`, PROJECT_ID)
+      isIdeRouteForProjectPathname(
+        `/local-projects/${PROJECT_ID}/sessions`,
+        PROJECT_ID
+      )
     ).toBe(true);
   });
 
@@ -106,10 +109,7 @@ describe('resolveFocusDispatch', () => {
 
   it('navigates to the deep session when no workspace is routed yet', () => {
     expect(
-      resolveFocusDispatch(
-        { surface: 'workspace', isCanvasHub: false },
-        focus
-      )
+      resolveFocusDispatch({ surface: 'workspace', isCanvasHub: false }, focus)
     ).toEqual({
       kind: 'open-in-workspace',
       navigateTo: `/local-projects/${PROJECT_ID}/workspaces/workspace-1/sessions/session-1`,
@@ -118,10 +118,7 @@ describe('resolveFocusDispatch', () => {
 
   it('hands off to the canvas channel when the infinite canvas is the visible hub', () => {
     expect(
-      resolveFocusDispatch(
-        { surface: 'kanban', isCanvasHub: true },
-        focus
-      )
+      resolveFocusDispatch({ surface: 'kanban', isCanvasHub: true }, focus)
     ).toEqual({
       kind: 'reveal-on-canvas',
       projectId: PROJECT_ID,
@@ -132,10 +129,7 @@ describe('resolveFocusDispatch', () => {
 
   it('opens the kanban execution slot otherwise', () => {
     expect(
-      resolveFocusDispatch(
-        { surface: 'kanban', isCanvasHub: false },
-        focus
-      )
+      resolveFocusDispatch({ surface: 'kanban', isCanvasHub: false }, focus)
     ).toEqual({
       kind: 'open-in-kanban-slot',
       placement: { workspaceId: 'workspace-1', sessionId: 'session-1' },

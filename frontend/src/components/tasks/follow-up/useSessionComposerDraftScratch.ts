@@ -6,7 +6,11 @@ import {
   useState,
   type RefObject,
 } from 'react';
-import type { DraftFollowUpData, ExecutorProfileId, Scratch } from 'shared/types';
+import type {
+  DraftFollowUpData,
+  ExecutorProfileId,
+  Scratch,
+} from 'shared/types';
 import { ScratchType } from 'shared/types';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';

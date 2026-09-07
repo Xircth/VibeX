@@ -290,6 +290,46 @@
             "run_id",
             "after_sequence"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string"
+            },
+            "after_sequence": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "resource": {
+              "type": "string",
+              "const": "host_event"
+            }
+          },
+          "required": [
+            "resource",
+            "channel",
+            "after_sequence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "stream": {
+              "type": "string"
+            },
+            "args": {
+              "default": null
+            },
+            "resource": {
+              "type": "string",
+              "const": "patch_stream"
+            }
+          },
+          "required": [
+            "resource",
+            "stream"
+          ]
         }
       ]
     },
@@ -415,6 +455,13 @@
             "error": {
               "$ref": "#/$defs/ErrorEnvelope"
             },
+            "subscription_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
             "type": {
               "type": "string",
               "const": "error"
@@ -482,15 +529,11 @@
           "default": []
         },
         "ttl_seconds": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "format": "int64"
-            },
-            {
-              "type": "null"
-            }
+          "type": [
+            "integer",
+            "null"
           ],
+          "format": "int64",
           "default": null
         }
       }

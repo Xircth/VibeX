@@ -127,9 +127,14 @@ fn commit_without_user_config_succeeds() {
     let s = GitService::new();
     s.initialize_repo_with_main_branch(&repo_path).unwrap();
     write_file(&repo_path, "f.txt", "x\n");
-    // No configure_user call here
+    // No configure_user call here. Regular commits require a Git identity;
+    // only the bootstrap commit may use the VibeX fallback signature.
     let res = s.commit(&repo_path, "no user config");
-    assert!(res.is_ok());
+    if has_global_git_identity() {
+        assert!(res.is_ok(), "{res:?}");
+    } else {
+        assert!(res.is_err(), "{res:?}");
+    }
 }
 
 #[test]

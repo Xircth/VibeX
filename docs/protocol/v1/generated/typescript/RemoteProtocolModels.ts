@@ -46,9 +46,9 @@ export type ErrorCode = "bad_request" | "unauthorized" | "forbidden" | "not_foun
 
 export type SubscriptionClientMessage = ({ request: SubscriptionRequest; type: "attach" } | { subscription_id: string; type: "detach" } | { type: "ping" });
 
-export type SubscriptionRequest = { subscription_id: string } & ({ conversation_id: string; after_sequence: number; resource: "conversation" } | { run_id: string; after_sequence: number; resource: "workflow_run" });
+export type SubscriptionRequest = { subscription_id: string } & ({ conversation_id: string; after_sequence: number; resource: "conversation" } | { run_id: string; after_sequence: number; resource: "workflow_run" } | { channel: string; after_sequence: number; resource: "host_event" } | { stream: string; args?: JsonValue; resource: "patch_stream" });
 
-export type SubscriptionServerMessage = ({ subscription_id: string; type: "ready" } | { subscription_id: string; snapshot: SubscriptionSnapshot; type: "snapshot" } | { subscription_id: string; event: RemoteEvent; type: "event" } | { subscription_id: string; high_water_mark: number; type: "live" } | { subscription_id: string; reason: string; type: "detached" } | { type: "pong" } | { error: ErrorEnvelope; type: "error" });
+export type SubscriptionServerMessage = ({ subscription_id: string; type: "ready" } | { subscription_id: string; snapshot: SubscriptionSnapshot; type: "snapshot" } | { subscription_id: string; event: RemoteEvent; type: "event" } | { subscription_id: string; high_water_mark: number; type: "live" } | { subscription_id: string; reason: string; type: "detached" } | { type: "pong" } | { error: ErrorEnvelope; subscription_id?: string | null; type: "error" });
 
 export interface SubscriptionSnapshot {
   through_sequence: number;

@@ -21,7 +21,7 @@ import { Label } from '@/components/ui/label';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { repoApi } from '@/lib/api';
 import { defineModal } from '@/lib/modals';
-import { normalizeDisplayPath } from '@/utils/displayPath';
+import { joinLocalPath, normalizeDisplayPath } from '@/utils/displayPath';
 
 export interface ProjectFormDialogProps {
   autoOpenFolderPicker?: boolean;

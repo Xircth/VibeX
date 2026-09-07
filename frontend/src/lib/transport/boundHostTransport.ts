@@ -74,8 +74,9 @@ export class BoundHostTransport implements BackendTransport {
     args: Record<string, unknown>,
     onMessage: (message: unknown) => void
   ): Promise<T> {
-    if (HOST_COMMAND_SET.has(command) && this.remote.stream) {
-      return this.remote.stream(command, args, onMessage);
+    const remote: BackendTransport = this.remote;
+    if (HOST_COMMAND_SET.has(command) && remote.stream) {
+      return remote.stream(command, args, onMessage);
     }
     if (!tauriBackendTransport.stream) {
       return this.call(command, args) as Promise<T>;

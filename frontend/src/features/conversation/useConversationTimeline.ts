@@ -267,8 +267,6 @@ export function useConversationTimeline(
     };
   }, [conversationId, hasDetail, loadDetail, reportLoadError]);
 
-
-
   const entry = conversationId
     ? (state.byConversationId[conversationId] ?? null)
     : null;

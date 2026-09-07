@@ -217,7 +217,6 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                             {t('processesTab.dropped')}
                           </span>
                         )}
-
                       </div>
                     </div>
                     <div className="text-right">

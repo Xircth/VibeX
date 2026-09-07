@@ -33,9 +33,7 @@ export function peekCanvasReveal(): CanvasRevealTarget | null {
  * Forget a pending reveal for the given project. Only the matching project's
  * consumer may clear it, so requests for other projects stay queued.
  */
-export function clearCanvasReveal(target: {
-  projectId: string;
-}): void {
+export function clearCanvasReveal(target: { projectId: string }): void {
   if (pending && pending.projectId === target.projectId) {
     pending = null;
   }

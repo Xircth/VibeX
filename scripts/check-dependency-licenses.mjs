@@ -5,6 +5,7 @@ const ALLOWED_LICENSES = new Set([
   "0BSD",
   "Apache-2.0",
   "apache-2.0",
+  "BSD",
   "BSD-1-Clause",
   "BSD-2-Clause",
   "BSD-3-Clause",

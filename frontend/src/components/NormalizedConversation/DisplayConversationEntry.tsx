@@ -16,7 +16,6 @@ import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
 
-
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
 
@@ -37,10 +36,7 @@ import {
   splitLeadingTransportNotice,
   type FileEditAction,
 } from './conversation-entry-utils';
-import {
-  CompactNoticeEntry,
-  PlainNoticeEntry,
-} from './MessageCard';
+import { CompactNoticeEntry, PlainNoticeEntry } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
 import {
   ToolCallCard,

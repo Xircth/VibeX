@@ -266,8 +266,9 @@ mod windows_jumplist {
                     CoInitializeEx,
                 },
                 UI::Shell::{
+                    Common::{IObjectArray, IObjectCollection},
                     DestinationList, EnumerableObjectCollection, ICustomDestinationList,
-                    IObjectArray, IObjectCollection, IShellLinkW, ShellLink,
+                    IShellLinkW, ShellLink,
                 },
             },
             core::Interface,

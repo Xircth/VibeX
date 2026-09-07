@@ -402,7 +402,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         const domNode = editor.getDomNode();
         if (domNode) {
           const handlePaste = (event: ClipboardEvent) => {
-            const files = extractImageFilesFromClipboardData(event.clipboardData);
+            const files = extractImageFilesFromClipboardData(
+              event.clipboardData
+            );
             if (files.length === 0) return;
             // Only handled in the markdown source editor for the current file.
             const assetDir = markdownBasePathRef.current;
@@ -444,15 +446,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         editor.focus();
       }
     },
-    [
-      applyReadRange,
-      isMd,
-      location,
-      queryClient,
-      resolvedFilePath,
-      saveFile,
-      t,
-    ]
+    [applyReadRange, isMd, location, queryClient, resolvedFilePath, saveFile, t]
   );
 
   useEffect(() => {

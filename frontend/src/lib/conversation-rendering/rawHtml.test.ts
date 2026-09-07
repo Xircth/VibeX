@@ -5,9 +5,7 @@ const HTML = (index: number) => `HTML${index}`;
 
 describe('protectRawHtml', () => {
   it('captures a balanced allowlisted element as one placeholder', () => {
-    const { text, html } = protectRawHtml(
-      'x <div class="a">hi</div> y'
-    );
+    const { text, html } = protectRawHtml('x <div class="a">hi</div> y');
 
     expect(text).toBe(`x ${HTML(0)} y`);
     expect(html).toEqual([{ html: '<div class="a">hi</div>', block: true }]);
@@ -65,7 +63,8 @@ describe('protectRawHtml', () => {
   });
 
   it('leaves conversation pseudo-tags and scripts literal', () => {
-    const input = '<system-reminder>do x</system-reminder>\n<result>y</result>\n<script>alert(1)</script>';
+    const input =
+      '<system-reminder>do x</system-reminder>\n<result>y</result>\n<script>alert(1)</script>';
     expect(protectRawHtml(input)).toEqual({ text: input, html: [] });
   });
 

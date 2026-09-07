@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import type { AgentManagementView } from 'shared/types';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
@@ -156,7 +157,9 @@ function renderForm(
   });
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </MemoryRouter>
     );
   }
   const form = (
@@ -972,28 +975,30 @@ describe('SessionCreationForm git initialization status', () => {
       defaultOptions: { queries: { retry: false } },
     });
     render(
-      <QueryClientProvider client={client}>
-        <SessionCreationForm
-          title="sessionCreation.title"
-          gitInitIncomplete
-          mode="new_workspace"
-          onModeChange={() => {}}
-          workspaceBranchOptions={[]}
-          selectedWorkspaceValue=""
-          onSelectedWorkspaceValueChange={() => {}}
-          sessionName=""
-          onSessionNameChange={() => {}}
-          profiles={{}}
-          selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
-          onSelectedExecutorProfileChange={() => {}}
-          repoBranchConfigs={[]}
-          onRepoBranchChange={() => {}}
-          isLoadingBranches={false}
-          canSubmit={false}
-          isSubmitting={false}
-          onSubmit={() => {}}
-        />
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <SessionCreationForm
+            title="sessionCreation.title"
+            gitInitIncomplete
+            mode="new_workspace"
+            onModeChange={() => {}}
+            workspaceBranchOptions={[]}
+            selectedWorkspaceValue=""
+            onSelectedWorkspaceValueChange={() => {}}
+            sessionName=""
+            onSessionNameChange={() => {}}
+            profiles={{}}
+            selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
+            onSelectedExecutorProfileChange={() => {}}
+            repoBranchConfigs={[]}
+            onRepoBranchChange={() => {}}
+            isLoadingBranches={false}
+            canSubmit={false}
+            isSubmitting={false}
+            onSubmit={() => {}}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
 
     expect(await screen.findByText('sessionCreation.title')).toBeVisible();
@@ -1010,28 +1015,30 @@ describe('SessionCreationForm git initialization status', () => {
       defaultOptions: { queries: { retry: false } },
     });
     render(
-      <QueryClientProvider client={client}>
-        <SessionCreationForm
-          title="sessionCreation.title"
-          gitInitIncomplete={false}
-          mode="new_workspace"
-          onModeChange={() => {}}
-          workspaceBranchOptions={[]}
-          selectedWorkspaceValue=""
-          onSelectedWorkspaceValueChange={() => {}}
-          sessionName=""
-          onSessionNameChange={() => {}}
-          profiles={{}}
-          selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
-          onSelectedExecutorProfileChange={() => {}}
-          repoBranchConfigs={[]}
-          onRepoBranchChange={() => {}}
-          isLoadingBranches={false}
-          canSubmit={true}
-          isSubmitting={false}
-          onSubmit={() => {}}
-        />
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <SessionCreationForm
+            title="sessionCreation.title"
+            gitInitIncomplete={false}
+            mode="new_workspace"
+            onModeChange={() => {}}
+            workspaceBranchOptions={[]}
+            selectedWorkspaceValue=""
+            onSelectedWorkspaceValueChange={() => {}}
+            sessionName=""
+            onSessionNameChange={() => {}}
+            profiles={{}}
+            selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
+            onSelectedExecutorProfileChange={() => {}}
+            repoBranchConfigs={[]}
+            onRepoBranchChange={() => {}}
+            isLoadingBranches={false}
+            canSubmit={true}
+            isSubmitting={false}
+            onSubmit={() => {}}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
 
     expect(await screen.findByText('sessionCreation.title')).toBeVisible();

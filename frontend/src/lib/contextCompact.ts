@@ -77,5 +77,3 @@ export function getContextCompactStatusText(
 
   return contextCompactStatusLabel('success');
 }
-
-

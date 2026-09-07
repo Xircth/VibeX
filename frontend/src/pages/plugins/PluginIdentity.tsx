@@ -20,9 +20,7 @@ export function PluginIdentityMeta({
 }) {
   const { t } = useTranslation('settings');
   const source = pluginInstallSource(plugin);
-  const digest = plugin.packageDigest
-    ? plugin.packageDigest.slice(0, 8)
-    : null;
+  const digest = plugin.packageDigest ? plugin.packageDigest.slice(0, 8) : null;
 
   return (
     <div

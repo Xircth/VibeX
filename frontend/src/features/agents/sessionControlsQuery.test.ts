@@ -72,9 +72,9 @@ describe('session controls query cache', () => {
       controls: withEffort,
     });
 
-    expect(
-      client.getQueryData(sessionControlsSchemaQueryKey('codex'))
-    ).toEqual(withEffort);
+    expect(client.getQueryData(sessionControlsSchemaQueryKey('codex'))).toEqual(
+      withEffort
+    );
     expect(
       client.getQueryData(sessionControlsSchemaQueryKey('claude_code'))
     ).toBeUndefined();

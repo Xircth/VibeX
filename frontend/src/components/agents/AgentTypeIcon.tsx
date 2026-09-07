@@ -355,7 +355,6 @@ const HermesMonoIcon = memo(function HermesMonoIcon({
   );
 });
 
-
 const AntigravityMonoIcon = memo(function AntigravityMonoIcon({
   size = '1em',
 }: IconProps) {

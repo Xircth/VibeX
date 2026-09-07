@@ -13,7 +13,10 @@ use deployment::Deployment;
 use executors::actions::script::ScriptContext;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use services::services::{container_actions, settings_store::{read_section, write_section}};
+use services::services::{
+    container_actions,
+    settings_store::{read_section, write_section},
+};
 use tokio::time::timeout;
 use uuid::Uuid;
 

@@ -89,13 +89,12 @@ export async function insertPastedImagesAsMarkdown({
   }
 
   const text = insertions.join('\n');
-  const range =
-    editor.getSelection() ?? {
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: 1,
-      endColumn: 1,
-    };
+  const range = editor.getSelection() ?? {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber: 1,
+    endColumn: 1,
+  };
   editor.executeEdits('vibex-paste-image', [
     { range, text, forceMoveMarkers: true },
   ]);

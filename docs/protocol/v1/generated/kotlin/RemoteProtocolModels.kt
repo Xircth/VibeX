@@ -222,6 +222,7 @@ data class RemoteEvent(
 data class CreatePairingRequest(
     val preset: JsonValue? = null,
     val requested_scopes: List<String> = emptyList(),
+    val ttl_seconds: Long? = null,
 )
 
 enum class DevicePermissionPreset { WORKSTATION, COMPANION }

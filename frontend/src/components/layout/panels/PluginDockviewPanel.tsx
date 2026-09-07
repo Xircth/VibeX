@@ -1,9 +1,7 @@
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
-import {
-  usePluginHostContributions,
-} from '@/hooks/usePluginHostContributions';
+import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 
 export default function PluginDockviewPanel(props: IDockviewPanelProps) {

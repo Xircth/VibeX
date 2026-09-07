@@ -78,8 +78,7 @@ export function localProvisionerSurfaces(
           typeof metadata.provisionKind === 'string'
             ? metadata.provisionKind
             : null,
-        handler:
-          typeof metadata.handler === 'string' ? metadata.handler : null,
+        handler: typeof metadata.handler === 'string' ? metadata.handler : null,
         timeoutSeconds:
           Number.isInteger(timeout) && timeout >= 5 && timeout <= 600
             ? timeout

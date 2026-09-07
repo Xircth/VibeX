@@ -53,7 +53,11 @@ function isNeedsToken(error: unknown): boolean {
   return getErrorMessage(error).includes('needs_token');
 }
 
-function connectErrorMessage(error: unknown, failed: string, loginRejected: string): string {
+function connectErrorMessage(
+  error: unknown,
+  failed: string,
+  loginRejected: string
+): string {
   const message = getErrorMessage(error);
   if (/permission denied/i.test(message)) return loginRejected;
   const cleaned = message
@@ -111,9 +115,7 @@ function SavedHostFacts({ profile }: { profile: HostClientProfile }) {
           {profile.last_connected_at ? (
             <div>
               <dt>{t('webService.lastConnectedLabel')}</dt>
-              <dd>
-                {new Date(profile.last_connected_at).toLocaleString()}
-              </dd>
+              <dd>{new Date(profile.last_connected_at).toLocaleString()}</dd>
             </div>
           ) : null}
         </dl>

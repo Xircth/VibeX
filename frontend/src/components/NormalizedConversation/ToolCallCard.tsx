@@ -11,10 +11,7 @@ import { CommandToolCard } from './tools/CommandToolCard';
 import { FileToolCard } from './tools/FileToolCard';
 import { GenericToolCard } from './tools/GenericToolCard';
 import { SearchToolCard } from './tools/SearchToolCard';
-import {
-  ListDirToolCard,
-  isListDirToolEntry,
-} from './tools/ListDirToolCard';
+import { ListDirToolCard, isListDirToolEntry } from './tools/ListDirToolCard';
 import {
   AskQuestionResultCard,
   isAskQuestionToolEntry,

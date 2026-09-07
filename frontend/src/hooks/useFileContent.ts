@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  fileTreeApi,
-  type BinaryAssetResponse,
-} from '@/lib/api';
+import { fileTreeApi, type BinaryAssetResponse } from '@/lib/api';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 
 export const fileContentKeys = {

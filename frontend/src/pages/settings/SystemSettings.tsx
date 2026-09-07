@@ -638,218 +638,224 @@ export function SystemSettings() {
 
         {localDesktopHost ? (
           <>
-        <SettingsSection
-          icon={Gauge}
-          title={t('system.renderingTitle')}
-          description={t('system.renderingDescription')}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label>{t('system.accelerationMode')}</Label>
-              <p className="settings-row__description">
-                {t('system.accelerationModeDesc')}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Select
-                value={renderingDraft.acceleration_mode}
-                onValueChange={(
-                  value: SystemRenderingSettings['acceleration_mode']
-                ) =>
-                  setRenderingDraft({
-                    acceleration_mode: value,
-                  })
-                }
-                disabled={renderingLoading || renderingSaving}
-              >
-                <SelectTrigger className="!w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="auto">
-                    {t('system.accelerationAuto')}
-                  </SelectItem>
-                  <SelectItem value="force_gpu">
-                    {t('system.accelerationForceGpu')}
-                  </SelectItem>
-                  <SelectItem value="disable_gpu">
-                    {t('system.accelerationDisableGpu')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                className="shrink-0"
-                onClick={() => void handleSaveRendering()}
-                disabled={
-                  renderingLoading || renderingSaving || !renderingDirty
-                }
-              >
-                {renderingSaving ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3.5 w-3.5" />
-                )}
-                {t('common:save')}
-              </Button>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Archive}
-          title={t('system.backupTitle')}
-          description={t('system.backupDescription')}
-        >
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-sm">{t('system.exportBackup')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={backupPath}
-                  placeholder="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
-                  onChange={(event) => setBackupPath(event.target.value)}
-                  disabled={backupBusy}
-                />
-                <Button
-                  className="shrink-0"
-                  onClick={() => void handleCreateBackup()}
-                  disabled={backupBusy}
-                >
-                  {backupBusy ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Download className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {t('system.export')}
-                </Button>
-              </div>
-              <Input
-                type="password"
-                value={backupPassphrase}
-                placeholder={t('system.encryptPassphrasePlaceholder')}
-                onChange={(event) => setBackupPassphrase(event.target.value)}
-                disabled={backupBusy}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-sm">{t('system.restoreBackup')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={restorePath}
-                  placeholder={t('system.restorePathPlaceholder')}
-                  onChange={(event) => setRestorePath(event.target.value)}
-                  disabled={restoreBusy}
-                />
-                <Button
-                  variant="outline"
-                  className="shrink-0"
-                  onClick={() => void handleInspectBackup()}
-                  disabled={restoreBusy}
-                >
-                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                  {t('system.preview')}
-                </Button>
-                <Button
-                  className="shrink-0"
-                  onClick={handleRestoreBackup}
-                  disabled={
-                    restoreBusy ||
-                    !backupPreview ||
-                    backupPreviewPath !== restorePath.trim()
-                  }
-                >
-                  {restoreBusy ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Archive className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {t('system.restore')}
-                </Button>
-              </div>
-              <Input
-                type="password"
-                value={restorePassphrase}
-                placeholder={t('system.decryptPassphrasePlaceholder')}
-                onChange={(event) => setRestorePassphrase(event.target.value)}
-                disabled={restoreBusy}
-              />
-            </div>
-
-            {backupPreview ? (
-              <div className="settings-inline-group p-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold">
-                      {t('system.backupPreviewTitle')}
-                    </div>
-                    <div className="settings-row__description">
-                      {backupPreviewPath}
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>
-                      {t('system.fileCount', {
-                        count: backupPreview.manifest.entry_count,
-                      })}
-                    </div>
-                    <div>{formatBytes(backupPreview.manifest.total_bytes)}</div>
-                  </div>
+            <SettingsSection
+              icon={Gauge}
+              title={t('system.renderingTitle')}
+              description={t('system.renderingDescription')}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label>{t('system.accelerationMode')}</Label>
+                  <p className="settings-row__description">
+                    {t('system.accelerationModeDesc')}
+                  </p>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <div>
-                    {t('system.formatLabel', {
-                      format: backupPreview.manifest.format,
-                    })}
-                  </div>
-                  <div>
-                    {t('system.versionLabel', {
-                      version: backupPreview.manifest.version,
-                    })}
-                  </div>
-                  <div>
-                    {t('system.appLabel', {
-                      version: backupPreview.manifest.app_version,
-                    })}
-                  </div>
-                  <div>
-                    {t('system.createdLabel', {
-                      date: new Date(
-                        backupPreview.manifest.created_at
-                      ).toLocaleString(),
-                    })}
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={renderingDraft.acceleration_mode}
+                    onValueChange={(
+                      value: SystemRenderingSettings['acceleration_mode']
+                    ) =>
+                      setRenderingDraft({
+                        acceleration_mode: value,
+                      })
+                    }
+                    disabled={renderingLoading || renderingSaving}
+                  >
+                    <SelectTrigger className="!w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="auto">
+                        {t('system.accelerationAuto')}
+                      </SelectItem>
+                      <SelectItem value="force_gpu">
+                        {t('system.accelerationForceGpu')}
+                      </SelectItem>
+                      <SelectItem value="disable_gpu">
+                        {t('system.accelerationDisableGpu')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    className="shrink-0"
+                    onClick={() => void handleSaveRendering()}
+                    disabled={
+                      renderingLoading || renderingSaving || !renderingDirty
+                    }
+                  >
+                    {renderingSaving ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    {t('common:save')}
+                  </Button>
                 </div>
-                <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
-                  {backupPreview.entries.slice(0, 8).map((entry) => (
-                    <div
-                      key={entry.path}
-                      className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs"
+              </div>
+            </SettingsSection>
+
+            <SettingsSection
+              icon={Archive}
+              title={t('system.backupTitle')}
+              description={t('system.backupDescription')}
+            >
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-sm">{t('system.exportBackup')}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={backupPath}
+                      placeholder="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
+                      onChange={(event) => setBackupPath(event.target.value)}
+                      disabled={backupBusy}
+                    />
+                    <Button
+                      className="shrink-0"
+                      onClick={() => void handleCreateBackup()}
+                      disabled={backupBusy}
                     >
-                      <span className="min-w-0 truncate">{entry.path}</span>
-                      <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                        {previewIsRestore && entry.already_exists ? (
-                          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-xs text-amber-600 dark:text-amber-300">
-                            {t('system.willOverwrite')}
-                          </span>
-                        ) : null}
-                        {formatBytes(entry.size_bytes)}
-                      </span>
-                    </div>
-                  ))}
-                  {backupPreview.entries.length > 8 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      {t('system.moreEntries', {
-                        count: backupPreview.entries.length - 8,
-                      })}
-                    </div>
-                  ) : null}
+                      {backupBusy ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {t('system.export')}
+                    </Button>
+                  </div>
+                  <Input
+                    type="password"
+                    value={backupPassphrase}
+                    placeholder={t('system.encryptPassphrasePlaceholder')}
+                    onChange={(event) =>
+                      setBackupPassphrase(event.target.value)
+                    }
+                    disabled={backupBusy}
+                  />
                 </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">{t('system.restoreBackup')}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={restorePath}
+                      placeholder={t('system.restorePathPlaceholder')}
+                      onChange={(event) => setRestorePath(event.target.value)}
+                      disabled={restoreBusy}
+                    />
+                    <Button
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => void handleInspectBackup()}
+                      disabled={restoreBusy}
+                    >
+                      <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                      {t('system.preview')}
+                    </Button>
+                    <Button
+                      className="shrink-0"
+                      onClick={handleRestoreBackup}
+                      disabled={
+                        restoreBusy ||
+                        !backupPreview ||
+                        backupPreviewPath !== restorePath.trim()
+                      }
+                    >
+                      {restoreBusy ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Archive className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {t('system.restore')}
+                    </Button>
+                  </div>
+                  <Input
+                    type="password"
+                    value={restorePassphrase}
+                    placeholder={t('system.decryptPassphrasePlaceholder')}
+                    onChange={(event) =>
+                      setRestorePassphrase(event.target.value)
+                    }
+                    disabled={restoreBusy}
+                  />
+                </div>
+
+                {backupPreview ? (
+                  <div className="settings-inline-group p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">
+                          {t('system.backupPreviewTitle')}
+                        </div>
+                        <div className="settings-row__description">
+                          {backupPreviewPath}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        <div>
+                          {t('system.fileCount', {
+                            count: backupPreview.manifest.entry_count,
+                          })}
+                        </div>
+                        <div>
+                          {formatBytes(backupPreview.manifest.total_bytes)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div>
+                        {t('system.formatLabel', {
+                          format: backupPreview.manifest.format,
+                        })}
+                      </div>
+                      <div>
+                        {t('system.versionLabel', {
+                          version: backupPreview.manifest.version,
+                        })}
+                      </div>
+                      <div>
+                        {t('system.appLabel', {
+                          version: backupPreview.manifest.app_version,
+                        })}
+                      </div>
+                      <div>
+                        {t('system.createdLabel', {
+                          date: new Date(
+                            backupPreview.manifest.created_at
+                          ).toLocaleString(),
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
+                      {backupPreview.entries.slice(0, 8).map((entry) => (
+                        <div
+                          key={entry.path}
+                          className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs"
+                        >
+                          <span className="min-w-0 truncate">{entry.path}</span>
+                          <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                            {previewIsRestore && entry.already_exists ? (
+                              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-xs text-amber-600 dark:text-amber-300">
+                                {t('system.willOverwrite')}
+                              </span>
+                            ) : null}
+                            {formatBytes(entry.size_bytes)}
+                          </span>
+                        </div>
+                      ))}
+                      {backupPreview.entries.length > 8 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          {t('system.moreEntries', {
+                            count: backupPreview.entries.length - 8,
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                <ConversationBundlePanel />
               </div>
-            ) : null}
-            <ConversationBundlePanel />
-          </div>
-        </SettingsSection>
+            </SettingsSection>
           </>
         ) : null}
 

@@ -28,7 +28,11 @@ describe('resolveWorkflowSourceRevision', () => {
     const api = createWorkflowSourceApi(transport);
 
     await expect(
-      resolveWorkflowSourceRevision(api, '~/workflow.vibex-workflow.json', 'rev-1')
+      resolveWorkflowSourceRevision(
+        api,
+        '~/workflow.vibex-workflow.json',
+        'rev-1'
+      )
     ).resolves.toBe('rev-1');
     expect(calls).toHaveLength(0);
   });

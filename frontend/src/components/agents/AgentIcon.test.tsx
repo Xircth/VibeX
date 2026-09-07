@@ -53,7 +53,11 @@ describe('AgentIcon', () => {
   it.each([
     ['claude-code', 'Claude Code', '/agents/claude-light.svg'],
     ['kimi-code', 'Kimi Code', '/agents/kimi.svg'],
-    ['deepseek-harness', 'DeepSeek Harness', '/agents/deepseek-harness-light.svg'],
+    [
+      'deepseek-harness',
+      'DeepSeek Harness',
+      '/agents/deepseek-harness-light.svg',
+    ],
     ['gemini', 'Google Antigravity', '/agents/antigravity.svg'],
   ])('normalizes %s to built-in artwork', (agent, name, src) => {
     render(<AgentIcon agent={agent} />);

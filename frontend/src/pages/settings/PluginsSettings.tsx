@@ -166,10 +166,6 @@ function fileExtensions(items: Array<{ metadata: unknown }>) {
   ];
 }
 
-function runtimeDisplayName(runtimeId: string) {
-  return runtimeId.toLowerCase() === 'officecli' ? 'OfficeCLI' : runtimeId;
-}
-
 function AgentNativeResourceSection({
   icon,
   title,
@@ -1238,11 +1234,7 @@ export function PluginsSettings({
   };
 
   const runCliImport = async () => {
-    if (
-      !canUseCliImport ||
-      importEcosystem === 'vibex' ||
-      !cliCommand.trim()
-    ) {
+    if (!canUseCliImport || importEcosystem === 'vibex' || !cliCommand.trim()) {
       return;
     }
     setCliImportStatus('running');

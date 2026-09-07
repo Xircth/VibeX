@@ -159,14 +159,16 @@ export const agentsApi = {
     ) => void
   ): Promise<import('shared/types').LocalHistoryScanPage> => {
     const unlisten = onProgress
-      ? await backendListen<
-          import('shared/types').LocalHistoryScanProgress
-        >('local-history-scan-progress', onProgress)
+      ? await backendListen<import('shared/types').LocalHistoryScanProgress>(
+          'local-history-scan-progress',
+          onProgress
+        )
       : () => undefined;
     try {
-      return await backendCall<
-        import('shared/types').LocalHistoryScanPage
-      >('agent_scan_local_history', { agentId });
+      return await backendCall<import('shared/types').LocalHistoryScanPage>(
+        'agent_scan_local_history',
+        { agentId }
+      );
     } finally {
       unlisten();
     }

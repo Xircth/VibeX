@@ -42,9 +42,7 @@ describe('PluginsPage', () => {
     expect(
       screen.queryByText('添加插件后，它会显示在这里。')
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: '插件市场' })
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '插件市场' })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '返回 Agent 设置' })
     ).not.toBeInTheDocument();

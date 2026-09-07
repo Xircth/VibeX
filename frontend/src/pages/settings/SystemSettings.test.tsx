@@ -266,7 +266,7 @@ describe('SystemSettings', () => {
       await screen.findByText(/JSON 设置源|JSON source/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByText('/Users/test/.vibex/settings.json')
+      await screen.findByText('/Users/test/.vibex/settings.json')
     ).toBeInTheDocument();
   });
 

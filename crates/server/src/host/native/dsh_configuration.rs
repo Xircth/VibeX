@@ -93,7 +93,23 @@ pub fn load_providers(
 ) -> Result<DshProvidersView, String> {
     let settings = read_yaml_mapping(&paths.settings)?;
     let credentials = read_yaml_mapping(&paths.credentials)?;
-    let mut providers = vec![official_provider(&settings, &credentials)];
+    Ok(providers_from_maps(
+        paths,
+        &settings,
+        &credentials,
+        default_provider,
+        default_model,
+    ))
+}
+
+fn providers_from_maps(
+    paths: &DshPaths,
+    settings: &serde_yaml::Mapping,
+    credentials: &serde_yaml::Mapping,
+    default_provider: Option<&str>,
+    default_model: Option<&str>,
+) -> DshProvidersView {
+    let mut providers = vec![official_provider(settings, credentials)];
     let mut seen = HashSet::from([OFFICIAL_PROVIDER_ID.to_string()]);
     if let Some(configured) = settings
         .get(Value::String("llm-pi-ai".into()))
@@ -117,7 +133,7 @@ pub fn load_providers(
             else {
                 continue;
             };
-            providers.push(project_pi_provider(&id, entry, &credentials));
+            providers.push(project_pi_provider(&id, entry, credentials));
         }
     }
 
@@ -138,14 +154,14 @@ pub fn load_providers(
         })
         .unwrap_or_else(|| DEFAULT_OFFICIAL_MODEL.to_string());
 
-    Ok(DshProvidersView {
+    DshProvidersView {
         settings_path: paths.settings.display().to_string(),
         credentials_path: paths.credentials.display().to_string(),
         default_provider,
         default_model,
         providers,
         catalog: catalog(),
-    })
+    }
 }
 
 pub fn save_provider(
@@ -212,7 +228,13 @@ pub fn save_provider(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     Ok((
-        load_providers(paths, default_provider, default_model)?,
+        providers_from_maps(
+            paths,
+            &settings,
+            &credentials,
+            default_provider,
+            default_model,
+        ),
         mutations,
     ))
 }
@@ -237,7 +259,10 @@ pub fn delete_provider(
         yaml_mutation(&paths.settings, settings_original, &settings, false)?,
         yaml_mutation(&paths.credentials, credentials_original, &credentials, true)?,
     ];
-    Ok((load_providers(paths, None, None)?, mutations))
+    Ok((
+        providers_from_maps(paths, &settings, &credentials, None, None),
+        mutations,
+    ))
 }
 
 pub async fn discover_models(

@@ -567,7 +567,9 @@ mod tests {
         let second = features.feedback(&scope).await;
         assert_eq!(first["count"], 1);
         assert_eq!(second["count"], 1);
-        features.commit_feedback(&scope, &[note.id.clone()]).await;
+        features
+            .commit_feedback(&scope, std::slice::from_ref(&note.id))
+            .await;
         assert_eq!(features.feedback(&scope).await["count"], 0);
         assert_eq!(
             features.list_feedback(scope.parent_conversation_id).await[0].status,

@@ -386,7 +386,7 @@ impl ServerApplicationDomains {
             {
                 Ok(Some(mut stream)) => {
                     while let Some(patch) = stream.next().await {
-                        host_events.emit(&channel, &LogMsg::JsonPatch(patch));
+                        host_events.emit(&channel, LogMsg::JsonPatch(patch));
                     }
                     host_events.emit(&channel, &LogMsg::Finished);
                 }

@@ -276,16 +276,16 @@ impl ConversationAgentEventRecorder {
             let terminal = is_terminal_conversation_event(&durable.event);
             batch.events.push(durable);
 
-            if terminal && let Some(turn_id) = mapped.turn_id {
-                if let Some(file_event) = finalize_checkpoint_file_changes(
+            if terminal
+                && let Some(turn_id) = mapped.turn_id
+                && let Some(file_event) = finalize_checkpoint_file_changes(
                     self.deployment.as_ref(),
                     mapped.conversation_id,
                     turn_id,
                 )
                 .await?
-                {
-                    batch.events.push(file_event);
-                }
+            {
+                batch.events.push(file_event);
             }
 
             // Publish only after the terminal checkpoint append. The desktop

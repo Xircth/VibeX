@@ -1100,9 +1100,8 @@ impl ServerApplicationDomains {
             &[] as &[HistoryPathDestination],
             Vec::<LocalHistoryDestination>::new(),
         ))
-        .map(|page| {
+        .inspect(|_page| {
             let _ = agent_id;
-            page
         })
     }
 
@@ -1492,10 +1491,8 @@ impl ServerApplicationDomains {
                 false,
             ),
         };
-        if should_save {
-            if let Some(snapshot) = cache.snapshot() {
-                store.save(snapshot).await.map_err(internal_error)?;
-            }
+        if should_save && let Some(snapshot) = cache.snapshot() {
+            store.save(snapshot).await.map_err(internal_error)?;
         }
         Ok((freshness, refresh_error))
     }
@@ -1906,12 +1903,12 @@ impl ServerApplicationDomains {
         let status = weixin_check_qrcode(&args.qrcode)
             .await
             .map_err(internal_error)?;
-        if status.status == "confirmed" {
-            if let Some(token) = status.bot_token.as_deref() {
-                save_channel_token(&args.channel_id, token)
-                    .await
-                    .map_err(internal_error)?;
-            }
+        if status.status == "confirmed"
+            && let Some(token) = status.bot_token.as_deref()
+        {
+            save_channel_token(&args.channel_id, token)
+                .await
+                .map_err(internal_error)?;
         }
         serialize(json!({ "status": status.status }))
     }

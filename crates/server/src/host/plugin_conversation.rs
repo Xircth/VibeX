@@ -185,14 +185,12 @@ impl HostPluginConversationHost {
         .fetch_optional(&self.pool)
         .await
         .map_err(store_failed)?
-        {
-            if Workspace::find_by_id(&self.pool, existing)
+            && Workspace::find_by_id(&self.pool, existing)
                 .await
                 .map_err(store_failed)?
                 .is_some()
-            {
-                return Ok(existing);
-            }
+        {
+            return Ok(existing);
         }
 
         let root = self.scratch_root.join(plugin_id);

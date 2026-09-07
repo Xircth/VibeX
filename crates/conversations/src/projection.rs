@@ -1905,26 +1905,26 @@ impl ProjectionFold {
                     });
                 }
             }
-            ConversationEvent::TurnBlocked { reason } => {
-                if let agents::conversation::TurnBlockedReason::Authentication { message } = reason
-                {
-                    side_rows.push(side_row(
-                        record.sequence,
-                        ConversationTimelineRow::TurnError {
-                            error: ConversationErrorView {
-                                turn_id: record.turn_id,
-                                error: ConversationError {
-                                    message,
-                                    code: Some("auth_required".into()),
-                                    raw: None,
-                                    kind: Default::default(),
-                                    plan_usage: None,
-                                },
+            ConversationEvent::TurnBlocked {
+                reason: agents::conversation::TurnBlockedReason::Authentication { message },
+            } => {
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::TurnError {
+                        error: ConversationErrorView {
+                            turn_id: record.turn_id,
+                            error: ConversationError {
+                                message,
+                                code: Some("auth_required".into()),
+                                raw: None,
+                                kind: Default::default(),
+                                plan_usage: None,
                             },
                         },
-                    ));
-                }
+                    },
+                ));
             }
+            ConversationEvent::TurnBlocked { .. } => {}
             ConversationEvent::ConversationSteering { event } => match event {
                 agents::ConversationSteeringEvent::Requested {
                     steering_id,
@@ -2632,13 +2632,13 @@ mod tests {
         AcpCapabilitySnapshot, AgentId, AgentPermissionId, AgentPermissionOption,
         AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
-            ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
-            ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
-            ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
-            ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
-            ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
-            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
-            ConversationUsage, SessionRecoveryStrategy,
+            AgentPromptCapabilities, ConversationArtifactReference, ConversationDelegation,
+            ConversationDelegationResult, ConversationError, ConversationFeedbackRequest,
+            ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
+            ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
+            ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
+            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
+            ConversationToolCallPatch, ConversationUsage, SessionRecoveryStrategy,
         },
     };
     use db::models::{
@@ -2871,16 +2871,21 @@ mod tests {
         .await
         .expect("create conservative binding");
 
-        let mut capabilities = AcpCapabilitySnapshot::default();
-        capabilities.load_session = false;
-        capabilities.resume_session = true;
-        capabilities.close_session = false;
-        capabilities.terminal = true;
-        capabilities.additional_directories = true;
-        capabilities.prompt.text = true;
-        capabilities.prompt.image = false;
-        capabilities.prompt.resource_link = true;
-        capabilities.mcp_stdio = true;
+        let capabilities = AcpCapabilitySnapshot {
+            load_session: false,
+            resume_session: true,
+            close_session: false,
+            terminal: true,
+            additional_directories: true,
+            mcp_stdio: true,
+            prompt: AgentPromptCapabilities {
+                text: true,
+                image: false,
+                resource_link: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         append_event(
             &pool,

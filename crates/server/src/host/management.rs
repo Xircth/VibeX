@@ -1876,8 +1876,7 @@ pub(crate) async fn dispatch_environment_write(
         ));
     }
     for (name, value) in request.values {
-        validate_agent_environment_name(&name)
-            .map_err(|message| ApplicationError::bad_request(message))?;
+        validate_agent_environment_name(&name).map_err(ApplicationError::bad_request)?;
         match value {
             Some(value) => {
                 if value.len() > MAX_AGENT_ENVIRONMENT_VALUE_BYTES {

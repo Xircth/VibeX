@@ -771,18 +771,16 @@ pub async fn plugin_marketplace_listing(
         for root in roots {
             if let Ok(package) =
                 plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-            {
-                if package.id.as_str() == plugin_name
+                && (package.id.as_str() == plugin_name
                     || package.id.as_str() == format!("{owner}.{plugin_name}")
                     || listing.as_ref().is_some_and(|item| {
                         item.offline_plugin_id.as_deref() == Some(package.id.as_str())
-                    })
-                {
-                    let snapshot = listing
-                        .take()
-                        .unwrap_or_else(|| plugins::listing_from_package(&package, true));
-                    return Ok(plugins::detail_from_package(&package, snapshot));
-                }
+                    }))
+            {
+                let snapshot = listing
+                    .take()
+                    .unwrap_or_else(|| plugins::listing_from_package(&package, true));
+                return Ok(plugins::detail_from_package(&package, snapshot));
             }
         }
     }
@@ -1653,6 +1651,7 @@ pub async fn plugin_control_preview_import(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn plugin_control_import(
     app: AppHandle,
     state: State<'_, AppState>,

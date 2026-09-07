@@ -186,7 +186,7 @@ impl ProviderPresetHost for HostProviderPresetHost {
         let waiter = self.prompts.park(request_id.clone());
         self.events.emit(
             PROVIDER_BIND_CONFIRM_CHANNEL,
-            &json!({
+            json!({
                 "requestId": request_id,
                 "pluginId": plugin_id,
                 "pluginName": plugin_name,

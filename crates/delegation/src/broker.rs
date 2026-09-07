@@ -551,7 +551,7 @@ impl DelegationBroker {
             if let Some(done) = self.completed_report(&ack_call_id) {
                 return done;
             }
-            return running_report(&ack_call_id, Some(child_session_id), ack_agent);
+            running_report(&ack_call_id, Some(child_session_id), ack_agent)
         }
         #[cfg(not(test))]
         {
@@ -575,6 +575,7 @@ impl DelegationBroker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn finish_start_delegation(
         &self,
         req: DelegationRequest,

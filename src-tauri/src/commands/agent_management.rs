@@ -1376,13 +1376,13 @@ wire_api = "responses"
 
         let mut env = BTreeMap::new();
         bind_profile_runtime_executable(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
-        assert!(env.get("CLAUDE_CODE_EXECUTABLE").is_none());
+        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
 
         let exe = dir.path().join("codex.exe");
         std::fs::write(&exe, b"").unwrap();
         let mut env = BTreeMap::new();
         bind_profile_runtime_executable(&AgentId::parse("codex").unwrap(), &exe, &mut env);
-        assert!(env.get("CODEX_PATH").is_none());
+        assert!(!env.contains_key("CODEX_PATH"));
     }
 
     #[test]
@@ -7018,6 +7018,7 @@ async fn probe_installed_component_version(executable: &Path) -> Option<String> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn install_locked_plan(
     plan: &ResolvedInstallPlan,
     staging: &Path,
@@ -7088,7 +7089,7 @@ async fn install_locked_plan(
                         output
                     } else {
                         if let Some(log) = log {
-                            log.emit("Permission denied, retrying with user prefix...".to_string());
+                            log.emit("Permission denied, retrying with user prefix...");
                         }
                         user_env = user_env.with_npm_prefix(fallback);
                         prepare_user_environment(&user_env).await?;
@@ -9225,7 +9226,7 @@ pub(crate) async fn save_model_provider(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已更改")
         .await;
-    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
+    refresh_session_controls_after_native_model_change(state, &agent_id).await;
     Ok(result)
 }
 
@@ -9304,7 +9305,7 @@ pub(crate) async fn apply_model_provider_bind(
         .agent_runtime
         .mark_agent_sessions_config_stale(&agent_id, "Model Provider 绑定已更改")
         .await;
-    refresh_session_controls_after_native_model_change(&state, &agent_id).await;
+    refresh_session_controls_after_native_model_change(state, &agent_id).await;
     Ok(result)
 }
 

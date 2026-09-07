@@ -228,6 +228,7 @@ fn scan_tree_recursive(root: &Path) -> Result<DirectoryChildrenListing, Applicat
     let mut truncated = false;
     let repo = discover_repo(root);
 
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         root: &Path,
         dir: &Path,

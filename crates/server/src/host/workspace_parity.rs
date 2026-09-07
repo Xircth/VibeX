@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use agents::{
     AgentContentBlock, AgentId, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
@@ -1042,7 +1045,7 @@ fn branch_status_for_repo(
     git: &git::GitService,
     workspace: &Workspace,
     repo: &Repo,
-    worktree_path: &PathBuf,
+    worktree_path: &Path,
     target_branch: &str,
     repo_merges: Vec<Merge>,
 ) -> Result<BranchStatus, ApplicationError> {

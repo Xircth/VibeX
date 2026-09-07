@@ -96,7 +96,7 @@ pub fn load_providers(
     let mut providers = vec![official_provider(&settings, &credentials)];
     let mut seen = HashSet::from([OFFICIAL_PROVIDER_ID.to_string()]);
     if let Some(configured) = settings
-        .get(&Value::String("llm-pi-ai".into()))
+        .get(Value::String("llm-pi-ai".into()))
         .and_then(Value::as_mapping)
         .and_then(|section| section.get(Value::String("providers".into())))
         .and_then(Value::as_mapping)
@@ -228,10 +228,10 @@ pub fn delete_provider(
     let (mut settings, settings_original) = read_yaml_state(&paths.settings)?;
     let (mut credentials, credentials_original) = read_yaml_state(&paths.credentials)?;
     let removed_env = remove_pi_provider(&mut settings, &id);
-    if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV) {
-        if !credential_still_referenced(&settings, &env_name) {
-            credentials.remove(Value::String(env_name));
-        }
+    if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV)
+        && !credential_still_referenced(&settings, &env_name)
+    {
+        credentials.remove(Value::String(env_name));
     }
     let mutations = vec![
         yaml_mutation(&paths.settings, settings_original, &settings, false)?,
@@ -640,10 +640,10 @@ fn apply_pi_provider(
             Value::String("displayName".into()),
             Value::String(name.to_string()),
         );
-    } else if kind == DshProviderKind::Catalog {
-        if let Some(name) = catalog_name(id) {
-            entry.insert(Value::String("displayName".into()), Value::String(name));
-        }
+    } else if kind == DshProviderKind::Catalog
+        && let Some(name) = catalog_name(id)
+    {
+        entry.insert(Value::String("displayName".into()), Value::String(name));
     }
     if let Some(notes) = request
         .notes

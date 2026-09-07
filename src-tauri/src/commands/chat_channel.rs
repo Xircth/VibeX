@@ -347,10 +347,10 @@ fn merge_channel_config(kind: &str, existing: &Value, incoming: Value) -> Value 
             merged[key] = value.clone();
         }
     }
-    if incoming.get("mode").and_then(Value::as_str) == Some("wecom") {
-        if let Some(object) = merged.as_object_mut() {
-            object.remove("base_url");
-        }
+    if incoming.get("mode").and_then(Value::as_str) == Some("wecom")
+        && let Some(object) = merged.as_object_mut()
+    {
+        object.remove("base_url");
     }
     merged
 }

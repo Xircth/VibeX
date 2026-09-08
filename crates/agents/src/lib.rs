@@ -185,7 +185,8 @@ pub use manager::{
 };
 pub use metadata::{
     AgentCapability, agent_capabilities, claude_config_path, codex_auth_path, codex_config_path,
-    codex_home, opencode_auth_path, opencode_config_dir, opencode_config_path,
+    codex_home, opencode_auth_path, opencode_auth_path_from_env, opencode_cache_dir_from_env,
+    opencode_config_dir, opencode_config_dir_from_env, opencode_config_path,
 };
 pub use native_config::{
     ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFilePatch,

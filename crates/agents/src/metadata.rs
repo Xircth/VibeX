@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -86,6 +91,56 @@ pub fn opencode_auth_path() -> Option<std::path::PathBuf> {
     })
 }
 
+pub fn opencode_config_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    xdg_dir_from_env(env, "XDG_CONFIG_HOME")
+        .map(|root| root.join("opencode"))
+        .or_else(opencode_config_dir)
+}
+
+pub fn opencode_auth_path_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    xdg_dir_from_env(env, "XDG_DATA_HOME")
+        .map(|root| root.join("opencode").join("auth.json"))
+        .or_else(opencode_auth_path)
+}
+
+pub fn opencode_cache_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    xdg_dir_from_env(env, "XDG_CACHE_HOME")
+        .map(|root| root.join("opencode"))
+        .or_else(|| {
+            std::env::var("XDG_CACHE_HOME")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(|value| PathBuf::from(value).join("opencode"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".cache").join("opencode")))
+}
+
+fn xdg_dir_from_env(env: &HashMap<String, String>, key: &str) -> Option<PathBuf> {
+    let value = env
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())?;
+    Some(expand_home_prefix(dirs::home_dir().as_deref(), value))
+}
+
+fn expand_home_prefix(home: Option<&Path>, value: &str) -> PathBuf {
+    if value == "~" {
+        return home
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(value));
+    }
+    if let Some(relative) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+    {
+        return home
+            .map(|home| home.join(relative))
+            .unwrap_or_else(|| PathBuf::from(value));
+    }
+    PathBuf::from(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +151,30 @@ mod tests {
     #[test]
     fn reset_to_here_is_advertised_for_every_agent() {
         assert!(agent_capabilities().contains(&AgentCapability::ResetToHere));
+    }
+
+    #[test]
+    fn opencode_paths_prefer_saved_xdg_over_process_env() {
+        let env = HashMap::from([
+            ("XDG_DATA_HOME".to_string(), "/tmp/agent-data".to_string()),
+            (
+                "XDG_CONFIG_HOME".to_string(),
+                "/tmp/agent-config".to_string(),
+            ),
+            ("XDG_CACHE_HOME".to_string(), "/tmp/agent-cache".to_string()),
+        ]);
+
+        assert_eq!(
+            opencode_auth_path_from_env(&env).unwrap(),
+            PathBuf::from("/tmp/agent-data/opencode/auth.json")
+        );
+        assert_eq!(
+            opencode_config_dir_from_env(&env).unwrap(),
+            PathBuf::from("/tmp/agent-config/opencode")
+        );
+        assert_eq!(
+            opencode_cache_dir_from_env(&env).unwrap(),
+            PathBuf::from("/tmp/agent-cache/opencode")
+        );
     }
 }

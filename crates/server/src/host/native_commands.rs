@@ -1106,24 +1106,20 @@ struct OpenCodePaths {
 async fn opencode_paths(pool: &SqlitePool) -> Result<OpenCodePaths, ApplicationError> {
     let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
-    let home = require_home()?;
-    let cache_root = env
-        .get("XDG_CACHE_HOME")
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".cache"));
-    let config_dir =
-        agents::metadata::opencode_config_dir().ok_or_else(|| bad("用户目录不可用"))?;
+    let config_dir = agents::metadata::opencode_config_dir_from_env(&env)
+        .ok_or_else(|| bad("用户目录不可用"))?;
     let primary = config_dir.join("opencode.json");
     let legacy = config_dir.join("config.json");
     Ok(OpenCodePaths {
-        auth_path: agents::metadata::opencode_auth_path().ok_or_else(|| bad("用户目录不可用"))?,
+        auth_path: agents::metadata::opencode_auth_path_from_env(&env)
+            .ok_or_else(|| bad("用户目录不可用"))?,
         config_path: if !primary.is_file() && legacy.is_file() {
             legacy
         } else {
             primary
         },
-        cache_dir: cache_root.join("opencode"),
+        cache_dir: agents::metadata::opencode_cache_dir_from_env(&env)
+            .ok_or_else(|| bad("用户目录不可用"))?,
     })
 }
 

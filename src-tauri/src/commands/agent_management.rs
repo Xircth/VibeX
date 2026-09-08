@@ -11486,19 +11486,8 @@ struct OpenCodeNativePaths {
 fn opencode_provider_paths(
     environment: &HashMap<String, String>,
 ) -> Result<OpenCodeNativePaths, AgentManagementErrorView> {
-    let home = dirs::home_dir().ok_or_else(|| internal_error("用户目录不可用"))?;
-    let cache_root = environment
-        .get("XDG_CACHE_HOME")
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| expand_agent_home_path(&home, value))
-        .or_else(|| {
-            std::env::var_os("XDG_CACHE_HOME")
-                .filter(|value| !value.is_empty())
-                .map(|value| expand_agent_home_path(&home, &value.to_string_lossy()))
-        })
-        .unwrap_or_else(|| home.join(".cache"));
-    let config_dir =
-        agents::metadata::opencode_config_dir().ok_or_else(|| internal_error("用户目录不可用"))?;
+    let config_dir = agents::metadata::opencode_config_dir_from_env(environment)
+        .ok_or_else(|| internal_error("用户目录不可用"))?;
     let primary_config = config_dir.join("opencode.json");
     let legacy_config = config_dir.join("config.json");
     let config_path = if !primary_config.is_file() && legacy_config.is_file() {
@@ -11507,10 +11496,11 @@ fn opencode_provider_paths(
         primary_config
     };
     Ok(OpenCodeNativePaths {
-        auth_path: agents::metadata::opencode_auth_path()
+        auth_path: agents::metadata::opencode_auth_path_from_env(environment)
             .ok_or_else(|| internal_error("用户目录不可用"))?,
         config_path,
-        cache_dir: cache_root.join("opencode"),
+        cache_dir: agents::metadata::opencode_cache_dir_from_env(environment)
+            .ok_or_else(|| internal_error("用户目录不可用"))?,
     })
 }
 

@@ -579,8 +579,19 @@ mod tests {
             let agent_id = AgentId::parse(agent).unwrap();
             let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
             let options = project_auth_mode_options(&agent_id, policy.modes);
-            assert_eq!(options.len(), policy.modes.len());
-            for option in options {
+            for mode in policy.modes {
+                let visible = options.iter().any(|option| option.value == *mode);
+                if *mode == "custom" && matches!(agent, "claude_code" | "grok") {
+                    // Native persisted alias of official API / provider, not a fourth UI mode.
+                    assert!(!visible);
+                    continue;
+                }
+                assert!(
+                    visible,
+                    "{agent} mode {mode} should have a declared UI option"
+                );
+            }
+            for option in &options {
                 assert!(!option.label_key.ends_with("Unknown"));
                 assert!(!option.description_key.ends_with("Unknown"));
                 assert_eq!(option.credential_required, option.credential_env.is_some());

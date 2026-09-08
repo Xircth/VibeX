@@ -71,6 +71,12 @@ impl RingBuffer {
     }
 }
 
+fn emit_appended(rec: &LogRecord) {
+    if let Some(bus) = crate::host_bus::try_bus() {
+        bus.emit(LOG_APPENDED_EVENT, rec);
+    }
+}
+
 pub struct LogHub {
     seq: AtomicU64,
     buffer: Mutex<RingBuffer>,
@@ -109,7 +115,7 @@ impl LogHub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(rec.clone());
-        crate::host_bus::bus().emit(LOG_APPENDED_EVENT, &rec);
+        emit_appended(&rec);
     }
 
     pub fn snapshot(&self) -> Vec<LogRecord> {
@@ -152,6 +158,11 @@ mod tests {
         assert_eq!(snap.len(), LOG_BUFFER_MAX_COUNT);
         assert_eq!(snap.first().unwrap().seq, 10);
         assert_eq!(snap.last().unwrap().seq, n - 1);
+    }
+
+    #[test]
+    fn emit_appended_before_host_bus_install_is_a_noop() {
+        emit_appended(&rec(1, "startup"));
     }
 
     #[test]

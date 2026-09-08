@@ -8,9 +8,10 @@ pub fn install(bus: Arc<HostEventBus>) {
     let _ = DESKTOP_BUS.set(bus);
 }
 
+pub fn try_bus() -> Option<Arc<HostEventBus>> {
+    DESKTOP_BUS.get().cloned()
+}
+
 pub fn bus() -> Arc<HostEventBus> {
-    DESKTOP_BUS
-        .get()
-        .cloned()
-        .expect("desktop Host Event Bus is installed during AppState construction")
+    try_bus().expect("desktop Host Event Bus is installed during AppState construction")
 }

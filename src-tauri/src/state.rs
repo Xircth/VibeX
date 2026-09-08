@@ -59,6 +59,8 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(app_handle: tauri::AppHandle) -> Result<Self, deployment::DeploymentError> {
+        let events = std::sync::Arc::new(server::HostEventBus::new());
+        crate::host_bus::install(events.clone());
         let local_deployment = Arc::new(LocalDeployment::new().await?);
         let deployment: Arc<dyn Deployment> = local_deployment.clone();
         let pty = local_deployment.pty().clone();
@@ -80,8 +82,6 @@ impl AppState {
         let plugin_preview_host: Arc<dyn plugins::PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
-        let events = std::sync::Arc::new(server::HostEventBus::new());
-        crate::host_bus::install(events.clone());
         let bind_prompts = std::sync::Arc::new(plugins::ProviderBindPrompts::default());
         let provider_preset_host = std::sync::Arc::new(server::HostProviderPresetHost::new(
             pool.clone(),

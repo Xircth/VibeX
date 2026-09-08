@@ -719,14 +719,9 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(agent_ids.len(), 13);
-        assert!(agent_ids.iter().any(|agent_id| agent_id == "claude_code"));
-        assert!(agent_ids.iter().any(|agent_id| agent_id == "codex"));
-        assert!(agent_ids.iter().any(|agent_id| agent_id == "cursor"));
-        assert!(
-            agent_ids
-                .iter()
-                .any(|agent_id| agent_id == "deepseek_harness")
-        );
+        let expected: Vec<String> = api_types::AgentKind::built_in_bar_order()
+            .map(|kind| kind.as_str().to_string())
+            .collect();
+        assert_eq!(agent_ids, expected);
     }
 }

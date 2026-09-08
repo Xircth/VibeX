@@ -571,7 +571,10 @@ export function sessionCacheKey(target, password) {
 }
 
 export function secretKey(target) {
-  return `ssh:${target.user}@${target.host}:${target.port ?? 22}`;
+  const user = String(target.user ?? '').trim();
+  const host = String(target.host ?? '').trim();
+  const port = Number(target.port ?? 22) || 22;
+  return `ssh:${user}@${host}:${port}`;
 }
 
 export function nonce() {

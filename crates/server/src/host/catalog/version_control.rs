@@ -182,6 +182,7 @@ fn resolve_git_path(settings: &VersionControlCliSettings) -> PathBuf {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
+        .or_else(super::git_cli_install::find_managed_executable)
         .or_else(|| which::which("git").ok())
         .unwrap_or_else(|| PathBuf::from("git"))
 }
@@ -343,31 +344,27 @@ pub(super) async fn install_tools(args: Value) -> Result<Value, ApplicationError
     }
     let mut identity_configured = false;
     let mut error = None;
+    if let Err(install_error) = ensure_git_installed().await {
+        error = Some(install_error);
+    }
     let git = run_git_version(resolve_git_path(&load_settings().await?)).await;
     if git.installed
         && let Some(git_path) = git.path.as_deref().filter(|path| !path.is_empty())
     {
-        match run_hidden_command(
-            Path::new(git_path),
-            &["config", "--global", "user.name", user_name],
-        )
-        .await
+        match super::git_cli_install::configure_identity(Path::new(git_path), user_name, user_email)
+            .await
         {
-            Ok(_) => {
-                match run_hidden_command(
-                    Path::new(git_path),
-                    &["config", "--global", "user.email", user_email],
-                )
-                .await
-                {
-                    Ok(_) => identity_configured = true,
-                    Err(identity_error) => error = Some(identity_error.to_string()),
-                }
+            Ok(()) => identity_configured = true,
+            Err(identity_error) => {
+                error.get_or_insert(identity_error);
             }
-            Err(identity_error) => error = Some(identity_error.to_string()),
         }
-    } else {
-        error = Some("Git is not installed on this Host.".to_string());
+    }
+    if error.is_none()
+        && resolve_gh_path().await.is_none()
+        && let Err(install_error) = super::github_cli_install::install().await
+    {
+        error = Some(install_error.envelope().message.clone());
     }
     let github = github_status_for(DEFAULT_GITHUB_HOST.to_string()).await?;
     if error.is_none() && !github.gh_installed {
@@ -384,6 +381,24 @@ pub(super) async fn install_tools(args: Value) -> Result<Value, ApplicationError
         identity_configured,
         error,
     })
+}
+
+async fn ensure_git_installed() -> Result<(), String> {
+    let settings = load_settings()
+        .await
+        .map_err(|error| error.envelope().message.clone())?;
+    if run_git_version(resolve_git_path(&settings)).await.installed {
+        return Ok(());
+    }
+    let executable = super::git_cli_install::install().await?;
+    let mut settings = load_settings()
+        .await
+        .map_err(|error| error.envelope().message.clone())?;
+    settings.git_custom_path = Some(executable.display().to_string());
+    save_settings(&settings)
+        .await
+        .map_err(|error| error.envelope().message.clone())?;
+    Ok(())
 }
 
 pub(super) async fn gh_cli_setup(
@@ -452,4 +467,44 @@ pub(super) async fn gh_cli_setup(
         "process": process,
         "error": Value::Null,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn resolve_git_path_prefers_custom_path() {
+        let settings = VersionControlCliSettings {
+            git_custom_path: Some("/opt/custom/git".to_string()),
+        };
+        assert_eq!(
+            resolve_git_path(&settings),
+            PathBuf::from("/opt/custom/git")
+        );
+    }
+
+    #[test]
+    fn resolve_git_path_ignores_blank_custom_path() {
+        let settings = VersionControlCliSettings {
+            git_custom_path: Some("   ".to_string()),
+        };
+        assert_ne!(resolve_git_path(&settings), PathBuf::from("   "));
+    }
+
+    #[tokio::test]
+    async fn install_tools_requires_a_name_and_email() {
+        let error = install_tools(json!({
+            "userName": "Ada",
+            "userEmail": "not-an-email",
+        }))
+        .await
+        .expect_err("invalid identity");
+        assert_eq!(
+            error.envelope().message,
+            "A Git user name and email are required."
+        );
+    }
 }

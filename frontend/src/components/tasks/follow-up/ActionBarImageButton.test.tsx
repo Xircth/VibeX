@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ActionBarImageButton } from './ActionBarImageButton';
 
-const ATTACH_IMAGES_LABEL = '\u9644\u52a0\u56fe\u7247';
+const ATTACH_FILES_LABEL = '\u9644\u52a0\u6587\u4ef6';
 
 function renderImageButton({
   isEditable = true,
@@ -35,7 +35,7 @@ describe('ActionBarImageButton', () => {
       .mockImplementation(() => undefined);
     renderImageButton();
 
-    fireEvent.click(screen.getByRole('button', { name: ATTACH_IMAGES_LABEL }));
+    fireEvent.click(screen.getByRole('button', { name: ATTACH_FILES_LABEL }));
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
   });
@@ -46,16 +46,18 @@ describe('ActionBarImageButton', () => {
       .mockImplementation(() => undefined);
     renderImageButton({ isEditable: false });
 
-    fireEvent.click(screen.getByRole('button', { name: ATTACH_IMAGES_LABEL }));
+    fireEvent.click(screen.getByRole('button', { name: ATTACH_FILES_LABEL }));
 
     expect(clickSpy).not.toHaveBeenCalled();
   });
 
-  it('passes only image files and resets the input value', () => {
+  it('accepts documents, images, and videos and resets the input value', () => {
     const onAttachImages = vi.fn();
     const { input } = renderImageButton({ onAttachImages });
     const image = new File(['image'], 'image.png', { type: 'image/png' });
+    const video = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
     const text = new File(['text'], 'notes.txt', { type: 'text/plain' });
+    const pdf = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
     Object.defineProperty(input, 'value', {
       value: 'C:\\fakepath\\image.png',
       writable: true,
@@ -64,18 +66,17 @@ describe('ActionBarImageButton', () => {
 
     fireEvent.change(input, {
       target: {
-        files: [image, text],
+        files: [image, video, text, pdf],
       },
     });
 
-    expect(onAttachImages).toHaveBeenCalledWith([image]);
+    expect(onAttachImages).toHaveBeenCalledWith([image, video, text, pdf]);
     expect(input.value).toBe('');
   });
 
-  it('resets the input without dispatching when no images are selected', () => {
+  it('resets the input without dispatching when no files are selected', () => {
     const onAttachImages = vi.fn();
     const { input } = renderImageButton({ onAttachImages });
-    const text = new File(['text'], 'notes.txt', { type: 'text/plain' });
     Object.defineProperty(input, 'value', {
       value: 'C:\\fakepath\\notes.txt',
       writable: true,
@@ -84,7 +85,7 @@ describe('ActionBarImageButton', () => {
 
     fireEvent.change(input, {
       target: {
-        files: [text],
+        files: [],
       },
     });
 

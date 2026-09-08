@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use agents::AgentId;
 use application::{ApplicationDomainPort, ApplicationError, DomainCommand, Principal};
@@ -153,6 +153,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
             DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
+            DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -387,7 +388,6 @@ impl ServerApplicationDomains {
             | DomainCommand::PluginControlContributions
             | DomainCommand::PluginControlConfigureAgents
             | DomainCommand::PluginControlConfigureMcp
-            | DomainCommand::PluginInvokeContribution
             | DomainCommand::DshPlugins
             | DomainCommand::DshPluginAdd
             | DomainCommand::DshPluginRemove
@@ -1186,6 +1186,37 @@ impl ServerApplicationDomains {
             .invoke(parse(args)?)
             .await
             .map_err(app_surface_error)
+    }
+
+    async fn plugin_invoke_contribution(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginInvokeContributionArgs = parse(args)?;
+        let plugin_id = args.plugin_id.trim();
+        let handler = args.handler.trim();
+        if plugin_id.is_empty() || handler.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "pluginId and handler are required",
+            ));
+        }
+        let lease = self
+            .plugin_control_plane()
+            .await?
+            .activation_lease(plugin_id)
+            .await
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!("plugin `{plugin_id}` is not active"))
+            })?;
+        let result = match args
+            .timeout_seconds
+            .filter(|value| (5..=600).contains(value))
+        {
+            Some(seconds) => {
+                lease
+                    .invoke_with_timeout(handler, args.input, Duration::from_secs(seconds))
+                    .await
+            }
+            None => lease.invoke(handler, args.input).await,
+        };
+        result.map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2028,6 +2059,16 @@ impl PluginActionCatalogPort for UnifiedActionCatalog {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PluginInvokeContributionArgs {
+    plugin_id: String,
+    handler: String,
+    #[serde(default)]
+    input: Value,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PluginEnabledArgs {
     plugin_id: String,
     enabled: bool,
@@ -2544,5 +2585,38 @@ fn conversation_error(error: conversations::ConversationServiceError) -> Applica
         conversations::ConversationServiceError::Internal(message) => {
             ApplicationError::internal(message)
         }
+    }
+}
+
+#[cfg(test)]
+mod plugin_invoke_contribution_args {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn saved_host_reconnect_payload_is_a_worker_invoke() {
+        let args = parse::<PluginInvokeContributionArgs>(json!({
+            "pluginId": "vibex.remote-ssh",
+            "handler": "provision.ensure",
+            "input": { "profile": { "id": "ssh-lab" } },
+            "timeoutSeconds": 300
+        }))
+        .expect("worker invoke args");
+        assert_eq!(args.plugin_id, "vibex.remote-ssh");
+        assert_eq!(args.handler, "provision.ensure");
+        assert_eq!(args.timeout_seconds, Some(300));
+        assert_eq!(args.input["profile"]["id"], "ssh-lab");
+    }
+
+    #[test]
+    fn worker_invoke_args_are_not_an_app_surface_session() {
+        let args = json!({
+            "pluginId": "vibex.remote-ssh",
+            "handler": "provision.ensure",
+            "input": { "profile": { "id": "ssh-lab" } },
+            "timeoutSeconds": 300
+        });
+        assert!(parse::<plugins::AppSurfaceInvocation>(args).is_err());
     }
 }

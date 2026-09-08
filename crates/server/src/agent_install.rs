@@ -13,9 +13,10 @@ use agents::{
     InstallPlanner, InstallPlanningInput, LockedInstallSource, MANAGED_NODE_VERSION,
     MANAGED_UV_VERSION, OfficialRegistryHttpFetcher, PlannedDistributionKind,
     PlannedInstallComponent, ProfileComponent, ProfileTopology, RegistryCache,
-    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, SystemClock,
+    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock,
     UserEnvironmentLayout, current_platform, existing_path_satisfies_component,
-    managed_node_artifact, managed_uv_artifact, node_verified_for_install, npm_global_install_args,
+    export_managed_node_to_user_environment, managed_node_artifact, managed_node_download_urls,
+    managed_uv_artifact, node_verified_for_install, npm_global_install_args,
     npm_install_permission_denied, npm_package_name as npm_spec_name, observed_satisfies_profile,
     resolve_npm_shim, uv_verified_for_install,
 };
@@ -730,7 +731,41 @@ async fn resolve_node_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<No
     println!(
         "System Node.js is unavailable; falling back to VibeX-managed Node.js {MANAGED_NODE_VERSION}"
     );
-    ensure_managed_node(managed_artifacts_dir).await
+    let runtime = ensure_managed_node(managed_artifacts_dir).await?;
+    export_bootstrapped_node(&runtime)?;
+    Ok(runtime)
+}
+
+fn export_bootstrapped_node(runtime: &NodeRuntime) -> anyhow::Result<()> {
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
+    let published =
+        export_managed_node_to_user_environment(&home, &runtime.bin_dir, host_shell_family())
+            .map_err(|error| {
+                anyhow::anyhow!("failed to export Node.js and npm to the user environment: {error}")
+            })?;
+    if published.is_empty() {
+        anyhow::bail!("managed Node.js did not contain node or npm executables to export");
+    }
+    for command in published {
+        println!(
+            "Exported {} to {}",
+            command.command_name,
+            command.shim_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn host_shell_family() -> ShellFamily {
+    #[cfg(windows)]
+    {
+        ShellFamily::Windows
+    }
+    #[cfg(not(windows))]
+    {
+        ShellFamily::from_shell_path(std::env::var_os("SHELL").as_deref().map(Path::new))
+    }
 }
 
 async fn resolve_uv_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
@@ -757,6 +792,21 @@ async fn download_archive(url: &str, limit: usize) -> anyhow::Result<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
+async fn download_archive_from(urls: &[String], limit: usize) -> anyhow::Result<(String, Vec<u8>)> {
+    let mut errors = Vec::new();
+    for url in urls {
+        println!("GET {url}");
+        match download_archive(url, limit).await {
+            Ok(bytes) => return Ok((url.clone(), bytes)),
+            Err(error) => {
+                println!("download failed: {url}: {error}");
+                errors.push(format!("{url}: {error}"));
+            }
+        }
+    }
+    anyhow::bail!("{}", errors.join("; "))
+}
+
 async fn ensure_managed_node(managed_artifacts_dir: &Path) -> anyhow::Result<NodeRuntime> {
     let platform = current_platform();
     let artifact = managed_node_artifact(&platform)
@@ -780,14 +830,10 @@ async fn ensure_managed_node(managed_artifacts_dir: &Path) -> anyhow::Result<Nod
     tokio::fs::create_dir_all(&base).await?;
     let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
     tokio::fs::create_dir_all(&staging).await?;
-    let filename = format!(
-        "node-v{MANAGED_NODE_VERSION}-{}.{}",
-        artifact.target, artifact.extension
-    );
-    let url = format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{filename}");
+    let urls = managed_node_download_urls(&artifact);
     println!("Downloading managed Node.js {MANAGED_NODE_VERSION} ({platform})");
     let result = async {
-        let bytes = download_archive(&url, MAX_MANAGED_TOOL_BYTES).await?;
+        let (url, bytes) = download_archive_from(&urls, MAX_MANAGED_TOOL_BYTES).await?;
         let actual = format!("{:x}", Sha256::digest(&bytes));
         if !actual.eq_ignore_ascii_case(artifact.sha256) {
             anyhow::bail!(
@@ -1375,6 +1421,21 @@ mod tests {
         assert!(
             node_verified_for_install(false, &platform),
             "Host ACP install must plan npx distributions on {platform} without a system Node"
+        );
+    }
+
+    #[test]
+    fn connected_app_host_install_downloads_node_with_mirrors() {
+        let artifact = managed_node_artifact("linux-x86_64").expect("linux node");
+        let urls = managed_node_download_urls(&artifact);
+        assert!(
+            urls[0].starts_with("https://nodejs.org/dist/"),
+            "{}",
+            urls[0]
+        );
+        assert!(
+            urls.iter().any(|url| url.contains("npmmirror.com")),
+            "a self-hosted Host must be able to bootstrap Node without SSH upload"
         );
     }
 

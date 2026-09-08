@@ -14,7 +14,7 @@ use db::models::{
 use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, EventTarget};
 use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
 
@@ -229,8 +229,27 @@ pub enum AgentTerminalUiEvent {
     },
 }
 
+pub(crate) fn is_local_desktop_event_target(target: &EventTarget) -> bool {
+    match target {
+        EventTarget::WebviewWindow { label }
+        | EventTarget::Webview { label }
+        | EventTarget::Window { label }
+        | EventTarget::AnyLabel { label } => crate::host_windows::is_local_desktop_window(label),
+        _ => false,
+    }
+}
+
+fn emit_to_local_desktop<S: Serialize + Clone>(
+    app: &AppHandle,
+    event: &str,
+    payload: S,
+) -> Result<(), tauri::Error> {
+    app.emit_filter(event, payload, is_local_desktop_event_target)
+}
+
 /// Forward Host Event Bus channels onto Tauri so desktop `listen` matches
-/// the single Host push surface (ADR-0078).
+/// the single Host push surface (ADR-0078). Local Host events stay on local
+/// App windows; a Server-bound Host window listens through its own remote pump.
 pub fn start_host_event_forwarding(app: &AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -241,7 +260,7 @@ pub fn start_host_event_forwarding(app: &AppHandle) {
                     if !server::HostEventBus::channel_allowed(&event.channel) {
                         continue;
                     }
-                    if app_handle.emit(&event.channel, event.payload).is_err() {
+                    if emit_to_local_desktop(&app_handle, &event.channel, event.payload).is_err() {
                         break;
                     }
                 }
@@ -263,7 +282,7 @@ pub fn start_event_forwarding(app: &AppHandle, state: &AppState) {
         while let Some(result) = stream.next().await {
             match result {
                 Ok(msg) => {
-                    if app_handle.emit(channels::GLOBAL_EVENTS, &msg).is_err() {
+                    if emit_to_local_desktop(&app_handle, channels::GLOBAL_EVENTS, &msg).is_err() {
                         break;
                     }
                 }
@@ -730,5 +749,26 @@ mod tests {
             super::attention_from_event(&ConversationEvent::TurnCompleted { stop_reason: None }),
             None
         );
+    }
+
+    #[test]
+    fn local_host_events_do_not_target_server_bound_windows() {
+        use tauri::EventTarget;
+
+        assert!(super::is_local_desktop_event_target(
+            &EventTarget::webview_window("main")
+        ));
+        assert!(super::is_local_desktop_event_target(
+            &EventTarget::webview_window("app-local-1")
+        ));
+        assert!(super::is_local_desktop_event_target(
+            &EventTarget::webview_window("settings")
+        ));
+        assert!(!super::is_local_desktop_event_target(
+            &EventTarget::webview_window("host-abc")
+        ));
+        assert!(!super::is_local_desktop_event_target(
+            &EventTarget::webview_window("settings-host-abc")
+        ));
     }
 }

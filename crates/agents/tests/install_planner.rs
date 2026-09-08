@@ -80,6 +80,86 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
 }
 
 #[test]
+fn npx_acp_plans_without_a_system_node_on_supported_hosts() {
+    let planner = InstallPlanner::bundled();
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("claude_code").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .expect("ACP install must plan npx without a preinstalled Node");
+
+    assert_eq!(plan.components.len(), 1);
+    assert_eq!(plan.components[0].component_id, "acp_adapter");
+    assert_eq!(
+        plan.components[0].distribution_kind,
+        PlannedDistributionKind::Npx
+    );
+}
+
+#[test]
+fn user_npx_plans_without_a_system_node_on_supported_hosts() {
+    let planner = InstallPlanner::bundled();
+    let target = UserAgentInstallTarget {
+        agent_id: AgentId::parse("local-reviewer").unwrap(),
+        version: "1.2.3".to_string(),
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distributions: RegistryDistributions {
+            binary: None,
+            npx: Some(package("local-reviewer@1.2.3")),
+            uvx: None,
+        },
+        definition_sha256: "cd".repeat(32),
+    };
+
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::UserDefinition(Box::new(target)),
+            platform: "linux-x86_64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .expect("user-declared npx Agents must plan without a preinstalled Node");
+
+    assert_eq!(
+        plan.components[0].distribution_kind,
+        PlannedDistributionKind::Npx
+    );
+}
+
+#[test]
+fn npx_plans_fail_without_node_when_the_host_cannot_bootstrap() {
+    let planner = InstallPlanner::bundled();
+    let target = UserAgentInstallTarget {
+        agent_id: AgentId::parse("local-reviewer").unwrap(),
+        version: "1.2.3".to_string(),
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distributions: RegistryDistributions {
+            binary: None,
+            npx: Some(package("local-reviewer@1.2.3")),
+            uvx: None,
+        },
+        definition_sha256: "cd".repeat(32),
+    };
+
+    let error = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::UserDefinition(Box::new(target)),
+            platform: "unknown-os".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .expect_err("hosts without a Node bootstrap still require a system Node");
+
+    assert_eq!(
+        error,
+        InstallPlanningError::RuntimeUnavailable { runtime: "node" }
+    );
+}
+
+#[test]
 fn hermes_install_requires_uv_but_not_a_system_python() {
     let plan = InstallPlanner::bundled()
         .plan(InstallPlanningInput {
@@ -349,15 +429,18 @@ fn planner_locks_distribution_version_platform_and_trust() {
         PlannedDistributionKind::Npx
     );
 
-    assert!(matches!(
-        planner.plan(InstallPlanningInput {
+    let bootstrapped_npx = planner
+        .plan(InstallPlanningInput {
             agent_id: without_binary_for_platform.agent_id.clone(),
             source: InstallCandidateSource::Registry(Box::new(without_binary_for_platform)),
             platform: "linux-x86_64".to_string(),
             environment: InstallEnvironment::default(),
-        }),
-        Err(InstallPlanningError::UnsupportedPlatform { .. })
-    ));
+        })
+        .expect("npx Registry Agents must plan without a preinstalled Node");
+    assert_eq!(
+        bootstrapped_npx.components[0].distribution_kind,
+        PlannedDistributionKind::Npx
+    );
 
     let profile_plan = planner
         .plan(InstallPlanningInput {

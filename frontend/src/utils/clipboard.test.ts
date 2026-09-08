@@ -51,6 +51,15 @@ describe('fileNameForImageUpload', () => {
       )
     ).toBe('clipboard.jpg');
   });
+
+  it('keeps video filenames and names unnamed clipboard videos', () => {
+    expect(
+      fileNameForImageUpload(new File(['x'], 'clip.MP4', { type: 'video/mp4' }))
+    ).toBe('clip.MP4');
+    expect(
+      fileNameForImageUpload(new File(['x'], '', { type: 'video/webm' }))
+    ).toBe('pasted-video.webm');
+  });
 });
 
 describe('extractImageFilesFromClipboardData', () => {
@@ -64,7 +73,43 @@ describe('extractImageFilesFromClipboardData', () => {
       })
     );
 
-    expect(result).toEqual([imageFile]);
+    expect(result).toEqual([imageFile, textFile]);
+  });
+
+  it('returns document files from clipboard files', () => {
+    const markdown = new File(['# hi'], 'readme.md', {
+      type: 'text/markdown',
+    });
+    const pdf = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
+
+    const result = extractImageFilesFromClipboardData(
+      createClipboardData({
+        files: [markdown, pdf],
+      })
+    );
+
+    expect(result).toEqual([markdown, pdf]);
+  });
+
+  it('returns video files from clipboard files', () => {
+    const videoFile = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
+
+    const result = extractImageFilesFromClipboardData(
+      createClipboardData({
+        files: [videoFile],
+      })
+    );
+
+    expect(result).toEqual([videoFile]);
+  });
+
+  it('treats unnamed-type files with video extensions as videos', () => {
+    const videoFile = new File(['video'], 'clip.webm', { type: '' });
+    expect(
+      extractImageFilesFromClipboardData(
+        createClipboardData({ files: [videoFile] })
+      )
+    ).toEqual([videoFile]);
   });
 
   it('treats unnamed-type files with image extensions as images', () => {
@@ -74,6 +119,42 @@ describe('extractImageFilesFromClipboardData', () => {
         createClipboardData({ files: [imageFile] })
       )
     ).toEqual([imageFile]);
+  });
+
+  it('falls back to clipboard video items when files are empty', () => {
+    const videoFile = new File(['video'], 'paste.mp4', { type: 'video/mp4' });
+
+    const result = extractImageFilesFromClipboardData(
+      createClipboardData({
+        items: [
+          {
+            kind: 'file',
+            type: 'video/mp4',
+            getAsFile: () => videoFile,
+          },
+        ],
+      })
+    );
+
+    expect(result).toEqual([videoFile]);
+  });
+
+  it('falls back to clipboard document items when files are empty', () => {
+    const pdf = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
+
+    const result = extractImageFilesFromClipboardData(
+      createClipboardData({
+        items: [
+          {
+            kind: 'file',
+            type: 'application/pdf',
+            getAsFile: () => pdf,
+          },
+        ],
+      })
+    );
+
+    expect(result).toEqual([pdf]);
   });
 
   it('falls back to clipboard items when files are empty', () => {
@@ -142,5 +223,28 @@ describe('readImageFilesFromNavigatorClipboard', () => {
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toMatch(/^pasted-image-\d+-0\.png$/);
     expect(files[0]?.type).toBe('image/png');
+  });
+
+  it('reads video clipboard items from the async clipboard api', async () => {
+    const blob = new Blob(['video'], { type: 'video/mp4' });
+    const getType = vi.fn().mockResolvedValue(blob);
+    const read = vi.fn().mockResolvedValue([
+      {
+        types: ['video/mp4'],
+        getType,
+      },
+    ]);
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { read },
+    });
+
+    const files = await readImageFilesFromNavigatorClipboard();
+
+    expect(getType).toHaveBeenCalledWith('video/mp4');
+    expect(files).toHaveLength(1);
+    expect(files[0]?.name).toMatch(/^pasted-video-\d+-0\.mp4$/);
+    expect(files[0]?.type).toBe('video/mp4');
   });
 });

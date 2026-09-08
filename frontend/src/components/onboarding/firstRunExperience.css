@@ -1,3 +1,11 @@
+.onboarding-window-chrome {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 2;
+  height: 2.25rem;
+}
+
 .onboarding-experience {
   --onboarding-void: #f4f5f7;
   --onboarding-ink: #18181b;

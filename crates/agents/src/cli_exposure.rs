@@ -13,6 +13,8 @@ use uuid::Uuid;
 const PROFILE_BLOCK_START: &str = "# >>> VibeX managed Agent CLI >>>";
 const PROFILE_BLOCK_END: &str = "# <<< VibeX managed Agent CLI <<<";
 const SHIM_MARKER_PREFIX: &str = "# VibeX Agent CLI: ";
+const TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "# VibeX toolchain: ";
+const WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "rem VibeX toolchain: ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellFamily {
@@ -72,6 +74,13 @@ pub enum CliExposureError {
         agent_id: AgentId,
         existing_path: PathBuf,
     },
+    #[error(
+        "terminal command `{command}` already exists at `{existing_path}` and is not a VibeX toolchain shim"
+    )]
+    ToolchainCommandConflict {
+        command: String,
+        existing_path: PathBuf,
+    },
     #[error("failed to manage terminal command: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -80,6 +89,63 @@ pub enum CliExposureError {
 /// are visible after install. Does not write a VibeX-owned shim.
 pub fn ensure_user_cli_path(home_dir: &Path, shell: ShellFamily) -> Result<(), CliExposureError> {
     ensure_shell_path(home_dir, shell)
+}
+
+/// Publish a shared toolchain (Node, npm, npx) into the user environment.
+///
+/// Writes shims under `~/.local/bin` and puts that directory on the user PATH.
+/// This is not an Agent installation artifact: uninstalling an Agent must not
+/// remove these commands.
+pub fn publish_user_toolchain_commands(
+    home_dir: &Path,
+    toolchain_bin_dir: &Path,
+    commands: &[&str],
+    shell: ShellFamily,
+) -> Result<Vec<PublishedCliCommand>, CliExposureError> {
+    if !toolchain_bin_dir.is_absolute() || !toolchain_bin_dir.is_dir() {
+        return Err(CliExposureError::InvalidRuntimePath(
+            toolchain_bin_dir.to_path_buf(),
+        ));
+    }
+    let user_bin = home_dir.join(".local").join("bin");
+    fs::create_dir_all(&user_bin)?;
+    ensure_shell_path(home_dir, shell)?;
+    #[cfg(windows)]
+    {
+        ensure_shell_path(home_dir, ShellFamily::Windows)?;
+    }
+    let mut published = Vec::new();
+    for command in commands {
+        let source = toolchain_command_path(toolchain_bin_dir, command);
+        if !source.is_file() {
+            continue;
+        }
+        let shim_path = terminal_shim_path(&user_bin, command);
+        ensure_replaceable_toolchain_shim(&shim_path, command)?;
+        write_toolchain_shim_atomically(&shim_path, command, &source, toolchain_bin_dir)?;
+        published.push(PublishedCliCommand {
+            command_name: (*command).to_string(),
+            shim_path,
+        });
+    }
+    Ok(published)
+}
+
+/// Install Node.js and npm into the user environment after a managed bootstrap.
+///
+/// Puts `node`, `npm`, and `npx` on the user PATH (`~/.local/bin` plus the
+/// current process) so ACP packages with `#!/usr/bin/env node` can run.
+pub fn export_managed_node_to_user_environment(
+    home_dir: &Path,
+    node_bin_dir: &Path,
+    shell: ShellFamily,
+) -> Result<Vec<PublishedCliCommand>, CliExposureError> {
+    let published =
+        publish_user_toolchain_commands(home_dir, node_bin_dir, &["node", "npm", "npx"], shell)?;
+    let user_bin = home_dir.join(".local").join("bin");
+    workspace_utils::shell::expose_user_bin_to_process_path(&user_bin);
+    workspace_utils::shell::expose_user_bin_to_process_path(node_bin_dir);
+    Ok(published)
 }
 
 pub fn publish_managed_runtime_cli(
@@ -414,6 +480,100 @@ fn render_shim(
 
 fn escape_windows_batch_value(value: &str) -> String {
     value.replace('%', "%%")
+}
+
+fn toolchain_command_path(bin_dir: &Path, command: &str) -> PathBuf {
+    if cfg!(windows) {
+        match command {
+            "node" => bin_dir.join("node.exe"),
+            "npm" => bin_dir.join("npm.cmd"),
+            "npx" => bin_dir.join("npx.cmd"),
+            other => bin_dir.join(format!("{other}.cmd")),
+        }
+    } else {
+        bin_dir.join(command)
+    }
+}
+
+fn ensure_replaceable_toolchain_shim(
+    shim_path: &Path,
+    command_name: &str,
+) -> Result<(), CliExposureError> {
+    match fs::read(shim_path) {
+        Ok(existing) if toolchain_shim_is_owned(&existing, command_name) => Ok(()),
+        Ok(_) => Err(CliExposureError::ToolchainCommandConflict {
+            command: command_name.to_string(),
+            existing_path: shim_path.to_path_buf(),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn toolchain_shim_is_owned(contents: &[u8], command_name: &str) -> bool {
+    let unix_marker = format!("{TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}");
+    let windows_marker = format!("{WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}");
+    contents.split(|byte| *byte == b'\n').any(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        line == unix_marker.as_bytes() || line.eq_ignore_ascii_case(windows_marker.as_bytes())
+    })
+}
+
+fn write_toolchain_shim_atomically(
+    shim_path: &Path,
+    command_name: &str,
+    runtime_executable: &Path,
+    toolchain_bin_dir: &Path,
+) -> Result<(), CliExposureError> {
+    let temporary = shim_path.with_file_name(format!(
+        ".{}.vibex-toolchain-{}.tmp",
+        shim_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("toolchain"),
+        Uuid::new_v4()
+    ));
+    let contents = render_toolchain_shim(
+        native_shim_format(),
+        command_name,
+        runtime_executable,
+        toolchain_bin_dir,
+    );
+    fs::write(&temporary, contents)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(error) = replace_file_atomically(&temporary, shim_path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn render_toolchain_shim(
+    format: ShellFamily,
+    command_name: &str,
+    runtime_executable: &Path,
+    toolchain_bin_dir: &Path,
+) -> String {
+    match format {
+        ShellFamily::Windows => {
+            format!(
+                "@echo off\r\nsetlocal DisableDelayedExpansion\r\n{WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}\r\nset \"PATH={};%PATH%\"\r\n\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n",
+                escape_windows_batch_value(&toolchain_bin_dir.to_string_lossy()),
+                escape_windows_batch_value(&runtime_executable.to_string_lossy())
+            )
+        }
+        ShellFamily::Zsh | ShellFamily::Bash | ShellFamily::Fish | ShellFamily::Posix => {
+            format!(
+                "#!/bin/sh\n{TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}\nPATH={}:\"$PATH\"\nexport PATH\nexec {} \"$@\"\n",
+                shell_quote(toolchain_bin_dir),
+                shell_quote(runtime_executable)
+            )
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -1069,5 +1229,94 @@ mod tests {
 
         assert_eq!(published.command_name, "GROK");
         assert_eq!(published.shim_path, home.join(".local/bin/GROK"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_node_is_exported_to_the_user_bin_and_login_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let node_bin = temp.path().join("managed-node/bin");
+        fs::create_dir_all(&node_bin).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        for (name, script) in [
+            ("node", "#!/bin/sh\nprintf 'v22.22.3\\n'\n"),
+            ("npm", "#!/bin/sh\nprintf '10.9.2\\n'\n"),
+            ("npx", "#!/bin/sh\nprintf '10.9.2\\n'\n"),
+        ] {
+            let executable = node_bin.join(name);
+            fs::write(&executable, script).unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let published = publish_user_toolchain_commands(
+            &home,
+            &node_bin,
+            &["node", "npm", "npx"],
+            ShellFamily::Posix,
+        )
+        .unwrap();
+
+        assert_eq!(published.len(), 3);
+        let node_shim = home.join(".local/bin/node");
+        let npm_shim = home.join(".local/bin/npm");
+        assert!(node_shim.is_file());
+        assert!(npm_shim.is_file());
+        assert!(
+            fs::read_to_string(&node_shim)
+                .unwrap()
+                .contains("# VibeX toolchain: node")
+        );
+
+        let output = Command::new("/bin/sh")
+            .env("HOME", &home)
+            .env("PATH", "/usr/bin:/bin")
+            .arg("-c")
+            .arg(". \"$HOME/.profile\"; command -v node; node --version; command -v npm; npm --version")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(&format!("{}\n", node_shim.display())),
+            "{stdout}"
+        );
+        assert!(stdout.contains("v22.22.3"), "{stdout}");
+        assert!(stdout.contains("10.9.2"), "{stdout}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_node_export_does_not_overwrite_a_user_node() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let node_bin = temp.path().join("managed-node/bin");
+        let shim = home.join(".local/bin/node");
+        fs::create_dir_all(&node_bin).unwrap();
+        fs::create_dir_all(shim.parent().unwrap()).unwrap();
+        fs::write(node_bin.join("node"), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(node_bin.join("node"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&shim, "#!/bin/sh\n# user node\n").unwrap();
+
+        let error =
+            publish_user_toolchain_commands(&home, &node_bin, &["node"], ShellFamily::Posix)
+                .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CliExposureError::ToolchainCommandConflict { .. }
+        ));
+        assert_eq!(
+            fs::read_to_string(shim).unwrap(),
+            "#!/bin/sh\n# user node\n"
+        );
     }
 }

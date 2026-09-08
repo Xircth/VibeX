@@ -6,10 +6,16 @@ import { fileURLToPath } from 'node:url';
 
 import {
   GITHUB_REPO,
+  MANAGED_NODE_VERSION,
   downloadFirstOk,
+  downloadFirstOkUrls,
   glibcTooOld,
+  managedNodeArtifact,
+  nodeArchiveName,
+  nodeDownloadUrls,
   platformFromProbe,
   resolveLatestTag,
+  verifyFileSha256,
   verifySidecar,
 } from './download.mjs';
 import { appendJobLog } from './log.mjs';
@@ -116,6 +122,172 @@ export function pickDurableOrigin(addresses, sshHost, servicePort = REMOTE_PORT)
   return fallback ? String(fallback).trim().replace(/\/+$/, '') : '';
 }
 
+export function isPluginManagedInstallPath(path) {
+  const value = String(path ?? '').replace(/\\/g, '/');
+  if (!value) return false;
+  if (value.includes('/.vibex/host-family/')) return true;
+  return /\/\.local\/bin\/vibex(\.cmd|\.exe)?$/i.test(value);
+}
+
+export function execStartPath(raw) {
+  const text = String(raw ?? '');
+  return /(?:^|[;{\s])path=([^\s;]+)/.exec(text)?.[1] ?? '';
+}
+
+export function parseProbeOutput(output) {
+  const text = String(output ?? '');
+  const os = /os=(\S+)/.exec(text)?.[1] ?? '';
+  const arch = /arch=(\S+)/.exec(text)?.[1] ?? '';
+  const glibc = /glibc=(\S+)/.exec(text)?.[1] ?? '';
+  if (glibcTooOld(glibc)) {
+    throw new Error(
+      `GLIBC_${glibc} is too old; Linux Host needs glibc 2.34+ (Ubuntu 22.04 or RHEL 9)`
+    );
+  }
+  const health = /^health=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const exe = /^exe=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const execStart = /^execstart=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const node = /^node=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const npm = /^npm=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
+  const running = /"status"\s*:\s*"ok"/.test(health);
+  const hasLauncher =
+    /(^|\n)\/.+\bvibex\b/.test(text) || text.includes('/vibex\n');
+  const hasServer = text.includes('vibex-server');
+  return {
+    os,
+    arch,
+    glibc,
+    exe,
+    execStart,
+    node,
+    npm,
+    hasNode: Boolean(node && npm),
+    running,
+    installed: hasLauncher || hasServer || running,
+    reuseExisting: false,
+    raw: text,
+  };
+}
+
+export function remoteUnpackNodeScript(archivePath, platform) {
+  const artifact = managedNodeArtifact(platform);
+  if (!artifact || artifact.extension !== 'tar.gz') {
+    throw new Error(`cannot unpack Node.js for ${platform || '(empty)'}`);
+  }
+  const archive = String(archivePath).replace(/'/g, `'\\''`);
+  const safePlatform = String(platform).replace(/[^A-Za-z0-9._-]/g, '');
+  const version = MANAGED_NODE_VERSION.replace(/[^A-Za-z0-9._-]/g, '');
+  const target = String(artifact.target).replace(/[^A-Za-z0-9._-]/g, '');
+  const prefix = `$HOME/.local/share/vibex/agent-tools/node/${version}/${safePlatform}`;
+  const bin = `${prefix}/node-v${version}-${target}/bin`;
+  return [
+    'set -eu',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    `archive='${archive}'`,
+    'TEMP=$(mktemp -d)',
+    'tar -xzf "$archive" -C "$TEMP"',
+    `root="${prefix}"`,
+    'rm -rf "$root"',
+    'mkdir -p "$(dirname "$root")"',
+    'mv "$TEMP" "$root"',
+    `bin="${bin}"`,
+    '[ -x "$bin/node" ] && [ -e "$bin/npm" ] || { printf \'Node.js archive missing node or npm\\n\' >&2; exit 1; }',
+    'mkdir -p "$HOME/.local/bin"',
+    'write_shim() {',
+    '  name=$1',
+    '  printf \'#!/bin/sh\\n# VibeX toolchain: %s\\nPATH="%s":"$PATH"\\nexport PATH\\nexec "%s/%s" "$@"\\n\' "$name" "$bin" "$bin" "$name" > "$HOME/.local/bin/$name"',
+    '  chmod +x "$HOME/.local/bin/$name"',
+    '}',
+    'write_shim node',
+    'write_shim npm',
+    '[ -e "$bin/npx" ] && write_shim npx || true',
+    'rm -f "$archive"',
+    "printf 'node-installed\\n'",
+  ].join('\n');
+}
+
+export function shouldReuseRemoteServer(seen) {
+  if (seen?.running) return true;
+  const exe = String(seen?.exe ?? '').trim();
+  const unit = execStartPath(seen?.execStart) || String(seen?.execStart ?? '').trim();
+  return [exe, unit].some(
+    (path) => path && !isPluginManagedInstallPath(path)
+  );
+}
+
+function remotePrintAddrsLines() {
+  return [
+    'print_addrs() {',
+    "  printf 'http://127.0.0.1:17891\\n'",
+    '  if command -v hostname >/dev/null 2>&1; then',
+    '    for ip in $(hostname -I 2>/dev/null); do',
+    "      printf 'http://%s:17891\\n' \"$ip\"",
+    '    done',
+    '  fi',
+    '  pub=$(curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)',
+    '  if [ -n "$pub" ]; then printf \'http://%s:17891\\n\' "$pub"; fi',
+    '}',
+  ];
+}
+
+function remoteFindBinLines() {
+  return [
+    'bin=""',
+    'if [ -x "$HOME/.local/bin/vibex" ]; then bin="$HOME/.local/bin/vibex"',
+    'elif command -v vibex >/dev/null 2>&1; then bin=$(command -v vibex)',
+    'elif command -v vibex-server >/dev/null 2>&1; then bin=$(command -v vibex-server)',
+    'else',
+    '  for candidate in "$HOME/.vibex/host-family/"*/*/family/vibex-server; do',
+    '    if [ -x "$candidate" ]; then bin=$candidate; break; fi',
+    '  done',
+    'fi',
+  ];
+}
+
+export function reuseExistingStartScript(dataDir) {
+  const dir = String(dataDir ?? '').trim();
+  return [
+    'set -eu',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    dir ? `export VIBEX_DATA_DIR='${dir.replace(/'/g, `'\\''`)}'` : '',
+    ...remotePrintAddrsLines(),
+    'if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
+    "  printf 'already-running\\n'",
+    '  print_addrs',
+    '  exit 0',
+    'fi',
+    'started_with=nohup',
+    'if command -v systemctl >/dev/null 2>&1; then',
+    '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/vibex-server.service ]; then',
+    '    if systemctl start vibex-server.service; then started_with=systemd; fi',
+    '  elif [ -f "$HOME/.config/systemd/user/vibex-server.service" ]; then',
+    '    if systemctl --user start vibex-server.service; then started_with=systemd-user; fi',
+    '  fi',
+    'fi',
+    ...remoteFindBinLines(),
+    'if [ "$started_with" = nohup ]; then',
+    '  if [ -z "$bin" ]; then',
+    "    printf 'vibex-server is not installed\\n' >&2",
+    '    exit 1',
+    '  fi',
+    '  nohup "$bin" serve --port 17891 >/tmp/vibex-server.log 2>&1 &',
+    'fi',
+    'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
+    '  if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
+    "    printf 'started\\n'",
+    '    print_addrs',
+    '    exit 0',
+    '  fi',
+    '  sleep 1',
+    'done',
+    "printf 'vibex-server did not become healthy\\n' >&2",
+    'tail -n 40 /tmp/vibex-server.log >&2 || true',
+    'exit 1',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function emptyJob(id) {
   const now = Date.now();
   return {
@@ -169,20 +341,52 @@ export function createPipeline(deps) {
     }
   }
 
+  function passwordString(value) {
+    if (typeof value === 'string' && value) return value;
+    return '';
+  }
+
+  function sessionPrefix(target) {
+    const user = String(target.user ?? '').trim();
+    const host = String(target.host ?? '').trim();
+    const port = Number(target.port ?? 22) || 22;
+    return `${user}@${host}:${port}:`;
+  }
+
   async function passwordFor(target, supplied, host) {
-    if (supplied) return supplied;
+    const given = passwordString(supplied);
+    if (given) return given;
     const stored = await host.call('storage', 'kv.get', {
       key: secretKey(target),
     });
-    if (typeof stored === 'string' && stored) return stored;
+    const fromKv = passwordString(stored);
+    if (fromKv) return fromKv;
     const history = await host.call('storage', 'kv.get', { key: HISTORY_KEY });
     const match = Array.isArray(history)
       ? history.find(
           (entry) => sameHistoryTarget(entry, target) && entry.password
         )
       : null;
-    return match?.password ? String(match.password) : '';
+    return passwordString(match?.password);
   }
+
+  async function liveOriginFromSessions(target, fetchImpl) {
+    const prefix = sessionPrefix(target);
+    for (const [key, session] of sessions) {
+      if (!prefix || !key.startsWith(prefix)) continue;
+      const origins =
+        typeof session.liveOrigins === 'function' ? session.liveOrigins() : [];
+      for (const origin of origins) {
+        const value = String(origin ?? '')
+          .trim()
+          .replace(/\/+$/, '');
+        if (value && (await health(value, fetchImpl))) return value;
+      }
+    }
+    return '';
+  }
+
+
 
   async function openSession(target, host) {
     const password = await passwordFor(target, target.password, host);
@@ -212,26 +416,34 @@ export function createPipeline(deps) {
   async function probe(session, onChunk) {
     const output = await session.exec(
       [
+        'export PATH="$HOME/.local/bin:$PATH"',
         'printf \'os=%s\\narch=%s\\n\' "$(uname -s | tr A-Z a-z)" "$(uname -m)"',
         'printf \'glibc=%s\\n\' "$(getconf GNU_LIBC_VERSION 2>/dev/null | awk \'{print $NF}\')"',
         'command -v vibex || true',
         'command -v vibex-server || true',
+        'printf \'node=%s\\n\' "$(command -v node 2>/dev/null || true)"',
+        'printf \'npm=%s\\n\' "$(command -v npm 2>/dev/null || true)"',
         'printf \'home=%s\\n\' "$HOME"',
+        'printf \'health=%s\\n\' "$(curl -fsS --max-time 2 http://127.0.0.1:17891/health 2>/dev/null || true)"',
+        'exe=""',
+        'if command -v pgrep >/dev/null 2>&1; then',
+        '  pid=$(pgrep -n -x vibex-server 2>/dev/null || true)',
+        '  if [ -n "$pid" ] && [ -r "/proc/$pid/exe" ]; then exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)',
+        '  elif [ -n "$pid" ]; then exe=$(ps -ww -o args= -p "$pid" 2>/dev/null | awk \'{print $1}\')',
+        '  fi',
+        'fi',
+        'printf \'exe=%s\\n\' "$exe"',
+        'execstart=""',
+        'if command -v systemctl >/dev/null 2>&1; then',
+        '  execstart=$(systemctl show -p ExecStart --value vibex-server.service 2>/dev/null || true)',
+        '  if [ -z "$execstart" ]; then execstart=$(systemctl --user show -p ExecStart --value vibex-server.service 2>/dev/null || true); fi',
+        'fi',
+        'printf \'execstart=%s\\n\' "$execstart"',
       ].join('; '),
       30000,
       onChunk
     );
-    const os = /os=(\S+)/.exec(output)?.[1] ?? '';
-    const arch = /arch=(\S+)/.exec(output)?.[1] ?? '';
-    const glibc = /glibc=(\S+)/.exec(output)?.[1] ?? '';
-    if (glibcTooOld(glibc)) {
-      throw new Error(
-        `GLIBC_${glibc} is too old; Linux Host needs glibc 2.34+ (Ubuntu 22.04 or RHEL 9)`
-      );
-    }
-    const hasLauncher = /(^|\n)\/.+\bvibex\b/.test(output) || output.includes('/vibex\n');
-    const hasServer = output.includes('vibex-server');
-    return { os, arch, glibc, installed: hasLauncher || hasServer, raw: output };
+    return parseProbeOutput(output);
   }
 
   function remoteUnpackScript(archivePath, tag, platform) {
@@ -282,41 +494,112 @@ export function createPipeline(deps) {
     await verifySidecar(dest, `${dest}.sha256`);
   }
 
-  async function install(session, seen, onChunk) {
-    if (seen?.installed) return 'already-installed';
-    const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  async function fetchNodeArchive(platform, dest, onChunk) {
+    if (typeof deps.downloadNode === 'function') {
+      await deps.downloadNode({ platform, dest, onChunk });
+      return;
+    }
+    const artifact = managedNodeArtifact(platform);
+    if (!artifact) {
+      throw new Error(`unsupported Node.js platform: ${platform || '(empty)'}`);
+    }
+    await downloadFirstOkUrls(nodeDownloadUrls(platform), dest, {
+      fetchImpl: deps.fetchImpl ?? globalThis.fetch.bind(globalThis),
+      onChunk,
+      timeoutMs: 300000,
+    });
+    await verifyFileSha256(dest, artifact.sha256);
+  }
+
+  async function installNode(session, seen, onChunk) {
     const platform = platformFromProbe(seen);
-    const tag = await resolveLatestTag(GITHUB_REPO, { fetchImpl });
-    const archive = `VibeX-${tag.replace(/^v/, '')}-${platform}-server.tar.gz`;
-    const tmp = await mkdtemp(join(tmpdir(), 'vibex-host-family-'));
+    const artifact = managedNodeArtifact(platform);
+    if (!artifact || artifact.extension !== 'tar.gz') {
+      onChunk?.({
+        stream: 'stdout',
+        text: `Skipping Node.js bootstrap on ${platform}\n`,
+      });
+      return;
+    }
+    const archive = nodeArchiveName(platform);
+    const tmp = await mkdtemp(join(tmpdir(), 'vibex-node-'));
     const localArchive = join(tmp, archive);
     const remoteArchive = `/tmp/${archive}`;
     try {
       onChunk?.({
         stream: 'stdout',
-        text: `Downloading ${archive} on this machine\n`,
+        text: `Downloading Node.js ${MANAGED_NODE_VERSION} on this machine\n`,
       });
-      await fetchArchive(platform, tag, archive, localArchive, onChunk);
+      await fetchNodeArchive(platform, localArchive, onChunk);
       if (typeof session.push !== 'function') {
-        throw new Error('SSH session cannot upload the Host family archive');
+        throw new Error('SSH session cannot upload the Node.js archive');
       }
       onChunk?.({
         stream: 'stdout',
-        text: 'Uploading Host family over SSH\n',
+        text: 'Uploading Node.js over SSH\n',
       });
       await session.push(localArchive, remoteArchive, onChunk);
-      return session.exec(
-        remoteUnpackScript(remoteArchive, tag, platform),
+      await session.exec(
+        remoteUnpackNodeScript(remoteArchive, platform),
         120000,
         onChunk
       );
+      seen.hasNode = true;
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
   }
 
-  async function start(session, dataDir, onChunk) {
+  async function install(session, seen, onChunk) {
+    let result = 'already-installed';
+    if (shouldReuseRemoteServer(seen)) {
+      seen.reuseExisting = true;
+      onChunk?.({
+        stream: 'stdout',
+        text: 'Keeping the existing remote Host\n',
+      });
+    } else if (!seen?.installed) {
+      const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
+      const platform = platformFromProbe(seen);
+      const tag = await resolveLatestTag(GITHUB_REPO, { fetchImpl });
+      const archive = `VibeX-${tag.replace(/^v/, '')}-${platform}-server.tar.gz`;
+      const tmp = await mkdtemp(join(tmpdir(), 'vibex-host-family-'));
+      const localArchive = join(tmp, archive);
+      const remoteArchive = `/tmp/${archive}`;
+      try {
+        onChunk?.({
+          stream: 'stdout',
+          text: `Downloading ${archive} on this machine\n`,
+        });
+        await fetchArchive(platform, tag, archive, localArchive, onChunk);
+        if (typeof session.push !== 'function') {
+          throw new Error('SSH session cannot upload the Host family archive');
+        }
+        onChunk?.({
+          stream: 'stdout',
+          text: 'Uploading Host family over SSH\n',
+        });
+        await session.push(localArchive, remoteArchive, onChunk);
+        result = await session.exec(
+          remoteUnpackScript(remoteArchive, tag, platform),
+          120000,
+          onChunk
+        );
+      } finally {
+        await rm(tmp, { recursive: true, force: true });
+      }
+    }
+    if (!seen?.hasNode) {
+      await installNode(session, seen, onChunk);
+    }
+    return result;
+  }
+
+  async function start(session, dataDir, onChunk, options = {}) {
     const dir = String(dataDir ?? '').trim();
+    if (options.reuseExisting) {
+      return session.exec(reuseExistingStartScript(dir), 60000, onChunk);
+    }
     const script = [
       'set -eu',
       'export PATH="$HOME/.local/bin:$PATH"',
@@ -358,6 +641,7 @@ export function createPipeline(deps) {
       'ExecStart=$bin serve --port 17891',
       'Restart=always',
       'RestartSec=2',
+      'Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin',
       dir ? `Environment=VIBEX_DATA_DIR=${dir.replace(/'/g, '')}` : '',
       'StandardOutput=append:/tmp/vibex-server.log',
       'StandardError=append:/tmp/vibex-server.log',
@@ -481,6 +765,12 @@ export function createPipeline(deps) {
     const { session, key: sessionKey } = await openSession(target, host);
     job.sessionKey = sessionKey;
     jobSessions.set(job.id, sessionKey);
+    if (target.password) {
+      await host.call('storage', 'kv.put', {
+        key: secretKey(target),
+        value: target.password,
+      });
+    }
     let seen;
     await runStep(job, 'probe', async (onChunk) => {
       appendJobLog(job, 'Checking remote login and architecture', {
@@ -495,7 +785,9 @@ export function createPipeline(deps) {
       });
       const output = await install(session, seen, onChunk);
       return output.includes('already-installed')
-        ? 'already installed'
+        ? seen?.reuseExisting
+          ? 'kept existing Host'
+          : 'already installed'
         : 'installed';
     });
     let advertised = [];
@@ -503,7 +795,9 @@ export function createPipeline(deps) {
       appendJobLog(job, 'Starting the remote Host', {
         step: 'start',
       });
-      const output = await start(session, target.dataDir, onChunk);
+      const output = await start(session, target.dataDir, onChunk, {
+        reuseExisting: Boolean(seen?.reuseExisting),
+      });
       advertised = String(output)
         .split('\n')
         .map((line) => line.trim())
@@ -600,15 +894,9 @@ export function createPipeline(deps) {
     const stored = String(profile.origin ?? '')
       .trim()
       .replace(/\/+$/, '');
-    const liveTunnel = isLoopbackOrigin(stored)
-      ? connectableOrigin(stored)
-      : '';
-    if (liveTunnel && (await health(liveTunnel, fetchImpl))) {
-      return { origin: liveTunnel };
-    }
     const target = {
       host: provision.host,
-      port: provision.port ?? 22,
+      port: Number(provision.port ?? 22) || 22,
       user: provision.user,
       jump: provision.jump ?? '',
       dataDir: provision.dataDir ?? '',
@@ -617,6 +905,16 @@ export function createPipeline(deps) {
     if (!target.host || !target.user) {
       throw new Error('host and user are required');
     }
+    const fromStore = isLoopbackOrigin(stored)
+      ? connectableOrigin(stored)
+      : '';
+    const live =
+      (fromStore && (await health(fromStore, fetchImpl)) && fromStore) ||
+      (await liveOriginFromSessions(target, fetchImpl));
+    if (live) {
+      return { origin: live };
+    }
+    await forgetTarget(target);
     const { session } = await openSession(target, host);
     const output = await start(session, target.dataDir);
     const advertised = String(output)

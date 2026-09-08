@@ -315,6 +315,9 @@ pub async fn dispatch_model_provider_save(
     let view = model_providers::save(&store_path, &home, &env, request)
         .await
         .map_err(bad)?;
+    if view.bound_provider_id.is_some() {
+        let _ = management::persist_observed_authentication(pool, &agent_id).await;
+    }
     invalidate("agent-management-snapshot-invalidated");
     Ok((agent_id, serialize(view)?))
 }
@@ -355,6 +358,7 @@ pub async fn dispatch_model_provider_delete(
     {
         tracing::warn!(%error, "删除 Model Provider 后同步鉴权模式失败");
     }
+    let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
     invalidate("agent-management-snapshot-invalidated");
     Ok((args.agent_id, serialize(view)?))
 }
@@ -405,6 +409,7 @@ pub async fn dispatch_model_provider_bind(
         }
         return Err(error);
     }
+    let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
     invalidate("agent-management-snapshot-invalidated");
     Ok((args.agent_id, serialize(view)?))
 }

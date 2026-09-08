@@ -190,8 +190,12 @@ async function readResponseBytes(response, controller, stallMs) {
 }
 
 export async function downloadFirstOk(canonical, dest, options = {}) {
+  return downloadFirstOkUrls(releaseUrls(canonical), dest, options);
+}
+
+export async function downloadFirstOkUrls(urls, dest, options = {}) {
   const errors = [];
-  for (const url of releaseUrls(canonical)) {
+  for (const url of urls) {
     try {
       await downloadToFile(url, dest, options);
       return url;
@@ -203,7 +207,78 @@ export async function downloadFirstOk(canonical, dest, options = {}) {
       });
     }
   }
-  throw new Error(`could not download ${canonical}\n${errors.join('\n')}`);
+  throw new Error(
+    `could not download ${urls[0] ?? '(empty)'}\n${errors.join('\n')}`
+  );
+}
+
+export async function verifyFileSha256(filePath, expected) {
+  const actual = createHash('sha256')
+    .update(await readFile(filePath))
+    .digest('hex');
+  if (actual !== String(expected ?? '').toLowerCase()) {
+    throw new Error(
+      `checksum mismatch for ${filePath}: expected ${expected}, got ${actual}`
+    );
+  }
+}
+
+// Keep in step with crates/agents/src/managed_toolchain.rs.
+export const MANAGED_NODE_VERSION = '22.22.3';
+
+const MANAGED_NODE_ARTIFACTS = {
+  'darwin-aarch64': {
+    target: 'darwin-arm64',
+    extension: 'tar.gz',
+    sha256: '0da7ff74ef8611328c8212f17943368713a2ad953fb7d89a8c8a0eae87c23207',
+  },
+  'darwin-x86_64': {
+    target: 'darwin-x64',
+    extension: 'tar.gz',
+    sha256: '45830ba752fa0d892c6dcd640946669801293cac820a33591ded40ac075198ec',
+  },
+  'linux-aarch64': {
+    target: 'linux-arm64',
+    extension: 'tar.gz',
+    sha256: 'cc8bc82b2dd0b595c3b95a4c3c9c8c350907cff011afbdee3d1379e812e1e3e3',
+  },
+  'linux-x86_64': {
+    target: 'linux-x64',
+    extension: 'tar.gz',
+    sha256: 'c7a10d6816da8eaaa7534dd73c71c6e2b2c391dbbf845e364902d156615dd1b8',
+  },
+  'windows-aarch64': {
+    target: 'win-arm64',
+    extension: 'zip',
+    sha256: '00be129a09e8872cd52d3bb8bba12412c5733d2224123a482a2dca4a6fbf2586',
+  },
+  'windows-x86_64': {
+    target: 'win-x64',
+    extension: 'zip',
+    sha256: '6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33',
+  },
+};
+
+export function managedNodeArtifact(platform) {
+  return MANAGED_NODE_ARTIFACTS[platform] ?? null;
+}
+
+export function nodeArchiveName(platform) {
+  const artifact = managedNodeArtifact(platform);
+  if (!artifact) {
+    throw new Error(`unsupported Node.js platform: ${platform || '(empty)'}`);
+  }
+  return `node-v${MANAGED_NODE_VERSION}-${artifact.target}.${artifact.extension}`;
+}
+
+export function nodeDownloadUrls(platform) {
+  const name = nodeArchiveName(platform);
+  const version = MANAGED_NODE_VERSION;
+  return [
+    `https://nodejs.org/dist/v${version}/${name}`,
+    `https://npmmirror.com/mirrors/node/v${version}/${name}`,
+    `https://cdn.npmmirror.com/binaries/node/v${version}/${name}`,
+  ];
 }
 
 export async function verifySidecar(archivePath, sidecarPath) {

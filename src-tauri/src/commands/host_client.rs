@@ -8,7 +8,7 @@ use crate::{
         HOST_CLIENT_CHANGED, HostClientStatus, SavedHostUpdateView, advertised_connect_origin,
         runtime,
     },
-    host_windows::host_app_window_label,
+    host_windows::{host_app_window_label, host_window_label},
     state::AppState,
 };
 
@@ -87,7 +87,14 @@ pub(crate) async fn connect_and_open_window(
     request: ConnectHostRequest,
 ) -> Result<ConnectHostResult, AppError> {
     let result = runtime().connect(caller_window, registry, request).await?;
-    super::host_window::open_or_focus_host_window(app, &result.profile)?;
+    if let Err(error) = super::host_window::open_or_focus_host_window(app, &result.profile) {
+        let label = host_window_label(&result.profile.id);
+        let _ = runtime().disconnect_window(registry, &label).await;
+        return Err(error);
+    }
+    runtime()
+        .bind_saved_profile_window(registry, &result.profile.id)
+        .await?;
     let _ = app.emit(HOST_CLIENT_CHANGED, ());
     Ok(result)
 }

@@ -373,11 +373,21 @@
     @apply border-border;
   }
 
+  /* Thumb only: Safari 18+ and Chromium 121+ paint a track when
+     `scrollbar-width` / `scrollbar-color` are set, and those properties
+     override ::-webkit-scrollbar. Keep the standard properties as a
+     Firefox fallback. */
   .legacy-design,
   .legacy-design * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
     scrollbar-gutter: auto;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    .legacy-design,
+    .legacy-design * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+    }
   }
 
   .legacy-design ::-webkit-scrollbar {
@@ -2101,8 +2111,13 @@
   .composer-select-list {
     max-height: 232px;
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    .composer-select-list {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+    }
   }
 
   .composer-select-list::-webkit-scrollbar {
@@ -4815,7 +4830,6 @@
     background: var(--surface-card-strong);
     color: var(--text-primary);
     box-shadow: var(--shadow-card);
-    scrollbar-width: thin;
   }
 
   .composer-status-row {
@@ -4926,7 +4940,6 @@
     font-weight: 400;
     line-height: 0.875rem;
     overflow-wrap: anywhere;
-    scrollbar-width: thin;
   }
 
   .composer-status-details > * {
@@ -6564,6 +6577,31 @@ html.host-windows .legacy-design {
   --surface-sidebar: var(--surface-glass-solid);
 }
 
+html.tauri-desktop[data-host-platform='macos'] .window-chrome {
+  padding-left: 4.75rem;
+}
+
+.window-chrome-leading-rule {
+  display: none;
+}
+
+html.tauri-desktop[data-host-platform='macos'] .window-chrome-leading-rule {
+  display: block;
+}
+
+html.tauri-desktop.host-windows .window-chrome {
+  padding-right: 8.625rem;
+}
+
+.window-chrome button,
+.window-chrome a,
+.window-chrome input,
+.window-chrome [role='button'],
+.window-chrome [role='combobox'] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 html.host-windows :where(.legacy-design) .tahoe-glass,
 html.host-windows :where(.legacy-design) .tahoe-popover,
 html.host-windows :where(.legacy-design) .workspace-topbar,
@@ -6722,15 +6760,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page [data-settings-content] {
   padding-inline-end: 1.5rem;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
   scrollbar-gutter: auto;
 }
 
 .settings-page .agent-settings-scroll {
   padding-inline-end: 0.75rem;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
   scrollbar-gutter: auto;
 }
 

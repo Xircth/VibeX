@@ -60,15 +60,31 @@ describe('DesktopHostBootstrap', () => {
   it('keeps the main window on the local Host after a remote window is opened', async () => {
     const attach = vi.spyOn(RemoteDesktopTransport, 'attach');
     hostClientStatus.mockResolvedValue({
-      connected: false,
-      profile: null,
+      connected: true,
+      profile: { origin: 'http://127.0.0.1:61091' },
       profiles: [
         {
           id: 'ssh-1',
           origin: 'http://127.0.0.1:61091',
-          connected: false,
+          connected: true,
         },
       ],
+    });
+    renderBootstrap();
+    expect(await screen.findByText('env:desktop')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(hostClientStatus).toHaveBeenCalled();
+    });
+    expect(attach).not.toHaveBeenCalled();
+  });
+
+  it('keeps extra local App windows on the local Host', async () => {
+    getCurrentWindow.mockReturnValue({ label: 'app-local-1' });
+    const attach = vi.spyOn(RemoteDesktopTransport, 'attach');
+    hostClientStatus.mockResolvedValue({
+      connected: true,
+      profile: { origin: 'http://127.0.0.1:61091' },
+      profiles: [],
     });
     renderBootstrap();
     expect(await screen.findByText('env:desktop')).toBeInTheDocument();

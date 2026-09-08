@@ -45,3 +45,33 @@ export function presentPreflightItems(
         : item
     );
 }
+
+export function isAuthPreflightItem(item: AgentPreflightItemView): boolean {
+  return item.id === 'authentication' || item.id.startsWith('auth.');
+}
+
+export function mergePreflightItems(
+  current: AgentPreflightView,
+  next: AgentPreflightView
+): AgentPreflightView {
+  const replacements = new Map(next.items.map((item) => [item.id, item]));
+  const items = current.items.map((item) => replacements.get(item.id) ?? item);
+  for (const item of next.items) {
+    if (items.some((existing) => existing.id === item.id)) continue;
+    items.push(item);
+  }
+  return {
+    ...current,
+    checked_at: next.checked_at,
+    items,
+  };
+}
+
+export function overlayAuthPreflightItems(
+  base: AgentPreflightView,
+  overlay: AgentPreflightView
+): AgentPreflightView {
+  const authItems = overlay.items.filter(isAuthPreflightItem);
+  if (authItems.length === 0) return base;
+  return mergePreflightItems(base, { ...overlay, items: authItems });
+}

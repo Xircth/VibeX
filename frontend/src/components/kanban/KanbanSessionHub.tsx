@@ -43,7 +43,7 @@ import {
 import type { KanbanZone } from '@/lib/layoutArrangement';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import {
-  kanbanListFillsHub,
+  kanbanZoneFills,
   shouldShowKanbanMonitor,
   visibleKanbanZones,
 } from '@/lib/kanbanZoneVisibility';
@@ -1033,8 +1033,7 @@ export function KanbanSessionHub({
     ),
     session: isKanbanSessionVisible,
   };
-  const sessionInHub = Boolean(sessionSlot) && isKanbanSessionVisible;
-  const listFills = kanbanListFillsHub(kanbanVisibility, sessionInHub);
+  const listFills = kanbanZoneFills('list', kanbanVisibility);
 
   const sidebarElement = (
     <SessionHubSidebar

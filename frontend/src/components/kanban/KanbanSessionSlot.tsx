@@ -7,7 +7,7 @@ import {
   useKanbanArrangement,
 } from '@/lib/layoutArrangement';
 import {
-  kanbanSessionFillsHub,
+  kanbanZoneFills,
   shouldShowKanbanMonitor,
 } from '@/lib/kanbanZoneVisibility';
 import { cn } from '@/lib/utils';
@@ -17,10 +17,15 @@ interface KanbanSessionSlotProps {
   side: 'left' | 'center' | 'right';
   /**
    * Whether this instance currently owns the session content. Only one slot
-   * may be active at a time (e.g. the in-hub center slot on the session-hub
-   * view, the outer edge slot on the other views).
+   * may be active at a time (the in-hub slot on the session-hub view, or the
+   * outer edge slot on the other views).
    */
   active: boolean;
+  /**
+   * Hub row on the session-hub view. Leftover width can be given to this
+   * slot there; the outer slot beside other views keeps its stored width.
+   */
+  inHub?: boolean;
 }
 
 /**
@@ -29,7 +34,11 @@ interface KanbanSessionSlotProps {
  * keeps its React state when moving between the workspace dockview panel
  * and this slot.
  */
-export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
+export function KanbanSessionSlot({
+  side,
+  active,
+  inHub = false,
+}: KanbanSessionSlotProps) {
   const { host, placement } = useRightPanelSlot();
   const arrangement = useKanbanArrangement();
   const handleSide = kanbanSessionResizeHandleSide(arrangement);
@@ -52,14 +61,16 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeAbortRef = useRef<AbortController | null>(null);
 
-  const fill = kanbanSessionFillsHub(side === 'center', {
-    list: true,
-    monitor: shouldShowKanbanMonitor(
-      isKanbanMonitorVisible,
-      monitorSessions.length
-    ),
-    session: isKanbanSessionVisible,
-  });
+  const fill =
+    inHub &&
+    kanbanZoneFills('session', {
+      list: true,
+      monitor: shouldShowKanbanMonitor(
+        isKanbanMonitorVisible,
+        monitorSessions.length
+      ),
+      session: isKanbanSessionVisible,
+    });
   const shouldShow = isKanbanSessionVisible && !!host && active;
   const ownsHost = shouldShow && placement === 'kanban';
 

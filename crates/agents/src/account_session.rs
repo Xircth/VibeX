@@ -29,6 +29,33 @@ pub fn prefer_recorded_account_over_residue(
     }
 }
 
+/// A bound Model Provider with credentials is an API Key login.
+///
+/// Native config snapshots often stay `NotLoggedIn` until the next full probe,
+/// so the bound preset is the authentication fact for Settings and preflight.
+pub fn authentication_with_bound_provider(
+    observed: AgentAuthenticationStatus,
+    bound_with_credential: bool,
+) -> AgentAuthenticationStatus {
+    if bound_with_credential && matches!(observed, AgentAuthenticationStatus::NotLoggedIn) {
+        AgentAuthenticationStatus::ApiKey
+    } else {
+        observed
+    }
+}
+
+/// Combine a recorded probe, native snapshot, and bound-provider credentials.
+pub fn resolve_observed_authentication(
+    recorded: AgentAuthenticationStatus,
+    native: AgentAuthenticationStatus,
+    bound_with_credential: bool,
+) -> AgentAuthenticationStatus {
+    prefer_recorded_account_over_residue(
+        recorded,
+        authentication_with_bound_provider(native, bound_with_credential),
+    )
+}
+
 /// Map a finished official login/logout command to the recorded session status.
 pub fn authentication_from_account_command(
     kind: ProfileManagementActionKind,
@@ -351,6 +378,38 @@ mod tests {
             false,
             AccountSessionConfirmation::Confirmed
         ));
+    }
+
+    #[test]
+    fn bound_provider_credentials_count_as_api_key_login() {
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, true),
+            AgentAuthenticationStatus::ApiKey
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::NotLoggedIn, false),
+            AgentAuthenticationStatus::NotLoggedIn
+        );
+        assert_eq!(
+            authentication_with_bound_provider(AgentAuthenticationStatus::Account, true),
+            AgentAuthenticationStatus::Account
+        );
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::NotLoggedIn,
+                AgentAuthenticationStatus::NotLoggedIn,
+                true,
+            ),
+            AgentAuthenticationStatus::ApiKey
+        );
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::Account,
+                AgentAuthenticationStatus::NotLoggedIn,
+                true,
+            ),
+            AgentAuthenticationStatus::ApiKey
+        );
     }
 
     #[test]

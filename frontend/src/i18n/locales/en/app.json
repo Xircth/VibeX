@@ -92,7 +92,7 @@
   "followUpSend": {
     "sessionScopedSlashCommandError": "This / command must run in an existing session and cannot be triggered by creating a new session.",
     "startFailed": "Failed to start follow-up execution: {{error}}",
-    "imageUploadFailed": "Could not attach image: {{error}}",
+    "imageUploadFailed": "Could not attach file: {{error}}",
     "unknownError": "Unknown error"
   },
   "workspaceSessions": {

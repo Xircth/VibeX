@@ -171,7 +171,6 @@ export function AgentAuthModeControl({
         setMode(next.mode);
         setApiKey('');
         clearAgentSettingsDraft(authDraftKey(agentId));
-        return true;
       } catch (error) {
         toast.error(errorMessage(error, t('settings:agents.authSaveFailed')));
         setMode(view?.mode ?? nextMode);
@@ -179,8 +178,10 @@ export function AgentAuthModeControl({
       } finally {
         setSaving(false);
       }
+      await onChanged?.();
+      return true;
     },
-    [agentId, locked, t, view?.mode]
+    [agentId, locked, onChanged, t, view?.mode]
   );
 
   useEffect(() => {
@@ -262,7 +263,6 @@ export function AgentAuthModeControl({
     const ok = await persistMode(mode, apiKey);
     if (!ok) return;
     toast.success(t('settings:agents.authSaved'));
-    await onChanged?.();
   };
 
   const moveTabFocus = (current: AgentAuthModeKind, delta: number) => {
@@ -636,8 +636,8 @@ function withProviderChanged(
   }
   const previous = node.props.onChanged;
   return cloneElement(node, {
-    onChanged: () => {
-      void previous?.();
+    onChanged: async () => {
+      await previous?.();
       onChanged();
     },
   });

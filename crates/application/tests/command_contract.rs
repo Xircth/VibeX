@@ -131,6 +131,18 @@ fn app_extension_host_uses_a_dedicated_remote_scope() {
     }
 }
 
+#[test]
+fn plugin_invoke_contribution_is_not_an_app_surface_session() {
+    let invoke = "plugin_invoke_contribution"
+        .parse::<DomainCommand>()
+        .expect("worker contribution invoke");
+    let surface = "plugin_surface_invoke"
+        .parse::<DomainCommand>()
+        .expect("App surface invoke");
+    assert_ne!(invoke, surface);
+    assert_eq!(invoke.required_scope(), "plugin.surface");
+}
+
 #[async_trait]
 impl ApplicationDomainPort for CatalogDomain {
     async fn execute(

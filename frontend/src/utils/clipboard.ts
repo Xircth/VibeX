@@ -1,12 +1,9 @@
-const IMAGE_UPLOAD_EXTENSIONS = new Set([
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'bmp',
-  'svg',
-]);
+import {
+  fileNameForMediaUpload,
+  isAttachableFile,
+  mediaExtensionForMime,
+  prepareMediaFileForUpload,
+} from './mediaAttachments';
 
 export function extractImageFilesFromClipboardData(
   clipboardData: DataTransfer | null | undefined
@@ -15,62 +12,32 @@ export function extractImageFilesFromClipboardData(
     return [];
   }
 
-  const files = Array.from(clipboardData.files ?? []).filter(
-    (file) =>
-      file.type.startsWith('image/') ||
-      IMAGE_UPLOAD_EXTENSIONS.has(
-        file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase()
-      )
-  );
+  const files = Array.from(clipboardData.files ?? []).filter(isAttachableFile);
 
   if (files.length > 0) {
     return files;
   }
 
-  const imageItems = Array.from(clipboardData.items ?? []).filter(
-    (item) => item.kind === 'file' && item.type.startsWith('image/')
+  const fileItems = Array.from(clipboardData.items ?? []).filter(
+    (item) => item.kind === 'file'
   );
 
-  return imageItems
+  return fileItems
     .map((item) => item.getAsFile())
-    .filter((file): file is File => file !== null);
+    .filter((file): file is File => file !== null)
+    .filter(isAttachableFile);
 }
 
 export function imageExtensionForMime(type: string): string {
-  switch (type.toLowerCase()) {
-    case 'image/jpeg':
-      return 'jpg';
-    case 'image/png':
-      return 'png';
-    case 'image/gif':
-      return 'gif';
-    case 'image/webp':
-      return 'webp';
-    case 'image/bmp':
-      return 'bmp';
-    case 'image/svg+xml':
-      return 'svg';
-    default:
-      return 'png';
-  }
+  return mediaExtensionForMime(type);
 }
 
 export function fileNameForImageUpload(file: File): string {
-  const name = file.name.trim();
-  const extension = name.includes('.')
-    ? name.slice(name.lastIndexOf('.') + 1).toLowerCase()
-    : '';
-  if (name && IMAGE_UPLOAD_EXTENSIONS.has(extension)) {
-    return name;
-  }
-  const stem = name.replace(/\.[^.]+$/, '') || 'pasted-image';
-  return `${stem}.${imageExtensionForMime(file.type || 'image/png')}`;
+  return fileNameForMediaUpload(file);
 }
 
 export function prepareImageFileForUpload(file: File): File {
-  const name = fileNameForImageUpload(file);
-  if (name === file.name) return file;
-  return new File([file], name, { type: file.type || 'image/png' });
+  return prepareMediaFileForUpload(file);
 }
 
 export function clipboardDataHasTextPayload(
@@ -95,17 +62,22 @@ export async function readImageFilesFromNavigatorClipboard(): Promise<File[]> {
   const files: File[] = [];
 
   for (const [index, item] of items.entries()) {
-    const imageType = item.types.find((type) => type.startsWith('image/'));
-    if (!imageType) {
+    const mediaType = item.types.find(
+      (type) => type.startsWith('image/') || type.startsWith('video/')
+    );
+    if (!mediaType) {
       continue;
     }
 
-    const blob = await item.getType(imageType);
+    const blob = await item.getType(mediaType);
+    const stem = mediaType.startsWith('video/')
+      ? 'pasted-video'
+      : 'pasted-image';
     files.push(
       new File(
         [blob],
-        `pasted-image-${Date.now()}-${index}.${imageExtensionForMime(imageType)}`,
-        { type: imageType }
+        `${stem}-${Date.now()}-${index}.${mediaExtensionForMime(mediaType)}`,
+        { type: mediaType }
       )
     );
   }

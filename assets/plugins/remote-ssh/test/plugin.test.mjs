@@ -9,7 +9,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  MANAGED_NODE_VERSION,
   glibcTooOld,
+  managedNodeArtifact,
+  nodeArchiveName,
+  nodeDownloadUrls,
   releaseUrls,
   resolveLatestTag,
   tagFromReleaseUrl,
@@ -19,10 +23,16 @@ import {
   connectableOrigin,
   createPipeline,
   emptyJob,
+  execStartPath,
   formatSshHostConfig,
+  isPluginManagedInstallPath,
   originAllowsPlaintextHttp,
+  parseProbeOutput,
   pickDurableOrigin,
   remoteInstallScript,
+  remoteUnpackNodeScript,
+  reuseExistingStartScript,
+  shouldReuseRemoteServer,
 } from '../runtime/pipeline.mjs';
 import net from 'node:net';
 
@@ -31,6 +41,8 @@ import {
   askpassScript,
   createSshSession,
   sshAgentAvailable,
+  secretKey,
+  sessionCacheKey,
   sshArgv,
   sshControlMasterSupported,
   sshTunnelOptions,
@@ -124,7 +136,8 @@ function fakeSession() {
       } else if (command.includes('SHA256SUMS') || command.includes('printf installed')) {
         stdout = 'installed\n';
       } else if (command.includes('uname')) {
-        stdout = 'os=linux\narch=x86_64\nglibc=2.35\nhome=/root\n';
+        stdout =
+          'os=linux\narch=x86_64\nglibc=2.35\nnode=/usr/bin/node\nnpm=/usr/bin/npm\nhome=/root\n';
       }
       onChunk?.({ stream: 'stdout', text: stdout });
       return stdout;
@@ -594,6 +607,244 @@ test('glibc older than 2.34 is rejected before install', async () => {
       ),
     /GLIBC_2\.17 is too old/
   );
+  await pipeline.dispose();
+});
+
+test('existing source-built Hosts are reused instead of overwritten', () => {
+  assert.equal(
+    isPluginManagedInstallPath(
+      '/root/.vibex/host-family/v0.2.1/linux-x86_64/family/vibex-server'
+    ),
+    true
+  );
+  assert.equal(isPluginManagedInstallPath('/root/.local/bin/vibex'), true);
+  assert.equal(
+    isPluginManagedInstallPath('/opt/VibeX/target/debug/vibex-server'),
+    false
+  );
+  assert.equal(
+    execStartPath(
+      '{ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }'
+    ),
+    '/opt/VibeX/target/debug/vibex-server'
+  );
+  const running = parseProbeOutput(
+    [
+      'os=linux',
+      'arch=x86_64',
+      'glibc=2.35',
+      '/root/.local/bin/vibex',
+      'home=/root',
+      'health={"status":"ok","version":"0.2.1"}',
+      'exe=/opt/VibeX/target/debug/vibex-server',
+      'execstart={ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }',
+      '',
+    ].join('\n')
+  );
+  assert.equal(running.running, true);
+  assert.equal(running.exe, '/opt/VibeX/target/debug/vibex-server');
+  assert.equal(shouldReuseRemoteServer(running), true);
+  assert.equal(
+    shouldReuseRemoteServer({
+      running: false,
+      exe: '',
+      execStart:
+        '{ path=/root/.vibex/host-family/v0.2.1/linux-x86_64/family/vibex-server ; }',
+    }),
+    false
+  );
+  const reuse = reuseExistingStartScript('');
+  assert.match(reuse, /printf 'already-running\\n'/);
+  assert.equal(reuse.includes('write_unit'), false);
+  assert.equal(reuse.includes('cat > "$unit_path"'), false);
+});
+
+test('pinned Node catalog matches the Host bootstrap toolchain', () => {
+  assert.equal(MANAGED_NODE_VERSION, '22.22.3');
+  for (const platform of [
+    'linux-x86_64',
+    'linux-aarch64',
+    'darwin-aarch64',
+    'windows-x86_64',
+  ]) {
+    const artifact = managedNodeArtifact(platform);
+    assert.equal(artifact.sha256.length, 64);
+    assert.match(artifact.sha256, /^[0-9a-f]{64}$/);
+  }
+  assert.equal(managedNodeArtifact('linux-x86_64').target, 'linux-x64');
+  assert.equal(
+    nodeArchiveName('linux-x86_64'),
+    `node-v${MANAGED_NODE_VERSION}-linux-x64.tar.gz`
+  );
+  assert.equal(
+    nodeDownloadUrls('linux-x86_64')[0],
+    `https://nodejs.org/dist/v${MANAGED_NODE_VERSION}/node-v${MANAGED_NODE_VERSION}-linux-x64.tar.gz`
+  );
+  assert.equal(
+    nodeDownloadUrls('linux-x86_64').some((url) => url.includes('npmmirror.com')),
+    true
+  );
+});
+
+test('probe without node/npm is treated as missing the user toolchain', () => {
+  const seen = parseProbeOutput(
+    'os=linux\narch=x86_64\nglibc=2.35\nnode=\nnpm=\nhome=/root\n'
+  );
+  assert.equal(seen.hasNode, false);
+  const present = parseProbeOutput(
+    'os=linux\narch=x86_64\nglibc=2.35\nnode=/usr/bin/node\nnpm=/usr/bin/npm\nhome=/root\n'
+  );
+  assert.equal(present.hasNode, true);
+});
+
+test('remote Node unpack writes user-environment shims', () => {
+  const script = remoteUnpackNodeScript(
+    '/tmp/node-v22.22.3-linux-x64.tar.gz',
+    'linux-x86_64'
+  );
+  assert.match(script, /agent-tools\/node\/22\.22\.3\/linux-x86_64/);
+  assert.match(script, /write_shim node/);
+  assert.match(script, /write_shim npm/);
+  assert.match(script, /VibeX toolchain/);
+  assert.match(script, /\$HOME\/\.local\/bin/);
+});
+
+test('provision keeps a source-built remote Host that is already running', async () => {
+  const host = memoryHost();
+  const session = fakeSession();
+  const inner = session.exec.bind(session);
+  session.exec = async (command, timeout, onChunk) => {
+    if (String(command).includes('uname')) {
+      const stdout = [
+        'os=linux',
+        'arch=x86_64',
+        'glibc=2.35',
+        '/root/.local/bin/vibex',
+        'node=/usr/bin/node',
+        'npm=/usr/bin/npm',
+        'home=/root',
+        'health={"status":"ok","version":"0.2.1"}',
+        'exe=/opt/VibeX/target/debug/vibex-server',
+        'execstart={ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }',
+        '',
+      ].join('\n');
+      onChunk?.({ stream: 'stdout', text: stdout });
+      return stdout;
+    }
+    return inner(command, timeout, onChunk);
+  };
+  const pipeline = createPipeline({
+    createSession: () => session,
+    downloadRelease: async () => {
+      throw new Error('install must not run');
+    },
+    fetchImpl: async (url, init) => {
+      if (String(url).endsWith('/auth/pairings') && init.method === 'POST') {
+        return {
+          ok: true,
+          async json() {
+            return { pairing_token: 'K7M2NPQX' };
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    },
+  });
+  const job = emptyJob('keep-existing');
+  const result = await pipeline.provision(
+    job,
+    { host: '203.0.113.8', port: 22, user: 'root' },
+    host
+  );
+  assert.equal(result.origin, 'http://127.0.0.1:41234');
+  assert.equal(
+    job.steps.find((step) => step.id === 'install')?.detail,
+    'kept existing Host'
+  );
+  assert.equal(
+    session.commands.some((command) => String(command).startsWith('push ')),
+    false
+  );
+  const startScript = session.commands.find((command) =>
+    String(command).includes('already-running')
+  );
+  assert.match(String(startScript), /printf 'already-running\\n'/);
+  assert.equal(String(startScript).includes('write_unit'), false);
+  assert.equal(String(startScript).includes('cat > "$unit_path"'), false);
+  await pipeline.dispose();
+});
+
+test('provision installs Node.js when the remote has no node or npm', async () => {
+  const host = memoryHost();
+  const session = fakeSession();
+  const inner = session.exec.bind(session);
+  session.exec = async (command, timeout, onChunk) => {
+    if (String(command).includes('uname')) {
+      const stdout = [
+        'os=linux',
+        'arch=x86_64',
+        'glibc=2.35',
+        'node=',
+        'npm=',
+        'home=/root',
+        '',
+      ].join('\n');
+      onChunk?.({ stream: 'stdout', text: stdout });
+      return stdout;
+    }
+    return inner(command, timeout, onChunk);
+  };
+  const nodeDownloads = [];
+  const pipeline = createPipeline({
+    createSession: () => session,
+    downloadRelease: async ({ dest }) => {
+      await writeFile(dest, 'host-family');
+    },
+    downloadNode: async ({ platform, dest }) => {
+      nodeDownloads.push(platform);
+      await writeFile(dest, 'node-archive');
+    },
+    fetchImpl: async (url, init) => {
+      if (String(url).includes('/releases/latest')) {
+        return {
+          ok: true,
+          url: 'https://github.com/Xircth/VibeX/releases/tag/v0.2.1',
+          headers: {
+            get: (name) =>
+              name.toLowerCase() === 'location'
+                ? 'https://github.com/Xircth/VibeX/releases/tag/v0.2.1'
+                : '',
+          },
+        };
+      }
+      if (String(url).endsWith('/auth/pairings') && init.method === 'POST') {
+        return {
+          ok: true,
+          async json() {
+            return { pairing_token: 'K7M2NPQX' };
+          },
+        };
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    },
+  });
+  const job = emptyJob('install-node');
+  await pipeline.provision(
+    job,
+    { host: '203.0.113.8', port: 22, user: 'root' },
+    host
+  );
+  assert.deepEqual(nodeDownloads, ['linux-x86_64']);
+  assert.equal(
+    session.commands.some((command) =>
+      String(command).includes('VibeX toolchain')
+    ),
+    true
+  );
+  const unit = session.commands.find((command) =>
+    String(command).includes('write_unit')
+  );
+  assert.match(String(unit), /Environment=PATH=\$HOME\/\.local\/bin:/);
   await pipeline.dispose();
 });
 
@@ -1067,6 +1318,110 @@ test('ensure reuses a live local tunnel without opening SSH again', async () => 
   );
   assert.equal(ensured.origin, 'http://127.0.0.1:41234');
   assert.equal(session.commands.length, 0);
+  await pipeline.dispose();
+});
+
+test('ensure reuses a live tunnel when the saved origin is not loopback', async () => {
+  const host = memoryHost();
+  const session = fakeSession();
+  session.liveOrigins = () => ['http://127.0.0.1:56001'];
+  let created = 0;
+  const pipeline = createPipeline({
+    createSession: () => {
+      created += 1;
+      return session;
+    },
+    downloadRelease: async () => {
+      throw new Error('install must not run');
+    },
+    fetchImpl: async (url) => {
+      if (String(url).includes('127.0.0.1:56001/health')) {
+        return { ok: true };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  pipeline.sessions.set(
+    sessionCacheKey(
+      { user: 'root', host: '203.0.113.8', port: 22 },
+      'secret'
+    ),
+    session
+  );
+  const ensured = await pipeline.ensure(
+    {
+      profile: {
+        id: 'kept',
+        name: 'Lab',
+        origin: 'http://203.0.113.8:17891',
+        hasCredential: true,
+        provision: { host: '203.0.113.8', port: 22, user: 'root' },
+      },
+    },
+    host
+  );
+  assert.equal(ensured.origin, 'http://127.0.0.1:56001');
+  assert.equal(created, 0);
+  assert.equal(session.commands.length, 0);
+  await pipeline.dispose();
+});
+
+test('ensure drops a stale SSH session and reconnects with the stored password', async () => {
+  const host = memoryHost();
+  await host.call('storage', 'kv.put', {
+    key: secretKey({ user: 'root', host: '203.0.113.8', port: 22 }),
+    value: 'secret',
+  });
+  const stale = fakeSession();
+  let closed = false;
+  stale.close = async () => {
+    closed = true;
+  };
+  stale.liveOrigins = () => [];
+  let usedPassword = '';
+  const fresh = fakeSession();
+  const pipeline = createPipeline({
+    createSession: (target) => {
+      usedPassword = String(target.password ?? '');
+      return fresh;
+    },
+    downloadRelease: async () => {
+      throw new Error('install must not run');
+    },
+    fetchImpl: async (url) => {
+      if (String(url).includes('203.0.113.8:17891/health')) {
+        return { ok: true };
+      }
+      if (String(url).includes('/health')) {
+        const started = fresh.commands.some((command) =>
+          String(command).includes('serve --port 17891')
+        );
+        return { ok: started };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  pipeline.sessions.set(
+    sessionCacheKey(
+      { user: 'root', host: '203.0.113.8', port: 22 },
+      'secret'
+    ),
+    stale
+  );
+  const ensured = await pipeline.ensure(
+    {
+      profile: {
+        id: 'kept',
+        origin: 'http://203.0.113.8:17891',
+        hasCredential: true,
+        provision: { host: '203.0.113.8', port: 22, user: 'root' },
+      },
+    },
+    host
+  );
+  assert.equal(closed, true);
+  assert.equal(usedPassword, 'secret');
+  assert.equal(ensured.origin, 'http://127.0.0.1:41234');
   await pipeline.dispose();
 });
 

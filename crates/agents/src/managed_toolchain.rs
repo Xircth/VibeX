@@ -63,6 +63,24 @@ pub fn managed_node_artifact(platform: &str) -> Option<ManagedNodeArtifact> {
     })
 }
 
+pub fn managed_node_archive_name(artifact: &ManagedNodeArtifact) -> String {
+    format!(
+        "node-v{MANAGED_NODE_VERSION}-{}.{}",
+        artifact.target, artifact.extension
+    )
+}
+
+/// Official Node.js dist plus mirrors. Host ACP install downloads these on the
+/// Host itself (a connected App cannot upload through SSH).
+pub fn managed_node_download_urls(artifact: &ManagedNodeArtifact) -> Vec<String> {
+    let name = managed_node_archive_name(artifact);
+    vec![
+        format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{name}"),
+        format!("https://npmmirror.com/mirrors/node/v{MANAGED_NODE_VERSION}/{name}"),
+        format!("https://cdn.npmmirror.com/binaries/node/v{MANAGED_NODE_VERSION}/{name}"),
+    ]
+}
+
 pub fn managed_uv_artifact(platform: &str) -> Option<ManagedUvArtifact> {
     let (target, extension, sha256) = match platform {
         "darwin-aarch64" => (
@@ -142,5 +160,16 @@ mod tests {
         assert_eq!(artifact.target, "linux-x64");
         assert_eq!(artifact.extension, "tar.gz");
         assert_eq!(artifact.sha256.len(), 64);
+        let urls = managed_node_download_urls(&artifact);
+        assert_eq!(
+            urls[0],
+            format!(
+                "https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/node-v{MANAGED_NODE_VERSION}-linux-x64.tar.gz"
+            )
+        );
+        assert!(
+            urls.iter().any(|url| url.contains("npmmirror.com")),
+            "Host bootstrap must not depend on a single Node.js origin"
+        );
     }
 }

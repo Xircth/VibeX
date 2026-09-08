@@ -79,7 +79,7 @@ describe('ActionBar', () => {
 
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      '附加图片',
+      '附加文件',
       '压缩上下文',
       '提示词优化',
       '发送',

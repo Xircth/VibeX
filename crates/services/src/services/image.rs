@@ -19,7 +19,7 @@ pub enum ImageError {
     #[error("Invalid image format")]
     InvalidFormat,
 
-    #[error("Image too large: {0} bytes (max: {1} bytes)")]
+    #[error("File too large: {0} bytes (max: {1} bytes)")]
     TooLarge(u64, u64),
 
     #[error("Image not found")]
@@ -42,25 +42,47 @@ fn mime_type_for_extension(extension: &str) -> &'static str {
         "webp" => "image/webp",
         "bmp" => "image/bmp",
         "svg" => "image/svg+xml",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "m4v" => "video/x-m4v",
+        "avi" => "video/x-msvideo",
+        "mkv" => "video/x-matroska",
+        "mpeg" | "mpg" => "video/mpeg",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        "html" | "htm" => "text/html",
+        "xml" => "application/xml",
+        "rtf" => "application/rtf",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "zip" => "application/zip",
         _ => "application/octet-stream",
     }
 }
 
-fn named_image_extension(filename: &str) -> Option<&'static str> {
-    match Path::new(filename)
+fn named_file_extension(filename: &str) -> Option<String> {
+    let extension = Path::new(filename)
         .extension()
         .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("png") => Some("png"),
-        Some("jpg" | "jpeg") => Some("jpg"),
-        Some("gif") => Some("gif"),
-        Some("webp") => Some("webp"),
-        Some("bmp") => Some("bmp"),
-        Some("svg") => Some("svg"),
-        _ => None,
+        .map(|extension| extension.to_ascii_lowercase())?;
+    if extension.is_empty() || extension.len() > 16 {
+        return None;
     }
+    if !extension
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(extension)
 }
 
 fn sniffed_image_extension(data: &[u8]) -> Option<&'static str> {
@@ -85,15 +107,46 @@ fn sniffed_image_extension(data: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn infer_image_extension(filename: &str, data: &[u8]) -> Option<&'static str> {
-    named_image_extension(filename).or_else(|| sniffed_image_extension(data))
+fn sniffed_video_extension(data: &[u8]) -> Option<&'static str> {
+    if data.len() >= 12 && &data[4..8] == b"ftyp" {
+        let brand = &data[8..12];
+        if matches!(brand, b"heic" | b"heif" | b"mif1" | b"avif" | b"avis") {
+            return None;
+        }
+        if brand == b"qt  " {
+            return Some("mov");
+        }
+        return Some("mp4");
+    }
+    if data.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        return Some("webm");
+    }
+    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"AVI " {
+        return Some("avi");
+    }
+    None
+}
+
+fn sniffed_document_extension(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"%PDF") {
+        return Some("pdf");
+    }
+    None
+}
+
+fn infer_stored_extension(filename: &str, data: &[u8]) -> String {
+    named_file_extension(filename)
+        .or_else(|| sniffed_image_extension(data).map(str::to_string))
+        .or_else(|| sniffed_video_extension(data).map(str::to_string))
+        .or_else(|| sniffed_document_extension(data).map(str::to_string))
+        .unwrap_or_else(|| "bin".to_string())
 }
 
 fn sanitize_filename(name: &str) -> String {
     let stem = Path::new(name)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("image");
+        .unwrap_or("file");
 
     let clean: String = stem
         .to_lowercase()
@@ -107,7 +160,7 @@ fn sanitize_filename(name: &str) -> String {
     if clean.len() > max_len {
         clean[..max_len].to_string()
     } else if clean.is_empty() {
-        "image".to_string()
+        "file".to_string()
     } else {
         clean
     }
@@ -127,7 +180,7 @@ impl ImageService {
         Ok(Self {
             cache_dir,
             pool,
-            max_size_bytes: 20 * 1024 * 1024, // 20MB default
+            max_size_bytes: 100 * 1024 * 1024, // 100MB default
         })
     }
 
@@ -144,10 +197,9 @@ impl ImageService {
 
         let hash = format!("{:x}", Sha256::digest(data));
 
-        let extension =
-            infer_image_extension(original_filename, data).ok_or(ImageError::InvalidFormat)?;
+        let extension = infer_stored_extension(original_filename, data);
 
-        let mime_type = Some(mime_type_for_extension(extension).to_string());
+        let mime_type = Some(mime_type_for_extension(&extension).to_string());
 
         let existing_image = Image::find_by_hash(&self.pool, &hash).await?;
 
@@ -318,9 +370,32 @@ mod tests {
     #[test]
     fn infers_png_from_filename_or_magic_bytes() {
         let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 1, 2];
-        assert_eq!(infer_image_extension("shot.png", &[]), Some("png"));
-        assert_eq!(infer_image_extension("", &png), Some("png"));
-        assert_eq!(infer_image_extension("clipboard", &png), Some("png"));
-        assert_eq!(infer_image_extension("notes.txt", b"hello"), None);
+        assert_eq!(infer_stored_extension("shot.png", &[]), "png");
+        assert_eq!(infer_stored_extension("", &png), "png");
+        assert_eq!(infer_stored_extension("clipboard", &png), "png");
+    }
+
+    #[test]
+    fn infers_video_from_filename_or_magic_bytes() {
+        let mut mp4 = vec![0, 0, 0, 0x18];
+        mp4.extend_from_slice(b"ftypmp42");
+        mp4.extend_from_slice(&[0; 8]);
+        let mut mov = vec![0, 0, 0, 0x18];
+        mov.extend_from_slice(b"ftypqt  ");
+        mov.extend_from_slice(&[0; 8]);
+        assert_eq!(infer_stored_extension("clip.MP4", &[]), "mp4");
+        assert_eq!(infer_stored_extension("demo.webm", &[]), "webm");
+        assert_eq!(infer_stored_extension("", &mp4), "mp4");
+        assert_eq!(infer_stored_extension("clipboard", &mov), "mov");
+    }
+
+    #[test]
+    fn infers_document_extensions_from_filename() {
+        assert_eq!(infer_stored_extension("notes.txt", b"hello"), "txt");
+        assert_eq!(infer_stored_extension("readme.MD", &[]), "md");
+        assert_eq!(infer_stored_extension("report.PDF", b"%PDF-1.4"), "pdf");
+        assert_eq!(infer_stored_extension("letter.docx", &[]), "docx");
+        assert_eq!(infer_stored_extension("clipboard", b"%PDF-1.7"), "pdf");
+        assert_eq!(infer_stored_extension("clipboard", b"hello"), "bin");
     }
 }

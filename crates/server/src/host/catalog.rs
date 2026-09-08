@@ -3,11 +3,13 @@
 
 mod chat;
 pub(crate) mod config;
+mod git_cli_install;
 mod github_cli_install;
 mod images;
 mod instructions;
 mod mcp;
 mod ops;
+mod release_download;
 pub(crate) mod skills;
 mod system;
 mod version_control;

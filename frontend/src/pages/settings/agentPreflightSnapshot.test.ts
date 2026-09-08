@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentPreflightView } from 'shared/types';
 
 import {
+  overlayAuthPreflightItems,
   presentPreflightItems,
   readPreflightSnapshot,
   writePreflightSnapshot,
@@ -66,5 +67,60 @@ describe('agentPreflightSnapshot', () => {
     ]);
     expect(items.map((item) => item.id)).toEqual(['acp', 'dependency.node']);
     expect(items[1]?.status).toBe('warning');
+  });
+
+  it('keeps a later auth refresh when a full preflight finishes', () => {
+    const full: AgentPreflightView = {
+      agent_id: 'claude_code',
+      checked_at: '2026-09-08T00:00:00Z',
+      items: [
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '1.0.0',
+          path: '/usr/local/bin/claude-acp',
+          source: null,
+          repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+        {
+          id: 'authentication',
+          label: '鉴权',
+          status: 'fail',
+          detail: '当前鉴权模式 `official_subscription` 尚未就绪。',
+          version: 'official_subscription',
+          path: null,
+          source: null,
+          repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    };
+    const refreshed: AgentPreflightView = {
+      ...full,
+      checked_at: '2026-09-08T00:01:00Z',
+      items: [
+        {
+          ...full.items[1],
+          status: 'pass',
+          detail: '',
+          version: 'model_provider',
+        },
+      ],
+    };
+    const next = overlayAuthPreflightItems(full, refreshed);
+    expect(next.items.find((item) => item.id === 'acp')?.status).toBe('pass');
+    expect(
+      next.items.find((item) => item.id === 'authentication')
+    ).toMatchObject({
+      status: 'pass',
+      version: 'model_provider',
+    });
   });
 });

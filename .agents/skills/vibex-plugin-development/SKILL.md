@@ -5,7 +5,7 @@ description: Build, migrate, test, link, debug, or package full-trust VibeX v4 p
 
 # VibeX Plugin Development
 
-Build one user-facing product with one identity, README, root config, content tree, and lifecycle. App, Agent, Host, and Runtime are integration targets inside that product, not plugin categories.
+Build one user-facing product with one identity, README, root config, content tree, and lifecycle. App, Agent, Host, and Runtime are integration targets inside that product.
 
 The Host product plugin (Skill `/create-skill` and contract references) lives in the git submodule `assets/plugins/plugin-development` (`https://github.com/Xircth/vibex-plugin-development`). Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
 
@@ -38,7 +38,7 @@ VibeX v4 executes installed plugin code with the user's trust. There is no permi
 ## Platform disciplines (ADR-0069)
 
 - **No privileged official plugins.** Official plugins use the same public SDK, contribution points, and toolchain as any third party. Never special-case a plugin ID in Host code, and never reach for a private `host.call`, slot, or lifecycle. CI enforces this (`pnpm run plugin:no-privilege`): official packages import only the public SDK, and Host code carries no official-plugin-ID branches.
-- **Single-layer extension.** A plugin targets Host contribution points only. There is no plugin-on-plugin dependency, cross-plugin service call, or plugin-declared extension point. To build on another plugin, fork its source and republish under a new Publisher + Plugin ID with `derivedFrom` provenance; the derived plugin inherits none of the original's grants or data.
+- **Single-layer extension.** A plugin targets Host contribution points only. Reuse another plugin by copying its source and republishing under a new Publisher + Plugin ID. The derived package installs, stores data, and updates independently. Same-slot coexistence is resolved by the Host.
 - **A contribution point ships with its first official consumer.** New contribution kinds enter the stable surface only together with an official plugin consuming them plus the four acceptance items (CLI validate, Host inspect, real UI/Agent consumption, author docs). Build only against contribution points documented as stable; if a needed extension point is missing, stop at that boundary and deepen the public SDK first.
 
 ## Verify the real journey

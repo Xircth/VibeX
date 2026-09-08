@@ -63,6 +63,12 @@ pub async fn merge_object_section(
     let section_object = section_value
         .as_object_mut()
         .ok_or(SettingsStoreError::InvalidDocument)?;
+    let changed = updates
+        .iter()
+        .any(|(key, value)| section_object.get(key) != Some(value));
+    if !changed {
+        return Ok(section_object.clone());
+    }
     section_object.extend(updates);
     let merged = section_object.clone();
 
@@ -203,5 +209,38 @@ mod tests {
             .expect("frontend section");
         assert_eq!(frontend["zoom"], 1.25);
         assert_eq!(frontend["font"], "menlo");
+    }
+
+    #[tokio::test]
+    async fn identical_object_updates_do_not_rewrite_the_file() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("settings.json");
+        merge_object_section(
+            &path,
+            "frontend",
+            serde_json::Map::from_iter([("zoom".to_string(), serde_json::json!(1.25))]),
+        )
+        .await
+        .expect("seed");
+        let before = tokio::fs::read(&path).await.expect("read seeded");
+        let metadata = tokio::fs::metadata(&path).await.expect("metadata");
+        let modified = metadata.modified().expect("mtime");
+
+        merge_object_section(
+            &path,
+            "frontend",
+            serde_json::Map::from_iter([("zoom".to_string(), serde_json::json!(1.25))]),
+        )
+        .await
+        .expect("noop merge");
+
+        let after = tokio::fs::read(&path).await.expect("read after");
+        assert_eq!(before, after);
+        let after_modified = tokio::fs::metadata(&path)
+            .await
+            .expect("metadata after")
+            .modified()
+            .expect("mtime after");
+        assert_eq!(modified, after_modified);
     }
 }

@@ -1920,6 +1920,7 @@ impl ServerApplicationDomains {
         view: Value,
     ) -> Result<Value, ApplicationError> {
         let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
+        let _ = super::management::persist_observed_authentication(&self.pool, &agent_id).await;
         self.conversations
             .agent_runtime
             .mark_agent_sessions_config_stale(&agent_id, "OpenCode Provider 已更改")

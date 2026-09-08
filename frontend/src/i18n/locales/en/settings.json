@@ -1016,6 +1016,7 @@
     "clientRevoked": "This Host revoked the device. Enter a connection code to connect again.",
     "stoppedHostForClient": "Stopped the local remote connection service",
     "hostUpdateAvailable": "Update available",
+    "hostUpdateToast": "Remote Host {{from}} can update to {{to}}",
     "hostUpdateTitle": "Confirm remote update",
     "hostUpdateMessage": "{{name}} ({{address}}) will update from {{from}} to {{to}}. This usually takes about 2 minutes.",
     "hostUpdateConfirm": "Update",

@@ -76,12 +76,20 @@ export function usesSolidHostChrome(): boolean {
   return document.documentElement.classList.contains('host-windows');
 }
 
+export function isTauriDesktopShell(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
 export function applyHostPlatformToDocument(): void {
   if (typeof document === 'undefined') {
     return;
   }
   document.documentElement.dataset.hostPlatform = getHostPlatform();
   document.documentElement.classList.toggle('host-windows', isWindows());
+  document.documentElement.classList.toggle(
+    'tauri-desktop',
+    isTauriDesktopShell()
+  );
 }
 
 export function getModifierKey(): string {

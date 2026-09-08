@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { KanbanZone } from '@/lib/layoutArrangement';
 import {
   DEFAULT_KANBAN_ZONE_VISIBILITY,
-  kanbanListFillsHub,
-  kanbanSessionFillsHub,
+  kanbanOverflowZone,
+  kanbanSessionRendersInHub,
+  kanbanZoneFills,
   shouldRevealKanbanMonitorOnPlacement,
   shouldShowKanbanMonitor,
   visibleKanbanZones,
@@ -30,33 +31,35 @@ describe('kanban zone visibility', () => {
     ).toEqual(['list', 'session']);
   });
 
-  it('lets the list fill the hub only when it is the last remaining hub zone', () => {
-    expect(
-      kanbanListFillsHub({ list: true, monitor: false, session: false }, false)
-    ).toBe(true);
-    expect(
-      kanbanListFillsHub({ list: true, monitor: false, session: true }, true)
-    ).toBe(false);
-    expect(
-      kanbanListFillsHub({ list: true, monitor: true, session: true }, false)
-    ).toBe(false);
+  it('lets the monitor absorb leftover width while it is shown', () => {
+    const visibility = { list: true, monitor: true, session: true };
+
+    expect(kanbanOverflowZone(visibility)).toBe('monitor');
+    expect(kanbanZoneFills('monitor', visibility)).toBe(true);
+    expect(kanbanZoneFills('list', visibility)).toBe(false);
+    expect(kanbanZoneFills('session', visibility)).toBe(false);
   });
 
-  it('lets the in-hub session fill leftover space when the monitor is hidden', () => {
-    expect(
-      kanbanSessionFillsHub(true, {
-        list: true,
-        monitor: false,
-        session: true,
-      })
-    ).toBe(true);
-    expect(
-      kanbanSessionFillsHub(false, {
-        list: true,
-        monitor: false,
-        session: true,
-      })
-    ).toBe(false);
+  it('gives leftover width to the session when the monitor is closed', () => {
+    const visibility = { list: true, monitor: false, session: true };
+
+    expect(kanbanOverflowZone(visibility)).toBe('session');
+    expect(kanbanZoneFills('session', visibility)).toBe(true);
+    expect(kanbanZoneFills('list', visibility)).toBe(false);
+  });
+
+  it('lets the list fill only after both the monitor and session are closed', () => {
+    const visibility = { list: true, monitor: false, session: false };
+
+    expect(kanbanOverflowZone(visibility)).toBe('list');
+    expect(kanbanZoneFills('list', visibility)).toBe(true);
+  });
+
+  it('renders the session inside the hub on the session-hub view', () => {
+    expect(kanbanSessionRendersInHub('builtin:sessions')).toBe(true);
+    expect(kanbanSessionRendersInHub('builtin:columns')).toBe(false);
+    expect(kanbanSessionRendersInHub('builtin:usage')).toBe(false);
+    expect(kanbanSessionRendersInHub('builtin:canvas')).toBe(false);
   });
 
   it('hides the monitor column until a session is actually monitored', () => {

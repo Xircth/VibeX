@@ -6,7 +6,7 @@ Read and reconcile these sources before authoring:
 
 1. `packages/plugin-sdk/src/manifest.ts`
 2. `packages/plugin-sdk/src/protocol.ts`, `worker.ts`, `app.ts`, and `testing.ts`
-3. `packages/plugin-cli/src/validation.ts`, `build.ts`, and CLI `--help`
+3. `packages/plugin-cli/src/validation.ts`, `build.ts`, `scaffold.ts`, and CLI `--help`
 4. `docs/plugins/package-v4.md` and `sdk-and-cli.md`
 5. Host parsing and contribution registry only when the public contract is incomplete or failing
 
@@ -22,8 +22,15 @@ Start with README, root config, and one end-user outcome. Add only integrations 
 - `app.surface(slot: plugin.detail.panel)`: UI inside plugin details.
 - `app.surface(slot: artifact.editor)`: full file-tab editor with `bridge.artifact`.
 - `artifact.preview`: managed external preview process.
+- `app.command` / `app.toolbar` / `app.status` / `app.composer.slash` / `app.timeline.card` / `app.settings.section`: chrome slots. The `host-chrome` template writes one of each.
+- `app.panel` / `app.tab` / `app.kanban.view` / `app.settings.page`: structure surfaces with optional Module Federation remotes. The `panel` and `kanban-view` templates write Vite remotes.
+- `provider.model.importSource`: Model Provider import menu. The `provider-import` template writes one.
+- `provider.remote.provisioner`: Host-owned remote provision kind such as `ssh`.
+- `host.service`: periodic Worker handler.
 
-Typed references must resolve inside the same package. A file opener declares exactly one `previewProvider` or `editorSurface`; an editor target must reference an `artifact.editor` surface. Validation rejects missing, ambiguous, or wrong-slot references.
+Typed references must resolve inside the same package. A file opener declares exactly one `previewProvider` or `editorSurface`; an editor target must reference an `artifact.editor` surface. Validation rejects missing, ambiguous, or wrong-slot references. `dependencies.kind` is `runtime` only.
+
+Agent-side contributions apply after a new or rebound session. UI and Provider contributions appear on enable and vanish on disable.
 
 ## Editable file-tab flow
 
@@ -38,7 +45,9 @@ Typed references must resolve inside the same package. A file opener declares ex
 
 Keep candidate execution content-addressed. Validate Worker registrations and dependency readiness before publication. Publish one generation, retain the previous generation on failure, drain old leases, and dispose boundedly.
 
-Cover declarative-only, Worker, App panel, editable file tab, and complete-product fixtures. Include invalid summary/config/path/reference, unknown integration, missing handler, stale generation, external file edit, and oversized document cases.
+Prefer `vibex plugin run server` then `vibex plugin run dev` from the plugin directory. `add --dev` only links. Chrome slots refresh through the activation generation. Structure remotes use Vite HMR while `run dev` is active.
+
+Cover declarative-only, Worker, App panel, chrome slots, structure surfaces, editable file tab, and complete-product fixtures. Include invalid summary/config/path/reference, unknown integration, missing handler, stale generation, external file edit, and oversized document cases.
 
 ## Reference package rule
 

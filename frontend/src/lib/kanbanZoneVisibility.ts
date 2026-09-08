@@ -15,18 +15,35 @@ export function visibleKanbanZones(
   return zoneOrder.filter((zone) => visibility[zone]);
 }
 
-export function kanbanListFillsHub(
-  visibility: KanbanZoneVisibility,
-  sessionInHub: boolean
-): boolean {
-  return !visibility.monitor && !(sessionInHub && visibility.session);
+/**
+ * Which zone absorbs leftover width. The monitor is the overflow column
+ * while it is shown; closing it gives that leftover to the session;
+ * closing the session too leaves the list as the last remaining column.
+ * Matches workspace Dock on the default kanban arrangement: leftover from
+ * the sides goes to the center, leftover from the center goes to the right.
+ */
+export function kanbanOverflowZone(
+  visibility: KanbanZoneVisibility
+): KanbanZone | null {
+  if (visibility.monitor) return 'monitor';
+  if (visibility.session) return 'session';
+  if (visibility.list) return 'list';
+  return null;
 }
 
-export function kanbanSessionFillsHub(
-  sessionInHub: boolean,
+export function kanbanZoneFills(
+  zone: KanbanZone,
   visibility: KanbanZoneVisibility
 ): boolean {
-  return sessionInHub && visibility.session && !visibility.monitor;
+  return kanbanOverflowZone(visibility) === zone;
+}
+
+/**
+ * Session-hub view keeps list / monitor / session in one flex row so leftover
+ * width can be given to the filling slot. Other views keep the outer slot.
+ */
+export function kanbanSessionRendersInHub(viewId: string): boolean {
+  return viewId === 'builtin:sessions';
 }
 
 /** The monitor is overflow: it does not occupy a column while empty. */

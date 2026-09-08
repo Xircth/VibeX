@@ -145,6 +145,10 @@ struct HealthBody {
     host_id: Option<String>,
     name: Option<String>,
     version: Option<String>,
+    /// Published Host family builds set this true. Source/debug Hosts set false.
+    /// Older Servers omit it; treat missing as a published build.
+    #[serde(default)]
+    release: Option<bool>,
 }
 
 pub struct HostClientRuntime {
@@ -226,8 +230,13 @@ impl HostClientRuntime {
                     .map(str::to_string)
             });
             let reachable = health.is_some();
-            let update_available =
-                host_update_available(latest.as_deref(), current_version.as_deref(), reachable);
+            let release = health.as_ref().is_none_or(is_release_host);
+            let update_available = host_update_available(
+                latest.as_deref(),
+                current_version.as_deref(),
+                reachable,
+                release,
+            );
             updates.push(SavedHostUpdateView {
                 profile_id: profile.id.clone(),
                 current_version,
@@ -296,6 +305,55 @@ impl HostClientRuntime {
 
     pub async fn unbind_window(&self, window_label: &str) {
         self.active.lock().await.remove(window_label);
+    }
+
+    pub async fn bind_window(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        profile_id: &str,
+        origin: &str,
+        token: String,
+    ) -> Result<String, AppError> {
+        let target_window = host_window_label(profile_id);
+        registry
+            .connect(&target_window, ACTIVE_PROFILE_ID, origin, token)
+            .await?;
+        self.active
+            .lock()
+            .await
+            .insert(target_window.clone(), profile_id.to_string());
+        Ok(target_window)
+    }
+
+    pub async fn bind_saved_profile_window(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        profile_id: &str,
+    ) -> Result<(), AppError> {
+        let Some(token) = self.access_token(profile_id).await? else {
+            return Err(AppError::BadRequest(NEEDS_TOKEN.to_string()));
+        };
+        let Some(profile) = self.profile(profile_id).await? else {
+            return Err(AppError::NotFound("saved Host was not found".to_string()));
+        };
+        self.bind_window(registry, profile_id, &profile.origin, token)
+            .await?;
+        Ok(())
+    }
+
+    /// Window close is async. A saved-Host reconnect may reuse the same label
+    /// before this runs; skip teardown when that replacement is already live.
+    pub async fn drop_binding_for_destroyed_window(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        window_label: &str,
+        window_still_open: bool,
+    ) {
+        if window_still_open {
+            return;
+        }
+        self.unbind_window(window_label).await;
+        registry.disconnect_window(window_label).await;
     }
 
     pub async fn discover(&self) -> Result<Vec<DiscoveredHost>, AppError> {
@@ -454,20 +512,15 @@ impl HostClientRuntime {
         state.active_profile_id = None;
         self.save(&state).await?;
 
-        let target_window = host_window_label(&profile_id);
-        registry
-            .connect(
-                &target_window,
-                ACTIVE_PROFILE_ID,
-                &origin_for_bind,
-                credential.access_token.clone(),
-            )
-            .await?;
-        self.active
-            .lock()
-            .await
-            .insert(target_window.clone(), profile_id.clone());
+        self.bind_window(
+            registry,
+            &profile_id,
+            &origin_for_bind,
+            credential.access_token.clone(),
+        )
+        .await?;
 
+        let target_window = host_window_label(&profile_id);
         let bound_here = caller_window == target_window;
         let views = views(&state, bound_here.then_some(profile_id.as_str()));
         let profile = views
@@ -1291,8 +1344,18 @@ async fn probe_health_version(client: &reqwest::Client, origin: &str) -> Option<
     ok.then_some(body)
 }
 
-fn host_update_available(latest: Option<&str>, current: Option<&str>, reachable: bool) -> bool {
-    reachable
+fn is_release_host(body: &HealthBody) -> bool {
+    body.release != Some(false)
+}
+
+fn host_update_available(
+    latest: Option<&str>,
+    current: Option<&str>,
+    reachable: bool,
+    release: bool,
+) -> bool {
+    release
+        && reachable
         && latest
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -1336,8 +1399,8 @@ mod tests {
     use super::{
         HealthBody, HostClientRuntime, StoredProfile, StoredState, advertised_connect_origin,
         collapse_provisioned_duplicates, format_ssh_host_config, host_update_available,
-        normalize_origin, pairing_token_from_input, parse_health, resolve_connect_origin,
-        ssh_host_alias, upsert_profile, views,
+        is_release_host, normalize_origin, pairing_token_from_input, parse_health,
+        resolve_connect_origin, ssh_host_alias, upsert_profile, views,
     };
     use crate::host_client::DeviceCredentialParts;
 
@@ -1352,13 +1415,54 @@ mod tests {
 
     #[test]
     fn saved_hosts_behind_latest_are_update_available() {
-        assert!(host_update_available(Some("0.2.1"), Some("0.2.0"), true));
-        assert!(host_update_available(Some("v0.3.0"), Some("0.2.9"), true));
-        assert!(host_update_available(Some("0.2.1"), None, true));
-        assert!(!host_update_available(Some("0.2.1"), Some("0.2.1"), true));
-        assert!(!host_update_available(Some("0.2.1"), Some("0.2.0"), false));
-        assert!(!host_update_available(None, Some("0.2.0"), true));
-        assert!(!host_update_available(Some(""), Some("0.2.0"), true));
+        assert!(host_update_available(
+            Some("0.2.1"),
+            Some("0.2.0"),
+            true,
+            true
+        ));
+        assert!(host_update_available(
+            Some("v0.3.0"),
+            Some("0.2.9"),
+            true,
+            true
+        ));
+        assert!(host_update_available(Some("0.2.1"), None, true, true));
+        assert!(!host_update_available(
+            Some("0.2.1"),
+            Some("0.2.1"),
+            true,
+            true
+        ));
+        assert!(!host_update_available(
+            Some("0.2.1"),
+            Some("0.2.0"),
+            false,
+            true
+        ));
+        assert!(!host_update_available(None, Some("0.2.0"), true, true));
+        assert!(!host_update_available(Some(""), Some("0.2.0"), true, true));
+        assert!(!host_update_available(
+            Some("0.2.1"),
+            Some("0.2.0"),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn omitted_health_release_is_a_published_build() {
+        let published: HealthBody =
+            serde_json::from_str(r#"{"status":"ok","version":"0.2.1"}"#).expect("json");
+        assert!(is_release_host(&published));
+        let debug: HealthBody =
+            serde_json::from_str(r#"{"status":"ok","version":"0.2.1","release":false}"#)
+                .expect("json");
+        assert!(!is_release_host(&debug));
+        let family: HealthBody =
+            serde_json::from_str(r#"{"status":"ok","version":"0.2.1","release":true}"#)
+                .expect("json");
+        assert!(is_release_host(&family));
     }
 
     #[test]
@@ -1372,6 +1476,7 @@ mod tests {
                     host_id: Some("host-1".into()),
                     name: Some("Studio".into()),
                     version: Some("0.2.0".into()),
+                    release: None,
                 }
             )
             .is_some()
@@ -1385,6 +1490,7 @@ mod tests {
                     host_id: None,
                     name: None,
                     version: None,
+                    release: None,
                 }
             )
             .is_none()
@@ -1815,6 +1921,48 @@ mod tests {
             .expect("remembered connect");
         assert_eq!(second.profile.id, first.profile.id);
         assert!(!second.profile.connected);
+
+        runtime
+            .disconnect_window(&registry, &host_window)
+            .await
+            .expect("close saved Host window");
+        let closed = runtime
+            .status(&registry, &host_window)
+            .await
+            .expect("closed host window");
+        assert!(!closed.connected);
+        runtime
+            .drop_binding_for_destroyed_window(&registry, &host_window, true)
+            .await;
+        let rebound = runtime
+            .connect(
+                "settings",
+                &registry,
+                ConnectHostRequest {
+                    origin: None,
+                    token: None,
+                    profile_id: Some(first.profile.id.clone()),
+                },
+            )
+            .await
+            .expect("reconnect saved Host");
+        assert_eq!(rebound.profile.id, first.profile.id);
+        runtime
+            .drop_binding_for_destroyed_window(&registry, &host_window, true)
+            .await;
+        let still_bound = runtime
+            .status(&registry, &host_window)
+            .await
+            .expect("kept replacement window");
+        assert!(still_bound.connected);
+        runtime
+            .drop_binding_for_destroyed_window(&registry, &host_window, false)
+            .await;
+        let unbound = runtime
+            .status(&registry, &host_window)
+            .await
+            .expect("closed replacement");
+        assert!(!unbound.connected);
 
         revoked.store(true, std::sync::atomic::Ordering::SeqCst);
         let err = runtime

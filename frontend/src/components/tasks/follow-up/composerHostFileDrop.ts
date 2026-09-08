@@ -1,14 +1,10 @@
 import { stripWindowsExtendedPathPrefix } from '@/utils/displayPath';
-
-const IMAGE_EXTENSIONS = new Set([
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'bmp',
-  'svg',
-]);
+import {
+  fileExtension,
+  isImageExtension,
+  isVideoExtension,
+  mimeForMediaExtension,
+} from '@/utils/mediaAttachments';
 
 export function hostPathFileName(path: string): string {
   const normalized = stripWindowsExtendedPathPrefix(path).replace(
@@ -19,38 +15,20 @@ export function hostPathFileName(path: string): string {
   return parts[parts.length - 1] ?? normalized;
 }
 
-export function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/') || isImageHostPath(file.name);
+export function isImageHostPath(path: string): boolean {
+  return isImageExtension(fileExtension(hostPathFileName(path)));
 }
 
-export function isImageHostPath(path: string): boolean {
-  const name = hostPathFileName(path);
-  const dot = name.lastIndexOf('.');
-  if (dot < 0 || dot === name.length - 1) return false;
-  return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+export function isVideoHostPath(path: string): boolean {
+  return isVideoExtension(fileExtension(hostPathFileName(path)));
+}
+
+export function isAttachableMediaHostPath(path: string): boolean {
+  return isImageHostPath(path) || isVideoHostPath(path);
 }
 
 export function mimeForHostPath(path: string): string {
-  const name = hostPathFileName(path);
-  const dot = name.lastIndexOf('.');
-  const extension = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
-  switch (extension) {
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg';
-    case 'png':
-      return 'image/png';
-    case 'gif':
-      return 'image/gif';
-    case 'webp':
-      return 'image/webp';
-    case 'bmp':
-      return 'image/bmp';
-    case 'svg':
-      return 'image/svg+xml';
-    default:
-      return 'application/octet-stream';
-  }
+  return mimeForMediaExtension(fileExtension(hostPathFileName(path)));
 }
 
 export function relativePathInsideRoot(

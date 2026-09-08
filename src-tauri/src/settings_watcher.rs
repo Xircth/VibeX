@@ -1,7 +1,10 @@
+use std::time::{Duration, Instant};
+
 use notify::{EventKind, RecursiveMode, Watcher};
 use tauri::AppHandle;
 
 pub const SETTINGS_CHANGED_EVENT: &str = "vibex://settings-file-changed";
+const EMIT_COALESCE: Duration = Duration::from_millis(100);
 
 pub fn start(_app: AppHandle) {
     if let Err(error) = std::thread::Builder::new()
@@ -29,6 +32,7 @@ pub fn start(_app: AppHandle) {
                 return;
             }
 
+            let mut last_emit: Option<Instant> = None;
             for event in receiver {
                 let Ok(event) = event else {
                     continue;
@@ -40,6 +44,10 @@ pub fn start(_app: AppHandle) {
                 {
                     continue;
                 }
+                if last_emit.is_some_and(|emitted| emitted.elapsed() < EMIT_COALESCE) {
+                    continue;
+                }
+                last_emit = Some(Instant::now());
                 crate::host_bus::bus().emit(SETTINGS_CHANGED_EVENT, ());
             }
         })

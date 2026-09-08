@@ -10,6 +10,7 @@ import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster, toast } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
+import { DesktopWindowControls } from '@/components/settings/DesktopWindowControls';
 import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
 import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
 
@@ -31,6 +32,7 @@ import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { useTauriClient } from '@/lib/desktopShell';
+import { useRemoteHostReleaseUpdateToast } from '@/hooks/useRemoteHostReleaseUpdateToast';
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
 import {
@@ -108,6 +110,7 @@ function MainAppContent() {
 
   // Scratch streams are desktop-shell; Web keeps UI preferences local.
   useUiPreferencesScratch(isTauri);
+  useRemoteHostReleaseUpdateToast();
 
   useLegacyDesignBodyClass();
 
@@ -225,6 +228,7 @@ function MainAppContent() {
         <AgentWorkbenchProvider>
           {isMainDesktopWindow ? <ProjectWindowManager /> : null}
           {isTauri ? <TrayBadgeSync /> : null}
+          {isTauri ? <DesktopWindowControls /> : null}
           <ThemedToaster />
           <MainAppRoutes />
           {config && isTauri && startupPromptStep === 'first-run' ? (

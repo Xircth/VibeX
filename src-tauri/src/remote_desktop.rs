@@ -232,10 +232,18 @@ impl RemoteDesktopRegistry {
             },
         );
         let pumps = self.pumps.clone();
+        let window_label = window_label.to_string();
         tokio::spawn(async move {
-            let result =
-                pump_host_event_socket(app, profile, event, channel, subscription_id, cancel_rx)
-                    .await;
+            let result = pump_host_event_socket(
+                app,
+                profile,
+                event,
+                channel,
+                subscription_id,
+                cancel_rx,
+                window_label,
+            )
+            .await;
             pumps.write().await.remove(&subscription_id);
             if let Err(error) = result {
                 tracing::warn!(%error, "remote desktop host event listen failed");
@@ -360,6 +368,18 @@ async fn connect_remote_socket(
     Ok(stream)
 }
 
+fn emit_host_event_to_window_family(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    channel: &str,
+    payload: &Value,
+) {
+    use tauri::{Emitter, EventTarget};
+    for label in crate::host_windows::host_family_event_labels(window_label) {
+        let _ = app.emit_to(EventTarget::labeled(&label), channel, payload);
+    }
+}
+
 async fn pump_host_event_socket(
     app: tauri::AppHandle,
     profile: RemoteProfile,
@@ -367,9 +387,9 @@ async fn pump_host_event_socket(
     channel: String,
     subscription_id: Uuid,
     cancel_rx: oneshot::Receiver<()>,
+    window_label: String,
 ) -> Result<(), AppError> {
     use futures::{SinkExt, StreamExt};
-    use tauri::Emitter;
     use tokio_tungstenite::tungstenite::Message;
     let mut stream = connect_remote_socket(&profile).await?;
     let attach = serde_json::json!({
@@ -408,7 +428,7 @@ async fn pump_host_event_socket(
                     continue;
                 }
                 if let Some(payload) = value.pointer("/event/payload") {
-                    let _ = app.emit(&channel, payload);
+                    emit_host_event_to_window_family(&app, &window_label, &channel, payload);
                 }
             }
         }

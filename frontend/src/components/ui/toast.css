@@ -14,9 +14,14 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   pointer-events: none;
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
   font-family: var(--font-ui);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .vu-toast-viewport {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+  }
 }
 
 .vu-toast-host {
@@ -179,8 +184,13 @@
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
   border-radius: var(--radius);
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .vu-toast-details {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+  }
 }
 
 .vu-toast-detail-row {

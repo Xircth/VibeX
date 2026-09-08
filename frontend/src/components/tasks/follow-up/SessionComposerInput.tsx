@@ -16,7 +16,14 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { FolderOpen, Image, Loader2, MousePointer2, X } from 'lucide-react';
+import {
+  FileText,
+  FolderOpen,
+  Image,
+  Loader2,
+  MousePointer2,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId } from 'shared/types';
 import {
@@ -72,6 +79,12 @@ import {
 } from '@/utils/clipboard';
 import { formatFileRangeRef } from '@/utils/codeSelection';
 import {
+  fileExtension,
+  isAttachableFile,
+  isImageExtension,
+  isVideoExtension,
+} from '@/utils/mediaAttachments';
+import {
   FILE_REFERENCE_DRAG_MIME,
   parseFileReferencePayload,
   type FileReferencePayload,
@@ -111,8 +124,6 @@ import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
 import {
   fileFromHostPath,
   hostPathFileName,
-  isImageFile,
-  isImageHostPath,
   isPointInElement,
   relativePathInsideRoot,
 } from './composerHostFileDrop';
@@ -148,20 +159,29 @@ type SessionComposerInputProps = {
   onAttachImages: (files: File[]) => void;
 };
 
-function imageFilesFromFileList(files: FileList | null | undefined): File[] {
+function attachableFilesFromFileList(
+  files: FileList | null | undefined
+): File[] {
   return Array.from(files ?? [])
-    .filter(isImageFile)
+    .filter(isAttachableFile)
     .map(prepareImageFileForUpload);
 }
 
+function attachmentPreviewKind(extension: string): 'image' | 'video' | 'file' {
+  if (isVideoExtension(extension)) return 'video';
+  if (isImageExtension(extension)) return 'image';
+  return 'file';
+}
+
 /**
- * Paste handler for screenshots. Astryx reads `clipboardData.files` before
- * calling this prop, so image payloads usually arrive here either as file
- * clipboard *items* (recovered synchronously) or through the async
- * `navigator.clipboard.read()` fallback (e.g. an image copied off a webpage).
- * Returns `true` when an image was handed to `onAttachImages`, telling Astryx
- * to skip its default text insert; plain-text and empty pastes return `false`
- * so normal composer behavior is untouched.
+ * Paste handler for screenshots and other attached files. Astryx reads
+ * `clipboardData.files` before calling this prop, so file payloads usually
+ * arrive here either as clipboard *items* (recovered synchronously) or
+ * through the async `navigator.clipboard.read()` fallback (e.g. an image
+ * copied off a webpage). Returns `true` when a file was handed to
+ * `onAttachImages`, telling Astryx to skip its default text insert;
+ * plain-text and empty pastes return `false` so normal composer behavior is
+ * untouched.
  */
 export function handleComposerImagePaste(
   event: { clipboardData: DataTransfer | null },
@@ -245,17 +265,21 @@ function SessionComposerImageAttachment({
     setPreviewUrlFailed(false);
   }, [image.previewUrl]);
 
+  const previewKind = attachmentPreviewKind(
+    fileExtension(image.name) || metadata?.format || ''
+  );
+
   const handlePreview = useCallback(() => {
-    if (!imageUrl || imageLoadFailed) return;
+    if (previewKind === 'file' || !imageUrl || imageLoadFailed) return;
 
     ImagePreviewDialog.show({
       imageUrl,
       altText: label,
       fileName: label,
-      format: metadata?.format ?? undefined,
+      format: metadata?.format ?? fileExtension(image.name) ?? undefined,
       sizeBytes: metadata?.size_bytes,
     });
-  }, [imageLoadFailed, imageUrl, label, metadata]);
+  }, [imageLoadFailed, imageUrl, image.name, label, metadata, previewKind]);
 
   const handleRemove = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
@@ -299,16 +323,38 @@ function SessionComposerImageAttachment({
         type="button"
         className="flex h-full w-full items-center justify-center overflow-hidden outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-default"
         onClick={handlePreview}
-        disabled={!imageUrl || imageLoadFailed}
-        aria-label={`Preview ${label}`}
+        disabled={previewKind === 'file' || !imageUrl || imageLoadFailed}
+        aria-label={previewKind === 'file' ? label : `Preview ${label}`}
       >
-        {imageUrl && !imageLoadFailed ? (
-          <img
-            src={imageUrl}
-            alt={label}
-            className="h-full w-full object-cover"
-            onError={handleImageError}
-          />
+        {previewKind === 'file' ? (
+          <span
+            className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1 text-muted-foreground"
+            data-testid="session-composer-file-attachment"
+          >
+            <FileText className="h-5 w-5" />
+            <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
+              {fileExtension(label).toUpperCase() || label}
+            </span>
+          </span>
+        ) : imageUrl && !imageLoadFailed ? (
+          previewKind === 'video' ? (
+            <video
+              src={imageUrl}
+              muted
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-cover"
+              data-testid="session-composer-video-attachment"
+              onError={handleImageError}
+            />
+          ) : (
+            <img
+              src={imageUrl}
+              alt={label}
+              className="h-full w-full object-cover"
+              onError={handleImageError}
+            />
+          )
         ) : (
           <span className="flex h-full w-full items-center justify-center text-muted-foreground">
             {isLoading ? (
@@ -1238,23 +1284,20 @@ export function SessionComposerInput({
   const handleHostDroppedPaths = useCallback(
     async (paths: string[]) => {
       if (disabled || paths.length === 0) return;
-      const imagePaths = paths.filter(isImageHostPath);
-      const otherPaths = paths.filter((path) => !isImageHostPath(path));
-      if (imagePaths.length > 0) {
-        const { readFile } = await import('@tauri-apps/plugin-fs');
-        const files: File[] = [];
-        for (const path of imagePaths) {
-          try {
-            files.push(
-              await fileFromHostPath(path, (filePath) => readFile(filePath))
-            );
-          } catch {
-            // Keep going so a single unreadable image does not block the rest.
-          }
+      const { readFile } = await import('@tauri-apps/plugin-fs');
+      const files: File[] = [];
+      const otherPaths: string[] = [];
+      for (const path of paths) {
+        try {
+          files.push(
+            await fileFromHostPath(path, (filePath) => readFile(filePath))
+          );
+        } catch {
+          otherPaths.push(path);
         }
-        if (files.length > 0) {
-          onAttachImages(files.map(prepareImageFileForUpload));
-        }
+      }
+      if (files.length > 0) {
+        onAttachImages(files.map(prepareImageFileForUpload));
       }
       for (const path of otherPaths) {
         const relative =
@@ -1359,7 +1402,7 @@ export function SessionComposerInput({
         return;
       }
 
-      const files = imageFilesFromFileList(event.dataTransfer.files);
+      const files = attachableFilesFromFileList(event.dataTransfer.files);
       if (files.length === 0) return;
 
       event.preventDefault();
@@ -1559,10 +1602,10 @@ export function SessionComposerInput({
           }}
           onSubmit={handleSubmit}
           onFiles={(files) => {
-            const images = files
-              .filter(isImageFile)
+            const attached = files
+              .filter(isAttachableFile)
               .map(prepareImageFileForUpload);
-            if (images.length > 0) onAttachImages(images);
+            if (attached.length > 0) onAttachImages(attached);
           }}
           onPaste={handleComposerPaste}
           onDrop={handleDrop}

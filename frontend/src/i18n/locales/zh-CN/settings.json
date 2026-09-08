@@ -1016,6 +1016,7 @@
     "clientRevoked": "Host 已撤销此设备，请重新输入连接码",
     "stoppedHostForClient": "已停止本机远程连接服务",
     "hostUpdateAvailable": "可更新",
+    "hostUpdateToast": "远程 Host {{from}} 可更新到 {{to}}",
     "hostUpdateTitle": "请确认远程更新",
     "hostUpdateMessage": "{{name}}（{{address}}）将从 {{from}} 更新到 {{to}}。预计约 2 分钟。",
     "hostUpdateConfirm": "更新",

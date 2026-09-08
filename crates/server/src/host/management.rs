@@ -11,7 +11,7 @@ use agents::{
     apply_built_in_auth_mode_policy, apply_codex_auth_mode, auth_mode_credential_env,
     auth_mode_kind, authentication_from_account_command, built_in_auth_mode_policy,
     native_uses_custom_endpoint, official_api_url, project_codex_auth_mode, resolve_account_label,
-    resolve_built_in_auth_mode, version_at_least,
+    resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -197,7 +197,9 @@ pub async fn preflight(
     require_membership(pool, &agent_id).await?;
     let env = read_agent_environment(pool, &agent_id).await?;
     if scope == Some("authentication") {
-        let authentication = observed_authentication(pool, &agent_id, &env).await;
+        let authentication = persist_observed_authentication(pool, &agent_id)
+            .await
+            .unwrap_or(observed_authentication(pool, &agent_id, &env).await);
         let item = auth_mode_preflight_item(pool, &agent_id, &env, authentication).await?;
         return Ok(AgentPreflightView {
             agent_id,
@@ -876,6 +878,7 @@ pub async fn auth_mode_set(
     }
     apply_built_in_auth_mode_policy(&agent_id, &mut env);
     persist_agent_environment(pool, &agent_id, &env).await?;
+    let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
 }
 
@@ -1235,6 +1238,7 @@ async fn set_codex_auth_mode(
             .await
             .map_err(internal_error)?;
     }
+    let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
 }
 
@@ -1465,6 +1469,34 @@ fn preflight_auth_item(ready: bool, detail: String, version: &str) -> AgentPrefl
     }
 }
 
+pub(crate) async fn persist_observed_authentication(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<AgentAuthenticationStatus, ApplicationError> {
+    let env = read_agent_environment(pool, agent_id).await?;
+    let authentication = observed_authentication(pool, agent_id, &env).await;
+    persist_authentication_probe(pool, agent_id, authentication).await?;
+    Ok(authentication)
+}
+
+async fn persist_authentication_probe(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    authentication: AgentAuthenticationStatus,
+) -> Result<(), ApplicationError> {
+    let still_required = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default)
+        && matches!(
+            authentication,
+            AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
+        );
+    AgentManagementApplicationService::new(pool.clone())
+        .sync_authentication(agent_id, authentication, Some(still_required))
+        .await
+        .map_err(internal_error)
+}
+
 async fn observed_authentication(
     pool: &SqlitePool,
     agent_id: &AgentId,
@@ -1480,7 +1512,7 @@ async fn observed_authentication(
         home,
         env.clone().into_iter().collect::<BTreeMap<_, _>>(),
     );
-    let observed = match provider
+    let native = match provider
         .read(agent_id, recorded == AgentAuthenticationStatus::Account)
         .await
     {
@@ -1488,7 +1520,31 @@ async fn observed_authentication(
         Err(agents::NativeConfigError::Unsupported(_)) => AgentAuthenticationStatus::NotRequired,
         Err(_) => recorded,
     };
-    agents::prefer_recorded_account_over_residue(recorded, observed)
+    resolve_observed_authentication(
+        recorded,
+        native,
+        bound_provider_has_credentials(agent_id, env).await,
+    )
+}
+
+async fn bound_provider_has_credentials(agent_id: &AgentId, env: &HashMap<String, String>) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let native_home = model_providers::provider_native_home(&home, env, agent_id);
+    let Ok(view) = model_providers::list_with_native(
+        &provider_store_path(),
+        agent_id.clone(),
+        Some(&native_home),
+    )
+    .await
+    else {
+        return false;
+    };
+    view.providers
+        .iter()
+        .find(|provider| Some(&provider.id) == view.bound_provider_id.as_ref())
+        .is_some_and(|provider| provider.credential_present)
 }
 
 async fn recorded_authentication(
@@ -2204,6 +2260,76 @@ fn render_plain_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn probe_pool(
+        agent_id: &str,
+        lifecycle: &str,
+        authentication: &str,
+        authentication_required: i64,
+    ) -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_installation (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 current_lock_id TEXT
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_probe (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 authentication TEXT NOT NULL,
+                 detail_json TEXT NOT NULL,
+                 probed_at TEXT NOT NULL,
+                 runtime_available INTEGER NOT NULL DEFAULT 0,
+                 acp_handshake INTEGER NOT NULL DEFAULT 0,
+                 authentication_required INTEGER NOT NULL DEFAULT 0,
+                 observation_generation INTEGER NOT NULL DEFAULT 0
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO agent_installation VALUES (?, ?, 'lock-1')")
+            .bind(agent_id)
+            .bind(lifecycle)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"INSERT INTO agent_probe
+               VALUES (?, ?, ?, '{}', '2026-08-01T00:00:00Z', 1, 1, ?, 1)"#,
+        )
+        .bind(agent_id)
+        .bind(lifecycle)
+        .bind(authentication)
+        .bind(authentication_required)
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn persisting_api_key_observation_clears_needs_auth() {
+        let pool = probe_pool("claude_code", "needs_auth", "not_logged_in", 1).await;
+        let agent_id = AgentId::parse("claude_code").unwrap();
+        persist_authentication_probe(&pool, &agent_id, AgentAuthenticationStatus::ApiKey)
+            .await
+            .unwrap();
+        let row = sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT lifecycle, authentication, authentication_required FROM agent_probe WHERE agent_id = ?",
+        )
+        .bind(agent_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row, ("ready".into(), "api_key".into(), false));
+    }
 
     #[test]
     fn auth_mode_options_cover_policy_modes() {

@@ -17,7 +17,10 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
   useKanbanSessionContext: () => kanbanSessionContext,
 }));
 
-function renderSlot(side: 'left' | 'center' | 'right' = 'center') {
+function renderSlot(
+  side: 'left' | 'center' | 'right' = 'center',
+  inHub = false
+) {
   const host = document.createElement('div');
   host.textContent = 'session-host';
 
@@ -25,7 +28,7 @@ function renderSlot(side: 'left' | 'center' | 'right' = 'center') {
   act(() => {
     view = render(
       <RightPanelSlotContext.Provider value={{ host, placement: 'kanban' }}>
-        <KanbanSessionSlot side={side} active />
+        <KanbanSessionSlot side={side} active inHub={inHub} />
       </RightPanelSlotContext.Provider>
     );
   });
@@ -53,11 +56,51 @@ describe('KanbanSessionSlot', () => {
       right: 'monitor',
     });
 
-    const { container } = renderSlot('center');
+    const { container } = renderSlot('center', true);
     const slot = container.querySelector('[data-panel="kanban-session-slot"]');
 
     expect(screen.queryByRole('separator')).not.toBeInTheDocument();
     expect(slot).toHaveClass('flex-1');
+  });
+
+  it('lets the right-side session fill leftover space when the monitor is hidden', () => {
+    setKanbanArrangement(DEFAULT_KANBAN_ARRANGEMENT);
+
+    const { container } = renderSlot('right', true);
+    const slot = container.querySelector('[data-panel="kanban-session-slot"]');
+
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+    expect(slot).toHaveClass('flex-1');
+  });
+
+  it('keeps the right-side session at its stored width while the monitor is shown', () => {
+    kanbanSessionContext.monitorSessions = [
+      { sessionId: 'monitor-1', workspaceId: 'workspace-1' },
+    ];
+    setKanbanArrangement(DEFAULT_KANBAN_ARRANGEMENT);
+
+    const { container } = renderSlot('right', true);
+    const slot = container.querySelector('[data-panel="kanban-session-slot"]');
+    const handle = screen.getByRole('separator');
+
+    expect(handle).toHaveAttribute('data-handle-side', 'left');
+    expect(slot).not.toHaveClass('flex-1');
+    expect(slot?.querySelector('.workspace-right-panel')).toHaveStyle({
+      width: '520px',
+    });
+  });
+
+  it('keeps the outer session at its stored width beside other kanban views', () => {
+    setKanbanArrangement(DEFAULT_KANBAN_ARRANGEMENT);
+
+    const { container } = renderSlot('right');
+    const slot = container.querySelector('[data-panel="kanban-session-slot"]');
+
+    expect(screen.getByRole('separator')).toBeInTheDocument();
+    expect(slot).not.toHaveClass('flex-1');
+    expect(slot?.querySelector('.workspace-right-panel')).toHaveStyle({
+      width: '520px',
+    });
   });
 
   it('puts the resize handle on the monitor-facing edge after swapping zones', () => {
@@ -70,7 +113,7 @@ describe('KanbanSessionSlot', () => {
       right: 'monitor',
     });
 
-    const { container } = renderSlot('center');
+    const { container } = renderSlot('center', true);
     const slot = container.querySelector('[data-panel="kanban-session-slot"]');
     const handle = screen.getByRole('separator');
 
@@ -88,7 +131,7 @@ describe('KanbanSessionSlot', () => {
       right: 'monitor',
     });
 
-    renderSlot('center');
+    renderSlot('center', true);
     const handle = screen.getByRole('separator');
 
     fireEvent.mouseDown(handle, { clientX: 400 });
@@ -109,6 +152,9 @@ describe('KanbanSessionSlot', () => {
   });
 
   it('keeps the default handle on the left edge of a right-side session', () => {
+    kanbanSessionContext.monitorSessions = [
+      { sessionId: 'monitor-1', workspaceId: 'workspace-1' },
+    ];
     setKanbanArrangement(DEFAULT_KANBAN_ARRANGEMENT);
 
     const { container } = renderSlot('right');

@@ -41,6 +41,9 @@ describe('SettingsLayout capability gating', () => {
     const shell = screen.getByText('General content').closest('.settings-page');
     expect(shell).toHaveClass('fixed', 'inset-0');
     expect(shell).not.toHaveClass('h-screen');
+    expect(shell?.querySelector('.settings-titlebar')).toHaveClass(
+      'window-chrome'
+    );
   });
 
   it('shows the Agent page skeleton while the settings chunk is loading', () => {

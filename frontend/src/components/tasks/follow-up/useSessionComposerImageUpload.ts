@@ -58,7 +58,7 @@ export function useSessionComposerImageUpload({
           });
         } catch (error) {
           const message = getInvokeErrorMessage(error).trim();
-          onError?.(message || 'Could not attach image');
+          onError?.(message || 'Could not attach file');
         }
       }
     },

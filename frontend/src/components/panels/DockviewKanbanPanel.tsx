@@ -51,6 +51,7 @@ import {
   kanbanSlotOfZone,
   useKanbanArrangement,
 } from '@/lib/layoutArrangement';
+import { kanbanSessionRendersInHub } from '@/lib/kanbanZoneVisibility';
 import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
 import { KanbanSessionSlot } from '@/components/kanban/KanbanSessionSlot';
 import { KanbanUsageDashboard } from '@/components/kanban/KanbanUsageDashboard';
@@ -113,11 +114,10 @@ export function KanbanBoard() {
   const currentIndex = kanbanViewIndex(views, currentViewId);
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
   const hideSessionSlot = kanbanViewHidesSessionSlot(currentViewId);
+  const sessionInHub = kanbanSessionRendersInHub(currentViewId);
   const outerSessionSide: 'left' | 'right' =
     sessionSlotSide === 'left' ? 'left' : 'right';
-  const outerSessionActive =
-    !hideSessionSlot &&
-    (sessionSlotSide !== 'center' || currentViewId !== 'builtin:sessions');
+  const outerSessionActive = !hideSessionSlot && !sessionInHub;
 
   const showLeftArrow = currentIndex > 0;
   const showRightArrow = currentIndex < views.length - 1;
@@ -172,11 +172,11 @@ export function KanbanBoard() {
                     kanbanArrangement.right,
                   ]}
                   sessionSlot={
-                    sessionSlotSide === 'center' &&
                     view.id === 'builtin:sessions' ? (
                       <KanbanSessionSlot
-                        side="center"
+                        side={sessionSlotSide}
                         active={currentViewId === 'builtin:sessions'}
+                        inHub
                       />
                     ) : null
                   }

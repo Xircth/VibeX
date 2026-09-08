@@ -277,6 +277,55 @@ describe('SessionComposerInput (Astryx)', () => {
     ).toHaveTextContent('1');
   });
 
+  it('renders video attachments with a video preview', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={[
+            {
+              id: 'video-1',
+              name: 'clip.mp4',
+              path: '.vibe-images/clip.mp4',
+              previewUrl: 'blob:clip',
+            },
+          ]}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(
+      screen.getByTestId('session-composer-video-attachment')
+    ).toHaveAttribute('src', 'blob:clip');
+  });
+
+  it('renders document attachments with a file tile', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={[
+            {
+              id: 'doc-1',
+              name: 'notes.md',
+              path: '.vibe-images/notes.md',
+            },
+          ]}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(
+      screen.getByTestId('session-composer-file-attachment')
+    ).toHaveTextContent('MD');
+  });
+
   it('separates the attachment drawer with a hairline and narrow shadow', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -999,6 +1048,44 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(
       screen.getByRole('status', { name: /松开以放入文件|Drop files here/i })
     ).toBeVisible();
+  });
+
+  it('attaches dropped video files', () => {
+    const onAttachImages = vi.fn();
+    renderComposerInput({ onAttachImages });
+    const zone = screen.getByTestId('session-composer-file-drop-zone');
+    const video = new File(['video'], 'clip.mp4', { type: 'video/mp4' });
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [video],
+        getData: () => '',
+      },
+    });
+    expect(onAttachImages).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'clip.mp4', type: 'video/mp4' }),
+    ]);
+  });
+
+  it('attaches dropped document files', () => {
+    const onAttachImages = vi.fn();
+    renderComposerInput({ onAttachImages });
+    const zone = screen.getByTestId('session-composer-file-drop-zone');
+    const markdown = new File(['# hi'], 'readme.md', {
+      type: 'text/markdown',
+    });
+    const pdf = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [markdown, pdf],
+        getData: () => '',
+      },
+    });
+    expect(onAttachImages).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'readme.md' }),
+      expect.objectContaining({ name: 'report.pdf' }),
+    ]);
   });
 
   it('recalls previous messages with ArrowUp when the caret is at the start', async () => {

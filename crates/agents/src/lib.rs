@@ -61,8 +61,9 @@ pub mod user_environment;
 pub use account_session::{
     AccountSessionConfirmation, account_label_from_codex_auth, account_label_from_document,
     account_session_from_codex_http, account_session_from_http, account_still_present,
-    authentication_from_account_command, confirm_account_session, extract_codex_access_token,
-    jwt_identity, prefer_recorded_account_over_residue, resolve_account_label,
+    authentication_from_account_command, authentication_with_bound_provider,
+    confirm_account_session, extract_codex_access_token, jwt_identity,
+    prefer_recorded_account_over_residue, resolve_account_label, resolve_observed_authentication,
 };
 pub use antigravity_auth::{
     AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,
@@ -87,7 +88,8 @@ pub use auth_status::{
 pub use capability::AcpCapabilityNormalizer;
 pub use cli_exposure::{
     CliExposureError, PublishedCliCommand, ShellFamily, ensure_user_cli_path,
-    publish_managed_runtime_cli, remove_managed_runtime_cli, switch_managed_runtime_cli,
+    export_managed_node_to_user_environment, publish_managed_runtime_cli,
+    publish_user_toolchain_commands, remove_managed_runtime_cli, switch_managed_runtime_cli,
 };
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
@@ -172,7 +174,8 @@ pub use lifecycle::{
 pub use local_detection::{npm_package_name, version_at_least};
 pub use managed_toolchain::{
     MANAGED_NODE_VERSION, MANAGED_UV_VERSION, ManagedNodeArtifact, ManagedUvArtifact,
-    managed_node_artifact, managed_uv_artifact, node_verified_for_install, uv_verified_for_install,
+    managed_node_archive_name, managed_node_artifact, managed_node_download_urls,
+    managed_uv_artifact, node_verified_for_install, uv_verified_for_install,
 };
 pub use management_boundary::{
     BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,

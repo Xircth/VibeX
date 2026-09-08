@@ -1,7 +1,9 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { hostClientApi } from '@/lib/api';
+import { isHostBoundWindowLabel } from '@/lib/hostBoundWindow';
 import {
   BackendTransportProvider,
   RemoteDesktopTransport,
@@ -21,12 +23,21 @@ function shouldBindAppShell(): boolean {
   );
 }
 
+function currentWindowLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return 'main';
+  }
+}
+
 export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const bindShell = shouldBindAppShell();
   const [transport, setTransport] = useState<BackendTransport>(
     tauriBackendTransport
   );
+  const [shellKey, setShellKey] = useState('desktop');
 
   useEffect(() => {
     if (!bindShell) return;
@@ -39,7 +50,9 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
         const status = await hostClientApi.status();
         if (cancelled) return;
         const nextOrigin =
-          status.connected && status.profile?.origin
+          isHostBoundWindowLabel(currentWindowLabel()) &&
+          status.connected &&
+          status.profile?.origin
             ? status.profile.origin
             : null;
         if (nextOrigin === boundOrigin) return;
@@ -51,8 +64,10 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
             baseUrl: nextOrigin,
           });
           setTransport(new BoundHostTransport(remote));
+          setShellKey(`remote:${nextOrigin}`);
         } else {
           setTransport(tauriBackendTransport);
+          setShellKey('desktop');
         }
       } catch {
         if (!cancelled && boundOrigin == null) {
@@ -82,7 +97,7 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
   }
 
   return (
-    <BackendTransportProvider transport={transport}>
+    <BackendTransportProvider key={shellKey} transport={transport}>
       {children}
     </BackendTransportProvider>
   );

@@ -307,6 +307,46 @@ describe('AgentAuthModeControl', () => {
     expect(tabs).toBeInTheDocument();
   });
 
+  it('refreshes parent authentication after auto-persisting a native API key mode', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'chatgpt_subscription',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: false,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: codexOptions,
+    });
+    vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'api_key',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: true,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: codexOptions,
+    });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="codex"
+        configuration={<input aria-label="OpenAI API Key" />}
+        nativeCredentialPresent={(fieldId) => fieldId === 'openai_api_key'}
+        onChanged={onChanged}
+      />
+    );
+
+    await pickAuthModeTab(user, '官方 API');
+    await waitFor(() =>
+      expect(agentManagementApi.setAuthMode).toHaveBeenCalledWith(
+        'codex',
+        'api_key',
+        null
+      )
+    );
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
   it('keeps Claude credentials inside the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'claude_code',

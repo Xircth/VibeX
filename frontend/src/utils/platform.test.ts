@@ -29,7 +29,9 @@ function stubPlatform(platform: string): void {
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-host-platform');
-  document.documentElement.classList.remove('host-windows');
+  document.documentElement.classList.remove('host-windows', 'tauri-desktop');
+  delete (window as Window & { __TAURI_INTERNALS__?: unknown })
+    .__TAURI_INTERNALS__;
   if (originalUserAgentData === undefined) {
     delete (navigator as Navigator & { userAgentData?: unknown }).userAgentData;
   } else {
@@ -99,6 +101,22 @@ describe('applyHostPlatformToDocument', () => {
     expect(document.documentElement.dataset.hostPlatform).toBe('macos');
     expect(document.documentElement.classList.contains('host-windows')).toBe(
       false
+    );
+  });
+
+  it('marks the desktop shell so overlay and frameless chrome can inset content', () => {
+    stubPlatform('MacIntel');
+    applyHostPlatformToDocument();
+    expect(document.documentElement.classList.contains('tauri-desktop')).toBe(
+      false
+    );
+
+    (
+      window as Window & { __TAURI_INTERNALS__?: Record<string, never> }
+    ).__TAURI_INTERNALS__ = {};
+    applyHostPlatformToDocument();
+    expect(document.documentElement.classList.contains('tauri-desktop')).toBe(
+      true
     );
   });
 });

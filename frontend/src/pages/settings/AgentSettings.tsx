@@ -60,6 +60,8 @@ import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection
 import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 import {
+  mergePreflightItems,
+  overlayAuthPreflightItems,
   readPreflightSnapshot,
   writePreflightSnapshot,
 } from './agentPreflightSnapshot';
@@ -184,6 +186,7 @@ export function AgentSettings() {
         : null;
   const refreshManagement = management.refresh;
   const authWatchGeneration = useRef(0);
+  const authRefreshGeneration = useRef(0);
   const inspectGeneration = useRef(0);
   const inspectCacheRef = useRef({
     config: new Map<AgentId, AgentNativeConfigView>(),
@@ -250,6 +253,7 @@ export function AgentSettings() {
     if (!selectedAgentId || registryOpen) return;
     let active = true;
     const watchId = ++inspectGeneration.current;
+    const authGenAtStart = authRefreshGeneration.current;
     const cache = inspectCacheRef.current;
     const snapshot = readPreflightSnapshot(selectedAgentId);
     setPreflight(snapshot);
@@ -263,10 +267,18 @@ export function AgentSettings() {
       try {
         const report = await agentManagementApi.preflight(selectedAgentId);
         if (!active || inspectGeneration.current !== watchId) return;
-        writePreflightSnapshot(report);
-        setPreflight(report);
+        setPreflight((current) => {
+          const next =
+            authRefreshGeneration.current !== authGenAtStart && current
+              ? overlayAuthPreflightItems(report, current)
+              : report;
+          writePreflightSnapshot(next);
+          return next;
+        });
         setChecking(false);
-        await refreshManagement().catch(() => undefined);
+        if (authRefreshGeneration.current === authGenAtStart) {
+          await refreshManagement().catch(() => undefined);
+        }
         if (!active || inspectGeneration.current !== watchId) return;
         const comparison =
           await agentManagementApi.checkUpdate(selectedAgentId);
@@ -565,35 +577,28 @@ export function AgentSettings() {
     t,
   ]);
 
-  const pullAuthentication = useCallback(async () => {
-    if (!selectedAgentId) return null;
-    try {
-      setConfig(await agentManagementApi.readConfig(selectedAgentId));
-      return await refreshManagement();
-    } catch {
-      return null;
-    }
-  }, [refreshManagement, selectedAgentId]);
-
-  const mergeAuthenticationPreflight = useCallback(async () => {
+  const refreshAuthentication = useCallback(async () => {
     if (!selectedAgentId) return;
+    authRefreshGeneration.current += 1;
+    const generation = authRefreshGeneration.current;
     try {
       const report = await agentManagementApi.preflight(
         selectedAgentId,
         'authentication'
       );
-      setPreflight((current) =>
-        current ? mergeAuthPreflightItems(current, report) : current
-      );
+      if (authRefreshGeneration.current !== generation) return;
+      setPreflight((current) => {
+        const next = current ? mergePreflightItems(current, report) : report;
+        writePreflightSnapshot(next);
+        return next;
+      });
+      setConfig(await agentManagementApi.readConfig(selectedAgentId));
+      if (authRefreshGeneration.current !== generation) return;
+      await refreshManagement();
     } catch {
       return;
     }
-  }, [selectedAgentId]);
-
-  const refreshAuthentication = useCallback(async () => {
-    await pullAuthentication();
-    await mergeAuthenticationPreflight();
-  }, [mergeAuthenticationPreflight, pullAuthentication]);
+  }, [refreshManagement, selectedAgentId]);
 
   const watchAccountFlow = useCallback(
     async (agentId: string, expectPending: boolean) => {
@@ -906,8 +911,8 @@ export function AgentSettings() {
         setConfig(await agentManagementApi.writeConfig(request));
         setConfigConflict(null);
         toast.success(t('settings:agents.configSaved'));
-        await management.refresh();
-        if (options?.refreshAuth) await mergeAuthenticationPreflight();
+        if (options?.refreshAuth) await refreshAuthentication();
+        else await management.refresh();
       } catch (error) {
         if (isConfigConflict(error)) {
           const external = await agentManagementApi.readConfig(
@@ -932,7 +937,7 @@ export function AgentSettings() {
         setSavingConfig(false);
       }
     },
-    [management, mergeAuthenticationPreflight, t]
+    [management, refreshAuthentication, t]
   );
 
   const saveConfigFile = useCallback(
@@ -1456,23 +1461,6 @@ function applyInstallationToPreflight(
   return {
     agent_id: agent.agent_id,
     checked_at: new Date().toISOString(),
-    items,
-  };
-}
-
-function mergeAuthPreflightItems(
-  current: AgentPreflightView,
-  next: AgentPreflightView
-): AgentPreflightView {
-  const replacements = new Map(next.items.map((item) => [item.id, item]));
-  const items = current.items.map((item) => replacements.get(item.id) ?? item);
-  for (const item of next.items) {
-    if (items.some((existing) => existing.id === item.id)) continue;
-    items.push(item);
-  }
-  return {
-    ...current,
-    checked_at: next.checked_at,
     items,
   };
 }

@@ -837,6 +837,10 @@ export function FirstRunExperience({
       data-step={step}
     >
       <div
+        data-tauri-drag-region
+        className="window-chrome onboarding-window-chrome"
+      />
+      <div
         className="onboarding-hero-glow"
         data-testid="onboarding-hero-glow"
         aria-hidden="true"

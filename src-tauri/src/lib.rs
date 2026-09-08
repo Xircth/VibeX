@@ -35,6 +35,7 @@ mod logging;
 mod managed_artifacts;
 mod oneshot_agent;
 mod plugin_dev_server;
+mod window_chrome;
 
 mod plugin_remote_profiles;
 mod pr_description;
@@ -340,21 +341,25 @@ pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String
 }
 
 #[tauri::command]
-async fn set_app_icon(app: tauri::AppHandle, style: String, theme: String) -> Result<(), String> {
+async fn set_app_icon(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    style: String,
+    theme: String,
+) -> Result<(), String> {
     let bytes = native_app_icon_bytes(&style, &theme)?;
     let window_icon = app_icon::icon_from_png_bytes(bytes)?;
-    let tray_icon = Image::from_bytes(bytes)
-        .map(|icon| icon.to_owned())
+    window
+        .set_icon(window_icon)
         .map_err(|error| error.to_string())?;
-
-    for window in app.webview_windows().values() {
-        window
-            .set_icon(window_icon.clone())
+    if host_windows::is_local_desktop_window(window.label()) {
+        let tray_icon = Image::from_bytes(bytes)
+            .map(|icon| icon.to_owned())
             .map_err(|error| error.to_string())?;
-    }
-    if let Some(tray) = app.tray_by_id(tray::TRAY_ICON_ID) {
-        tray.set_icon(Some(tray_icon))
-            .map_err(|error| error.to_string())?;
+        if let Some(tray) = app.tray_by_id(tray::TRAY_ICON_ID) {
+            tray.set_icon(Some(tray_icon))
+                .map_err(|error| error.to_string())?;
+        }
     }
 
     Ok(())
@@ -415,6 +420,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
+    .on_window_event(|window, event| {
+        window_chrome::handle_window_event(window, event);
+    })
     .setup(move |app| {
         match cef_bootstrap {
             Ok(bootstrap) => {
@@ -638,6 +646,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             if let Err(error) = apply_app_icon(&main_window) {
                 tracing::warn!("Failed to apply app icon to main window: {}", error);
             }
+            window_chrome::apply_created_window_chrome(&main_window);
 
             let app_handle = app.handle().clone();
             main_window.on_window_event(move |event| {
@@ -761,8 +770,10 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                 let _ = window.close();
             }
             tauri::async_runtime::spawn(async move {
-                host_client::runtime().unbind_window(&label).await;
-                remote_desktop.disconnect_window(&label).await;
+                let window_still_open = app.get_webview_window(&label).is_some();
+                host_client::runtime()
+                    .drop_binding_for_destroyed_window(&remote_desktop, &label, window_still_open)
+                    .await;
                 let _ = app.emit(host_client::HOST_CLIENT_CHANGED, ());
             });
         }

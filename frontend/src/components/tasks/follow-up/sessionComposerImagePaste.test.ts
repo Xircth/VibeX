@@ -39,6 +39,32 @@ describe('handleComposerImagePaste', () => {
     expect(mockReadImages).not.toHaveBeenCalled();
   });
 
+  it('attaches clipboard video files and reports the paste as handled', () => {
+    const onAttachImages = vi.fn();
+    const clip = new File(['fake-video-bytes'], 'clip.mp4', {
+      type: 'video/mp4',
+    });
+    mockExtract.mockReturnValue([clip]);
+
+    const handled = handleComposerImagePaste(pasteEvent(), onAttachImages);
+
+    expect(handled).toBe(true);
+    expect(onAttachImages).toHaveBeenCalledWith([clip]);
+  });
+
+  it('attaches clipboard document files and reports the paste as handled', () => {
+    const onAttachImages = vi.fn();
+    const markdown = new File(['# notes'], 'notes.md', {
+      type: 'text/markdown',
+    });
+    mockExtract.mockReturnValue([markdown]);
+
+    const handled = handleComposerImagePaste(pasteEvent(), onAttachImages);
+
+    expect(handled).toBe(true);
+    expect(onAttachImages).toHaveBeenCalledWith([markdown]);
+  });
+
   it('leaves plain-text pastes unhandled and only consults the async fallback', async () => {
     const onAttachImages = vi.fn();
     mockExtract.mockReturnValue([]);

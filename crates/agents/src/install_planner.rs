@@ -8,7 +8,9 @@ use uuid::Uuid;
 use crate::{
     ProfileComponent, ProfileInstallSource, ProfileTopology, RegistryAddTarget,
     RegistryBinaryTarget, RegistryPackageDistribution, RegistrySnapshot, UserAgentDistributionKind,
-    UserAgentInstallTarget, profiles::BuiltInProfileCatalog,
+    UserAgentInstallTarget,
+    managed_toolchain::{node_verified_for_install, uv_verified_for_install},
+    profiles::BuiltInProfileCatalog,
 };
 
 struct BinaryPackagingAdvisory {
@@ -398,17 +400,23 @@ impl InstallPlanner {
                 trust,
             });
         }
-        if input.environment.node_verified
+        if node_runtime_available(input)
             && let Some(npx) = target.distributions.npx.clone()
         {
             ensure_package_version(&npx, &target.version, false)?;
             return Ok(package_component(&npx, PlannedDistributionKind::Npx));
         }
-        if input.environment.uv_verified
+        if uv_runtime_available(input)
             && let Some(uvx) = target.distributions.uvx.clone()
         {
             ensure_package_version(&uvx, &target.version, true)?;
             return Ok(package_component(&uvx, PlannedDistributionKind::Uvx));
+        }
+        if target.distributions.npx.is_some() && !node_runtime_available(input) {
+            return Err(InstallPlanningError::RuntimeUnavailable { runtime: "node" });
+        }
+        if target.distributions.uvx.is_some() && !uv_runtime_available(input) {
+            return Err(InstallPlanningError::RuntimeUnavailable { runtime: "uv" });
         }
         Err(InstallPlanningError::UnsupportedPlatform {
             agent_id: input.agent_id.clone(),
@@ -452,7 +460,7 @@ impl InstallPlanner {
                 }
             }
             UserAgentDistributionKind::Npx => {
-                if !input.environment.node_verified {
+                if !node_runtime_available(&input) {
                     return Err(InstallPlanningError::RuntimeUnavailable { runtime: "node" });
                 }
                 let package = target.distributions.npx.as_ref().ok_or_else(|| {
@@ -467,7 +475,7 @@ impl InstallPlanner {
                 component
             }
             UserAgentDistributionKind::Uvx => {
-                if !input.environment.uv_verified {
+                if !uv_runtime_available(&input) {
                     return Err(InstallPlanningError::RuntimeUnavailable { runtime: "uv" });
                 }
                 let package = target.distributions.uvx.as_ref().ok_or_else(|| {
@@ -588,7 +596,7 @@ fn plan_profile_component(
             integrity,
             ..
         } => {
-            if !input.environment.node_verified {
+            if !node_runtime_available(input) {
                 return Err(InstallPlanningError::RuntimeUnavailable { runtime: "node" });
             }
             Ok(PlannedInstallComponent {
@@ -612,7 +620,7 @@ fn plan_profile_component(
             args,
             ..
         } => {
-            if !input.environment.uv_verified {
+            if !uv_runtime_available(input) {
                 return Err(InstallPlanningError::RuntimeUnavailable { runtime: "uv" });
             }
             Ok(PlannedInstallComponent {
@@ -666,6 +674,14 @@ fn plan_profile_component(
             })
         }
     }
+}
+
+fn node_runtime_available(input: &InstallPlanningInput) -> bool {
+    node_verified_for_install(input.environment.node_verified, &input.platform)
+}
+
+fn uv_runtime_available(input: &InstallPlanningInput) -> bool {
+    uv_verified_for_install(input.environment.uv_verified, &input.platform)
 }
 
 fn component_id(component: ProfileComponent) -> &'static str {

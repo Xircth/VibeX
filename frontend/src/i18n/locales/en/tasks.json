@@ -2,6 +2,7 @@
   "composer": {
     "inputLabel": "Message",
     "attachments": "Attachments",
+    "attachFiles": "Attach files",
     "dropFiles": "Drop files here",
     "steerIntoTurn": "Insert into current turn",
     "steerAsNote": "Send for the Agent to read",

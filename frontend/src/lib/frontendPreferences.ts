@@ -52,6 +52,7 @@ function applyPreferences(preferences: Record<string, JsonValue>): void {
   for (const [storageKey, preferenceKey] of Object.entries(STORAGE_KEYS)) {
     if (!(preferenceKey in preferences)) continue;
     const raw = encodeStoredValue(preferences[preferenceKey]);
+    if (localStorage.getItem(storageKey) === raw) continue;
     localStorage.setItem(storageKey, raw);
     window.dispatchEvent(
       new StorageEvent('storage', {

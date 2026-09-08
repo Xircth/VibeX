@@ -13,10 +13,12 @@ pub const LAUNCH_ARG_OPEN_SETTINGS: &str = "--open-settings";
 
 const LABEL_NEW_WINDOW: &str = "新建窗口";
 const LABEL_OPEN_SETTINGS: &str = "打开设置";
+#[cfg(target_os = "macos")]
 const FILE_MENU_TITLE: &str = "文件";
 const EDIT_MENU_TITLE: &str = "编辑";
 #[cfg(target_os = "macos")]
 const VIEW_MENU_TITLE: &str = "显示";
+#[cfg(target_os = "macos")]
 const WINDOW_MENU_TITLE: &str = "窗口";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,50 +97,56 @@ pub fn install(app: &AppHandle) {
 }
 
 fn install_app_menu(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
-
-    let new_window = MenuItem::with_id(
-        app,
-        MENU_ID_NEW_WINDOW,
-        LABEL_NEW_WINDOW,
-        true,
-        None::<&str>,
-    )?;
-    let open_settings = MenuItem::with_id(
-        app,
-        MENU_ID_OPEN_SETTINGS,
-        LABEL_OPEN_SETTINGS,
-        true,
-        None::<&str>,
-    )?;
-
-    let file_menu = SubmenuBuilder::new(app, FILE_MENU_TITLE)
-        .item(&new_window)
-        .item(&open_settings)
-        .separator()
-        .close_window()
-        .build()?;
-    // WKWebView on macOS delivers Cmd+C/V/X/A/Z through the Edit menu
-    // responder chain. Replacing the default menu without these items
-    // disables copy and paste in every webview.
-    let edit_menu = SubmenuBuilder::new(app, EDIT_MENU_TITLE)
-        .undo()
-        .redo()
-        .separator()
-        .cut()
-        .copy()
-        .paste()
-        .select_all()
-        .build()?;
-    let window_menu = SubmenuBuilder::new(app, WINDOW_MENU_TITLE)
-        .minimize()
-        .maximize()
-        .separator()
-        .close_window()
-        .build()?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        return Ok(());
+    }
 
     #[cfg(target_os = "macos")]
-    let menu = {
+    {
+        use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+
+        let new_window = MenuItem::with_id(
+            app,
+            MENU_ID_NEW_WINDOW,
+            LABEL_NEW_WINDOW,
+            true,
+            None::<&str>,
+        )?;
+        let open_settings = MenuItem::with_id(
+            app,
+            MENU_ID_OPEN_SETTINGS,
+            LABEL_OPEN_SETTINGS,
+            true,
+            None::<&str>,
+        )?;
+
+        let file_menu = SubmenuBuilder::new(app, FILE_MENU_TITLE)
+            .item(&new_window)
+            .item(&open_settings)
+            .separator()
+            .close_window()
+            .build()?;
+        // WKWebView on macOS delivers Cmd+C/V/X/A/Z through the Edit menu
+        // responder chain. Replacing the default menu without these items
+        // disables copy and paste in every webview.
+        let edit_menu = SubmenuBuilder::new(app, EDIT_MENU_TITLE)
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+        let window_menu = SubmenuBuilder::new(app, WINDOW_MENU_TITLE)
+            .minimize()
+            .maximize()
+            .separator()
+            .close_window()
+            .build()?;
+
         let pkg_name = app.package_info().name.clone();
         let app_menu = SubmenuBuilder::new(app, pkg_name)
             .about(None)
@@ -156,24 +164,17 @@ fn install_app_menu(app: &AppHandle) -> tauri::Result<()> {
         let view_menu = SubmenuBuilder::new(app, VIEW_MENU_TITLE)
             .fullscreen()
             .build()?;
-        MenuBuilder::new(app)
+        let menu = MenuBuilder::new(app)
             .item(&app_menu)
             .item(&file_menu)
             .item(&edit_menu)
             .item(&view_menu)
             .item(&window_menu)
-            .build()?
-    };
+            .build()?;
 
-    #[cfg(not(target_os = "macos"))]
-    let menu = MenuBuilder::new(app)
-        .item(&file_menu)
-        .item(&edit_menu)
-        .item(&window_menu)
-        .build()?;
-
-    app.set_menu(menu)?;
-    Ok(())
+        app.set_menu(menu)?;
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -373,5 +374,17 @@ mod tests {
             );
         }
         assert!(install.contains("EDIT_MENU_TITLE"));
+    }
+
+    #[test]
+    fn window_menu_bar_is_macos_only() {
+        let source = include_str!("app_chrome.rs");
+        let install = source.split("#[cfg(test)]").next().expect("install source");
+        assert!(install.contains("#[cfg(not(target_os = \"macos\"))]"));
+        assert!(install.contains("app.set_menu(menu)?"));
+        assert!(
+            install.contains("#[cfg(target_os = \"macos\")]"),
+            "the native File/Edit/Window bar must not attach to Windows windows"
+        );
     }
 }

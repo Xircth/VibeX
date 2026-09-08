@@ -1,6 +1,6 @@
 # Full-trust plugin execution
 
-VibeX v4 treats installation and enablement as the user's decision to trust the complete package. Worker, App, Runtime, filesystem, process, and network behavior do not require per-capability grants.
+VibeX v4 treats installation and enablement as the user's decision to trust the complete package. Worker, App, Runtime, filesystem, process, and network behavior run with the same local rights as the Host. Per-capability grants are omitted. `packageClass=isolated` does not change Host spawn.
 
 ## Public boundary
 

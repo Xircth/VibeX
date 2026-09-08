@@ -505,9 +505,17 @@
 [class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container {
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dv-tabs-container-scrollbar-color, rgba(0, 0, 0, 0.2))
-    transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  [class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container {
+    scrollbar-width: thin;
+    scrollbar-color: var(
+        --dv-tabs-container-scrollbar-color,
+        rgba(0, 0, 0, 0.2)
+      )
+      transparent;
+  }
 }
 [class*='dockview-theme-ayu']
   .dv-scrollable

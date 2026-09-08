@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub fn host_window_label(profile_id: &str) -> String {
     let safe: String = profile_id
         .chars()
@@ -65,6 +67,30 @@ pub fn host_settings_window_title(base: &str, host_name: &str) -> String {
     }
 }
 
+pub fn is_local_desktop_window(label: &str) -> bool {
+    host_app_window_label(label).is_none()
+}
+
+pub fn host_family_event_labels(window_label: &str) -> Vec<String> {
+    let Some(host_label) = host_app_window_label(window_label) else {
+        return Vec::new();
+    };
+    let mut labels = vec![host_label.to_string()];
+    if let Some(settings) = host_settings_window_for_app(host_label) {
+        labels.push(settings);
+    }
+    labels
+}
+
+pub fn host_webview_data_directory(window_label: &str) -> Option<PathBuf> {
+    let host_label = host_app_window_label(window_label)?;
+    Some(
+        utils::assets::asset_dir()
+            .join("webview-profiles")
+            .join(host_label),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +145,35 @@ mod tests {
             "设置 — root@lab"
         );
         assert_eq!(host_settings_window_title("Settings", "  "), "Settings");
+    }
+
+    #[test]
+    fn local_desktop_windows_are_not_host_bound() {
+        assert!(is_local_desktop_window("main"));
+        assert!(is_local_desktop_window("settings"));
+        assert!(is_local_desktop_window("app-local-1"));
+        assert!(is_local_desktop_window("desktop-toast"));
+        assert!(!is_local_desktop_window("host-abc"));
+        assert!(!is_local_desktop_window("settings-host-abc"));
+    }
+
+    #[test]
+    fn host_family_events_stay_on_that_host() {
+        assert_eq!(
+            host_family_event_labels("host-abc"),
+            vec!["host-abc".to_string(), "settings-host-abc".to_string()]
+        );
+        assert_eq!(
+            host_family_event_labels("settings-host-abc"),
+            vec!["host-abc".to_string(), "settings-host-abc".to_string()]
+        );
+        assert!(host_family_event_labels("main").is_empty());
+    }
+
+    #[test]
+    fn host_windows_use_a_private_webview_profile() {
+        let path = host_webview_data_directory("settings-host-abc").expect("host family");
+        assert!(path.ends_with("webview-profiles/host-abc"));
+        assert!(host_webview_data_directory("main").is_none());
     }
 }

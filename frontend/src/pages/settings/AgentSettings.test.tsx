@@ -47,6 +47,7 @@ const api = vi.hoisted(() => ({
   piConfiguration: vi.fn(),
   validatePiCommand: vi.fn(),
   modelProviders: vi.fn(),
+  bindModelProvider: vi.fn(),
   clearDiagnostics: vi.fn(),
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
@@ -624,7 +625,12 @@ describe('AgentSettings', () => {
 
     await pickAuthModeTab(user, '官方 API');
 
-    expect(api.preflight.mock.calls).toHaveLength(callsAfterLoad);
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith('codex', 'authentication')
+    );
+    expect(
+      api.preflight.mock.calls.filter((call) => call.length === 1)
+    ).toHaveLength(callsAfterLoad);
     expect(screen.getByLabelText('推理强度')).toBeVisible();
     expect(
       screen.getByLabelText('OpenAI API Key', { selector: 'input' })
@@ -1520,6 +1526,222 @@ describe('AgentSettings', () => {
     );
     expect(api.preflight).toHaveBeenCalledWith('cursor', 'authentication');
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
+  });
+
+  it('refreshes login status and preflight after enabling a Model Provider', async () => {
+    const user = userEvent.setup();
+    const loggedOut = {
+      agent_id: 'claude_code',
+      display_name: 'Claude Code',
+      description: 'Claude Code ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+      settings_features: ['authentication_mode', 'reusable_model_providers'],
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'ready',
+      authentication: 'api_key',
+    };
+    const authFail = {
+      id: 'authentication',
+      label: '鉴权',
+      status: 'fail',
+      detail: '当前鉴权模式 `official_subscription` 尚未就绪。',
+      version: 'official_subscription',
+      path: null,
+      source: null,
+      repairable: true,
+      update_available: false,
+      available_version: null,
+      update_group: null,
+    };
+    const authPass = {
+      ...authFail,
+      status: 'pass',
+      detail: '',
+      version: 'model_provider',
+    };
+    const acp = {
+      id: 'acp',
+      label: 'ACP 适配器',
+      status: 'pass',
+      detail: '',
+      version: '1.0.0',
+      path: '/usr/local/bin/claude-acp',
+      source: null,
+      repairable: true,
+      update_available: false,
+      available_version: null,
+      update_group: null,
+    };
+    api.bar.mockResolvedValue([loggedOut]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'claude_code',
+      available: true,
+      settings_features: ['authentication_mode', 'reusable_model_providers'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: [
+        {
+          value: 'official_subscription',
+          kind: 'subscription',
+          label_key: 'agents.authModeOfficialSubscription',
+          description_key: 'agents.authDescClaudeSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'official_api',
+          kind: 'official_api',
+          label_key: 'agents.authModeOfficialApi',
+          description_key: 'agents.authDescClaudeOfficialApi',
+          credential_env: 'ANTHROPIC_API_KEY',
+          native_config_field_id: 'anthropic_api_key',
+          credential_required: true,
+        },
+        {
+          value: 'model_provider',
+          kind: 'provider',
+          label_key: 'agents.authModeProvider',
+          description_key: 'agents.authDescClaudeProvider',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+      ],
+    });
+    api.modelProviders.mockResolvedValue({
+      agent_id: 'claude_code',
+      providers: [
+        {
+          id: 'provider-1',
+          name: 'Gateway',
+          agent_id: 'claude_code',
+          api_url: 'https://gateway.example/v1',
+          model: 'gateway/sonnet',
+          credential_present: true,
+          bound: false,
+          managed: true,
+        },
+      ],
+      bound_provider_id: null,
+    });
+    api.preflight.mockImplementation(async (agentId: string) => ({
+      agent_id: agentId,
+      checked_at: '2026-09-08T00:00:00Z',
+      items: [acp, authFail],
+    }));
+    api.bindModelProvider.mockImplementation(async () => {
+      api.bar.mockResolvedValue([loggedIn]);
+      api.preflight.mockImplementation(
+        async (agentId: string, scope?: string) => ({
+          agent_id: agentId,
+          checked_at: '2026-09-08T00:01:00Z',
+          items: scope === 'authentication' ? [authPass] : [acp, authPass],
+        })
+      );
+      api.authMode.mockResolvedValue({
+        agent_id: 'claude_code',
+        mode: 'model_provider',
+        credential_env: 'ANTHROPIC_API_KEY',
+        credential_present: true,
+        modes: ['official_subscription', 'official_api', 'model_provider'],
+        options: [
+          {
+            value: 'official_subscription',
+            kind: 'subscription',
+            label_key: 'agents.authModeOfficialSubscription',
+            description_key: 'agents.authDescClaudeSubscription',
+            credential_env: null,
+            native_config_field_id: null,
+            credential_required: false,
+          },
+          {
+            value: 'official_api',
+            kind: 'official_api',
+            label_key: 'agents.authModeOfficialApi',
+            description_key: 'agents.authDescClaudeOfficialApi',
+            credential_env: 'ANTHROPIC_API_KEY',
+            native_config_field_id: 'anthropic_api_key',
+            credential_required: true,
+          },
+          {
+            value: 'model_provider',
+            kind: 'provider',
+            label_key: 'agents.authModeProvider',
+            description_key: 'agents.authDescClaudeProvider',
+            credential_env: null,
+            native_config_field_id: null,
+            credential_required: false,
+          },
+        ],
+      });
+      return {
+        agent_id: 'claude_code',
+        providers: [
+          {
+            id: 'provider-1',
+            name: 'Gateway',
+            agent_id: 'claude_code',
+            api_url: 'https://gateway.example/v1',
+            model: 'gateway/sonnet',
+            credential_present: true,
+            bound: true,
+            managed: true,
+          },
+        ],
+        bound_provider_id: 'provider-1',
+      };
+    });
+
+    render(<AgentSettings />);
+    expect(await screen.findByText('暂未登录')).toBeVisible();
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith('claude_code')
+    );
+    expect(await screen.findByText('需处理')).toBeVisible();
+
+    await pickAuthModeTab(user, '供应商');
+    await user.click(await screen.findByRole('button', { name: '启用' }));
+    await waitFor(() =>
+      expect(api.bindModelProvider).toHaveBeenCalledWith(
+        'claude_code',
+        'provider-1'
+      )
+    );
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith(
+        'claude_code',
+        'authentication'
+      )
+    );
+    expect(await screen.findByText('已通过 API Key 登录')).toBeVisible();
+    expect(screen.queryByText('暂未登录')).not.toBeInTheDocument();
+    expect(screen.queryByText('需处理')).not.toBeInTheDocument();
   });
 
   it('updates ACP preflight items and toasts when an update finishes', async () => {

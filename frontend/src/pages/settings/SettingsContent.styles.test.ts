@@ -40,6 +40,30 @@ function declarationsMatching(fragment: string) {
   return declarations;
 }
 
+describe('desktop window chrome insets', () => {
+  it('reserves macOS traffic-light and Windows control space on overlay chrome', () => {
+    const macos = declarationsFor(
+      "html.tauri-desktop[data-host-platform='macos'] .window-chrome"
+    );
+    const windows = declarationsFor(
+      'html.tauri-desktop.host-windows .window-chrome'
+    );
+
+    expect(macos.get('padding-left')).toBe('4.75rem');
+    expect(windows.get('padding-right')).toBe('8.625rem');
+  });
+
+  it('hides the traffic-light divider except on the macOS desktop shell', () => {
+    const rule = declarationsFor('.window-chrome-leading-rule');
+    const macos = declarationsFor(
+      "html.tauri-desktop[data-host-platform='macos'] .window-chrome-leading-rule"
+    );
+
+    expect(rule.get('display')).toBe('none');
+    expect(macos.get('display')).toBe('block');
+  });
+});
+
 describe('settings page alignment', () => {
   it('keeps form pages flush with the sidebar instead of adding extra top inset', () => {
     const content = declarationsFor('.settings-page .settings-content');
@@ -186,7 +210,11 @@ describe('settings page alignment', () => {
 
     expect(pane.get('padding-inline-end')).toBe('1.5rem');
     expect(pane.get('scrollbar-gutter')).toBe('auto');
+    expect(pane.get('scrollbar-width')).toBeUndefined();
+    expect(pane.get('scrollbar-color')).toBeUndefined();
     expect(agentScroll.get('padding-inline-end')).toBe('0.75rem');
+    expect(agentScroll.get('scrollbar-width')).toBeUndefined();
+    expect(agentScroll.get('scrollbar-color')).toBeUndefined();
     expect(gutter.get('width')).toBe('6px');
     expect(gutter.get('background')).toBe('transparent');
     expect(paneThumb.get('border')).toBe('none');

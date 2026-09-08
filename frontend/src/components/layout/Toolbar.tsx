@@ -91,6 +91,16 @@ function ToolbarDivider() {
   );
 }
 
+function WindowChromeLeadingRule() {
+  return (
+    <div
+      className="window-chrome-leading-rule workspace-toolbar-divider mx-1 h-6 w-px"
+      role="separator"
+      aria-orientation="vertical"
+    />
+  );
+}
+
 function CanvasSessionListToggleButton() {
   const { t } = useTranslation('panels');
   const listVisible = useKanbanCanvasListVisible();
@@ -216,8 +226,121 @@ export function KanbanLayoutToggles() {
           {t('toolbar.resetKanbanLayout')}
         </TooltipContent>
       </Tooltip>
+    </div>
+  );
+}
 
-      <ToolbarDivider />
+export function WorkspaceLayoutToggles() {
+  const { t } = useTranslation('panels');
+  const {
+    toggleRightPanel,
+    isRightPanelVisible,
+    resetLayout,
+    isEditorAreaVisible,
+    toggleEditorArea,
+  } = useLayoutStore();
+  const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
+  const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={toggleFileTree}
+            aria-label={t('toolbar.toggleFileTree')}
+          >
+            <FolderTree className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleFileTree')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={toggleEditorArea}
+            aria-label={
+              isEditorAreaVisible
+                ? t('toolbar.hideEditorAndTerminal')
+                : t('toolbar.showEditorAndTerminal')
+            }
+            aria-pressed={isEditorAreaVisible}
+          >
+            <Code2 className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {isEditorAreaVisible
+            ? t('toolbar.hideEditorAndTerminal')
+            : t('toolbar.showEditorAndTerminal')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={openNewTerminal}
+            aria-label={t('toolbar.toggleTerminal')}
+            aria-pressed={isTerminalOpen}
+          >
+            <Terminal className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleTerminal')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            aria-pressed={isRightPanelVisible}
+            onClick={toggleRightPanel}
+            aria-label={t('toolbar.toggleAiPanel')}
+          >
+            {isRightPanelVisible ? (
+              <PanelRight className="h-3.5 w-3.5" />
+            ) : (
+              <PanelLeft className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleAiPanel')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={resetLayout}
+            aria-label={t('toolbar.resetLayout')}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.resetLayout')}
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
@@ -311,7 +434,6 @@ export function WorkspaceBranchControls({
       role="group"
       aria-label="Workspace and target branches"
     >
-      <ProjectRailToggleButton />
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
       {isWorkspaceTab ? <WorktreeSelector /> : null}
       {workspaceId ? <BranchStatusBadge workspaceId={workspaceId} /> : null}
@@ -511,21 +633,14 @@ export function Toolbar() {
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
+  const boardStyle = useKanbanBoardStyle();
+  const hasLeadingControls = isWorkspaceTab || boardStyle === 'canvas';
+  const showLayoutToggles = isWorkspaceTab || boardStyle !== 'canvas';
 
-  const {
-    toggleRightPanel,
-    isRightPanelVisible,
-    resetLayout,
-    isEditorAreaVisible,
-    toggleEditorArea,
-  } = useLayoutStore();
-
-  const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
   const recentProjects = useMemo(
     () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
     [projects]
   );
-  const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
   const toolbarItems = usePluginHostContributions('toolbar');
   const transport = useBackendTransport();
   const pluginApi = useMemo(
@@ -572,20 +687,32 @@ export function Toolbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="workspace-topbar w-full px-1.5">
-        <div className="relative flex items-center h-9 gap-0.5">
+      <div className="workspace-topbar window-chrome relative w-full px-1.5">
+        <div data-tauri-drag-region className="absolute inset-0" />
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <div className="pointer-events-auto">
+            <WorkspaceTabSwitcher />
+          </div>
+        </div>
+        <div
+          data-tauri-drag-region
+          className="relative z-10 flex h-9 items-center gap-0.5"
+        >
+          {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
           <WorkspaceBranchControls
             isWorkspaceTab={isWorkspaceTab}
             workspaceId={workspaceId}
           />
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-            <div className="pointer-events-auto">
-              <WorkspaceTabSwitcher />
-            </div>
-          </div>
-
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
+            {isWorkspaceTab ? (
+              <WorkspaceLayoutToggles />
+            ) : (
+              <KanbanLayoutToggles />
+            )}
+            {showLayoutToggles ? <ToolbarDivider /> : null}
+            <ProjectRailToggleButton />
+            <ToolbarDivider />
             {visibleToolbar.map((item) => {
               const metadata = contributionMetadata(item);
               const title = String(metadata.title ?? item.label);
@@ -656,116 +783,6 @@ export function Toolbar() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-            {isWorkspaceTab ? (
-              <div className="flex items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={toggleFileTree}
-                      aria-label={t('toolbar.toggleFileTree')}
-                      tabIndex={isWorkspaceTab ? 0 : -1}
-                    >
-                      <FolderTree className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('toolbar.toggleFileTree')}
-                  </TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={toggleEditorArea}
-                      aria-label={
-                        isEditorAreaVisible
-                          ? t('toolbar.hideEditorAndTerminal')
-                          : t('toolbar.showEditorAndTerminal')
-                      }
-                      aria-pressed={isEditorAreaVisible}
-                      tabIndex={isWorkspaceTab ? 0 : -1}
-                    >
-                      <Code2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {isEditorAreaVisible
-                      ? t('toolbar.hideEditorAndTerminal')
-                      : t('toolbar.showEditorAndTerminal')}
-                  </TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={openNewTerminal}
-                      aria-label={t('toolbar.toggleTerminal')}
-                      aria-pressed={isTerminalOpen}
-                      tabIndex={isWorkspaceTab ? 0 : -1}
-                    >
-                      <Terminal className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('toolbar.toggleTerminal')}
-                  </TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      aria-pressed={isRightPanelVisible}
-                      onClick={toggleRightPanel}
-                      aria-label={t('toolbar.toggleAiPanel')}
-                      tabIndex={isWorkspaceTab ? 0 : -1}
-                    >
-                      {isRightPanelVisible ? (
-                        <PanelRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <PanelLeft className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('toolbar.toggleAiPanel')}
-                  </TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={resetLayout}
-                      aria-label={t('toolbar.resetLayout')}
-                      tabIndex={isWorkspaceTab ? 0 : -1}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('toolbar.resetLayout')}
-                  </TooltipContent>
-                </Tooltip>
-
-                <ToolbarDivider />
-              </div>
-            ) : (
-              <KanbanLayoutToggles />
-            )}
 
             {projectId && (
               <>

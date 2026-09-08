@@ -10,7 +10,7 @@ mod tests {
         },
     };
 
-    use agents::{ProfileComponent, ProfileExternalCandidate};
+    use agents::{ProfileComponent, ProfileExternalCandidate, authentication_with_bound_provider};
     use api_types::{
         AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentLocalRuntimeView,
         AgentManagementErrorCode, AgentManagementErrorView, AgentManagementView,
@@ -26,12 +26,12 @@ mod tests {
         PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, RuntimeSource,
         agent_process_command, apply_codex_auth_document, apply_config_transition_then,
         apply_custom_version_override, apply_opencode_provider_connection,
-        authentication_with_bound_provider, bind_profile_runtime_executable,
-        build_launch_environment, built_in_probe_action, cancellable_command_output,
-        codex_provider_config_is_projected, compare_and_set_agent_environment,
-        configure_uv_tool_install_command, dependency_version_satisfied, detect_account_login,
-        extract_binary_archive, install_locked_plan, managed_artifacts_directory,
-        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        bind_profile_runtime_executable, build_launch_environment, built_in_probe_action,
+        cancellable_command_output, codex_provider_config_is_projected,
+        compare_and_set_agent_environment, configure_uv_tool_install_command,
+        dependency_version_satisfied, detect_account_login, extract_binary_archive,
+        install_locked_plan, managed_artifacts_directory, managed_install_root,
+        managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
         opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
@@ -2427,14 +2427,16 @@ use agents::{
     REGISTRY_REFRESH_TIMEOUT, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
     ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint,
     TokioNativeFileSystem, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
-    apply_component_versions, apply_npx_component_version, bind_runtime_executable_env,
-    decide_user_environment_adopt, ensure_user_cli_path, existing_path_satisfies_component,
-    fetch_npm_latest, fetch_npm_package_requirements, managed_node_artifact, managed_uv_artifact,
-    node_verified_for_install, npm_global_install_args, npm_install_permission_denied,
-    npm_shim_candidates, observed_satisfies_profile, plan_required_components,
-    planned_preflight_updates, publish_managed_runtime_cli, remove_managed_runtime_cli,
-    resolve_npm_shim, runtime_acp_compatibility_warning, switch_managed_runtime_cli,
-    uv_distribution_name, uv_verified_for_install, verify_artifact_bytes,
+    apply_component_versions, apply_npx_component_version, authentication_with_bound_provider,
+    bind_runtime_executable_env, decide_user_environment_adopt, ensure_user_cli_path,
+    existing_path_satisfies_component, export_managed_node_to_user_environment, fetch_npm_latest,
+    fetch_npm_package_requirements, managed_node_artifact, managed_node_download_urls,
+    managed_uv_artifact, node_verified_for_install, npm_global_install_args,
+    npm_install_permission_denied, npm_shim_candidates, observed_satisfies_profile,
+    plan_required_components, planned_preflight_updates, publish_managed_runtime_cli,
+    remove_managed_runtime_cli, resolve_npm_shim, runtime_acp_compatibility_warning,
+    switch_managed_runtime_cli, uv_distribution_name, uv_verified_for_install,
+    verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -6544,7 +6546,34 @@ async fn resolve_node_runtime(
             "VibeX-managed Node.js {MANAGED_NODE_VERSION} does not satisfy {requirement}"
         );
     }
-    ensure_managed_node(managed_artifacts_dir, cancellation, log).await
+    let runtime = ensure_managed_node(managed_artifacts_dir, cancellation, log).await?;
+    export_bootstrapped_node(&runtime, log)?;
+    Ok(runtime)
+}
+
+fn export_bootstrapped_node(
+    runtime: &NodeRuntime,
+    log: &OperationLogEmitter<'_>,
+) -> anyhow::Result<()> {
+    let Some(home) = dirs::home_dir() else {
+        anyhow::bail!("home directory is unavailable; cannot export Node.js to the user PATH");
+    };
+    let published =
+        export_managed_node_to_user_environment(&home, &runtime.bin_dir, configured_shell_family())
+            .map_err(|error| {
+                anyhow::anyhow!("failed to export Node.js and npm to the user environment: {error}")
+            })?;
+    if published.is_empty() {
+        anyhow::bail!("managed Node.js did not contain node or npm executables to export");
+    }
+    for command in published {
+        log.emit(format!(
+            "Exported {} to {}",
+            command.command_name,
+            command.shim_path.display()
+        ));
+    }
+    Ok(())
 }
 
 async fn verify_managed_node_runtime(mut runtime: NodeRuntime) -> Option<NodeRuntime> {
@@ -6617,6 +6646,54 @@ async fn managed_uv_is_healthy(executable: &Path) -> bool {
     )
 }
 
+async fn download_managed_node_bytes(
+    urls: &[String],
+    cancellation: &CancellationToken,
+    log: &OperationLogEmitter<'_>,
+) -> anyhow::Result<(String, Vec<u8>)> {
+    let mut errors = Vec::new();
+    for url in urls {
+        log.emit(format!("GET {url}"));
+        let result = async {
+            let response = tokio::select! {
+                response = reqwest::get(url) => response?,
+                () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
+            };
+            if !response.status().is_success() {
+                anyhow::bail!("Node.js download returned HTTP {}", response.status());
+            }
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_MANAGED_NODE_BYTES as u64)
+            {
+                anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
+            }
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = tokio::select! {
+                chunk = stream.next() => chunk,
+                () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
+            } {
+                let chunk = chunk?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_MANAGED_NODE_BYTES {
+                    anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(bytes)
+        }
+        .await;
+        match result {
+            Ok(bytes) => return Ok((url.clone(), bytes)),
+            Err(error) => {
+                log.emit(format!("download failed: {error}"));
+                errors.push(format!("{url}: {error}"));
+            }
+        }
+    }
+    anyhow::bail!("{}", errors.join("; "))
+}
+
 async fn ensure_managed_node(
     managed_artifacts_dir: &Path,
     cancellation: &CancellationToken,
@@ -6642,40 +6719,12 @@ async fn ensure_managed_node(
     tokio::fs::create_dir_all(&base).await?;
     let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
     tokio::fs::create_dir_all(&staging).await?;
-    let filename = format!(
-        "node-v{MANAGED_NODE_VERSION}-{}.{}",
-        artifact.target, artifact.extension
-    );
-    let url = format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{filename}");
+    let urls = managed_node_download_urls(&artifact);
     log.emit(format!(
         "Downloading managed Node.js {MANAGED_NODE_VERSION} ({platform})"
     ));
     let result = async {
-        let response = tokio::select! {
-            response = reqwest::get(&url) => response?,
-            () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
-        };
-        if !response.status().is_success() {
-            anyhow::bail!("Node.js download returned HTTP {}", response.status());
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_MANAGED_NODE_BYTES as u64)
-        {
-            anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
-        }
-        let mut bytes = Vec::new();
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = tokio::select! {
-            chunk = stream.next() => chunk,
-            () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
-        } {
-            let chunk = chunk?;
-            if bytes.len().saturating_add(chunk.len()) > MAX_MANAGED_NODE_BYTES {
-                anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let (url, bytes) = download_managed_node_bytes(&urls, cancellation, log).await?;
         let actual = format!("{:x}", Sha256::digest(&bytes));
         if !actual.eq_ignore_ascii_case(artifact.sha256) {
             anyhow::bail!(
@@ -10121,17 +10170,6 @@ fn resolve_profile_auth_mode(
         native_custom_endpoint,
         snapshot,
     )
-}
-
-fn authentication_with_bound_provider(
-    observed: AgentAuthenticationStatus,
-    bound_with_credential: bool,
-) -> AgentAuthenticationStatus {
-    if bound_with_credential && matches!(observed, AgentAuthenticationStatus::NotLoggedIn) {
-        AgentAuthenticationStatus::ApiKey
-    } else {
-        observed
-    }
 }
 
 fn project_agent_auth_mode(

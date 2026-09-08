@@ -446,6 +446,81 @@ describe('RemoteClientSettings', () => {
     expect(hostClientApiMock.connect).not.toHaveBeenCalled();
   });
 
+  it('shows the provisioner error when reconnecting a saved SSH Host fails', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    pluginControlApiMock.catalog.mockResolvedValue({
+      plugins: [
+        {
+          id: 'acme.tunnel',
+          name: 'Acme Tunnel',
+          version: '1.0.0',
+          description: null,
+          enabled: true,
+          builtin: true,
+          sourceKind: 'vibex',
+          sourcePath: '/plugins/acme.tunnel',
+          formats: ['vibex'],
+          skills: [],
+          runtimes: [],
+          warnings: [],
+        },
+      ],
+      runtimes: [],
+    });
+    pluginControlApiMock.contributionCatalog.mockResolvedValue({
+      generation: 1,
+      items: [
+        {
+          pluginId: 'acme.tunnel',
+          id: 'ssh',
+          kind: 'remote_provisioner',
+          label: 'SSH',
+          generation: 1,
+          metadata: {
+            provisionKind: 'ssh',
+            handler: 'provision.ensure',
+            timeoutSeconds: 300,
+            icon: 'cloud',
+          },
+        },
+        {
+          pluginId: 'acme.tunnel',
+          id: 'connect-panel',
+          kind: 'app_surface',
+          label: 'Acme Tunnel',
+          generation: 1,
+          metadata: {
+            slot: 'plugin.detail.panel',
+            handler: 'surface.createSession',
+            appEntrypoint: 'app',
+            allowedMethods: ['provision.ensure'],
+            minHeight: 640,
+          },
+        },
+      ],
+    });
+    pluginControlApiMock.invokeContribution.mockRejectedValue({
+      code: 'internal',
+      message: 'missing field `token`',
+    });
+    hostClientApiMock.status.mockResolvedValue({
+      connected: false,
+      profile: null,
+      profiles: [sshHost],
+    });
+    render(<RemoteClientSettings />);
+    const saved = (
+      await screen.findByRole('heading', { name: '已保存 Host' })
+    ).closest('.settings-section') as HTMLElement;
+    await user.click(await within(saved).findByText('Lab'));
+    await user.click(within(saved).getByRole('button', { name: '连接' }));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('missing field `token`')
+    );
+    expect(hostClientApiMock.connect).not.toHaveBeenCalled();
+  });
+
   it('marks SSH-provisioned saved Hosts without treating them as the current connection', async () => {
     const user = userEvent.setup();
     hostClientApiMock.status.mockResolvedValue({

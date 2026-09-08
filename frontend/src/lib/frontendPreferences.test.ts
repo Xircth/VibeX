@@ -33,4 +33,15 @@ describe('syncFrontendPreferences', () => {
 
     expect(api.update).toHaveBeenCalledWith({ mono_font: 'menlo' });
   });
+
+  it('does not rewrite identical browser preferences', async () => {
+    localStorage.setItem('vibex:ui-zoom', '1.25');
+    api.get.mockResolvedValue({ ui_zoom: 1.25 });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+    await syncFrontendPreferences(api);
+
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
 });

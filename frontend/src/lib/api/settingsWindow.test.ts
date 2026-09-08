@@ -54,6 +54,15 @@ describe('settingsWindowApi', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it('can open Settings on a specific page', async () => {
+    await i18n.changeLanguage('zh-CN');
+    await settingsWindowApi.open('/settings/web-service');
+    expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
+      title: '设置',
+      path: '/settings/web-service',
+    });
+  });
+
   it('navigates in-place when Settings is not a desktop window', () => {
     isTauriClient.mockReturnValue(false);
     const navigate = vi.fn();

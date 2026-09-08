@@ -1,9 +1,9 @@
 import { Paperclip } from 'lucide-react';
 import { useCallback, useRef, type ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
-
-const ATTACH_IMAGES_LABEL = '\u9644\u52a0\u56fe\u7247';
+import { isAttachableFile } from '@/utils/mediaAttachments';
 
 type ActionBarImageButtonProps = {
   isEditable: boolean;
@@ -14,7 +14,9 @@ export function ActionBarImageButton({
   isEditable,
   onAttachImages,
 }: ActionBarImageButtonProps) {
+  const { t } = useTranslation('tasks');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachLabel = t('composer.attachFiles');
 
   const handleAttachClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -22,8 +24,8 @@ export function ActionBarImageButton({
 
   const handleFileInputChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || []).filter((file) =>
-        file.type.startsWith('image/')
+      const files = Array.from(event.target.files || []).filter(
+        isAttachableFile
       );
       if (files.length > 0) {
         onAttachImages(files);
@@ -38,7 +40,6 @@ export function ActionBarImageButton({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         multiple
         className="hidden"
         onChange={handleFileInputChange}
@@ -50,8 +51,8 @@ export function ActionBarImageButton({
         size="sm"
         variant="ghost"
         className="h-7 w-7 p-0"
-        title={ATTACH_IMAGES_LABEL}
-        aria-label={ATTACH_IMAGES_LABEL}
+        title={attachLabel}
+        aria-label={attachLabel}
       >
         <Paperclip className="h-3.5 w-3.5" />
       </Button>

@@ -354,9 +354,7 @@ async fn read_workspace_file_link(
             file_ref.path
         )));
     }
-    let uri = url::Url::from_file_path(&file_path)
-        .map(|url| url.to_string())
-        .unwrap_or_else(|_| format!("file://{}", file_path.display()));
+    let uri = file_uri_for_path(&file_path);
     let name = relative
         .file_name()
         .and_then(|name| name.to_str())
@@ -398,6 +396,17 @@ async fn read_workspace_image_block(
             "Image not found: {relative_path}"
         )));
     }
+    if !is_image_agent_asset(&file_path) {
+        let name = relative
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(relative_path)
+            .to_string();
+        return Ok(AgentContentBlock::Resource {
+            uri: file_uri_for_path(&file_path),
+            title: Some(name),
+        });
+    }
     let bytes = tokio::fs::read(&file_path).await.map_err(|error| {
         ConversationServiceError::Internal(format!("Failed to read image {relative_path}: {error}"))
     })?;
@@ -406,6 +415,22 @@ async fn read_workspace_image_block(
         mime_type: mime_type_for_agent_asset(&file_path).to_string(),
         uri: Some(relative.to_string_lossy().replace('\\', "/")),
     })
+}
+
+fn file_uri_for_path(file_path: &Path) -> String {
+    url::Url::from_file_path(file_path)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| format!("file://{}", file_path.display()))
+}
+
+fn is_image_agent_asset(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "heic" | "heif")
+    )
 }
 
 fn relative_agent_asset_path(path: &str) -> Result<PathBuf, ConversationServiceError> {
@@ -451,6 +476,26 @@ fn mime_type_for_agent_asset(path: &Path) -> &'static str {
         Some("avif") => "image/avif",
         Some("heic") => "image/heic",
         Some("heif") => "image/heif",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("mov") => "video/quicktime",
+        Some("m4v") => "video/x-m4v",
+        Some("avi") => "video/x-msvideo",
+        Some("mkv") => "video/x-matroska",
+        Some("mpeg") | Some("mpg") => "video/mpeg",
+        Some("pdf") => "application/pdf",
+        Some("txt") => "text/plain",
+        Some("md") | Some("markdown") => "text/markdown",
+        Some("json") => "application/json",
+        Some("csv") => "text/csv",
+        Some("html") | Some("htm") => "text/html",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("zip") => "application/zip",
         _ => "application/octet-stream",
     }
 }
@@ -740,6 +785,64 @@ mod tests {
             .await
             .expect_err("missing file must fail");
         assert!(matches!(error, ConversationServiceError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn prompt_blocks_emit_resource_links_for_videos() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        std::fs::write(workspace.path().join("clip.mp4"), b"fake-mp4").expect("write");
+
+        let blocks = DefaultConversationHost::default()
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                "watch this".to_string(),
+                &["clip.mp4".to_string()],
+                &[],
+            )
+            .await
+            .expect("blocks");
+
+        assert!(matches!(
+            &blocks[0],
+            AgentContentBlock::Text { text } if text == "watch this"
+        ));
+        assert!(matches!(
+            &blocks[1],
+            AgentContentBlock::Resource { title, uri }
+                if title.as_deref() == Some("clip.mp4") && uri.starts_with("file:")
+        ));
+    }
+
+    #[tokio::test]
+    async fn prompt_blocks_emit_resource_links_for_documents() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        std::fs::write(workspace.path().join("notes.md"), b"# hi").expect("write");
+        std::fs::write(workspace.path().join("report.pdf"), b"%PDF").expect("write");
+
+        let blocks = DefaultConversationHost::default()
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                "read these".to_string(),
+                &["notes.md".to_string(), "report.pdf".to_string()],
+                &[],
+            )
+            .await
+            .expect("blocks");
+
+        assert!(matches!(
+            &blocks[0],
+            AgentContentBlock::Text { text } if text == "read these"
+        ));
+        assert!(matches!(
+            &blocks[1],
+            AgentContentBlock::Resource { title, uri }
+                if title.as_deref() == Some("notes.md") && uri.starts_with("file:")
+        ));
+        assert!(matches!(
+            &blocks[2],
+            AgentContentBlock::Resource { title, uri }
+                if title.as_deref() == Some("report.pdf") && uri.starts_with("file:")
+        ));
     }
 }
 

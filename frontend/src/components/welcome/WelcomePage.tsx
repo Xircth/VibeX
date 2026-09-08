@@ -319,7 +319,13 @@ export function WelcomePage() {
   }, [contextMenu, isDeletingProject, t]);
 
   return (
-    <div className="welcome-page-surface h-full overflow-auto">
+    <div className="welcome-page-surface relative h-full overflow-auto">
+      {tauriClient ? (
+        <div
+          data-tauri-drag-region
+          className="window-chrome absolute inset-x-0 top-0 z-20 h-9"
+        />
+      ) : null}
       {dropActive ? (
         <div
           className="welcome-page-drop-overlay"

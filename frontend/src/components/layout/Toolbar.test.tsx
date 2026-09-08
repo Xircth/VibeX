@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +25,14 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
   useKanbanSessionContext: () => ({
     rightSession: null,
     monitorSessions: [],
+  }),
+}));
+
+vi.mock('@/hooks/usePanelActions', () => ({
+  usePanelActions: () => ({
+    toggleFileTree: vi.fn(),
+    openNewTerminal: vi.fn(),
+    isPanelOpen: () => false,
   }),
 }));
 
@@ -128,7 +138,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     resetKanbanCanvasListVisible();
   });
 
-  it('places the session-list button after the project rail in canvas mode', async () => {
+  it('places the session-list button first in canvas mode', async () => {
     const user = userEvent.setup();
     setKanbanBoardStyle('canvas');
 
@@ -142,13 +152,39 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
       name: 'Workspace and target branches',
     });
     const buttons = group.querySelectorAll('button');
-    expect(buttons[0]).toHaveTextContent('Projects');
-    expect(buttons[1]).toHaveAttribute('aria-label', '隐藏会话列表');
+    expect(buttons[0]).toHaveAttribute('aria-label', '隐藏会话列表');
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument();
 
-    await user.click(buttons[1]);
+    await user.click(buttons[0]);
     expect(screen.getByRole('button', { name: '显示会话列表' })).toBe(
-      buttons[1]
+      buttons[0]
     );
+  });
+
+  it('keeps kanban layout toggles out of the leading cluster', () => {
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls isWorkspaceTab={false} />
+      </TooltipProvider>
+    );
+
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏会话列表' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps workspace layout toggles out of the leading cluster', () => {
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls isWorkspaceTab={true} />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏文件树' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Select workspace')).toBeInTheDocument();
   });
 
   it('does not show the canvas list toggle on the workspace tab', () => {
@@ -165,5 +201,26 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     expect(
       screen.queryByRole('button', { name: '隐藏会话列表' })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('Toolbar chrome layout', () => {
+  it('centers the workspace tabs on the window and keeps the project rail trailing', () => {
+    const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
+    expect(source).toContain(
+      'absolute inset-0 z-20 flex items-center justify-center'
+    );
+    expect(source).toContain('WindowChromeLeadingRule');
+
+    const trailing = source.slice(source.indexOf('ml-auto'));
+    expect(trailing).toContain('<KanbanLayoutToggles');
+    expect(trailing).toContain('<WorkspaceLayoutToggles');
+    expect(trailing).toContain('<ProjectRailToggleButton');
+    expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
+      /<ProjectRailToggleButton/
+    );
+    expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
+      /<KanbanLayoutToggles/
+    );
   });
 });

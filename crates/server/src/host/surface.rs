@@ -11,7 +11,7 @@ use agents::{
     HistoryPathDestination, ImportedAgentMessageRole, LocalHistoryDestination,
     LocalHistoryImportJobSnapshot, OfficialRegistryHttpFetcher, REGISTRY_REFRESH_TIMEOUT,
     RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, SendAgentPromptInput, SystemClock,
+    ResumeAgentSessionInput, SendAgentPromptInput, SystemClock, apply_component_versions,
     conversation::{ConversationEvent, ConversationInputBlock},
     load_configured_history_session, scan_configured_history,
     scan_configured_history_with_progress,
@@ -26,8 +26,8 @@ use chrono::Utc;
 use conversations::ConversationEventAppender;
 use db::models::{
     agent_management::{
-        AgentMembershipRepository, InstallationOperationRepository, RegistrySnapshotRepository,
-        SessionDefaultRecord, SessionDefaultRepository,
+        AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
+        RegistrySnapshotRepository, SessionDefaultRecord, SessionDefaultRepository,
     },
     conversation::DbConversationSummary,
     conversation_event::AppendConversationEvent,
@@ -48,7 +48,7 @@ use uuid::Uuid;
 
 use crate::{
     domains::{ServerApplicationDomains, internal_error, parse, serialize},
-    install_agent_unattended, weixin_check_qrcode, weixin_get_qrcode,
+    install_agent_unattended, plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
 };
 
 #[derive(Deserialize)]
@@ -183,8 +183,9 @@ struct AgentReorderArgs {
 #[serde(rename_all = "camelCase")]
 struct AgentInstallVersionArgs {
     agent_id: AgentId,
-    #[allow(dead_code)]
     version: Option<String>,
+    runtime_version: Option<String>,
+    acp_version: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -388,10 +389,17 @@ impl ServerApplicationDomains {
                 self.agent_user_definition_update(args).await
             }
             DomainCommand::AgentManagementReorder => self.agent_management_reorder(args).await,
-            DomainCommand::AgentManagementInstallVersion
-            | DomainCommand::AgentManagementRepair
-            | DomainCommand::AgentManagementApplyUpdate => {
-                self.agent_management_install(args).await
+            DomainCommand::AgentManagementInstallVersion => {
+                self.agent_management_install(args, AgentOperationKind::Install)
+                    .await
+            }
+            DomainCommand::AgentManagementRepair => {
+                self.agent_management_install(args, AgentOperationKind::Repair)
+                    .await
+            }
+            DomainCommand::AgentManagementApplyUpdate => {
+                self.agent_management_install(args, AgentOperationKind::Update)
+                    .await
             }
             DomainCommand::AgentManagementUninstall | DomainCommand::AgentManagementRemove => {
                 self.agent_management_remove(args).await
@@ -575,7 +583,6 @@ impl ServerApplicationDomains {
             DomainCommand::PluginControlContributions => self.plugin_contributions(args).await,
             DomainCommand::PluginControlConfigureAgents => self.plugin_configure_agents(args).await,
             DomainCommand::PluginControlConfigureMcp => self.plugin_configure_mcp(args).await,
-            DomainCommand::PluginInvokeContribution => self.plugin_surface_invoke(args).await,
             DomainCommand::DshPlugins => {
                 super::native_commands::dispatch_dsh_plugins(&self.pool).await
             }
@@ -1503,8 +1510,16 @@ impl ServerApplicationDomains {
             .add(args.agent_id.clone())
             .await
             .map_err(internal_error)?;
-        self.queue_host_agent_install(args.agent_id, AgentOperationKind::Install)
-            .await
+        self.queue_host_agent_install(
+            AgentInstallVersionArgs {
+                agent_id: args.agent_id,
+                version: None,
+                runtime_version: None,
+                acp_version: None,
+            },
+            AgentOperationKind::Install,
+        )
+        .await
     }
 
     async fn agent_user_definition_add(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1547,41 +1562,66 @@ impl ServerApplicationDomains {
         serialize(self.management().list().await.map_err(internal_error)?)
     }
 
-    async fn agent_management_install(&self, args: Value) -> Result<Value, ApplicationError> {
+    async fn agent_management_install(
+        &self,
+        args: Value,
+        kind: AgentOperationKind,
+    ) -> Result<Value, ApplicationError> {
         let args: AgentInstallVersionArgs = parse(args)?;
-        self.queue_host_agent_install(args.agent_id, AgentOperationKind::Install)
-            .await
+        self.queue_host_agent_install(args, kind).await
     }
 
     async fn queue_host_agent_install(
         &self,
-        agent_id: AgentId,
+        args: AgentInstallVersionArgs,
         kind: AgentOperationKind,
     ) -> Result<Value, ApplicationError> {
-        let operation_id = Uuid::new_v4().to_string();
+        let agent_id = args.agent_id;
+        let mut plan = plan_host_agent_install(&self.pool, agent_id.as_str())
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let runtime = args
+            .runtime_version
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let acp = args
+            .acp_version
+            .or(args.version)
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if runtime.is_some() || acp.is_some() {
+            apply_component_versions(&mut plan, runtime, acp.as_deref())
+                .map_err(ApplicationError::bad_request)?;
+        }
+        let frozen_plan_json =
+            serde_json::to_string(&plan).map_err(|error| internal_error(error))?;
+        let operation = InstallationOperationRepository::new(self.pool.clone())
+            .enqueue(NewInstallationOperation {
+                agent_id: agent_id.clone(),
+                kind: operation_kind_key(kind).to_string(),
+                frozen_plan_json,
+                host_instance_id: "host".to_string(),
+                resource_claims: Vec::new(),
+                staging_path: None,
+            })
+            .await
+            .map_err(|error| {
+                if error.to_string().contains("UNIQUE constraint failed") {
+                    ApplicationError::conflict("Agent 已有正在执行的管理操作")
+                } else {
+                    internal_error(error)
+                }
+            })?;
+        let operation_id = operation.id.to_string();
         let receipt = AgentOperationReceipt {
             operation_id: operation_id.clone(),
             agent_id: agent_id.clone(),
             kind,
             status: AgentOperationStatus::Queued,
         };
-        sqlx::query(
-            r#"INSERT INTO agent_installation
-               (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
-                active_operation, active_operation_id, updated_at)
-               VALUES (?, 'external', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
-               ON CONFLICT(agent_id) DO UPDATE SET
-                 lifecycle = 'queued',
-                 active_operation = excluded.active_operation,
-                 active_operation_id = excluded.active_operation_id,
-                 updated_at = CURRENT_TIMESTAMP"#,
-        )
-        .bind(agent_id.as_str())
-        .bind(operation_kind_key(kind))
-        .bind(&operation_id)
-        .execute(&self.pool)
-        .await
-        .map_err(internal_error)?;
         emit_host_agent_operation(
             &self.events,
             &agent_id,
@@ -1592,57 +1632,74 @@ impl ServerApplicationDomains {
             None,
         );
         let pool = self.pool.clone();
-        let runtime_root = self.runtime_root.clone();
+        let data_dir = utils::assets::host_data_dir();
         let events = self.events.clone();
         tokio::spawn(async move {
-            emit_host_agent_operation(
-                &events,
-                &agent_id,
-                &operation_id,
-                kind,
-                AgentOperationStatus::Running,
-                Some(10),
-                None,
-            );
-            let result = install_agent_unattended(&pool, &runtime_root, agent_id.as_str()).await;
-            match result {
-                Ok(()) => emit_host_agent_operation(
+            crate::host::events::bind_host_events(events.clone(), async move {
+                let _ = InstallationOperationRepository::new(pool.clone())
+                    .mark_running(operation.id, "host")
+                    .await;
+                emit_host_agent_operation(
                     &events,
                     &agent_id,
                     &operation_id,
                     kind,
-                    AgentOperationStatus::Succeeded,
-                    Some(100),
-                    None,
-                ),
-                Err(error) => {
-                    let _ = sqlx::query(
-                        r#"UPDATE agent_installation
-                           SET lifecycle = 'needs_repair',
-                               active_operation = NULL,
-                               active_operation_id = NULL,
-                               updated_at = CURRENT_TIMESTAMP
-                           WHERE agent_id = ? AND active_operation_id = ?"#,
-                    )
-                    .bind(agent_id.as_str())
-                    .bind(&operation_id)
-                    .execute(&pool)
-                    .await;
-                    emit_host_agent_operation(
-                        &events,
-                        &agent_id,
-                        &operation_id,
-                        kind,
-                        AgentOperationStatus::Failed,
-                        None,
-                        Some(error.to_string()),
-                    );
+                    AgentOperationStatus::Running,
+                    Some(10),
+                    Some("正在安装 ACP".to_string()),
+                );
+                let result = install_agent_unattended(&pool, &data_dir, agent_id.as_str()).await;
+                let repository = InstallationOperationRepository::new(pool.clone());
+                match result {
+                    Ok(()) => {
+                        let _ = repository.finish(operation.id, "succeeded").await;
+                        emit_host_agent_operation(
+                            &events,
+                            &agent_id,
+                            &operation_id,
+                            kind,
+                            AgentOperationStatus::Succeeded,
+                            Some(100),
+                            None,
+                        );
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            agent_id = agent_id.as_str(),
+                            operation_id = operation_id.as_str(),
+                            %error,
+                            "Host ACP install failed"
+                        );
+                        let _ = repository.finish(operation.id, "failed").await;
+                        let _ = sqlx::query(
+                            r#"UPDATE agent_installation
+                               SET lifecycle = 'needs_repair',
+                                   active_operation = NULL,
+                                   active_operation_id = NULL,
+                                   updated_at = CURRENT_TIMESTAMP
+                               WHERE agent_id = ? AND active_operation_id = ?"#,
+                        )
+                        .bind(agent_id.as_str())
+                        .bind(&operation_id)
+                        .execute(&pool)
+                        .await;
+                        emit_host_agent_operation(
+                            &events,
+                            &agent_id,
+                            &operation_id,
+                            kind,
+                            AgentOperationStatus::Failed,
+                            None,
+                            Some(error.to_string()),
+                        );
+                    }
                 }
-            }
-            events.emit(
-                "agent-management-snapshot-invalidated",
-                json!({ "agentId": agent_id }),
-            );
+                events.emit(
+                    "agent-management-snapshot-invalidated",
+                    json!({ "agentId": agent_id }),
+                );
+            })
+            .await;
         });
         serialize(receipt)
     }
@@ -2322,5 +2379,18 @@ mod tests {
         assert_eq!(value["values"]["model"], json!("opus"));
         assert_eq!(value["staleIds"], json!(["gone"]));
         assert!(value.get("model").is_none());
+    }
+
+    #[test]
+    fn install_version_args_read_component_versions() {
+        let args: AgentInstallVersionArgs = serde_json::from_value(json!({
+            "agentId": "codex",
+            "acpVersion": "1.2.3",
+            "runtimeVersion": "0.4.0"
+        }))
+        .expect("install args");
+        assert_eq!(args.agent_id.as_str(), "codex");
+        assert_eq!(args.acp_version.as_deref(), Some("1.2.3"));
+        assert_eq!(args.runtime_version.as_deref(), Some("0.4.0"));
     }
 }

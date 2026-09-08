@@ -2420,20 +2420,21 @@ use agents::{
     AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, ArtifactTrust,
     AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
     InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
-    LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
-    NativeFileMutation, NativeFileSystem, ObservedUserComponent, OfficialRegistryHttpFetcher,
-    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent,
-    ProfileManagementActionKind, ProfileTopology, REGISTRY_REFRESH_TIMEOUT, RegistryCache,
-    RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock,
-    ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem, UserEnvironmentAdoptDecision,
-    UserEnvironmentLayout, apply_component_versions, apply_npx_component_version,
-    bind_runtime_executable_env, decide_user_environment_adopt, ensure_user_cli_path,
-    existing_path_satisfies_component, fetch_npm_latest, fetch_npm_package_requirements,
-    npm_global_install_args, npm_install_permission_denied, npm_shim_candidates,
-    observed_satisfies_profile, plan_required_components, planned_preflight_updates,
-    publish_managed_runtime_cli, remove_managed_runtime_cli, resolve_npm_shim,
-    runtime_acp_compatibility_warning, switch_managed_runtime_cli, uv_distribution_name,
-    verify_artifact_bytes,
+    LockedInstallSource, MANAGED_NODE_VERSION, MANAGED_UV_VERSION, NativeConfigFilePatch,
+    NativeConfigPatch, NativeConfigProvider, NativeFileMutation, NativeFileSystem,
+    ObservedUserComponent, OfficialRegistryHttpFetcher, PlannedDistributionKind,
+    PlannedInstallComponent, ProfileComponent, ProfileManagementActionKind, ProfileTopology,
+    REGISTRY_REFRESH_TIMEOUT, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
+    ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint,
+    TokioNativeFileSystem, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
+    apply_component_versions, apply_npx_component_version, bind_runtime_executable_env,
+    decide_user_environment_adopt, ensure_user_cli_path, existing_path_satisfies_component,
+    fetch_npm_latest, fetch_npm_package_requirements, managed_node_artifact, managed_uv_artifact,
+    node_verified_for_install, npm_global_install_args, npm_install_permission_denied,
+    npm_shim_candidates, observed_satisfies_profile, plan_required_components,
+    planned_preflight_updates, publish_managed_runtime_cli, remove_managed_runtime_cli,
+    resolve_npm_shim, runtime_acp_compatibility_warning, switch_managed_runtime_cli,
+    uv_distribution_name, uv_verified_for_install, verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -2486,9 +2487,7 @@ const MANAGEMENT_EVENT: &str = "agent-management-event";
 const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
 const MANAGEMENT_DISCOVERY_PROGRESS_EVENT: &str = "agent-management-discovery-progress";
 const MAX_AGENT_BINARY_BYTES: usize = 512 * 1024 * 1024;
-const MANAGED_NODE_VERSION: &str = "22.22.3";
 const MAX_MANAGED_NODE_BYTES: usize = 128 * 1024 * 1024;
-const MANAGED_UV_VERSION: &str = "0.8.10";
 const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CONCURRENT_EXTERNAL_AGENT_PROBES: usize = 4;
 const LOCAL_RUNTIME_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -2546,53 +2545,6 @@ fn local_runtime_discovery_progress_view(
     services::services::agent_management_runtime::local_runtime_discovery_progress_view(progress)
 }
 
-struct ManagedNodeArtifact {
-    target: &'static str,
-    extension: &'static str,
-    sha256: &'static str,
-}
-
-fn managed_node_artifact(platform: &str) -> Option<ManagedNodeArtifact> {
-    let (target, extension, sha256) = match platform {
-        "darwin-aarch64" => (
-            "darwin-arm64",
-            "tar.gz",
-            "0da7ff74ef8611328c8212f17943368713a2ad953fb7d89a8c8a0eae87c23207",
-        ),
-        "darwin-x86_64" => (
-            "darwin-x64",
-            "tar.gz",
-            "45830ba752fa0d892c6dcd640946669801293cac820a33591ded40ac075198ec",
-        ),
-        "linux-aarch64" => (
-            "linux-arm64",
-            "tar.gz",
-            "cc8bc82b2dd0b595c3b95a4c3c9c8c350907cff011afbdee3d1379e812e1e3e3",
-        ),
-        "linux-x86_64" => (
-            "linux-x64",
-            "tar.gz",
-            "c7a10d6816da8eaaa7534dd73c71c6e2b2c391dbbf845e364902d156615dd1b8",
-        ),
-        "windows-aarch64" => (
-            "win-arm64",
-            "zip",
-            "00be129a09e8872cd52d3bb8bba12412c5733d2224123a482a2dca4a6fbf2586",
-        ),
-        "windows-x86_64" => (
-            "win-x64",
-            "zip",
-            "6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33",
-        ),
-        _ => return None,
-    };
-    Some(ManagedNodeArtifact {
-        target,
-        extension,
-        sha256,
-    })
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuntimeSource {
     System,
@@ -2630,53 +2582,6 @@ fn managed_node_executables(managed_artifacts_dir: &Path) -> Option<NodeRuntime>
         version: MANAGED_NODE_VERSION.to_string(),
         npm_version: None,
         source: RuntimeSource::Managed,
-    })
-}
-
-struct ManagedUvArtifact {
-    target: &'static str,
-    extension: &'static str,
-    sha256: &'static str,
-}
-
-fn managed_uv_artifact(platform: &str) -> Option<ManagedUvArtifact> {
-    let (target, extension, sha256) = match platform {
-        "darwin-aarch64" => (
-            "aarch64-apple-darwin",
-            "tar.gz",
-            "5200278ae00b5c0822a7db7a99376b2167e8e9391b29c3de22f9e4fdebc9c0e8",
-        ),
-        "darwin-x86_64" => (
-            "x86_64-apple-darwin",
-            "tar.gz",
-            "3b935381af9124a5d5da48235e149f5f0662f2717e75782d1b843d39d9265d6d",
-        ),
-        "linux-aarch64" => (
-            "aarch64-unknown-linux-gnu",
-            "tar.gz",
-            "de60f5e3d69b54e6196fb8937fef4feb15e239f0fd14278e77e44dbb353214ae",
-        ),
-        "linux-x86_64" => (
-            "x86_64-unknown-linux-gnu",
-            "tar.gz",
-            "2c4392591fe9469d006452ef22f32712f35087d87fb1764ec03e23544eb8770d",
-        ),
-        "windows-aarch64" => (
-            "aarch64-pc-windows-msvc",
-            "zip",
-            "c51b02188c312baef71187273afa625576101e5680739eab83b1b09ca5d2f3a8",
-        ),
-        "windows-x86_64" => (
-            "x86_64-pc-windows-msvc",
-            "zip",
-            "37fcd011fd22b2a569f7e583a924af2d624d99445f669752923a2fd3841f8e3d",
-        ),
-        _ => return None,
-    };
-    Some(ManagedUvArtifact {
-        target,
-        extension,
-        sha256,
     })
 }
 
@@ -6243,16 +6148,21 @@ async fn resolve_install_plan(
     // Npx plans can bootstrap VibeX's pinned, checksum-verified Node.js
     // distribution. A clean machine therefore remains install-capable without
     // trusting or mutating a user-managed PATH runtime.
-    let node_verified = (utils::shell::resolve_executable_path("node")
-        .await
-        .is_some()
-        && utils::shell::resolve_executable_path("npm").await.is_some())
-        || managed_node_artifact(&agents::current_platform()).is_some();
+    let platform = agents::current_platform();
+    let node_verified = node_verified_for_install(
+        utils::shell::resolve_executable_path("node")
+            .await
+            .is_some()
+            && utils::shell::resolve_executable_path("npm").await.is_some(),
+        &platform,
+    );
     // Hermes can use VibeX's pinned, checksum-verified uv distribution when no
     // system uv is available. Treat supported platforms as install-capable so
     // planning can proceed to the managed-tool bootstrap in run_operation.
-    let uv_verified = utils::shell::resolve_executable_path("uv").await.is_some()
-        || managed_uv_artifact(&agents::current_platform()).is_some();
+    let uv_verified = uv_verified_for_install(
+        utils::shell::resolve_executable_path("uv").await.is_some(),
+        &platform,
+    );
     let python_verified = utils::shell::resolve_executable_path("python3")
         .await
         .is_some()

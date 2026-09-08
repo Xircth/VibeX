@@ -36,6 +36,7 @@ pub mod install_planner;
 pub mod launch_gate;
 pub mod lifecycle;
 pub mod local_detection;
+pub mod managed_toolchain;
 pub mod management_boundary;
 pub mod management_state;
 pub mod manager;
@@ -169,6 +170,10 @@ pub use lifecycle::{
     LifecycleComponent, LifecycleFacts, LifecyclePlan, LifecycleService,
 };
 pub use local_detection::{npm_package_name, version_at_least};
+pub use managed_toolchain::{
+    MANAGED_NODE_VERSION, MANAGED_UV_VERSION, ManagedNodeArtifact, ManagedUvArtifact,
+    managed_node_artifact, managed_uv_artifact, node_verified_for_install, uv_verified_for_install,
+};
 pub use management_boundary::{
     BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,
     NativeFileMutation, NativeFileSystem, RegistryFetchResponse, RegistryFetcher, SystemClock,

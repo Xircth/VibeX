@@ -10,12 +10,14 @@ use std::{
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentId, BuiltInProfile, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
-    InstallPlanner, InstallPlanningInput, LockedInstallSource, OfficialRegistryHttpFetcher,
-    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileTopology,
-    RegistryCache, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, SystemClock,
+    InstallPlanner, InstallPlanningInput, LockedInstallSource, MANAGED_NODE_VERSION,
+    MANAGED_UV_VERSION, OfficialRegistryHttpFetcher, PlannedDistributionKind,
+    PlannedInstallComponent, ProfileComponent, ProfileTopology, RegistryCache,
+    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, SystemClock,
     UserEnvironmentLayout, current_platform, existing_path_satisfies_component,
-    npm_global_install_args, npm_install_permission_denied, npm_package_name as npm_spec_name,
-    observed_satisfies_profile, resolve_npm_shim,
+    managed_node_artifact, managed_uv_artifact, node_verified_for_install, npm_global_install_args,
+    npm_install_permission_denied, npm_package_name as npm_spec_name, observed_satisfies_profile,
+    resolve_npm_shim, uv_verified_for_install,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -256,6 +258,15 @@ pub async fn install_agent_unattended(
     install_agent(pool, data_dir, raw_id, true).await
 }
 
+pub async fn plan_host_agent_install(
+    pool: &SqlitePool,
+    raw_id: &str,
+) -> anyhow::Result<ResolvedInstallPlan> {
+    let agent_id = AgentId::parse(raw_id)
+        .map_err(|error| anyhow::anyhow!("invalid Agent id `{raw_id}`: {error}"))?;
+    resolve_plan(pool, &agent_id).await
+}
+
 async fn install_agent(
     pool: &SqlitePool,
     data_dir: &Path,
@@ -276,20 +287,57 @@ async fn install_agent(
     );
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
+    let managed_artifacts = utils::path::managed_artifacts_directory(&home, data_dir);
+    let node = if plan
+        .components
+        .iter()
+        .any(|component| component.distribution_kind == PlannedDistributionKind::Npx)
+    {
+        Some(resolve_node_runtime(&managed_artifacts).await?)
+    } else {
+        None
+    };
+    let uv = if plan
+        .components
+        .iter()
+        .any(|component| component.distribution_kind == PlannedDistributionKind::Uvx)
+    {
+        Some(resolve_uv_runtime(&managed_artifacts).await?)
+    } else {
+        None
+    };
+    if let Some(runtime) = node.as_ref() {
+        utils::shell::expose_user_bin_to_process_path(&runtime.bin_dir);
+    }
+    if let Some(executable) = uv.as_ref().and_then(|path| path.parent()) {
+        utils::shell::expose_user_bin_to_process_path(executable);
+    }
     let mut user_env = UserEnvironmentLayout::for_current_user(&home);
-    user_env = user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix().await);
+    user_env =
+        user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix(node.as_ref()).await);
     prepare_user_environment(&user_env).await?;
     let installation = if let Some(adopted) = try_adopt(&agent_id, &plan, &user_env).await? {
         println!("Using the user-environment CLI that already matches the locked versions.");
         adopted
     } else {
-        install_plan(&plan, &mut user_env).await?
+        install_plan(&plan, &mut user_env, node.as_ref(), uv.as_deref()).await?
     };
     persist_lock(pool, &plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
-    if let Err(error) = verify_handshake(&agent_id, &installation.launch_lock, &working_dir).await {
-        println!("Installed CLI; ACP handshake will be retried when a session starts ({error})");
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        verify_handshake(&agent_id, &installation.launch_lock, &working_dir),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            println!("Installed CLI; ACP handshake will be retried when a session starts ({error})")
+        }
+        Err(_) => println!(
+            "Installed CLI; ACP handshake timed out and will be retried when a session starts"
+        ),
     }
     println!(
         "Installed {} runtime {} / ACP {}",
@@ -376,11 +424,16 @@ async fn resolve_plan(
     agent_id: &AgentId,
 ) -> anyhow::Result<ResolvedInstallPlan> {
     let _ = utils::shell::refresh_process_path_after_install().await;
-    let node_verified = utils::shell::resolve_executable_path("node")
+    let platform = current_platform();
+    let system_node = utils::shell::resolve_executable_path("node")
         .await
         .is_some()
         && utils::shell::resolve_executable_path("npm").await.is_some();
-    let uv_verified = utils::shell::resolve_executable_path("uv").await.is_some();
+    let node_verified = node_verified_for_install(system_node, &platform);
+    let uv_verified = uv_verified_for_install(
+        utils::shell::resolve_executable_path("uv").await.is_some(),
+        &platform,
+    );
     let python_verified = utils::shell::resolve_executable_path("python3")
         .await
         .is_some()
@@ -415,7 +468,7 @@ async fn resolve_plan(
         .plan(InstallPlanningInput {
             agent_id: agent_id.clone(),
             source,
-            platform: current_platform(),
+            platform,
             environment: InstallEnvironment {
                 node_verified,
                 uv_verified,
@@ -496,6 +549,8 @@ async fn try_adopt(
 async fn install_plan(
     plan: &ResolvedInstallPlan,
     user_env: &mut UserEnvironmentLayout,
+    node: Option<&NodeRuntime>,
+    uv: Option<&Path>,
 ) -> anyhow::Result<InstalledPlan> {
     let mut components = Vec::new();
     for component in &plan.components {
@@ -515,8 +570,8 @@ async fn install_plan(
             continue;
         }
         let path = match component.distribution_kind {
-            PlannedDistributionKind::Npx => install_npm(component, user_env).await?,
-            PlannedDistributionKind::Uvx => install_uv(component, user_env).await?,
+            PlannedDistributionKind::Npx => install_npm(component, user_env, node).await?,
+            PlannedDistributionKind::Uvx => install_uv(component, user_env, uv).await?,
             PlannedDistributionKind::Binary => {
                 install_binary(&plan.agent_id, component, user_env).await?
             }
@@ -606,10 +661,257 @@ async fn existing_component(component: &PlannedInstallComponent) -> Option<(Path
         .then_some((path, version))
 }
 
+#[derive(Debug, Clone)]
+struct NodeRuntime {
+    node: PathBuf,
+    npm: PathBuf,
+    bin_dir: PathBuf,
+}
+
+fn prepend_command_path(command: &mut tokio::process::Command, directory: &Path) {
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries = vec![directory.to_path_buf()];
+    entries.extend(std::env::split_paths(&existing));
+    if let Ok(joined) = std::env::join_paths(entries) {
+        command.env("PATH", joined);
+    }
+}
+
+const MAX_MANAGED_TOOL_BYTES: usize = 128 * 1024 * 1024;
+
+fn managed_node_runtime(managed_artifacts_dir: &Path) -> Option<NodeRuntime> {
+    let platform = current_platform();
+    let artifact = managed_node_artifact(&platform)?;
+    let archive_root = managed_artifacts_dir
+        .join("agent-tools")
+        .join("node")
+        .join(MANAGED_NODE_VERSION)
+        .join(&platform)
+        .join(format!("node-v{MANAGED_NODE_VERSION}-{}", artifact.target));
+    let bin_dir = if cfg!(windows) {
+        archive_root
+    } else {
+        archive_root.join("bin")
+    };
+    Some(NodeRuntime {
+        node: bin_dir.join(if cfg!(windows) { "node.exe" } else { "node" }),
+        npm: bin_dir.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        bin_dir,
+    })
+}
+
+fn managed_uv_executable(managed_artifacts_dir: &Path) -> Option<PathBuf> {
+    let artifact = managed_uv_artifact(&current_platform())?;
+    let executable = if cfg!(windows) { "uv.exe" } else { "uv" };
+    Some(
+        managed_artifacts_dir
+            .join("agent-tools")
+            .join("uv")
+            .join(MANAGED_UV_VERSION)
+            .join(current_platform())
+            .join(format!("uv-{}", artifact.target))
+            .join(executable),
+    )
+}
+
+async fn discover_system_node_runtime() -> Option<NodeRuntime> {
+    let node = utils::shell::resolve_executable_path("node").await?;
+    let npm = utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
+        .await?;
+    let bin_dir = node.parent()?.to_path_buf();
+    Some(NodeRuntime { node, npm, bin_dir })
+}
+
+async fn resolve_node_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<NodeRuntime> {
+    if let Some(runtime) = discover_system_node_runtime().await {
+        println!("Using system Node.js at {}", runtime.node.display());
+        return Ok(runtime);
+    }
+    println!(
+        "System Node.js is unavailable; falling back to VibeX-managed Node.js {MANAGED_NODE_VERSION}"
+    );
+    ensure_managed_node(managed_artifacts_dir).await
+}
+
+async fn resolve_uv_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
+    if let Some(uv) = utils::shell::resolve_executable_path("uv").await {
+        println!("Using system uv at {}", uv.display());
+        return Ok(uv);
+    }
+    println!("System uv is unavailable; falling back to VibeX-managed uv {MANAGED_UV_VERSION}");
+    ensure_managed_uv(managed_artifacts_dir).await
+}
+
+async fn download_archive(url: &str, limit: usize) -> anyhow::Result<Vec<u8>> {
+    let response = reqwest::get(url).await?.error_for_status()?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        anyhow::bail!("download exceeds the {limit} byte size limit");
+    }
+    let bytes = response.bytes().await?;
+    if bytes.len() > limit {
+        anyhow::bail!("download exceeds the {limit} byte size limit");
+    }
+    Ok(bytes.to_vec())
+}
+
+async fn ensure_managed_node(managed_artifacts_dir: &Path) -> anyhow::Result<NodeRuntime> {
+    let platform = current_platform();
+    let artifact = managed_node_artifact(&platform)
+        .ok_or_else(|| anyhow::anyhow!("Node.js is not supported on {platform}"))?;
+    let runtime = managed_node_runtime(managed_artifacts_dir)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve managed Node.js paths"))?;
+    if tokio::fs::metadata(&runtime.node).await.is_ok()
+        && tokio::fs::metadata(&runtime.npm).await.is_ok()
+    {
+        println!(
+            "Using managed Node.js {MANAGED_NODE_VERSION}: {}",
+            runtime.node.display()
+        );
+        return Ok(runtime);
+    }
+
+    let base = managed_artifacts_dir
+        .join("agent-tools")
+        .join("node")
+        .join(MANAGED_NODE_VERSION);
+    tokio::fs::create_dir_all(&base).await?;
+    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&staging).await?;
+    let filename = format!(
+        "node-v{MANAGED_NODE_VERSION}-{}.{}",
+        artifact.target, artifact.extension
+    );
+    let url = format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{filename}");
+    println!("Downloading managed Node.js {MANAGED_NODE_VERSION} ({platform})");
+    let result = async {
+        let bytes = download_archive(&url, MAX_MANAGED_TOOL_BYTES).await?;
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(artifact.sha256) {
+            anyhow::bail!(
+                "Node.js archive SHA-256 mismatch: expected {}, found {actual}",
+                artifact.sha256
+            );
+        }
+        extract_archive(&bytes, &url, &staging)?;
+        let staged_root = staging.join(format!("node-v{MANAGED_NODE_VERSION}-{}", artifact.target));
+        let staged_bin = if cfg!(windows) {
+            staged_root.clone()
+        } else {
+            staged_root.join("bin")
+        };
+        for expected in [
+            staged_bin.join(if cfg!(windows) { "node.exe" } else { "node" }),
+            staged_bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        ] {
+            if !expected.is_file() {
+                anyhow::bail!(
+                    "Node.js archive did not contain expected executable {}",
+                    expected.display()
+                );
+            }
+        }
+        let final_root = base.join(&platform);
+        if tokio::fs::metadata(&final_root).await.is_ok() {
+            let aside = base.join(format!(".invalid-{}", Uuid::new_v4()));
+            tokio::fs::rename(&final_root, &aside).await?;
+            if let Err(error) = tokio::fs::rename(&staging, &final_root).await {
+                let _ = tokio::fs::rename(&aside, &final_root).await;
+                return Err(error.into());
+            }
+            let _ = tokio::fs::remove_dir_all(aside).await;
+        } else {
+            tokio::fs::rename(&staging, &final_root).await?;
+        }
+        let runtime = managed_node_runtime(managed_artifacts_dir)
+            .ok_or_else(|| anyhow::anyhow!("could not resolve managed Node.js after install"))?;
+        if tokio::fs::metadata(&runtime.node).await.is_err()
+            || tokio::fs::metadata(&runtime.npm).await.is_err()
+        {
+            anyhow::bail!("installed managed Node.js is missing node or npm");
+        }
+        println!("Managed Node.js {MANAGED_NODE_VERSION} installed");
+        Ok(runtime)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+    }
+    result
+}
+
+async fn ensure_managed_uv(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
+    let platform = current_platform();
+    let artifact = managed_uv_artifact(&platform)
+        .ok_or_else(|| anyhow::anyhow!("uv is not supported on {platform}"))?;
+    let final_executable = managed_uv_executable(managed_artifacts_dir)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve managed uv path"))?;
+    if tokio::fs::metadata(&final_executable).await.is_ok() {
+        println!(
+            "Using managed uv {MANAGED_UV_VERSION}: {}",
+            final_executable.display()
+        );
+        return Ok(final_executable);
+    }
+
+    let base = managed_artifacts_dir.join("agent-tools").join("uv");
+    tokio::fs::create_dir_all(&base).await?;
+    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&staging).await?;
+    let filename = format!("uv-{}.{}", artifact.target, artifact.extension);
+    let url = format!(
+        "https://github.com/astral-sh/uv/releases/download/{MANAGED_UV_VERSION}/{filename}"
+    );
+    println!("Downloading managed uv {MANAGED_UV_VERSION} ({platform})");
+    let result = async {
+        let bytes = download_archive(&url, MAX_MANAGED_TOOL_BYTES).await?;
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(artifact.sha256) {
+            anyhow::bail!(
+                "uv archive SHA-256 mismatch: expected {}, found {actual}",
+                artifact.sha256
+            );
+        }
+        extract_archive(&bytes, &url, &staging)?;
+        let staged = staging
+            .join(format!("uv-{}", artifact.target))
+            .join(if cfg!(windows) { "uv.exe" } else { "uv" });
+        let staged = if staged.is_file() {
+            staged
+        } else {
+            find_staged_executable(&staging, if cfg!(windows) { "uv.exe" } else { "uv" })?
+        };
+        let version_root = base.join(MANAGED_UV_VERSION).join(&platform);
+        tokio::fs::create_dir_all(&version_root).await?;
+        let dest_dir = version_root.join(format!("uv-{}", artifact.target));
+        tokio::fs::create_dir_all(&dest_dir).await?;
+        let dest = dest_dir.join(if cfg!(windows) { "uv.exe" } else { "uv" });
+        tokio::fs::copy(&staged, &dest).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = tokio::fs::metadata(&dest).await?.permissions();
+            permissions.set_mode(0o755);
+            tokio::fs::set_permissions(&dest, permissions).await?;
+        }
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        println!("Managed uv {MANAGED_UV_VERSION} installed");
+        Ok(dest)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+    }
+    result
+}
+
 async fn run_npm_global_install(
     npm: &Path,
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
+    node: Option<&NodeRuntime>,
 ) -> anyhow::Result<()> {
     println!(
         "$ npm install -g --force --prefix {} {}",
@@ -619,6 +921,10 @@ async fn run_npm_global_install(
     let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
     if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
         command.env("NODE_USE_ENV_PROXY", "1");
+    }
+    if let Some(runtime) = node {
+        prepend_command_path(&mut command, &runtime.bin_dir);
+        command.env("npm_config_prefix", &user_env.npm_prefix);
     }
     command.args(npm_global_install_args(
         &user_env.npm_prefix,
@@ -630,11 +936,13 @@ async fn run_npm_global_install(
 async fn install_npm(
     component: &PlannedInstallComponent,
     user_env: &mut UserEnvironmentLayout,
+    node: Option<&NodeRuntime>,
 ) -> anyhow::Result<PathBuf> {
-    let npm = utils::shell::resolve_executable_path("npm")
-        .await
+    let npm = node
+        .map(|runtime| runtime.npm.clone())
+        .or(utils::shell::resolve_executable_path("npm").await)
         .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
-    if let Err(error) = run_npm_global_install(&npm, component, user_env).await {
+    if let Err(error) = run_npm_global_install(&npm, component, user_env, node).await {
         let fallback = user_env.user_npm_prefix();
         if !npm_install_permission_denied(&error.to_string()) || fallback == user_env.npm_prefix {
             return Err(error);
@@ -642,7 +950,7 @@ async fn install_npm(
         println!("Permission denied, retrying with user prefix...");
         *user_env = user_env.clone().with_npm_prefix(fallback);
         prepare_user_environment(user_env).await?;
-        run_npm_global_install(&npm, component, user_env).await?;
+        run_npm_global_install(&npm, component, user_env, node).await?;
     }
     let package = npm_spec_name(&component.resolved_source);
     let name = if command_is_placeholder(&component.command) {
@@ -669,10 +977,16 @@ fn command_is_placeholder(command: &str) -> bool {
     command.is_empty() || command == "npm"
 }
 
-async fn live_npm_global_prefix() -> Option<PathBuf> {
-    let npm = utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
-        .await?;
+async fn live_npm_global_prefix(node: Option<&NodeRuntime>) -> Option<PathBuf> {
+    let npm = if let Some(runtime) = node {
+        runtime.npm.clone()
+    } else {
+        utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" }).await?
+    };
     let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
+    if let Some(runtime) = node {
+        prepend_command_path(&mut command, &runtime.bin_dir);
+    }
     command.arg("prefix").arg("-g").kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(3), command.output())
         .await
@@ -696,9 +1010,11 @@ async fn live_npm_global_prefix() -> Option<PathBuf> {
 async fn install_uv(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
+    uv: Option<&Path>,
 ) -> anyhow::Result<PathBuf> {
-    let uv = utils::shell::resolve_executable_path("uv")
-        .await
+    let uv = uv
+        .map(Path::to_path_buf)
+        .or(utils::shell::resolve_executable_path("uv").await)
         .ok_or_else(|| anyhow::anyhow!("uv was not found; install uv first"))?;
     println!("$ uv tool install {}", component.resolved_source);
     let mut command = utils::process::new_hidden_tokio_command(&uv, std::iter::empty::<&str>());
@@ -1045,4 +1361,41 @@ async fn run_command(label: &str, mut command: tokio::process::Command) -> anyho
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     anyhow::bail!("{label} failed: {}", stderr.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use agents::{node_verified_for_install, uv_verified_for_install};
+
+    use super::*;
+
+    #[test]
+    fn host_install_plans_npx_without_a_system_node() {
+        let platform = current_platform();
+        assert!(
+            node_verified_for_install(false, &platform),
+            "Host ACP install must plan npx distributions on {platform} without a system Node"
+        );
+    }
+
+    #[test]
+    fn host_install_plans_uvx_without_a_system_uv() {
+        let platform = current_platform();
+        assert!(
+            uv_verified_for_install(false, &platform),
+            "Host ACP install must plan uvx distributions on {platform} without a system uv"
+        );
+    }
+
+    #[test]
+    fn managed_node_runtime_is_under_the_user_toolchain_root() {
+        let root = PathBuf::from("/tmp/vibex-share");
+        let runtime = managed_node_runtime(&root).expect("current platform has managed Node");
+        let path = runtime.node.to_string_lossy();
+        assert!(
+            path.contains("agent-tools/node"),
+            "managed Node must live under agent-tools: {path}"
+        );
+        assert!(path.contains(MANAGED_NODE_VERSION));
+    }
 }

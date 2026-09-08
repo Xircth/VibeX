@@ -570,6 +570,7 @@ where
     let mut body = json!({
         "status": "ok",
         "version": state.config.server_version,
+        "release": !cfg!(debug_assertions),
     });
     if !state.config.host_id.is_empty() {
         body["host_id"] = json!(state.config.host_id);

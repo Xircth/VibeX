@@ -27,8 +27,8 @@ mod weixin_ilink;
 mod ws;
 
 pub use agent_install::{
-    AgentCatalogEntry, AgentCatalogGroup, install_agent_unattended, plan_host_agent_install,
-    run_agents_command,
+    AgentCatalogEntry, AgentCatalogGroup, install_agent_unattended, install_resolved_plan,
+    plan_host_agent_install, plan_host_agent_install_with_overlay, run_agents_command,
 };
 pub use artifact_sink::ServerArtifactEventSink;
 pub use auth::{

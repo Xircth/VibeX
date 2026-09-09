@@ -7,7 +7,6 @@ import {
 import { scratchApi, sessionsApi } from '@/lib/api';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import type { SessionControlsPreset } from '@/components/sessions/SessionCreationForm';
-import { initializeSessionControls } from '@/features/conversation/initializeSessionControls';
 import {
   getCreateProjectSessionRequest,
   type KanbanSessionCreationMode,
@@ -77,16 +76,6 @@ export function useKanbanSessionMutations({
       });
 
       if (executorProfile?.executor) {
-        let controlsInitialized = false;
-        try {
-          await initializeSessionControls(session.id, sessionControls);
-          controlsInitialized = true;
-        } catch (error) {
-          console.warn(
-            'Failed to initialize created session controls; preserving first-turn fallback',
-            error
-          );
-        }
         await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
           payload: {
             type: 'DRAFT_FOLLOW_UP',
@@ -95,12 +84,8 @@ export function useKanbanSessionMutations({
               images: [],
               executor_config: executorProfile,
               queued: false,
-              mode_override: controlsInitialized
-                ? undefined
-                : (sessionControls?.modeOverride ?? undefined),
-              config_overrides: controlsInitialized
-                ? {}
-                : (sessionControls?.configOverrides ?? {}),
+              mode_override: sessionControls?.modeOverride ?? undefined,
+              config_overrides: sessionControls?.configOverrides ?? {},
             },
           },
         });

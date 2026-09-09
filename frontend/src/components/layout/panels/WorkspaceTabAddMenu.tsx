@@ -1,9 +1,9 @@
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
-import { useEffect } from 'react';
 import {
   FileDiff,
   Globe2,
   Plus,
+  Puzzle,
   SquareTerminal,
   StickyNote,
 } from 'lucide-react';
@@ -15,7 +15,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
-import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import {
@@ -24,24 +23,6 @@ import {
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { pluginSurfaceId } from '@/lib/hostSurfaceIds';
-import { Puzzle } from 'lucide-react';
-
-function NativeSurfaceOcclusionBridge({
-  setOccluded,
-}: {
-  setOccluded: (occluded: boolean) => void;
-}) {
-  useEffect(() => {
-    const occlusionFrame = requestAnimationFrame(() => setOccluded(true));
-
-    return () => {
-      cancelAnimationFrame(occlusionFrame);
-      setOccluded(false);
-    };
-  }, [setOccluded]);
-
-  return null;
-}
 
 export function WorkspaceTabAddMenu({
   api,
@@ -56,7 +37,6 @@ export function WorkspaceTabAddMenu({
     openPluginPanel,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
-  const { setTabCreationMenuOpen } = useWorkspaceOverlay();
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
   const canOpenWebPreview =
@@ -86,7 +66,6 @@ export function WorkspaceTabAddMenu({
         sideOffset={4}
         className="workspace-tab-add-menu w-44"
       >
-        <NativeSurfaceOcclusionBridge setOccluded={setTabCreationMenuOpen} />
         {canOpenWebPreview ? (
           <DropdownMenuItem
             onSelect={() => runInThisGroup(() => openWebPreview())}

@@ -980,6 +980,19 @@ pub struct QueuedConversationInputClaim {
     pub claim_token: Uuid,
 }
 
+/// Turn row, active pointer, and causal events after the per-conversation lock
+/// is released. Agent I/O must not hold that lock: tokio's Mutex is not
+/// reentrant, and Stop needs it during the ACP handshake.
+struct CommittedTurnLaunch {
+    input: ConversationStartTurnInput,
+    working_dir: String,
+    additional_directories: Vec<PathBuf>,
+    agent_blocks: Vec<AgentContentBlock>,
+    turn_id: Uuid,
+    created_sequence: i64,
+    smart_reminder: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename_all = "snake_case")]
@@ -1107,6 +1120,22 @@ impl ConversationSessionService {
         input: ConversationStartTurnInput,
         origin: &str,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        let committed = {
+            let turn_lock = self.turn_lock(input.conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            self.commit_new_turn(input, origin).await?
+        };
+        self.complete_committed_turn(committed).await
+    }
+
+    /// Idle-check, claim consumption, and Turn commit. Caller must hold the
+    /// conversation turn lock. Do not call `turn_lock.lock()` here: dispatch
+    /// already holds it, and tokio Mutex is not reentrant.
+    async fn commit_new_turn(
+        &self,
+        input: ConversationStartTurnInput,
+        origin: &str,
+    ) -> Result<CommittedTurnLaunch, ConversationServiceError> {
         let display_text = input
             .display_text
             .as_deref()
@@ -1122,8 +1151,6 @@ impl ConversationSessionService {
                 "Agent prompt must include text or an image".to_string(),
             ));
         }
-        let turn_lock = self.turn_lock(input.conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
         self.interrupt_orphaned_turn(input.conversation_id).await?;
 
         let pool = &self.ctx.deployment.db().pool;
@@ -1349,10 +1376,34 @@ impl ConversationSessionService {
             state.event_sequence = created.sequence;
         })
         .await;
-        drop(_turn_guard);
+        Ok(CommittedTurnLaunch {
+            input,
+            working_dir,
+            additional_directories,
+            agent_blocks,
+            turn_id: turn.id,
+            created_sequence: created.sequence,
+            smart_reminder,
+        })
+    }
+
+    async fn complete_committed_turn(
+        &self,
+        committed: CommittedTurnLaunch,
+    ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        let CommittedTurnLaunch {
+            input,
+            working_dir,
+            additional_directories,
+            agent_blocks,
+            turn_id,
+            created_sequence,
+            smart_reminder,
+        } = committed;
+        let pool = &self.ctx.deployment.db().pool;
 
         if !self
-            .turn_is_still_in_flight(input.conversation_id, turn.id)
+            .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
         {
             return Err(ConversationServiceError::Conflict(
@@ -1366,9 +1417,18 @@ impl ConversationSessionService {
                 &working_dir,
                 &additional_directories,
                 agent_blocks,
-                turn.id,
+                turn_id,
             )
             .await;
+
+        if !self
+            .turn_is_still_in_flight(input.conversation_id, turn_id)
+            .await?
+        {
+            return Err(ConversationServiceError::Conflict(
+                "Turn was cancelled before the Agent handshake".to_string(),
+            ));
+        }
 
         match result {
             Ok(prompt) => {
@@ -1381,14 +1441,14 @@ impl ConversationSessionService {
                 }
                 self.append_event(
                     input.conversation_id,
-                    Some(turn.id),
+                    Some(turn_id),
                     "runtime",
                     ConversationEvent::UserTurnStarted,
-                    Some(format!("turn:{}:started", turn.id)),
+                    Some(format!("turn:{turn_id}:started")),
                 )
                 .await?;
                 let prompt_uuid = prompt.id.0;
-                ConversationTurnRecord::set_prompt_id(pool, turn.id, &prompt.id.to_string())
+                ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt.id.to_string())
                     .await?;
                 self.update_runtime_state(input.conversation_id, |state| {
                     state.active_prompt_id = Some(prompt.id.to_string());
@@ -1397,10 +1457,10 @@ impl ConversationSessionService {
                 Ok((
                     ConversationTurnSnapshot {
                         conversation_id: input.conversation_id,
-                        turn_id: turn.id,
+                        turn_id,
                         prompt_id: Some(prompt_uuid),
                         status: "running".to_string(),
-                        last_sequence: created.sequence + 1,
+                        last_sequence: created_sequence + 1,
                     },
                     prompt,
                 ))
@@ -1410,14 +1470,14 @@ impl ConversationSessionService {
                     let blocked = self
                         .append_event(
                             input.conversation_id,
-                            Some(turn.id),
+                            Some(turn_id),
                             "runtime",
                             ConversationEvent::TurnBlocked {
                                 reason: agents::conversation::TurnBlockedReason::Authentication {
                                     message: error.to_string(),
                                 },
                             },
-                            Some(format!("turn:{}:auth_required", turn.id)),
+                            Some(format!("turn:{turn_id}:auth_required")),
                         )
                         .await?;
                     self.update_runtime_state(input.conversation_id, |state| {
@@ -1430,14 +1490,14 @@ impl ConversationSessionService {
                 let failed = self
                     .append_event(
                         input.conversation_id,
-                        Some(turn.id),
+                        Some(turn_id),
                         "runtime",
                         ConversationEvent::TurnFailed {
                             error: error
                                 .turn_failure()
                                 .with_cached_plan_usage(Some(&input.agent_id)),
                         },
-                        Some(format!("turn:{}:send_failed", turn.id)),
+                        Some(format!("turn:{turn_id}:send_failed")),
                     )
                     .await?;
                 self.update_runtime_state(input.conversation_id, |state| {
@@ -1463,6 +1523,8 @@ impl ConversationSessionService {
     /// Dispatch exactly one durable queued input when the conversation is idle.
     /// The per-conversation turn lock covers idle-check -> claim -> Turn creation,
     /// so concurrent host/remote dispatchers cannot strand a second claim.
+    /// Agent I/O runs after that lock is dropped: the same tokio Mutex is not
+    /// reentrant, and Stop must be able to acquire it during the handshake.
     pub async fn dispatch_next_queued_input(
         &self,
         conversation_id: Uuid,
@@ -1520,8 +1582,8 @@ impl ConversationSessionService {
                 return Err(error);
             }
         };
-        let result = self
-            .start_turn_under_lock(
+        let committed = match self
+            .commit_new_turn(
                 ConversationStartTurnInput {
                     agent_id: payload.agent_id,
                     workspace_id: payload.workspace_id,
@@ -1542,8 +1604,21 @@ impl ConversationSessionService {
                 },
                 crate::commit_reminder::LOCAL_USER_ORIGIN,
             )
-            .await;
-        match result {
+            .await
+        {
+            Ok(committed) => committed,
+            Err(error) => {
+                let current = inputs.find(conversation_id, input_id).await?;
+                if current.status == ConversationInputStatus::Claimed {
+                    inputs
+                        .release_claim(conversation_id, input_id, claim_token)
+                        .await?;
+                }
+                return Err(error);
+            }
+        };
+        drop(_turn_guard);
+        match self.complete_committed_turn(committed).await {
             Ok((turn, _)) => Ok(Some(turn)),
             Err(error) => {
                 let current = inputs.find(conversation_id, input_id).await?;
@@ -2179,8 +2254,9 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        let turn_lock = self.turn_lock(conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
+        // ACP `session/new` can wait on the Agent's native MCP servers (Grok's
+        // default is 30s). The Conversation row already exists, so holding the
+        // turn lock here makes Stop and the first send wait on that handshake.
         self.ensure_session_controls_locked(conversation_id).await
     }
 
@@ -2406,6 +2482,21 @@ impl ConversationSessionService {
                     .map(|turn| turn.id),
                 None => None,
             };
+            if turn_id.is_none() {
+                // Optimistic "generating" with no Turn yet: the durable input is
+                // queued. Stop must cancel it, or reload shows "queued" forever.
+                let inputs = ConversationInputControl::with_publisher(
+                    pool.clone(),
+                    self.ctx.event_publisher.clone(),
+                );
+                if let Err(error) = inputs.cancel_queued(conversation_id).await {
+                    tracing::warn!(
+                        %conversation_id,
+                        %error,
+                        "failed to cancel queued conversation inputs with no in-flight turn"
+                    );
+                }
+            }
             (snapshot, turn_id)
         };
         let Some(turn_id) = turn_id else {
@@ -3189,6 +3280,14 @@ impl ConversationSessionService {
             {
                 prompt_blocks.insert(0, AgentContentBlock::Text { text: history });
             }
+        }
+        if !self
+            .turn_is_still_in_flight(input.conversation_id, turn_id)
+            .await?
+        {
+            return Err(ConversationServiceError::Conflict(
+                "Turn was cancelled before the Agent handshake".to_string(),
+            ));
         }
         let prompt = self
             .ctx
@@ -4352,6 +4451,23 @@ mod tests {
             choices: Vec::new(),
             dependency: None,
         }
+    }
+
+    /// Dispatch holds this mutex across claim → Turn commit. Starting that Turn
+    /// must not lock it again: tokio Mutex is not reentrant, and the hang is the
+    /// user-visible "generating" with no timeline message and a queued input.
+    #[tokio::test]
+    async fn the_conversation_turn_lock_cannot_be_reacquired_by_the_holding_task() {
+        use std::sync::Arc;
+
+        use tokio::sync::Mutex;
+
+        let lock = Arc::new(Mutex::new(()));
+        let _guard = lock.lock().await;
+        assert!(
+            lock.try_lock().is_err(),
+            "dispatch_next_queued_input must call commit_new_turn while holding the lock, not start_turn_under_lock"
+        );
     }
 
     /// Regression: `forget_conversation_runtime` used to evict the turn mutex while

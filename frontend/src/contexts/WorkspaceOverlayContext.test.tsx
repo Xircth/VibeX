@@ -2,6 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useLayoutEffect, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   useWorkspaceOverlay,
   WorkspaceOverlayProvider,
 } from './WorkspaceOverlayContext';
@@ -92,6 +98,34 @@ describe('WorkspaceOverlayProvider', () => {
 
     expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
     fireEvent.click(screen.getByRole('button', { name: 'Open select' }));
+    expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('occludes native surfaces while a dropdown menu is open', () => {
+    const onOcclusionChange = vi.fn();
+
+    render(
+      <WorkspaceOverlayProvider>
+        <NativeSurfaceBridge onOcclusionChange={onOcclusionChange} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button">Open app menu</button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>Back to home</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </WorkspaceOverlayProvider>
+    );
+
+    expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Open app menu' }),
+      { button: 0 }
+    );
+    expect(
+      screen.getByRole('menuitem', { name: 'Back to home' })
+    ).toBeVisible();
     expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
   });
 });

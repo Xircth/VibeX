@@ -328,12 +328,14 @@ export const agentManagementApi = {
     input?: {
       runtimeVersion?: string;
       acpVersion?: string;
+      force?: boolean;
     }
   ): Promise<AgentUpdateCheckView> =>
     backendCall('agent_management_check_update', {
       agentId,
       runtimeVersion: input?.runtimeVersion,
       acpVersion: input?.acpVersion,
+      force: input?.force,
     }),
 
   applyUpdate: (agentId: AgentId): Promise<AgentOperationReceipt> =>

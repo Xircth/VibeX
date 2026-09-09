@@ -4012,6 +4012,12 @@ impl AcpClientBridge {
             return Ok(());
         }
         if updates.is_empty() {
+            if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref())
+                && let Ok(notification) =
+                    serde_json::from_value::<SessionNotification>(params.clone())
+            {
+                return self.session_notification(notification).await;
+            }
             send_manager_event(
                 &self.event_tx,
                 AgentConnectionManagerEvent {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceOverlayContext } from '@/contexts/WorkspaceOverlayContext';
@@ -93,22 +93,15 @@ describe('WorkspaceTabAddMenu', () => {
     expect(openTerminalEditorTab).not.toHaveBeenCalled();
   });
 
-  it('renders the menu before starting native-surface occlusion work', () => {
+  it('occludes the native surface while the tab creation menu is open', () => {
     const props = headerProps();
-    const animationFrames: FrameRequestCallback[] = [];
-    const requestAnimationFrameSpy = vi
-      .spyOn(window, 'requestAnimationFrame')
-      .mockImplementation((callback) => {
-        animationFrames.push(callback);
-        return animationFrames.length;
-      });
-    const setTabCreationMenuOpen = vi.fn();
+    const setHtmlOverlayOpen = vi.fn();
 
     render(
       <WorkspaceOverlayContext.Provider
         value={{
-          setTabCreationMenuOpen,
-          setHtmlOverlayOpen: vi.fn(),
+          setTabCreationMenuOpen: vi.fn(),
+          setHtmlOverlayOpen,
           subscribeNativeSurfaceOcclusion: () => () => {},
         }}
       >
@@ -122,15 +115,7 @@ describe('WorkspaceTabAddMenu', () => {
     });
 
     expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
-    expect(setTabCreationMenuOpen).not.toHaveBeenCalled();
-
-    act(() => {
-      const currentFrame = animationFrames.splice(0);
-      currentFrame.forEach((callback) => callback(16));
-    });
-
-    expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
-    requestAnimationFrameSpy.mockRestore();
+    expect(setHtmlOverlayOpen).toHaveBeenCalledWith(true);
   });
 
   it('opens the terminal from the tab creation menu', () => {

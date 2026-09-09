@@ -117,20 +117,6 @@ export function useConversationTimeline(
           return;
         }
         dispatch({ type: 'load_success', conversationId, detail });
-        const needsAuthoritativeZeroTurnControls =
-          detail.summary.message_count === 0n;
-        if (detail.summary.agent_id && needsAuthoritativeZeroTurnControls) {
-          return conversationApi
-            .ensureSessionControls(conversationId)
-            .then((controls) => {
-              if (disposedRef.current || loadEpochRef.current !== epoch) return;
-              dispatch({
-                type: 'session_controls_hydrated',
-                conversationId,
-                controls,
-              });
-            });
-        }
       })
       .catch((error: unknown) => {
         if (loadEpochRef.current !== epoch) return;

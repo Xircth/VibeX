@@ -6794,7 +6794,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar {
   position: relative;
   display: flex;
-  height: 66px;
+  height: 60px;
   min-width: 0;
   flex: 1;
   align-items: flex-start;
@@ -6805,7 +6805,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 0;
+  bottom: 8px;
   left: 0;
   border: 1px solid var(--border-content);
   border-radius: var(--radius);
@@ -6817,7 +6817,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: relative;
   z-index: 1;
   display: flex;
-  height: 66px;
+  height: 60px;
   min-width: 0;
   flex: 1;
   align-items: flex-start;
@@ -6825,20 +6825,21 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 20px;
   padding: 4px 0 0 4px;
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
 }
 
 @supports not selector(::-webkit-scrollbar) {
   :is(.settings-page, .plan-usage-page) .agent-management-bar-scroll {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border-strong) / 0.55) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
   }
 }
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   background: transparent;
 }
 
@@ -6855,12 +6856,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   .agent-management-bar-scroll::-webkit-scrollbar-thumb {
   border: none;
   border-radius: 999px;
-  background: hsl(var(--border-strong) / 0.55);
+  /* --border-strong is already `hsl(...)`; wrapping it in hsl() again
+     makes the thumb paint as transparent. */
+  background: hsl(var(--muted-foreground) / 0.45);
 }
 
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--border-strong) / 0.8);
+  background: hsl(var(--muted-foreground) / 0.65);
 }
 
 :is(.settings-page, .plan-usage-page)
@@ -7092,28 +7095,44 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 100%;
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-brand-icon {
+/* Brand artwork must fill the caller's size class on every surface, not only
+   the settings Agent bar. Intrinsic SVG/PNG sizes (Cursor 16px, CodeBuddy
+   viewBox-only 300×150) otherwise leak into onboarding and registry lists. */
+.agent-management-brand-icon {
   position: relative;
   display: block;
+  overflow: hidden;
   line-height: 0;
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-brand-picture {
+.agent-management-brand-picture {
   display: contents;
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-brand-icon > svg,
-:is(.settings-page, .plan-usage-page) .agent-management-brand-artwork {
+.agent-management-brand-icon > svg,
+.agent-management-brand-artwork {
   position: absolute;
   top: 50%;
   left: 50%;
   display: block;
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   flex: none;
   object-fit: contain;
   object-position: center;
   transform: translate(-50%, -50%);
+}
+
+.agent-management-svg-icon,
+.agent-management-svg-icon > svg {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 :is(.settings-page, .plan-usage-page)
@@ -7191,13 +7210,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 :is(.settings-page, .plan-usage-page) .agent-management-status-mark.is-busy {
   background: hsl(var(--primary));
-}
-
-:is(.settings-page, .plan-usage-page) .agent-management-svg-icon,
-:is(.settings-page, .plan-usage-page) .agent-management-svg-icon > svg {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 
 .settings-page .agent-detail-header {

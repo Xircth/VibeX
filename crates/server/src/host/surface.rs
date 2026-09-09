@@ -48,7 +48,7 @@ use uuid::Uuid;
 
 use crate::{
     domains::{ServerApplicationDomains, internal_error, parse, serialize},
-    install_agent_unattended, plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
+    install_resolved_plan, plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
 };
 
 #[derive(Deserialize)]
@@ -406,7 +406,7 @@ impl ServerApplicationDomains {
             }
             DomainCommand::AgentManagementRollback => self.agent_management_rollback(args).await,
             DomainCommand::AgentManagementCheckUpdate => {
-                super::management::dispatch_check_update(&self.pool, args).await
+                self.agent_management_check_update(args).await
             }
             DomainCommand::AgentManagementCancelOperation => {
                 self.agent_management_cancel_operation(args).await
@@ -1438,6 +1438,14 @@ impl ServerApplicationDomains {
         )
     }
 
+    async fn agent_management_check_update(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: super::management::CheckUpdateArgs = parse(args)?;
+        let (freshness, _) = self
+            .refresh_registry_snapshot(args.force.unwrap_or(false))
+            .await?;
+        serialize(super::management::check_update(&self.pool, args, freshness).await?)
+    }
+
     async fn agent_registry_refresh(&self) -> Result<Value, ApplicationError> {
         let (freshness, refresh_error) = self.refresh_registry_snapshot(true).await?;
         serialize(
@@ -1634,6 +1642,7 @@ impl ServerApplicationDomains {
         let pool = self.pool.clone();
         let data_dir = utils::assets::host_data_dir();
         let events = self.events.clone();
+        let plan_for_install = plan.clone();
         tokio::spawn(async move {
             crate::host::events::bind_host_events(events.clone(), async move {
                 let _ = InstallationOperationRepository::new(pool.clone())
@@ -1648,7 +1657,7 @@ impl ServerApplicationDomains {
                     Some(10),
                     Some("正在安装 ACP".to_string()),
                 );
-                let result = install_agent_unattended(&pool, &data_dir, agent_id.as_str()).await;
+                let result = install_resolved_plan(&pool, &data_dir, &plan_for_install).await;
                 let repository = InstallationOperationRepository::new(pool.clone());
                 match result {
                     Ok(()) => {
@@ -2191,7 +2200,7 @@ async fn append_imported_history_events(
                     Some(turn_id),
                     ConversationEvent::AssistantTextDelta {
                         text: message.content.clone(),
-                        message_id: Some(format!("imported-message-{index}")),
+                        message_id: Some(message.imported_agent_message_id(index)),
                     },
                     &format!("import-assistant-{index}"),
                 )

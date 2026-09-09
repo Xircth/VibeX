@@ -464,7 +464,9 @@ export function AgentSettings() {
 
   const applyBackgroundUpdateCheck = useCallback(async (agentId: AgentId) => {
     try {
-      const comparison = await agentManagementApi.checkUpdate(agentId);
+      const comparison = await agentManagementApi.checkUpdate(agentId, {
+        force: true,
+      });
       setUpdateCheck(comparison);
       setPreflight((current) => {
         if (!current || current.agent_id !== agentId) return current;
@@ -792,8 +794,22 @@ export function AgentSettings() {
         toast.error(t('settings:agents.updateCheckFailed'));
         return;
       }
+      const acpItem = preflight?.items.find((item) => item.id === 'acp');
+      const hasUpdate =
+        comparison.update_available ||
+        versionIsNewer(comparison.acp_available, comparison.acp_current) ||
+        versionIsNewer(comparison.acp_available, acpItem?.version);
+      const learnedLatest = Boolean(
+        comparison.acp_available ||
+          comparison.runtime_available ||
+          comparison.available_version
+      );
+      if (!hasUpdate && !learnedLatest) {
+        toast.error(t('settings:agents.updateCheckFailed'));
+        return;
+      }
       toast.success(
-        comparison.update_available
+        hasUpdate
           ? t('settings:agents.updateAvailable')
           : t('settings:agents.upToDate')
       );
@@ -802,7 +818,7 @@ export function AgentSettings() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [applyBackgroundUpdateCheck, selectedAgentId, t]);
+  }, [applyBackgroundUpdateCheck, preflight, selectedAgentId, t]);
 
   const applyUpdate = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -1402,19 +1418,38 @@ export function AgentSettings() {
   );
 }
 
+function versionIsNewer(
+  available: string | null | undefined,
+  current: string | null | undefined
+): boolean {
+  if (!available || !current) return false;
+  const parse = (raw: string) =>
+    (raw.match(/\d+(?:\.\d+)*/)?.[0] ?? '')
+      .split('.')
+      .map((part) => Number.parseInt(part, 10) || 0);
+  const availableParts = parse(available);
+  const currentParts = parse(current);
+  const length = Math.max(availableParts.length, currentParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const next = availableParts[index] ?? 0;
+    const seen = currentParts[index] ?? 0;
+    if (next !== seen) return next > seen;
+  }
+  return false;
+}
+
 function applyUpdateCheckToPreflight(
   current: AgentPreflightView,
   check: AgentUpdateCheckView
 ): AgentPreflightView {
-  const acpUpdate = Boolean(
-    check.acp_available &&
-      check.acp_current &&
-      check.acp_available !== check.acp_current
-  );
   return {
     ...current,
     items: current.items.map((item) => {
       if (item.id === 'acp') {
+        const acpUpdate =
+          versionIsNewer(check.acp_available, item.version) ||
+          versionIsNewer(check.acp_available, check.acp_current) ||
+          Boolean(check.update_available && check.acp_available);
         return {
           ...item,
           update_available: acpUpdate,

@@ -62,6 +62,7 @@ vi.mock('react-i18next', () => ({
 
 import {
   buildDefaultSessionName,
+  fallbackSessionNamesByCreationOrder,
   useKanbanProjectSessions,
 } from './useKanbanProjectSessions';
 
@@ -114,6 +115,32 @@ describe('buildDefaultSessionName', () => {
       source: 'fallback',
       prompt: null,
     });
+  });
+});
+
+describe('fallbackSessionNamesByCreationOrder', () => {
+  it('numbers a newly created untitled session after older ones', () => {
+    const names = fallbackSessionNamesByCreationOrder(
+      [
+        {
+          id: 'newer',
+          createdAt: '2026-01-02T00:00:00Z',
+          status: 'todo',
+          workspaceId: 'workspace-1',
+        },
+        {
+          id: 'older',
+          createdAt: '2026-01-01T00:00:00Z',
+          status: 'todo',
+          workspaceId: 'workspace-1',
+        },
+      ],
+      () => true,
+      '新会话'
+    );
+
+    expect(names.get('older')).toBe('新会话1');
+    expect(names.get('newer')).toBe('新会话2');
   });
 });
 

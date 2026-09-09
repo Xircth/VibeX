@@ -2829,6 +2829,57 @@ fn upsert_grok_server(id: &str, spec: &Value) -> Result<(), McpError> {
     upsert_grok_server_at(&grok_config_toml_path(), id, spec)
 }
 
+/// Product MCP identities projected into `~/.grok/config.toml`.
+const GROK_PRODUCT_MCP_IDS: &[&str] = &[
+    "vibex-delegation-mcp",
+    "vibex-session-mcp",
+    "vibex-workflow-mcp",
+];
+
+/// Grok waits this long for each native MCP during `session/new` (default 30).
+const GROK_PRODUCT_MCP_STARTUP_TIMEOUT_SEC: i64 = 5;
+
+/// Cap already-projected Grok product MCP startup waits so a stale Host URL
+/// cannot freeze conversation create for the full 30s default.
+pub fn patch_grok_product_mcp_startup_timeout() -> Result<bool, McpError> {
+    patch_grok_product_mcp_startup_timeout_at(&grok_config_toml_path())
+}
+
+fn patch_grok_product_mcp_startup_timeout_at(path: &Path) -> Result<bool, McpError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let mut root = read_grok_root_toml_at(path)?;
+    let Some(servers) = root
+        .as_table_mut()
+        .and_then(|table| table.get_mut("mcp_servers"))
+        .and_then(toml::Value::as_table_mut)
+    else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    for id in GROK_PRODUCT_MCP_IDS {
+        let Some(entry) = servers.get_mut(*id).and_then(toml::Value::as_table_mut) else {
+            continue;
+        };
+        if entry
+            .get("startup_timeout_sec")
+            .and_then(toml::Value::as_integer)
+            != Some(GROK_PRODUCT_MCP_STARTUP_TIMEOUT_SEC)
+        {
+            entry.insert(
+                "startup_timeout_sec".to_string(),
+                toml::Value::Integer(GROK_PRODUCT_MCP_STARTUP_TIMEOUT_SEC),
+            );
+            changed = true;
+        }
+    }
+    if changed {
+        write_grok_root_toml_at(path, &root)?;
+    }
+    Ok(changed)
+}
+
 fn remove_grok_server_at(path: &Path, id: &str) -> Result<bool, McpError> {
     if !path.exists() {
         return Ok(false);
@@ -4427,6 +4478,24 @@ mod tests {
     }
 
     #[test]
+    fn grok_stdio_keeps_host_family_startup_timeout() {
+        let entry = canonical_to_grok_entry(&json!({
+            "type": "stdio",
+            "command": "/opt/vibex-mcp",
+            "args": ["--product", "delegation"],
+            "startup_timeout_sec": 5
+        }))
+        .expect("grok entry");
+        assert_eq!(
+            entry
+                .as_table()
+                .and_then(|table| table.get("startup_timeout_sec"))
+                .and_then(toml::Value::as_integer),
+            Some(5)
+        );
+    }
+
+    #[test]
     fn grok_stdio_companion_forward_writes_command_and_args() {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("config.toml");
@@ -4448,6 +4517,53 @@ mod tests {
         assert!(text.contains("theme = \"dark\""));
         assert!(remove_grok_server_at(&path, "vibex-delegation-mcp").expect("remove companion"));
         assert!(read_grok_servers_at(&path).expect("rescan Grok").is_empty());
+    }
+
+    #[test]
+    fn grok_product_mcp_startup_timeout_is_capped_without_dropping_other_fields() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"[ui]
+theme = "dark"
+
+[mcp_servers.vibex-delegation-mcp]
+command = "/opt/vibex-mcp"
+args = ["--server-url", "http://127.0.0.1:9"]
+
+[mcp_servers.other]
+command = "other"
+"#,
+        )
+        .expect("seed Grok");
+
+        assert!(patch_grok_product_mcp_startup_timeout_at(&path).expect("patch"));
+        assert!(!patch_grok_product_mcp_startup_timeout_at(&path).expect("idempotent"));
+
+        let text = fs::read_to_string(&path).expect("read Grok");
+        assert!(text.contains("theme = \"dark\""));
+        assert!(text.contains("http://127.0.0.1:9"));
+        let root = read_grok_root_toml_at(&path).expect("parse");
+        let servers = root
+            .get("mcp_servers")
+            .and_then(toml::Value::as_table)
+            .expect("servers");
+        assert_eq!(
+            servers
+                .get("vibex-delegation-mcp")
+                .and_then(toml::Value::as_table)
+                .and_then(|entry| entry.get("startup_timeout_sec"))
+                .and_then(toml::Value::as_integer),
+            Some(GROK_PRODUCT_MCP_STARTUP_TIMEOUT_SEC)
+        );
+        assert!(
+            servers
+                .get("other")
+                .and_then(toml::Value::as_table)
+                .and_then(|entry| entry.get("startup_timeout_sec"))
+                .is_none()
+        );
     }
 
     #[test]

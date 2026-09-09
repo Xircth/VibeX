@@ -1,4 +1,7 @@
 import { render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse } from 'postcss';
 import { describe, expect, it } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
@@ -69,5 +72,44 @@ describe('AgentManagementIcon', () => {
       expect(container.querySelector('[data-mark="registry"]')).toBeNull();
       unmount();
     }
+  });
+
+  it('constrains brand artwork to the wrapper outside settings pages', () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+    const unscopedFillSelectors: string[] = [];
+    parse(stylesheet).walkRules((rule) => {
+      const sizesArtwork =
+        rule.selector.includes('.agent-management-brand-artwork') ||
+        rule.selector.includes('.agent-management-svg-icon');
+      const scopedToSettings =
+        rule.selector.includes('.settings-page') ||
+        rule.selector.includes('.plan-usage-page');
+      if (!sizesArtwork || scopedToSettings) return;
+      const decls = rule.nodes
+        .filter((node) => node.type === 'decl')
+        .map((node) => `${node.prop}:${node.value}`);
+      if (
+        decls.includes('width:100%') &&
+        decls.includes('height:100%') &&
+        decls.includes('max-width:100%') &&
+        decls.includes('max-height:100%')
+      ) {
+        unscopedFillSelectors.push(rule.selector);
+      }
+    });
+
+    expect(
+      unscopedFillSelectors.some((selector) =>
+        selector.includes('.agent-management-brand-artwork')
+      )
+    ).toBe(true);
+    expect(
+      unscopedFillSelectors.some((selector) =>
+        selector.includes('.agent-management-svg-icon')
+      )
+    ).toBe(true);
   });
 });

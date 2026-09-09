@@ -31,6 +31,11 @@ pub const PLUGIN_DEV_MCP_NAME: &str = "vibex-plugin-dev-mcp";
 /// Host-injected / native-projected MCP identity for Workflow Creator.
 pub const WORKFLOW_MCP_NAME: &str = "vibex-workflow-mcp";
 
+/// Grok `session/new` waits for every native `config.toml` MCP server using
+/// `startup_timeout_sec` (default 30). Official product MCPs are also injected
+/// per ACP session, so a stale Host URL must not freeze conversation create.
+pub const HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC: u64 = 5;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfficialMcpBinding {
     pub plugin_id: String,
@@ -285,7 +290,8 @@ pub fn host_family_stdio_spec(
         return serde_json::json!({
             "type": "stdio",
             "command": command,
-            "args": []
+            "args": [],
+            "startup_timeout_sec": HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC,
         });
     }
     let mut args = vec![
@@ -306,6 +312,7 @@ pub fn host_family_stdio_spec(
         "type": "stdio",
         "command": command,
         "args": args,
+        "startup_timeout_sec": HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC,
     })
 }
 
@@ -484,8 +491,15 @@ mod tests {
         );
         assert!(!args.contains(&"--conversation-id"));
         assert_eq!(
-            host_family_stdio_spec("/opt/vibex-workflow-mcp", "workflow", "", None, None)["args"],
-            json!([])
+            spec["startup_timeout_sec"],
+            json!(HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC)
+        );
+        let workflow =
+            host_family_stdio_spec("/opt/vibex-workflow-mcp", "workflow", "", None, None);
+        assert_eq!(workflow["args"], json!([]));
+        assert_eq!(
+            workflow["startup_timeout_sec"],
+            json!(HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC)
         );
     }
 

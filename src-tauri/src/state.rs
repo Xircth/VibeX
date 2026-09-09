@@ -235,6 +235,9 @@ impl AppState {
         {
             tracing::error!(%error, "product MCP gateway failed to start");
         }
+        if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
+            tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
+        }
         crate::commands::plugin_control::refresh_official_product_runtime(
             &plugin_control_plane,
             &delegation.broker,

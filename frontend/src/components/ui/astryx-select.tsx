@@ -43,6 +43,13 @@ interface AstryxSelectProps {
   /** Label shown in the open menu when `options` is empty. */
   emptyLabel?: string;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * When false, opening the menu does not hide native CEF surfaces. Use for
+   * chrome that stays outside the page, such as the in-panel zoom control.
+   */
+  occludeNativeSurface?: boolean;
+  /** Prefer opening the menu above the trigger so it stays in HTML chrome. */
+  preferAbove?: boolean;
 }
 
 interface MenuPosition {
@@ -55,11 +62,15 @@ interface MenuPosition {
 const TRIGGER_GAP = 4;
 const MENU_MAX_HEIGHT = 300;
 
-function getMenuPosition(trigger: HTMLElement): MenuPosition {
+function getMenuPosition(
+  trigger: HTMLElement,
+  preferAbove = false
+): MenuPosition {
   const rect = trigger.getBoundingClientRect();
   const spaceBelow = window.innerHeight - rect.bottom - TRIGGER_GAP;
   const spaceAbove = rect.top - TRIGGER_GAP;
-  const openAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+  const openAbove =
+    preferAbove || (spaceBelow < 160 && spaceAbove > spaceBelow);
   const maxHeight = Math.min(
     MENU_MAX_HEIGHT,
     Math.max(spaceBelow, spaceAbove) - TRIGGER_GAP
@@ -88,6 +99,8 @@ export function AstryxSelect({
   className,
   emptyLabel,
   onOpenChange,
+  occludeNativeSurface = true,
+  preferAbove = false,
 }: AstryxSelectProps) {
   const container = usePortalContainer();
   const { setHtmlOverlayOpen } = useWorkspaceOverlay();
@@ -113,10 +126,10 @@ export function AstryxSelect({
   );
 
   const holdOverlay = React.useCallback(() => {
-    if (overlayHeldRef.current) return;
+    if (!occludeNativeSurface || overlayHeldRef.current) return;
     overlayHeldRef.current = true;
     setHtmlOverlayOpen(true);
-  }, [setHtmlOverlayOpen]);
+  }, [occludeNativeSurface, setHtmlOverlayOpen]);
 
   const releaseOverlay = React.useCallback(() => {
     if (!overlayHeldRef.current) return;
@@ -137,8 +150,9 @@ export function AstryxSelect({
   }, [holdOverlay, onOpenChange]);
 
   const reposition = React.useCallback(() => {
-    if (triggerRef.current) setPosition(getMenuPosition(triggerRef.current));
-  }, []);
+    if (triggerRef.current)
+      setPosition(getMenuPosition(triggerRef.current, preferAbove));
+  }, [preferAbove]);
 
   React.useEffect(() => {
     if (!open) return;

@@ -278,37 +278,15 @@ describe('useConversationTimeline', () => {
     );
   });
 
-  it('rehydrates controls when an existing Codex conversation has no control events', async () => {
+  it('does not launch an agent session when opening a conversation with no turns', async () => {
     detailMock.mockResolvedValue(detail());
-    ensureSessionControlsMock.mockResolvedValue({
-      modes: [],
-      current_mode: null,
-      config_options: [
-        {
-          key: 'mode',
-          label: 'Mode',
-          category: 'mode',
-          value: 'agent',
-          choices: [
-            { value: 'agent', label: 'Agent' },
-            { value: 'agent-full-access', label: 'Agent (full access)' },
-          ],
-        },
-      ],
-    });
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
     );
 
-    await waitFor(() =>
-      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
-    );
-    await waitFor(() =>
-      expect(result.current.sessionConfigOptions).toEqual([
-        expect.objectContaining({ key: 'mode', value: 'agent' }),
-      ])
-    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
   });
 
   it('reconnects the agent session before reloading without resetting rows', async () => {
@@ -372,7 +350,7 @@ describe('useConversationTimeline', () => {
     expect(result.current.error).toBe('ACP connection failed');
   });
 
-  it('hydrates controls for a newly created non-Codex conversation before its first turn', async () => {
+  it('does not launch an agent session for a newly created conversation before its first turn', async () => {
     detailMock.mockResolvedValue({
       ...detail(),
       summary: {
@@ -381,34 +359,16 @@ describe('useConversationTimeline', () => {
         message_count: 0n,
       },
     });
-    ensureSessionControlsMock.mockResolvedValue({
-      modes: [
-        { id: 'default', label: 'Default', description: null },
-        { id: 'plan', label: 'Plan', description: null },
-      ],
-      current_mode: 'plan',
-      config_options: [],
-    });
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
     );
 
-    await waitFor(() =>
-      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
-    );
-    await waitFor(() =>
-      expect(result.current.sessionModes).toEqual({
-        current: 'plan',
-        modes: [
-          { id: 'default', label: 'Default', description: null },
-          { id: 'plan', label: 'Plan', description: null },
-        ],
-      })
-    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
   });
 
-  it('reconciles a zero-message conversation with its authoritative live controls', async () => {
+  it('keeps projected controls for a zero-message conversation without starting ACP', async () => {
     const projectedFastOption = {
       key: 'fast-mode',
       label: 'Fast mode',
@@ -427,24 +387,16 @@ describe('useConversationTimeline', () => {
       },
       session_config_options: [projectedFastOption],
     });
-    ensureSessionControlsMock.mockResolvedValue({
-      modes: [],
-      current_mode: null,
-      config_options: [{ ...projectedFastOption, value: 'on' }],
-    });
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
     );
 
-    await waitFor(() =>
-      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
-    );
-    await waitFor(() =>
-      expect(result.current.sessionConfigOptions).toEqual([
-        expect.objectContaining({ key: 'fast-mode', value: 'on' }),
-      ])
-    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+    expect(result.current.sessionConfigOptions).toEqual([
+      expect.objectContaining({ key: 'fast-mode', value: 'off' }),
+    ]);
   });
 
   it('backfills changed rows on subscribe', async () => {

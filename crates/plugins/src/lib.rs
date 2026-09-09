@@ -85,12 +85,12 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_mcp::{
-    DELEGATION_MCP_NAME, OfficialMcpBinding, OfficialMcpRuntime, OfficialProductMcpState,
-    PLUGIN_DEV_MCP_NAME, SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK,
-    SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME,
-    binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
-    official_product_mcp_name, projected_mcp_server_id, session_feature_arg,
-    session_features_from_config,
+    DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, OfficialMcpBinding,
+    OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME, SESSION_FEAT_ALL,
+    SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
+    SESSION_MCP_NAME, WORKFLOW_MCP_NAME, binding_has_delegation_mcp, host_family_product,
+    host_family_stdio_spec, official_product_mcp_name, projected_mcp_server_id,
+    session_feature_arg, session_features_from_config,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,

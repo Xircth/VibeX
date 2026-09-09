@@ -11,14 +11,16 @@ use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentId, BuiltInProfile, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
     InstallPlanner, InstallPlanningInput, LockedInstallSource, MANAGED_NODE_VERSION,
-    MANAGED_UV_VERSION, OfficialRegistryHttpFetcher, PlannedDistributionKind,
-    PlannedInstallComponent, ProfileComponent, ProfileTopology, RegistryCache,
-    RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock,
-    UserEnvironmentLayout, current_platform, existing_path_satisfies_component,
+    MANAGED_UV_VERSION, ObservedUserComponent, OfficialRegistryHttpFetcher,
+    PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileTopology,
+    RegistryCache, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily,
+    SystemClock, UserEnvironmentAdoptDecision, UserEnvironmentLayout, current_platform,
+    decide_user_environment_adopt, existing_path_satisfies_component,
     export_managed_node_to_user_environment, managed_node_artifact, managed_node_download_urls,
     managed_uv_artifact, node_verified_for_install, npm_global_install_args,
-    npm_install_permission_denied, npm_package_name as npm_spec_name, observed_satisfies_profile,
-    resolve_npm_shim, uv_verified_for_install,
+    npm_install_permission_denied, npm_package_name as npm_spec_name, overlay_npx_latest_from_npm,
+    plan_required_components, registry_target_for_built_in_update, resolve_npm_shim,
+    uv_verified_for_install,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -263,29 +265,23 @@ pub async fn plan_host_agent_install(
     pool: &SqlitePool,
     raw_id: &str,
 ) -> anyhow::Result<ResolvedInstallPlan> {
+    Ok(plan_host_agent_install_with_overlay(pool, raw_id).await?.0)
+}
+
+pub async fn plan_host_agent_install_with_overlay(
+    pool: &SqlitePool,
+    raw_id: &str,
+) -> anyhow::Result<(ResolvedInstallPlan, Vec<String>)> {
     let agent_id = AgentId::parse(raw_id)
         .map_err(|error| anyhow::anyhow!("invalid Agent id `{raw_id}`: {error}"))?;
     resolve_plan(pool, &agent_id).await
 }
 
-async fn install_agent(
+pub async fn install_resolved_plan(
     pool: &SqlitePool,
     data_dir: &Path,
-    raw_id: &str,
-    yes: bool,
+    plan: &ResolvedInstallPlan,
 ) -> anyhow::Result<()> {
-    let agent_id = AgentId::parse(raw_id)
-        .map_err(|error| anyhow::anyhow!("invalid Agent id `{raw_id}`: {error}"))?;
-    ensure_membership(pool, &agent_id).await?;
-    let plan = resolve_plan(pool, &agent_id).await?;
-    if !yes && !confirm_install(&plan)? {
-        anyhow::bail!("installation canceled");
-    }
-    println!(
-        "Installing {} ({})",
-        display_name_for(&agent_id),
-        agent_id.as_str()
-    );
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
     let managed_artifacts = utils::path::managed_artifacts_directory(&home, data_dir);
@@ -317,18 +313,19 @@ async fn install_agent(
     user_env =
         user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix(node.as_ref()).await);
     prepare_user_environment(&user_env).await?;
-    let installation = if let Some(adopted) = try_adopt(&agent_id, &plan, &user_env).await? {
-        println!("Using the user-environment CLI that already matches the locked versions.");
+    let installation = if let Some(adopted) = try_adopt(&plan.agent_id, plan, &user_env).await? {
+        println!("Using the user-environment CLI that already matches the planned versions.");
         adopted
     } else {
-        install_plan(&plan, &mut user_env, node.as_ref(), uv.as_deref()).await?
+        install_plan(plan, &mut user_env, node.as_ref(), uv.as_deref()).await?
     };
-    persist_lock(pool, &plan, &installation).await?;
-    let working_dir = data_dir.join("agents").join(agent_id.as_str());
+    ensure_installation_matches_plan(plan, &installation)?;
+    persist_lock(pool, plan, &installation).await?;
+    let working_dir = data_dir.join("agents").join(plan.agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
     match tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        verify_handshake(&agent_id, &installation.launch_lock, &working_dir),
+        verify_handshake(&plan.agent_id, &installation.launch_lock, &working_dir),
     )
     .await
     {
@@ -342,11 +339,32 @@ async fn install_agent(
     }
     println!(
         "Installed {} runtime {} / ACP {}",
-        agent_id.as_str(),
+        plan.agent_id.as_str(),
         installation.launch_lock.runtime_version,
         installation.launch_lock.acp_version
     );
     Ok(())
+}
+
+async fn install_agent(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    raw_id: &str,
+    yes: bool,
+) -> anyhow::Result<()> {
+    let agent_id = AgentId::parse(raw_id)
+        .map_err(|error| anyhow::anyhow!("invalid Agent id `{raw_id}`: {error}"))?;
+    ensure_membership(pool, &agent_id).await?;
+    let (plan, _) = resolve_plan(pool, &agent_id).await?;
+    if !yes && !confirm_install(&plan)? {
+        anyhow::bail!("installation canceled");
+    }
+    println!(
+        "Installing {} ({})",
+        display_name_for(&agent_id),
+        agent_id.as_str()
+    );
+    install_resolved_plan(pool, data_dir, &plan).await
 }
 
 fn display_name_for(agent_id: &AgentId) -> String {
@@ -423,7 +441,7 @@ async fn ensure_membership(pool: &SqlitePool, agent_id: &AgentId) -> anyhow::Res
 async fn resolve_plan(
     pool: &SqlitePool,
     agent_id: &AgentId,
-) -> anyhow::Result<ResolvedInstallPlan> {
+) -> anyhow::Result<(ResolvedInstallPlan, Vec<String>)> {
     let _ = utils::shell::refresh_process_path_after_install().await;
     let platform = current_platform();
     let system_node = utils::shell::resolve_executable_path("node")
@@ -446,7 +464,22 @@ async fn resolve_plan(
         .await?
         .ok_or_else(|| anyhow::anyhow!("Agent `{agent_id}` has not been added"))?;
     let source = match membership.source {
-        AgentSource::BuiltInProfile => InstallCandidateSource::BuiltInProfile,
+        AgentSource::BuiltInProfile => {
+            let snapshot = load_registry_snapshot(pool, false).await?;
+            let registry_target = snapshot.and_then(|snapshot| {
+                registry_target_for_built_in_update(
+                    &BuiltInProfileCatalog::bundled(),
+                    &snapshot,
+                    agent_id,
+                )
+            });
+            match registry_target {
+                Some(target) => {
+                    InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target))
+                }
+                None => InstallCandidateSource::BuiltInProfile,
+            }
+        }
         AgentSource::OfficialRegistry => {
             let snapshot = load_registry_snapshot(pool, false)
                 .await?
@@ -465,7 +498,7 @@ async fn resolve_plan(
         }
         AgentSource::RetiredLegacy => anyhow::bail!("retired Agents cannot be installed"),
     };
-    InstallPlanner::bundled()
+    let mut plan = InstallPlanner::bundled()
         .plan(InstallPlanningInput {
             agent_id: agent_id.clone(),
             source,
@@ -476,7 +509,9 @@ async fn resolve_plan(
                 python_verified,
             },
         })
-        .map_err(anyhow::Error::from)
+        .map_err(anyhow::Error::from)?;
+    let overlay_fetched = overlay_npx_latest_from_npm(&mut plan).await;
+    Ok((plan, overlay_fetched))
 }
 
 struct InstalledComponent {
@@ -531,12 +566,14 @@ async fn try_adopt(
     }
     let observed = components
         .iter()
-        .map(|component| agents::ObservedUserComponent {
+        .map(|component| ObservedUserComponent {
             component_id: component.kind.clone(),
             version: Some(component.version.clone()),
         })
         .collect::<Vec<_>>();
-    if !observed_satisfies_profile(profile, &observed) {
+    if decide_user_environment_adopt(&plan_required_components(plan), &observed)
+        != UserEnvironmentAdoptDecision::Adopt
+    {
         return Ok(None);
     }
     for component in &mut components {
@@ -591,6 +628,26 @@ async fn install_plan(
         component.sha256 = Some(file_sha256(&component.absolute_path).await?);
     }
     build_installed_plan(&plan.agent_id, plan, user_env, components)
+}
+
+fn ensure_installation_matches_plan(
+    plan: &ResolvedInstallPlan,
+    installation: &InstalledPlan,
+) -> anyhow::Result<()> {
+    let observed = installation
+        .components
+        .iter()
+        .map(|component| ObservedUserComponent {
+            component_id: component.kind.clone(),
+            version: Some(component.version.clone()),
+        })
+        .collect::<Vec<_>>();
+    match decide_user_environment_adopt(&plan_required_components(plan), &observed) {
+        UserEnvironmentAdoptDecision::Adopt => Ok(()),
+        UserEnvironmentAdoptDecision::Install { missing, outdated } => anyhow::bail!(
+            "installed ACP does not match the update plan (missing {missing:?}, outdated {outdated:?})"
+        ),
+    }
 }
 
 fn build_installed_plan(
@@ -1411,7 +1468,10 @@ async fn run_command(label: &str, mut command: tokio::process::Command) -> anyho
 
 #[cfg(test)]
 mod tests {
-    use agents::{node_verified_for_install, uv_verified_for_install};
+    use agents::{
+        LockedInstallSource, PlannedDistributionKind, PlannedInstallComponent,
+        node_verified_for_install, uv_verified_for_install,
+    };
 
     use super::*;
 
@@ -1458,5 +1518,58 @@ mod tests {
             "managed Node must live under agent-tools: {path}"
         );
         assert!(path.contains(MANAGED_NODE_VERSION));
+    }
+
+    fn acp_plan(version: &str) -> ResolvedInstallPlan {
+        ResolvedInstallPlan {
+            agent_id: AgentId::parse("codex").unwrap(),
+            source: LockedInstallSource::BuiltInProfile,
+            version: "0.146.0".into(),
+            platform: "test".into(),
+            components: vec![PlannedInstallComponent {
+                component_id: "acp_adapter".into(),
+                distribution_kind: PlannedDistributionKind::Npx,
+                version: version.into(),
+                resolved_source: format!("@agentclientprotocol/codex-acp@{version}"),
+                command: "npm".into(),
+                args: Vec::new(),
+                env: Default::default(),
+                trust: agents::ArtifactTrust::EcosystemIntegrityRequired,
+            }],
+        }
+    }
+
+    fn acp_installation(version: &str) -> InstalledPlan {
+        InstalledPlan {
+            launch_lock: SessionLaunchLock {
+                agent_id: AgentId::parse("codex").unwrap(),
+                absolute_acp_program: PathBuf::from("/tmp/codex-acp"),
+                args: Vec::new(),
+                env: Default::default(),
+                runtime_version: String::new(),
+                acp_version: version.into(),
+            },
+            components: vec![InstalledComponent {
+                kind: "acp_adapter".into(),
+                absolute_path: PathBuf::from("/tmp/codex-acp"),
+                version: version.into(),
+                sha256: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn host_update_rejects_a_lock_that_is_still_behind_npm_latest() {
+        let error = ensure_installation_matches_plan(
+            &acp_plan("1.10.0"),
+            &acp_installation("@agentclientprotocol/codex-acp 1.8.0"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("outdated"), "{error}");
+    }
+
+    #[test]
+    fn host_update_accepts_the_planned_adapter_version() {
+        ensure_installation_matches_plan(&acp_plan("1.10.0"), &acp_installation("1.10.0")).unwrap();
     }
 }

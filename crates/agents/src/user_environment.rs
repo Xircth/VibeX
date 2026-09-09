@@ -10,8 +10,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use api_types::AgentUpdateCheckView;
+
 use crate::{
-    PlannedInstallComponent, ResolvedInstallPlan,
+    AgentId, LockedInstallSource, PlannedInstallComponent, ResolvedInstallPlan,
     local_detection::version_at_least,
     profiles::{BuiltInProfile, ProfileInstallSource},
 };
@@ -386,6 +388,80 @@ pub fn planned_preflight_updates(
     updates
 }
 
+pub struct AgentUpdateCheckInput<'a> {
+    pub agent_id: AgentId,
+    pub current: &'a [ObservedUserComponent],
+    pub plan: Option<&'a ResolvedInstallPlan>,
+    pub overlay_fetched: &'a [String],
+    pub snapshot_id: Option<String>,
+    pub fetched_at: Option<String>,
+    pub fresh: bool,
+    pub compatibility_warning: Option<String>,
+}
+
+/// Build the update-check DTO from a lock, an install plan, and whether npm
+/// latest was actually fetched. A Built-in Profile pin is not "latest".
+pub fn compose_agent_update_check(input: AgentUpdateCheckInput<'_>) -> AgentUpdateCheckView {
+    let AgentUpdateCheckInput {
+        agent_id,
+        current,
+        plan,
+        overlay_fetched,
+        snapshot_id,
+        fetched_at,
+        fresh,
+        compatibility_warning,
+    } = input;
+    let updates = plan
+        .map(|plan| planned_preflight_updates(&plan.components, current))
+        .unwrap_or_default();
+    let version_of = |id: &str| {
+        current
+            .iter()
+            .find(|component| component.component_id == id)
+            .and_then(|component| component.version.clone())
+    };
+    let available_of = |id: &str| -> Option<String> {
+        let plan = plan?;
+        let learned = overlay_fetched.iter().any(|fetched| fetched == id)
+            || !matches!(plan.source, LockedInstallSource::BuiltInProfile);
+        if !learned {
+            return None;
+        }
+        plan.components
+            .iter()
+            .find(|component| component.component_id == id)
+            .map(|component| component.version.clone())
+    };
+    let runtime_current = version_of("agent_runtime").or_else(|| version_of("combined_runtime"));
+    let runtime_available =
+        available_of("agent_runtime").or_else(|| available_of("combined_runtime"));
+    let acp_current = version_of("acp_adapter").or_else(|| version_of("combined_runtime"));
+    let acp_available = available_of("acp_adapter").or_else(|| available_of("combined_runtime"));
+    let acp_is_newer = match (acp_available.as_deref(), acp_current.as_deref()) {
+        (Some(available), Some(current)) => !version_at_least(current, available),
+        _ => false,
+    };
+    let primary = updates
+        .iter()
+        .find(|update| update.item_id == "acp")
+        .or_else(|| updates.first());
+    AgentUpdateCheckView {
+        agent_id,
+        update_available: primary.is_some() || acp_is_newer,
+        current_version: primary.map(|update| update.current_version.clone()),
+        available_version: primary.map(|update| update.available_version.clone()),
+        runtime_current,
+        runtime_available,
+        acp_current,
+        acp_available,
+        compatibility_warning,
+        snapshot_id,
+        fetched_at,
+        fresh,
+    }
+}
+
 fn profile_component_id(component: crate::ProfileComponent) -> &'static str {
     match component {
         crate::ProfileComponent::AgentRuntime => "agent_runtime",
@@ -410,8 +486,8 @@ pub fn uv_distribution_name(package_spec: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::{
-        ArtifactTrust, BuiltInProfile, BuiltInProfileCatalog, PlannedDistributionKind,
-        ProfileTopology,
+        ArtifactTrust, BuiltInProfile, BuiltInProfileCatalog, LockedInstallSource,
+        PlannedDistributionKind, ProfileTopology,
     };
 
     fn planned(id: &str, version: &str) -> PlannedInstallComponent {
@@ -686,6 +762,95 @@ mod tests {
         let planned = vec![planned("acp_adapter", "0.70.0")];
         let current = vec![observed("acp_adapter", Some("0.80.0"))];
         assert!(planned_preflight_updates(&planned, &current).is_empty());
+    }
+
+    #[test]
+    fn explicit_plan_does_not_adopt_an_older_npm_adapter() {
+        let required = vec![planned("acp_adapter", "1.10.0")];
+        assert_eq!(
+            decide_user_environment_adopt(
+                &required,
+                &[observed(
+                    "acp_adapter",
+                    Some("@agentclientprotocol/codex-acp 1.8.0"),
+                )]
+            ),
+            UserEnvironmentAdoptDecision::Install {
+                missing: Vec::new(),
+                outdated: vec!["acp_adapter".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn planned_updates_read_npm_spec_output_and_compare_numerically() {
+        let planned = vec![planned("acp_adapter", "1.10.0")];
+        let current = vec![observed(
+            "acp_adapter",
+            Some("@agentclientprotocol/codex-acp 1.8.0"),
+        )];
+        assert_eq!(
+            planned_preflight_updates(&planned, &current),
+            vec![PlannedPreflightUpdate {
+                item_id: "acp",
+                current_version: "@agentclientprotocol/codex-acp 1.8.0".into(),
+                available_version: "1.10.0".into(),
+            }]
+        );
+    }
+
+    fn update_plan(version: &str, source: LockedInstallSource) -> ResolvedInstallPlan {
+        ResolvedInstallPlan {
+            agent_id: crate::AgentId::parse("codex").unwrap(),
+            source,
+            version: "0.146.0".into(),
+            platform: "test".into(),
+            components: vec![planned("acp_adapter", version)],
+        }
+    }
+
+    #[test]
+    fn update_check_reports_npm_latest_newer_than_the_lock() {
+        let plan = update_plan("1.10.0", LockedInstallSource::BuiltInProfile);
+        let view = compose_agent_update_check(AgentUpdateCheckInput {
+            agent_id: plan.agent_id.clone(),
+            current: &[observed(
+                "acp_adapter",
+                Some("@agentclientprotocol/codex-acp 1.8.0"),
+            )],
+            plan: Some(&plan),
+            overlay_fetched: &["acp_adapter".into()],
+            snapshot_id: None,
+            fetched_at: None,
+            fresh: true,
+            compatibility_warning: None,
+        });
+        assert!(view.update_available);
+        assert_eq!(view.acp_available.as_deref(), Some("1.10.0"));
+        assert_eq!(
+            view.acp_current.as_deref(),
+            Some("@agentclientprotocol/codex-acp 1.8.0")
+        );
+    }
+
+    #[test]
+    fn update_check_does_not_treat_a_profile_pin_as_latest() {
+        let plan = update_plan("1.7.0", LockedInstallSource::BuiltInProfile);
+        let view = compose_agent_update_check(AgentUpdateCheckInput {
+            agent_id: plan.agent_id.clone(),
+            current: &[observed(
+                "acp_adapter",
+                Some("@agentclientprotocol/codex-acp 1.8.0"),
+            )],
+            plan: Some(&plan),
+            overlay_fetched: &[],
+            snapshot_id: None,
+            fetched_at: None,
+            fresh: false,
+            compatibility_warning: None,
+        });
+        assert!(!view.update_available);
+        assert_eq!(view.acp_available, None);
     }
 
     #[test]

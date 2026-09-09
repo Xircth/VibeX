@@ -8,7 +8,10 @@ use base64::Engine;
 use serde::Deserialize;
 use sha2::{Digest, Sha256, Sha512};
 
-use crate::{BoundaryError, RegistryFetchResponse, RegistryFetcher};
+use crate::{
+    BoundaryError, PlannedDistributionKind, RegistryFetchResponse, RegistryFetcher,
+    ResolvedInstallPlan, apply_npx_component_version, npm_package_name,
+};
 
 /// npm registry 的 HTTP fetcher。与 ACP Registry 的 fetcher 分离:后者对
 /// 官方目录 URL 有白名单,而 npm 验证需要请求任意 npm 包元数据与 tarball。
@@ -19,7 +22,14 @@ pub struct NpmRegistryHttpFetcher {
 
 impl NpmRegistryHttpFetcher {
     pub fn new() -> Self {
-        Self::new_with_client(reqwest::Client::new())
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let client = reqwest::Client::builder()
+            .user_agent("vibex-npm-registry/1.0")
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("static npm registry HTTP client configuration must be valid");
+        Self::new_with_client(client)
     }
 
     pub fn new_with_client(client: reqwest::Client) -> Self {
@@ -213,6 +223,76 @@ pub fn runtime_acp_compatibility_warning(
     Some(format!(
         "{runtime_package} {runtime_version} does not satisfy ACP requirement {range}"
     ))
+}
+
+/// Replace npx component versions with npm `latest`. Returns the component ids
+/// that were actually updated from the registry. Failures are skipped so a
+/// pinned or cached plan remains installable offline.
+pub async fn overlay_npx_latest_versions(
+    plan: &mut ResolvedInstallPlan,
+    fetcher: &dyn RegistryFetcher,
+) -> Vec<String> {
+    let mut fetched = Vec::new();
+    for component in &mut plan.components {
+        if component.distribution_kind != PlannedDistributionKind::Npx {
+            continue;
+        }
+        let package = npm_package_name(&component.resolved_source);
+        match fetch_npm_latest(fetcher, &package).await {
+            Ok(latest) => {
+                apply_npx_component_version(component, &latest);
+                fetched.push(component.component_id.clone());
+            }
+            Err(error) => tracing::warn!(
+                package,
+                %error,
+                "npm latest overlay skipped; update check may fall back to a pinned or cached version"
+            ),
+        }
+    }
+    if let Some(runtime) = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")
+    {
+        plan.version.clone_from(&runtime.version);
+    } else if let Some(combined) = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "combined_runtime")
+    {
+        plan.version.clone_from(&combined.version);
+    }
+    fetched
+}
+
+pub async fn overlay_npx_latest_from_npm(plan: &mut ResolvedInstallPlan) -> Vec<String> {
+    overlay_npx_latest_versions(plan, &NpmRegistryHttpFetcher::new()).await
+}
+
+pub async fn plan_runtime_acp_compatibility_warning(
+    plan: &ResolvedInstallPlan,
+    fetcher: &dyn RegistryFetcher,
+) -> Option<String> {
+    let runtime = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")?;
+    let acp = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "acp_adapter")?;
+    if runtime.distribution_kind != PlannedDistributionKind::Npx
+        || acp.distribution_kind != PlannedDistributionKind::Npx
+    {
+        return None;
+    }
+    let runtime_package = npm_package_name(&runtime.resolved_source);
+    let acp_package = npm_package_name(&acp.resolved_source);
+    let requirements = fetch_npm_package_requirements(fetcher, &acp_package, &acp.version)
+        .await
+        .ok()?;
+    runtime_acp_compatibility_warning(&runtime_package, &runtime.version, &requirements)
 }
 
 pub fn npm_range_allows(range: &str, version: &str) -> bool {
@@ -802,6 +882,41 @@ mod tests {
         assert_eq!(
             fetch_npm_latest(&fetcher, "@openai/codex").await.unwrap(),
             "0.148.0"
+        );
+    }
+
+    #[tokio::test]
+    async fn overlays_npm_latest_onto_an_npx_adapter() {
+        let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([(
+            "https://registry.npmjs.org/@agentclientprotocol%2fcodex-acp".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "dist-tags": { "latest": "1.10.0" },
+                "versions": { "1.10.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
+            }))
+            .unwrap(),
+        )])));
+        let mut plan = crate::ResolvedInstallPlan {
+            agent_id: crate::AgentId::parse("codex").unwrap(),
+            source: crate::LockedInstallSource::BuiltInProfile,
+            version: "0.146.0".into(),
+            platform: "test".into(),
+            components: vec![crate::PlannedInstallComponent {
+                component_id: "acp_adapter".into(),
+                distribution_kind: crate::PlannedDistributionKind::Npx,
+                version: "1.7.0".into(),
+                resolved_source: "@agentclientprotocol/codex-acp@1.7.0".into(),
+                command: "npx".into(),
+                args: Vec::new(),
+                env: Default::default(),
+                trust: crate::ArtifactTrust::EcosystemIntegrityRequired,
+            }],
+        };
+        let fetched = overlay_npx_latest_versions(&mut plan, &fetcher).await;
+        assert_eq!(fetched, ["acp_adapter"]);
+        assert_eq!(plan.components[0].version, "1.10.0");
+        assert_eq!(
+            plan.components[0].resolved_source,
+            "@agentclientprotocol/codex-acp@1.10.0"
         );
     }
 

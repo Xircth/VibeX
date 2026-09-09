@@ -4,6 +4,12 @@
 //! `_meta.jetbrains.air.fork = { version, messageId, messageFingerprint?,
 //! messageOccurrence? }`. An agent that does not understand the block forks at
 //! the tail, so this crate only attaches the block when the turn can be named.
+//!
+//! deepseek-acp 0.8.0 accepts both halves: `messageId` is the session log's
+//! `message.id` (or the VibeX turn id when the log named nothing), and the
+//! fingerprint hashes assistant text once per message and once per turn. This
+//! crate sends both so the id path short-circuits the ambiguous fingerprint
+//! case.
 
 use sha2::{Digest, Sha256};
 
@@ -320,6 +326,53 @@ mod tests {
         assert!(resolve_fork_point(&turns, "t1:assistant", AgentKind::KimiCode).is_none());
         assert!(resolve_fork_point(&turns, "t1:assistant", AgentKind::Qoder).is_none());
         assert!(resolve_fork_point(&turns, "t1:assistant", AgentKind::Grok).is_none());
+    }
+
+    #[test]
+    fn deepseek_sends_log_id_and_fingerprint() {
+        let turns = vec![assistant("t1:assistant", "hello", Some("uuid-a2"))];
+        let point = resolve_fork_point(&turns, "t1:assistant", AgentKind::DeepseekHarness).unwrap();
+        assert_eq!(point.message_id, "uuid-a2");
+        assert!(
+            point
+                .message_fingerprint
+                .as_deref()
+                .is_some_and(|fp| fp.starts_with("sha256:"))
+        );
+        assert_eq!(point.message_occurrence, Some(1));
+    }
+
+    #[test]
+    fn deepseek_unnamed_text_forks_by_fingerprint() {
+        let turns = vec![assistant("t1:assistant", "hello", None)];
+        let point = resolve_fork_point(&turns, "t1:assistant", AgentKind::DeepseekHarness).unwrap();
+        assert_eq!(point.message_id, "t1:assistant");
+        assert!(point.message_fingerprint.is_some());
+    }
+
+    #[test]
+    fn deepseek_textless_named_turn_forks_by_id() {
+        let turns = vec![assistant("t1:assistant", "  ", Some("uuid-a1"))];
+        let point = resolve_fork_point(&turns, "t1:assistant", AgentKind::DeepseekHarness).unwrap();
+        assert_eq!(point.message_id, "uuid-a1");
+        assert!(point.message_fingerprint.is_none());
+    }
+
+    #[test]
+    fn deepseek_textless_unnamed_turn_is_not_a_fork_point() {
+        let turns = vec![assistant("t1:assistant", "", None)];
+        assert!(resolve_fork_point(&turns, "t1:assistant", AgentKind::DeepseekHarness).is_none());
+    }
+
+    #[test]
+    fn deepseek_repeated_text_uses_occurrence() {
+        let turns = vec![
+            assistant("a:assistant", "same", None),
+            assistant("b:assistant", "same", None),
+            assistant("c:assistant", "same", None),
+        ];
+        let point = resolve_fork_point(&turns, "c:assistant", AgentKind::DeepseekHarness).unwrap();
+        assert_eq!(point.message_occurrence, Some(3));
     }
 
     #[test]

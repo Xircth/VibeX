@@ -4,6 +4,7 @@ import { Check, ChevronRight, Circle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 
@@ -42,7 +43,7 @@ DropdownMenuSubTrigger.displayName =
 const DropdownMenuSubContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => {
+>(({ className, children, ...props }, ref) => {
   const container = usePortalContainer();
   return (
     <DropdownMenuPrimitive.Portal container={container}>
@@ -53,7 +54,10 @@ const DropdownMenuSubContent = React.forwardRef<
           className
         )}
         {...props}
-      />
+      >
+        <NativeSurfaceOcclusionHold />
+        {children}
+      </DropdownMenuPrimitive.SubContent>
     </DropdownMenuPrimitive.Portal>
   );
 });
@@ -63,7 +67,7 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => {
+>(({ className, sideOffset = 4, children, ...props }, ref) => {
   const container = usePortalContainer();
   return (
     <DropdownMenuPrimitive.Portal container={container}>
@@ -75,7 +79,10 @@ const DropdownMenuContent = React.forwardRef<
           className
         )}
         {...props}
-      />
+      >
+        <NativeSurfaceOcclusionHold />
+        {children}
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   );
 });

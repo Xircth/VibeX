@@ -7,7 +7,7 @@ use db::models::{
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     scratch::Scratch,
-    session::{CreateSession, Session, SessionStatus},
+    session::{CreateSession, Session, SessionStatus, untitled_fallback_numbers},
     task::{CreateTask, Task, TaskStatus},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -498,19 +498,9 @@ pub async fn get_session_summaries(
             .await?;
 
     let mut summaries = Vec::with_capacity(sessions.len());
-    let mut fallback_number = 0;
+    let fallback_numbers = untitled_fallback_numbers(&sessions);
     for session in sessions {
         let first_prompt = session.initial_prompt.clone();
-        let needs_fallback_name = session
-            .name
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-            && first_prompt
-                .as_deref()
-                .is_none_or(|value| value.trim().is_empty());
-        if needs_fallback_name {
-            fallback_number += 1;
-        }
         let is_running = in_flight_ids.contains(&session.id);
         let continuity_mode = derive_session_continuity_mode(false);
 
@@ -522,7 +512,7 @@ pub async fn get_session_summaries(
             display_name: build_session_display_name(
                 &session,
                 first_prompt.as_deref(),
-                fallback_number,
+                fallback_numbers.get(&session.id).copied().unwrap_or(0),
             ),
             status: session.status.clone(),
             executor: session.executor.clone(),

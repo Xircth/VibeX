@@ -1,9 +1,10 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
-import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
+import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { ProjectRail } from '@/components/layout/ProjectRail';
+import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 import { Loader } from '@/components/ui/loader';
 import {
   loadAgentSettings,
@@ -36,10 +37,6 @@ function lazyNamed<
   return lazy(() => load().then((mod) => ({ default: mod[name] })));
 }
 
-const IDEWorkspaceRoute = lazyNamed(
-  () => import('@/components/layout/IDEWorkspaceRoute'),
-  'IDEWorkspaceRoute'
-);
 const ProjectTasks = lazyNamed(
   () => import('@/pages/ProjectTasks'),
   'ProjectTasks'
@@ -105,21 +102,31 @@ function MainLegacyScope({
   children,
   className,
   showProjectRail = false,
+  pageSuspense = true,
 }: {
   children: ReactNode;
   className?: string;
   showProjectRail?: boolean;
+  pageSuspense?: boolean;
 }) {
   return (
     <LegacyDesignScope className={className}>
       {showProjectRail ? <ProjectRail /> : null}
-      <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+      {pageSuspense ? (
+        <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+      ) : (
+        children
+      )}
     </LegacyDesignScope>
   );
 }
 
 function RouteFallback() {
-  return <Loader size={24} className="h-full min-h-[40vh]" />;
+  return (
+    <div data-testid="route-fallback">
+      <Loader size={24} className="h-full min-h-[40vh]" />
+    </div>
+  );
 }
 
 export function MainAppRoutes() {
@@ -136,7 +143,7 @@ export function MainAppRoutes() {
 
       <Route
         element={
-          <MainLegacyScope showProjectRail>
+          <MainLegacyScope showProjectRail pageSuspense={false}>
             <IDEWorkspaceRoute />
           </MainLegacyScope>
         }

@@ -2,6 +2,8 @@ import { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSessionControlsSnapshot } from 'shared/types';
 import {
+  composerSessionControlDisplay,
+  liveSessionControlsSnapshot,
   loadAgentSessionControlsCatalog,
   mergeCreateSessionControls,
   publishLiveSessionControls,
@@ -78,6 +80,87 @@ describe('session controls query cache', () => {
     expect(
       client.getQueryData(sessionControlsSchemaQueryKey('claude_code'))
     ).toBeUndefined();
+  });
+});
+
+describe('composerSessionControlDisplay', () => {
+  const catalog: AgentSessionControlsSnapshot = {
+    modes: [
+      { id: 'plan', label: 'Plan', description: null },
+      { id: 'agent', label: 'Agent', description: null },
+    ],
+    current_mode: 'plan',
+    config_options: [
+      {
+        key: 'model',
+        label: 'Model',
+        category: 'model',
+        value: 'grok-4',
+        choices: [{ value: 'grok-4', label: 'Grok 4' }],
+      },
+    ],
+  };
+
+  it('uses the create-form catalog when the conversation has no ACP controls yet', () => {
+    expect(
+      composerSessionControlDisplay([
+        liveSessionControlsSnapshot({ current: null, modes: [] }, []),
+        catalog,
+      ])
+    ).toEqual({
+      sessionModes: {
+        current: 'plan',
+        modes: catalog.modes,
+      },
+      sessionConfigOptions: catalog.config_options,
+    });
+  });
+
+  it('keeps live conversation controls over the catalog once ACP has advertised them', () => {
+    const live = liveSessionControlsSnapshot(
+      {
+        current: 'agent',
+        modes: catalog.modes,
+      },
+      [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'grok-4-fast',
+          choices: [
+            { value: 'grok-4', label: 'Grok 4' },
+            { value: 'grok-4-fast', label: 'Grok 4 Fast' },
+          ],
+        },
+      ]
+    );
+
+    expect(composerSessionControlDisplay([live, catalog])).toEqual({
+      sessionModes: {
+        current: 'agent',
+        modes: catalog.modes,
+      },
+      sessionConfigOptions: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'grok-4-fast',
+          choices: [
+            { value: 'grok-4', label: 'Grok 4' },
+            { value: 'grok-4-fast', label: 'Grok 4 Fast' },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('renders nothing when neither the conversation nor the catalog has controls', () => {
+    expect(composerSessionControlDisplay([null, undefined])).toEqual({
+      sessionModes: { current: null, modes: [] },
+      sessionConfigOptions: [],
+    });
   });
 });
 

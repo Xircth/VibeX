@@ -10,6 +10,14 @@ use serde_json::{Map, Value};
 
 const EXT_METHODS: [&str; 2] = ["_x.ai/session/update", "_x.ai/session_notification"];
 
+pub fn is_vendor_session_update(method: &str) -> bool {
+    let normalized = method.strip_prefix('_').unwrap_or(method);
+    matches!(
+        normalized,
+        "x.ai/session/update" | "x.ai/session_notification"
+    )
+}
+
 /// Metadata written onto the launching tool call. Replaced wholesale on every
 /// tick because tool-call upserts replace `meta` instead of merging it.
 pub const SUBAGENT_META_KEY: &str = "subagent";
@@ -457,6 +465,15 @@ mod tests {
             finished[0].meta["subagent"]["progress"]["toolCallCount"],
             125
         );
+    }
+
+    #[test]
+    fn recognizes_vendor_session_update_methods() {
+        assert!(is_vendor_session_update("_x.ai/session/update"));
+        assert!(is_vendor_session_update("x.ai/session/update"));
+        assert!(is_vendor_session_update("_x.ai/session_notification"));
+        assert!(!is_vendor_session_update("x.ai/announcements/update"));
+        assert!(!is_vendor_session_update("session/update"));
     }
 
     #[test]

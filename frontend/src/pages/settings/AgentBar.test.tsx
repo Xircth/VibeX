@@ -148,7 +148,7 @@ describe('AgentBar', () => {
     expect(onSelect).toHaveBeenCalledWith('vendor.agent');
   });
 
-  it('calibrates brand marks and shows only the scrollbar thumb', () => {
+  it('calibrates brand marks and keeps a visible scrollbar below the rail', () => {
     const style = installAgentBarStyles();
     const rendered = render(
       <div className="settings-page">
@@ -233,23 +233,44 @@ describe('AgentBar', () => {
         );
       }
 
+      const bar = document.querySelector('.agent-management-bar');
       const rail = document.querySelector('.agent-management-bar-surface');
       const scroller = document.querySelector('.agent-management-bar-scroll');
+      const item = document.querySelector('.agent-management-bar-item');
+      expect(bar).not.toBeNull();
       expect(rail).not.toBeNull();
       expect(scroller).not.toBeNull();
+      expect(item).not.toBeNull();
       expect(rail!.contains(scroller)).toBe(false);
-      expect(getComputedStyle(rail!).bottom).toBe('0px');
-      expect(getComputedStyle(scroller!).height).toBe('66px');
+      expect(getComputedStyle(bar!).height).toBe('60px');
+      expect(getComputedStyle(scroller!).height).toBe('60px');
+      expect(getComputedStyle(rail!).bottom).toBe('8px');
+      expect(getComputedStyle(item!).height).toBe('44px');
+      expect(getComputedStyle(scroller!).paddingTop).toBe('4px');
+      const railHeight =
+        parseFloat(getComputedStyle(bar!).height) -
+        parseFloat(getComputedStyle(rail!).bottom);
+      const insetBelow =
+        railHeight -
+        parseFloat(getComputedStyle(scroller!).paddingTop) -
+        parseFloat(getComputedStyle(item!).height);
+      expect(railHeight).toBe(52);
+      expect(insetBelow).toBe(
+        parseFloat(getComputedStyle(scroller!).paddingTop)
+      );
       expect(style.textContent).toContain(
         '.agent-management-bar-scroll::-webkit-scrollbar'
       );
-      expect(style.textContent).toContain('height: 6px');
+      expect(style.textContent).toContain('height: 8px');
       expect(style.textContent).not.toContain('border-top-width: 10px');
+      expect(style.textContent).not.toContain(
+        'hsl(var(--border-strong) / 0.55)'
+      );
       expect(style.textContent).toMatch(
         /agent-management-bar-scroll::-webkit-scrollbar-track\s*,[\s\S]*background:\s*transparent;/
       );
       expect(style.textContent).toMatch(
-        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--border-strong\) \/ 0\.55\);/
+        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--muted-foreground\) \/ 0\.45\);/
       );
       expect(style.textContent).not.toMatch(
         /agent-management-bar-scroll:hover::-webkit-scrollbar-thumb/

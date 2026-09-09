@@ -20,6 +20,13 @@ import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContex
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import {
+  composerSessionControlDisplay,
+  liveSessionControlsSnapshot,
+  loadAgentSessionControlsCatalog,
+  sessionControlsQueryKey,
+  sessionControlsSchemaQueryKey,
+} from '@/features/agents/sessionControlsQuery';
 import { useGitStatus } from '@/hooks/git';
 
 import type { Session, Workspace } from 'shared/types';
@@ -465,13 +472,52 @@ export function TaskFollowUpSection({
     permissions: pendingPermissions,
     childrenDock,
   } = useConversationStatus();
-  // Live ACP session state is the sole source for composer controls. A global
-  // agent catalog cannot account for workspace/provider/account differences.
-  const displaySessionModes = sessionModes;
+  const executor = effectiveExecutorProfile?.executor ?? null;
+  const catalogQuery = useQuery({
+    queryKey: sessionControlsQueryKey(executor!, null),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    enabled: Boolean(executor),
+    staleTime: 60_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const workspaceControlsQuery = useQuery({
+    queryKey: sessionControlsQueryKey(executor ?? '', workspaceId ?? ''),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const schemaQuery = useQuery({
+    queryKey: sessionControlsSchemaQueryKey(executor ?? ''),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const displayControls = useMemo(
+    () =>
+      composerSessionControlDisplay([
+        liveSessionControlsSnapshot(sessionModes, sessionConfigOptions),
+        workspaceControlsQuery.data,
+        catalogQuery.data,
+        schemaQuery.data,
+      ]),
+    [
+      sessionModes,
+      sessionConfigOptions,
+      workspaceControlsQuery.data,
+      catalogQuery.data,
+      schemaQuery.data,
+    ]
+  );
+  const displaySessionModes = displayControls.sessionModes;
   const liveModeId = displaySessionModes.current;
   const displaySessionConfigOptions = useMemo(
-    () => visibleSessionConfigOptions(sessionConfigOptions),
-    [sessionConfigOptions]
+    () => visibleSessionConfigOptions(displayControls.sessionConfigOptions),
+    [displayControls.sessionConfigOptions]
   );
   // A live `config_option_update` can replace an effort's choice set after a
   // model change. Keep pending next-turn values aligned with that update, and

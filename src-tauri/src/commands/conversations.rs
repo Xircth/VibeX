@@ -1214,12 +1214,12 @@ async fn import_agent_session_on_connection(
                 ) {
                     ConversationEvent::AssistantReasoningDelta {
                         text: message.content.clone(),
-                        message_id: Some(format!("imported-message-{index}")),
+                        message_id: Some(message.imported_agent_message_id(index)),
                     }
                 } else {
                     ConversationEvent::AssistantTextDelta {
                         text: message.content.clone(),
-                        message_id: Some(format!("imported-message-{index}")),
+                        message_id: Some(message.imported_agent_message_id(index)),
                     }
                 };
                 append_import_event(
@@ -1312,7 +1312,7 @@ async fn import_agent_session_on_connection(
                     Some(binding.id),
                     ConversationEvent::AssistantReasoningDelta {
                         text: message.content.clone(),
-                        message_id: Some(format!("imported-message-{index}")),
+                        message_id: Some(message.imported_agent_message_id(index)),
                     },
                     session,
                     &format!("message-{index}-system"),

@@ -1,6 +1,12 @@
 use browser_runtime::BrowserSurface;
 use cef::{Browser, ImplBrowser, ImplBrowserHost, Rect};
 
+/// `SWP_NOACTIVATE` without `SWP_NOZORDER`. Keeping `SWP_NOZORDER` leaves the
+/// Chromium child under Tauri's WebView2 HWND, so Windows DWM / native-window
+/// occlusion can stop painting while hit-testing still reaches the page.
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) const WINDOWS_SURFACE_POS_FLAGS: u32 = 0x0010;
+
 pub fn surface_rect(surface: &BrowserSurface) -> Rect {
     let scale = if cfg!(target_os = "macos") {
         1.0
@@ -36,20 +42,9 @@ fn macos_origin_y(css_y: f64, height: f64, parent_height: f64, is_flipped: bool)
     }
 }
 
-#[cfg(target_os = "macos")]
-fn macos_safe_area_origin_y(
-    css_y: f64,
-    height: f64,
-    parent_height: f64,
-    is_flipped: bool,
-    safe_area_top: f64,
-) -> f64 {
-    macos_origin_y(css_y + safe_area_top, height, parent_height, is_flipped)
-}
-
 #[cfg(all(test, target_os = "macos"))]
 mod macos_tests {
-    use super::{macos_origin_y, macos_safe_area_origin_y};
+    use super::macos_origin_y;
 
     #[test]
     fn preserves_css_y_for_flipped_parent_views() {
@@ -59,18 +54,6 @@ mod macos_tests {
     #[test]
     fn converts_css_y_for_bottom_left_parent_views() {
         assert_eq!(macos_origin_y(120.0, 300.0, 900.0, false), 480.0);
-    }
-
-    #[test]
-    fn offsets_css_coordinates_below_the_macos_safe_area() {
-        assert_eq!(
-            macos_safe_area_origin_y(120.0, 300.0, 900.0, true, 28.0),
-            148.0
-        );
-        assert_eq!(
-            macos_safe_area_origin_y(120.0, 300.0, 900.0, false, 28.0),
-            452.0
-        );
     }
 }
 
@@ -108,7 +91,7 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
         msg_send,
         runtime::{AnyObject, Bool},
     };
-    use objc2_foundation::{NSEdgeInsets, NSPoint, NSRect, NSSize};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
 
     let host = browser
         .host()
@@ -125,17 +108,18 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
     let superview = unsafe { &*superview };
     let parent_is_flipped: Bool = unsafe { msg_send![superview, isFlipped] };
     let parent_bounds: NSRect = unsafe { msg_send![superview, bounds] };
-    let safe_area: NSEdgeInsets = unsafe { msg_send![superview, safeAreaInsets] };
     let height = f64::from(surface.height);
+    // CSS getBoundingClientRect is already in the parent view's space. Adding
+    // safeAreaInsets.top shifts the Chromium child below the tab and into the
+    // status bar.
     let frame = NSRect::new(
         NSPoint::new(
             f64::from(surface.x),
-            macos_safe_area_origin_y(
+            macos_origin_y(
                 f64::from(surface.y),
                 height,
                 parent_bounds.size.height,
                 parent_is_flipped.as_bool(),
-                safe_area.top,
             ),
         ),
         NSSize::new(f64::from(surface.width), height),
@@ -193,7 +177,7 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, ShowWindow,
+        HWND_TOP, SW_HIDE, SW_SHOW, SetWindowPos, ShowWindow,
     };
 
     let host = browser
@@ -203,16 +187,17 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
     if handle.is_null() {
         return Err("browser native window is missing".to_string());
     }
+    host.notify_move_or_resize_started();
     let rect = surface_rect(surface);
     unsafe {
         if SetWindowPos(
             handle,
-            std::ptr::null_mut(),
+            HWND_TOP,
             rect.x,
             rect.y,
             rect.width,
             rect.height,
-            SWP_NOACTIVATE | SWP_NOZORDER,
+            WINDOWS_SURFACE_POS_FLAGS,
         ) == 0
         {
             return Err("SetWindowPos failed".to_string());
@@ -333,4 +318,17 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
         (xlib.XCloseDisplay)(display);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod windows_surface_z_order_tests {
+    use super::WINDOWS_SURFACE_POS_FLAGS;
+
+    #[test]
+    fn restacks_the_chromium_child_above_webview2() {
+        const SWP_NOZORDER: u32 = 0x0004;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+        assert_eq!(WINDOWS_SURFACE_POS_FLAGS, SWP_NOACTIVATE);
+        assert_eq!(WINDOWS_SURFACE_POS_FLAGS & SWP_NOZORDER, 0);
+    }
 }

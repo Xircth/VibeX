@@ -315,6 +315,35 @@ impl ConversationInputControl {
         .await
     }
 
+    /// Cancel every still-queued input. Claimed/dispatched inputs are owned by
+    /// the in-flight Turn path and must not be cancelled here.
+    pub async fn cancel_queued(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<usize, ConversationInputControlError> {
+        let pending = self.list(conversation_id).await?;
+        let mut cancelled = 0usize;
+        for input in pending {
+            if input.status != ConversationInputStatus::Queued {
+                continue;
+            }
+            match self
+                .cancel(CancelConversationInput {
+                    conversation_id,
+                    input_id: input.id,
+                    operation_id: Uuid::new_v4(),
+                    expected_revision: input.revision,
+                })
+                .await
+            {
+                Ok(_) => cancelled += 1,
+                Err(ConversationInputControlError::StateConflict { .. }) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(cancelled)
+    }
+
     async fn append_mutation(
         &self,
         conversation_id: Uuid,
@@ -1340,6 +1369,70 @@ mod tests {
             .expect("cancel queued input");
         assert_eq!(cancelled.revision, 4);
         assert_eq!(cancelled.status, ConversationInputStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn cancel_queued_cancels_waiting_inputs_and_leaves_claimed_alone() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let control = ConversationInputControl::new(pool);
+        let first = control
+            .submit(SubmitConversationInput {
+                conversation_id,
+                operation_id: Uuid::new_v4(),
+                payload: payload("first"),
+                principal: serde_json::json!({ "kind": "test" }),
+            })
+            .await
+            .expect("submit first");
+        let second = control
+            .submit(SubmitConversationInput {
+                conversation_id,
+                operation_id: Uuid::new_v4(),
+                payload: payload("second"),
+                principal: serde_json::json!({ "kind": "test" }),
+            })
+            .await
+            .expect("submit second");
+        control
+            .claim_next(conversation_id, Duration::seconds(30))
+            .await
+            .expect("claim first")
+            .expect("queued input to claim");
+
+        let cancelled = control
+            .cancel_queued(conversation_id)
+            .await
+            .expect("cancel remaining queued inputs");
+        assert_eq!(cancelled, 1);
+
+        let listed = control.list(conversation_id).await.expect("list inputs");
+        let first_status = listed
+            .iter()
+            .find(|input| input.id == first.id)
+            .expect("first input")
+            .status;
+        let second_status = listed
+            .iter()
+            .find(|input| input.id == second.id)
+            .expect("second input")
+            .status;
+        assert_eq!(first_status, ConversationInputStatus::Claimed);
+        assert_eq!(second_status, ConversationInputStatus::Cancelled);
     }
 
     #[tokio::test]

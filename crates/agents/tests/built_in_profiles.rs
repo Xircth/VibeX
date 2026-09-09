@@ -104,7 +104,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "deepseek_harness",
             ProfileComponent::CombinedRuntime,
             "deepseek-acp",
-            "0.3.0",
+            "0.8.0",
             "deepseek-acp",
             ">=22",
         ),
@@ -132,6 +132,13 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         assert_eq!(*actual_command, command, "{id} command");
         assert_eq!(*node_requirement, node, "{id} Node requirement");
         assert!(!integrity.is_empty(), "{id} must pin npm integrity");
+        if id == "deepseek_harness" {
+            assert_eq!(
+                *integrity,
+                "sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg==",
+                "deepseek-acp 0.8.0 npm integrity"
+            );
+        }
     }
 
     let opencode = profile("opencode").install_sources.first().unwrap();

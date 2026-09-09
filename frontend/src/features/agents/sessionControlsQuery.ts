@@ -41,6 +41,50 @@ export async function loadAgentSessionControlsCatalog(
  * fields (model, effort, fast mode) even when only one surface has a live
  * session.
  */
+/**
+ * Conversation-projected ACP controls, or null when this conversation has not
+ * advertised any yet (a newly created session before the first turn).
+ */
+export function liveSessionControlsSnapshot(
+  modes: {
+    current: string | null;
+    modes: AgentSessionControlsSnapshot['modes'];
+  },
+  configOptions: AgentSessionConfigOption[]
+): AgentSessionControlsSnapshot | null {
+  if (modes.modes.length === 0 && configOptions.length === 0) {
+    return null;
+  }
+  return {
+    modes: modes.modes,
+    current_mode: modes.current,
+    config_options: configOptions,
+  };
+}
+
+/**
+ * Composer display: live conversation controls first, then the same catalog
+ * the create form already loaded so a new session still has a settings summary.
+ */
+export function composerSessionControlDisplay(
+  snapshots: Array<AgentSessionControlsSnapshot | null | undefined>
+): {
+  sessionModes: {
+    current: string | null;
+    modes: AgentSessionControlsSnapshot['modes'];
+  };
+  sessionConfigOptions: AgentSessionConfigOption[];
+} {
+  const merged = mergeCreateSessionControls(snapshots);
+  return {
+    sessionModes: {
+      current: merged?.current_mode ?? null,
+      modes: merged?.modes ?? [],
+    },
+    sessionConfigOptions: merged?.config_options ?? [],
+  };
+}
+
 export function mergeCreateSessionControls(
   snapshots: Array<AgentSessionControlsSnapshot | null | undefined>
 ): AgentSessionControlsSnapshot | null {

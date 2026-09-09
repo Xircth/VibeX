@@ -10,6 +10,7 @@ use thiserror::Error;
 use ts_rs::TS;
 
 mod cursor;
+mod deepseek;
 mod jsonl;
 mod scan;
 mod sqlite;
@@ -76,6 +77,21 @@ pub struct ImportedAgentMessageMetadata {
     pub cost: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
+    /// Log identity the agent accepts as an AIR fork `messageId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_message_id: Option<String>,
+}
+
+impl ImportedAgentMessage {
+    pub fn imported_agent_message_id(&self, index: usize) -> String {
+        self.metadata
+            .agent_message_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("imported-message-{index}"))
+    }
 }
 
 impl ImportedAgentMessageMetadata {
@@ -588,6 +604,12 @@ pub(super) fn history_files(
     let mut files = Vec::new();
     let mut visited = BTreeSet::new();
     collect_history_files(agent_type, path, &mut files, &mut visited)?;
+    if agent_type == AgentKind::DeepseekHarness {
+        files.retain(|file| {
+            file.file_name().and_then(|name| name.to_str()) != Some("session.jsonl")
+                || !file.with_file_name("session.jsonl.zstd").is_file()
+        });
+    }
     files.sort();
     Ok(files)
 }
@@ -689,8 +711,8 @@ pub(super) fn parse_history_file(
     if agent_type == AgentKind::DeepseekHarness
         && path.file_name().and_then(|name| name.to_str()) == Some("session.jsonl.zstd")
     {
-        let raw = read_zstd_jsonl(path)?;
-        return parse_jsonl_history(agent_type, path, &raw);
+        let raw = deepseek::read_zstd_prefix(path)?;
+        return deepseek::parse_deepseek_history(path, &raw);
     }
     let raw = std::fs::read_to_string(path).map_err(|error| AgentHistoryError::Read {
         path: path.to_path_buf(),
@@ -700,6 +722,7 @@ pub(super) fn parse_history_file(
         agent_type,
         path.extension().and_then(|extension| extension.to_str()),
     ) {
+        (AgentKind::DeepseekHarness, Some("jsonl")) => deepseek::parse_deepseek_history(path, &raw),
         (AgentKind::Pi, Some("jsonl")) => parse_pi_session(path, &raw),
         (
             AgentKind::ClaudeCode | AgentKind::Openclaw | AgentKind::Codebuddy | AgentKind::Qoder,
@@ -1496,7 +1519,7 @@ fn history_file_session_id(path: &Path) -> String {
         .to_string()
 }
 
-fn parse_jsonl_history(
+pub(super) fn parse_jsonl_history(
     agent_type: AgentKind,
     path: &Path,
     raw: &str,
@@ -1820,7 +1843,11 @@ fn grok_message(value: &serde_json::Value) -> Option<(ImportedAgentMessageRole, 
     }
 }
 
-fn session_id_from_value(agent_type: AgentKind, path: &Path, value: &serde_json::Value) -> String {
+pub(super) fn session_id_from_value(
+    agent_type: AgentKind,
+    path: &Path,
+    value: &serde_json::Value,
+) -> String {
     string_at_any(value, &["sessionId", "session_id", "conversation_id", "id"])
         .or_else(|| {
             value
@@ -1902,18 +1929,6 @@ pub(super) fn title_from_content(content: &str) -> String {
     } else {
         title
     }
-}
-
-fn read_zstd_jsonl(path: &Path) -> Result<String, AgentHistoryError> {
-    let bytes = std::fs::read(path).map_err(|error| AgentHistoryError::Read {
-        path: path.to_path_buf(),
-        error: error.to_string(),
-    })?;
-    let decoded = zstd::decode_all(bytes.as_slice()).map_err(|error| AgentHistoryError::Parse {
-        path: path.to_path_buf(),
-        error: error.to_string(),
-    })?;
-    Ok(String::from_utf8_lossy(&decoded).into_owned())
 }
 
 fn apply_grok_summary(session: &mut ImportedAgentSession) -> bool {
@@ -2363,7 +2378,7 @@ fn block_text(item: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn image_placeholder(item: &serde_json::Value) -> String {
+pub(super) fn image_placeholder(item: &serde_json::Value) -> String {
     let attachment = item.get("attachment").unwrap_or(item);
     let label = string_at_any(attachment, &["name", "mediaType", "mime_type", "mime"])
         .or_else(|| string_at_any(item, &["name", "mediaType", "mime_type", "filename"]))
@@ -3402,6 +3417,78 @@ mod tests {
                 .content
                 .contains("[image: shot.png]")
         );
+    }
+
+    #[test]
+    fn deepseek_event_log_imports_fork_ids_and_compaction() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_dir = temp.path().join("sessions").join("demo").join("ds-evt");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let log = concat!(
+            r#"{"type":"session","cwd":"/repo","delegationDepth":0}"#,
+            "\n",
+            r#"{"type":"turn/start","seq":1,"time":1000,"data":{"turn":1}}"#,
+            "\n",
+            r#"{"type":"user/message","seq":2,"time":1010,"data":{"content":[{"type":"text","text":"Hi"}],"source":{"kind":"user"},"role":"user","id":"u-1"}}"#,
+            "\n",
+            r#"{"type":"assistant/message","seq":3,"time":1100,"data":{"message":{"role":"assistant","content":[{"type":"text","text":"Hello"}],"id":"a-1"}}}"#,
+            "\n",
+            r#"{"type":"compaction/end","seq":4,"time":2400,"data":{"compactionId":"c-1"}}"#,
+            "\n",
+            r#"{"type":"session/title","seq":5,"time":1020,"data":{"title":"Hi"}}"#,
+            "\n"
+        );
+        std::fs::write(session_dir.join("session.jsonl"), log).unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::DeepseekHarness,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title.as_deref(), Some("Hi"));
+        assert_eq!(sessions[0].workspace_path, Some(PathBuf::from("/repo")));
+        assert_eq!(
+            sessions[0].messages[1].metadata.agent_message_id.as_deref(),
+            Some("a-1")
+        );
+        assert_eq!(
+            sessions[0].messages[2].metadata.tool_name.as_deref(),
+            Some("context_compaction")
+        );
+    }
+
+    #[test]
+    fn deepseek_prefers_zstd_over_plaintext_when_both_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_dir = temp.path().join("sessions").join("demo").join("ds-both");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(
+            session_dir.join("session.jsonl"),
+            r#"{"role":"user","content":"stale"}"#,
+        )
+        .unwrap();
+        let compressed = zstd::encode_all(
+            concat!(
+                r#"{"role":"user","content":"fresh"}"#,
+                "\n",
+                r#"{"role":"assistant","content":"ok"}"#,
+                "\n"
+            )
+            .as_bytes(),
+            0,
+        )
+        .unwrap();
+        std::fs::write(session_dir.join("session.jsonl.zstd"), compressed).unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::DeepseekHarness,
+            path: temp.path().join("sessions"),
+        })
+        .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages[0].content, "fresh");
+        assert_eq!(sessions[0].messages.len(), 2);
     }
 
     #[test]

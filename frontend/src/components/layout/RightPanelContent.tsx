@@ -33,7 +33,6 @@ import {
   type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
-import { initializeSessionControls } from '@/features/conversation/initializeSessionControls';
 import {
   ScratchType,
   type ExecutorProfileId,
@@ -377,8 +376,8 @@ export function RightPanelContent() {
         repoBranchConfigs.length > 0 &&
         repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch));
 
-  // Latest ACP control preset picked in the create form; materialized onto the
-  // created conversation before navigation (ref: no re-render needed on pick).
+  // Latest ACP control preset picked in the create form; stored on the draft
+  // scratch so the first send applies it (ref: no re-render needed on pick).
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
 
   const createSessionMutation = useMutation({
@@ -405,19 +404,6 @@ export function RightPanelContent() {
     },
     onSuccess: async (newSession) => {
       if (selectedExecutorProfile?.executor) {
-        let controlsInitialized = false;
-        try {
-          await initializeSessionControls(
-            newSession.id,
-            sessionControlsPresetRef.current
-          );
-          controlsInitialized = true;
-        } catch (error) {
-          console.warn(
-            'Failed to initialize created session controls; preserving first-turn fallback',
-            error
-          );
-        }
         try {
           await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, newSession.id, {
             payload: {
@@ -427,13 +413,10 @@ export function RightPanelContent() {
                 images: [],
                 executor_config: selectedExecutorProfile,
                 queued: false,
-                mode_override: controlsInitialized
-                  ? undefined
-                  : (sessionControlsPresetRef.current?.modeOverride ??
-                    undefined),
-                config_overrides: controlsInitialized
-                  ? {}
-                  : (sessionControlsPresetRef.current?.configOverrides ?? {}),
+                mode_override:
+                  sessionControlsPresetRef.current?.modeOverride ?? undefined,
+                config_overrides:
+                  sessionControlsPresetRef.current?.configOverrides ?? {},
               },
             },
           });

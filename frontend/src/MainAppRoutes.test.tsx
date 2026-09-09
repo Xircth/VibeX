@@ -39,7 +39,11 @@ vi.mock('@/components/layout/IDEWorkspaceRoute', async () => {
       React.createElement(
         'div',
         { 'data-testid': 'ide-layout' },
-        React.createElement(Outlet)
+        React.createElement(
+          React.Suspense,
+          { fallback: null },
+          React.createElement(Outlet)
+        )
       ),
   };
 });
@@ -155,10 +159,13 @@ describe('MainAppRoutes', () => {
   it.each([
     '/local-projects/project-1',
     '/local-projects/project-1/workspaces/workspace-1/sessions/session-1',
-  ])('mounts one shared project rail on %s', (pathname) => {
+  ])('mounts one shared project rail on %s', async (pathname) => {
     renderAt(pathname);
 
     expect(screen.getAllByTestId('project-rail')).toHaveLength(1);
+    if (pathname.includes('/workspaces/')) {
+      await screen.findByTestId('project-tasks-page');
+    }
   });
 
   it('renders project routes through the standard legacy layout', () => {
@@ -175,6 +182,13 @@ describe('MainAppRoutes', () => {
 
     expect(await screen.findByTestId('ide-layout')).toBeInTheDocument();
     expect(screen.getByTestId('project-tasks-page')).toBeInTheDocument();
+  });
+
+  it('paints the kanban workspace shell without a full-page route spinner', () => {
+    renderAt('/local-projects/project-1/sessions');
+
+    expect(screen.getByTestId('ide-layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('route-fallback')).not.toBeInTheDocument();
   });
 
   it('keeps full attempt logs outside the standard and IDE layout groups', async () => {

@@ -321,6 +321,9 @@ impl HeadlessServer {
             .sync_official_product_mcp_gate()
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+        if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
+            tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
+        }
         start_plugin_artifact_http(plugin_control_plane.clone())
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;

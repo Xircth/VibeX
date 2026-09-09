@@ -1416,6 +1416,106 @@ describe('AgentSettings', () => {
     await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
   });
 
+  it('marks ACP as updatable when npm latest is newer than the probed adapter', async () => {
+    api.preflight.mockResolvedValue({
+      agent_id: 'codex',
+      checked_at: '2026-09-09T00:00:00Z',
+      items: [
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '@agentclientprotocol/codex-acp 1.8.0',
+          path: '/usr/local/bin/codex-acp',
+          source: null,
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    });
+    api.checkUpdate.mockResolvedValue({
+      agent_id: 'codex',
+      current_version: '@agentclientprotocol/codex-acp 1.8.0',
+      available_version: '1.10.0',
+      update_available: false,
+      runtime_current: null,
+      runtime_available: null,
+      acp_current: '@agentclientprotocol/codex-acp 1.8.0',
+      acp_available: '1.10.0',
+      snapshot_id: null,
+      fetched_at: null,
+      fresh: true,
+    });
+
+    render(<AgentSettings />);
+    await waitFor(() =>
+      expect(
+        screen.getByTitle('@agentclientprotocol/codex-acp 1.8.0')
+      ).toBeInTheDocument()
+    );
+    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
+  });
+
+  it('toasts an available ACP update instead of already latest', async () => {
+    const user = userEvent.setup();
+    api.preflight.mockResolvedValue({
+      agent_id: 'codex',
+      checked_at: '2026-09-09T00:00:00Z',
+      items: [
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '@agentclientprotocol/codex-acp 1.8.0',
+          path: '/usr/local/bin/codex-acp',
+          source: null,
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    });
+    api.checkUpdate.mockResolvedValue({
+      agent_id: 'codex',
+      current_version: '@agentclientprotocol/codex-acp 1.8.0',
+      available_version: '1.10.0',
+      update_available: true,
+      runtime_current: null,
+      runtime_available: null,
+      acp_current: '@agentclientprotocol/codex-acp 1.8.0',
+      acp_available: '1.10.0',
+      snapshot_id: null,
+      fetched_at: null,
+      fresh: true,
+    });
+    const success = vi.spyOn(toast, 'success');
+    render(<AgentSettings />);
+    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: '检查更新' }));
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith('发现可用更新')
+    );
+    expect(api.checkUpdate).toHaveBeenCalledWith('codex', { force: true });
+  });
+
+  it('does not toast already latest when check learned no available version', async () => {
+    const user = userEvent.setup();
+    const success = vi.spyOn(toast, 'success');
+    const error = vi.spyOn(toast, 'error');
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: '检查更新' });
+    await user.click(screen.getByRole('button', { name: '检查更新' }));
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith('检查更新失败')
+    );
+    expect(success).not.toHaveBeenCalledWith('当前已是最新版本');
+  });
+
   it('refreshes login status after a terminal account flow finishes', async () => {
     const user = userEvent.setup();
     const loggedOut = {

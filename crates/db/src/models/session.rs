@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -56,6 +58,37 @@ pub struct Session {
     pub delegation_call_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Session {
+    pub fn needs_untitled_fallback_name(&self) -> bool {
+        self.name
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+            && self
+                .initial_prompt
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+    }
+}
+
+/// Numbers untitled sessions by creation time (oldest = 1). List order is
+/// newest-first for recency, but a new session must not steal "新会话1".
+pub fn untitled_fallback_numbers(sessions: &[Session]) -> HashMap<Uuid, usize> {
+    let mut untitled = sessions
+        .iter()
+        .filter(|session| session.needs_untitled_fallback_name())
+        .collect::<Vec<_>>();
+    untitled.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then(left.id.cmp(&right.id))
+    });
+    untitled
+        .into_iter()
+        .enumerate()
+        .map(|(index, session)| (session.id, index + 1))
+        .collect()
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -485,6 +518,52 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    fn untitled_at(created_at: DateTime<Utc>) -> Session {
+        Session {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::nil(),
+            task_id: None,
+            name: None,
+            initial_prompt: None,
+            status: SessionStatus::Todo,
+            executor: None,
+            external_session_id: None,
+            agent_id: None,
+            parent_session_id: None,
+            parent_tool_use_id: None,
+            delegation_call_id: None,
+            created_at,
+            updated_at: created_at,
+        }
+    }
+
+    #[test]
+    fn untitled_fallback_numbers_follow_creation_order_not_list_order() {
+        let older = untitled_at(
+            DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .expect("older")
+                .with_timezone(&Utc),
+        );
+        let newer = untitled_at(
+            DateTime::parse_from_rfc3339("2026-01-02T00:00:00Z")
+                .expect("newer")
+                .with_timezone(&Utc),
+        );
+        let named = Session {
+            name: Some("手工标题".to_string()),
+            ..untitled_at(
+                DateTime::parse_from_rfc3339("2026-01-03T00:00:00Z")
+                    .expect("named")
+                    .with_timezone(&Utc),
+            )
+        };
+
+        let numbers = untitled_fallback_numbers(&[newer.clone(), older.clone(), named.clone()]);
+        assert_eq!(numbers.get(&older.id).copied(), Some(1));
+        assert_eq!(numbers.get(&newer.id).copied(), Some(2));
+        assert!(!numbers.contains_key(&named.id));
     }
 
     fn sample(executor: &str) -> CreateSession {

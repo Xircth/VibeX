@@ -113,3 +113,13 @@ export function WorkspaceOverlayProvider({
 export function useWorkspaceOverlay(): WorkspaceOverlayContextValue {
   return useContext(WorkspaceOverlayContext);
 }
+
+/** Hide native CEF surfaces for as long as this component stays mounted. */
+export function NativeSurfaceOcclusionHold() {
+  const { setHtmlOverlayOpen } = useWorkspaceOverlay();
+  useLayoutEffect(() => {
+    setHtmlOverlayOpen(true);
+    return () => setHtmlOverlayOpen(false);
+  }, [setHtmlOverlayOpen]);
+  return null;
+}

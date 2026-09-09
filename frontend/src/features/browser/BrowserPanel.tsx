@@ -36,6 +36,8 @@ import {
   browserUrlsEquivalent,
   normalizeBrowserUrl,
 } from './browserUrl';
+import { BrowserAddressField } from './BrowserAddressField';
+import { recordBrowserAddress } from './browserAddressHistory';
 import { BrowserDevToolsSession } from './devToolsSession';
 import { applyDevicePreset, type DevicePresetId } from './deviceEmulation';
 import { createFrameScheduler, type FrameScheduler } from './frameScheduler';
@@ -287,6 +289,10 @@ export function BrowserPanel({
   const findInputRef = useRef<HTMLInputElement>(null);
   const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
   const desiredPageXRef = useRef(0);
+  const desiredZoomRef = useRef(
+    zoomLevelForPercent(DEFAULT_BROWSER_ZOOM_PERCENT)
+  );
+  const pageWasLoadingRef = useRef(false);
   const scrollCommandInFlightRef = useRef(false);
   const [surfaceReady, setSurfaceReady] = useState(false);
   const [showBlankPage, setShowBlankPage] = useState(initialUrl === null);
@@ -297,7 +303,6 @@ export function BrowserPanel({
   const pendingNavigationUrlRef = useRef<string | null>(null);
   const navigationOriginUrlRef = useRef<string | null>(null);
   const lastRequestNonceRef = useRef(requestNonce);
-  const selectAllOnFocusRef = useRef(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
@@ -593,6 +598,8 @@ export function BrowserPanel({
       latestTab = nextTab;
       createdTabId = nextTab.id;
       tabIdRef.current = nextTab.id;
+      desiredZoomRef.current = nextTab.zoomLevel;
+      pageWasLoadingRef.current = nextTab.loading;
       attachDevToolsSession(nextTab.id);
       setTab(nextTab);
       updateBlankPageVisibility(!showPage);
@@ -683,14 +690,17 @@ export function BrowserPanel({
           showError(event.message, event.code);
           return;
         }
-        latestTab = event.tab;
+        latestTab = {
+          ...event.tab,
+          zoomLevel: desiredZoomRef.current,
+        };
         const stale = isStaleNavigationUpdate(
           event.tab.url,
           pendingNavigationUrlRef.current,
           navigationOriginUrlRef.current
         );
         updateBlankPageVisibility(event.tab.url === BLANK_PAGE);
-        setTab(event.tab);
+        setTab(latestTab);
         if (!stale) {
           if (
             pendingNavigationUrlRef.current &&
@@ -708,12 +718,24 @@ export function BrowserPanel({
           onLocationChangeRef.current?.(event.tab.url);
           if (!event.tab.loading && event.tab.url !== BLANK_PAGE) {
             clearError();
+            recordBrowserAddress(event.tab.url);
           }
         }
         onTitleChange?.(event.tab.title);
         onFaviconChange?.(event.tab.faviconUrl);
-        if (event.tab.loading) setHorizontalPageScroll(null);
-        else refreshHorizontalPageScroll();
+        if (event.tab.loading) {
+          pageWasLoadingRef.current = true;
+          setHorizontalPageScroll(null);
+        } else {
+          if (pageWasLoadingRef.current) {
+            void browserApi.applyIntent(event.tab.id, {
+              type: 'setZoom',
+              level: desiredZoomRef.current,
+            });
+          }
+          pageWasLoadingRef.current = false;
+          refreshHorizontalPageScroll();
+        }
       }
     };
 
@@ -856,12 +878,15 @@ export function BrowserPanel({
     refreshHorizontalPageScroll();
   }, [hasHorizontalPageScroll, layoutVersion, refreshHorizontalPageScroll]);
 
-  const navigate = () => {
-    const url = normalizeBrowserUrl(address);
+  const navigate = (nextAddress = address) => {
+    const url = normalizeBrowserUrl(nextAddress);
     editingAddressRef.current = false;
     clearError();
     updateBlankPageVisibility(url === BLANK_PAGE);
     setAddress(url);
+    if (url !== BLANK_PAGE) {
+      recordBrowserAddress(url);
+    }
     lastRequestTokenRef.current = `${requestNonce}\u0000${url}`;
     lastRequestNonceRef.current = requestNonce;
     onLocationChangeRef.current?.(url);
@@ -1020,40 +1045,15 @@ export function BrowserPanel({
           )}
         </Button>
 
-        <form
-          className="mx-1 min-w-0 flex-1"
-          onSubmit={(event) => {
-            event.preventDefault();
-            navigate();
+        <BrowserAddressField
+          value={address}
+          inputRef={addressInputRef}
+          onValueChange={setAddress}
+          onSubmit={navigate}
+          onEditingChange={(editing) => {
+            editingAddressRef.current = editing;
           }}
-        >
-          <input
-            ref={addressInputRef}
-            aria-label="Address"
-            value={address}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onFocus={() => {
-              editingAddressRef.current = true;
-              selectAllOnFocusRef.current = true;
-              requestAnimationFrame(() => addressInputRef.current?.select());
-            }}
-            onMouseUp={(event) => {
-              if (!selectAllOnFocusRef.current) return;
-              selectAllOnFocusRef.current = false;
-              event.preventDefault();
-              event.currentTarget.select();
-            }}
-            onBlur={() => {
-              editingAddressRef.current = false;
-              selectAllOnFocusRef.current = false;
-            }}
-            onChange={(event) => setAddress(event.target.value)}
-            className="h-7 w-full rounded-md border border-border bg-background px-2.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary/70 focus:ring-1 focus:ring-primary/30"
-            placeholder="Enter a URL"
-          />
-        </form>
+        />
 
         <AstryxSelect
           ariaLabel="Zoom"
@@ -1068,12 +1068,16 @@ export function BrowserPanel({
             value: String(percent),
             label: `${percent}%`,
           }))}
-          onChange={(value) =>
+          onChange={(value) => {
+            const level = zoomLevelForPercent(Number(value));
+            desiredZoomRef.current = level;
             applyIntent({
               type: 'setZoom',
-              level: zoomLevelForPercent(Number(value)),
-            })
-          }
+              level,
+            });
+          }}
+          occludeNativeSurface={false}
+          preferAbove
           size="compact"
           className="w-20 shrink-0"
         />
@@ -1087,6 +1091,8 @@ export function BrowserPanel({
             { value: 'mobile', label: 'Mobile' },
           ]}
           onChange={(value) => changeDevicePreset(value as DevicePresetId)}
+          occludeNativeSurface={false}
+          preferAbove
           size="compact"
           className="w-24 shrink-0"
         />
@@ -1279,7 +1285,12 @@ export function BrowserPanel({
           data-testid="native-browser-surface"
           aria-busy={loading}
           aria-hidden={showBlankPage || !!loadError ? 'true' : undefined}
-          className="absolute inset-0 bg-background"
+          className={cn(
+            'absolute inset-0',
+            showBlankPage || loadError || !tab
+              ? 'bg-background'
+              : 'bg-transparent'
+          )}
           onPointerDown={() => applyIntent({ type: 'focus' })}
         />
         {!tab && !loadError && (

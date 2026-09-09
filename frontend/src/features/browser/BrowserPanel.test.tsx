@@ -10,6 +10,13 @@ import {
   useWorkspaceOverlay,
   WorkspaceOverlayProvider,
 } from '@/contexts/WorkspaceOverlayContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { clearLocalStorageCache } from '@/lib/safeStorage';
 import { BrowserPanel } from './BrowserPanel';
 import { discardRetainedBrowserTabs } from './browserTabRetention';
 import type { BrowserEvent, BrowserTab } from './browserTypes';
@@ -140,6 +147,8 @@ describe('BrowserPanel', () => {
 
   afterEach(() => {
     discardRetainedBrowserTabs();
+    window.localStorage.clear();
+    clearLocalStorageCache();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -230,7 +239,7 @@ describe('BrowserPanel', () => {
     expect(applyBrowserIntentMock).toHaveBeenNthCalledWith(2, 'browser-tab-1', {
       type: 'stop',
     });
-    expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue(
+    expect(screen.getByRole('combobox', { name: 'Address' })).toHaveValue(
       'https://example.test/docs'
     );
   });
@@ -291,7 +300,7 @@ describe('BrowserPanel', () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue(
+      expect(screen.getByRole('combobox', { name: 'Address' })).toHaveValue(
         'https://example.test/ready'
       )
     );
@@ -366,7 +375,7 @@ describe('BrowserPanel', () => {
       />
     );
 
-    const address = screen.getByRole('textbox', { name: 'Address' });
+    const address = screen.getByRole('combobox', { name: 'Address' });
     await waitFor(() => expect(address).toHaveValue(''));
     expect(address).toHaveFocus();
     expect(createBrowserTabMock).not.toHaveBeenCalled();
@@ -402,6 +411,23 @@ describe('BrowserPanel', () => {
         })
       )
     );
+  });
+
+  it('opens a transparent native surface hole after a page starts loading', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const surface = screen.getByTestId('native-browser-surface');
+    expect(surface).toHaveClass('bg-transparent');
+    expect(surface).not.toHaveClass('bg-background');
+    expect(surface).not.toHaveAttribute('aria-hidden');
   });
 
   it('lazily creates the browser tab when a dev-server URL is detected', async () => {
@@ -593,7 +619,7 @@ describe('BrowserPanel', () => {
     });
   });
 
-  it('hides the native surface while a toolbar select is open', async () => {
+  it('keeps the native surface visible while the in-panel zoom menu is open', async () => {
     render(
       <WorkspaceOverlayProvider>
         <BrowserPanel
@@ -620,6 +646,55 @@ describe('BrowserPanel', () => {
     fireEvent.click(screen.getByRole('combobox', { name: 'Zoom' }));
 
     expect(screen.getByRole('listbox', { name: 'Zoom' })).toBeInTheDocument();
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({
+        type: 'setSurface',
+        surface: expect.objectContaining({ visible: false }),
+      })
+    );
+  });
+
+  it('hides the native surface while a portaled dropdown menu is open', async () => {
+    render(
+      <WorkspaceOverlayProvider>
+        <BrowserPanel
+          initialUrl="https://example.test"
+          requestNonce={1}
+          workspaceId="workspace-1"
+          visible
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button">Open app menu</button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>Back to home</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </WorkspaceOverlayProvider>
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    applyBrowserIntentMock.mockClear();
+
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Open app menu' }),
+      { button: 0 }
+    );
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Back to home' })
+    ).toBeVisible();
     expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
       type: 'setSurface',
       surface: { ...initialSurface, visible: false },
@@ -915,7 +990,7 @@ describe('BrowserPanel', () => {
       />
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
-    const address = screen.getByRole('textbox', { name: 'Address' });
+    const address = screen.getByRole('combobox', { name: 'Address' });
     fireEvent.change(address, { target: { value: 'example.org/docs' } });
     fireEvent.submit(address.closest('form')!);
 
@@ -930,6 +1005,49 @@ describe('BrowserPanel', () => {
     expect(createBrowserTabMock).toHaveBeenCalledOnce();
   });
 
+  it('suggests previously submitted addresses from the URL bar', async () => {
+    const view = render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const address = screen.getByRole('combobox', { name: 'Address' });
+    fireEvent.change(address, { target: { value: 'github.com/vibex' } });
+    fireEvent.submit(address.closest('form')!);
+    view.unmount();
+
+    render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Address' }));
+    expect(
+      screen.getByRole('option', { name: 'https://github.com/vibex' })
+    ).toBeVisible();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Address' }), {
+      target: { value: 'git' },
+    });
+    fireEvent.click(
+      screen.getByRole('option', { name: 'https://github.com/vibex' })
+    );
+    await waitFor(() =>
+      expect(createBrowserTabMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialUrl: 'https://github.com/vibex',
+        })
+      )
+    );
+  });
+
   it('selects the current address when the URL field is focused', async () => {
     render(
       <BrowserPanel
@@ -941,7 +1059,7 @@ describe('BrowserPanel', () => {
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
     const select = vi.spyOn(HTMLInputElement.prototype, 'select');
-    fireEvent.focus(screen.getByRole('textbox', { name: 'Address' }));
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Address' }));
     expect(select).toHaveBeenCalled();
   });
 
@@ -957,7 +1075,7 @@ describe('BrowserPanel', () => {
       />
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
-    const address = screen.getByRole('textbox', { name: 'Address' });
+    const address = screen.getByRole('combobox', { name: 'Address' });
     fireEvent.change(address, { target: { value: 'gmail.com' } });
     fireEvent.submit(address.closest('form')!);
 
@@ -1098,7 +1216,7 @@ describe('BrowserPanel', () => {
         screen.getByRole('button', { name: 'Developer Tools' })
       ).toBeEnabled()
     );
-    const address = screen.getByRole('textbox', { name: 'Address' });
+    const address = screen.getByRole('combobox', { name: 'Address' });
     fireEvent.change(address, { target: { value: 'localhost:5173' } });
     fireEvent.submit(address.closest('form')!);
 
@@ -1110,6 +1228,47 @@ describe('BrowserPanel', () => {
     view.unmount();
     await waitFor(() =>
       expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-1')
+    );
+  });
+
+  it('applies the default 80% zoom after Chromium finishes loading', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const defaultZoom = Math.log(0.8) / Math.log(1.2);
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setZoom',
+        level: defaultZoom,
+      })
+    );
+    applyBrowserIntentMock.mockClear();
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ loading: true, zoomLevel: 0 }),
+      });
+    });
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ loading: false, zoomLevel: 0 }),
+      });
+    });
+
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setZoom',
+      level: defaultZoom,
+    });
+    expect(screen.getByRole('combobox', { name: 'Zoom' })).toHaveTextContent(
+      '80%'
     );
   });
 

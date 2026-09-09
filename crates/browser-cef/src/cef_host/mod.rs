@@ -28,6 +28,11 @@ pub type PumpScheduler = Arc<dyn Fn(i64) + Send + Sync + 'static>;
 const BROWSER_VIEW_TEARDOWN_DELAY_MS: i64 = 16;
 // ARGB for the opaque light content surface defined by DESIGN.md (#fafbfc).
 const BROWSER_CONTENT_BACKGROUND_COLOR: u32 = 0xFFFAFBFC;
+// Chrome style is the CEF default. A browser parented to Tauri's HWND must use
+// Alloy style or Chromium keeps Chrome UI chrome (status bubble) while the
+// web-contents compositor can stay blank on Windows.
+const WINDOWS_CEF_DISABLED_FEATURES: &str =
+    "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
 
 fn browser_settings() -> BrowserSettings {
     BrowserSettings {
@@ -128,9 +133,68 @@ cef::wrap_app! {
     }
 
     impl App {
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefString>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            apply_embedded_command_line(command_line);
+        }
+
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {
             Some(self.process_handler.clone())
         }
+    }
+}
+
+fn apply_embedded_command_line(command_line: Option<&mut CommandLine>) {
+    let Some(command_line) = command_line else {
+        return;
+    };
+    command_line.append_switch_with_value(
+        Some(&CefString::from("disable-features")),
+        Some(&CefString::from(WINDOWS_CEF_DISABLED_FEATURES)),
+    );
+}
+
+fn child_window_info(parent: usize, surface: &BrowserSurface) -> WindowInfo {
+    let mut window_info = WindowInfo::default().set_as_child(
+        native::parent_handle(parent),
+        &native::surface_rect(surface),
+    );
+    window_info.runtime_style = RuntimeStyle::ALLOY;
+    window_info
+}
+
+fn remember_zoom_level(registry: &RefCell<BrowserRegistry>, command: &BrowserEngineCommand) {
+    if let BrowserEngineCommand::SetZoom { tab_id, level } = command {
+        registry
+            .borrow_mut()
+            .zoom_levels
+            .insert(tab_id.clone(), *level);
+    }
+}
+
+fn apply_stored_zoom(registry: &BrowserRegistry, tab_id: &BrowserTabId, browser: &Browser) {
+    let Some(level) = registry.zoom_levels.get(tab_id).copied() else {
+        return;
+    };
+    if let Some(host) = browser.host() {
+        host.set_zoom_level(level);
+    }
+}
+
+fn configure_devtools_popup(
+    window_info: Option<&mut WindowInfo>,
+    use_default_window: Option<&mut i32>,
+) {
+    // Alloy child browsers cannot host DevTools. Chrome style + a default OS
+    // window is the supported popup path.
+    if let Some(window_info) = window_info {
+        window_info.runtime_style = RuntimeStyle::CHROME;
+    }
+    if let Some(use_default_window) = use_default_window {
+        *use_default_window = 1;
     }
 }
 
@@ -207,6 +271,7 @@ struct BrowserRegistry {
     browsers: HashMap<BrowserTabId, Browser>,
     devtools: HashMap<BrowserTabId, Registration>,
     surfaces: HashMap<BrowserTabId, BrowserSurface>,
+    zoom_levels: HashMap<BrowserTabId, f64>,
     pending: HashMap<BrowserTabId, Vec<BrowserEngineCommand>>,
     pending_permissions: HashMap<(BrowserTabId, u64), PendingPermission>,
     downloads: HashMap<(BrowserTabId, u32), DownloadItemCallback>,
@@ -298,6 +363,7 @@ impl CefSession {
             } => self.cancel_download(tab_id, download_id),
             command => {
                 let tab_id = command_tab_id(&command).clone();
+                remember_zoom_level(&self.registry, &command);
                 let browser = self.registry.borrow().browsers.get(&tab_id).cloned();
                 if let Some(browser) = browser {
                     execute_browser_command(&browser, &command)?;
@@ -367,10 +433,7 @@ impl CefSession {
     ) -> Result<(), CefHostError> {
         let mut request_context = self.request_context(&profile, &tab_id)?;
         let parent = parent_handle.unwrap_or(self.parent.0);
-        let window_info = WindowInfo::default().set_as_child(
-            native::parent_handle(parent),
-            &native::surface_rect(&surface),
-        );
+        let window_info = child_window_info(parent, &surface);
         let mut client =
             VibeXClient::new(tab_id.clone(), self.runtime.clone(), self.registry.clone());
         let url = CefString::from(initial_url.as_str());
@@ -485,7 +548,7 @@ fn execute_browser_command(
             browser
                 .host()
                 .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
-                .show_dev_tools(None, None, Some(&browser_settings()), None);
+                .show_dev_tools(None, None, None, None);
         }
         BrowserEngineCommand::SetZoom { level, .. } => {
             browser
@@ -618,7 +681,11 @@ cef::wrap_client! {
         }
 
         fn load_handler(&self) -> Option<LoadHandler> {
-            Some(VibeXLoadHandler::new(self.tab_id.clone(), self.runtime.clone()))
+            Some(VibeXLoadHandler::new(
+                self.tab_id.clone(),
+                self.runtime.clone(),
+                self.registry.clone(),
+            ))
         }
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
@@ -845,6 +912,18 @@ cef::wrap_life_span_handler! {
             1
         }
 
+        fn on_before_dev_tools_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            use_default_window: Option<&mut i32>,
+        ) {
+            configure_devtools_popup(window_info, use_default_window);
+        }
+
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             let Some(browser) = browser.cloned() else {
                 return;
@@ -878,6 +957,7 @@ cef::wrap_life_span_handler! {
             for command in pending {
                 let _ = execute_browser_command(&browser, &command);
             }
+            apply_stored_zoom(&self.registry.borrow(), &self.tab_id, &browser);
         }
 
         fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
@@ -894,6 +974,7 @@ cef::wrap_life_span_handler! {
             registry.browsers.remove(&self.tab_id);
             registry.devtools.remove(&self.tab_id);
             registry.surfaces.remove(&self.tab_id);
+            registry.zoom_levels.remove(&self.tab_id);
             registry.pending.remove(&self.tab_id);
         }
     }
@@ -955,16 +1036,20 @@ cef::wrap_load_handler! {
     struct VibeXLoadHandler {
         tab_id: BrowserTabId,
         runtime: Arc<BrowserRuntime>,
+        registry: Rc<RefCell<BrowserRegistry>>,
     }
 
     impl LoadHandler {
         fn on_loading_state_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             is_loading: i32,
             can_go_back: i32,
             can_go_forward: i32,
         ) {
+            if is_loading == 0 && let Some(browser) = browser {
+                apply_stored_zoom(&self.registry.borrow(), &self.tab_id, browser);
+            }
             publish_navigation_state(
                 &self.runtime,
                 &self.tab_id,
@@ -1108,5 +1193,45 @@ mod cancelled_load_error_tests {
             "ERR_SOCKET_NOT_CONNECTED",
             "ERR_SOCKET_NOT_CONNECTED"
         ));
+    }
+}
+
+#[cfg(test)]
+mod embedded_window_tests {
+    use browser_runtime::BrowserSurface;
+    use cef::{RuntimeStyle, WindowInfo};
+
+    use super::{WINDOWS_CEF_DISABLED_FEATURES, child_window_info};
+
+    fn surface() -> BrowserSurface {
+        BrowserSurface {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+            scale_factor: 1.0,
+            visible: true,
+        }
+    }
+
+    #[test]
+    fn child_browsers_use_alloy_style_for_an_external_parent() {
+        let info = child_window_info(1, &surface());
+        assert_eq!(info.runtime_style, RuntimeStyle::ALLOY);
+    }
+
+    #[test]
+    fn windows_command_line_disables_native_window_occlusion() {
+        assert!(WINDOWS_CEF_DISABLED_FEATURES.contains("CalculateNativeWinOcclusion"));
+        assert!(WINDOWS_CEF_DISABLED_FEATURES.contains("ApplyNativeOcclusionToCompositor"));
+    }
+
+    #[test]
+    fn devtools_popup_uses_a_chrome_style_os_window() {
+        let mut window_info = WindowInfo::default();
+        let mut use_default_window = 0;
+        super::configure_devtools_popup(Some(&mut window_info), Some(&mut use_default_window));
+        assert_eq!(window_info.runtime_style, RuntimeStyle::CHROME);
+        assert_eq!(use_default_window, 1);
     }
 }

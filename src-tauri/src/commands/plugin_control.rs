@@ -2194,6 +2194,9 @@ pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
             return;
         }
     };
+    if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
+        tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
+    }
     for plugin in plugins.iter().filter(|plugin| {
         plugin.activation == plugins::PluginActivation::Enabled
             && plugin

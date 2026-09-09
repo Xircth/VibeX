@@ -2417,8 +2417,8 @@ use std::{
 
 use agents::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentAutoApproveMode,
-    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, ArtifactTrust,
-    AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
+    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, AgentUpdateCheckInput,
+    ArtifactTrust, AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
     InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
     LockedInstallSource, MANAGED_NODE_VERSION, MANAGED_UV_VERSION, NativeConfigFilePatch,
     NativeConfigPatch, NativeConfigProvider, NativeFileMutation, NativeFileSystem,
@@ -2427,16 +2427,15 @@ use agents::{
     REGISTRY_REFRESH_TIMEOUT, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
     ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint,
     TokioNativeFileSystem, UserEnvironmentAdoptDecision, UserEnvironmentLayout,
-    apply_component_versions, apply_npx_component_version, authentication_with_bound_provider,
-    bind_runtime_executable_env, decide_user_environment_adopt, ensure_user_cli_path,
-    existing_path_satisfies_component, export_managed_node_to_user_environment, fetch_npm_latest,
-    fetch_npm_package_requirements, managed_node_artifact, managed_node_download_urls,
-    managed_uv_artifact, node_verified_for_install, npm_global_install_args,
-    npm_install_permission_denied, npm_shim_candidates, observed_satisfies_profile,
-    plan_required_components, planned_preflight_updates, publish_managed_runtime_cli,
-    remove_managed_runtime_cli, resolve_npm_shim, runtime_acp_compatibility_warning,
-    switch_managed_runtime_cli, uv_distribution_name, uv_verified_for_install,
-    verify_artifact_bytes,
+    apply_component_versions, authentication_with_bound_provider, bind_runtime_executable_env,
+    compose_agent_update_check, decide_user_environment_adopt, ensure_user_cli_path,
+    existing_path_satisfies_component, export_managed_node_to_user_environment,
+    managed_node_artifact, managed_node_download_urls, managed_uv_artifact,
+    node_verified_for_install, npm_global_install_args, npm_install_permission_denied,
+    npm_shim_candidates, observed_satisfies_profile, overlay_npx_latest_from_npm,
+    plan_required_components, plan_runtime_acp_compatibility_warning, publish_managed_runtime_cli,
+    remove_managed_runtime_cli, resolve_npm_shim, switch_managed_runtime_cli, uv_distribution_name,
+    uv_verified_for_install, verify_artifact_bytes,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeOptionView, AgentAuthModeView,
@@ -5049,9 +5048,10 @@ pub async fn agent_management_check_update(
     agent_id: AgentId,
     runtime_version: Option<String>,
     acp_version: Option<String>,
+    force: Option<bool>,
 ) -> Result<AgentUpdateCheckView, AgentManagementErrorView> {
     let pool = &state.deployment.db().pool;
-    let freshness = refresh_registry_snapshot(pool, false)
+    let freshness = refresh_registry_snapshot(pool, force.unwrap_or(false))
         .await
         .unwrap_or((RegistryCacheFreshness::Empty, None))
         .0;
@@ -5065,6 +5065,11 @@ pub async fn agent_management_check_update(
         });
     let current = current_lock_components(pool, &agent_id).await?;
     let mut plan = resolve_install_plan(pool, &agent_id).await.ok();
+    let mut overlay_fetched = if let Some(plan) = plan.as_mut() {
+        overlay_npx_latest_from_npm(plan).await
+    } else {
+        Vec::new()
+    };
     if let Some(plan) = plan.as_mut() {
         let runtime =
             sanitize_optional_custom_version(runtime_version.as_deref()).map_err(|message| {
@@ -5091,55 +5096,35 @@ pub async fn agent_management_check_update(
                     )
                 },
             )?;
+            if acp.is_some() {
+                overlay_fetched.push("acp_adapter".to_string());
+                overlay_fetched.push("combined_runtime".to_string());
+            }
+            if runtime.is_some() {
+                overlay_fetched.push("agent_runtime".to_string());
+            }
         }
     }
-    let updates = plan
-        .as_ref()
-        .map(|plan| planned_preflight_updates(&plan.components, &current))
-        .unwrap_or_default();
-    let version_of = |id: &str| {
-        current
-            .iter()
-            .find(|component| component.component_id == id)
-            .and_then(|component| component.version.clone())
-    };
-    let available_of = |id: &str| {
-        plan.as_ref().and_then(|plan| {
-            plan.components
-                .iter()
-                .find(|component| component.component_id == id)
-                .map(|component| component.version.clone())
-        })
-    };
-    let runtime_current = version_of("agent_runtime").or_else(|| version_of("combined_runtime"));
-    let runtime_available =
-        available_of("agent_runtime").or_else(|| available_of("combined_runtime"));
-    let acp_current = version_of("acp_adapter").or_else(|| version_of("combined_runtime"));
-    let acp_available = available_of("acp_adapter").or_else(|| available_of("combined_runtime"));
-    let primary = updates
-        .iter()
-        .find(|update| update.item_id == "acp")
-        .or_else(|| updates.first());
     let compatibility_warning = match plan.as_ref() {
-        Some(plan) => compatibility_warning_for_plan(plan).await,
+        Some(plan) => {
+            plan_runtime_acp_compatibility_warning(plan, &agents::NpmRegistryHttpFetcher::new())
+                .await
+        }
         None => None,
     };
-    Ok(AgentUpdateCheckView {
+    let fresh = fresh || !overlay_fetched.is_empty();
+    Ok(compose_agent_update_check(AgentUpdateCheckInput {
         agent_id,
-        update_available: primary.is_some(),
-        current_version: primary.map(|update| update.current_version.clone()),
-        available_version: primary.map(|update| update.available_version.clone()),
-        runtime_current,
-        runtime_available,
-        acp_current,
-        acp_available,
-        compatibility_warning,
+        current: &current,
+        plan: plan.as_ref(),
+        overlay_fetched: &overlay_fetched,
         snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
         fetched_at: snapshot
             .as_ref()
             .map(|snapshot| snapshot.fetched_at.to_rfc3339()),
         fresh,
-    })
+        compatibility_warning,
+    }))
 }
 
 #[tauri::command]
@@ -6182,23 +6167,21 @@ async fn resolve_install_plan(
         .ok_or_else(|| anyhow::anyhow!("Agent 尚未添加"))?;
     let source = match membership.source {
         AgentSource::BuiltInProfile => {
-            // ADR-0038 方向 A:存在 fresh Registry snapshot 且该内置 Agent 有
-            // registry binding 时,更新目标解析自 snapshot;离线/过期回退
-            // Profile 锁版本。
+            // Last official catalog is the known update target. The 24h window
+            // only decides whether to re-fetch (see refresh_registry_snapshot);
+            // discarding a stale snapshot falls back to the Profile pin and
+            // reports "already latest" when the machine is ahead of that pin
+            // but behind npm/Registry (Codex ACP 1.8.0 vs 1.10.0).
             let store =
                 AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
             let snapshot = store.load().await?;
-            let registry_target = snapshot
-                .filter(|snapshot| {
-                    Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
-                })
-                .and_then(|snapshot| {
-                    agents::registry_target_for_built_in_update(
-                        &agents::BuiltInProfileCatalog::bundled(),
-                        &snapshot,
-                        agent_id,
-                    )
-                });
+            let registry_target = snapshot.and_then(|snapshot| {
+                agents::registry_target_for_built_in_update(
+                    &agents::BuiltInProfileCatalog::bundled(),
+                    &snapshot,
+                    agent_id,
+                )
+            });
             match registry_target {
                 Some(target) => {
                     InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target))
@@ -6240,58 +6223,8 @@ async fn resolve_install_plan(
         platform: agents::current_platform(),
         environment,
     })?;
-    overlay_npx_latest_versions(&mut plan).await;
+    overlay_npx_latest_from_npm(&mut plan).await;
     Ok(plan)
-}
-
-async fn overlay_npx_latest_versions(plan: &mut ResolvedInstallPlan) {
-    let fetcher = agents::NpmRegistryHttpFetcher::new();
-    for component in &mut plan.components {
-        if component.distribution_kind != PlannedDistributionKind::Npx {
-            continue;
-        }
-        let package = agents::npm_package_name(&component.resolved_source);
-        let Ok(latest) = fetch_npm_latest(&fetcher, &package).await else {
-            continue;
-        };
-        apply_npx_component_version(component, &latest);
-    }
-    if let Some(runtime) = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "agent_runtime")
-    {
-        plan.version.clone_from(&runtime.version);
-    } else if let Some(combined) = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "combined_runtime")
-    {
-        plan.version.clone_from(&combined.version);
-    }
-}
-
-async fn compatibility_warning_for_plan(plan: &ResolvedInstallPlan) -> Option<String> {
-    let runtime = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "agent_runtime")?;
-    let acp = plan
-        .components
-        .iter()
-        .find(|component| component.component_id == "acp_adapter")?;
-    if runtime.distribution_kind != PlannedDistributionKind::Npx
-        || acp.distribution_kind != PlannedDistributionKind::Npx
-    {
-        return None;
-    }
-    let runtime_package = agents::npm_package_name(&runtime.resolved_source);
-    let acp_package = agents::npm_package_name(&acp.resolved_source);
-    let fetcher = agents::NpmRegistryHttpFetcher::new();
-    let requirements = fetch_npm_package_requirements(&fetcher, &acp_package, &acp.version)
-        .await
-        .ok()?;
-    runtime_acp_compatibility_warning(&runtime_package, &runtime.version, &requirements)
 }
 
 async fn resolve_repair_plan(

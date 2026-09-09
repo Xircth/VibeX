@@ -15,7 +15,7 @@ use db::models::{
     project::{CreateProject, Project, UpdateProject},
     project_repo::{CreateProjectRepo, ProjectRepo},
     repo::Repo,
-    session::{CreateSession, Session, SessionStatus},
+    session::{CreateSession, Session, SessionStatus, untitled_fallback_numbers},
     task::{CreateTask, Task, TaskStatus},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -812,28 +812,22 @@ impl ServerApplicationDomains {
         let pinned_at_by_id = pinned_rows
             .into_iter()
             .collect::<std::collections::HashMap<_, _>>();
-        let mut fallback_number = 0usize;
+        let fallback_numbers = untitled_fallback_numbers(&sessions);
         serialize(
             sessions
                 .into_iter()
                 .map(|session| {
                     let first_prompt = session.initial_prompt.clone();
-                    let needs_fallback = session
-                        .name
-                        .as_deref()
-                        .is_none_or(|value| value.trim().is_empty())
-                        && first_prompt
-                            .as_deref()
-                            .is_none_or(|value| value.trim().is_empty());
-                    if needs_fallback {
-                        fallback_number += 1;
-                    }
                     json!({
                         "id": session.id,
                         "workspace_id": session.workspace_id,
                         "task_id": session.task_id,
                         "name": session.name,
-                        "display_name": session_display_name(&session, first_prompt.as_deref(), fallback_number),
+                        "display_name": session_display_name(
+                            &session,
+                            first_prompt.as_deref(),
+                            fallback_numbers.get(&session.id).copied().unwrap_or(0),
+                        ),
                         "status": session.status,
                         "executor": session.executor,
                         "agent_id": session.agent_id,

@@ -2956,13 +2956,16 @@ fn deepseek_harness_profile() -> BuiltInProfile {
         }),
         topology: ProfileTopology::NativeAcp,
         supported_platforms: DESKTOP_PLATFORMS,
+        // 0.8.0 matches Codeg: stdio ACP, no args. 0.6.0 added image prompts
+        // and compaction log events; 0.8.0 names AIR historical fork via log
+        // `message.id`. Keep `version` and `package` in lockstep.
         install_sources: vec![native_npx(
             "deepseek-acp",
-            "0.3.0",
+            "0.8.0",
             "deepseek-acp",
             &[],
             ">=22",
-            "sha512-Mj3vEK/RY6+M0U1CWnAwGJ0A1ylI4lIg0CwmwiPTCl8V84syvug4jM6GzzjhDhhKaxGiJFtAOOCx1eF6yAEAfQ==",
+            "sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg==",
         )],
         external_candidates: DEEPSEEK_HARNESS_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,

@@ -6,12 +6,15 @@ use std::{
 };
 
 use agents::{
-    AgentId, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider, NativeConfigSnapshot,
-    NativeFileSystem, ProfileComponent, ProfileManagementActionKind, TokioNativeFileSystem,
-    apply_built_in_auth_mode_policy, apply_codex_auth_mode, auth_mode_credential_env,
-    auth_mode_kind, authentication_from_account_command, built_in_auth_mode_policy,
-    native_uses_custom_endpoint, official_api_url, project_codex_auth_mode, resolve_account_label,
-    resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
+    AgentId, AgentUpdateCheckInput, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider,
+    NativeConfigSnapshot, NativeFileSystem, NpmRegistryHttpFetcher, ObservedUserComponent,
+    ProfileComponent, ProfileManagementActionKind, RegistryCacheFreshness, TokioNativeFileSystem,
+    apply_built_in_auth_mode_policy, apply_codex_auth_mode, apply_component_versions,
+    auth_mode_credential_env, auth_mode_kind, authentication_from_account_command,
+    built_in_auth_mode_policy, compose_agent_update_check, native_uses_custom_endpoint,
+    official_api_url, plan_runtime_acp_compatibility_warning, project_codex_auth_mode,
+    resolve_account_label, resolve_built_in_auth_mode, resolve_observed_authentication,
+    version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -25,9 +28,12 @@ use api_types::{
 };
 use application::ApplicationError;
 use chrono::Utc;
+use db::models::agent_management::RegistrySnapshotRepository;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use services::services::agent_management::AgentManagementApplicationService;
+use services::services::{
+    agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
+};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
@@ -89,8 +95,11 @@ struct AuthModeSetArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CheckUpdateArgs {
-    agent_id: AgentId,
+pub(crate) struct CheckUpdateArgs {
+    pub(crate) agent_id: AgentId,
+    pub(crate) runtime_version: Option<String>,
+    pub(crate) acp_version: Option<String>,
+    pub(crate) force: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -175,12 +184,74 @@ pub async fn dispatch_auth_mode_set(
     serialize(auth_mode_set(pool, args.agent_id, args.mode, args.api_key).await?)
 }
 
-pub async fn dispatch_check_update(
+pub async fn check_update(
     pool: &SqlitePool,
-    args: Value,
-) -> Result<Value, ApplicationError> {
-    let args: CheckUpdateArgs = parse(args)?;
-    serialize(check_update(pool, args.agent_id).await?)
+    args: CheckUpdateArgs,
+    freshness: RegistryCacheFreshness,
+) -> Result<AgentUpdateCheckView, ApplicationError> {
+    let agent_id = args.agent_id;
+    let components = installed_components(pool, &agent_id).await?;
+    let current = components
+        .iter()
+        .map(|component| ObservedUserComponent {
+            component_id: component.kind.clone(),
+            version: Some(component.version.clone()),
+        })
+        .collect::<Vec<_>>();
+    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()))
+        .load()
+        .await
+        .map_err(internal_error)?;
+    let (mut plan, mut overlay_fetched) =
+        match crate::plan_host_agent_install_with_overlay(pool, agent_id.as_str()).await {
+            Ok((plan, overlay_fetched)) => (Some(plan), overlay_fetched),
+            Err(_) => (None, Vec::new()),
+        };
+    let runtime = args
+        .runtime_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let acp = args
+        .acp_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(plan) = plan.as_mut()
+        && (runtime.is_some() || acp.is_some())
+    {
+        apply_component_versions(plan, runtime, acp).map_err(ApplicationError::bad_request)?;
+        if acp.is_some() {
+            overlay_fetched.push("acp_adapter".to_string());
+            overlay_fetched.push("combined_runtime".to_string());
+        }
+        if runtime.is_some() {
+            overlay_fetched.push("agent_runtime".to_string());
+        }
+    }
+    let compatibility_warning = match plan.as_ref() {
+        Some(plan) => {
+            plan_runtime_acp_compatibility_warning(plan, &NpmRegistryHttpFetcher::new()).await
+        }
+        None => None,
+    };
+    let fresh = freshness == RegistryCacheFreshness::Fresh
+        || snapshot.as_ref().is_some_and(|snapshot| {
+            Utc::now().signed_duration_since(snapshot.fetched_at) <= chrono::Duration::hours(24)
+        })
+        || !overlay_fetched.is_empty();
+    Ok(compose_agent_update_check(AgentUpdateCheckInput {
+        agent_id,
+        current: &current,
+        plan: plan.as_ref(),
+        overlay_fetched: &overlay_fetched,
+        snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
+        fetched_at: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.fetched_at.to_rfc3339()),
+        fresh,
+        compatibility_warning,
+    }))
 }
 
 pub async fn dispatch_discovery_progress(
@@ -880,35 +951,6 @@ pub async fn auth_mode_set(
     persist_agent_environment(pool, &agent_id, &env).await?;
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
-}
-
-pub async fn check_update(
-    pool: &SqlitePool,
-    agent_id: AgentId,
-) -> Result<AgentUpdateCheckView, ApplicationError> {
-    let components = installed_components(pool, &agent_id).await?;
-    let version_of = |id: &str| {
-        components
-            .iter()
-            .find(|component| component.kind == id)
-            .map(|component| component.version.clone())
-    };
-    let runtime_current = version_of("agent_runtime").or_else(|| version_of("combined_runtime"));
-    let acp_current = version_of("acp_adapter").or_else(|| version_of("combined_runtime"));
-    Ok(AgentUpdateCheckView {
-        agent_id,
-        current_version: acp_current.clone().or(runtime_current.clone()),
-        available_version: None,
-        update_available: false,
-        runtime_current,
-        runtime_available: None,
-        acp_current,
-        acp_available: None,
-        compatibility_warning: None,
-        snapshot_id: None,
-        fetched_at: None,
-        fresh: false,
-    })
 }
 
 pub async fn discovery_progress(

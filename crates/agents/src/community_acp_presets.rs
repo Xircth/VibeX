@@ -19,7 +19,7 @@ pub struct CommunityAcpPreset {
     pub icon_dark: &'static str,
 }
 
-const DEEPSEEK_HARNESS_DISTRIBUTION: &str = r#"{"npx":{"package":"deepseek-acp@0.3.0","args":[],"env":{},"integrity":"sha512-Mj3vEK/RY6+M0U1CWnAwGJ0A1ylI4lIg0CwmwiPTCl8V84syvug4jM6GzzjhDhhKaxGiJFtAOOCx1eF6yAEAfQ=="}}"#;
+const DEEPSEEK_HARNESS_DISTRIBUTION: &str = r#"{"npx":{"package":"deepseek-acp@0.8.0","args":[],"env":{},"integrity":"sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg=="}}"#;
 
 const COMMUNITY_ACP_PRESETS: &[CommunityAcpPreset] = &[CommunityAcpPreset {
     preset_id: "deepseek-acp",
@@ -28,7 +28,7 @@ const COMMUNITY_ACP_PRESETS: &[CommunityAcpPreset] = &[CommunityAcpPreset {
     description: "Community ACP adapter for DeepSeek Harness",
     authors: &["xintaofei"],
     repository: "https://github.com/xintaofei/deepseek-acp",
-    version: "0.3.0",
+    version: "0.8.0",
     distribution_kind: UserAgentDistributionKind::Npx,
     distribution_json: DEEPSEEK_HARNESS_DISTRIBUTION,
     icon_light: "/agents/deepseek-harness-light.svg",
@@ -61,10 +61,10 @@ mod tests {
             preset.distribution_json,
         )
         .expect("preset must parse as a locked user definition");
-        assert_eq!(definition.version, "0.3.0");
+        assert_eq!(definition.version, "0.8.0");
         assert_eq!(
             definition.distributions.npx.as_ref().unwrap().package,
-            "deepseek-acp@0.3.0"
+            "deepseek-acp@0.8.0"
         );
     }
 }

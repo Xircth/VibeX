@@ -70,6 +70,42 @@ function fallbackSessionName(summary: SessionSummary, label: string) {
   return `${label}1`;
 }
 
+export function fallbackSessionNamesByCreationOrder(
+  sessions: Array<{
+    id: string;
+    createdAt: string;
+    status: string;
+    workspaceId: string;
+  }>,
+  isFallback: (id: string) => boolean,
+  label: string
+): Map<string, string> {
+  const groups = new Map<string, typeof sessions>();
+  for (const session of sessions) {
+    if (!isFallback(session.id)) continue;
+    const statusKey = session.status === 'archived' ? 'archived' : 'active';
+    const groupKey = `${session.workspaceId}:${statusKey}`;
+    const group = groups.get(groupKey) ?? [];
+    group.push(session);
+    groups.set(groupKey, group);
+  }
+
+  const names = new Map<string, string>();
+  for (const group of groups.values()) {
+    [...group]
+      .sort((left, right) => {
+        const created =
+          dateTimestamp(left.createdAt) - dateTimestamp(right.createdAt);
+        if (created !== 0) return created;
+        return left.id.localeCompare(right.id);
+      })
+      .forEach((session, index) => {
+        names.set(session.id, `${label}${index + 1}`);
+      });
+  }
+  return names;
+}
+
 export function buildDefaultSessionName(
   summary: SessionSummary,
   t: TFunction<['app', 'common']>
@@ -256,23 +292,29 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
 
     const usedNamesByBaseName = new Map<string, Set<string>>();
     const occurrenceByBaseName = new Map<string, number>();
-    const fallbackOccurrences = new Map<string, number>();
+    const fallbackNames = fallbackSessionNamesByCreationOrder(
+      baseSessions.map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        status: session.status,
+        workspaceId: session.workspace.id,
+      })),
+      (id) => nameMetaById.get(id)?.source === 'fallback',
+      t('kanbanSessions.sessionFallback')
+    );
 
     return baseSessions.map((session) => {
       const baseName = session.fullName;
       const duplicateKey = getDuplicateKey(session);
       const total = totalsByBaseName.get(duplicateKey) ?? 1;
       const meta = nameMetaById.get(session.id);
+      const fallbackName = fallbackNames.get(session.id);
 
-      if (meta?.source === 'fallback') {
-        const statusKey = session.status === 'archived' ? 'archived' : 'active';
-        const occurrence = (fallbackOccurrences.get(statusKey) ?? 0) + 1;
-        fallbackOccurrences.set(statusKey, occurrence);
-        const resolvedName = `${t('kanbanSessions.sessionFallback')}${occurrence}`;
+      if (meta?.source === 'fallback' && fallbackName) {
         return {
           ...session,
-          fullName: resolvedName,
-          shortName: truncateSessionName(resolvedName),
+          fullName: fallbackName,
+          shortName: truncateSessionName(fallbackName),
         };
       }
 

@@ -1287,26 +1287,24 @@ export function IDELayout({
   useWorkspaceShortcuts();
 
   return (
-    <div className="workspace-shell relative flex h-full w-full flex-col">
-      <SearchPalette />
-      {toolbarContent && (
-        <div className="workspace-divider-bottom z-10 shrink-0">
-          {toolbarContent}
-        </div>
-      )}
+    <WorkspaceOverlayProvider nativeSurfaceOccluded={tabContextMenu !== null}>
+      <div className="workspace-shell relative flex h-full w-full flex-col">
+        <SearchPalette />
+        {toolbarContent && (
+          <div className="workspace-divider-bottom z-10 shrink-0">
+            {toolbarContent}
+          </div>
+        )}
 
-      <div className="flex min-h-0 flex-1">
-        {effectiveActiveTab === 'workspace' ? (
-          <WorkspaceActivityRail
-            isEditorAreaVisible={isEditorAreaVisible}
-            onToggleEditorArea={toggleEditorArea}
-          />
-        ) : null}
+        <div className="flex min-h-0 flex-1">
+          {effectiveActiveTab === 'workspace' ? (
+            <WorkspaceActivityRail
+              isEditorAreaVisible={isEditorAreaVisible}
+              onToggleEditorArea={toggleEditorArea}
+            />
+          ) : null}
 
-        <RightPanelSlotContext.Provider value={sessionPlacement}>
-          <WorkspaceOverlayProvider
-            nativeSurfaceOccluded={tabContextMenu !== null}
-          >
+          <RightPanelSlotContext.Provider value={sessionPlacement}>
             <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
               <div className="h-full">
                 <DockviewReact
@@ -1373,19 +1371,19 @@ export function IDELayout({
                 </div>
               )}
             </div>
-          </WorkspaceOverlayProvider>
-        </RightPanelSlotContext.Provider>
+          </RightPanelSlotContext.Provider>
 
-        {effectiveActiveTab === 'workspace' && rightPanelContent ? (
-          <RightPanelSidebar />
-        ) : null}
+          {effectiveActiveTab === 'workspace' && rightPanelContent ? (
+            <RightPanelSidebar />
+          ) : null}
+        </div>
+
+        {rightPanelContent && sessionContentHost
+          ? createPortal(rightPanelContent, sessionContentHost)
+          : null}
+
+        <StatusBar />
       </div>
-
-      {rightPanelContent && sessionContentHost
-        ? createPortal(rightPanelContent, sessionContentHost)
-        : null}
-
-      <StatusBar />
-    </div>
+    </WorkspaceOverlayProvider>
   );
 }

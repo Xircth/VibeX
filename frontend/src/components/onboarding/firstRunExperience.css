@@ -621,10 +621,25 @@
   width: 36px;
   height: 36px;
   place-items: center;
+  overflow: hidden;
   border: 1px solid hsl(var(--border) / 0.65);
   border-radius: var(--radius);
   color: hsl(var(--foreground));
   background: hsl(var(--card));
+}
+
+.onboarding-agent-icon > *,
+.onboarding-agent-icon .agent-management-brand-icon,
+.onboarding-agent-icon .agent-management-brand-artwork,
+.onboarding-agent-icon .agent-management-svg-icon,
+.onboarding-agent-icon img,
+.onboarding-agent-icon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  max-width: 24px;
+  max-height: 24px;
+  object-fit: contain;
 }
 
 .onboarding-agent-copy {
@@ -706,6 +721,24 @@
 .onboarding-default-agent-control {
   display: grid;
   gap: 6px;
+}
+
+.onboarding-default-agent-icon {
+  overflow: hidden;
+}
+
+.onboarding-default-agent-icon > *,
+.onboarding-default-agent-icon .agent-management-brand-icon,
+.onboarding-default-agent-icon .agent-management-brand-artwork,
+.onboarding-default-agent-icon .agent-management-svg-icon,
+.onboarding-default-agent-icon img,
+.onboarding-default-agent-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  max-width: 16px;
+  max-height: 16px;
+  object-fit: contain;
 }
 
 .onboarding-default-agent-control .is-awaiting-agent-selection {

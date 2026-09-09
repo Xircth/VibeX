@@ -1908,7 +1908,11 @@ export type AgentModelProviderImportPreviewView = { agent_id: AgentId, source: A
 
 export type AgentModelProviderImportRequest = { agent_id: AgentId, source: AgentModelProviderImportSource, source_ids: Array<string>, };
 
-export type ImportedAgentMessageMetadata = { kind?: string | null, tool_call_id?: string | null, tool_name?: string | null, tool_status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, model?: string | null, input_tokens?: number | null, output_tokens?: number | null, cost?: number | null, parent_session_id?: string | null, };
+export type ImportedAgentMessageMetadata = { kind?: string | null, tool_call_id?: string | null, tool_name?: string | null, tool_status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, model?: string | null, input_tokens?: number | null, output_tokens?: number | null, cost?: number | null, parent_session_id?: string | null,
+/**
+ * Log identity the agent accepts as an AIR fork `messageId`.
+ */
+agent_message_id?: string | null, };
 
 export type PiCommandValidationView = { found: boolean, resolved_path: string | null, version: string | null, };
 

@@ -1,7 +1,12 @@
+import { useLayoutEffect } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  useWorkspaceOverlay,
+  WorkspaceOverlayProvider,
+} from '@/contexts/WorkspaceOverlayContext';
 import { AstryxSelect } from './astryx-select';
 
 const options = [
@@ -208,5 +213,34 @@ describe('AstryxSelect', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('can open without occluding native surfaces', async () => {
+    const onOcclusionChange = vi.fn();
+    function Bridge() {
+      const { subscribeNativeSurfaceOcclusion } = useWorkspaceOverlay();
+      useLayoutEffect(
+        () => subscribeNativeSurfaceOcclusion(onOcclusionChange),
+        [subscribeNativeSurfaceOcclusion]
+      );
+      return null;
+    }
+    const user = userEvent.setup();
+    render(
+      <WorkspaceOverlayProvider>
+        <Bridge />
+        <AstryxSelect
+          ariaLabel="Zoom"
+          value="80"
+          options={[{ value: '80', label: '80%' }]}
+          onChange={vi.fn()}
+          occludeNativeSurface={false}
+          preferAbove
+        />
+      </WorkspaceOverlayProvider>
+    );
+    await user.click(screen.getByLabelText('Zoom'));
+    expect(screen.getByRole('listbox', { name: 'Zoom' })).toBeInTheDocument();
+    expect(onOcclusionChange).not.toHaveBeenCalledWith(true);
   });
 });

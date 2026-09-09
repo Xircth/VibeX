@@ -11,10 +11,13 @@ pub const MENU_ID_OPEN_SETTINGS: &str = "app:open-settings";
 pub const LAUNCH_ARG_NEW_WINDOW: &str = "--new-window";
 pub const LAUNCH_ARG_OPEN_SETTINGS: &str = "--open-settings";
 
+#[cfg(any(target_os = "macos", windows))]
 const LABEL_NEW_WINDOW: &str = "新建窗口";
+#[cfg(any(target_os = "macos", windows))]
 const LABEL_OPEN_SETTINGS: &str = "打开设置";
 #[cfg(target_os = "macos")]
 const FILE_MENU_TITLE: &str = "文件";
+#[cfg(any(test, target_os = "macos"))]
 const EDIT_MENU_TITLE: &str = "编辑";
 #[cfg(target_os = "macos")]
 const VIEW_MENU_TITLE: &str = "显示";
@@ -100,7 +103,7 @@ fn install_app_menu(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]

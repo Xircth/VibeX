@@ -4,7 +4,9 @@
 //! It does not move the close/miniaturize/zoom buttons, so overlay lights stay
 //! glued to the top of a 36px toolbar. macOS alignment is applied directly.
 
+#[cfg(target_os = "macos")]
 const MACOS_TOOLBAR_HEIGHT: f64 = 36.0;
+#[cfg(target_os = "macos")]
 const MACOS_TRAFFIC_LIGHT_X: f64 = 16.0;
 
 pub fn apply_app_window_chrome<'a, R, M>(

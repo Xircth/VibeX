@@ -44,7 +44,7 @@ fn navigate_settings_window(window: &tauri::WebviewWindow, path: &str) {
     let Ok(encoded) = serde_json::to_string(path) else {
         return;
     };
-    let _ = window.eval(&format!(
+    let _ = window.eval(format!(
         "if (location.pathname !== {encoded}) location.replace({encoded})"
     ));
 }

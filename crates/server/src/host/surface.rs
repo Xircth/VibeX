@@ -1604,8 +1604,7 @@ impl ServerApplicationDomains {
             apply_component_versions(&mut plan, runtime, acp.as_deref())
                 .map_err(ApplicationError::bad_request)?;
         }
-        let frozen_plan_json =
-            serde_json::to_string(&plan).map_err(internal_error)?;
+        let frozen_plan_json = serde_json::to_string(&plan).map_err(internal_error)?;
         let operation = InstallationOperationRepository::new(self.pool.clone())
             .enqueue(NewInstallationOperation {
                 agent_id: agent_id.clone(),

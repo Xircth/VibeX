@@ -41,6 +41,14 @@ Agent 上下文：
 
 新 Conversation 是一等 Dockview 面板；父会话不改挂到 S2。
 
+## 2026-09-09 更新：切点命名、创建前置条件与面板切换
+
+- Claude 历史切点发送 `messageId` + fingerprint + occurrence（claude-agent-acp ≥ 0.75.1）。
+- `tail` 是整段会话最后一个 assistant（含在途）。省略切点且最新 Turn 在途时拒绝（`fork_turn_in_flight`）。
+- 未命名的非尾部切点 **不创建** Conversation（`fork_point_unnamed`）。无 `session/fork` 不 insert。
+- `history_only` 仅在合法 insert 之后 binding/`session/fork` 失败，并写入 relation metadata。
+- 成功后 Kanban `rightSession` 切到 child，parent 不进入 monitor。
+
 ## Considered Options
 
 - **引用父日志（copy-on-write）**：子会话只记 `parent_id + fork_point_sequence`，读取时拼接两段 —— 被否决：现有 `conversation_truncate_to_turn` 会**物理删除**父会话事件，引用语义下会静默破坏子会话完整性，需要级联保护；投影、FTS 索引（P1-2）、导出（P1-3）、批次 C 单投影协议全部要增加拼接分支。省下的存储（共同前缀，多为小文本事件）不值这些复杂度。

@@ -1772,10 +1772,24 @@ impl ConversationSessionService {
                         .reason
                         .unwrap_or_else(|| "Agent found no running Turn".to_string()),
                 },
-                agents::AgentSteerOutcome::StartedNewTurn => SteeringSettlement::Unknown {
-                    message: "Agent started a new Turn despite promptRequired fallback policy"
-                        .to_string(),
-                },
+                agents::AgentSteerOutcome::StartedNewTurn => {
+                    let _ = self
+                        .append_event(
+                            input.conversation_id,
+                            Some(input.expected_turn_id),
+                            "runtime",
+                            ConversationEvent::DeliveryChannelLatched {
+                                from: agents::conversation::DeliveryChannel::Native,
+                                to: agents::conversation::DeliveryChannel::None,
+                            },
+                            None,
+                        )
+                        .await;
+                    SteeringSettlement::Unknown {
+                        message: "Agent started a new Turn despite promptRequired fallback policy"
+                            .to_string(),
+                    }
+                }
             },
             Err(agents::AgentError::SteeringUnsupported) => SteeringSettlement::Rejected {
                 code: "steering_unsupported",

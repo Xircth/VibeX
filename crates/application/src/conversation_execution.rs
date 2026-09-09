@@ -299,6 +299,32 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         };
         companion.list_feedback(conversation_id).await
     }
+
+    async fn salvage_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+        note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        let Some(companion) = &self.companion else {
+            return Err(ApplicationError::capability_unavailable(
+                "live feedback is not configured",
+            ));
+        };
+        companion.salvage_feedback(conversation_id, note_id).await
+    }
+
+    async fn dismiss_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+        note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        let Some(companion) = &self.companion else {
+            return Err(ApplicationError::capability_unavailable(
+                "live feedback is not configured",
+            ));
+        };
+        companion.dismiss_feedback(conversation_id, note_id).await
+    }
 }
 
 fn map_service_error(error: ConversationServiceError) -> ApplicationError {

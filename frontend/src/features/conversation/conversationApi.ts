@@ -309,6 +309,22 @@ export function createConversationApi(transport: BackendTransport) {
         request: { conversationId },
       }),
 
+    salvageFeedback: (request: {
+      conversationId: string;
+      noteId: string;
+    }): Promise<ConversationLiveFeedbackNote> =>
+      callApplicationCommand(transport, 'conversation_salvage_feedback', {
+        request,
+      }),
+
+    dismissFeedback: (request: {
+      conversationId: string;
+      noteId: string;
+    }): Promise<ConversationLiveFeedbackNote> =>
+      callApplicationCommand(transport, 'conversation_dismiss_feedback', {
+        request,
+      }),
+
     cancel: (request: ConversationCancelTurnRequest): Promise<void> =>
       call('conversation_cancel_turn', { request }),
 

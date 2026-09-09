@@ -97,26 +97,36 @@ pub struct ConversationForkResult {
     pub continuity: ConversationForkContinuity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuity_note: Option<String>,
+    pub parent_conversation_id: Uuid,
 }
 
 impl ConversationForkResult {
-    pub fn history_only(imported: ConversationImportResult, note: impl Into<String>) -> Self {
+    pub fn history_only(
+        imported: ConversationImportResult,
+        parent_conversation_id: Uuid,
+        note: impl Into<String>,
+    ) -> Self {
         Self {
             conversation_id: imported.conversation_id,
             imported_event_count: imported.imported_event_count,
             projection_version: imported.projection_version,
             continuity: ConversationForkContinuity::HistoryOnly,
             continuity_note: Some(note.into()),
+            parent_conversation_id,
         }
     }
 
-    pub fn with_agent_context(imported: ConversationImportResult) -> Self {
+    pub fn with_agent_context(
+        imported: ConversationImportResult,
+        parent_conversation_id: Uuid,
+    ) -> Self {
         Self {
             conversation_id: imported.conversation_id,
             imported_event_count: imported.imported_event_count,
             projection_version: imported.projection_version,
             continuity: ConversationForkContinuity::AgentContext,
             continuity_note: None,
+            parent_conversation_id,
         }
     }
 }
@@ -553,6 +563,7 @@ mod tests {
                 imported_event_count: 3,
                 projection_version: 1,
             },
+            Uuid::nil(),
             "agent did not advertise session/fork",
         );
         assert_eq!(result.continuity, ConversationForkContinuity::HistoryOnly);

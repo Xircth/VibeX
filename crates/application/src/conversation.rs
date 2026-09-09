@@ -504,6 +504,20 @@ pub struct ListConversationFeedbackRequest {
     pub conversation_id: Uuid,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalvageConversationFeedback {
+    pub conversation_id: Uuid,
+    pub note_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DismissConversationFeedback {
+    pub conversation_id: Uuid,
+    pub note_id: String,
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, rename_all = "camelCase")]
@@ -701,6 +715,26 @@ pub trait ConversationExecutionPort: Send + Sync {
             "live feedback is not configured",
         ))
     }
+
+    async fn salvage_feedback(
+        &self,
+        _conversation_id: Uuid,
+        _note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "live feedback salvage is not configured",
+        ))
+    }
+
+    async fn dismiss_feedback(
+        &self,
+        _conversation_id: Uuid,
+        _note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "live feedback dismiss is not configured",
+        ))
+    }
 }
 
 #[async_trait]
@@ -715,6 +749,28 @@ pub trait CompanionSessionPort: Send + Sync {
         &self,
         conversation_id: Uuid,
     ) -> Result<Vec<ConversationLiveFeedbackNote>, ApplicationError>;
+
+    async fn salvage_feedback(
+        &self,
+        conversation_id: Uuid,
+        note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        let _ = (conversation_id, note_id);
+        Err(ApplicationError::capability_unavailable(
+            "live feedback salvage is not configured",
+        ))
+    }
+
+    async fn dismiss_feedback(
+        &self,
+        conversation_id: Uuid,
+        note_id: &str,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        let _ = (conversation_id, note_id);
+        Err(ApplicationError::capability_unavailable(
+            "live feedback dismiss is not configured",
+        ))
+    }
 
     async fn answer_question(
         &self,
@@ -2383,6 +2439,36 @@ where
             ));
         }
         self.execution.list_feedback(request.conversation_id).await
+    }
+
+    pub async fn salvage_conversation_feedback(
+        &self,
+        principal: &Principal,
+        request: SalvageConversationFeedback,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        if !principal.allows(LIVE_FEEDBACK_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.steer",
+            ));
+        }
+        self.execution
+            .salvage_feedback(request.conversation_id, &request.note_id)
+            .await
+    }
+
+    pub async fn dismiss_conversation_feedback(
+        &self,
+        principal: &Principal,
+        request: DismissConversationFeedback,
+    ) -> Result<ConversationLiveFeedbackNote, ApplicationError> {
+        if !principal.allows(LIVE_FEEDBACK_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.steer",
+            ));
+        }
+        self.execution
+            .dismiss_feedback(request.conversation_id, &request.note_id)
+            .await
     }
 
     pub async fn list_conversation_inputs(

@@ -20,6 +20,7 @@ export type TurnStatsProps = {
   onJumpBack?: (() => void) | null;
   onForkFromHere?: (() => void) | null;
   forkDisabled?: boolean;
+  forkDisabledReason?: 'busy' | 'unnamed';
   live?: boolean;
   className?: string;
 };
@@ -91,6 +92,7 @@ export function TurnStats({
   onJumpBack,
   onForkFromHere,
   forkDisabled = false,
+  forkDisabledReason = 'busy',
   live = false,
   className,
 }: TurnStatsProps) {
@@ -159,7 +161,9 @@ export function TurnStats({
               aria-label={t('turnStats.forkFromHere')}
               title={
                 forkDisabled
-                  ? t('turnStats.forkBusy')
+                  ? forkDisabledReason === 'unnamed'
+                    ? t('turnStats.forkUnnamed')
+                    : t('turnStats.forkBusy')
                   : t('turnStats.forkFromHere')
               }
             >

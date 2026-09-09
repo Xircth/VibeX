@@ -455,6 +455,16 @@ impl From<crate::AuthenticationObservation> for AcpAuthenticationObservationSnap
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DeliveryChannel {
+    #[default]
+    None,
+    Native,
+    Pull,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
@@ -471,6 +481,11 @@ pub struct AcpCapabilitySnapshot {
     /// Negotiated support for the ACP `_session/steering` extension. This is
     /// true only when `InitializeResponse._meta.steering.supported` is true.
     pub steering: bool,
+    /// Per-session mid-turn delivery channel. Host-synthesized, never guessed
+    /// from Agent identity. `none` when this session has neither native steering
+    /// nor an injected `check_user_feedback` tool.
+    #[serde(default)]
+    pub delivery_channel: DeliveryChannel,
     pub terminal: bool,
     pub additional_directories: bool,
     pub filesystem_requests: bool,
@@ -912,6 +927,32 @@ pub enum ConversationEvent {
     ConversationSteering {
         event: ConversationSteeringEvent,
     },
+    DeliveryChannelLatched {
+        from: DeliveryChannel,
+        to: DeliveryChannel,
+    },
+    UserSubmittedFeedback {
+        note_id: Uuid,
+        operation_id: Uuid,
+        text: String,
+        turn_id: Option<Uuid>,
+    },
+    UserFeedbackDelivered {
+        note_id: Uuid,
+        delivered_at: DateTime<Utc>,
+    },
+    UserFeedbackExpired {
+        note_id: Uuid,
+    },
+    UserFeedbackSalvaged {
+        note_id: Uuid,
+        input_id: Uuid,
+        operation_id: Uuid,
+    },
+    UserFeedbackDismissed {
+        note_id: Uuid,
+        operation_id: Uuid,
+    },
     ConversationRelationCreated {
         relation_id: Uuid,
         parent_conversation_id: Uuid,
@@ -1180,6 +1221,8 @@ pub enum ConversationTimelineRow {
     MessageTurn {
         turn: MessageTurn,
         phase: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fork_point_status: Option<crate::ForkPointStatus>,
     },
     PermissionRequest {
         request: ConversationPermissionView,
@@ -1497,6 +1540,7 @@ mod event_sourced_tests {
                         agent_message_id: None,
                     },
                     phase: "settled".into(),
+                    fork_point_status: None,
                 },
             }],
             truncated_from_start: false,

@@ -14,7 +14,7 @@ use agents::{
     AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
     AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
     AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
-    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
+    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary, ForkPointStatus,
     HostTerminalSnapshot, ImportedAgentMessage, ImportedAgentMessageMetadata,
     ImportedAgentMessageRole, ImportedAgentSession, LocalHistoryDestination,
     LocalHistoryImportJobSnapshot, LocalHistoryImportJobStatus, LocalHistoryImportLogEntry,
@@ -40,9 +40,10 @@ use agents::{
         ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, ImageData,
-        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, DeliveryChannel,
+        ImageData, MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy,
+        SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason,
+        TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -785,6 +786,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AuthenticationSource>(&mut decls);
     insert_declaration::<AcpAuthenticationObservationSnapshot>(&mut decls);
     insert_declaration::<AcpCapabilitySnapshot>(&mut decls);
+    insert_declaration::<DeliveryChannel>(&mut decls);
+    insert_declaration::<ForkPointStatus>(&mut decls);
     insert_declaration::<ConversationInputBlock>(&mut decls);
     insert_declaration::<ConversationInputPayload>(&mut decls);
     insert_declaration::<ConversationFileRef>(&mut decls);

@@ -299,6 +299,7 @@ mod tests {
                     agent_message_id: None,
                 },
                 phase: "completed".into(),
+                fork_point_status: None,
             },
         }
     }

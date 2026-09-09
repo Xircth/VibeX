@@ -1821,6 +1821,10 @@ impl AgentConnectionRunner {
                     .map(|meta| serde_json::Value::Object(meta.clone()));
                 capability_snapshot.steering =
                     AcpCapabilityNormalizer::steering_is_advertised(initialize_meta.as_ref());
+                if capability_snapshot.steering {
+                    capability_snapshot.delivery_channel =
+                        crate::conversation::DeliveryChannel::Native;
+                }
                 capability_snapshot.authentication = AcpAuthStatusAdapter::observe_if_advertised(
                     &conn,
                     &raw_capabilities,

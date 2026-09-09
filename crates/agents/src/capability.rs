@@ -56,6 +56,7 @@ impl AcpCapabilityNormalizer {
             list_sessions: session.list.is_some(),
             delete_session: session.delete.is_some(),
             steering: false,
+            delivery_channel: crate::conversation::DeliveryChannel::None,
             // Client-side support is derived from the exact advertisement
             // sent in this handshake, not an optimistic product default.
             terminal: client_capabilities.terminal,

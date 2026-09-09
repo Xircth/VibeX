@@ -1,13 +1,14 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
     sync::Arc,
 };
 
 use agents::conversation::{
-    ContentBlock, ConversationAgentConnectionStatus, ConversationDelegationResult,
-    ConversationDelegationView, ConversationError, ConversationErrorView, ConversationEvent,
-    ConversationInputEvent, ConversationPermissionView, ConversationRowOp,
-    ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
+    AcpCapabilitySnapshot, ContentBlock, ConversationAgentConnectionStatus,
+    ConversationDelegationResult, ConversationDelegationView, ConversationError,
+    ConversationErrorView, ConversationEvent, ConversationInputEvent, ConversationPermissionView,
+    ConversationRowOp, ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
     ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
     SessionRecoveryStrategy, SessionStats, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
     cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
@@ -626,9 +627,10 @@ impl ConversationProjector {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<ConversationTimeline, sqlx::Error> {
-        Ok(Self::fold(pool, conversation_id)
+        let timeline = Self::fold(pool, conversation_id)
             .await?
-            .into_timeline(conversation_id))
+            .into_timeline(conversation_id);
+        annotate_fork_points(pool, timeline).await
     }
 
     /// Open-conversation window: last `limit` rows on the wire, stats from the
@@ -640,8 +642,10 @@ impl ConversationProjector {
     ) -> Result<OpenConversationProjection, sqlx::Error> {
         let fold = Self::fold(pool, conversation_id).await?;
         let session_stats = fold.session_stats();
+        let timeline =
+            annotate_fork_points(pool, fold.into_open_timeline(conversation_id, limit)).await?;
         Ok(OpenConversationProjection {
-            timeline: fold.into_open_timeline(conversation_id, limit),
+            timeline,
             session_stats,
         })
     }
@@ -653,9 +657,12 @@ impl ConversationProjector {
         start: usize,
         limit: usize,
     ) -> Result<ConversationRowWindow, sqlx::Error> {
-        Ok(Self::fold(pool, conversation_id)
+        let mut window = Self::fold(pool, conversation_id)
             .await?
-            .into_row_window(start, limit))
+            .into_row_window(start, limit);
+        let (fork_session, agent_kind) = fork_capability(pool, conversation_id).await?;
+        annotate_fork_point_rows(&mut window.rows, fork_session, agent_kind);
+        Ok(window)
     }
 
     async fn fold(pool: &SqlitePool, conversation_id: Uuid) -> Result<ProjectionFold, sqlx::Error> {
@@ -2006,6 +2013,7 @@ impl ProjectionFold {
                         row: ConversationTimelineRow::MessageTurn {
                             turn: user,
                             phase: phase.clone(),
+                            fork_point_status: None,
                         },
                     });
                 }
@@ -2019,6 +2027,7 @@ impl ProjectionFold {
                         row: ConversationTimelineRow::MessageTurn {
                             turn: segment,
                             phase: phase.clone(),
+                            fork_point_status: None,
                         },
                     });
                 }
@@ -2029,6 +2038,7 @@ impl ProjectionFold {
                         row: ConversationTimelineRow::MessageTurn {
                             turn: assistant,
                             phase,
+                            fork_point_status: None,
                         },
                     });
                 }
@@ -2049,6 +2059,7 @@ impl ProjectionFold {
             older_cursor: None,
         };
         cap_timeline_preview_fields(&mut timeline);
+        annotate_fork_point_rows(&mut timeline.rows, false, None);
         timeline
     }
 
@@ -2340,6 +2351,70 @@ fn side_row(sequence: i64, row: ConversationTimelineRow) -> TimelineRow {
 /// Build the current `TimelineRow` for one side of a turn (`user` / `assistant`),
 /// used when emitting an `Upsert` op. row_id is the `${turn}:user` / `${turn}:assistant`
 /// message id; revision is the turn's latest-touched sequence.
+async fn annotate_fork_points(
+    pool: &SqlitePool,
+    mut timeline: ConversationTimeline,
+) -> Result<ConversationTimeline, sqlx::Error> {
+    let (fork_session, agent_kind) = fork_capability(pool, timeline.conversation_id).await?;
+    annotate_fork_point_rows(&mut timeline.rows, fork_session, agent_kind);
+    Ok(timeline)
+}
+
+async fn fork_capability(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<(bool, Option<agents::AgentKind>), sqlx::Error> {
+    let Some(binding) =
+        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
+    else {
+        return Ok((false, None));
+    };
+    let capabilities =
+        serde_json::from_str::<AcpCapabilitySnapshot>(&binding.session_capabilities_json)
+            .unwrap_or_default();
+    let agent_kind = agents::AgentKind::from_str(binding.agent_id.as_str()).ok();
+    Ok((capabilities.fork_session, agent_kind))
+}
+
+fn annotate_fork_point_rows(
+    rows: &mut [TimelineRow],
+    fork_session: bool,
+    agent_kind: Option<agents::AgentKind>,
+) {
+    let turns: Vec<MessageTurn> = rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn.clone()),
+            _ => None,
+        })
+        .collect();
+    let last_assistant_id = turns
+        .iter()
+        .rev()
+        .find(|turn| turn.role == TurnRole::Assistant)
+        .map(|turn| turn.id.clone());
+    for row in rows.iter_mut() {
+        let ConversationTimelineRow::MessageTurn {
+            turn,
+            fork_point_status,
+            ..
+        } = &mut row.row
+        else {
+            continue;
+        };
+        if turn.role != TurnRole::Assistant {
+            continue;
+        }
+        let is_tail = last_assistant_id.as_deref() == Some(turn.id.as_str());
+        *fork_point_status = Some(match agent_kind {
+            Some(kind) => {
+                agents::classify_fork_point(&turns, &turn.id, kind, fork_session, is_tail)
+            }
+            None => agents::ForkPointStatus::Unsupported,
+        });
+    }
+}
+
 fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
     // Only User / Assistant message rows are projected; anything else maps to the
     // assistant side (there is no System row in a conversation turn).
@@ -2353,6 +2428,7 @@ fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
         row: ConversationTimelineRow::MessageTurn {
             turn: message,
             phase: turn.phase.clone(),
+            fork_point_status: None,
         },
     }
 }
@@ -2412,6 +2488,7 @@ fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
             row: ConversationTimelineRow::MessageTurn {
                 turn: segment.clone(),
                 phase: turn.phase.clone(),
+                fork_point_status: None,
             },
         });
     }
@@ -3760,7 +3837,9 @@ mod tests {
             .await
             .expect("timeline");
         let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, phase } if turn.role == TurnRole::User => {
+            ConversationTimelineRow::MessageTurn { turn, phase, .. }
+                if turn.role == TurnRole::User =>
+            {
                 Some(phase.clone())
             }
             _ => None,
@@ -3832,7 +3911,7 @@ mod tests {
                 .await
                 .expect("timeline");
             let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, phase }
+                ConversationTimelineRow::MessageTurn { turn, phase, .. }
                     if turn.role == TurnRole::User =>
                 {
                     Some(phase.as_str())
@@ -3946,7 +4025,7 @@ mod tests {
         let assistant = assistant.expect("assistant row upserted on turn failure");
         assert_eq!(assistant.revision, failed.sequence);
         match &assistant.row {
-            ConversationTimelineRow::MessageTurn { turn, phase } => {
+            ConversationTimelineRow::MessageTurn { turn, phase, .. } => {
                 assert_eq!(phase, "failed");
                 assert!(
                     turn.blocks

@@ -7,6 +7,7 @@ use agents::{
     ids::AgentConnectionId, runtime::AgentRuntime,
 };
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use conversations::{
     ScopedConversationControl, ScopedConversationControlError, resolve_referenced_session,
     session_info_value,
@@ -62,11 +63,48 @@ impl HostCompanionFeatures {
 #[async_trait]
 impl CompanionFeaturePort for HostCompanionFeatures {
     async fn feedback(&self, scope: &DelegationScope) -> Value {
-        self.memory.feedback(scope).await
+        let rows = sqlx::query_as::<_, (Uuid, String, DateTime<Utc>)>(
+            r#"SELECT id, text, created_at FROM conversation_feedback_note
+               WHERE conversation_id = ? AND status = 'pending'
+               ORDER BY created_at ASC"#,
+        )
+        .bind(scope.parent_conversation_id)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        json!({
+            "count": rows.len(),
+            "feedback": rows
+                .iter()
+                .map(|(id, text, created_at)| {
+                    json!({
+                        "id": id.to_string(),
+                        "text": text,
+                        "created_at": created_at.to_rfc3339(),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        })
     }
 
     async fn commit_feedback(&self, scope: &DelegationScope, ids: &[String]) {
-        self.memory.commit_feedback(scope, ids).await;
+        let parsed: Vec<Uuid> = ids
+            .iter()
+            .filter_map(|id| Uuid::parse_str(id).ok())
+            .collect();
+        for id in parsed {
+            let _ = sqlx::query(
+                r#"UPDATE conversation_feedback_note
+                   SET status = 'delivered',
+                       delivered_at = datetime('now', 'subsec'),
+                       updated_at = datetime('now', 'subsec')
+                   WHERE id = ? AND conversation_id = ? AND status = 'pending'"#,
+            )
+            .bind(id)
+            .bind(scope.parent_conversation_id)
+            .execute(&self.pool)
+            .await;
+        }
     }
 
     async fn ask(&self, scope: &DelegationScope, questions: Value) -> Value {

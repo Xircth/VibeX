@@ -110,6 +110,10 @@ Composer 内容仍是 ADR-0042 的 Conversation draft；只有服务端接受后
 - 连接在 receipt 前丢失时记录 unknown/interrupted 证据，不自动重发；
 - UI 可以让用户显式选择“纠偏当前 Turn”或“下一条输入”，不能用同一个按钮隐藏降级；
 - V1/V2 或不同 Agent 的 wire 差异只存在于 Adapter。
+- 每 session 的 `delivery_channel`（`none | native | pull`）由 Host 合成：native 当且仅当本次握手 `_meta.steering.supported`；pull 当且仅当本 session 实际注入了 `check_user_feedback`。
+- 控制面永不把 steer 改成 queued input。通道装不下整份草稿（files / plugin refs / pull+images）由 Composer 显式 `submit`。
+- Pull 未读备注持久化在 `conversation_feedback_note`；Turn 空闲时 pending 变为 expired，salvage/dismiss 恰好一次。
+- `StartedNewTurn` 将通道锁存到 `none`（若本 session 无 pull 工具）或 `pull`，不当插入成功。
 
 ### 4. ConversationRelation 统一拓扑，不共享历史
 

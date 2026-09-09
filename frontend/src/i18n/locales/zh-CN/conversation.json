@@ -255,7 +255,9 @@
     "placeholder": "给这一回合纠偏",
     "send": "发送",
     "pending": "等待读取",
-    "delivered": "已读取"
+    "delivered": "已读取",
+    "resend": "作为消息发送",
+    "dismiss": "忽略"
   },
   "feedbackCheck": {
     "label": "实时反馈",
@@ -361,6 +363,7 @@
     "copyReply": "复制回复",
     "forkFromHere": "从此处分叉",
     "forkBusy": "请等当前回合结束后再分叉",
+    "forkUnnamed": "这条回复还不能作为分叉点",
     "jumpBack": "回到上一条用户消息",
     "statusLabel": "状态",
     "generating": "生成中",

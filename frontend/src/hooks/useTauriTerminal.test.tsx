@@ -9,6 +9,7 @@ const { backendCall, backendListen, terminalInstances } = vi.hoisted(() => ({
   backendListen: vi.fn(),
   terminalInstances: [] as Array<{
     emitData: (data: string) => void;
+    write: ReturnType<typeof vi.fn>;
   }>,
 }));
 
@@ -199,13 +200,69 @@ describe('useTauriTerminal', () => {
     );
   });
 
-  it('creates a new PTY when reattach fails after a process restart', async () => {
+  it('creates a new PTY when the previous session is no longer alive', async () => {
     backendCall.mockImplementation((command: string) => {
-      if (command === 'attach_terminal') {
-        return Promise.reject(new Error('PTY session no longer exists'));
+      if (command === 'terminal_snapshot') {
+        return Promise.resolve({ alive: false, data: '', seq: 0 });
       }
       if (command === 'create_terminal') {
-        return Promise.resolve('new-session');
+        return Promise.resolve('existing-session');
+      }
+      return Promise.resolve(undefined);
+    });
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        width: 800,
+        height: 600,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        left: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
+
+    render(<TerminalHarness sessionId="existing-session" />);
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith('terminal_snapshot', {
+        sessionId: 'existing-session',
+      })
+    );
+    await waitFor(() =>
+      expect(
+        backendCall.mock.calls.filter(
+          ([command]) => command === 'create_terminal'
+        )
+      ).toHaveLength(1)
+    );
+    expect(
+      backendCall.mock.calls.some(([command]) => command === 'attach_terminal')
+    ).toBe(false);
+    expect(screen.queryByText(/PTY session no longer exists/)).toBeNull();
+  });
+
+  it('replays a live snapshot instead of spawning when the PTY is still running', async () => {
+    backendCall.mockImplementation((command: string) => {
+      if (command === 'terminal_snapshot') {
+        return Promise.resolve({
+          alive: true,
+          data: btoa('prompt> '),
+          seq: 3,
+        });
+      }
+      if (command === 'attach_terminal') {
+        return Promise.resolve('existing-session');
       }
       return Promise.resolve(undefined);
     });
@@ -238,14 +295,12 @@ describe('useTauriTerminal', () => {
         sessionId: 'existing-session',
       })
     );
+    expect(
+      backendCall.mock.calls.some(([command]) => command === 'create_terminal')
+    ).toBe(false);
     await waitFor(() =>
-      expect(
-        backendCall.mock.calls.filter(
-          ([command]) => command === 'create_terminal'
-        )
-      ).toHaveLength(1)
+      expect(terminalInstances.at(-1)?.write).toHaveBeenCalled()
     );
-    expect(screen.queryByText(/PTY session no longer exists/)).toBeNull();
   });
 
   it('serializes rapid input while an earlier PTY write is still pending', async () => {

@@ -264,6 +264,7 @@ domain_commands! {
     TerminalResize => "resize_terminal" / "application.call",
     TerminalClose => "close_terminal" / "application.call",
     TerminalAttach => "attach_terminal" / "application.call",
+    TerminalSnapshot => "terminal_snapshot" / "application.call",
     AgentManagementBar => "agent_management_bar" / "application.call",
     AgentManagementDetail => "agent_management_detail" / "application.call",
     AgentManagementSetEnabled => "agent_management_set_enabled" / "application.call",

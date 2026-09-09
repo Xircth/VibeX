@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { cn } from '@/lib/utils';
 
 export function WindowControls() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -59,7 +58,7 @@ export function WindowControls() {
   const appWindow = getCurrentWindow();
 
   return (
-    <div className="flex h-8 items-stretch [-webkit-app-region:no-drag]">
+    <div className="flex h-9 items-center gap-1 px-1.5 [-webkit-app-region:no-drag]">
       <button
         type="button"
         className={buttonClass}
@@ -84,10 +83,7 @@ export function WindowControls() {
       </button>
       <button
         type="button"
-        className={cn(
-          buttonClass,
-          'hover:bg-[var(--windows-close-hover)] hover:text-[var(--windows-close-foreground)] active:bg-[var(--windows-close-active)] active:text-[var(--windows-close-foreground)]'
-        )}
+        className={buttonClass}
         onClick={() => {
           appWindow.close().catch(() => {});
         }}
@@ -101,7 +97,7 @@ export function WindowControls() {
 }
 
 const buttonClass =
-  'flex h-8 w-[46px] items-center justify-center text-foreground/85 transition-colors duration-75 hover:bg-[var(--surface-control-hover)] active:bg-[var(--surface-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]';
+  'flex h-7 w-7 items-center justify-center rounded-full text-foreground/85 transition-colors duration-75 hover:bg-[var(--surface-control-hover)] active:bg-[var(--surface-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]';
 
 function MinimizeIcon() {
   return (

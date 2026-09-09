@@ -1,13 +1,16 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc as std_mpsc},
     thread,
 };
 
-use agents::{TerminalOutputRx, TerminalOutputTx};
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use agents::{
+    HostTerminalSnapshot, TerminalOutputChunk, TerminalOutputRx, TerminalOutputTx,
+    classify_shell_family, is_bash_like_posix_shell, shell_flavor::ShellFamily,
+};
+use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use thiserror::Error;
 use utils::shell::{get_interactive_shell, resolve_executable_path};
 use uuid::Uuid;
@@ -70,6 +73,90 @@ pub(crate) async fn pick_existing_pty_shell(
     interactive
 }
 
+fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_command: Option<&str>) {
+    let family = classify_shell_family(shell);
+
+    #[cfg(windows)]
+    {
+        cmd.env("PYTHONUTF8", "1");
+        cmd.env("PYTHONIOENCODING", "utf-8");
+        match family {
+            ShellFamily::Cmd => {
+                if let Some(command) = initial_command {
+                    cmd.env("VIBEX_CMD", command);
+                    cmd.args(["/D", "/S", "/C", "chcp 65001 >nul & %VIBEX_CMD%"]);
+                } else {
+                    cmd.args(["/D", "/S", "/K", "chcp 65001 >nul"]);
+                }
+            }
+            ShellFamily::PowerShell => {
+                if let Some(command) = initial_command {
+                    cmd.env("VIBEX_CMD", command);
+                    cmd.args([
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-Command",
+                        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; Invoke-Expression $env:VIBEX_CMD",
+                    ]);
+                } else {
+                    cmd.args([
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-NoExit",
+                        "-Command",
+                        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+                    ]);
+                }
+            }
+            ShellFamily::Posix => {
+                cmd.env("TERM", "xterm-256color");
+                cmd.env("COLORTERM", "truecolor");
+                cmd.env("TERM_PROGRAM", "vibex");
+                cmd.env("LANG", "C.UTF-8");
+                if let Some(command) = initial_command {
+                    cmd.env("VIBEX_CMD", command);
+                    cmd.args(["-l", "-i", "-c", "eval \"$VIBEX_CMD\""]);
+                } else {
+                    cmd.args(["-l", "-i"]);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("TERM_PROGRAM", "vibex");
+        match family {
+            ShellFamily::PowerShell => {
+                cmd.arg("-NoLogo");
+                if let Some(command) = initial_command {
+                    cmd.args(["-NoProfile", "-Command", command]);
+                }
+            }
+            ShellFamily::Cmd => {}
+            ShellFamily::Posix if is_bash_like_posix_shell(shell) => {
+                if let Some(command) = initial_command {
+                    cmd.env("VIBEX_CMD", command);
+                    cmd.args(["-l", "-i", "-c", "eval \"$VIBEX_CMD\""]);
+                } else {
+                    cmd.args(["-l", "-i"]);
+                }
+            }
+            ShellFamily::Posix => {
+                if let Some(command) = initial_command {
+                    cmd.args(["-c", command]);
+                }
+            }
+        }
+    }
+}
+
+fn thread_name_prefix(terminal_id: Uuid) -> String {
+    terminal_id.simple().to_string().chars().take(8).collect()
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("Failed to create PTY: {0}")]
@@ -84,13 +171,45 @@ pub enum PtyError {
     SessionClosed,
 }
 
+/// Recent PTY output kept so a viewer that mounts after spawn (or remounts)
+/// can redraw. Whole chunks are evicted from the front: slicing mid-escape
+/// paints the replay with whatever the truncated tail happens to mean.
+#[derive(Default)]
+struct Scrollback {
+    chunks: VecDeque<Vec<u8>>,
+    bytes: usize,
+    seq: u64,
+}
+
+impl Scrollback {
+    fn append(&mut self, data: &[u8], max_bytes: usize) -> u64 {
+        self.seq += 1;
+        self.bytes = self.bytes.saturating_add(data.len());
+        self.chunks.push_back(data.to_vec());
+        while self.bytes > max_bytes && self.chunks.len() > 1 {
+            if let Some(old) = self.chunks.pop_front() {
+                self.bytes = self.bytes.saturating_sub(old.len());
+            }
+        }
+        self.seq
+    }
+
+    fn read(&self) -> (Vec<u8>, u64) {
+        let mut data = Vec::with_capacity(self.bytes);
+        for chunk in &self.chunks {
+            data.extend_from_slice(chunk);
+        }
+        (data, self.seq)
+    }
+}
+
 struct PtySession {
     input_tx: std_mpsc::Sender<Vec<u8>>,
-    master: Box<dyn portable_pty::MasterPty + Send>,
-    output_history: Arc<Mutex<Vec<u8>>>,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn portable_pty::Child + Send>,
+    scrollback: Arc<Mutex<Scrollback>>,
     subscribers: Arc<Mutex<Vec<TerminalOutputTx>>>,
     _input_handle: thread::JoinHandle<()>,
-    _output_handle: thread::JoinHandle<()>,
     closed: bool,
 }
 
@@ -101,7 +220,6 @@ pub struct PtyService {
 
 impl PtyService {
     const MAX_HISTORY_BYTES: usize = 512 * 1024;
-    const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
 
     fn normalize_working_dir_for_shell(working_dir: PathBuf) -> PathBuf {
         #[cfg(windows)]
@@ -118,34 +236,6 @@ impl PtyService {
         working_dir
     }
 
-    fn trim_output_history(history: &mut Vec<u8>) {
-        if history.len() <= Self::MAX_HISTORY_BYTES {
-            return;
-        }
-
-        let overflow = history.len() - Self::MAX_HISTORY_BYTES;
-        let boundary_search_end = (overflow + Self::MAX_LINE_BOUNDARY_SEARCH).min(history.len());
-        let trim_to = history[overflow..boundary_search_end]
-            .iter()
-            .position(|byte| matches!(byte, b'\n' | b'\r'))
-            .map(|offset| overflow + offset + 1)
-            .unwrap_or_else(|| Self::first_utf8_boundary_at_or_after(history, overflow));
-
-        history.drain(..trim_to);
-    }
-
-    fn first_utf8_boundary_at_or_after(bytes: &[u8], index: usize) -> usize {
-        let mut index = index.min(bytes.len());
-        while index < bytes.len() && !Self::is_utf8_boundary_byte(bytes[index]) {
-            index += 1;
-        }
-        index
-    }
-
-    fn is_utf8_boundary_byte(byte: u8) -> bool {
-        byte & 0b1100_0000 != 0b1000_0000
-    }
-
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -159,15 +249,30 @@ impl PtyService {
         rows: u16,
         shell_override: Option<String>,
         preset_session_id: Option<Uuid>,
+        initial_command: Option<String>,
     ) -> Result<(Uuid, TerminalOutputRx), PtyError> {
         let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
+        {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+            if sessions.contains_key(&session_id) {
+                return Err(PtyError::CreateFailed(format!(
+                    "terminal id '{session_id}' already exists"
+                )));
+            }
+        }
+
         let (output_tx, output_rx) = TerminalOutputTx::pair();
         let working_dir = Self::normalize_working_dir_for_shell(working_dir);
         let shell = resolve_pty_shell(shell_override).await;
-        let output_history = Arc::new(Mutex::new(Vec::new()));
+        let scrollback = Arc::new(Mutex::new(Scrollback::default()));
         let subscribers = Arc::new(Mutex::new(vec![output_tx]));
-        let history_for_thread = Arc::clone(&output_history);
+        let history_for_thread = Arc::clone(&scrollback);
         let subscribers_for_thread = Arc::clone(&subscribers);
+        let sessions_for_reader = Arc::clone(&self.sessions);
+        let short_id = thread_name_prefix(session_id);
 
         let result = tokio::task::spawn_blocking(move || {
             let pty_system = NativePtySystem::default();
@@ -183,99 +288,61 @@ impl PtyService {
 
             let mut cmd = CommandBuilder::new(&shell);
             cmd.cwd(&working_dir);
-
-            // Configure shell-specific options
-            let shell_name = shell
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let shell_stem = shell_name
-                .strip_suffix(".exe")
-                .unwrap_or(shell_name.as_str());
-
-            if shell_stem == "powershell" || shell_stem == "pwsh" {
-                cmd.arg("-NoLogo");
-            } else if shell_stem == "cmd" {
-            } else {
-                cmd.env("VIBEX_TERMINAL", "1");
-                if shell_stem == "bash" || shell_stem == "zsh" {
-                    cmd.arg("-l");
-                }
-            }
-
-            cmd.env("TERM", "xterm-256color");
-            cmd.env("COLORTERM", "truecolor");
+            configure_shell_command(
+                &mut cmd,
+                &shell.to_string_lossy(),
+                initial_command.as_deref(),
+            );
 
             let child = pty_pair
                 .slave
                 .spawn_command(cmd)
                 .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+            drop(pty_pair.slave);
 
-            let mut writer = pty_pair
+            let writer = pty_pair
                 .master
                 .take_writer()
                 .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+            let reader = pty_pair
+                .master
+                .try_clone_reader()
+                .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
             let (input_tx, input_rx) = std_mpsc::channel::<Vec<u8>>();
-            let input_handle = thread::spawn(move || {
+
+            Ok::<_, PtyError>((pty_pair.master, child, writer, reader, input_tx, input_rx))
+        })
+        .await
+        .map_err(|e| PtyError::CreateFailed(e.to_string()))??;
+
+        let (master, child, mut writer, mut reader, input_tx, input_rx) = result;
+
+        let input_handle = thread::Builder::new()
+            .name(format!("pty-writer-{short_id}"))
+            .spawn(move || {
                 while let Ok(data) = input_rx.recv() {
                     if writer.write_all(&data).is_err() {
                         break;
+                    }
+                    while let Ok(more) = input_rx.try_recv() {
+                        if writer.write_all(&more).is_err() {
+                            return;
+                        }
                     }
                     if writer.flush().is_err() {
                         break;
                     }
                 }
-            });
-
-            let mut reader = pty_pair
-                .master
-                .try_clone_reader()
-                .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
-
-            let output_handle = thread::spawn(move || {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            let chunk = buf[..n].to_vec();
-
-                            if let Ok(mut history) = history_for_thread.lock() {
-                                history.extend_from_slice(&chunk);
-                                PtyService::trim_output_history(&mut history);
-                            }
-
-                            if let Ok(mut subscribers) = subscribers_for_thread.lock() {
-                                subscribers.retain(|subscriber| {
-                                    if subscriber.is_closed() {
-                                        return false;
-                                    }
-                                    subscriber.push(chunk.clone());
-                                    true
-                                });
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-                drop(child);
-            });
-
-            Ok::<_, PtyError>((pty_pair.master, input_tx, input_handle, output_handle))
-        })
-        .await
-        .map_err(|e| PtyError::CreateFailed(e.to_string()))??;
-
-        let (master, input_tx, input_handle, output_handle) = result;
+            })
+            .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
 
         let session = PtySession {
             input_tx,
             master,
-            output_history,
+            child,
+            scrollback,
             subscribers,
             _input_handle: input_handle,
-            _output_handle: output_handle,
             closed: false,
         };
 
@@ -284,7 +351,69 @@ impl PtyService {
             .map_err(|e| PtyError::CreateFailed(e.to_string()))?
             .insert(session_id, session);
 
+        thread::Builder::new()
+            .name(format!("pty-reader-{short_id}"))
+            .spawn(move || {
+                let mut buf = [0u8; 8192];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let data = buf[..n].to_vec();
+                            let seq = history_for_thread
+                                .lock()
+                                .map(|mut history| {
+                                    history.append(&data, PtyService::MAX_HISTORY_BYTES)
+                                })
+                                .unwrap_or_default();
+                            if let Ok(mut subscribers) = subscribers_for_thread.lock() {
+                                subscribers.retain(|subscriber| {
+                                    if subscriber.is_closed() {
+                                        return false;
+                                    }
+                                    subscriber.push(TerminalOutputChunk {
+                                        seq,
+                                        data: data.clone(),
+                                    });
+                                    true
+                                });
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if let Ok(mut sessions) = sessions_for_reader.lock()
+                    && let Some(mut session) = sessions.remove(&session_id)
+                {
+                    session.closed = true;
+                    if let Ok(mut subscribers) = session.subscribers.lock() {
+                        for subscriber in subscribers.drain(..) {
+                            subscriber.close();
+                        }
+                    }
+                    let _ = session.child.kill();
+                }
+            })
+            .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+
         Ok((session_id, output_rx))
+    }
+
+    pub fn snapshot(&self, session_id: Uuid) -> HostTerminalSnapshot {
+        let scrollback = {
+            let Ok(sessions) = self.sessions.lock() else {
+                return HostTerminalSnapshot::missing();
+            };
+            match sessions.get(&session_id) {
+                Some(session) if !session.closed => Arc::clone(&session.scrollback),
+                _ => return HostTerminalSnapshot::missing(),
+            }
+        };
+        let (data, seq) = scrollback
+            .lock()
+            .map(|buffer| buffer.read())
+            .unwrap_or_else(|_| (Vec::new(), 0));
+        HostTerminalSnapshot::from_bytes(&data, seq)
     }
 
     pub async fn subscribe_output(&self, session_id: Uuid) -> Result<TerminalOutputRx, PtyError> {
@@ -299,12 +428,6 @@ impl PtyService {
 
         if session.closed {
             return Err(PtyError::SessionClosed);
-        }
-
-        if let Ok(history) = session.output_history.lock()
-            && !history.is_empty()
-        {
-            tx.push(history.clone());
         }
 
         session
@@ -374,6 +497,8 @@ impl PtyService {
             .remove(&session_id)
         {
             session.closed = true;
+            let _ = session.child.kill();
+            let _ = session.child.wait();
             if let Ok(mut subscribers) = session.subscribers.lock() {
                 for subscriber in subscribers.drain(..) {
                     subscriber.close();
@@ -386,7 +511,7 @@ impl PtyService {
     pub fn session_exists(&self, session_id: &Uuid) -> bool {
         self.sessions
             .lock()
-            .map(|s| s.contains_key(session_id))
+            .map(|s| s.get(session_id).is_some_and(|session| !session.closed))
             .unwrap_or(false)
     }
 }
@@ -401,7 +526,7 @@ impl Default for PtyService {
 mod tests {
     use std::path::PathBuf;
 
-    use super::PtyService;
+    use super::{PtyService, Scrollback};
 
     #[test]
     fn normalize_working_dir_preserves_regular_windows_paths() {
@@ -430,30 +555,45 @@ mod tests {
     }
 
     #[test]
-    fn trim_output_history_prefers_line_boundary_after_overflow() {
-        let mut history = vec![b'a'; PtyService::MAX_HISTORY_BYTES + 10];
-        history[12] = b'\n';
-
-        PtyService::trim_output_history(&mut history);
-
-        assert_eq!(history.len(), PtyService::MAX_HISTORY_BYTES + 10 - 13);
-        assert_eq!(history[0], b'a');
+    fn scrollback_seq_counts_every_chunk_and_never_rewinds() {
+        let mut buffer = Scrollback::default();
+        assert_eq!(buffer.append(b"a", PtyService::MAX_HISTORY_BYTES), 1);
+        assert_eq!(buffer.append(b"b", PtyService::MAX_HISTORY_BYTES), 2);
+        let (data, seq) = buffer.read();
+        assert_eq!(seq, 2);
+        assert_eq!(data, b"ab");
     }
 
     #[test]
-    fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
-        let mut history = vec![b'a'; PtyService::MAX_HISTORY_BYTES + 4];
-        let emoji = [0xe5, 0xa5, 0xbd];
-        let start = 2;
-        history[start..start + emoji.len()].copy_from_slice(&emoji);
+    fn scrollback_evicts_whole_chunks_and_keeps_counting() {
+        let mut buffer = Scrollback::default();
+        let chunk = vec![b'x'; PtyService::MAX_HISTORY_BYTES / 2 + 1];
+        buffer.append(&chunk, PtyService::MAX_HISTORY_BYTES);
+        buffer.append(&chunk, PtyService::MAX_HISTORY_BYTES);
+        let seq = buffer.append(b"tail", PtyService::MAX_HISTORY_BYTES);
+        let (data, read_seq) = buffer.read();
+        assert_eq!(read_seq, seq);
+        assert!(data.ends_with(b"tail"));
+        assert!(data.len() <= PtyService::MAX_HISTORY_BYTES);
+    }
 
-        PtyService::trim_output_history(&mut history);
+    #[test]
+    fn scrollback_keeps_the_last_chunk_even_when_it_alone_is_too_big() {
+        let mut buffer = Scrollback::default();
+        let huge = vec![b'y'; PtyService::MAX_HISTORY_BYTES * 2];
+        buffer.append(&huge, PtyService::MAX_HISTORY_BYTES);
+        let (data, seq) = buffer.read();
+        assert_eq!(seq, 1);
+        assert_eq!(data.len(), huge.len());
+    }
 
-        assert!(
-            history
-                .first()
-                .is_none_or(|byte| PtyService::is_utf8_boundary_byte(*byte))
-        );
+    #[test]
+    fn a_missing_terminal_reports_not_alive_rather_than_failing() {
+        let service = PtyService::new();
+        let snapshot = service.snapshot(uuid::Uuid::nil());
+        assert!(!snapshot.alive);
+        assert!(snapshot.data.is_empty());
+        assert_eq!(snapshot.seq, 0);
     }
 
     #[cfg(unix)]

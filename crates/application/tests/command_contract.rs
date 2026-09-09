@@ -33,6 +33,7 @@ fn coding_loop_commands_share_the_workstation_application_scope() {
         "commit_workspace_changes",
         "create_terminal",
         "write_terminal",
+        "terminal_snapshot",
         "agent_management_detail",
         "apply_host_upgrade",
     ] {

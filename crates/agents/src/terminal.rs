@@ -1,31 +1,45 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
         Arc, LazyLock, Mutex as StdMutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncReadExt,
     process::Child,
     sync::{Mutex, Notify, RwLock, broadcast},
+    task::JoinHandle,
 };
 use ts_rs::TS;
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
-use crate::ids::{AgentSessionId, AgentTerminalId};
+use crate::{
+    ids::{AgentSessionId, AgentTerminalId},
+    shell_flavor::{ShellFamily, classify_shell_family, shell_basename},
+};
 
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 512 * 1024;
 const HARD_OUTPUT_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
 const TERMINAL_OUTPUT_BUFFER: usize = 256;
 
+/// One output chunk plus the monotonic cursor a re-attaching viewer uses to
+/// tell snapshot overlap from live data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalOutputChunk {
+    pub seq: u64,
+    pub data: Vec<u8>,
+}
+
 struct OutputTap {
-    chunks: StdMutex<VecDeque<Vec<u8>>>,
+    chunks: StdMutex<VecDeque<TerminalOutputChunk>>,
     notify: Notify,
     closed: AtomicBool,
 }
@@ -39,7 +53,7 @@ impl OutputTap {
         })
     }
 
-    fn push(&self, chunk: Vec<u8>) {
+    fn push(&self, chunk: TerminalOutputChunk) {
         if self.closed.load(Ordering::Acquire) {
             return;
         }
@@ -59,7 +73,7 @@ impl OutputTap {
         self.notify.notify_waiters();
     }
 
-    async fn recv(&self) -> Option<Vec<u8>> {
+    async fn recv(&self) -> Option<TerminalOutputChunk> {
         loop {
             {
                 let mut chunks = self
@@ -84,7 +98,7 @@ pub struct TerminalOutputRx {
 }
 
 impl TerminalOutputRx {
-    pub async fn recv(&mut self) -> Option<Vec<u8>> {
+    pub async fn recv(&mut self) -> Option<TerminalOutputChunk> {
         self.tap.recv().await
     }
 }
@@ -105,7 +119,7 @@ impl TerminalOutputTx {
         )
     }
 
-    pub fn push(&self, chunk: Vec<u8>) {
+    pub fn push(&self, chunk: TerminalOutputChunk) {
         self.tap.push(chunk);
     }
 
@@ -124,7 +138,7 @@ impl Drop for TerminalOutputRx {
     }
 }
 
-fn push_output(subscribers: &mut Vec<TerminalOutputTx>, chunk: Vec<u8>) {
+fn push_output(subscribers: &mut Vec<TerminalOutputTx>, chunk: TerminalOutputChunk) {
     subscribers.retain(|tx| {
         if tx.is_closed() {
             return false;
@@ -133,10 +147,46 @@ fn push_output(subscribers: &mut Vec<TerminalOutputTx>, chunk: Vec<u8>) {
         true
     });
 }
+
+/// Recent output of a live Host terminal plus the cursor it was read at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HostTerminalSnapshot {
+    pub alive: bool,
+    pub data: String,
+    #[ts(type = "number")]
+    pub seq: u64,
+}
+
+impl HostTerminalSnapshot {
+    pub fn missing() -> Self {
+        Self {
+            alive: false,
+            data: String::new(),
+            seq: 0,
+        }
+    }
+
+    pub fn from_bytes(data: &[u8], seq: u64) -> Self {
+        Self {
+            alive: true,
+            data: BASE64.encode(data),
+            seq,
+        }
+    }
+}
+
 /// After the child exits, wait this long for stdout/stderr readers to drain
 /// before publishing the exit status. `wait_for_exit` then `terminal/output`
-/// (Grok's sequence) otherwise races an empty snapshot.
-const READER_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_millis(200);
+/// otherwise races an empty snapshot.
+const READER_DRAIN_GRACE: Duration = Duration::from_millis(200);
+/// How long a killed command gets to honor SIGTERM before escalating to SIGKILL.
+const KILL_ESCALATE_GRACE: Duration = Duration::from_secs(2);
+/// Bound how long `kill_terminal` waits to *report*. The owner keeps reaping.
+const KILL_REPORT_BUDGET: Duration = Duration::from_secs(5);
+const WAIT_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
+const WAIT_ERROR_BUDGET: Duration = Duration::from_secs(30);
+const WAIT_ERROR_IDLE_RETRY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -210,16 +260,17 @@ pub struct AgentTerminalLiveItem {
 
 struct AgentTerminalSession {
     agent_session_id: AgentSessionId,
-    child: Arc<Mutex<Child>>,
     cwd: Option<PathBuf>,
     command: String,
     args: Vec<String>,
     output_history: Arc<Mutex<Vec<u8>>>,
+    seq: AtomicU64,
     subscribers: Arc<Mutex<Vec<TerminalOutputTx>>>,
     exit_status: Arc<RwLock<Option<AgentTerminalExit>>>,
     exit_notify: Arc<Notify>,
     kill_notify: Arc<Notify>,
     truncated: Arc<RwLock<bool>>,
+    reader_handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
 /// Shared Default Terminal selection. User PTY tabs and ACP command-line
@@ -304,16 +355,17 @@ impl AgentTerminalRegistry {
 
         let session = Arc::new(AgentTerminalSession {
             agent_session_id: args.session_id,
-            child: Arc::new(Mutex::new(child)),
             cwd: cwd.clone(),
             command: args.command.clone(),
             args: args.args.clone(),
             output_history: Arc::new(Mutex::new(Vec::new())),
+            seq: AtomicU64::new(0),
             subscribers: Arc::new(Mutex::new(Vec::new())),
             exit_status: Arc::new(RwLock::new(None)),
             exit_notify: Arc::new(Notify::new()),
             kill_notify: Arc::new(Notify::new()),
             truncated: Arc::new(RwLock::new(false)),
+            reader_handles: Mutex::new(Vec::new()),
         });
 
         self.sessions
@@ -321,9 +373,26 @@ impl AgentTerminalRegistry {
             .await
             .insert(terminal_id, Arc::clone(&session));
 
-        self.spawn_reader(stdout, Arc::clone(&session), args.output_byte_limit);
-        self.spawn_reader(stderr, Arc::clone(&session), args.output_byte_limit);
-        self.spawn_waiter(terminal_id, Arc::clone(&session));
+        let mut handles: Vec<JoinHandle<()>> = Vec::new();
+        if let Some(handle) =
+            Self::spawn_reader(stdout, Arc::clone(&session), args.output_byte_limit)
+        {
+            handles.push(handle);
+        }
+        if let Some(handle) =
+            Self::spawn_reader(stderr, Arc::clone(&session), args.output_byte_limit)
+        {
+            handles.push(handle);
+        }
+        if !handles.is_empty() {
+            session.reader_handles.lock().await.extend(handles);
+        }
+        tokio::spawn(own_terminal_process(
+            terminal_id,
+            Arc::clone(&session),
+            child,
+            self.lifecycle_tx.clone(),
+        ));
 
         let _ = self.lifecycle_tx.send(AgentTerminalLifecycleEvent::Created(
             AgentTerminalCreateEvent {
@@ -339,28 +408,25 @@ impl AgentTerminalRegistry {
     }
 
     fn spawn_reader(
-        &self,
         reader: Option<impl tokio::io::AsyncRead + Unpin + Send + 'static>,
         session: Arc<AgentTerminalSession>,
         output_byte_limit: Option<u64>,
-    ) {
-        let Some(mut reader) = reader else {
-            return;
-        };
-
-        tokio::spawn(async move {
+    ) -> Option<JoinHandle<()>> {
+        let mut reader = reader?;
+        Some(tokio::spawn(async move {
             let mut buffer = vec![0_u8; 4096];
             loop {
                 match reader.read(&mut buffer).await {
                     Ok(0) => break,
                     Ok(count) => {
-                        let chunk = buffer[..count].to_vec();
+                        let data = buffer[..count].to_vec();
                         let limit = effective_output_byte_limit(output_byte_limit);
                         let mut was_truncated = false;
+                        let seq = session.seq.fetch_add(1, Ordering::AcqRel) + 1;
 
                         {
                             let mut history = session.output_history.lock().await;
-                            history.extend_from_slice(&chunk);
+                            history.extend_from_slice(&data);
                             if trim_output_history(&mut history, limit) {
                                 was_truncated = true;
                             }
@@ -370,44 +436,12 @@ impl AgentTerminalRegistry {
                         }
 
                         let mut subscribers = session.subscribers.lock().await;
-                        push_output(&mut subscribers, chunk);
+                        push_output(&mut subscribers, TerminalOutputChunk { seq, data });
                     }
                     Err(_) => break,
                 }
             }
-        });
-    }
-
-    fn spawn_waiter(&self, terminal_id: AgentTerminalId, session: Arc<AgentTerminalSession>) {
-        let lifecycle_tx = self.lifecycle_tx.clone();
-        tokio::spawn(async move {
-            let wait_result = {
-                let mut child = session.child.lock().await;
-                tokio::select! {
-                    result = child.wait() => result,
-                    _ = session.kill_notify.notified() => {
-                        let _ = child.start_kill();
-                        child.wait().await
-                    }
-                }
-            };
-            tokio::time::sleep(READER_DRAIN_GRACE).await;
-
-            let status = match wait_result {
-                Ok(exit_status) => exit_status
-                    .code()
-                    .map(|code| AgentTerminalExit::Code { code })
-                    .unwrap_or(AgentTerminalExit::Unknown),
-                Err(_) => AgentTerminalExit::Unknown,
-            };
-
-            *session.exit_status.write().await = Some(status.clone());
-            session.exit_notify.notify_waiters();
-            let _ = lifecycle_tx.send(AgentTerminalLifecycleEvent::Exited {
-                terminal_id,
-                exit: status,
-            });
-        });
+        }))
     }
 
     pub async fn list_live(&self) -> Vec<AgentTerminalLiveItem> {
@@ -439,12 +473,18 @@ impl AgentTerminalRegistry {
     pub async fn subscribe_output(&self, terminal_id: AgentTerminalId) -> Option<TerminalOutputRx> {
         let session = self.sessions.read().await.get(&terminal_id)?.clone();
         let (tx, rx) = TerminalOutputTx::pair();
-        let history = session.output_history.lock().await.clone();
-        if !history.is_empty() {
-            tx.push(history);
-        }
         session.subscribers.lock().await.push(tx);
         Some(rx)
+    }
+
+    pub async fn host_snapshot(
+        &self,
+        terminal_id: AgentTerminalId,
+    ) -> Option<HostTerminalSnapshot> {
+        let session = self.sessions.read().await.get(&terminal_id)?.clone();
+        let history = session.output_history.lock().await.clone();
+        let seq = session.seq.load(Ordering::Acquire);
+        Some(HostTerminalSnapshot::from_bytes(&history, seq))
     }
 
     pub async fn snapshot_output(
@@ -478,12 +518,20 @@ impl AgentTerminalRegistry {
         let Some(session) = self.sessions.read().await.get(&terminal_id).cloned() else {
             return false;
         };
-
-        session.kill_notify.notify_waiters();
-        match session.child.try_lock() {
-            Ok(mut child) => child.start_kill().is_ok(),
-            Err(_) => true,
+        if session.exit_status.read().await.is_some() {
+            return true;
         }
+        session.kill_notify.notify_one();
+        let _ = tokio::time::timeout(KILL_REPORT_BUDGET, async {
+            loop {
+                if session.exit_status.read().await.is_some() {
+                    break;
+                }
+                session.exit_notify.notified().await;
+            }
+        })
+        .await;
+        true
     }
 
     pub async fn release_terminal(&self, terminal_id: AgentTerminalId) -> bool {
@@ -492,13 +540,7 @@ impl AgentTerminalRegistry {
             return false;
         };
 
-        {
-            session.kill_notify.notify_waiters();
-            if let Ok(mut child) = session.child.try_lock() {
-                let _ = child.start_kill();
-            }
-        }
-
+        session.kill_notify.notify_one();
         {
             let mut subscribers = session.subscribers.lock().await;
             for tap in subscribers.drain(..) {
@@ -577,6 +619,171 @@ impl Default for AgentTerminalRegistry {
     }
 }
 
+async fn drain_readers(session: &AgentTerminalSession) {
+    let handles: Vec<JoinHandle<()>> = std::mem::take(&mut *session.reader_handles.lock().await);
+    for handle in handles {
+        let abort = handle.abort_handle();
+        if tokio::time::timeout(READER_DRAIN_GRACE, handle)
+            .await
+            .is_err()
+        {
+            abort.abort();
+        }
+    }
+}
+
+async fn publish_exit(
+    terminal_id: AgentTerminalId,
+    session: &AgentTerminalSession,
+    status: AgentTerminalExit,
+    lifecycle_tx: &broadcast::Sender<AgentTerminalLifecycleEvent>,
+) {
+    drain_readers(session).await;
+    *session.exit_status.write().await = Some(status.clone());
+    session.exit_notify.notify_waiters();
+    let _ = lifecycle_tx.send(AgentTerminalLifecycleEvent::Exited {
+        terminal_id,
+        exit: status,
+    });
+}
+
+fn map_exit_status(status: std::process::ExitStatus) -> AgentTerminalExit {
+    status
+        .code()
+        .map(|code| AgentTerminalExit::Code { code })
+        .unwrap_or(AgentTerminalExit::Unknown)
+}
+
+#[cfg(unix)]
+fn is_already_reaped(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(libc::ECHILD)
+}
+
+#[cfg(not(unix))]
+fn is_already_reaped(_err: &std::io::Error) -> bool {
+    false
+}
+
+async fn signal_tree(pid: Option<u32>, signal: &str) -> Vec<u32> {
+    let Some(pid) = pid else {
+        return Vec::new();
+    };
+    let config = kill_tree::Config {
+        signal: signal.to_string(),
+        include_target: true,
+    };
+    match kill_tree::tokio::kill_tree_with_config(pid, &config).await {
+        Ok(outputs) => outputs
+            .into_iter()
+            .filter_map(|output| match output {
+                kill_tree::Output::Killed { process_id, .. } => Some(process_id),
+                kill_tree::Output::MaybeAlreadyTerminated { .. } => None,
+            })
+            .collect(),
+        Err(err) => {
+            tracing::error!("kill_tree({signal}) failed for pid {pid}: {err}");
+            Vec::new()
+        }
+    }
+}
+
+async fn sweep_survivors(signalled: &HashSet<u32>, root: Option<u32>) {
+    for &pid in signalled {
+        if Some(pid) == root {
+            continue;
+        }
+        signal_tree(Some(pid), "SIGKILL").await;
+    }
+}
+
+/// Sole owner of a spawned terminal's `Child` for the process's whole life.
+/// Callers signal kill rather than holding a pid, so every kill runs while this
+/// task still holds the un-reaped child.
+async fn own_terminal_process(
+    terminal_id: AgentTerminalId,
+    session: Arc<AgentTerminalSession>,
+    mut child: Child,
+    lifecycle_tx: broadcast::Sender<AgentTerminalLifecycleEvent>,
+) {
+    let pid = child.id();
+    let mut signalled: HashSet<u32> = HashSet::new();
+    let mut escalate_at: Option<tokio::time::Instant> = None;
+    let mut kill_requested = false;
+    let mut escalated = false;
+    let mut backoff = Duration::from_millis(10);
+    let mut wait_error_deadline: Option<tokio::time::Instant> = None;
+    let mut published_without_reaping = false;
+
+    let exit_status = loop {
+        let escalate = async {
+            match escalate_at {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+
+        tokio::select! {
+            reaped = child.wait() => match reaped {
+                Ok(status) => break map_exit_status(status),
+                Err(err) if is_already_reaped(&err) => {
+                    tracing::error!(
+                        "ACP terminal child was reaped elsewhere; exit status unavailable: {err}"
+                    );
+                    break AgentTerminalExit::Unknown;
+                }
+                Err(err) => {
+                    tracing::error!("failed waiting for ACP terminal process to exit: {err}");
+                    signalled.extend(signal_tree(pid, "SIGKILL").await);
+
+                    let deadline = *wait_error_deadline
+                        .get_or_insert_with(|| tokio::time::Instant::now() + WAIT_ERROR_BUDGET);
+                    if !published_without_reaping && tokio::time::Instant::now() >= deadline {
+                        published_without_reaping = true;
+                        publish_exit(
+                            terminal_id,
+                            &session,
+                            AgentTerminalExit::Unknown,
+                            &lifecycle_tx,
+                        )
+                        .await;
+                    }
+
+                    let pause = if published_without_reaping {
+                        WAIT_ERROR_IDLE_RETRY
+                    } else {
+                        backoff = (backoff * 2).min(WAIT_RETRY_MAX_BACKOFF);
+                        backoff
+                    };
+                    tokio::time::sleep(pause).await;
+                }
+            },
+            () = escalate => {
+                escalate_at = None;
+                escalated = true;
+                signalled.extend(signal_tree(pid, "SIGKILL").await);
+            }
+            () = session.kill_notify.notified() => {
+                let signal = if escalated { "SIGKILL" } else { "SIGTERM" };
+                signalled.extend(signal_tree(pid, signal).await);
+                if !kill_requested {
+                    kill_requested = true;
+                    escalate_at = Some(tokio::time::Instant::now() + KILL_ESCALATE_GRACE);
+                }
+            }
+        }
+    };
+
+    if kill_requested {
+        sweep_survivors(&signalled, pid).await;
+    }
+
+    if published_without_reaping {
+        return;
+    }
+
+    publish_exit(terminal_id, &session, exit_status, &lifecycle_tx).await;
+}
+
 fn configure_terminal_command(
     command: &mut tokio::process::Command,
     args: &AgentTerminalCreateRequest,
@@ -625,54 +832,6 @@ pub(crate) fn resolve_terminal_cwd(
         Some(cwd) => Ok(Some(cwd.to_path_buf())),
         None if session_working_dir.is_dir() => Ok(Some(session_working_dir.to_path_buf())),
         None => Ok(None),
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ShellFamily {
-    PowerShell,
-    Cmd,
-    Posix,
-}
-
-impl ShellFamily {
-    fn resolves_bare_builtins(self) -> bool {
-        matches!(self, ShellFamily::PowerShell | ShellFamily::Cmd)
-    }
-}
-
-fn shell_basename(shell: &str) -> String {
-    Path::new(shell)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(shell)
-        .to_ascii_lowercase()
-}
-
-fn classify_shell_family(shell: &str) -> ShellFamily {
-    let name = shell_basename(shell);
-    if name.contains("pwsh") || name.contains("powershell") {
-        return ShellFamily::PowerShell;
-    }
-    if name == "cmd" || name == "cmd.exe" {
-        return ShellFamily::Cmd;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if name.contains("bash")
-            || name.contains("zsh")
-            || name.contains("fish")
-            || name.ends_with("sh.exe")
-        {
-            ShellFamily::Posix
-        } else {
-            ShellFamily::Cmd
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        ShellFamily::Posix
     }
 }
 
@@ -911,12 +1070,15 @@ mod tests {
 
     use super::{
         AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
-        HARD_OUTPUT_BYTE_LIMIT, OutputTap, ShellFamily, TERMINAL_OUTPUT_BUFFER,
-        can_retry_command_through_shell, classify_shell_family, default_platform_shell,
-        effective_output_byte_limit, is_utf8_boundary_byte, resolve_fallback_shell,
-        resolve_terminal_cwd, shell_wrapped_command, trim_output_history,
+        HARD_OUTPUT_BYTE_LIMIT, OutputTap, TERMINAL_OUTPUT_BUFFER, TerminalOutputChunk,
+        can_retry_command_through_shell, default_platform_shell, effective_output_byte_limit,
+        is_utf8_boundary_byte, resolve_fallback_shell, resolve_terminal_cwd, shell_wrapped_command,
+        trim_output_history,
     };
-    use crate::ids::AgentSessionId;
+    use crate::{
+        ids::AgentSessionId,
+        shell_flavor::{ShellFamily, classify_shell_family},
+    };
 
     #[test]
     fn agent_output_byte_limit_is_hard_capped() {
@@ -1317,13 +1479,28 @@ mod tests {
     async fn output_tap_drops_the_oldest_chunk_when_full() {
         let tap = OutputTap::new();
         for index in 0..=TERMINAL_OUTPUT_BUFFER {
-            tap.push(vec![index as u8]);
+            tap.push(TerminalOutputChunk {
+                seq: index as u64 + 1,
+                data: vec![index as u8],
+            });
         }
-        assert_eq!(tap.recv().await, Some(vec![1]));
+        assert_eq!(
+            tap.recv().await,
+            Some(TerminalOutputChunk {
+                seq: 2,
+                data: vec![1]
+            })
+        );
         for _ in 1..TERMINAL_OUTPUT_BUFFER - 1 {
             assert!(tap.recv().await.is_some());
         }
-        assert_eq!(tap.recv().await, Some(vec![TERMINAL_OUTPUT_BUFFER as u8]));
+        assert_eq!(
+            tap.recv().await,
+            Some(TerminalOutputChunk {
+                seq: TERMINAL_OUTPUT_BUFFER as u64 + 1,
+                data: vec![TERMINAL_OUTPUT_BUFFER as u8]
+            })
+        );
         tap.close();
         assert_eq!(tap.recv().await, None);
     }

@@ -38,6 +38,17 @@ describe('DesktopWindowControls', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
+  it('uses the same circular hover for minimize, maximize, and close', () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
+    render(<DesktopWindowControls />);
+
+    for (const name of ['Minimize', 'Maximize', 'Close']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveClass('rounded-full', 'h-7', 'w-7');
+      expect(button.className).not.toContain('windows-close-hover');
+    }
+  });
+
   it('does not render window controls on macOS', () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
     render(<DesktopWindowControls />);

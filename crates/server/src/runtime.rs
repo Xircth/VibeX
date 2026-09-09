@@ -815,7 +815,8 @@ where
     };
     let stream = futures::stream::unfold(receiver, |mut receiver| async move {
         let chunk = receiver.recv().await?;
-        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, chunk);
+        let encoded =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &chunk.data);
         Some((
             Ok::<_, std::convert::Infallible>(axum::response::sse::Event::default().data(encoded)),
             receiver,

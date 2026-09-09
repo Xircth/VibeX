@@ -10,6 +10,8 @@ import {
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { backendCall, backendListen } from '../lib/backendTransport';
+import { createWriteQueue } from '../lib/terminal/writeQueue';
+import { parseTerminalOutputPayload } from '../lib/terminal/outputPayload';
 
 export interface TerminalInstance {
   terminal: Terminal;
@@ -357,24 +359,34 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
         rows,
       });
 
-      // Listen for terminal output events from the backend
-      const unlisten = await backendListen<string>(
+      const unlisten = await backendListen<unknown>(
         `terminal-output:${sessionId}`,
         (payload) => {
+          const event = parseTerminalOutputPayload(payload);
+          if (!event) {
+            return;
+          }
           const callbacks = connectionCallbacksRef.current.get(tabId);
           if (callbacks) {
-            callbacks.onData(decodeBase64(payload));
+            callbacks.onData(decodeBase64(event.data));
           }
         }
       );
 
-      const send = (data: string) => {
-        backendCall('write_terminal', {
+      const writeQueue = createWriteQueue(async (data) => {
+        await backendCall('write_terminal', {
           sessionId,
           data: encodeBase64(data),
-        }).catch((err) => {
-          console.error('Failed to write to terminal:', err);
         });
+      });
+      const previousUnlisten = unlisten;
+      const unlistenWithQueue = () => {
+        writeQueue.dispose();
+        previousUnlisten();
+      };
+
+      const send = (data: string) => {
+        writeQueue.enqueue(data);
       };
 
       const resize = (newCols: number, newRows: number) => {
@@ -389,7 +401,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
 
       const connection: TerminalConnection = {
         sessionId,
-        unlisten,
+        unlisten: unlistenWithQueue,
         send,
         resize,
       };

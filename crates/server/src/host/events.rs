@@ -165,6 +165,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "application.call",
     },
     HostEventChannel {
+        prefix: "terminal-exit",
+        durability: EventDurability::BestEffort,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
         prefix: "plugin-contributions-changed",
         durability: EventDurability::Invalidation,
         required_scope: "plugin.read",
@@ -301,6 +306,16 @@ pub fn terminal_output_channel(session_id: Uuid) -> String {
     format!("terminal-output:{session_id}")
 }
 
+pub fn terminal_exit_channel(session_id: Uuid) -> String {
+    format!("terminal-exit:{session_id}")
+}
+
+#[derive(Serialize)]
+struct TerminalOutputEvent {
+    data: String,
+    seq: u64,
+}
+
 struct TerminalBridge {
     subscribers: usize,
     task: JoinHandle<()>,
@@ -340,11 +355,19 @@ impl TerminalBridgeRegistry {
             return;
         }
         let channel = terminal_output_channel(session_id);
+        let exit_channel = terminal_exit_channel(session_id);
         let task = tokio::spawn(async move {
             let mut output_rx = output_rx;
-            while let Some(data) = output_rx.recv().await {
-                bus.emit(&channel, BASE64.encode(&data));
+            while let Some(chunk) = output_rx.recv().await {
+                bus.emit(
+                    &channel,
+                    TerminalOutputEvent {
+                        data: BASE64.encode(&chunk.data),
+                        seq: chunk.seq,
+                    },
+                );
             }
+            bus.emit(&exit_channel, session_id);
         });
         inner.insert(
             session_id,
@@ -498,6 +521,7 @@ mod tests {
             "agent-events",
             "slash-commands-stream:codex:default:none:none",
             "terminal-output:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "terminal-exit:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         ] {
             assert!(
                 HostEventBus::channel_allowed(channel),
@@ -587,7 +611,10 @@ mod tests {
             agents::TerminalOutputTx::pair().1,
         );
         assert_eq!(bridges.subscriber_count(session_id), 2);
-        tx.push(b"prompt>\n".to_vec());
+        tx.push(agents::TerminalOutputChunk {
+            seq: 1,
+            data: b"prompt>\n".to_vec(),
+        });
         let channel = super::terminal_output_channel(session_id);
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
@@ -600,12 +627,14 @@ mod tests {
         .await
         .expect("terminal output reached the Host Event Bus");
         assert_eq!(
-            event.payload.as_str(),
-            Some(base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                b"prompt>\n"
-            ))
-            .as_deref()
+            event.payload,
+            serde_json::json!({
+                "data": base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    b"prompt>\n"
+                ),
+                "seq": 1,
+            })
         );
         bridges.release(session_id);
         assert_eq!(bridges.subscriber_count(session_id), 1);

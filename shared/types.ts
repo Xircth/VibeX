@@ -2154,3 +2154,5 @@ export type ConflictStageContent = { present: boolean, content?: string | null, 
 export type WriteConflictResolutionResult = { path: string, is_resolved: boolean, };
 
 export type EventDurability = "durable" | "invalidation" | "best_effort";
+
+export type HostTerminalSnapshot = { alive: boolean, data: string, seq: number, };

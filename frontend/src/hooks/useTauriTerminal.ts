@@ -13,6 +13,8 @@ import { backendCall, backendListen } from '@/lib/backendTransport';
 import { attachTerminalInput } from '@/utils/terminalInputAdapter';
 import { getTerminalTheme } from '@/utils/terminalTheme';
 import type { TerminalBusyEvent } from '@/lib/workspaceTerminalTabs';
+import { createWriteQueue, type WriteQueue } from '@/lib/terminal/writeQueue';
+import { parseTerminalOutputPayload } from '@/lib/terminal/outputPayload';
 type UnlistenFn = () => void;
 
 function isTerminalCopyShortcut(
@@ -189,11 +191,10 @@ export function useTauriTerminal({
   const pendingInitObserverRef = useRef<ResizeObserver | null>(null);
   const pendingInitFrameRef = useRef<number | null>(null);
   const pendingInputRef = useRef('');
-  const inputFlushScheduledRef = useRef(false);
-  const inputWriteInFlightRef = useRef(false);
-  const inputGenerationRef = useRef(0);
-  const inputRetryCountRef = useRef(0);
+  const writeQueueRef = useRef<WriteQueue | null>(null);
   const inputSubscriptionRef = useRef<{ dispose(): void } | null>(null);
+  const exitUnlistenRef = useRef<UnlistenFn | null>(null);
+  const snapshotSeqFloorRef = useRef(0);
 
   useEffect(() => {
     onSessionIdRef.current = onSessionId;
@@ -233,6 +234,11 @@ export function useTauriTerminal({
       unlistenRef.current = null;
     }
 
+    if (exitUnlistenRef.current) {
+      exitUnlistenRef.current();
+      exitUnlistenRef.current = null;
+    }
+
     if (themeUnlistenRef.current) {
       themeUnlistenRef.current();
       themeUnlistenRef.current = null;
@@ -253,83 +259,29 @@ export function useTauriTerminal({
       terminalRef.current = null;
     }
 
-    inputGenerationRef.current += 1;
-    // Keep queued keystrokes across re-initializations (visibility flaps,
-    // panel remounts): fast typing coalesces trailing characters into a
-    // pending chunk, and wiping it here is exactly how "cd .." degrades to
-    // "c". Only a real unmount clears the queue.
     if (!options?.preserveInput) {
       pendingInputRef.current = '';
     }
-    inputFlushScheduledRef.current = false;
-    inputWriteInFlightRef.current = false;
+    writeQueueRef.current?.dispose();
+    writeQueueRef.current = null;
+    snapshotSeqFloorRef.current = 0;
     fitAddonRef.current = null;
     errorRef.current = null;
     terminalOpenedRef.current = false;
   }, []);
 
-  const flushTerminalInput = useCallback(() => {
-    inputFlushScheduledRef.current = false;
-
-    if (inputWriteInFlightRef.current) {
+  const enqueueTerminalInput = useCallback((data: string) => {
+    if (data === '\x1b[I' || data === '\x1b[O') {
       return;
     }
-
-    const sessionId = sessionIdRef.current;
-    const data = pendingInputRef.current;
-    if (!sessionId || !data) {
+    onIoRef.current?.({ type: 'input', data });
+    const queue = writeQueueRef.current;
+    if (queue && sessionIdRef.current) {
+      queue.enqueue(data);
       return;
     }
-    const inputGeneration = inputGenerationRef.current;
-
-    pendingInputRef.current = '';
-    inputWriteInFlightRef.current = true;
-
-    backendCall('write_terminal', {
-      sessionId,
-      data: encodeBase64(data),
-    })
-      .then(() => {
-        inputRetryCountRef.current = 0;
-      })
-      .catch((err) => {
-        console.error('Failed to write to terminal:', err);
-        // Re-queue the chunk so a transient failure (e.g. a session mid
-        // re-attach) doesn't silently swallow keystrokes; bounded so a dead
-        // session can't loop forever.
-        if (
-          inputGenerationRef.current === inputGeneration &&
-          inputRetryCountRef.current < 3
-        ) {
-          inputRetryCountRef.current += 1;
-          pendingInputRef.current = data + pendingInputRef.current;
-        }
-      })
-      .finally(() => {
-        if (inputGenerationRef.current !== inputGeneration) {
-          return;
-        }
-        inputWriteInFlightRef.current = false;
-        if (pendingInputRef.current && !inputFlushScheduledRef.current) {
-          inputFlushScheduledRef.current = true;
-          queueMicrotask(flushTerminalInput);
-        }
-      });
+    pendingInputRef.current += data;
   }, []);
-
-  const enqueueTerminalInput = useCallback(
-    (data: string) => {
-      onIoRef.current?.({ type: 'input', data });
-      pendingInputRef.current += data;
-      if (inputFlushScheduledRef.current) {
-        return;
-      }
-
-      inputFlushScheduledRef.current = true;
-      queueMicrotask(flushTerminalInput);
-    },
-    [flushTerminalInput]
-  );
 
   useLayoutEffect(() => {
     mountedRef.current = true;
@@ -484,69 +436,146 @@ export function useTauriTerminal({
 
       fitTerminalIfReady(fitAddon, terminal, container);
 
+      type HostTerminalSnapshot = {
+        alive: boolean;
+        data: string;
+        seq: number;
+      };
+
+      const writeOutput = (base64: string, seq: number) => {
+        if (seq > 0 && seq <= snapshotSeqFloorRef.current) {
+          return;
+        }
+        const bytes = decodeBase64ToBytes(base64);
+        try {
+          terminal.write(bytes);
+          onIoRef.current?.({
+            type: 'output',
+            data: new TextDecoder().decode(bytes),
+          });
+        } catch (error) {
+          console.warn('Failed to write terminal output:', error);
+        }
+      };
+
       const attachListener = async (currentSessionId: string) => {
-        const unlisten = await backendListen<string>(
+        let replayBuffer: Array<{ data: string; seq: number }> | null = [];
+        const unlisten = await backendListen<unknown>(
           `terminal-output:${currentSessionId}`,
           (payload) => {
             if (
-              isCurrentInitialization() &&
-              sessionIdRef.current === currentSessionId
+              !isCurrentInitialization() ||
+              sessionIdRef.current !== currentSessionId
             ) {
-              const bytes = decodeBase64ToBytes(payload);
+              return;
+            }
+            const event = parseTerminalOutputPayload(payload);
+            if (!event) {
+              return;
+            }
+            if (replayBuffer) {
+              replayBuffer.push(event);
+              return;
+            }
+            writeOutput(event.data, event.seq);
+          }
+        );
+        unlistenRef.current = unlisten;
+        const unlistenExit = await backendListen(
+          `terminal-exit:${currentSessionId}`,
+          () => {
+            writeQueueRef.current?.dispose();
+            if (isCurrentInitialization()) {
               try {
-                terminal.write(bytes);
-                onIoRef.current?.({
-                  type: 'output',
-                  data: new TextDecoder().decode(bytes),
-                });
-              } catch (error) {
-                console.warn('Failed to write terminal output:', error);
+                terminal.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
+              } catch {
+                // Panel may already be disposing.
               }
             }
           }
         );
-        unlistenRef.current = unlisten;
+        exitUnlistenRef.current = unlistenExit;
+        return {
+          flushReplay(snapshotSeq: number | null) {
+            const buffered = replayBuffer ?? [];
+            replayBuffer = null;
+            if (
+              snapshotSeq != null &&
+              snapshotSeq > snapshotSeqFloorRef.current
+            ) {
+              snapshotSeqFloorRef.current = snapshotSeq;
+            }
+            for (const event of buffered) {
+              writeOutput(event.data, event.seq);
+            }
+          },
+        };
+      };
+
+      const spawnSession = async (sessionId: string) => {
+        await backendCall<string>('create_terminal', {
+          workspaceId,
+          cols: terminal.cols,
+          rows: terminal.rows,
+          shell: shell || null,
+          sessionId,
+        });
       };
 
       let resolvedSessionId = sessionIdRef.current;
+      let outputPump: Awaited<ReturnType<typeof attachListener>> | null = null;
 
       try {
         if (resolvedSessionId) {
-          try {
-            await attachListener(resolvedSessionId);
+          outputPump = await attachListener(resolvedSessionId);
+          const snapshot = await backendCall<HostTerminalSnapshot>(
+            'terminal_snapshot',
+            { sessionId: resolvedSessionId }
+          ).catch(() => null);
+          if (snapshot?.alive) {
+            if (snapshot.data) {
+              writeOutput(snapshot.data, 0);
+            }
+            outputPump.flushReplay(snapshot.seq);
             await backendCall<string>('attach_terminal', {
               sessionId: resolvedSessionId,
             });
-          } catch {
-            if (unlistenRef.current) {
-              unlistenRef.current();
-              unlistenRef.current = null;
+          } else {
+            try {
+              await spawnSession(resolvedSessionId);
+              outputPump.flushReplay(null);
+            } catch {
+              outputPump.flushReplay(null);
+              if (unlistenRef.current) {
+                unlistenRef.current();
+                unlistenRef.current = null;
+              }
+              if (exitUnlistenRef.current) {
+                exitUnlistenRef.current();
+                exitUnlistenRef.current = null;
+              }
+              resolvedSessionId = crypto.randomUUID();
+              sessionIdRef.current = resolvedSessionId;
+              outputPump = await attachListener(resolvedSessionId);
+              await spawnSession(resolvedSessionId);
+              outputPump.flushReplay(null);
             }
-            resolvedSessionId = crypto.randomUUID();
-            await attachListener(resolvedSessionId);
-            await backendCall<string>('create_terminal', {
-              workspaceId,
-              cols: terminal.cols,
-              rows: terminal.rows,
-              shell: shell || null,
-              sessionId: resolvedSessionId,
-            });
           }
         } else {
           resolvedSessionId = crypto.randomUUID();
-          await attachListener(resolvedSessionId);
-          await backendCall<string>('create_terminal', {
-            workspaceId,
-            cols: terminal.cols,
-            rows: terminal.rows,
-            shell: shell || null,
-            sessionId: resolvedSessionId,
-          });
+          sessionIdRef.current = resolvedSessionId;
+          outputPump = await attachListener(resolvedSessionId);
+          await spawnSession(resolvedSessionId);
+          outputPump.flushReplay(null);
         }
       } catch (err) {
         if (unlistenRef.current) {
           unlistenRef.current();
           unlistenRef.current = null;
+        }
+        if (exitUnlistenRef.current) {
+          exitUnlistenRef.current();
+          exitUnlistenRef.current = null;
         }
 
         const message = err instanceof Error ? err.message : String(err);
@@ -573,23 +602,49 @@ export function useTauriTerminal({
       onSessionIdRef.current?.(resolvedSessionId);
 
       if (!readOnly) {
-        // Deliver keystrokes queued while the terminal was re-initializing.
-        if (pendingInputRef.current && !inputFlushScheduledRef.current) {
-          inputFlushScheduledRef.current = true;
-          queueMicrotask(flushTerminalInput);
+        const queue = createWriteQueue(async (data) => {
+          const sessionId = sessionIdRef.current;
+          if (!sessionId) {
+            throw new Error('terminal session is not ready');
+          }
+          await backendCall('write_terminal', {
+            sessionId,
+            data: encodeBase64(data),
+          });
+        });
+        writeQueueRef.current = queue;
+        if (pendingInputRef.current) {
+          queue.enqueue(pendingInputRef.current);
+          pendingInputRef.current = '';
         }
       }
 
+      let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastSize: { cols: number; rows: number } | null = null;
       terminal.onResize(({ cols, rows }) => {
-        if (isCurrentInitialization() && sessionIdRef.current) {
+        if (!isCurrentInitialization() || !sessionIdRef.current) {
+          return;
+        }
+        if (lastSize && lastSize.cols === cols && lastSize.rows === rows) {
+          return;
+        }
+        lastSize = { cols, rows };
+        if (resizeTimer) {
+          clearTimeout(resizeTimer);
+        }
+        resizeTimer = setTimeout(() => {
+          const sessionId = sessionIdRef.current;
+          if (!sessionId) {
+            return;
+          }
           backendCall('resize_terminal', {
-            sessionId: sessionIdRef.current,
+            sessionId,
             cols,
             rows,
           }).catch((err) => {
             console.error('Failed to resize terminal:', err);
           });
-        }
+        }, 50);
       });
 
       const resizeObserver = new ResizeObserver(() => {
@@ -609,7 +664,6 @@ export function useTauriTerminal({
       readOnly,
       disposeView,
       enqueueTerminalInput,
-      flushTerminalInput,
     ]
   );
 

@@ -31,6 +31,7 @@ url = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
 which = "8.0.0"
 dirs = { workspace = true }
+kill_tree = { version = "0.2", features = ["tokio"] }
 prost = "0.13"
 jsonc-parser = { version = "0.29", features = ["cst", "serde"] }
 toml = "0.8"
@@ -40,6 +41,9 @@ zstd = "0.13"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

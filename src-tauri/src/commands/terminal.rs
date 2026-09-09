@@ -17,8 +17,8 @@ fn spawn_terminal_output_bridge(
 ) {
     let channel = format!("terminal-output:{}", session_id);
     tokio::spawn(async move {
-        while let Some(data) = output_rx.recv().await {
-            let encoded = BASE64.encode(&data);
+        while let Some(chunk) = output_rx.recv().await {
+            let encoded = BASE64.encode(&chunk.data);
             if app.emit(&channel, &encoded).is_err() {
                 break;
             }
@@ -135,7 +135,7 @@ pub async fn create_terminal(
     // Create PTY session
     let (session_id, output_rx) = state
         .pty
-        .create_session(working_dir, cols, rows, shell, session_id)
+        .create_session(working_dir, cols, rows, shell, session_id, None)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 

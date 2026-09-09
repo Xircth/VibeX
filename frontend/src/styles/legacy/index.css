@@ -297,10 +297,6 @@
     --usage-red: hsl(8 48% 93% / 0.72);
     --usage-red-border: hsl(8 42% 56% / 0.26);
     --usage-red-fg: hsl(8 55% 50%);
-    /* Windows chrome exception: native close-button red for frameless windows. */
-    --windows-close-hover: hsl(4 88% 48%);
-    --windows-close-active: hsl(4 82% 42%);
-    --windows-close-foreground: hsl(0 0% 100%);
     --motion-state-fast: 150ms ease;
     --motion-state-medium: 200ms ease-out;
   }
@@ -6590,7 +6586,7 @@ html.tauri-desktop[data-host-platform='macos'] .window-chrome-leading-rule {
 }
 
 html.tauri-desktop.host-windows .window-chrome {
-  padding-right: 8.625rem;
+  padding-right: 6.5rem;
 }
 
 .window-chrome button,

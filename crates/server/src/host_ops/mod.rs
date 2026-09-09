@@ -464,6 +464,7 @@ impl ServerApplicationDomains {
             DomainCommand::TerminalResize => self.resize_terminal(args).await,
             DomainCommand::TerminalClose => self.close_terminal(args).await,
             DomainCommand::TerminalAttach => self.attach_terminal(args).await,
+            DomainCommand::TerminalSnapshot => self.snapshot_terminal(args).await,
             DomainCommand::AgentManagementDetail => {
                 let args: AgentIdArgs = parse(args)?;
                 let views =
@@ -1220,6 +1221,7 @@ impl ServerApplicationDomains {
                 args.rows.unwrap_or(24),
                 args.shell,
                 args.session_id,
+                args.initial_command,
             )
             .await
             .map_err(internal_error)?;
@@ -1262,6 +1264,20 @@ impl ServerApplicationDomains {
             output_rx,
         );
         serialize(args.session_id)
+    }
+
+    async fn snapshot_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: TerminalSessionArgs = parse(args)?;
+        if self.deployment.pty().session_exists(&args.session_id) {
+            return serialize(self.deployment.pty().snapshot(args.session_id));
+        }
+        if let Some(snapshot) = agent_terminal_registry()
+            .host_snapshot(AgentTerminalId(args.session_id))
+            .await
+        {
+            return serialize(snapshot);
+        }
+        serialize(agents::HostTerminalSnapshot::missing())
     }
 
     async fn write_terminal(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2354,6 +2370,7 @@ struct CreateTerminalArgs {
     rows: Option<u16>,
     shell: Option<String>,
     session_id: Option<Uuid>,
+    initial_command: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2566,6 +2583,19 @@ mod tests {
         assert_eq!(parsed.cols, Some(120));
         assert_eq!(parsed.rows, Some(32));
         assert_eq!(parsed.shell.as_deref(), None);
+        assert_eq!(parsed.initial_command.as_deref(), None);
+    }
+
+    #[test]
+    fn terminal_snapshot_args_accept_frontend_camel_case() {
+        let parsed: TerminalSessionArgs = application::decode_command_args(json!({
+            "sessionId": "22222222-2222-2222-2222-222222222222"
+        }))
+        .expect("terminal snapshot args");
+        assert_eq!(
+            parsed.session_id.to_string(),
+            "22222222-2222-2222-2222-222222222222"
+        );
     }
 
     #[test]

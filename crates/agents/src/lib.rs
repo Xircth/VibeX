@@ -52,6 +52,7 @@ pub mod registry_client;
 pub mod runtime;
 pub mod session;
 pub mod session_gate;
+pub mod shell_flavor;
 pub mod skills;
 pub mod state;
 pub mod terminal;
@@ -245,6 +246,7 @@ pub use session_gate::{
     SessionLaunchAuthorization, SessionLaunchLock, resolve_session_defaults,
     session_launch_rejection_message, validate_session_defaults,
 };
+pub use shell_flavor::{classify_shell_family, is_bash_like_posix_shell, shell_basename};
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentPromptSnapshot, AgentPromptStatus,
@@ -252,8 +254,8 @@ pub use state::{
 };
 pub use terminal::{
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalLiveItem,
-    AgentTerminalOutputSnapshot, TerminalOutputRx, TerminalOutputTx,
-    apply_configured_terminal_shell, configured_terminal_shell,
+    AgentTerminalOutputSnapshot, HostTerminalSnapshot, TerminalOutputChunk, TerminalOutputRx,
+    TerminalOutputTx, apply_configured_terminal_shell, configured_terminal_shell,
 };
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{

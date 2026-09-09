@@ -50,7 +50,7 @@ describe('desktop window chrome insets', () => {
     );
 
     expect(macos.get('padding-left')).toBe('4.75rem');
-    expect(windows.get('padding-right')).toBe('8.625rem');
+    expect(windows.get('padding-right')).toBe('6.5rem');
   });
 
   it('hides the traffic-light divider except on the macOS desktop shell', () => {

@@ -9,7 +9,7 @@ async fn run_case(delay_before_typing_ms: u64) -> String {
     let service = PtyService::new();
     let cwd = std::env::temp_dir();
     let (session_id, mut rx) = service
-        .create_session(cwd, 100, 30, None, None)
+        .create_session(cwd, 100, 30, None, None, None)
         .await
         .expect("create session");
 
@@ -33,7 +33,7 @@ async fn run_case(delay_before_typing_ms: u64) -> String {
             break;
         }
         match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(Some(chunk)) => collected.extend_from_slice(&chunk),
+            Ok(Some(chunk)) => collected.extend_from_slice(&chunk.data),
             _ => break,
         }
     }

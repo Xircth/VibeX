@@ -447,6 +447,7 @@ export const HOST_COMMANDS = [
   'subscribe_projects_stream',
   'subscribe_scratch_stream',
   'subscribe_slash_commands_stream',
+  'terminal_snapshot',
   'test_chat_channel',
   'test_git_path',
   'trash_item',
@@ -1045,6 +1046,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
   { name: 'subscribe_projects_stream', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'subscribe_scratch_stream', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'subscribe_slash_commands_stream', scope: 'application.call', kind: 'domain', argShape: 'compat' },
+  { name: 'terminal_snapshot', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'test_chat_channel', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'test_git_path', scope: 'application.call', kind: 'domain', argShape: 'compat' },
   { name: 'trash_item', scope: 'application.call', kind: 'domain', argShape: 'compat' },
@@ -1126,6 +1128,7 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'local-history-scan-progress', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'agent-events', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'terminal-output', durability: 'best_effort', scope: 'application.call' },
+  { prefix: 'terminal-exit', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'plugin-contributions-changed', durability: 'invalidation', scope: 'plugin.read' },
   { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;

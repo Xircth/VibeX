@@ -15,13 +15,13 @@ use agents::{
     AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
     AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
     AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
-    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
-    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportJobSnapshot,
-    LocalHistoryImportJobStatus, LocalHistoryImportLogEntry, LocalHistoryImportPhase,
-    LocalHistoryImportProgress, LocalHistoryImportResult, LocalHistoryImportSelection,
-    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanProgress,
-    LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits, PlanUsageResult,
-    PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
+    HostTerminalSnapshot, ImportedAgentMessage, ImportedAgentMessageMetadata,
+    ImportedAgentMessageRole, ImportedAgentSession, LocalHistoryDestination,
+    LocalHistoryImportJobSnapshot, LocalHistoryImportJobStatus, LocalHistoryImportLogEntry,
+    LocalHistoryImportPhase, LocalHistoryImportProgress, LocalHistoryImportResult,
+    LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
+    LocalHistoryScanProgress, LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits,
+    PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
@@ -746,6 +746,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentTerminalCreateRequest>(&mut decls);
     insert_declaration::<AgentTerminalEnvVar>(&mut decls);
     insert_declaration::<AgentTerminalOutputSnapshot>(&mut decls);
+    insert_declaration::<HostTerminalSnapshot>(&mut decls);
     insert_declaration::<AgentTerminalExit>(&mut decls);
     insert_declaration::<AgentFileReadRequest>(&mut decls);
     insert_declaration::<AgentFileWriteRequest>(&mut decls);

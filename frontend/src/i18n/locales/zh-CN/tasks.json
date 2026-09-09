@@ -10,6 +10,7 @@
     "steerQueuedInstead": "回合已结束，已加入队列",
     "steerPluginBlocked": "运行中纠偏不会执行插件动作，请改为加入队列。",
     "steerImagesBlocked": "查阅通道不能携带图片，请改为加入队列。",
+    "steerEnqueuedWholeDraft": "通道无法携带这份草稿，已加入下一轮队列",
     "steerUnknown": "纠偏送达状态未知；为避免重复注入，内容已保留。",
     "steerRejected": "Agent 未接受本次运行中纠偏。",
     "commandSource": {

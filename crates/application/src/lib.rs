@@ -21,12 +21,12 @@ pub use conversation::{
     ConversationLiveFeedbackNote, ConversationOutputView, ConversationRepository,
     ConversationSlashCommand, ConversationSubscriptionRegistrar, ConversationWorkspaceEntry,
     CreateChildConversationRequest, CreateConversation, CreateConversationWorkspace,
-    ListConversationFeedbackRequest, ListConversationInputsRequest,
+    DismissConversationFeedback, ListConversationFeedbackRequest, ListConversationInputsRequest,
     ListConversationRelationsRequest, ListConversations, ListRecentConversations,
     NoopConversationSubscriptions, ReorderConversationInputRequest, RespondConversationPermission,
-    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
-    SteerConversationTurnRequest, SubmitConversationFeedback, SubmitConversationInputRequest,
-    UpdateConversationInputRequest,
+    RespondConversationQuestion, SalvageConversationFeedback, SqliteConversationRepository,
+    StartConversationTurn, SteerConversationTurnRequest, SubmitConversationFeedback,
+    SubmitConversationInputRequest, UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;

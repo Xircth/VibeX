@@ -2,17 +2,28 @@ import { Check, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { ConversationLiveFeedbackNote } from '@/features/conversation/conversationApi';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import { cn } from '@/lib/utils';
 
 export function LiveFeedbackNotes({
   notes,
+  conversationId,
+  onResend,
 }: {
   notes: ConversationLiveFeedbackNote[];
+  conversationId?: string;
+  onResend?: (text: string) => void;
 }) {
   const { t } = useTranslation('conversation');
-  if (notes.length === 0) return null;
+  const visible = notes.filter(
+    (note) =>
+      note.status === 'pending' ||
+      note.status === 'delivered' ||
+      note.status === 'expired'
+  );
+  if (visible.length === 0) return null;
 
-  const ordered = [...notes].sort((left, right) =>
+  const ordered = [...visible].sort((left, right) =>
     left.createdAt.localeCompare(right.createdAt)
   );
 
@@ -21,6 +32,7 @@ export function LiveFeedbackNotes({
       <div className="flex flex-col gap-0.5">
         {ordered.map((note) => {
           const delivered = note.status === 'delivered';
+          const expired = note.status === 'expired';
           return (
             <div
               key={note.id}
@@ -44,11 +56,42 @@ export function LiveFeedbackNotes({
               <span className="min-w-0 flex-1 truncate text-foreground/80">
                 {note.text}
               </span>
-              <span className="shrink-0 text-muted-foreground">
-                {delivered
-                  ? t('liveFeedback.delivered')
-                  : t('liveFeedback.pending')}
-              </span>
+              {expired && conversationId ? (
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    className="text-foreground underline-offset-2 hover:underline"
+                    onClick={() => {
+                      void conversationApi
+                        .salvageFeedback({
+                          conversationId,
+                          noteId: note.id,
+                        })
+                        .then(() => onResend?.(note.text));
+                    }}
+                  >
+                    {t('liveFeedback.resend')}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground underline-offset-2 hover:underline"
+                    onClick={() => {
+                      void conversationApi.dismissFeedback({
+                        conversationId,
+                        noteId: note.id,
+                      });
+                    }}
+                  >
+                    {t('liveFeedback.dismiss')}
+                  </button>
+                </span>
+              ) : (
+                <span className="shrink-0 text-muted-foreground">
+                  {delivered
+                    ? t('liveFeedback.delivered')
+                    : t('liveFeedback.pending')}
+                </span>
+              )}
             </div>
           );
         })}

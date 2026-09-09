@@ -52,6 +52,7 @@ export type ConversationTimelineTurn = {
     | 'interrupted';
   turn: MessageTurn;
   revision: bigint;
+  forkPointStatus?: 'named' | 'unnamed' | 'tail' | 'unsupported' | null;
 };
 
 export type ConversationTimelineItem =
@@ -515,6 +516,14 @@ export function timelineTurnsForEntry(
         turn,
         revision: toBigInt(row.revision),
         phase: row.row.phase as ConversationTimelineTurn['phase'],
+        forkPointStatus:
+          'fork_point_status' in row.row
+            ? ((
+                row.row as {
+                  fork_point_status?: ConversationTimelineTurn['forkPointStatus'];
+                }
+              ).fork_point_status ?? null)
+            : null,
       },
     ];
   });

@@ -135,7 +135,8 @@ pub use events::{
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use fork::{
-    ForkPoint, fingerprint_agent_message, resolve_fork_point, resolve_fork_point_for_turn,
+    ForkPoint, ForkPointStatus, classify_fork_point, fingerprint_agent_message, resolve_fork_point,
+    resolve_fork_point_for_turn,
 };
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
 pub use history::{

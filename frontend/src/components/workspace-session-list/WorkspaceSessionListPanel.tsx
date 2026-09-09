@@ -135,6 +135,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     workspaceBranchOptions: [],
     getWorkspaceRepoInputs: () => [],
     placeCreatedSession: () => undefined,
+    placeForkedChild: () => undefined,
     addPendingCreatedSession: () => undefined,
     clearCreateSessionName: () => undefined,
     closeCreatePopover: () => undefined,

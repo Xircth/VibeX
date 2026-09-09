@@ -964,13 +964,14 @@ const AgentTimelineConversation = forwardRef<
               reason: result.continuityNote,
             })
           );
-        } else {
-          toast.success(t('tasks:hubListItem.forkSuccess'));
         }
-        kanbanSessions?.placeCreatedSession({
-          sessionId: result.conversationId,
-          workspaceId: attempt.id,
-        });
+        kanbanSessions?.placeForkedChild(
+          {
+            sessionId: result.conversationId,
+            workspaceId: attempt.id,
+          },
+          sessionId
+        );
       } catch (error) {
         toast.error(
           t('tasks:hubListItem.forkFailed', {
@@ -1001,11 +1002,18 @@ const AgentTimelineConversation = forwardRef<
             };
       const copyText = assistantCopyText(row.turn);
       const vibexTurnId = vibexTurnIdFromTimelineRowId(row.turn.id);
-      const canFork =
-        forkSupported &&
-        row.phase !== 'streaming' &&
-        row.phase !== 'optimistic';
-      const onForkFromHere = canFork
+      const forkPointStatus = row.forkPointStatus ?? null;
+      const canOfferFork = forkSupported && forkPointStatus !== 'unsupported';
+      const forkDisabledReason =
+        forkPointStatus === 'unnamed' || row.phase === 'streaming'
+          ? 'unnamed'
+          : 'busy';
+      const forkDisabled =
+        isTurnInFlight ||
+        forkPointStatus === 'unnamed' ||
+        row.phase === 'streaming' ||
+        row.phase === 'optimistic';
+      const onForkFromHere = canOfferFork
         ? () => {
             void handleForkFromTurn(vibexTurnId);
           }
@@ -1023,7 +1031,8 @@ const AgentTimelineConversation = forwardRef<
           copyText={copyText}
           onJumpBack={onJumpBack}
           onForkFromHere={onForkFromHere}
-          forkDisabled={isTurnInFlight}
+          forkDisabled={forkDisabled}
+          forkDisabledReason={forkDisabledReason}
         />
       );
     },

@@ -7,6 +7,7 @@ pub mod chat_channel_message_log;
 pub mod conversation;
 pub mod conversation_bundle;
 pub mod conversation_event;
+pub mod conversation_feedback_note;
 pub mod conversation_input;
 pub mod conversation_relation;
 pub mod conversation_side_effects;

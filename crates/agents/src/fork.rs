@@ -12,6 +12,38 @@ use crate::{
     conversation::{ContentBlock, MessageTurn, TurnRole},
 };
 
+/// Whether an assistant bubble can be a `session/fork` cut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ForkPointStatus {
+    Named,
+    Unnamed,
+    Tail,
+    Unsupported,
+}
+
+/// Classify `turn_id` (an assistant message-row id) for this agent.
+pub fn classify_fork_point(
+    turns: &[MessageTurn],
+    turn_id: &str,
+    agent_kind: AgentKind,
+    fork_session: bool,
+    is_thread_tail: bool,
+) -> ForkPointStatus {
+    if !fork_session {
+        return ForkPointStatus::Unsupported;
+    }
+    if is_thread_tail {
+        return ForkPointStatus::Tail;
+    }
+    if resolve_fork_point(turns, turn_id, agent_kind).is_some() {
+        ForkPointStatus::Named
+    } else {
+        ForkPointStatus::Unnamed
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkPoint {
     pub message_id: String,
@@ -104,11 +136,24 @@ pub fn resolve_fork_point(
     let turn = &turns[idx];
 
     match agent_kind {
-        AgentKind::ClaudeCode => turn.agent_message_id.clone().map(|message_id| ForkPoint {
-            message_id,
-            message_fingerprint: None,
-            message_occurrence: None,
-        }),
+        // claude-agent-acp ≥ 0.75.1 resolves abandoned branches via fingerprint
+        // after the live id map and the active parentUuid chain miss. An empty
+        // synthesized turn must not send fingerprint("") — that matches every
+        // text-free grouping. No agent_message_id means this bubble cannot be
+        // named (VibeX will not silently tail-fork a historical cut).
+        AgentKind::ClaudeCode => {
+            let message_id = turn.agent_message_id.clone()?;
+            let text = turn_text(turn);
+            let fingerprint = (!text.trim().is_empty()).then(|| fingerprint_agent_message(&text));
+            let occurrence = fingerprint
+                .as_ref()
+                .map(|fp| fingerprint_occurrence(turns, idx, fp));
+            Some(ForkPoint {
+                message_id,
+                message_fingerprint: fingerprint,
+                message_occurrence: occurrence.and_then(|n| u32::try_from(n).ok()),
+            })
+        }
         AgentKind::Codex => {
             let text = turn_text(turn);
             if text.trim().is_empty() {
@@ -191,17 +236,65 @@ mod tests {
     }
 
     #[test]
-    fn claude_names_message_id_only() {
+    fn claude_sends_id_and_fingerprint_together() {
         let turns = vec![assistant("t1:assistant", "hello", Some("msg_claude"))];
         let point = resolve_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode).unwrap();
         assert_eq!(point.message_id, "msg_claude");
+        assert_eq!(
+            point.message_fingerprint.as_deref(),
+            Some(fingerprint_agent_message("hello").as_str())
+        );
+        assert_eq!(point.message_occurrence, Some(1));
+    }
+
+    #[test]
+    fn claude_named_textless_turn_is_id_only() {
+        let mut turn = assistant("t1:assistant", "", Some("msg_01"));
+        turn.blocks = Vec::new();
+        let point = resolve_fork_point(&[turn], "t1:assistant", AgentKind::ClaudeCode).unwrap();
+        assert_eq!(point.message_id, "msg_01");
         assert!(point.message_fingerprint.is_none());
+        assert!(point.message_occurrence.is_none());
     }
 
     #[test]
     fn claude_unnamed_is_none() {
         let turns = vec![assistant("t1:assistant", "hello", None)];
         assert!(resolve_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode).is_none());
+    }
+
+    #[test]
+    fn claude_declines_a_synthesized_turn_with_neither_id_nor_text() {
+        let mut turn = assistant("t1:assistant", "", None);
+        turn.blocks = vec![ContentBlock::ToolUse {
+            tool_use_id: Some("tl-tool-0".into()),
+            tool_name: "Bash".into(),
+            kind: None,
+            input_preview: None,
+            meta: None,
+            images: Vec::new(),
+        }];
+        assert!(resolve_fork_point(&[turn], "t1:assistant", AgentKind::ClaudeCode).is_none());
+    }
+
+    #[test]
+    fn claude_counts_repeated_answers() {
+        let turns = vec![
+            assistant("a:assistant", "same", Some("msg_a")),
+            assistant("b:assistant", "same", Some("msg_b")),
+        ];
+        assert_eq!(
+            resolve_fork_point(&turns, "a:assistant", AgentKind::ClaudeCode)
+                .unwrap()
+                .message_occurrence,
+            Some(1)
+        );
+        assert_eq!(
+            resolve_fork_point(&turns, "b:assistant", AgentKind::ClaudeCode)
+                .unwrap()
+                .message_occurrence,
+            Some(2)
+        );
     }
 
     #[test]
@@ -237,6 +330,23 @@ mod tests {
         ];
         let point = resolve_fork_point_for_turn(&turns, "t1", AgentKind::ClaudeCode).unwrap();
         assert_eq!(point.message_id, "msg_second");
+    }
+
+    #[test]
+    fn classify_tail_even_without_a_name() {
+        let turns = vec![assistant("t1:assistant", "hello", None)];
+        assert_eq!(
+            classify_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode, true, true),
+            ForkPointStatus::Tail
+        );
+        assert_eq!(
+            classify_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode, true, false),
+            ForkPointStatus::Unnamed
+        );
+        assert_eq!(
+            classify_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode, false, true),
+            ForkPointStatus::Unsupported
+        );
     }
 
     #[test]

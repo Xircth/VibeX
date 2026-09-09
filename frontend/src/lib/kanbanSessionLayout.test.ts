@@ -4,6 +4,7 @@ import {
   appendMonitorSession,
   createEmptyKanbanSessionLayoutState,
   placeCreatedSession,
+  placeForkedChild,
   placeSessionFromList,
   promoteMonitorSessionToRight,
   pruneUnavailableSessions,
@@ -108,6 +109,20 @@ describe('kanban session layout', () => {
       'a',
       'right',
     ]);
+  });
+
+  it('puts a forked child in the right slot without parking the parent', () => {
+    const state = {
+      rightSession: session('parent'),
+      monitorSessions: [session('a'), session('child')],
+    };
+
+    const next = placeForkedChild(state, session('child'), 'parent', {
+      canUseRightPanel: true,
+    });
+
+    expect(next.rightSession?.sessionId).toBe('child');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual(['a']);
   });
 
   it('promotes a newly created session into the right panel and queues the previous right session', () => {

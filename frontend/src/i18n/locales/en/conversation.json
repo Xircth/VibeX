@@ -255,7 +255,9 @@
     "placeholder": "Steer this turn",
     "send": "Send",
     "pending": "Waiting",
-    "delivered": "Read"
+    "delivered": "Read",
+    "resend": "Send as a message",
+    "dismiss": "Dismiss"
   },
   "feedbackCheck": {
     "label": "Live feedback",
@@ -361,6 +363,7 @@
     "copyReply": "Copy reply",
     "forkFromHere": "Fork from here",
     "forkBusy": "Wait until this turn finishes",
+    "forkUnnamed": "This reply cannot be named as a fork point yet",
     "jumpBack": "Back to previous user message",
     "statusLabel": "Status",
     "generating": "Generating",

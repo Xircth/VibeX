@@ -74,6 +74,36 @@ export function placeSessionFromList(
   };
 }
 
+export function placeForkedChild(
+  state: KanbanSessionLayoutState,
+  child: KanbanSessionPlacement,
+  parentSessionId: string | null,
+  options: KanbanSessionPlacementOptions
+): KanbanSessionLayoutState {
+  const dropParent = (sessions: KanbanSessionPlacement[]) =>
+    parentSessionId ? withoutSession(sessions, parentSessionId) : sessions;
+
+  if (!options.canUseRightPanel) {
+    return {
+      rightSession:
+        parentSessionId && state.rightSession?.sessionId === parentSessionId
+          ? child
+          : state.rightSession,
+      monitorSessions: appendMonitorSession(
+        dropParent(withoutSession(state.monitorSessions, child.sessionId)),
+        child
+      ),
+    };
+  }
+
+  return {
+    rightSession: child,
+    monitorSessions: dropParent(
+      withoutSession(state.monitorSessions, child.sessionId)
+    ),
+  };
+}
+
 export function placeCreatedSession(
   state: KanbanSessionLayoutState,
   nextSession: KanbanSessionPlacement,

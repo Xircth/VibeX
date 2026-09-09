@@ -256,9 +256,8 @@ export function TaskFollowUpSection({
       if (!sessionId) return [];
       return conversationApi.listFeedback(sessionId);
     },
-    enabled: Boolean(sessionId && isComposerExecutionRunning && liveFeedbackOn),
-    refetchInterval:
-      isComposerExecutionRunning && liveFeedbackOn ? 2_000 : false,
+    enabled: Boolean(sessionId && liveFeedbackOn),
+    refetchInterval: liveFeedbackOn ? 2_000 : false,
   });
   const summaryRepoId = useMemo(
     () => getSummaryRepoId(selectedRepoId, repos),
@@ -635,13 +634,29 @@ export function TaskFollowUpSection({
       executorProfile: effectiveExecutorProfile,
     });
     if (!followUp) return;
-    if (followUp.pluginActions.length > 0) {
-      setFollowUpError(t('tasks:composer.steerPluginBlocked'));
-      return;
-    }
+    const enqueueWholeDraft = async () => {
+      if (!workspaceIdValue) return;
+      await conversationApi.submitInput(sessionId, {
+        agentId: (session?.executor ?? 'claude_code') as AgentKind,
+        workspaceId: workspaceIdValue,
+        text: followUp.message,
+        images: followUp.images,
+        executorProfileId: effectiveExecutorProfile,
+      });
+      toast.info(t('tasks:composer.steerEnqueuedWholeDraft'));
+      cancelDebouncedSave();
+      await handleAfterSendWithSessionControlCleanup();
+    };
+    const channelCannotCarry =
+      followUp.pluginActions.length > 0 ||
+      (!steeringTarget && followUp.images.length > 0);
     setIsSteering(true);
     setFollowUpError(null);
     try {
+      if (channelCannotCarry) {
+        await enqueueWholeDraft();
+        return;
+      }
       if (steeringTarget) {
         const receipt = await conversationApi.steer({
           conversationId: sessionId,
@@ -654,17 +669,8 @@ export function TaskFollowUpSection({
           await handleAfterSendWithSessionControlCleanup();
           return;
         }
-        if (receipt.code === 'no_running_turn' && workspaceIdValue) {
-          await conversationApi.submitInput(sessionId, {
-            agentId: (session?.executor ?? 'claude_code') as AgentKind,
-            workspaceId: workspaceIdValue,
-            text: followUp.message,
-            images: followUp.images,
-            executorProfileId: effectiveExecutorProfile,
-          });
-          toast.info(t('tasks:composer.steerQueuedInstead'));
-          cancelDebouncedSave();
-          await handleAfterSendWithSessionControlCleanup();
+        if (receipt.code === 'no_running_turn') {
+          await enqueueWholeDraft();
           return;
         }
         setFollowUpError(
@@ -674,10 +680,6 @@ export function TaskFollowUpSection({
                 .join(' ')
             : receipt.message || t('tasks:composer.steerRejected')
         );
-        return;
-      }
-      if (followUp.images.length > 0) {
-        setFollowUpError(t('tasks:composer.steerImagesBlocked'));
         return;
       }
       await conversationApi.submitFeedback({
@@ -1033,7 +1035,11 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
-          <LiveFeedbackNotes notes={liveFeedbackNotes} />
+          <LiveFeedbackNotes
+            notes={liveFeedbackNotes}
+            conversationId={sessionId}
+            onResend={(text) => setLocalMessage(text)}
+          />
           <AgentMentionProvider
             transport={configuredBackendTransport}
             conversationId={sessionId}
@@ -1078,7 +1084,11 @@ export function TaskFollowUpSection({
             isStopping={isStopping}
             isSteering={isSteering}
             steeringChannel={
-              steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
+              steeringTarget
+                ? 'native'
+                : liveFeedbackOn
+                  ? 'pull'
+                  : null
             }
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}

@@ -389,13 +389,14 @@ export function SessionHubListItem({
                         reason: result.continuityNote,
                       })
                     );
-                  } else {
-                    toast.success(t('hubListItem.forkSuccess'));
                   }
-                  kanbanSessions?.placeCreatedSession({
-                    sessionId: result.conversationId,
-                    workspaceId: session.workspace.id,
-                  });
+                  kanbanSessions?.placeForkedChild(
+                    {
+                      sessionId: result.conversationId,
+                      workspaceId: session.workspace.id,
+                    },
+                    session.id
+                  );
                 })
                 .catch((error) =>
                   toast.error(

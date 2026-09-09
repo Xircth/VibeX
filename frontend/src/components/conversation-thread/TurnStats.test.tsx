@@ -113,6 +113,22 @@ describe('TurnStats', () => {
       'aria-disabled',
       'true'
     );
+    expect(screen.getByRole('button', { name: '从此处分叉' })).toHaveAttribute(
+      'title',
+      '请等当前回合结束后再分叉'
+    );
+    rerender(
+      <TurnStats
+        copyText="assistant answer"
+        onForkFromHere={onForkFromHere}
+        forkDisabled
+        forkDisabledReason="unnamed"
+      />
+    );
+    expect(screen.getByRole('button', { name: '从此处分叉' })).toHaveAttribute(
+      'title',
+      '这条回复还不能作为分叉点'
+    );
   });
 
   it('shows only consumed tokens, not the context-window ratio', () => {

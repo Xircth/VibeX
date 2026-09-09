@@ -10,15 +10,16 @@ use crate::{
     AcceptWorkflowCandidateRequest, ApplicationCore, ArgShape, CancelConversationInputRequest,
     CancelConversationTurn, CancelWorkflowRequest, CompleteWorkflowStepRequest,
     ConversationRepository, CreateChildConversationRequest, CreateConversation,
-    CreateConversationWorkspace, DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand,
-    ForkWorkflowRequest, ListConversationFeedbackRequest, ListConversationInputsRequest,
+    CreateConversationWorkspace, DebugWorkflowRequest, DecideWorkflowRequest,
+    DismissConversationFeedback, DomainCommand, ForkWorkflowRequest,
+    ListConversationFeedbackRequest, ListConversationInputsRequest,
     ListConversationRelationsRequest, ListConversations, ListRecentConversations,
     NoopConversationSubscriptions, PauseWorkflowRequest, PauseWorkflowStepRequest, Principal,
     PublishWorkflowRequest, ReorderConversationInputRequest, RespondConversationPermission,
     RespondConversationQuestion, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
-    StartConversationTurn, StartWorkflowRequest, SteerConversationTurnRequest,
-    SubmitConversationFeedback, SubmitConversationInputRequest, SubmitWorkflowStepInputRequest,
-    UpdateConversationInputRequest, ValidateWorkflowRequest,
+    SalvageConversationFeedback, StartConversationTurn, StartWorkflowRequest,
+    SteerConversationTurnRequest, SubmitConversationFeedback, SubmitConversationInputRequest,
+    SubmitWorkflowStepInputRequest, UpdateConversationInputRequest, ValidateWorkflowRequest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +58,8 @@ pub enum RegisteredCommand {
     ConversationSteer,
     ConversationSubmitFeedback,
     ConversationListFeedback,
+    ConversationSalvageFeedback,
+    ConversationDismissFeedback,
     ConversationInputSubmit,
     ConversationInputList,
     ConversationRelationList,
@@ -113,6 +116,8 @@ impl RegisteredCommand {
             Self::ConversationSteer => "conversation_steer",
             Self::ConversationSubmitFeedback => "conversation_submit_feedback",
             Self::ConversationListFeedback => "conversation_list_feedback",
+            Self::ConversationSalvageFeedback => "conversation_salvage_feedback",
+            Self::ConversationDismissFeedback => "conversation_dismiss_feedback",
             Self::ConversationInputSubmit => "conversation_input_submit",
             Self::ConversationInputList => "conversation_input_list",
             Self::ConversationRelationList => "conversation_relation_list",
@@ -169,6 +174,8 @@ impl RegisteredCommand {
             RegisteredCommand::ConversationSteer,
             RegisteredCommand::ConversationSubmitFeedback,
             RegisteredCommand::ConversationListFeedback,
+            RegisteredCommand::ConversationSalvageFeedback,
+            RegisteredCommand::ConversationDismissFeedback,
             RegisteredCommand::ConversationInputSubmit,
             RegisteredCommand::ConversationInputList,
             RegisteredCommand::ConversationRelationList,
@@ -236,6 +243,8 @@ impl RegisteredCommand {
             | Self::ConversationChildCreate
             | Self::ConversationStartTurn
             | Self::ConversationSubmitFeedback
+            | Self::ConversationSalvageFeedback
+            | Self::ConversationDismissFeedback
             | Self::ConversationInputSubmit
             | Self::ConversationInputUpdate
             | Self::ConversationInputReorder
@@ -321,6 +330,8 @@ impl FromStr for RegisteredCommand {
             "conversation_steer" => Ok(Self::ConversationSteer),
             "conversation_submit_feedback" => Ok(Self::ConversationSubmitFeedback),
             "conversation_list_feedback" => Ok(Self::ConversationListFeedback),
+            "conversation_salvage_feedback" => Ok(Self::ConversationSalvageFeedback),
+            "conversation_dismiss_feedback" => Ok(Self::ConversationDismissFeedback),
             "conversation_input_submit" => Ok(Self::ConversationInputSubmit),
             "conversation_input_list" => Ok(Self::ConversationInputList),
             "conversation_relation_list" => Ok(Self::ConversationRelationList),
@@ -477,6 +488,16 @@ struct ConversationSubmitFeedbackArgs {
 #[derive(Deserialize)]
 struct ConversationListFeedbackArgs {
     request: ListConversationFeedbackRequest,
+}
+
+#[derive(Deserialize)]
+struct ConversationSalvageFeedbackArgs {
+    request: SalvageConversationFeedback,
+}
+
+#[derive(Deserialize)]
+struct ConversationDismissFeedbackArgs {
+    request: DismissConversationFeedback,
 }
 
 #[derive(Deserialize)]
@@ -1066,6 +1087,40 @@ where
                 let result = self
                     .core
                     .list_conversation_feedback(principal, args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::ConversationSalvageFeedback => {
+                let args = serde_json::from_value::<ConversationSalvageFeedbackArgs>(args)
+                    .map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                let result = self
+                    .core
+                    .salvage_conversation_feedback(principal, args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::ConversationDismissFeedback => {
+                let args = serde_json::from_value::<ConversationDismissFeedbackArgs>(args)
+                    .map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                let result = self
+                    .core
+                    .dismiss_conversation_feedback(principal, args.request)
                     .await
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?

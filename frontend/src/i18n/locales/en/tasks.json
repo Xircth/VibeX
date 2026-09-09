@@ -10,6 +10,7 @@
     "steerQueuedInstead": "Turn ended; queued for the next turn",
     "steerPluginBlocked": "Plugin actions cannot run as in-turn steering. Queue them instead.",
     "steerImagesBlocked": "The read channel cannot carry images. Queue them instead.",
+    "steerEnqueuedWholeDraft": "This draft cannot ride the live channel; queued for the next turn",
     "steerUnknown": "Steering status is unknown; the message was kept to avoid sending it twice.",
     "steerRejected": "The Agent did not accept in-turn steering.",
     "commandSource": {

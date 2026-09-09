@@ -17,6 +17,7 @@ import {
   activateSessionInExecutionArea,
   createEmptyKanbanSessionLayoutState,
   placeCreatedSession,
+  placeForkedChild,
   placeSessionFromList,
   promoteMonitorSessionToRight,
   pruneUnavailableSessions,
@@ -62,6 +63,10 @@ interface KanbanSessionContextValue {
   isLayoutHydrated: boolean;
   openSessionFromList: (session: KanbanSessionPlacement) => void;
   placeCreatedSession: (session: KanbanSessionPlacement) => void;
+  placeForkedChild: (
+    session: KanbanSessionPlacement,
+    parentSessionId: string | null
+  ) => void;
   replaceRightSession: (session: KanbanSessionPlacement) => void;
   activateExecutionSession: (session: KanbanSessionPlacement) => void;
   promoteMonitorSession: (sessionId: string) => void;
@@ -301,6 +306,17 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     [canUseRightPanelForSessions, commitLayoutState]
   );
 
+  const placeForkedChildInLayout = useCallback(
+    (session: KanbanSessionPlacement, parentSessionId: string | null) => {
+      commitLayoutState((current) =>
+        placeForkedChild(current, session, parentSessionId, {
+          canUseRightPanel: canUseRightPanelForSessions,
+        })
+      );
+    },
+    [canUseRightPanelForSessions, commitLayoutState]
+  );
+
   const replaceRightSessionInLayout = useCallback(
     (session: KanbanSessionPlacement) => {
       commitLayoutState((current) =>
@@ -378,6 +394,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       isLayoutHydrated,
       openSessionFromList,
       placeCreatedSession: placeCreatedSessionInLayout,
+      placeForkedChild: placeForkedChildInLayout,
       replaceRightSession: replaceRightSessionInLayout,
       activateExecutionSession,
       promoteMonitorSession,
@@ -401,6 +418,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       layoutState.rightSession,
       openSessionFromList,
       placeCreatedSessionInLayout,
+      placeForkedChildInLayout,
       replaceRightSessionInLayout,
       activateExecutionSession,
       promoteMonitorSession,

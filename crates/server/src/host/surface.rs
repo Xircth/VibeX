@@ -1605,7 +1605,7 @@ impl ServerApplicationDomains {
                 .map_err(ApplicationError::bad_request)?;
         }
         let frozen_plan_json =
-            serde_json::to_string(&plan).map_err(|error| internal_error(error))?;
+            serde_json::to_string(&plan).map_err(internal_error)?;
         let operation = InstallationOperationRepository::new(self.pool.clone())
             .enqueue(NewInstallationOperation {
                 agent_id: agent_id.clone(),

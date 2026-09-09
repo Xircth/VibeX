@@ -1130,11 +1130,7 @@ export function TaskFollowUpSection({
             isStopping={isStopping}
             isSteering={isSteering}
             steeringChannel={
-              steeringTarget
-                ? 'native'
-                : liveFeedbackOn
-                  ? 'pull'
-                  : null
+              steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
             }
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}

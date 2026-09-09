@@ -1497,9 +1497,7 @@ describe('AgentSettings', () => {
     render(<AgentSettings />);
     await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
     await user.click(screen.getByRole('button', { name: '检查更新' }));
-    await waitFor(() =>
-      expect(success).toHaveBeenCalledWith('发现可用更新')
-    );
+    await waitFor(() => expect(success).toHaveBeenCalledWith('发现可用更新'));
     expect(api.checkUpdate).toHaveBeenCalledWith('codex', { force: true });
   });
 
@@ -1510,9 +1508,7 @@ describe('AgentSettings', () => {
     render(<AgentSettings />);
     await screen.findByRole('button', { name: '检查更新' });
     await user.click(screen.getByRole('button', { name: '检查更新' }));
-    await waitFor(() =>
-      expect(error).toHaveBeenCalledWith('检查更新失败')
-    );
+    await waitFor(() => expect(error).toHaveBeenCalledWith('检查更新失败'));
     expect(success).not.toHaveBeenCalledWith('当前已是最新版本');
   });
 

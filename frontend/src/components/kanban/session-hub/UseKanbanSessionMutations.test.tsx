@@ -6,15 +6,12 @@ import { AgentKind, ScratchType, type ExecutorProfileId } from 'shared/types';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { useKanbanSessionMutations } from './useKanbanSessionMutations';
 
-const {
-  sessionsCreateProjectMock,
-  sessionsRenameMock,
-  scratchUpdateMock,
-} = vi.hoisted(() => ({
-  sessionsCreateProjectMock: vi.fn(),
-  sessionsRenameMock: vi.fn(),
-  scratchUpdateMock: vi.fn(),
-}));
+const { sessionsCreateProjectMock, sessionsRenameMock, scratchUpdateMock } =
+  vi.hoisted(() => ({
+    sessionsCreateProjectMock: vi.fn(),
+    sessionsRenameMock: vi.fn(),
+    scratchUpdateMock: vi.fn(),
+  }));
 
 vi.mock('@/lib/api', () => ({
   sessionsApi: {

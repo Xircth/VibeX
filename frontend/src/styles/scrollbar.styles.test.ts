@@ -10,10 +10,12 @@ const STYLESHEETS = [
 ];
 
 function isFirefoxScrollbarFallback(rule: Rule): boolean {
-  let parent = rule.parent;
-  while (parent) {
-    if (parent.type === 'atrule') {
-      const atrule = parent as AtRule;
+  let node:
+    | { type?: string; name?: string; params?: string; parent?: unknown }
+    | undefined = rule.parent ?? undefined;
+  while (node) {
+    if (node.type === 'atrule') {
+      const atrule = node as AtRule;
       if (
         atrule.name === 'supports' &&
         /not\s+selector\(\s*::-webkit-scrollbar\s*\)/.test(atrule.params)
@@ -21,7 +23,11 @@ function isFirefoxScrollbarFallback(rule: Rule): boolean {
         return true;
       }
     }
-    parent = parent.parent;
+    const next = node.parent;
+    node =
+      next && typeof next === 'object'
+        ? (next as NonNullable<typeof node>)
+        : undefined;
   }
   return false;
 }

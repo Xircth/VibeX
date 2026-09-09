@@ -128,6 +128,30 @@ export interface ApplicationCommandMap {
       deliveredAt?: string | null;
     }>;
   };
+  conversation_salvage_feedback: {
+    args: {
+      request: { conversationId: string; noteId: string };
+    };
+    result: {
+      id: string;
+      text: string;
+      createdAt: string;
+      status: string;
+      deliveredAt?: string | null;
+    };
+  };
+  conversation_dismiss_feedback: {
+    args: {
+      request: { conversationId: string; noteId: string };
+    };
+    result: {
+      id: string;
+      text: string;
+      createdAt: string;
+      status: string;
+      deliveredAt?: string | null;
+    };
+  };
   conversation_input_submit: {
     args: {
       request: { conversationId: string; payload: ConversationInputPayload };

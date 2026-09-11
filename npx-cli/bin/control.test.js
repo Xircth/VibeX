@@ -76,5 +76,5 @@ test('conversation help prints usage instead of calling the host', async () => {
   } finally {
     process.stdout.write = original;
   }
-  assert.match(chunks.join(''), /vibex conversation/);
+  assert.match(chunks.join(''), /vibexs conversation/);
 });

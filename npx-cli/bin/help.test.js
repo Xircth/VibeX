@@ -15,8 +15,10 @@ test('recognizes help and version flags', () => {
 });
 
 test('help topics cover serve and control commands', () => {
+  const cli = require('../package.json').name;
   assert.equal(helpTopic(['help', 'serve']), 'serve');
   assert.equal(helpTopic(['serve', '--help']), 'serve');
+  assert.match(text(), new RegExp(`Usage: ${cli} <command>`));
   assert.match(text(), /serve, web/);
   assert.match(text(), /list/);
   assert.match(text(), /install <id>/);

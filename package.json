@@ -3,7 +3,7 @@
   "version": "0.2.2",
   "private": true,
   "bin": {
-    "vibex": "npx-cli/bin/cli.js"
+    "vibexs": "npx-cli/bin/cli.js"
   },
   "files": [
     "npx-cli/bin/cli.js",

@@ -153,7 +153,10 @@ test("plugin add parses --web, --profile, and --dev", () => {
     () => parseAddArgs(["--web", "https://example.com", "--dev", "."]),
     /only one/,
   );
-  assert.throws(() => parseAddArgs([]), /--web/);
+  assert.throws(
+    () => parseAddArgs([]),
+    new RegExp(`Usage: ${require("../package.json").name} plugin add --web`),
+  );
   const git = parseGitSource("https://github.com/Xircth/vibex-plugin-office");
   assert.equal(git.url, "https://github.com/Xircth/vibex-plugin-office.git");
   assert.equal(git.ref, undefined);

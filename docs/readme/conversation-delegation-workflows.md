@@ -24,19 +24,19 @@ CLI 连接已经运行的 VibeX Host：
 export VIBEX_URL=http://127.0.0.1:17891
 export VIBEX_TOKEN='replace-with-host-token'
 
-npx vibex conversation create \
+npx vibexs conversation create \
   --workspace 00000000-0000-0000-0000-000000000001 \
   --agent codex \
   --title 'Review'
 
-npx vibex conversation send \
+npx vibexs conversation send \
   --conversation 00000000-0000-0000-0000-000000000002 \
   --workspace 00000000-0000-0000-0000-000000000001 \
   --agent codex \
   --text 'Review the current diff' \
   --operation-id 00000000-0000-0000-0000-000000000003
 
-npx vibex conversation wait \
+npx vibexs conversation wait \
   --conversation 00000000-0000-0000-0000-000000000002 \
   --timeout 600
 ```
@@ -138,20 +138,20 @@ Definition 会拒绝环、坏依赖、越级输出引用、未知 schema 关键�
 ## 5. 校验、发布和运行
 
 ```sh
-npx vibex workflow validate --file workflow.json
-npx vibex workflow publish \
+npx vibexs workflow validate --file workflow.json
+npx vibexs workflow publish \
   --file workflow.json \
   --operation-id 00000000-0000-0000-0000-000000000010
 
-npx vibex workflow run \
+npx vibexs workflow run \
   --version 00000000-0000-0000-0000-000000000011 \
   --workspace 00000000-0000-0000-0000-000000000001 \
   --input input.json \
   --operation-id 00000000-0000-0000-0000-000000000012
 
-npx vibex workflow show --run 00000000-0000-0000-0000-000000000013
-npx vibex workflow wait --run 00000000-0000-0000-0000-000000000013 --timeout 1800
-npx vibex workflow history --run 00000000-0000-0000-0000-000000000013
+npx vibexs workflow show --run 00000000-0000-0000-0000-000000000013
+npx vibexs workflow wait --run 00000000-0000-0000-0000-000000000013 --timeout 1800
+npx vibexs workflow history --run 00000000-0000-0000-0000-000000000013
 ```
 
 发布产生不可变版本。修改 JSON 后必须再次发布；已开始 Run 永远继续使用原 version、input
@@ -191,10 +191,10 @@ Host 重启不会重发已发送的 Turn：
 Inspector 提供 retry、accept evidence、条件允许时 skip，以及 cancel。CLI 对应：
 
 ```sh
-npx vibex workflow resume --run RUN_ID --decision retry --step STEP_ID
-npx vibex workflow resume --run RUN_ID --decision accept --step STEP_ID --output output.json
-npx vibex workflow resume --run RUN_ID --decision skip --step STEP_ID
-npx vibex workflow resume --run RUN_ID --decision cancel --reason 'unsafe to continue'
+npx vibexs workflow resume --run RUN_ID --decision retry --step STEP_ID
+npx vibexs workflow resume --run RUN_ID --decision accept --step STEP_ID --output output.json
+npx vibexs workflow resume --run RUN_ID --decision skip --step STEP_ID
+npx vibexs workflow resume --run RUN_ID --decision cancel --reason 'unsafe to continue'
 ```
 
 Retry 创建新 attempt，旧 attempt、child Conversation 和 evidence 不被覆盖。Accept evidence

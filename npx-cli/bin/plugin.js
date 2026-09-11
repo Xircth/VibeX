@@ -4,22 +4,23 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const CLI = require("../package.json").name;
 
-const HELP = `Usage: vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
-       vibex plugin run dev [dir]
-       vibex plugin run build [dir]
-       vibex plugin run test [dir] [--host]
-       vibex plugin pack [dir] [--output file.vxp]
-       vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
-       vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
-       vibex plugin add --dev <dir> [--yes]
-       vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
-       vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
-       vibex plugin list [--json]
-       vibex plugin update <id> [--ref tag] [--yes]
-       vibex plugin remove <id> [--yes] [--delete-data]
-       vibex plugin gc-runtimes
-       vibex plugin test --host [dir]
+const HELP = `Usage: ${CLI} plugin run server [--http://127.0.0.1:17891] [--token <token>]
+       ${CLI} plugin run dev [dir]
+       ${CLI} plugin run build [dir]
+       ${CLI} plugin run test [dir] [--host]
+       ${CLI} plugin pack [dir] [--output file.vxp]
+       ${CLI} plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
+       ${CLI} plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
+       ${CLI} plugin add --dev <dir> [--yes]
+       ${CLI} plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
+       ${CLI} plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
+       ${CLI} plugin list [--json]
+       ${CLI} plugin update <id> [--ref tag] [--yes]
+       ${CLI} plugin remove <id> [--yes] [--delete-data]
+       ${CLI} plugin gc-runtimes
+       ${CLI} plugin test --host [dir]
 
 run     Developer scripts. Bind a Host once, then work from a plugin directory.
         server          Save Host URL and token to ~/.vibex/pluginrc
@@ -172,7 +173,7 @@ async function removePlugin(args) {
   const parsed = parseArgs(args);
   const pluginId = parsed.positional[0];
   if (!pluginId) {
-    throw new Error("Usage: vibex plugin remove <plugin-id> [--yes] [--delete-data]");
+    throw new Error(`Usage: ${CLI} plugin remove <plugin-id> [--yes] [--delete-data]`);
   }
   const host = await requireRunningHost();
   const catalog = await hostCall(host, "plugin_control_catalog", {});
@@ -245,7 +246,7 @@ async function requireRunningHost() {
   const host = discoverHost();
   if (!host.token || !(await hostAccepts(host.url, host.token))) {
     throw new Error(
-      "No running VibeX Host. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.",
+      `No running VibeX Host. Run \`${CLI} plugin run server --http://127.0.0.1:17891 --token <token>\`.`,
     );
   }
   return host;
@@ -401,9 +402,9 @@ async function addDevPlugin(source, flags) {
   const enabled = await enableOnHost(identity.id);
   log(`Linked ${identity.publisher}/${identity.id} as a development plugin.`);
   if (enabled) {
-    log("Enabled on the Host. Run `vibex plugin run dev` to start HMR.");
+    log(`Enabled on the Host. Run \`${CLI} plugin run dev\` to start HMR.`);
   } else {
-    log("Enable it in Settings → Plugins, then run `vibex plugin run dev`.");
+    log(`Enable it in Settings → Plugins, then run \`${CLI} plugin run dev\`.`);
   }
 }
 
@@ -541,7 +542,7 @@ function parseAddArgs(args) {
   const source = positional[0];
   if (!source) {
     throw new Error(
-      "Usage: vibex plugin add --web <url> | --profile <file> | --dev <dir> [--yes]",
+      `Usage: ${CLI} plugin add --web <url> | --profile <file> | --dev <dir> [--yes]`,
     );
   }
   const resolved = expandHome(source);
@@ -798,7 +799,7 @@ async function updatePlugin(args) {
   const parsed = parseArgs(args);
   const pluginId = parsed.positional[0];
   if (!pluginId) {
-    throw new Error("Usage: vibex plugin update <plugin-id> [--ref tag] [--yes]");
+    throw new Error(`Usage: ${CLI} plugin update <plugin-id> [--ref tag] [--yes]`);
   }
   const host = await requireRunningHost();
   const catalog = await hostCall(host, "plugin_control_catalog", {});
@@ -846,7 +847,7 @@ async function gcRuntimes() {
 async function testAgainstHost(args) {
   const parsed = parseArgs(args);
   if (!parsed.flags.host) {
-    throw new Error("Usage: vibex plugin test --host [dir]");
+    throw new Error(`Usage: ${CLI} plugin test --host [dir]`);
   }
   const root = path.resolve(parsed.positional[0] || ".");
   await ensureValidPlugin(root);

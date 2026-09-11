@@ -1,8 +1,9 @@
 const { CLI_VERSION } = require('./download');
+const CLI = require('../package.json').name;
 
 const TOPICS = {
-  serve: `Usage: vibex serve [--port N] [--local] [--rotate-token]
-       vibex web   (alias)
+  serve: `Usage: ${CLI} serve [--port N] [--local] [--rotate-token]
+       ${CLI} web   (alias)
 
 Start the Web UI. serve binds the LAN and prints the host token.
   --local           Loopback only
@@ -10,7 +11,7 @@ Start the Web UI. serve binds the LAN and prints the host token.
   --rotate-token    Replace the saved host token
 `,
 
-  list: `Usage: vibex list [--json] [--refresh]
+  list: `Usage: ${CLI} list [--json] [--refresh]
 
 List Agents the Host can install. Built-in Agents are grouped above
 ACP Registry entries.
@@ -18,28 +19,28 @@ ACP Registry entries.
   --refresh         Fetch the official ACP Registry first
 `,
 
-  install: `Usage: vibex install <agent-id> [--yes]
+  install: `Usage: ${CLI} install <agent-id> [--yes]
 
 Install the Agent Runtime and ACP into the user environment
 (npm global prefix, uv tools, or ~/.local/bin).
   --yes, -y         Do not prompt
 `,
 
-  plugin: `Usage: vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
-       vibex plugin run dev [dir]
-       vibex plugin run build [dir]
-       vibex plugin run test [dir] [--host]
-       vibex plugin pack [dir] [--output file.vxp]
-       vibex plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
-       vibex plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
-       vibex plugin add --dev <dir> [--yes]
-       vibex plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
-       vibex plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
-       vibex plugin list [--json]
-       vibex plugin update <id> [--ref tag] [--yes]
-       vibex plugin remove <id> [--yes] [--delete-data]
-       vibex plugin gc-runtimes
-       vibex plugin test --host [dir]
+  plugin: `Usage: ${CLI} plugin run server [--http://127.0.0.1:17891] [--token <token>]
+       ${CLI} plugin run dev [dir]
+       ${CLI} plugin run build [dir]
+       ${CLI} plugin run test [dir] [--host]
+       ${CLI} plugin pack [dir] [--output file.vxp]
+       ${CLI} plugin add --web <git-or-url[#ref]> [--plugin ID] [--yes]
+       ${CLI} plugin add --profile <file.vxp|archive> [--plugin ID] [--yes]
+       ${CLI} plugin add --dev <dir> [--yes]
+       ${CLI} plugin publish [dir|file.vxp] [--owner USER] [--password PASS] [--show-tree]
+       ${CLI} plugin publish --web <github-owner/repo[#tag]> [--owner USER] [--password PASS]
+       ${CLI} plugin list [--json]
+       ${CLI} plugin update <id> [--ref tag] [--yes]
+       ${CLI} plugin remove <id> [--yes] [--delete-data]
+       ${CLI} plugin gc-runtimes
+       ${CLI} plugin test --host [dir]
 
 run     Developer scripts. Bind a Host once, then work from a plugin directory.
   server          Save Host URL and token to ~/.vibex/pluginrc
@@ -67,12 +68,12 @@ remove  Uninstall a non-built-in plugin
   --delete-data   Delete snapshot and config; reclaim unreferenced Runtimes
 gc-runtimes  Delete managed Runtimes with no plugin references
 test --host  Install, Skill-reload, and uninstall against the running Host
-        Bind a Host with \`vibex plugin run server\` first.
+        Bind a Host with \`${CLI} plugin run server\` first.
         If no Host is running, .vxp and --dev links stay in ~/.vibex/imports
         and Desktop or Server imports them on the next launch.
 `,
 
-  conversation: `Usage: vibex conversation <command>
+  conversation: `Usage: ${CLI} conversation <command>
   create    --workspace ID --agent ID [--title T] [--prompt T]
   send      --conversation ID --workspace ID --agent ID --text T
   steer     --conversation ID --turn ID --text T
@@ -83,7 +84,7 @@ test --host  Install, Skill-reload, and uninstall against the running Host
   cancel    --conversation ID [--reason T]
 `,
 
-  workflow: `Usage: vibex workflow <command>
+  workflow: `Usage: ${CLI} workflow <command>
   validate  --file FILE
   publish   --file FILE [--definition-id ID]
   run       --version ID --workspace ID [--input FILE] [--policy FILE]
@@ -94,19 +95,19 @@ test --host  Install, Skill-reload, and uninstall against the running Host
   resume    --run ID --decision retry|accept|skip|cancel [--step ID] [--output FILE]
 `,
 
-  project: `Usage: vibex project <command>
+  project: `Usage: ${CLI} project <command>
   list
   show    --id ID
   create  --name NAME [--path REPO]
   delete  --id ID
 `,
 
-  workspace: `Usage: vibex workspace <command>
+  workspace: `Usage: ${CLI} workspace <command>
   list [--project ID]
   show --id ID
 `,
 
-  session: `Usage: vibex session <command>
+  session: `Usage: ${CLI} session <command>
   list    --workspace ID
   show    --id ID
   create  --workspace ID [--agent ID] [--title T] [--prompt T]
@@ -114,24 +115,24 @@ test --host  Install, Skill-reload, and uninstall against the running Host
   delete  --id ID
 `,
 
-  file: `Usage: vibex file <command>
+  file: `Usage: ${CLI} file <command>
   tree   --path PATH [--depth N]
   read   --path PATH
   write  --path PATH (--text T | --file FILE)
 `,
 
-  git: `Usage: vibex git <command>
+  git: `Usage: ${CLI} git <command>
   status  --workspace ID --repo ID
   stage   --workspace ID --repo ID --path PATH
   commit  --workspace ID --repo ID --message T
 `,
 
-  agent: `Usage: vibex agent <command>
+  agent: `Usage: ${CLI} agent <command>
   list
 `,
 };
 
-const ROOT = `Usage: vibex <command>
+const ROOT = `Usage: ${CLI} <command>
 
 Host
   serve, web              Start the Web UI on the LAN and print the token
@@ -161,7 +162,7 @@ Other
   --version, -V
 
 ${Object.keys(TOPICS)
-  .map((topic) => `vibex help ${topic}`)
+  .map((topic) => `${CLI} help ${topic}`)
   .join('\n')}
 `;
 

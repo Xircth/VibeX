@@ -79,7 +79,7 @@ VibeX 插件是可安装、可启停、可配置的产品功能单元。同一�
 | --- | --- |
 | **Desktop** | 默认入口。桌面应用同时包含窗口与完整 Host。 |
 | **Server + WebUI** | `vibex-server` 是无窗口 Host。浏览器打开发行包中的 `web/` 即可使用 WebUI。 |
-| **CLI** | `npx vibex` 按平台拉取 Host 家族包、校验校验和并启动 Server。 |
+| **CLI** | `npx vibexs` 按平台拉取 Host 家族包、校验校验和并启动 Server。 |
 | **Mobile APP** | Android 伴随端通过配对码连接 Host，用于查看会话、发送输入与处理权限。 |
 
 桌面应用与 Server 共用数据目录、Agent、会话、自动化和插件。同一数据目录不能同时以 Host 身份启动 Desktop 与 Server。远程工作站桌面可以客户端身份连接已占用该目录的 Host。
@@ -129,11 +129,11 @@ macOS 若拦截首次打开，先确认安装包来自[官方 Releases](https://
 使用官方助手下载、校验并启动：
 
 ```bash
-npx vibex
+npx vibexs
 # 或: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibex` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
+`npx vibexs` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
 
 解压后的目录包含 `vibex-server`、`vibex-mcp`、`web/` 与 `plugins/bundled/`。
 

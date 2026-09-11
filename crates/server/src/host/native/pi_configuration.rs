@@ -461,9 +461,9 @@ fn apply_custom_model(
     model_id: &str,
     reasoning: Option<&api_types::PiModelReasoningSpec>,
 ) -> Result<(), String> {
-    let existing = models.iter_mut().find(|entry| {
-        entry.get("id").and_then(Value::as_str) == Some(model_id)
-    });
+    let existing = models
+        .iter_mut()
+        .find(|entry| entry.get("id").and_then(Value::as_str) == Some(model_id));
     let model_obj = match existing {
         Some(Value::Object(obj)) => obj,
         Some(_) => return Err(format!("Pi model `{model_id}` 必须是对象")),

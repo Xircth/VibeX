@@ -24,8 +24,7 @@ use super::{
         grok_plugins, json_document_mutation, model_catalogs, model_provider_import,
         model_providers, opencode_catalog, opencode_plugins, opencode_providers, pi_configuration,
         pi_plugins, pi_trust, provider_store_path, read_json_object_or_empty,
-        read_json_object_state,
-        resolve_agent_home,
+        read_json_object_state, resolve_agent_home,
     },
 };
 use crate::domains::{internal_error, parse, serialize};
@@ -530,7 +529,11 @@ pub async fn dispatch_pi_project_trust_acknowledge(
 ) -> Result<Value, ApplicationError> {
     let request: PiTrustWorkspaceRequest = parse(args)?;
     let home = require_home()?;
-    serialize(pi_trust::acknowledge(pool, &home, request).await.map_err(bad)?)
+    serialize(
+        pi_trust::acknowledge(pool, &home, request)
+            .await
+            .map_err(bad)?,
+    )
 }
 
 pub async fn dispatch_pi_trust_entries(pool: &SqlitePool) -> Result<Value, ApplicationError> {

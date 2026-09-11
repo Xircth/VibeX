@@ -230,9 +230,7 @@ export const agentManagementApi = {
   validatePiCommand: (command: string): Promise<PiCommandValidationView> =>
     backendCall('pi_command_validate', { command }),
 
-  piProjectTrustState: (
-    workspace: string
-  ): Promise<PiProjectTrustStateView> =>
+  piProjectTrustState: (workspace: string): Promise<PiProjectTrustStateView> =>
     backendCall('pi_project_trust_state', { workspace }),
 
   setPiProjectTrust: (

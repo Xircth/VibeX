@@ -637,16 +637,20 @@ fn pi_lookup_names(requested: &str) -> Vec<String> {
     if Path::new(requested).extension().is_some() {
         return vec![requested.to_string()];
     }
-    let mut names = Vec::new();
     #[cfg(windows)]
     {
-        names.push(format!("{requested}.exe"));
-        names.push(format!("{requested}.com"));
-        names.push(format!("{requested}.cmd"));
-        names.push(format!("{requested}.bat"));
+        return vec![
+            format!("{requested}.exe"),
+            format!("{requested}.com"),
+            format!("{requested}.cmd"),
+            format!("{requested}.bat"),
+            requested.to_string(),
+        ];
     }
-    names.push(requested.to_string());
-    names
+    #[cfg(not(windows))]
+    {
+        vec![requested.to_string()]
+    }
 }
 
 fn lookup_pi_on_path(names: &[String], search_path: Option<&OsStr>) -> Option<PathBuf> {

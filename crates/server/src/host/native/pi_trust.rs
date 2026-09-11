@@ -63,7 +63,10 @@ pub async fn acknowledge(
     )))
 }
 
-pub async fn entries(pool: &sqlx::SqlitePool, home: &Path) -> Result<Vec<PiTrustEntryView>, String> {
+pub async fn entries(
+    pool: &sqlx::SqlitePool,
+    home: &Path,
+) -> Result<Vec<PiTrustEntryView>, String> {
     let env = pi_configuration::read_pi_env(pool).await?;
     let agent_dir = pi_configuration::pi_agent_dir(home, &env);
     Ok(pi_trust::list_entries(&agent_dir.join("trust.json"))?

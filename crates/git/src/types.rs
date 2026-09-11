@@ -153,7 +153,7 @@ fn parse_already_checked_out(output: &str) -> Option<(String, String)> {
         let Some(rest) = line
             .strip_prefix("fatal: ")
             .or_else(|| line.strip_prefix("error: "))
-            .or_else(|| Some(line))
+            .or(Some(line))
         else {
             continue;
         };

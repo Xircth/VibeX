@@ -1434,7 +1434,9 @@ fn add_worktree_from_ref_ignores_dirty_source_working_tree() {
         .expect("create worktree from dirty source");
 
     assert_eq!(
-        normalize_line_endings(&std::fs::read_to_string(worktree_path.join("tracked.txt")).unwrap()),
+        normalize_line_endings(
+            &std::fs::read_to_string(worktree_path.join("tracked.txt")).unwrap()
+        ),
         "committed\n"
     );
     assert!(!worktree_path.join("untracked.txt").exists());

@@ -154,15 +154,15 @@ fn from_pi_acp_lifecycle(text: &str) -> Option<ConversationSessionNotice> {
             ..Default::default()
         });
     }
-    if let Some(rest) = text.strip_prefix("Retrying") {
-        if rest.is_empty() || rest.starts_with(" (") || rest == "..." {
-            return Some(ConversationSessionNotice {
-                title: "Retrying model call".into(),
-                message: Some(text.to_string()),
-                severity: "info".into(),
-                ..Default::default()
-            });
-        }
+    if let Some(rest) = text.strip_prefix("Retrying")
+        && (rest.is_empty() || rest.starts_with(" (") || rest == "...")
+    {
+        return Some(ConversationSessionNotice {
+            title: "Retrying model call".into(),
+            message: Some(text.to_string()),
+            severity: "info".into(),
+            ..Default::default()
+        });
     }
     if text.starts_with("Queued message (position ") || text.starts_with("Starting queued message.")
     {

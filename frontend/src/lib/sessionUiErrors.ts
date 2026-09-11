@@ -57,17 +57,17 @@ export function getSessionUiErrorMessage(
     return i18n.t('app:sessionErrors.alreadyCheckedOut');
   }
   if (
-    lowered.includes('git operation in progress')
-    || lowered.includes('rebase in progress')
-    || lowered.includes('unmerged files')
-    || lowered.includes('unmerged paths')
-    || lowered.includes('middle of a merge')
+    lowered.includes('git operation in progress') ||
+    lowered.includes('rebase in progress') ||
+    lowered.includes('unmerged files') ||
+    lowered.includes('unmerged paths') ||
+    lowered.includes('middle of a merge')
   ) {
     return i18n.t('app:sessionErrors.operationInProgress');
   }
   if (
-    lowered.includes('only contains git metadata')
-    || lowered.includes('missing materialized checkout')
+    lowered.includes('only contains git metadata') ||
+    lowered.includes('missing materialized checkout')
   ) {
     return i18n.t('app:sessionErrors.emptyCheckout');
   }

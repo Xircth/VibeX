@@ -939,6 +939,7 @@ impl ServerApplicationDomains {
                 payload.name.as_deref(),
                 payload.initial_prompt.as_deref(),
                 payload.repos.as_deref().unwrap_or(&[]),
+                payload.include_uncommitted.unwrap_or(false),
             )
             .await?
         } else if let Some(workspace_id) = payload.workspace_id {
@@ -969,7 +970,7 @@ impl ServerApplicationDomains {
             .container()
             .ensure_container_exists(&workspace)
             .await
-            .map_err(internal_error)?;
+            .map_err(map_workspace_git_error)?;
         let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
         let prepared_identity = if payload.session_id.is_some() {
             let agent_id = prepared_session_agent_id(payload.executor.as_deref())?;
@@ -1527,6 +1528,7 @@ impl ServerApplicationDomains {
         name: Option<&str>,
         initial_prompt: Option<&str>,
         repos: &[ProjectSessionRepoInput],
+        include_uncommitted: bool,
     ) -> Result<Workspace, ApplicationError> {
         if repos.is_empty() {
             return Err(ApplicationError::bad_request(
@@ -1628,7 +1630,22 @@ impl ServerApplicationDomains {
             .container()
             .ensure_container_exists(&workspace)
             .await
-            .map_err(internal_error)?;
+            .map_err(map_workspace_git_error)?;
+        let workspace = Workspace::find_by_id(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))?;
+        if include_uncommitted && let Some(container_ref) = workspace.container_ref.as_deref() {
+            let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
+                .await
+                .map_err(internal_error)?;
+            services::services::workspace_manager::WorkspaceManager::copy_uncommitted_changes(
+                Path::new(container_ref),
+                &repos,
+            )
+            .await
+            .map_err(map_workspace_git_error)?;
+        }
         Workspace::find_by_id(&self.pool, workspace.id)
             .await
             .map_err(internal_error)?
@@ -1833,6 +1850,17 @@ fn workspace_container_overlaps_repo(workspace: &Workspace, repos: &[Repo]) -> b
 fn git_checkout_error_is_local_changes(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     normalized.contains("local changes") && normalized.contains("would be overwritten by checkout")
+}
+
+fn map_workspace_git_error(error: impl std::fmt::Display) -> ApplicationError {
+    let message = error.to_string();
+    if git::GitServiceError::is_user_facing_message(&message)
+        || git_checkout_error_is_local_changes(&message)
+    {
+        ApplicationError::bad_request(message)
+    } else {
+        internal_error(error)
+    }
 }
 
 fn file_at_head_content(file_path: &str) -> Result<String, ApplicationError> {
@@ -2242,6 +2270,8 @@ struct CreateProjectSessionPayload {
     initial_prompt: Option<String>,
     #[serde(default, alias = "create_workspace")]
     create_workspace: Option<bool>,
+    #[serde(default, alias = "include_uncommitted")]
+    include_uncommitted: Option<bool>,
     #[serde(default)]
     repos: Option<Vec<ProjectSessionRepoInput>>,
 }

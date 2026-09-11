@@ -120,6 +120,7 @@ pub struct CreateProjectSessionPayload {
     pub name: Option<String>,
     pub initial_prompt: Option<String>,
     pub create_workspace: Option<bool>,
+    pub include_uncommitted: Option<bool>,
     pub repos: Option<Vec<ProjectSessionRepoInput>>,
 }
 
@@ -201,6 +202,7 @@ pub(crate) async fn create_worktree_workspace_for_project_session(
     initial_prompt: Option<&str>,
     repos: &[ProjectSessionRepoInput],
     branch_override: Option<&str>,
+    include_uncommitted: bool,
 ) -> Result<Workspace, AppError> {
     if repos.is_empty() {
         return Err(AppError::BadRequest(
@@ -322,7 +324,20 @@ pub(crate) async fn create_worktree_workspace_for_project_session(
         .deployment
         .container()
         .ensure_container_exists(&workspace)
-        .await?;
+        .await
+        .map_err(map_workspace_git_error)?;
+    let workspace = Workspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))?;
+    if include_uncommitted && let Some(container_ref) = workspace.container_ref.as_deref() {
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        services::services::workspace_manager::WorkspaceManager::copy_uncommitted_changes(
+            Path::new(container_ref),
+            &repos,
+        )
+        .await
+        .map_err(map_workspace_git_error)?;
+    }
     Workspace::find_by_id(pool, workspace.id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
@@ -466,6 +481,17 @@ async fn ensure_project_root_workspace(
 fn git_checkout_error_is_local_changes(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     normalized.contains("local changes") && normalized.contains("would be overwritten by checkout")
+}
+
+fn map_workspace_git_error(error: impl std::fmt::Display) -> AppError {
+    let message = error.to_string();
+    if git::GitServiceError::is_user_facing_message(&message)
+        || git_checkout_error_is_local_changes(&message)
+    {
+        AppError::BadRequest(message)
+    } else {
+        AppError::Internal(message)
+    }
 }
 
 // --- Commands ---
@@ -659,6 +685,7 @@ pub async fn create_workflow_debug_workspace(
         None,
         &repos,
         None,
+        false,
     )
     .await
 }
@@ -679,6 +706,7 @@ pub async fn create_project_session(
             payload.initial_prompt.as_deref(),
             payload.repos.as_deref().unwrap_or(&[]),
             None,
+            payload.include_uncommitted.unwrap_or(false),
         )
         .await?
     } else if let Some(workspace_id) = payload.workspace_id {
@@ -723,7 +751,8 @@ pub async fn create_project_session(
         .deployment
         .container()
         .ensure_container_exists(&workspace)
-        .await?;
+        .await
+        .map_err(map_workspace_git_error)?;
 
     let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
     let prepared_identity = if payload.session_id.is_some() {

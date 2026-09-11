@@ -52,6 +52,8 @@ import {
   getAreAllVisibleFileTreeFoldersExpanded,
   normalizeDirectoryChildrenResponse,
   pruneExpandedFileTreeFolders,
+  emptyFileTreeLazyListing,
+  replaceFileTreeDirectoryListing,
   resolveFileTreeAbsolutePath,
   resolveWorkspaceRootLabel,
   toggleAllFileTreeFolders,
@@ -94,7 +96,7 @@ export function FileTreePanel({
   gitignoredDirectories,
   onRefreshFiles,
   refreshToken = 0,
-  lazyLoadAllDirectories = false,
+  lazyLoadAllDirectories = true,
   revealTarget = null,
 }: FileTreePanelProps) {
   const { t } = useTranslation(['panels', 'common']);
@@ -152,22 +154,7 @@ export function FileTreePanel({
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const newFolderInputRef = useRef<HTMLInputElement | null>(null);
-  const [lazyFiles, setLazyFiles] = useState<Set<string>>(new Set());
-  const [lazyDirectories, setLazyDirectories] = useState<Set<string>>(
-    new Set()
-  );
-  const [lazyGitignoredFiles, setLazyGitignoredFiles] = useState<Set<string>>(
-    new Set()
-  );
-  const [lazyGitignoredDirectories, setLazyGitignoredDirectories] = useState<
-    Set<string>
-  >(new Set());
-  const [lazyLoadableDirectories, setLazyLoadableDirectories] = useState<
-    Set<string>
-  >(new Set());
-  const [loadedLazyDirectories, setLoadedLazyDirectories] = useState<
-    Set<string>
-  >(new Set());
+  const [lazyListing, setLazyListing] = useState(emptyFileTreeLazyListing);
   const [loadingLazyDirectories, setLoadingLazyDirectories] = useState<
     Set<string>
   >(new Set());
@@ -205,11 +192,11 @@ export function FileTreePanel({
         directories: directoryEntries,
         ignoredFiles: ignoredFileEntries,
         ignoredDirectories: ignoredDirectoryEntries,
-        lazyFiles,
-        lazyDirectories,
-        lazyGitignoredFiles,
-        lazyGitignoredDirectories,
-        lazyLoadableDirectories,
+        lazyFiles: lazyListing.files,
+        lazyDirectories: lazyListing.directories,
+        lazyGitignoredFiles: lazyListing.gitignoredFiles,
+        lazyGitignoredDirectories: lazyListing.gitignoredDirectories,
+        lazyLoadableDirectories: lazyListing.loadableDirectories,
         lazyLoadAllDirectories,
       }),
     [
@@ -217,15 +204,12 @@ export function FileTreePanel({
       files,
       ignoredDirectoryEntries,
       ignoredFileEntries,
-      lazyDirectories,
-      lazyFiles,
-      lazyGitignoredDirectories,
-      lazyGitignoredFiles,
+      lazyListing,
       lazyLoadAllDirectories,
-      lazyLoadableDirectories,
     ]
   );
-  const showLoading = isLoading && mergedFiles.length === 0;
+  const showLoading =
+    isLoading && mergedFiles.length === 0 && mergedDirectories.length === 0;
 
   const gitStatusMap = useMemo(
     () => deriveFileTreeGitStatusMap(gitStatusFiles),
@@ -264,8 +248,8 @@ export function FileTreePanel({
   }, [folderPaths]);
 
   useEffect(() => {
-    loadedLazyDirectoriesRef.current = loadedLazyDirectories;
-  }, [loadedLazyDirectories]);
+    loadedLazyDirectoriesRef.current = lazyListing.loadedDirectories;
+  }, [lazyListing.loadedDirectories]);
 
   useEffect(() => {
     loadingLazyDirectoriesRef.current = loadingLazyDirectories;
@@ -285,12 +269,7 @@ export function FileTreePanel({
     dragMovedRef.current = false;
     setContextMenu(null);
     setCopySubmenuOpen(false);
-    setLazyFiles(new Set());
-    setLazyDirectories(new Set());
-    setLazyGitignoredFiles(new Set());
-    setLazyGitignoredDirectories(new Set());
-    setLazyLoadableDirectories(new Set());
-    setLoadedLazyDirectories(new Set());
+    setLazyListing(emptyFileTreeLazyListing());
     setLoadingLazyDirectories(new Set());
     setLazyDirectoryLoadErrors(new Map());
     setNewFileParent(null);
@@ -345,35 +324,13 @@ export function FileTreePanel({
         const response = normalizeDirectoryChildrenResponse(
           await fileTreeApi.listDirectoryChildren(workspacePath, path)
         );
-
-        setLazyFiles((prev) => {
-          const next = new Set(prev);
-          response.files.forEach((entry) => next.add(entry));
-          return next;
-        });
-        setLazyDirectories((prev) => {
-          const next = new Set(prev);
-          response.directories.forEach((entry) => next.add(entry));
-          return next;
-        });
-        setLazyLoadableDirectories((prev) => {
-          const next = new Set(prev);
-          response.directories.forEach((entry) => next.add(entry));
-          return next;
-        });
-        setLazyGitignoredFiles((prev) => {
-          const next = new Set(prev);
-          response.gitignoredFiles.forEach((entry) => next.add(entry));
-          return next;
-        });
-        setLazyGitignoredDirectories((prev) => {
-          const next = new Set(prev);
-          response.gitignoredDirectories.forEach((entry) => next.add(entry));
-          return next;
-        });
-        setLoadedLazyDirectories((prev) => {
-          const next = new Set(prev);
-          next.add(path);
+        setLazyListing((current) => {
+          const next = replaceFileTreeDirectoryListing({
+            parentPath: path,
+            listing: response,
+            current,
+          });
+          loadedLazyDirectoriesRef.current = next.loadedDirectories;
           return next;
         });
       } catch (error) {
@@ -404,19 +361,21 @@ export function FileTreePanel({
       loadedLazyDirectoriesRef.current
     ).filter((path) => expandedFolders.has(path));
 
-    setLazyFiles(new Set());
-    setLazyDirectories(new Set());
-    setLazyGitignoredFiles(new Set());
-    setLazyGitignoredDirectories(new Set());
-    setLazyLoadableDirectories(new Set());
-    setLoadedLazyDirectories(new Set());
-    setLoadingLazyDirectories(new Set());
-    setLazyDirectoryLoadErrors(new Map());
-    loadedLazyDirectoriesRef.current = new Set();
-    loadingLazyDirectoriesRef.current = new Set();
+    setLazyListing((current) => {
+      const nextLoaded = new Set(
+        Array.from(current.loadedDirectories).filter((path) =>
+          expandedFolders.has(path)
+        )
+      );
+      loadedLazyDirectoriesRef.current = nextLoaded;
+      return {
+        ...current,
+        loadedDirectories: nextLoaded,
+      };
+    });
 
     expandedLazyDirectories.forEach((path) => {
-      void loadLazyDirectoryChildren(path);
+      void loadLazyDirectoryChildren(path, { force: true });
     });
   }, [expandedFolders, loadLazyDirectoryChildren, refreshToken]);
 
@@ -476,13 +435,17 @@ export function FileTreePanel({
     if (!hasFolders) {
       return;
     }
-    setExpandedFolders((prev) =>
-      toggleAllFileTreeFolders({
-        expandedFolders: prev,
-        visibleFolderPaths,
-        allVisibleExpanded,
-      })
-    );
+    const next = toggleAllFileTreeFolders({
+      expandedFolders,
+      visibleFolderPaths,
+      allVisibleExpanded,
+    });
+    setExpandedFolders(next);
+    if (!allVisibleExpanded) {
+      visibleFolderPaths.forEach((path) => {
+        void loadLazyDirectoryChildren(path);
+      });
+    }
   };
 
   const toggleFolder = (path: string) => {
@@ -796,10 +759,10 @@ export function FileTreePanel({
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.saveFile(absolutePath, '');
-      setLazyFiles((prev) => {
-        const next = new Set(prev);
-        next.add(relativePath);
-        return next;
+      setLazyListing((current) => {
+        const files = new Set(current.files);
+        files.add(relativePath);
+        return { ...current, files };
       });
       if (newFileParent) {
         void loadLazyDirectoryChildren(newFileParent, { force: true });
@@ -854,15 +817,12 @@ export function FileTreePanel({
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.createDirectory(absolutePath);
-      setLazyDirectories((prev) => {
-        const next = new Set(prev);
-        next.add(relativePath);
-        return next;
-      });
-      setLazyLoadableDirectories((prev) => {
-        const next = new Set(prev);
-        next.add(relativePath);
-        return next;
+      setLazyListing((current) => {
+        const directories = new Set(current.directories);
+        const loadableDirectories = new Set(current.loadableDirectories);
+        directories.add(relativePath);
+        loadableDirectories.add(relativePath);
+        return { ...current, directories, loadableDirectories };
       });
       if (newFolderParent) {
         void loadLazyDirectoryChildren(newFolderParent, { force: true });

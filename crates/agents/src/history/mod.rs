@@ -539,24 +539,64 @@ fn xdg_data_or_home_sources(agent_type: AgentKind, app_dir: &str) -> Vec<AgentHi
 }
 
 fn pi_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource> {
-    if let Some(path) = std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
+    pi_history_sources_from(
+        std::env::var_os("PI_CODING_AGENT_SESSION_DIR"),
+        std::env::var_os("PI_CODING_AGENT_DIR"),
+        dirs::home_dir(),
+        agent_type,
+    )
+}
+
+fn pi_history_sources_from(
+    session_dir_env: Option<std::ffi::OsString>,
+    agent_dir_env: Option<std::ffi::OsString>,
+    home_dir: Option<PathBuf>,
+    agent_type: AgentKind,
+) -> Vec<AgentHistorySource> {
+    if let Some(raw) = session_dir_env
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+        .and_then(|value| value.into_string().ok())
     {
+        let path = match home_dir.as_deref() {
+            Some(home) => crate::pi_trust::expand_pi_home(&raw, home),
+            None => PathBuf::from(raw),
+        };
         return vec![AgentHistorySource { agent_type, path }];
     }
-    if let Some(path) = std::env::var_os("PI_CODING_AGENT_DIR")
+    let agent_dir = match agent_dir_env
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+        .and_then(|value| value.into_string().ok())
     {
-        return vec![AgentHistorySource {
-            agent_type,
-            path: path.join("sessions"),
-        }];
-    }
-    home_source(agent_type, ".pi/agent/sessions")
-        .into_iter()
-        .collect()
+        Some(dir) => match home_dir.as_deref() {
+            Some(home) => crate::pi_trust::expand_pi_home(&dir, home),
+            None => PathBuf::from(dir),
+        },
+        None => match &home_dir {
+            Some(home) => home.join(".pi/agent"),
+            None => return Vec::new(),
+        },
+    };
+    let path = pi_session_dir_from_settings(&agent_dir, home_dir.as_deref())
+        .unwrap_or_else(|| agent_dir.join("sessions"));
+    vec![AgentHistorySource { agent_type, path }]
+}
+
+/// Honor `settings.json` `sessionDir` only when it is absolute after tilde
+/// expansion. A relative value is resolved by Pi against the workspace cwd,
+/// which this scanner does not have.
+fn pi_session_dir_from_settings(agent_dir: &Path, home_dir: Option<&Path>) -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(agent_dir.join("settings.json")).ok()?;
+    let settings: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let configured = settings
+        .get("sessionDir")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let expanded = match home_dir {
+        Some(home) => crate::pi_trust::expand_pi_home(configured, home),
+        None => PathBuf::from(configured),
+    };
+    expanded.is_absolute().then_some(expanded)
 }
 
 fn cursor_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource> {
@@ -2465,6 +2505,51 @@ mod tests {
         });
 
         assert_eq!(role_from_value(&value), ImportedAgentMessageRole::Assistant);
+    }
+
+    #[test]
+    fn pi_settings_absolute_session_dir_wins_over_default_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join("agent");
+        let sessions = temp.path().join("absolute-sessions");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            serde_json::json!({ "sessionDir": sessions }).to_string(),
+        )
+        .unwrap();
+        let sources = pi_history_sources_from(
+            None,
+            Some(agent_dir.into_os_string()),
+            Some(temp.path().to_path_buf()),
+            AgentKind::Pi,
+        );
+        assert_eq!(
+            sources.first().map(|source| source.path.as_path()),
+            Some(sessions.as_path())
+        );
+    }
+
+    #[test]
+    fn pi_settings_relative_session_dir_falls_through_to_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"sessionDir":".pi/sessions"}"#,
+        )
+        .unwrap();
+        let sources = pi_history_sources_from(
+            None,
+            Some(agent_dir.clone().into_os_string()),
+            Some(temp.path().to_path_buf()),
+            AgentKind::Pi,
+        );
+        assert_eq!(
+            sources.first().map(|source| source.path.clone()),
+            Some(agent_dir.join("sessions"))
+        );
     }
 
     #[test]

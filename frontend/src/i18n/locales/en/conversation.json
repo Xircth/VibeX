@@ -1,4 +1,22 @@
 {
+  "piProjectTrust": {
+    "title": "Pi project files",
+    "grantTitle": "This folder is already trusted",
+    "description": "Pi is not loading this project's own files until you trust it.",
+    "descriptionExecutable": "This project ships Pi files that can run code at startup.",
+    "grantDescription": "An earlier grant already lets Pi load this project's files, including extensions that run at startup.",
+    "grantInheritedDescription": "A parent folder is already trusted, so this repository is covered too.",
+    "trust": "Trust",
+    "decline": "Keep unloaded",
+    "revoke": "Revoke",
+    "keepTrusted": "Keep trusted",
+    "dismiss": "Dismiss",
+    "trustedToast": "Workspace trusted. Start a new Pi session to load the files.",
+    "declinedToast": "Pi will keep skipping this project's files.",
+    "revokedToast": "Trust revoked. Start a new Pi session to apply it.",
+    "keptToast": "Existing grant confirmed.",
+    "saveFailed": "Unable to save the Pi project-trust decision"
+  },
   "codexGoal": {
     "label": "Goal",
     "statusLabel": "Status",

@@ -1,8 +1,19 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    env::split_paths,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use api_types::{AgentAuthModeKind, AgentId, AgentKind};
+use serde_json::Value;
 
-use crate::{native_config::NativeConfigSnapshot, permissions::AgentAutoApproveMode};
+use crate::{
+    cli_exposure::{published_cli_shim_agent, published_cli_shim_target},
+    native_config::NativeConfigSnapshot,
+    permissions::AgentAutoApproveMode,
+    pi_trust::PI_COMMAND_ENV,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInAuthModePolicy {
@@ -518,10 +529,253 @@ pub fn apply_built_in_launch_policy(
                 "PI_ACP_ENABLE_EMBEDDED_CONTEXT".to_string(),
                 "true".to_string(),
             );
+            let home = env
+                .get("HOME")
+                .or_else(|| env.get("USERPROFILE"))
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir);
+            if let Some(home) = home {
+                apply_pi_native_launch_env(&home, env);
+            }
+            let requested = env.get(PI_COMMAND_ENV).cloned();
+            bind_pi_acp_pi_command(env, requested.as_deref());
         }
         _ => {}
     }
     apply_built_in_launch_argument_policy(agent_id, env, args);
+}
+
+/// Point `pi` at the same native files VibeX projected, and export the bound
+/// provider key as `PI_API_KEY` so `models.json` `$PI_API_KEY` and ACP
+/// `get_available_models` see a configured provider.
+pub fn apply_pi_native_launch_env(home: &Path, env: &mut HashMap<String, String>) {
+    let agent_dir = pi_agent_dir(home, env);
+    if env
+        .get("PI_CODING_AGENT_DIR")
+        .map(|value| value.trim())
+        .is_none_or(|value| value.is_empty())
+    {
+        env.insert(
+            "PI_CODING_AGENT_DIR".to_string(),
+            agent_dir.to_string_lossy().into_owned(),
+        );
+    }
+    if env
+        .get("PI_API_KEY")
+        .map(|value| value.trim())
+        .is_some_and(|value| !value.is_empty())
+    {
+        return;
+    }
+    if let Some(key) = read_pi_default_provider_key(&agent_dir) {
+        env.insert("PI_API_KEY".to_string(), key);
+    }
+}
+
+/// Point `pi-acp` at a spawnable `pi` command.
+///
+/// pi-acp defaults to `pi.cmd` + `shell: true` on Windows. Prefer a same-stem
+/// `.exe` when one exists so Node can spawn without a shell. If only a batch
+/// shim is present, keep that absolute path so pi-acp can still start the
+/// session. `requested` is the user-configured command, not a previously
+/// resolved path.
+pub fn bind_pi_acp_pi_command(env: &mut HashMap<String, String>, requested: Option<&str>) {
+    let requested = requested.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(path) = resolve_pi_acp_command(requested, env.get("PATH").map(String::as_str)) {
+        env.insert(
+            PI_COMMAND_ENV.to_string(),
+            path.as_os_str().to_string_lossy().into_owned(),
+        );
+        return;
+    }
+    match requested {
+        Some(requested) => {
+            env.insert(PI_COMMAND_ENV.to_string(), requested.to_string());
+        }
+        None => {
+            env.remove(PI_COMMAND_ENV);
+        }
+    }
+}
+
+pub fn resolve_pi_acp_command(
+    requested: Option<&str>,
+    search_path: Option<&str>,
+) -> Option<PathBuf> {
+    let search_path = search_path
+        .map(OsStr::new)
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os("PATH"));
+    let search_path = search_path.as_deref();
+    if let Some(requested) = requested {
+        if let Some(path) = resolve_explicit_pi_path(requested) {
+            return Some(path);
+        }
+        if let Some(path) = lookup_pi_on_path(&pi_lookup_names(requested), search_path) {
+            return Some(path);
+        }
+    }
+    lookup_pi_on_path(&pi_lookup_names("pi"), search_path)
+}
+
+fn resolve_explicit_pi_path(command: &str) -> Option<PathBuf> {
+    let path = Path::new(command);
+    if !(path.is_absolute() || command.contains(['/', '\\'])) {
+        return None;
+    }
+    if !path.is_file() {
+        return None;
+    }
+    Some(prefer_pi_spawn_path(path.to_path_buf()))
+}
+
+fn pi_lookup_names(requested: &str) -> Vec<String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Vec::new();
+    }
+    if Path::new(requested).extension().is_some() {
+        return vec![requested.to_string()];
+    }
+    let mut names = Vec::new();
+    #[cfg(windows)]
+    {
+        names.push(format!("{requested}.exe"));
+        names.push(format!("{requested}.com"));
+        names.push(format!("{requested}.cmd"));
+        names.push(format!("{requested}.bat"));
+    }
+    names.push(requested.to_string());
+    names
+}
+
+fn lookup_pi_on_path(names: &[String], search_path: Option<&OsStr>) -> Option<PathBuf> {
+    let search_path = search_path?;
+    let mut shim_fallback = None;
+    for dir in split_paths(search_path) {
+        for name in names {
+            let candidate = dir.join(name);
+            if !candidate.is_file() {
+                continue;
+            }
+            if published_cli_shim_agent(&candidate).is_some() {
+                if shim_fallback.is_none() {
+                    shim_fallback = published_cli_shim_target(&candidate)
+                        .map(prefer_pi_spawn_path)
+                        .or_else(|| Some(prefer_pi_spawn_path(candidate)));
+                }
+                continue;
+            }
+            return Some(prefer_pi_spawn_path(candidate));
+        }
+    }
+    shim_fallback
+}
+
+fn prefer_pi_spawn_path(path: PathBuf) -> PathBuf {
+    let preferred = workspace_utils::process::prefer_direct_spawn_executable(&path);
+    if published_cli_shim_agent(&preferred).is_some()
+        && let Some(target) = published_cli_shim_target(&preferred)
+    {
+        return workspace_utils::process::prefer_direct_spawn_executable(target);
+    }
+    if published_cli_shim_agent(&path).is_some()
+        && let Some(target) = published_cli_shim_target(&path)
+    {
+        return workspace_utils::process::prefer_direct_spawn_executable(target);
+    }
+    preferred
+}
+
+fn pi_agent_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+    env.get("PI_CODING_AGENT_DIR")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_pi_home(value, home))
+        .unwrap_or_else(|| home.join(".pi/agent"))
+}
+
+fn expand_pi_home(path: &str, home: &Path) -> PathBuf {
+    if path == "~" {
+        home.to_path_buf()
+    } else if let Some(relative) = path.strip_prefix("~/") {
+        home.join(relative)
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+fn read_pi_default_provider_key(agent_dir: &Path) -> Option<String> {
+    let settings = read_json_object(&agent_dir.join("settings.json")).unwrap_or(Value::Null);
+    let auth = read_json_object(&agent_dir.join("auth.json")).unwrap_or(Value::Null);
+    let models = read_json_object(&agent_dir.join("models.json")).unwrap_or(Value::Null);
+    let default_provider = settings
+        .get("defaultProvider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(provider) = default_provider {
+        let key = pi_stored_api_key(&auth, provider);
+        if !key.is_empty() {
+            return Some(key);
+        }
+        let inline = pi_inline_literal_api_key(&models, provider);
+        if !inline.is_empty() {
+            return Some(inline);
+        }
+    }
+    auth.as_object().and_then(|entries| {
+        entries.iter().find_map(|(id, entry)| {
+            let key = pi_auth_entry_key(entry);
+            (!key.is_empty()).then_some(key).or_else(|| {
+                let inline = pi_inline_literal_api_key(&models, id);
+                (!inline.is_empty()).then_some(inline)
+            })
+        })
+    })
+}
+
+fn pi_stored_api_key(auth: &Value, provider: &str) -> String {
+    auth.get(provider)
+        .map(pi_auth_entry_key)
+        .unwrap_or_default()
+}
+
+fn pi_auth_entry_key(entry: &Value) -> String {
+    ["key", "apiKey", "api_key"]
+        .iter()
+        .find_map(|name| {
+            entry
+                .get(*name)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+fn pi_inline_literal_api_key(models: &Value, provider: &str) -> String {
+    let Some(value) = models
+        .get("providers")
+        .and_then(|providers| providers.get(provider))
+        .and_then(|node| node.get("apiKey").or_else(|| node.get("api_key")))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return String::new();
+    };
+    if value.starts_with('$') || value.starts_with('!') {
+        return String::new();
+    }
+    value.to_string()
+}
+
+fn read_json_object(path: &Path) -> Option<Value> {
+    let bytes = std::fs::read(path).ok()?;
+    let value = serde_json::from_slice::<Value>(&bytes).ok()?;
+    value.is_object().then_some(value)
 }
 
 pub fn auto_approve_mode_for_launch(
@@ -550,10 +804,10 @@ mod tests {
     use api_types::{AgentAuthModeKind, AgentId};
 
     use super::{
-        apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
+        PI_COMMAND_ENV, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
         apply_built_in_launch_policy, auth_mode_kind, auto_approve_mode_for_launch,
-        built_in_auth_mode_policy, is_non_official_api_url, official_api_url,
-        resolve_built_in_auth_mode,
+        bind_pi_acp_pi_command, built_in_auth_mode_policy, is_non_official_api_url,
+        official_api_url, resolve_built_in_auth_mode, resolve_pi_acp_command,
     };
 
     #[test]
@@ -569,9 +823,223 @@ mod tests {
         );
         assert_eq!(codex["DISABLE_MCP_CONFIG_FILTERING"], "true");
 
-        let mut pi = HashMap::new();
+        let temp = tempfile::tempdir().unwrap();
+        let mut pi = HashMap::from([(
+            "HOME".to_string(),
+            temp.path().to_string_lossy().into_owned(),
+        )]);
         apply_built_in_launch_policy(&AgentId::parse("pi").unwrap(), &mut pi, &mut Vec::new());
         assert_eq!(pi["PI_ACP_ENABLE_EMBEDDED_CONTEXT"], "true");
+    }
+
+    #[test]
+    fn pi_launch_exports_the_bound_provider_key_and_config_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let agent_dir = home.join(".pi/agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"defaultProvider":"private-gateway","defaultModel":"private-model"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"private-gateway":{"type":"api_key","key":"sk-pi"}}"#,
+        )
+        .unwrap();
+
+        let mut env = HashMap::from([("HOME".to_string(), home.to_string_lossy().into_owned())]);
+        apply_built_in_launch_policy(&AgentId::parse("pi").unwrap(), &mut env, &mut Vec::new());
+
+        assert_eq!(
+            env.get("PI_CODING_AGENT_DIR").map(String::as_str),
+            Some(agent_dir.to_string_lossy().as_ref())
+        );
+        assert_eq!(env.get("PI_API_KEY").map(String::as_str), Some("sk-pi"));
+        assert_eq!(env["PI_ACP_ENABLE_EMBEDDED_CONTEXT"], "true");
+    }
+
+    #[test]
+    fn pi_launch_keeps_an_explicit_config_dir_and_does_not_clobber_an_existing_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let custom_dir = home.join("custom-pi");
+        std::fs::create_dir_all(&custom_dir).unwrap();
+        std::fs::write(
+            custom_dir.join("settings.json"),
+            br#"{"defaultProvider":"gateway"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            custom_dir.join("auth.json"),
+            br#"{"gateway":{"type":"api_key","key":"sk-from-dir"}}"#,
+        )
+        .unwrap();
+
+        let mut env = HashMap::from([
+            ("HOME".to_string(), home.to_string_lossy().into_owned()),
+            (
+                "PI_CODING_AGENT_DIR".to_string(),
+                custom_dir.to_string_lossy().into_owned(),
+            ),
+            ("PI_API_KEY".to_string(), "sk-explicit".to_string()),
+        ]);
+        apply_built_in_launch_policy(&AgentId::parse("pi").unwrap(), &mut env, &mut Vec::new());
+
+        assert_eq!(
+            env.get("PI_CODING_AGENT_DIR").map(String::as_str),
+            Some(custom_dir.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            env.get("PI_API_KEY").map(String::as_str),
+            Some("sk-explicit")
+        );
+
+        env.remove("PI_API_KEY");
+        apply_built_in_launch_policy(&AgentId::parse("pi").unwrap(), &mut env, &mut Vec::new());
+        assert_eq!(
+            env.get("PI_API_KEY").map(String::as_str),
+            Some("sk-from-dir")
+        );
+    }
+
+    #[test]
+    fn pi_spawn_prefers_a_sibling_exe_over_a_cmd_shim() {
+        let temp = tempfile::tempdir().unwrap();
+        let cmd = temp.path().join("pi.cmd");
+        let exe = temp.path().join("pi.exe");
+        std::fs::write(&cmd, b"@echo off\r\n").unwrap();
+        std::fs::write(&exe, b"exe").unwrap();
+
+        let mut env = HashMap::from([(
+            PI_COMMAND_ENV.to_string(),
+            cmd.to_string_lossy().into_owned(),
+        )]);
+        bind_pi_acp_pi_command(&mut env, Some(cmd.to_str().unwrap()));
+
+        assert_eq!(
+            std::path::Path::new(&env[PI_COMMAND_ENV])
+                .file_name()
+                .unwrap(),
+            exe.file_name().unwrap()
+        );
+    }
+
+    #[test]
+    fn pi_spawn_keeps_an_absolute_cmd_when_no_exe_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let cmd = temp.path().join("pi.cmd");
+        std::fs::write(&cmd, b"@echo off\r\n").unwrap();
+
+        let mut env = HashMap::new();
+        bind_pi_acp_pi_command(&mut env, Some(cmd.to_str().unwrap()));
+
+        assert_eq!(
+            std::path::Path::new(&env[PI_COMMAND_ENV])
+                .file_name()
+                .unwrap(),
+            cmd.file_name().unwrap()
+        );
+    }
+
+    #[test]
+    fn pi_spawn_discovers_pi_from_path_when_unset() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let pi = bin.join("pi");
+        std::fs::write(&pi, b"#!/bin/sh\n").unwrap();
+
+        let mut env = HashMap::from([("PATH".to_string(), bin.to_string_lossy().into_owned())]);
+        bind_pi_acp_pi_command(&mut env, None);
+
+        assert_eq!(
+            std::path::Path::new(&env[PI_COMMAND_ENV])
+                .file_name()
+                .unwrap(),
+            pi.file_name().unwrap()
+        );
+    }
+
+    #[test]
+    fn pi_spawn_falls_back_to_path_when_the_custom_command_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let pi = bin.join("pi");
+        std::fs::write(&pi, b"#!/bin/sh\n").unwrap();
+        let missing = temp.path().join("missing.cmd");
+
+        let mut env = HashMap::from([("PATH".to_string(), bin.to_string_lossy().into_owned())]);
+        bind_pi_acp_pi_command(&mut env, Some(missing.to_str().unwrap()));
+
+        assert_eq!(
+            std::path::Path::new(&env[PI_COMMAND_ENV])
+                .file_name()
+                .unwrap(),
+            pi.file_name().unwrap()
+        );
+    }
+
+    #[test]
+    fn pi_spawn_skips_a_published_shim_when_a_user_runtime_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let shim_dir = temp.path().join("shim");
+        let user_dir = temp.path().join("user");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        std::fs::create_dir_all(&user_dir).unwrap();
+        let target = temp.path().join("managed-pi");
+        std::fs::write(&target, b"managed").unwrap();
+        let shim = shim_dir.join("pi");
+        std::fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\n# VibeX Agent CLI: pi\nexec '{}' \"$@\"\n",
+                target.display()
+            ),
+        )
+        .unwrap();
+        let user = user_dir.join("pi");
+        std::fs::write(&user, b"user").unwrap();
+
+        let path = std::env::join_paths([&shim_dir, &user_dir]).unwrap();
+        let resolved = resolve_pi_acp_command(None, Some(path.to_str().unwrap())).unwrap();
+        assert_eq!(resolved.file_name().unwrap(), user.file_name().unwrap());
+    }
+
+    #[test]
+    fn pi_spawn_follows_a_published_shim_when_it_is_the_only_runtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let shim_dir = temp.path().join("shim");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        let target = temp.path().join("managed-pi");
+        std::fs::write(&target, b"managed").unwrap();
+        let shim = shim_dir.join("pi");
+        std::fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\n# VibeX Agent CLI: pi\nexec '{}' \"$@\"\n",
+                target.display()
+            ),
+        )
+        .unwrap();
+
+        let resolved = resolve_pi_acp_command(None, Some(shim_dir.to_str().unwrap())).unwrap();
+        assert_eq!(resolved.file_name().unwrap(), target.file_name().unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pi_spawn_prefers_exe_before_cmd_on_windows_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let cmd = temp.path().join("pi.cmd");
+        let exe = temp.path().join("pi.exe");
+        std::fs::write(&cmd, b"@echo off\r\n").unwrap();
+        std::fs::write(&exe, b"exe").unwrap();
+
+        let resolved = resolve_pi_acp_command(None, Some(temp.path().to_str().unwrap())).unwrap();
+        assert_eq!(resolved.file_name().unwrap(), exe.file_name().unwrap());
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub enum AgentError {
     AuthenticationRequired(String),
     #[error("agent session could not be loaded")]
     SessionLoadFailed(crate::SessionLoadFailureReason),
+    #[error("{0}")]
+    PiProjectTrustRequired(String),
     #[error("agent runtime error: {0}")]
     Runtime(String),
 }
@@ -38,6 +40,7 @@ impl AgentError {
                 crate::SessionLoadFailureReason::Unsupported => "session_resume_unsupported",
                 crate::SessionLoadFailureReason::Other { .. } => "session_load_failed",
             }),
+            Self::PiProjectTrustRequired(_) => Some("pi_project_trust_required"),
             _ => None,
         }
     }

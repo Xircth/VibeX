@@ -56,6 +56,7 @@ import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
+import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
 import {
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
@@ -1376,6 +1377,11 @@ const AgentTimelineConversation = forwardRef<
         />
       ) : null}
       <ConversationSelectionToolbar rootRef={containerRef} />
+      <PiProjectTrustBanner
+        agentId={attempt.session?.agent_id ?? attempt.session?.executor}
+        workingDir={workspaceRoot}
+        turnInFlight={isTurnInFlight}
+      />
       <div
         ref={containerRef}
         className={cn(

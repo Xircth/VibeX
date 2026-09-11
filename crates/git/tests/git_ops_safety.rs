@@ -1410,3 +1410,40 @@ fn merge_base_ahead_of_task_should_error() {
         "Merge should error when base branch is ahead of task branch"
     );
 }
+
+#[test]
+fn add_worktree_from_ref_ignores_dirty_source_working_tree() {
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let worktree_path = td.path().join("wt-new");
+    let service = GitService::new();
+    service
+        .initialize_repo_with_main_branch(&repo_path)
+        .expect("init repo");
+    {
+        let repo = Repository::open(&repo_path).unwrap();
+        configure_user(&repo);
+        write_file(&repo_path, "tracked.txt", "committed\n");
+        commit_all(&repo, "seed");
+    }
+    write_file(&repo_path, "tracked.txt", "dirty\n");
+    write_file(&repo_path, "untracked.txt", "new\n");
+
+    service
+        .add_worktree_from_ref(&repo_path, &worktree_path, "session-branch", "main")
+        .expect("create worktree from dirty source");
+
+    assert_eq!(
+        normalize_line_endings(&std::fs::read_to_string(worktree_path.join("tracked.txt")).unwrap()),
+        "committed\n"
+    );
+    assert!(!worktree_path.join("untracked.txt").exists());
+    assert_eq!(
+        normalize_line_endings(&std::fs::read_to_string(repo_path.join("tracked.txt")).unwrap()),
+        "dirty\n"
+    );
+    assert_eq!(
+        normalize_line_endings(&std::fs::read_to_string(repo_path.join("untracked.txt")).unwrap()),
+        "new\n"
+    );
+}

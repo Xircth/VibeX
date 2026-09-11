@@ -5,8 +5,8 @@ use std::{
 };
 
 use api_types::{
-    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomProviderView,
-    PiRuntimeConfigurationView, PiRuntimeSaveRequest,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomModelView,
+    PiCustomProviderView, PiRuntimeConfigurationView, PiRuntimeSaveRequest,
 };
 use serde_json::{Map, Value};
 
@@ -93,6 +93,7 @@ pub async fn load(pool: &sqlx::SqlitePool, home: &Path) -> Result<PiConfiguratio
                     .and_then(Value::as_str)
                     .unwrap_or("openai-responses")
                     .to_string(),
+                models: custom_models_from_entry(provider),
             })
         })
         .collect::<Vec<_>>();
@@ -241,12 +242,7 @@ pub async fn save_credentials(
             .or_insert_with(|| Value::Array(Vec::new()))
             .as_array_mut()
             .ok_or_else(|| format!("Pi Provider `{provider}` 的 models 必须是数组"))?;
-        if !models
-            .iter()
-            .any(|entry| entry.get("id").and_then(Value::as_str) == Some(model))
-        {
-            models.push(serde_json::json!({ "id": model, "name": model }));
-        }
+        apply_custom_model(models, model, request.model_reasoning.as_ref())?;
     }
 
     let mut mutations = vec![
@@ -293,11 +289,7 @@ pub async fn save_runtime(
         env.remove(PI_CONFIG_DIR_ENV);
         env.remove(PI_SESSION_DIR_ENV);
     }
-    if request.trust_workspace {
-        env.remove(PI_TRUST_WORKSPACE_ENV);
-    } else {
-        env.insert(PI_TRUST_WORKSPACE_ENV.to_string(), "0".to_string());
-    }
+    env.remove(PI_TRUST_WORKSPACE_ENV);
     let env_json = serde_json::to_string(&env)
         .map_err(|error| format!("序列化 Pi Runtime 设置失败：{error}"))?;
     db::models::agent_setting::AgentSetting::ensure_row(pool, "pi")
@@ -432,6 +424,82 @@ fn validate_http_url(raw: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn custom_models_from_entry(entry: &serde_json::Map<String, Value>) -> Vec<PiCustomModelView> {
+    let mut models: Vec<PiCustomModelView> = entry
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = item.get("id").and_then(Value::as_str)?.to_string();
+            let thinking_level_map = item
+                .get("thinkingLevelMap")
+                .and_then(Value::as_object)
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(level, value)| match value {
+                            Value::Null => Some((level.clone(), None)),
+                            Value::String(wire) => Some((level.clone(), Some(wire.clone()))),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(PiCustomModelView {
+                id,
+                reasoning: item.get("reasoning").and_then(Value::as_bool),
+                thinking_level_map,
+            })
+        })
+        .collect();
+    models.sort_by(|left, right| left.id.cmp(&right.id));
+    models
+}
+
+fn apply_custom_model(
+    models: &mut Vec<Value>,
+    model_id: &str,
+    reasoning: Option<&api_types::PiModelReasoningSpec>,
+) -> Result<(), String> {
+    let existing = models.iter_mut().find(|entry| {
+        entry.get("id").and_then(Value::as_str) == Some(model_id)
+    });
+    let model_obj = match existing {
+        Some(Value::Object(obj)) => obj,
+        Some(_) => return Err(format!("Pi model `{model_id}` 必须是对象")),
+        None => {
+            models.push(serde_json::json!({ "id": model_id, "name": model_id }));
+            models
+                .last_mut()
+                .and_then(Value::as_object_mut)
+                .expect("just pushed an object")
+        }
+    };
+    if let Some(spec) = reasoning {
+        model_obj.insert("reasoning".to_string(), Value::Bool(spec.reasoning));
+        let map: serde_json::Map<String, Value> = spec
+            .thinking_level_map
+            .iter()
+            .filter(|(level, _)| THINKING_LEVELS.contains(&level.as_str()))
+            .map(|(level, value)| {
+                (
+                    level.clone(),
+                    match value {
+                        Some(wire) => Value::String(wire.clone()),
+                        None => Value::Null,
+                    },
+                )
+            })
+            .collect();
+        if map.is_empty() {
+            model_obj.remove("thinkingLevelMap");
+        } else {
+            model_obj.insert("thinkingLevelMap".to_string(), Value::Object(map));
+        }
+    }
+    Ok(())
+}
+
 fn object_entry<'a>(
     object: &'a mut Map<String, Value>,
     key: &str,
@@ -510,6 +578,15 @@ mod tests {
                 api_key: Some("secret".to_string()),
                 custom_base_url: Some("https://api.example.test/v1".to_string()),
                 custom_api: Some("openai-responses".to_string()),
+                model_reasoning: Some(api_types::PiModelReasoningSpec {
+                    reasoning: true,
+                    thinking_level_map: [
+                        ("off".to_string(), Some("none".to_string())),
+                        ("high".to_string(), Some("HIGH".to_string())),
+                    ]
+                    .into_iter()
+                    .collect(),
+                }),
             },
         )
         .await
@@ -548,6 +625,14 @@ mod tests {
             "https://api.example.test/v1"
         );
         assert_eq!(models["providers"]["private"]["models"][0]["id"], "model-1");
+        assert_eq!(
+            models["providers"]["private"]["models"][0]["reasoning"],
+            true
+        );
+        assert_eq!(
+            models["providers"]["private"]["models"][0]["thinkingLevelMap"]["high"],
+            "HIGH"
+        );
     }
 
     #[tokio::test]
@@ -576,10 +661,7 @@ mod tests {
         let env: HashMap<String, String> = serde_json::from_str(&raw).expect("valid env");
         assert_eq!(env.get("UNRELATED").map(String::as_str), Some("keep"));
         assert!(!env.contains_key(PI_COMMAND_ENV));
-        assert_eq!(
-            env.get(PI_TRUST_WORKSPACE_ENV).map(String::as_str),
-            Some("0")
-        );
+        assert!(!env.contains_key(PI_TRUST_WORKSPACE_ENV));
     }
 
     #[test]

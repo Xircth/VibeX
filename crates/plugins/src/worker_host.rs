@@ -557,21 +557,7 @@ fn spawn_hosted_worker(
     entrypoint: &Path,
     runtime: &str,
 ) -> Result<SpawnedWorkerIo, WorkerHostError> {
-    let mut command = Command::new(program);
-    if runtime == "python" {
-        command.arg(entrypoint);
-    } else if runtime != "native" {
-        command.arg("--max-old-space-size=128").arg(entrypoint);
-    }
-    command
-        .current_dir(package_root)
-        .env("NO_COLOR", "1")
-        .env("VIBEX_PACKAGE_CLASS", "full-trust")
-        .env("VIBEX_HOST_DATA_DIR", utils::assets::host_data_dir())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    let mut command = hosted_worker_command(program, package_root, entrypoint, runtime);
     let mut child = command
         .spawn()
         .map_err(|error| WorkerHostError::new("worker_spawn_failed", error.to_string()))?;
@@ -588,6 +574,41 @@ fn spawn_hosted_worker(
         Box::new(stdout),
         stderr,
     ))
+}
+
+fn hosted_worker_command(
+    program: &Path,
+    package_root: &Path,
+    entrypoint: &Path,
+    runtime: &str,
+) -> Command {
+    let program = worker_process_path(program);
+    let package_root = worker_process_path(package_root);
+    let entrypoint = worker_process_path(entrypoint);
+    let mut command = Command::new(&program);
+    if runtime == "python" {
+        command.arg(&entrypoint);
+    } else if runtime != "native" {
+        command.arg("--max-old-space-size=128").arg(&entrypoint);
+    }
+    command
+        .current_dir(&package_root)
+        .env("NO_COLOR", "1")
+        .env("VIBEX_PACKAGE_CLASS", "full-trust")
+        .env("VIBEX_HOST_DATA_DIR", utils::assets::host_data_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    command
+}
+
+/// Confine with `canonicalize()` (verbatim `\\?\` on Windows), then convert
+/// before Node/Python argv or `current_dir`. Node 22.22.3 treats
+/// `\\?\C:\...worker.mjs` as `C:` and exits with EISDIR, which the Host
+/// surfaces as "Worker closed stdout".
+fn worker_process_path(path: &Path) -> PathBuf {
+    utils::path::normalize_windows_extended_path_prefix(path)
 }
 
 fn resolve_executable(executable: &Path) -> Result<PathBuf, WorkerHostError> {
@@ -830,7 +851,77 @@ fn confined_path(root: &Path, relative: &str) -> Result<PathBuf, WorkerHostError
 
 #[cfg(test)]
 mod worker_host_tests {
+    use std::ffi::OsStr;
+
     use super::*;
+
+    #[test]
+    fn node_worker_command_strips_windows_verbatim_entrypoint() {
+        let command = hosted_worker_command(
+            Path::new(r"\\?\C:\vibex\plugins\worker-runtimes\node.exe"),
+            Path::new(r"\\?\C:\Users\user\AppData\Roaming\vibex\plugin"),
+            Path::new(r"\\?\C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
+            "node",
+        );
+        let command = command.as_std();
+        assert_eq!(
+            command.get_program(),
+            OsStr::new(r"C:\vibex\plugins\worker-runtimes\node.exe")
+        );
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![
+                OsStr::new("--max-old-space-size=128"),
+                OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
+            ]
+        );
+        assert_eq!(
+            command.get_current_dir().map(Path::as_os_str),
+            Some(OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin"))
+        );
+    }
+
+    #[test]
+    fn node_worker_command_strips_windows_unc_verbatim_entrypoint() {
+        let command = hosted_worker_command(
+            Path::new(r"\\?\UNC\server\share\runtimes\node.exe"),
+            Path::new(r"\\?\UNC\server\share\plugin"),
+            Path::new(r"\\?\UNC\server\share\plugin\dist\worker.mjs"),
+            "node",
+        );
+        let command = command.as_std();
+        assert_eq!(
+            command.get_program(),
+            OsStr::new(r"\\server\share\runtimes\node.exe")
+        );
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![
+                OsStr::new("--max-old-space-size=128"),
+                OsStr::new(r"\\server\share\plugin\dist\worker.mjs"),
+            ]
+        );
+        assert_eq!(
+            command.get_current_dir().map(Path::as_os_str),
+            Some(OsStr::new(r"\\server\share\plugin"))
+        );
+    }
+
+    #[test]
+    fn python_worker_command_strips_windows_verbatim_script_path() {
+        let command = hosted_worker_command(
+            Path::new(r"\\?\C:\vibex\python.exe"),
+            Path::new(r"\\?\C:\vibex\plugin"),
+            Path::new(r"\\?\C:\vibex\plugin\worker.py"),
+            "python",
+        );
+        let command = command.as_std();
+        assert_eq!(command.get_program(), OsStr::new(r"C:\vibex\python.exe"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![OsStr::new(r"C:\vibex\plugin\worker.py")]
+        );
+    }
 
     #[test]
     fn a_worker_crash_is_kept_for_the_diagnostics_panel() {

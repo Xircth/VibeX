@@ -3,7 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agents::{NativeFileMutation, NativeFileSystem, TokioNativeFileSystem, official_api_url};
+use agents::{
+    BuiltInProfileCatalog, NativeFileMutation, NativeFileSystem, TokioNativeFileSystem,
+    official_api_url,
+};
 use api_types::{
     AgentId, AgentKind, AgentModelProviderImportPreviewView, AgentModelProviderImportSource,
     AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
@@ -1380,11 +1383,7 @@ async fn write_store(path: &Path, store: &ProviderStore) -> Result<(), super::Na
 }
 
 fn validate_agent(agent_id: &AgentId) -> Result<(), super::NativeError> {
-    if matches!(
-        agent_id.as_str(),
-        "claude_code" | "codex" | "grok" | "kimi_code" | "hermes" | "openclaw" | "cline" | "pi"
-    ) || is_antigravity(agent_id)
-    {
+    if BuiltInProfileCatalog::bundled().supports_reusable_model_providers(agent_id) {
         Ok(())
     } else {
         Err("此 Agent 不支持可复用 Model Provider".into())
@@ -3525,6 +3524,21 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
     );
     node.insert("api".to_string(), Value::String(api.to_string()));
     node.insert("models".to_string(), Value::Array(native_models));
+    // Pi treats a models.json provider as unconfigured unless auth.json is
+    // already loaded *or* this field names an environment variable that is
+    // present at process start. Bind writes the secret to auth.json; launch
+    // exports it as PI_API_KEY. Do not replace an inline key another tool owns.
+    let has_api_key = node
+        .get("apiKey")
+        .or_else(|| node.get("api_key"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    if !has_api_key {
+        node.insert(
+            "apiKey".to_string(),
+            Value::String("$PI_API_KEY".to_string()),
+        );
+    }
     apply_projection_mutations(&[
         NativeFileMutation {
             path: settings_path,
@@ -5473,6 +5487,10 @@ mod tests {
         assert_eq!(
             models["providers"]["private-gateway"]["api"],
             "openai-responses"
+        );
+        assert_eq!(
+            models["providers"]["private-gateway"]["apiKey"],
+            "$PI_API_KEY"
         );
         assert_eq!(auth["private-gateway"]["key"], "sk-pi");
         assert_eq!(models["keep"], true);

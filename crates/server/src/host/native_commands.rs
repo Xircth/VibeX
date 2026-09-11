@@ -10,7 +10,7 @@ use api_types::{
     AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
     AgentNativeConfigSurface, AgentNativeConfigView, CodexModelCatalogConfigRequest,
     DshProviderSaveRequest, OpenCodeProviderConnectRequest, PiCredentialsSaveRequest,
-    PiRuntimeSaveRequest,
+    PiRuntimeSaveRequest, PiTrustSetRequest, PiTrustWorkspaceRequest,
 };
 use application::ApplicationError;
 use serde::{Deserialize, de::DeserializeOwned};
@@ -23,7 +23,8 @@ use super::{
         apply_native_file_mutations, catalog_cache_dir, codex_device_auth, dsh_configuration,
         grok_plugins, json_document_mutation, model_catalogs, model_provider_import,
         model_providers, opencode_catalog, opencode_plugins, opencode_providers, pi_configuration,
-        pi_plugins, provider_store_path, read_json_object_or_empty, read_json_object_state,
+        pi_plugins, pi_trust, provider_store_path, read_json_object_or_empty,
+        read_json_object_state,
         resolve_agent_home,
     },
 };
@@ -503,6 +504,38 @@ pub async fn dispatch_pi_runtime_save(
 pub async fn dispatch_pi_command_validate(args: Value) -> Result<Value, ApplicationError> {
     let args: CommandArgs = parse(args)?;
     serialize(pi_configuration::validate_command(&args.command).await)
+}
+
+pub async fn dispatch_pi_project_trust_state(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let request: PiTrustWorkspaceRequest = parse(args)?;
+    let home = require_home()?;
+    serialize(pi_trust::state(pool, &home, request).await.map_err(bad)?)
+}
+
+pub async fn dispatch_pi_project_trust_set(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let request: PiTrustSetRequest = parse(args)?;
+    let home = require_home()?;
+    serialize(pi_trust::set(pool, &home, request).await.map_err(bad)?)
+}
+
+pub async fn dispatch_pi_project_trust_acknowledge(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let request: PiTrustWorkspaceRequest = parse(args)?;
+    let home = require_home()?;
+    serialize(pi_trust::acknowledge(pool, &home, request).await.map_err(bad)?)
+}
+
+pub async fn dispatch_pi_trust_entries(pool: &SqlitePool) -> Result<Value, ApplicationError> {
+    let home = require_home()?;
+    serialize(pi_trust::entries(pool, &home).await.map_err(bad)?)
 }
 
 pub async fn dispatch_pi_plugins(pool: &SqlitePool) -> Result<Value, ApplicationError> {

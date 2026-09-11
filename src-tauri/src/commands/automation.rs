@@ -1004,6 +1004,7 @@ impl WorkspacePreparerPort for TauriWorkspacePreparer {
                     None,
                     &repo_inputs,
                     Some(&branch),
+                    false,
                 )
                 .await
                 .map_err(workspace_adapter_error)?

@@ -94,7 +94,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   >(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [rootScanTruncated, setRootScanTruncated] = useState(false);
   const loadRequestIdRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -168,7 +167,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setDirectories([]);
     setGitignoredFiles(new Set());
     setGitignoredDirectories(new Set());
-    setRootScanTruncated(false);
     loadRequestIdRef.current += 1;
   }, [projectId, setDiffFilePath, setRootPath, setSelectedFilePath]);
 
@@ -260,7 +258,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       setGitignoredDirectories(
         new Set(resolvedResponse.gitignored_directories)
       );
-      setRootScanTruncated(resolvedResponse.truncated);
     } catch {
       if (requestId !== loadRequestIdRef.current) {
         return;
@@ -269,7 +266,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       setDirectories([]);
       setGitignoredFiles(new Set());
       setGitignoredDirectories(new Set());
-      setRootScanTruncated(false);
     } finally {
       if (requestId === loadRequestIdRef.current) {
         setIsLoading(false);
@@ -408,7 +404,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={refreshFileTree}
         refreshToken={refreshToken}
-        lazyLoadAllDirectories={rootScanTruncated}
+        lazyLoadAllDirectories
         revealTarget={relativeRevealTarget}
       />
     </div>

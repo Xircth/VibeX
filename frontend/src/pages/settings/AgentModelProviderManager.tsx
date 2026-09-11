@@ -880,19 +880,13 @@ export function AgentModelProviderManager({
             </div>
           </div>
         ) : (
-          <label className="agent-model-provider-model">
-            <span>{t('settings:agents.model')}</span>
-            <input
-              aria-label={t('settings:agents.providerModelAria')}
-              autoComplete="off"
-              disabled={busy}
-              name={`${agentId}_model_provider_model`}
-              spellCheck={false}
-              placeholder={t('settings:agents.providerModelPlaceholder')}
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-            />
-          </label>
+          <DefaultProviderModelEditor
+            agentId={agentId}
+            choices={providerModelChoices(model, detectedCatalog)}
+            disabled={busy}
+            value={model}
+            onChange={setModel}
+          />
         )}
       </div>
       <Button
@@ -1658,6 +1652,62 @@ function ProviderModelField({
         }}
       />
     </label>
+  );
+}
+
+function DefaultProviderModelEditor({
+  agentId,
+  value,
+  choices,
+  disabled,
+  onChange,
+}: {
+  agentId: AgentId;
+  value: string;
+  choices: readonly string[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const ids = selectedModelIds(value);
+  const patch = (id: string) => {
+    const enabled = enabledModelIds(value);
+    if (id !== '' && enabled.includes(id)) {
+      onChange(
+        serializeSelectedModels(agentId, value, [
+          id,
+          ...enabled.filter((item) => item !== id),
+        ])
+      );
+      return;
+    }
+    if (enabled.length === 0) {
+      onChange(id);
+      return;
+    }
+    // A typed id becomes the default; the enabled list stays the detection
+    // panel's, matching Pi so keystrokes do not fill that list with fragments.
+    onChange(
+      JSON.stringify({
+        default: id,
+        id,
+        models: enabled,
+      })
+    );
+  };
+  return (
+    <fieldset className="agent-model-provider-claude">
+      <legend>{t('agents.model')}</legend>
+      <ProviderModelField
+        ariaLabel={t('agents.providerModelAria')}
+        choices={choices}
+        disabled={disabled}
+        label={t('agents.model')}
+        name={`${agentId}_model_provider_model`}
+        value={ids[0] ?? ''}
+        onChange={patch}
+      />
+    </fieldset>
   );
 }
 

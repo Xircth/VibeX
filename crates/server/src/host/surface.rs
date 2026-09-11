@@ -684,6 +684,19 @@ impl ServerApplicationDomains {
             DomainCommand::PiCommandValidate => {
                 super::native_commands::dispatch_pi_command_validate(args).await
             }
+            DomainCommand::PiProjectTrustState => {
+                super::native_commands::dispatch_pi_project_trust_state(&self.pool, args).await
+            }
+            DomainCommand::PiProjectTrustSet => {
+                super::native_commands::dispatch_pi_project_trust_set(&self.pool, args).await
+            }
+            DomainCommand::PiProjectTrustAcknowledge => {
+                super::native_commands::dispatch_pi_project_trust_acknowledge(&self.pool, args)
+                    .await
+            }
+            DomainCommand::PiTrustEntries => {
+                super::native_commands::dispatch_pi_trust_entries(&self.pool).await
+            }
             other => Err(ApplicationError::not_found(format!(
                 "command `{}` is not registered",
                 other.as_str()

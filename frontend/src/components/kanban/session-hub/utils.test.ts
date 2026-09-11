@@ -300,7 +300,30 @@ describe('session hub data helpers', () => {
       executor: 'codex' as const,
       name: 'New workspace',
       create_workspace: true,
+      include_uncommitted: false,
       repos: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
+    });
+
+    expect(
+      getCreateProjectSessionRequest({
+        projectId: 'project-1',
+        mode: 'new_workspace',
+        workspaceValue: '',
+        workspaceBranchOptions: [],
+        sessionName: 'With dirty files',
+        executorProfile: executorProfile('codex' as const),
+        repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
+        includeUncommitted: true,
+      })
+    ).toEqual({
+      project_id: 'project-1',
+      workspace_id: null,
+      branch: null,
+      executor: 'codex' as const,
+      name: 'With dirty files',
+      create_workspace: true,
+      include_uncommitted: true,
+      repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
     });
   });
 

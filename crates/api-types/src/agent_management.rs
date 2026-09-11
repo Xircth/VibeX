@@ -661,10 +661,66 @@ pub struct AgentModelProviderImportRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct PiCustomModelView {
+    pub id: String,
+    pub reasoning: Option<bool>,
+    pub thinking_level_map: std::collections::BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct PiCustomProviderView {
     pub id: String,
     pub base_url: String,
     pub api: String,
+    #[serde(default)]
+    pub models: Vec<PiCustomModelView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiModelReasoningSpec {
+    pub reasoning: bool,
+    pub thinking_level_map: std::collections::BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiProjectResourceView {
+    pub path: String,
+    pub kind: String,
+    pub executes_code: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiProjectTrustStateView {
+    pub workspace: String,
+    pub resources: Vec<PiProjectResourceView>,
+    pub decision: Option<bool>,
+    pub decided_at: Option<String>,
+    pub trust_file: String,
+    pub acknowledged: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiTrustEntryView {
+    pub path: String,
+    pub trusted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiTrustWorkspaceRequest {
+    pub workspace: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiTrustSetRequest {
+    pub workspace: String,
+    pub trusted: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -702,6 +758,8 @@ pub struct PiCredentialsSaveRequest {
     pub custom_base_url: Option<String>,
     #[serde(alias = "customApi")]
     pub custom_api: Option<String>,
+    #[serde(default, alias = "modelReasoning")]
+    pub model_reasoning: Option<PiModelReasoningSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

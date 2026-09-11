@@ -19,6 +19,7 @@ export interface CreateKanbanSessionMutationInput {
   mode: KanbanSessionCreationMode;
   /** ACP control picks made in the create form, applied to the new Session. */
   sessionControls?: SessionControlsPreset | null;
+  includeUncommitted?: boolean;
 }
 
 export interface RenameKanbanSessionMutationInput {
@@ -61,6 +62,7 @@ export function useKanbanSessionMutations({
       executorProfile,
       mode,
       sessionControls,
+      includeUncommitted,
     }: CreateKanbanSessionMutationInput): Promise<Session> => {
       const session = await sessionsApi.createProject({
         ...getCreateProjectSessionRequest({
@@ -72,6 +74,7 @@ export function useKanbanSessionMutations({
           workspaceBranchOptions,
           repoInputs:
             mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
+          includeUncommitted,
         }),
       });
 

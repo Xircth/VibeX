@@ -33,7 +33,7 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-describe('FileTreePanel truncated root scans', () => {
+describe('FileTreePanel lazy directory loading', () => {
   function renderTree(element: ReactElement) {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -65,14 +65,13 @@ describe('FileTreePanel truncated root scans', () => {
     });
   });
 
-  it('lazy loads ordinary directories when the root scan was truncated', async () => {
+  it('lazy loads ordinary directories when expanded', async () => {
     renderTree(
       <FileTreePanel
         workspacePath="/repo"
         files={[]}
         directories={['src']}
         isLoading={false}
-        lazyLoadAllDirectories
       />
     );
 
@@ -86,22 +85,7 @@ describe('FileTreePanel truncated root scans', () => {
     });
   });
 
-  it('does not lazy load ordinary directories after a complete root scan', () => {
-    renderTree(
-      <FileTreePanel
-        workspacePath="/repo"
-        files={[]}
-        directories={['src']}
-        isLoading={false}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /src/i }));
-
-    expect(fileTreeApi.listDirectoryChildren).not.toHaveBeenCalled();
-  });
-
-  it('expands a folder that already has children from a complete scan', () => {
+  it('keeps already visible children while a folder listing refreshes', async () => {
     renderTree(
       <FileTreePanel
         workspacePath="/repo"
@@ -116,7 +100,12 @@ describe('FileTreePanel truncated root scans', () => {
     expect(
       screen.getByRole('button', { name: /logo\.png/i })
     ).toBeInTheDocument();
-    expect(fileTreeApi.listDirectoryChildren).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(fileTreeApi.listDirectoryChildren).toHaveBeenCalledWith(
+        '/repo',
+        'assets'
+      );
+    });
   });
 
   it('shows a readable duplicate failure toast from the file context menu', async () => {
@@ -148,7 +137,6 @@ describe('FileTreePanel truncated root scans', () => {
         files={[]}
         directories={['src']}
         isLoading={false}
-        lazyLoadAllDirectories
       />
     );
 

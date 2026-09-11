@@ -1,4 +1,22 @@
 {
+  "piProjectTrust": {
+    "title": "Pi 项目文件",
+    "grantTitle": "此文件夹已被信任",
+    "description": "在你明确信任之前，Pi 不会加载此项目自带的文件。",
+    "descriptionExecutable": "此项目包含会在 Pi 启动时执行的文件。",
+    "grantDescription": "已有信任记录允许 Pi 加载此项目文件，包括会在启动时执行的扩展。",
+    "grantInheritedDescription": "父目录已被信任，因此此仓库也被覆盖。",
+    "trust": "信任",
+    "decline": "保持不加载",
+    "revoke": "撤销",
+    "keepTrusted": "保持信任",
+    "dismiss": "关闭",
+    "trustedToast": "已信任工作区。新的 Pi 会话才会加载这些文件。",
+    "declinedToast": "Pi 将继续跳过此项目文件。",
+    "revokedToast": "已撤销信任。新的 Pi 会话才会生效。",
+    "keptToast": "已确认现有信任。",
+    "saveFailed": "无法保存 Pi 项目信任决定"
+  },
   "codexGoal": {
     "label": "目标",
     "statusLabel": "状态",

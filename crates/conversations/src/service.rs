@@ -106,6 +106,7 @@ impl From<agents::AgentError> for ConversationServiceError {
             agents::AgentError::ConnectionNotFound(_)
             | agents::AgentError::SessionNotFound(_)
             | agents::AgentError::PromptNotFound(_) => Self::NotFound(e.to_string()),
+            agents::AgentError::PiProjectTrustRequired(message) => Self::BadRequest(message),
             _ => Self::Internal(e.to_string()),
         }
     }

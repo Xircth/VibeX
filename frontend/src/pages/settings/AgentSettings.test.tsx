@@ -45,6 +45,7 @@ const api = vi.hoisted(() => ({
   grokPlugins: vi.fn(),
   piPlugins: vi.fn(),
   piConfiguration: vi.fn(),
+  piTrustEntries: vi.fn(),
   validatePiCommand: vi.fn(),
   modelProviders: vi.fn(),
   bindModelProvider: vi.fn(),
@@ -251,6 +252,7 @@ describe('AgentSettings', () => {
         trust_workspace: true,
       },
     });
+    api.piTrustEntries.mockResolvedValue([]);
     api.validatePiCommand.mockResolvedValue({
       found: true,
       resolved_path: '/usr/bin/pi',

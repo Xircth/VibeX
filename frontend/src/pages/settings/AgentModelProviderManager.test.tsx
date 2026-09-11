@@ -310,6 +310,85 @@ describe('AgentModelProviderManager', () => {
     });
   });
 
+  it('picks the default model from the detected models a Grok provider enabled', async () => {
+    const enabled =
+      '{"id":"a","api_backend":"responses","models":["a","b","c"]}';
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'grok',
+      providers: [{ ...gateway, agent_id: 'grok', model: enabled }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'grok',
+      source: 'live',
+      models: ['a', 'b', 'c'].map((id) => ({
+        id,
+        label: id.toUpperCase(),
+        context_window: null,
+        reasoning_levels: [],
+      })),
+      default_model: 'a',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="grok" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    await pickAstryxOption(user, screen.getByLabelText('Provider 模型'), 'c');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    expect(JSON.parse(saved.model)).toEqual({
+      id: 'c',
+      api_backend: 'responses',
+      context_window: null,
+      models: ['c', 'a', 'b'],
+    });
+  });
+
+  it('picks the default model from the detected list for other reusable-provider Agents', async () => {
+    const enabled = '{"id":"a","default":"a","models":["a","b","c"]}';
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'hermes',
+      providers: [{ ...gateway, agent_id: 'hermes', model: enabled }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'hermes',
+      source: 'live',
+      models: ['a', 'b', 'c'].map((id) => ({
+        id,
+        label: id.toUpperCase(),
+        context_window: null,
+        reasoning_levels: [],
+      })),
+      default_model: 'a',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="hermes" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    await pickAstryxOption(user, screen.getByLabelText('Provider 模型'), 'c');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    expect(JSON.parse(saved.model)).toEqual({
+      default: 'c',
+      models: ['c', 'a', 'b'],
+    });
+  });
+
   it('picks a Claude model from the detected list and keeps its other keys', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'claude_code',

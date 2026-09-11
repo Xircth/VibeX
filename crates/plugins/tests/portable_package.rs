@@ -1,12 +1,31 @@
-use std::fs;
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::Path,
+};
 
 use plugins::{
     FileOpenerTarget, PackageFormat, PluginPackage, PluginSourceKind, package_content_digest,
 };
+use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn write(path: &std::path::Path, contents: &str) {
     fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
     fs::write(path, contents).expect("write fixture");
+}
+
+fn write_vxp(path: &Path, files: &[(&str, &str)]) {
+    let file = File::create(path).expect("create vxp");
+    let mut archive = ZipWriter::new(file);
+    for (name, contents) in files {
+        archive
+            .start_file(*name, SimpleFileOptions::default())
+            .expect("start vxp entry");
+        archive
+            .write_all(contents.as_bytes())
+            .expect("write vxp entry");
+    }
+    archive.finish().expect("finish vxp");
 }
 
 #[test]
@@ -842,4 +861,106 @@ fn v4_rejects_conversation_timeline_card_slot_with_a_stable_code() {
     write(&root.path().join("app/index.html"), "<main></main>");
     let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap_err();
     assert_eq!(error.code(), "app_surface_slot_unsupported");
+}
+
+#[test]
+fn inspects_a_packed_vxp_instead_of_treating_it_as_a_directory() {
+    let fixture = tempfile::tempdir().expect("vxp fixture");
+    let vxp = fixture.path().join("vibex-canvas.vxp");
+    write_vxp(
+        &vxp,
+        &[
+            (
+                ".vibex-plugin/plugin.json",
+                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+            ),
+            (
+                "skills/canvas/SKILL.md",
+                "---\nname: canvas\ndescription: Canvas\n---\n",
+            ),
+        ],
+    );
+
+    let package =
+        PluginPackage::inspect(&vxp, PluginSourceKind::Snapshot).expect("inspect packed vxp");
+
+    assert_eq!(package.id.as_str(), "dev.vibex.canvas");
+    assert_eq!(package.name, "Canvas");
+    assert_eq!(package.source.path, vxp.canonicalize().unwrap());
+}
+
+#[test]
+fn inspects_a_vxp_with_a_single_nested_plugin_root() {
+    let fixture = tempfile::tempdir().expect("nested vxp fixture");
+    let vxp = fixture.path().join("vibex-canvas.vxp");
+    write_vxp(
+        &vxp,
+        &[
+            (
+                "canvas/.vibex-plugin/plugin.json",
+                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+            ),
+            (
+                "canvas/skills/canvas/SKILL.md",
+                "---\nname: canvas\ndescription: Canvas\n---\n",
+            ),
+        ],
+    );
+
+    let package = PluginPackage::inspect(&vxp, PluginSourceKind::Snapshot)
+        .expect("inspect nested packed vxp");
+
+    assert_eq!(package.id.as_str(), "dev.vibex.canvas");
+}
+
+#[test]
+fn materializes_a_packed_vxp_into_a_snapshot_directory() {
+    let fixture = tempfile::tempdir().expect("vxp fixture");
+    let storage = tempfile::tempdir().expect("snapshot storage");
+    let vxp = fixture.path().join("vibex-canvas.vxp");
+    write_vxp(
+        &vxp,
+        &[
+            (
+                ".vibex-plugin/plugin.json",
+                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+            ),
+            (
+                "skills/canvas/SKILL.md",
+                "---\nname: canvas\ndescription: Canvas\n---\n",
+            ),
+        ],
+    );
+
+    let snapshot = PluginPackage::materialize(&vxp, storage.path(), PluginSourceKind::Snapshot)
+        .expect("materialize packed vxp");
+
+    assert_eq!(snapshot.id.as_str(), "dev.vibex.canvas");
+    assert!(
+        snapshot
+            .source
+            .path
+            .join(".vibex-plugin/plugin.json")
+            .is_file()
+    );
+    assert!(
+        snapshot
+            .source
+            .path
+            .join("skills/canvas/SKILL.md")
+            .is_file()
+    );
+    assert_ne!(snapshot.source.path, vxp.canonicalize().unwrap());
+}
+
+#[test]
+fn rejects_a_vxp_whose_entries_escape_the_staging_root() {
+    let fixture = tempfile::tempdir().expect("unsafe vxp fixture");
+    let vxp = fixture.path().join("escape.vxp");
+    write_vxp(&vxp, &[("../outside", "unsafe")]);
+
+    let error = PluginPackage::inspect(&vxp, PluginSourceKind::Snapshot).unwrap_err();
+
+    assert!(error.to_string().contains("unsafe archive entry path"));
+    assert!(!fixture.path().join("outside").exists());
 }

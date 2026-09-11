@@ -469,3 +469,95 @@ async fn create_worktree_falls_back_to_head_branch_when_base_branch_is_missing()
         "wt-fallback"
     ));
 }
+
+#[tokio::test]
+async fn create_worktree_from_dirty_source_uses_committed_snapshot() {
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let git_service = GitService::new();
+    git_service
+        .initialize_repo_with_main_branch(&repo_path)
+        .unwrap();
+    configure_commit_identity(&repo_path);
+    std::fs::write(repo_path.join("README.md"), "committed\n").unwrap();
+    git_service.commit(&repo_path, "seed").unwrap();
+    std::fs::write(repo_path.join("README.md"), "dirty tracked\n").unwrap();
+    std::fs::write(repo_path.join("scratch.txt"), "untracked\n").unwrap();
+
+    let worktree_path = td.path().join("wt-dirty");
+    WorktreeManager::create_worktree(&repo_path, "vu/from-dirty", &worktree_path, "main", true)
+        .await
+        .expect("dirty source must still create a worktree");
+
+    assert_eq!(
+        std::fs::read_to_string(worktree_path.join("README.md"))
+            .unwrap()
+            .trim_end(),
+        "committed"
+    );
+    assert!(!worktree_path.join("scratch.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("README.md"))
+            .unwrap()
+            .trim_end(),
+        "dirty tracked"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("scratch.txt"))
+            .unwrap()
+            .trim_end(),
+        "untracked"
+    );
+}
+
+#[tokio::test]
+async fn copy_uncommitted_changes_into_worktree_leaves_source_dirty() {
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let git_service = GitService::new();
+    git_service
+        .initialize_repo_with_main_branch(&repo_path)
+        .unwrap();
+    configure_commit_identity(&repo_path);
+    std::fs::write(repo_path.join("README.md"), "committed\n").unwrap();
+    git_service.commit(&repo_path, "seed").unwrap();
+    std::fs::write(repo_path.join("README.md"), "dirty tracked\n").unwrap();
+    std::fs::write(repo_path.join("scratch.txt"), "untracked\n").unwrap();
+
+    let worktree_path = td.path().join("wt-copy");
+    WorktreeManager::create_worktree(&repo_path, "vu/copy-dirty", &worktree_path, "main", true)
+        .await
+        .unwrap();
+    git_service
+        .copy_uncommitted_changes(&repo_path, &worktree_path)
+        .expect("copy uncommitted");
+
+    assert_eq!(
+        std::fs::read_to_string(worktree_path.join("README.md"))
+            .unwrap()
+            .trim_end(),
+        "dirty tracked"
+    );
+    assert_eq!(
+        std::fs::read_to_string(worktree_path.join("scratch.txt"))
+            .unwrap()
+            .trim_end(),
+        "untracked"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("README.md"))
+            .unwrap()
+            .trim_end(),
+        "dirty tracked"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("scratch.txt"))
+            .unwrap()
+            .trim_end(),
+        "untracked"
+    );
+}

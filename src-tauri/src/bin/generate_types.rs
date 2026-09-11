@@ -74,8 +74,10 @@ use api_types::{
     OpenCodePluginSummaryView, OpenCodePluginView, OpenCodeProviderCatalogSource,
     OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
     OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
-    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomProviderView,
-    PiPluginSummaryView, PiPluginView, PiRuntimeConfigurationView, PiRuntimeSaveRequest,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomModelView,
+    PiCustomProviderView, PiModelReasoningSpec, PiPluginSummaryView, PiPluginView,
+    PiProjectResourceView, PiProjectTrustStateView, PiRuntimeConfigurationView,
+    PiRuntimeSaveRequest, PiTrustEntryView, PiTrustSetRequest, PiTrustWorkspaceRequest,
     UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
     UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
@@ -618,12 +620,19 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentModelProviderImportPreviewView>(&mut decls);
     insert_declaration::<AgentModelProviderImportRequest>(&mut decls);
     insert_declaration::<AgentModelProviderSaveRequest>(&mut decls);
+    insert_declaration::<PiCustomModelView>(&mut decls);
     insert_declaration::<PiCustomProviderView>(&mut decls);
+    insert_declaration::<PiModelReasoningSpec>(&mut decls);
     insert_declaration::<PiRuntimeConfigurationView>(&mut decls);
     insert_declaration::<PiConfigurationView>(&mut decls);
     insert_declaration::<PiCredentialsSaveRequest>(&mut decls);
     insert_declaration::<PiRuntimeSaveRequest>(&mut decls);
     insert_declaration::<PiCommandValidationView>(&mut decls);
+    insert_declaration::<PiProjectResourceView>(&mut decls);
+    insert_declaration::<PiProjectTrustStateView>(&mut decls);
+    insert_declaration::<PiTrustEntryView>(&mut decls);
+    insert_declaration::<PiTrustSetRequest>(&mut decls);
+    insert_declaration::<PiTrustWorkspaceRequest>(&mut decls);
     insert_declaration::<DshProviderKind>(&mut decls);
     insert_declaration::<DshProviderModelView>(&mut decls);
     insert_declaration::<DshCatalogProviderView>(&mut decls);

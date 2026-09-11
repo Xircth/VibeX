@@ -400,6 +400,15 @@ impl BuiltInProfileCatalog {
         })
     }
 
+    /// Agents whose settings expose reusable Model Providers can probe `/models`.
+    pub fn supports_reusable_model_providers(&self, agent_id: &AgentId) -> bool {
+        self.profile(agent_id).is_some_and(|profile| {
+            profile
+                .settings_features
+                .contains(&AgentSettingsFeature::ReusableModelProviders)
+        })
+    }
+
     /// Resolve only an explicit stable Registry id binding. Display names are
     /// intentionally ignored: they are mutable metadata and may collide.
     pub fn resolve_registry_entry(&self, entry: &RegistryEntryIdentity) -> Option<&AgentId> {

@@ -1101,7 +1101,8 @@ impl PluginPackage {
         ) {
             return Self::inspect(source, source_kind);
         }
-        let incoming = Self::inspect(source, source_kind)?;
+        let opened = crate::archive::open_plugin_source(source)?;
+        let incoming = Self::inspect_tree(opened.root(), source_kind)?;
         validate_storage_segment(incoming.id.as_str())?;
         fs::create_dir_all(storage_root)
             .map_err(|error| PluginError::io("create plugin snapshot directory", error))?;
@@ -1109,14 +1110,14 @@ impl PluginPackage {
             .canonicalize()
             .map_err(|error| PluginError::io("resolve plugin snapshot directory", error))?;
         let target = storage_root.join(incoming.id.as_str());
-        if source.canonicalize().ok().as_ref() == Some(&target) {
-            return Self::inspect(&target, source_kind);
+        if opened.root().canonicalize().ok().as_ref() == Some(&target) {
+            return Self::inspect_tree(&target, source_kind);
         }
         let staging = storage_root.join(format!(".{}.incoming", incoming.id.as_str()));
         if staging.exists() {
             remove_snapshot_path(&staging)?;
         }
-        copy_snapshot_directory(source, &staging)?;
+        copy_snapshot_directory(opened.root(), &staging)?;
         let installed_config = target.join("config.json");
         if installed_config.is_file() {
             let previous = fs::read_to_string(&installed_config)
@@ -1140,16 +1141,30 @@ impl PluginPackage {
             .map_err(|error| PluginError::io("preserve installed Plugin config", error))?;
         }
         // Validate the complete staged tree before replacing a prior snapshot.
-        Self::inspect(&staging, source_kind)?;
+        Self::inspect_tree(&staging, source_kind)?;
         if target.exists() {
             remove_snapshot_path(&target)?;
         }
         fs::rename(&staging, &target)
             .map_err(|error| PluginError::io("activate plugin snapshot", error))?;
-        Self::inspect(&target, source_kind)
+        Self::inspect_tree(&target, source_kind)
     }
 
     pub fn inspect(root: &Path, source_kind: PluginSourceKind) -> Result<Self, PluginError> {
+        let opened = crate::archive::open_plugin_source(root)?;
+        let mut package = Self::inspect_tree(opened.root(), source_kind)?;
+        if root.is_file() {
+            package.source.path = root.canonicalize().map_err(|error| {
+                PluginError::io(
+                    &format!("resolve plugin source `{}`", root.display()),
+                    error,
+                )
+            })?;
+        }
+        Ok(package)
+    }
+
+    fn inspect_tree(root: &Path, source_kind: PluginSourceKind) -> Result<Self, PluginError> {
         let source_path = root.canonicalize().map_err(|error| {
             PluginError::io(
                 &format!("resolve plugin source `{}`", root.display()),

@@ -657,7 +657,9 @@ export function KanbanSessionHub({
     }
   };
 
-  const handleSubmitCreateSession = async () => {
+  const handleSubmitCreateSession = async (input?: {
+    includeUncommitted?: boolean;
+  }) => {
     if (
       createMode === 'new_workspace' &&
       projectId &&
@@ -672,6 +674,7 @@ export function KanbanSessionHub({
         executorProfile: selectedExecutorProfileRef.current,
         mode: createMode,
         sessionControls: sessionControlsPresetRef.current,
+        includeUncommitted: input?.includeUncommitted,
       },
       {
         onSuccess: (session) => {
@@ -1153,8 +1156,8 @@ export function KanbanSessionHub({
                   canCreateSession={canCreateSession}
                   isCreatePending={createSessionMutation.isPending}
                   createError={createSessionMutation.error}
-                  onSubmit={() => {
-                    void handleSubmitCreateSession();
+                  onSubmit={(input) => {
+                    void handleSubmitCreateSession(input);
                   }}
                   onClose={() => handleCreatePopoverOpenChange(false)}
                   onSessionControlsPresetChange={(preset) => {

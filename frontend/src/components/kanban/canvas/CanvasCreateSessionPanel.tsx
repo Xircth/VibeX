@@ -27,7 +27,7 @@ interface CanvasCreateSessionPanelProps {
   canCreateSession: boolean;
   isCreatePending: boolean;
   createError: unknown;
-  onSubmit: () => void;
+  onSubmit: (input?: { includeUncommitted?: boolean }) => void;
   onClose: () => void;
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null

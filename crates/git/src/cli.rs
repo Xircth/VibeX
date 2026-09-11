@@ -49,6 +49,20 @@ pub enum GitCliError {
     RebaseInProgress,
 }
 
+fn worktree_add_error_is_fatal_without_retry(error: &GitCliError) -> bool {
+    let GitCliError::CommandFailed(message) = error else {
+        return !matches!(error, GitCliError::RebaseInProgress);
+    };
+    let lowered = message.to_ascii_lowercase();
+    lowered.contains("already checked out")
+        || lowered.contains("already exists")
+        || lowered.contains("invalid reference")
+        || lowered.contains("needed a single revision")
+        || lowered.contains("unknown revision")
+        || lowered.contains("not a valid object name")
+        || lowered.contains("a branch named")
+}
+
 #[derive(Clone, Default)]
 pub struct GitCli;
 
@@ -92,6 +106,23 @@ impl GitCli {
     pub fn new() -> Self {
         Self {}
     }
+    /// Peel a revision spec to a commit OID without touching the working tree.
+    pub fn resolve_commit(&self, repo_path: &Path, spec: &str) -> Result<String, GitCliError> {
+        self.ensure_available()?;
+        let peeled = format!("{spec}^{{commit}}");
+        let out = self.git(
+            repo_path,
+            ["rev-parse", "--verify", "--end-of-options", &peeled],
+        )?;
+        let oid = out.trim();
+        if oid.is_empty() {
+            return Err(GitCliError::CommandFailed(format!(
+                "fatal: invalid reference: {spec}"
+            )));
+        }
+        Ok(oid.to_string())
+    }
+
     /// Run `git -C <repo> worktree add <path> <branch>` (optionally creating the branch with -b)
     pub fn worktree_add(
         &self,
@@ -118,7 +149,11 @@ impl GitCli {
         Ok(())
     }
 
-    /// Run `git -C <repo> worktree add -b <branch> <path> <start_point>`.
+    /// Create a worktree for a new branch from a start point's commit OID.
+    ///
+    /// The source working tree is never checked out or stashed. Files are
+    /// materialized from the peeled commit, so uncommitted changes in the
+    /// originating checkout stay where they are.
     pub fn worktree_add_from_ref(
         &self,
         repo_path: &Path,
@@ -127,8 +162,9 @@ impl GitCli {
         start_point: &str,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let oid = self.resolve_commit(repo_path, start_point)?;
 
-        self.git(
+        let add_with_branch = self.git(
             repo_path,
             [
                 OsString::from("worktree"),
@@ -136,15 +172,95 @@ impl GitCli {
                 OsString::from("-b"),
                 OsString::from(branch),
                 worktree_path.as_os_str().into(),
-                OsString::from(start_point),
+                OsString::from(&oid),
             ],
-        )?;
+        );
 
-        // Good practice: reapply sparse-checkout in the new worktree to ensure materialization matches
-        // Non-fatal if it fails or not configured.
+        if let Err(error) = add_with_branch {
+            if worktree_add_error_is_fatal_without_retry(&error) {
+                return Err(error);
+            }
+            self.cleanup_failed_worktree(repo_path, worktree_path);
+            self.add_detached_worktree_then_branch(repo_path, worktree_path, branch, &oid)?;
+        }
+
         let _ = self.git(worktree_path, ["sparse-checkout", "reapply"]);
+        Ok(())
+    }
+
+    fn add_detached_worktree_then_branch(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+        branch: &str,
+        oid: &str,
+    ) -> Result<(), GitCliError> {
+        if let Err(error) = self.git(
+            repo_path,
+            [
+                OsString::from("worktree"),
+                OsString::from("add"),
+                OsString::from("--detach"),
+                worktree_path.as_os_str().into(),
+                OsString::from(oid),
+            ],
+        ) {
+            self.cleanup_failed_worktree(repo_path, worktree_path);
+            return Err(error);
+        }
+
+        if let Err(error) = self.git(worktree_path, ["checkout", "-b", branch]) {
+            self.cleanup_failed_worktree(repo_path, worktree_path);
+            return Err(error);
+        }
 
         Ok(())
+    }
+
+    fn cleanup_failed_worktree(&self, repo_path: &Path, worktree_path: &Path) {
+        let _ = self.worktree_remove(repo_path, worktree_path, true);
+        if worktree_path.exists() {
+            let _ = std::fs::remove_dir_all(worktree_path);
+        }
+    }
+
+    /// Working-tree diff vs HEAD as raw bytes so binary patches stay intact.
+    pub fn diff_binary_vs_head(&self, worktree_path: &Path) -> Result<Vec<u8>, GitCliError> {
+        self.ensure_available()?;
+        self.git_impl(worktree_path, ["diff", "--binary", "HEAD"], None, None)
+    }
+
+    /// Apply a binary diff produced by [`Self::diff_binary_vs_head`].
+    pub fn apply_binary_diff(&self, worktree_path: &Path, diff: &[u8]) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        if diff.is_empty() {
+            return Ok(());
+        }
+        self.git_with_stdin(
+            worktree_path,
+            ["apply", "--binary", "--whitespace=nowarn"],
+            None,
+            diff,
+        )?;
+        Ok(())
+    }
+
+    /// NUL-separated untracked paths (`git ls-files --others --exclude-standard -z`).
+    pub fn list_untracked_z(&self, worktree_path: &Path) -> Result<Vec<u8>, GitCliError> {
+        self.ensure_available()?;
+        self.git_impl(
+            worktree_path,
+            [
+                "-c",
+                "core.quotePath=false",
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ],
+            None,
+            None,
+        )
     }
 
     /// Run `git -C <repo> worktree remove <path>`

@@ -1918,9 +1918,23 @@ export type PiCommandValidationView = { found: boolean, resolved_path: string | 
 
 export type PiConfigurationView = { default_provider: string, default_model: string, thinking_level: string, credential_present: boolean, auth_providers: Array<string>, custom_providers: Array<PiCustomProviderView>, runtime: PiRuntimeConfigurationView, };
 
-export type PiCredentialsSaveRequest = { provider: string, model: string, thinking_level: string | null, api_key: string | null, custom_base_url: string | null, custom_api: string | null, };
+export type PiCredentialsSaveRequest = { provider: string, model: string, thinking_level: string | null, api_key: string | null, custom_base_url: string | null, custom_api: string | null, model_reasoning: PiModelReasoningSpec | null, };
 
-export type PiCustomProviderView = { id: string, base_url: string, api: string, };
+export type PiCustomModelView = { id: string, reasoning: boolean | null, thinking_level_map: { [key in string]?: string | null }, };
+
+export type PiCustomProviderView = { id: string, base_url: string, api: string, models: Array<PiCustomModelView>, };
+
+export type PiModelReasoningSpec = { reasoning: boolean, thinking_level_map: { [key in string]?: string | null }, };
+
+export type PiProjectResourceView = { path: string, kind: string, executes_code: boolean, };
+
+export type PiProjectTrustStateView = { workspace: string, resources: Array<PiProjectResourceView>, decision: boolean | null, decided_at: string | null, trust_file: string, acknowledged: boolean, };
+
+export type PiTrustEntryView = { path: string, trusted: boolean, };
+
+export type PiTrustSetRequest = { workspace: string, trusted: boolean | null, };
+
+export type PiTrustWorkspaceRequest = { workspace: string, };
 
 export type PiRuntimeConfigurationView = { mode: string, command: string, config_dir: string, session_dir: string, trust_workspace: boolean, };
 

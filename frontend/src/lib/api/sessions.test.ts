@@ -22,6 +22,7 @@ describe('sessionsApi.createProject', () => {
       executor: 'grok',
       name: 'Plan review',
       create_workspace: true,
+      include_uncommitted: true,
       repos: [
         {
           repo_id: '22222222-2222-2222-2222-222222222222',
@@ -40,6 +41,7 @@ describe('sessionsApi.createProject', () => {
         name: 'Plan review',
         initialPrompt: null,
         createWorkspace: true,
+        includeUncommitted: true,
         repos: [
           {
             repoId: '22222222-2222-2222-2222-222222222222',

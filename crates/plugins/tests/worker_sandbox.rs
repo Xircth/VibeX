@@ -153,6 +153,34 @@ async fn trusted_worker_can_read_host_files_spawn_children_and_reach_loopback() 
     worker.dispose("full-trust test complete").await.unwrap();
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_node_worker_initializes_from_canonicalized_verbatim_entrypoint() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let package_root = tempfile::tempdir().unwrap();
+    write_sandbox_probe(package_root.path());
+    let package = PluginPackage::inspect(package_root.path(), PluginSourceKind::Snapshot).unwrap();
+    let canonical_entrypoint = package
+        .content_root()
+        .canonicalize()
+        .unwrap()
+        .join("worker.mjs")
+        .canonicalize()
+        .unwrap();
+    let raw = canonical_entrypoint.to_string_lossy();
+    assert!(
+        raw.starts_with(r"\\?\"),
+        "Windows canonicalize must produce a verbatim path so this covers Node 22 EISDIR: {raw}"
+    );
+
+    let worker = WorkerHost::spawn(&node, &package, 1, &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .expect("Worker initialize must succeed when canonicalize yields \\\\?\\ paths");
+    worker.dispose("verbatim path regression").await.unwrap();
+}
+
 #[tokio::test]
 async fn timed_out_worker_is_killed_and_remains_terminal() {
     let Some(node) = node_executable() else {

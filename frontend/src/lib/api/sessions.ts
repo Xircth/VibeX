@@ -58,6 +58,7 @@ export const sessionsApi = {
     name?: string | null;
     initial_prompt?: string | null;
     create_workspace?: boolean;
+    include_uncommitted?: boolean;
     repos?: Array<{ repo_id: string; target_branch: string }>;
   }): Promise<Session> => {
     return backendCall<Session>('create_project_session', {
@@ -70,6 +71,7 @@ export const sessionsApi = {
         name: data.name ?? null,
         initialPrompt: data.initial_prompt ?? null,
         createWorkspace: data.create_workspace ?? null,
+        includeUncommitted: data.include_uncommitted ?? null,
         repos:
           data.repos?.map((repo) => ({
             repoId: repo.repo_id,

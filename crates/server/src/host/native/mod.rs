@@ -59,6 +59,7 @@ pub mod opencode_plugins;
 pub mod opencode_providers;
 pub mod pi_configuration;
 pub mod pi_plugins;
+pub mod pi_trust;
 
 pub fn agent_process_command(program: impl AsRef<Path>) -> tokio::process::Command {
     utils::process::new_hidden_tokio_command(program, std::iter::empty::<&str>())

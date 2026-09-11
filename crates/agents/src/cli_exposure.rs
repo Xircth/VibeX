@@ -474,6 +474,13 @@ pub fn published_cli_shim_agent(path: &Path) -> Option<AgentId> {
     read_published_shim(path).map(|(agent_id, _)| agent_id)
 }
 
+/// The Runtime a published shim executes, if that target still exists.
+pub fn published_cli_shim_target(path: &Path) -> Option<PathBuf> {
+    let (_, contents) = read_published_shim(path)?;
+    let target = shim_runtime_target(&contents)?;
+    target.is_file().then_some(target)
+}
+
 /// Read a published shim: the Agent that owns it, plus its contents.
 ///
 /// The size guard keeps this from slurping a real executable that merely shares

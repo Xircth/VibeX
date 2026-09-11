@@ -102,7 +102,7 @@ function CreateSessionOverlay({
   canCreateSession: boolean;
   isCreatePending: boolean;
   createError: unknown;
-  onSubmitCreate: () => void;
+  onSubmitCreate: (input?: { includeUncommitted?: boolean }) => void;
   onClose: () => void;
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null
@@ -381,7 +381,7 @@ export function RightPanelContent() {
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
 
   const createSessionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (input?: { includeUncommitted?: boolean }) => {
       if (!effectiveProjectId) {
         throw new Error('Project is required');
       }
@@ -398,6 +398,10 @@ export function RightPanelContent() {
         executor: selectedExecutorProfile?.executor ?? undefined,
         name: createSessionName.trim() || null,
         create_workspace: createMode === 'new_workspace',
+        include_uncommitted:
+          createMode === 'new_workspace'
+            ? Boolean(input?.includeUncommitted)
+            : undefined,
         repos:
           createMode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
       });
@@ -575,7 +579,7 @@ export function RightPanelContent() {
     canCreateSession,
     isCreatePending: createSessionMutation.isPending,
     createError: createSessionMutation.error,
-    onSubmitCreate: async () => {
+    onSubmitCreate: async (input?: { includeUncommitted?: boolean }) => {
       if (
         createMode === 'new_workspace' &&
         effectiveProjectId &&
@@ -583,7 +587,7 @@ export function RightPanelContent() {
       ) {
         return;
       }
-      createSessionMutation.mutate(undefined);
+      createSessionMutation.mutate(input);
     },
     onClose: () => handleCreateOverlayOpenChange(false),
     onSessionControlsPresetChange: handleSessionControlsPresetChange,

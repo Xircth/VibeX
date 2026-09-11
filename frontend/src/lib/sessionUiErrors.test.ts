@@ -22,6 +22,26 @@ describe('getSessionUiErrorMessage', () => {
     ).toBe('所选分支不存在，工作区/分支列表可能已过期。请刷新后重新选择。');
   });
 
+  it('maps already-checked-out worktree errors', () => {
+    expect(
+      getSessionUiErrorMessage(
+        "Internal error: branch 'main' is already checked out at /tmp/project",
+        'fallback'
+      )
+    ).toBe(
+      '该分支已在另一个工作树中检出。请换一个基础分支，或先移除多余的工作树。'
+    );
+  });
+
+  it('maps in-progress git operations', () => {
+    expect(
+      getSessionUiErrorMessage(
+        'Bad request: git operation in progress: merge',
+        'fallback'
+      )
+    ).toBe('仓库正在合并、变基、cherry-pick 或 revert。请完成或中止后再试。');
+  });
+
   it('falls back to the original message when no specialized mapping exists', () => {
     expect(
       getSessionUiErrorMessage(

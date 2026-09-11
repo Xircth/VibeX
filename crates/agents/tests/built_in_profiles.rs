@@ -726,6 +726,29 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             .settings_features
             .contains(&AgentSettingsFeature::ReusableModelProviders)
     );
+    for id in [
+        "claude_code",
+        "codex",
+        "antigravity",
+        "gemini",
+        "kimi_code",
+        "pi",
+        "grok",
+        "hermes",
+        "openclaw",
+        "cline",
+    ] {
+        assert!(
+            catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
+            "{id} exposes reusable Model Providers and must be able to probe them"
+        );
+    }
+    for id in ["cursor", "opencode", "deepseek_harness", "qoder"] {
+        assert!(
+            !catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
+            "{id} does not expose reusable Model Providers"
+        );
+    }
 
     for id in [
         "claude_code",

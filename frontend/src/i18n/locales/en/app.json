@@ -200,7 +200,10 @@
     "sessionNotFound": "The session does not exist or has already been deleted.",
     "workspaceNotFound": "The workspace does not exist.",
     "executorMismatch": "The agent bound to the current session does not match the selected agent.",
-    "invalidReference": "The selected branch does not exist; the workspace/branch list may be out of date. Please refresh and select again."
+    "invalidReference": "The selected branch does not exist; the workspace/branch list may be out of date. Please refresh and select again.",
+    "alreadyCheckedOut": "This branch is already checked out in another worktree. Choose a different base branch or remove the extra worktree.",
+    "operationInProgress": "The repository has an unfinished merge, rebase, cherry-pick, or revert. Finish or abort it, then try again.",
+    "emptyCheckout": "The new worktree was created but has no project files. Check sparse-checkout settings and retry."
   },
   "localDeps": {
     "notInstalled": "Not installed",

@@ -6,7 +6,8 @@ use std::{
 use agents::{
     AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentLifecycleState,
     AgentManagementSnapshot, SessionGate, SessionGateError, SessionGateInput, SessionLaunchLock,
-    discover_path_acp_launch_lock, lifecycle_ready_for_path_acp, session_launch_rejection_message,
+    bind_pi_acp_pi_command, discover_path_acp_launch_lock, lifecycle_ready_for_path_acp,
+    session_launch_rejection_message,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{repo::Repo, workspace::Workspace};
@@ -257,9 +258,12 @@ pub async fn resolve_agent_runtime_launch_settings(
         .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
         .transpose()?
         .unwrap_or_default();
-    agents::apply_built_in_auth_mode_policy(agent_id, &mut env);
     let mut args = authorization.args;
-    agents::apply_built_in_launch_argument_policy(agent_id, &env, &mut args);
+    let requested_pi_command = env
+        .get("PI_ACP_PI_COMMAND")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    agents::apply_built_in_launch_policy(agent_id, &mut env, &mut args);
     let _ = utils::shell::refresh_process_path().await;
     let mut lock_env = authorization.env;
     agents::sanitize_runtime_executable_lock_env(agent_id, &mut lock_env);
@@ -276,6 +280,9 @@ pub async fn resolve_agent_runtime_launch_settings(
                 .cloned()
                 .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default()),
         );
+    }
+    if agent_id.as_str() == "pi" {
+        bind_pi_acp_pi_command(&mut env, requested_pi_command.as_deref());
     }
     // Prefer PATH over a stale lock path (ADR-0060 / CodeG connect).
     let absolute_acp_program =

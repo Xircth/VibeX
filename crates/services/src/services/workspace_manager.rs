@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use db::models::{repo::Repo, workspace::Workspace as DbWorkspace};
+use git::GitService;
 use sqlx::{Pool, Sqlite};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -26,7 +27,6 @@ impl RepoWorkspaceInput {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use git::GitService;
     use git2::{BranchType, Repository};
     use uuid::Uuid;
 
@@ -299,6 +299,25 @@ impl WorkspaceManager {
             workspace_dir: workspace_dir.to_path_buf(),
             worktrees: created_worktrees,
         })
+    }
+
+    /// Copy uncommitted tracked/untracked files from each source repo into the
+    /// matching worktree. Source checkouts are left unchanged.
+    pub async fn copy_uncommitted_changes(
+        workspace_dir: &Path,
+        repos: &[Repo],
+    ) -> Result<(), WorkspaceError> {
+        for repo in repos {
+            let dest = workspace_dir.join(&repo.name);
+            let source = repo.path.clone();
+            tokio::task::spawn_blocking(move || {
+                GitService::new().copy_uncommitted_changes(&source, &dest)
+            })
+            .await
+            .map_err(|error| WorkspaceError::PartialCreation(format!("Task join error: {error}")))?
+            .map_err(WorktreeError::from)?;
+        }
+        Ok(())
     }
 
     /// Ensure all worktrees in a workspace exist (for cold restart scenarios)

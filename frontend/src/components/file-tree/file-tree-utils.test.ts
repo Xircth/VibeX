@@ -29,6 +29,7 @@ import {
   getFilePreviewSelectionHints,
   normalizeDirectoryChildrenResponse,
   pruneExpandedFileTreeFolders,
+  replaceFileTreeDirectoryListing,
   resolveFileTreeAbsolutePath,
   toggleAllFileTreeFolders,
   toggleFileTreeFolder,
@@ -754,16 +755,32 @@ describe('deriveFileTreeEntries', () => {
 
     expect(result.mergedFiles).toEqual(['src/index.ts', 'src/lazy.ts']);
     expect(result.mergedDirectories).toEqual(['src', 'src/generated']);
-    expect(Array.from(result.mergedGitignoredFiles)).toEqual([
-      'dist/app.js',
-      'coverage/out.js',
-    ]);
-    expect(Array.from(result.mergedGitignoredDirectories)).toEqual([
-      'target',
-      'node_modules',
-    ]);
+    expect(Array.from(result.mergedGitignoredFiles)).toEqual(['dist/app.js']);
+    expect(Array.from(result.mergedGitignoredDirectories)).toEqual(['target']);
     expect(Array.from(result.effectiveLazyLoadableDirectories)).toEqual([
       'src/generated',
+    ]);
+  });
+
+  it('drops lazy paths whose root folder is no longer listed', () => {
+    const result = deriveFileTreeEntries({
+      files: [],
+      directories: ['src'],
+      ignoredFiles: new Set(),
+      ignoredDirectories: new Set(),
+      lazyFiles: new Set(['src/keep.ts', 'gone/old.ts']),
+      lazyDirectories: new Set(['src/nested', 'gone']),
+      lazyGitignoredFiles: new Set(),
+      lazyGitignoredDirectories: new Set(),
+      lazyLoadableDirectories: new Set(['gone', 'src/nested']),
+      lazyLoadAllDirectories: true,
+    });
+
+    expect(result.mergedFiles).toEqual(['src/keep.ts']);
+    expect(result.mergedDirectories).toEqual(['src', 'src/nested']);
+    expect(Array.from(result.effectiveLazyLoadableDirectories).sort()).toEqual([
+      'src',
+      'src/nested',
     ]);
   });
 
@@ -774,18 +791,16 @@ describe('deriveFileTreeEntries', () => {
       ignoredFiles: new Set(),
       ignoredDirectories: new Set(),
       lazyFiles: new Set(),
-      lazyDirectories: new Set(['dist']),
+      lazyDirectories: new Set(['node_modules/pkg']),
       lazyGitignoredFiles: new Set(),
       lazyGitignoredDirectories: new Set(),
       lazyLoadableDirectories: new Set(),
       lazyLoadAllDirectories: true,
     });
 
-    expect(Array.from(allLazy.effectiveLazyLoadableDirectories)).toEqual([
-      'src',
-      'node_modules',
-      'dist',
-    ]);
+    expect(Array.from(allLazy.effectiveLazyLoadableDirectories).sort()).toEqual(
+      ['node_modules', 'node_modules/pkg', 'src']
+    );
 
     const specialOnly = deriveFileTreeEntries({
       files: [],
@@ -802,6 +817,37 @@ describe('deriveFileTreeEntries', () => {
 
     expect(Array.from(specialOnly.effectiveLazyLoadableDirectories)).toEqual([
       'node_modules',
+    ]);
+  });
+});
+
+describe('replaceFileTreeDirectoryListing', () => {
+  it('replaces a folder listing and drops removed descendants', () => {
+    const result = replaceFileTreeDirectoryListing({
+      parentPath: 'src',
+      listing: {
+        files: ['src/keep.ts'],
+        directories: ['src/nested'],
+        gitignoredFiles: [],
+        gitignoredDirectories: [],
+      },
+      current: {
+        files: new Set(['src/keep.ts', 'src/gone.ts', 'src/old/a.ts']),
+        directories: new Set(['src/nested', 'src/old', 'src/old/deep']),
+        gitignoredFiles: new Set(['src/gone.ts']),
+        gitignoredDirectories: new Set(['src/old']),
+        loadedDirectories: new Set(['src', 'src/old']),
+        loadableDirectories: new Set(['src/nested', 'src/old', 'src/old/deep']),
+      },
+    });
+
+    expect(Array.from(result.files).sort()).toEqual(['src/keep.ts']);
+    expect(Array.from(result.directories).sort()).toEqual(['src/nested']);
+    expect(Array.from(result.gitignoredFiles)).toEqual([]);
+    expect(Array.from(result.gitignoredDirectories)).toEqual([]);
+    expect(Array.from(result.loadedDirectories).sort()).toEqual(['src']);
+    expect(Array.from(result.loadableDirectories).sort()).toEqual([
+      'src/nested',
     ]);
   });
 });

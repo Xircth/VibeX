@@ -1,7 +1,4 @@
-use std::{
-    path::{Component, Path},
-    time::{Duration, Instant},
-};
+use std::path::{Component, Path};
 
 use application::ApplicationError;
 use serde::Serialize;
@@ -58,8 +55,6 @@ const BUILD_ARTIFACT_DIRS: &[&str] = &[
     ".dart_tool",
 ];
 
-const SCAN_ENTRY_BUDGET: usize = 30_000;
-const SCAN_TIME_BUDGET: Duration = Duration::from_millis(1_200);
 const MAX_FILES: usize = 10_000;
 const MAX_DIRECTORIES: usize = 20_000;
 
@@ -73,10 +68,6 @@ pub(crate) fn should_skip_dir(name: &str) -> bool {
 
 pub(crate) fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
-}
-
-fn scan_budget_reached(started_at: Instant, scanned: usize) -> bool {
-    scanned >= SCAN_ENTRY_BUDGET || started_at.elapsed() >= SCAN_TIME_BUDGET
 }
 
 fn relative_from_root(root: &Path, path: &Path) -> Option<String> {
@@ -176,12 +167,11 @@ pub fn build_git_status_map(root: &Path) -> std::collections::HashMap<std::path:
     map
 }
 
-/// List workspace files the file tree can render.
+/// List the direct children of one workspace directory.
 ///
-/// An empty `relative_path` recursively scans from `root` and returns every
-/// discovered path relative to that root. Nested `relative_path` values list
-/// only direct children, still as root-relative paths, so lazy-loaded folders
-/// nest under their parent instead of appearing at the tree root.
+/// An empty `relative_path` lists `root` itself. Results are always
+/// root-relative so lazy-loaded folders nest under their parent. This never
+/// walks descendants: the file tree loads each folder when it is expanded.
 pub fn list_directory_children_at_path(
     root: &Path,
     relative_path: &str,
@@ -193,22 +183,25 @@ pub fn list_directory_children_at_path(
     let trimmed = normalize_path(relative_path.trim())
         .trim_matches('/')
         .to_string();
-    if trimmed.is_empty() {
-        return scan_tree_recursive(root);
-    }
+    let target_dir = if trimmed.is_empty() {
+        root.to_path_buf()
+    } else {
+        let relative = Path::new(&trimmed);
+        if relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err(ApplicationError::bad_request("Invalid path"));
+        }
+        root.join(&trimmed)
+    };
 
-    let relative = Path::new(&trimmed);
-    if relative.components().any(|component| {
-        matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    }) {
-        return Err(ApplicationError::bad_request("Invalid path"));
-    }
-
-    let target_dir = root.join(&trimmed);
     if !target_dir.is_dir() {
+        if trimmed.is_empty() {
+            return Ok(empty_listing());
+        }
         return Err(ApplicationError::not_found(format!(
             "Directory not found: {}",
             target_dir.display()
@@ -218,154 +211,55 @@ pub fn list_directory_children_at_path(
     scan_single_directory(root, &target_dir)
 }
 
-fn scan_tree_recursive(root: &Path) -> Result<DirectoryChildrenListing, ApplicationError> {
-    let started_at = Instant::now();
-    let mut files = Vec::new();
-    let mut directories = Vec::new();
-    let mut gitignored_files = Vec::new();
-    let mut gitignored_directories = Vec::new();
-    let mut scanned = 0usize;
-    let mut truncated = false;
-    let repo = discover_repo(root);
-
-    #[allow(clippy::too_many_arguments)]
-    fn walk(
-        root: &Path,
-        dir: &Path,
-        repo: Option<&git2::Repository>,
-        started_at: Instant,
-        scanned: &mut usize,
-        files: &mut Vec<String>,
-        directories: &mut Vec<String>,
-        gitignored_files: &mut Vec<String>,
-        gitignored_directories: &mut Vec<String>,
-        truncated: &mut bool,
-    ) -> Result<(), ApplicationError> {
-        let read_dir = std::fs::read_dir(dir).map_err(internal_error)?;
-        for entry in read_dir {
-            if scan_budget_reached(started_at, *scanned) {
-                *truncated = true;
-                return Ok(());
-            }
-            *scanned += 1;
-
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let file_type = match entry.file_type() {
-                Ok(file_type) => file_type,
-                Err(_) => continue,
-            };
-            let Some(relative) = relative_from_root(root, &entry.path()) else {
-                continue;
-            };
-
-            if file_type.is_dir() {
-                if should_skip_dir(&name) {
-                    continue;
-                }
-                if directories.len() >= MAX_DIRECTORIES {
-                    *truncated = true;
-                    continue;
-                }
-                directories.push(relative.clone());
-                if path_is_gitignored(repo, &relative) {
-                    gitignored_directories.push(relative);
-                }
-                if is_special_dir(&name) {
-                    continue;
-                }
-                walk(
-                    root,
-                    &entry.path(),
-                    repo,
-                    started_at,
-                    scanned,
-                    files,
-                    directories,
-                    gitignored_files,
-                    gitignored_directories,
-                    truncated,
-                )?;
-                if *truncated {
-                    return Ok(());
-                }
-            } else if file_type.is_file() {
-                if name == ".DS_Store" {
-                    continue;
-                }
-                if files.len() >= MAX_FILES {
-                    *truncated = true;
-                    return Ok(());
-                }
-                files.push(relative.clone());
-                if path_is_gitignored(repo, &relative) {
-                    gitignored_files.push(relative);
-                }
-            }
-        }
-        Ok(())
+fn classify_dir_entry(entry: &std::fs::DirEntry) -> Option<bool> {
+    let file_type = entry.file_type().ok()?;
+    if file_type.is_dir() {
+        return Some(true);
     }
-
-    walk(
-        root,
-        root,
-        repo.as_ref(),
-        started_at,
-        &mut scanned,
-        &mut files,
-        &mut directories,
-        &mut gitignored_files,
-        &mut gitignored_directories,
-        &mut truncated,
-    )?;
-
-    Ok(finish_listing(
-        files,
-        directories,
-        gitignored_files,
-        gitignored_directories,
-        truncated,
-    ))
+    if file_type.is_file() {
+        return Some(false);
+    }
+    if !file_type.is_symlink() {
+        return None;
+    }
+    let metadata = std::fs::metadata(entry.path()).ok()?;
+    if metadata.is_dir() {
+        Some(true)
+    } else if metadata.is_file() {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn scan_single_directory(
     root: &Path,
     target_dir: &Path,
 ) -> Result<DirectoryChildrenListing, ApplicationError> {
-    let started_at = Instant::now();
     let mut files = Vec::new();
     let mut directories = Vec::new();
     let mut gitignored_files = Vec::new();
     let mut gitignored_directories = Vec::new();
-    let mut truncated = false;
     let repo = discover_repo(root);
 
     let read_dir = std::fs::read_dir(target_dir).map_err(|error| {
         ApplicationError::internal(format!("Failed to read directory: {error}"))
     })?;
 
-    for (scanned, entry) in read_dir.enumerate() {
-        if scan_budget_reached(started_at, scanned) {
-            truncated = true;
-            break;
-        }
+    for entry in read_dir {
         let entry = match entry {
             Ok(entry) => entry,
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().into_owned();
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(_) => continue,
+        let Some(is_dir) = classify_dir_entry(&entry) else {
+            continue;
         };
         let Some(relative) = relative_from_root(root, &entry.path()) else {
             continue;
         };
 
-        if file_type.is_dir() {
+        if is_dir {
             if should_skip_dir(&name) {
                 continue;
             }
@@ -373,7 +267,7 @@ fn scan_single_directory(
             if path_is_gitignored(repo.as_ref(), &relative) {
                 gitignored_directories.push(relative);
             }
-        } else if file_type.is_file() {
+        } else {
             if name == ".DS_Store" {
                 continue;
             }
@@ -383,6 +277,18 @@ fn scan_single_directory(
             }
         }
     }
+
+    let truncated = files.len() > MAX_FILES || directories.len() > MAX_DIRECTORIES;
+    files.sort();
+    directories.sort();
+    if files.len() > MAX_FILES {
+        files.truncate(MAX_FILES);
+    }
+    if directories.len() > MAX_DIRECTORIES {
+        directories.truncate(MAX_DIRECTORIES);
+    }
+    gitignored_files.retain(|path| files.binary_search(path).is_ok());
+    gitignored_directories.retain(|path| directories.binary_search(path).is_ok());
 
     Ok(finish_listing(
         files,
@@ -508,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn root_scan_includes_nested_paths_so_folders_can_expand() {
+    fn root_scan_lists_direct_children_only() {
         let root = create_temp_dir("root-nested");
         fs::create_dir_all(root.join("assets").join("icons")).unwrap();
         fs::write(root.join("assets").join("logo.png"), "").unwrap();
@@ -518,11 +424,26 @@ mod tests {
         let listing = list_directory_children_at_path(&root, "").unwrap();
         let _ = fs::remove_dir_all(&root);
 
-        assert!(listing.files.contains(&"README.md".to_string()));
-        assert!(listing.files.contains(&"assets/logo.png".to_string()));
-        assert!(listing.directories.contains(&"assets".to_string()));
-        assert!(listing.directories.contains(&"assets/icons".to_string()));
-        assert!(listing.directories.contains(&".claude".to_string()));
+        assert_eq!(listing.files, vec!["README.md"]);
+        assert_eq!(listing.directories, vec![".claude", "assets"]);
+        assert!(!listing.truncated);
+    }
+
+    #[test]
+    fn root_scan_keeps_later_sibling_directories() {
+        let root = create_temp_dir("root-siblings");
+        fs::create_dir_all(root.join("aaa").join("nested")).unwrap();
+        for index in 0..80 {
+            fs::write(root.join("aaa").join(format!("f{index}.txt")), "").unwrap();
+        }
+        fs::create_dir_all(root.join("zzz")).unwrap();
+        fs::write(root.join("zzz").join("keep.txt"), "").unwrap();
+
+        let listing = list_directory_children_at_path(&root, "").unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(listing.directories, vec!["aaa", "zzz"]);
+        assert!(listing.files.is_empty());
         assert!(!listing.truncated);
     }
 
@@ -586,5 +507,21 @@ mod tests {
                 .gitignored_files
                 .contains(&"visible.txt".to_string())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lists_symlink_directories_as_folders() {
+        let root = create_temp_dir("symlink-dir");
+        fs::create_dir_all(root.join("real-folder")).unwrap();
+        fs::write(root.join("real-folder").join("inside.txt"), "").unwrap();
+        std::os::unix::fs::symlink(root.join("real-folder"), root.join("linked-folder")).unwrap();
+
+        let listing = list_directory_children_at_path(&root, "").unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(listing.directories.contains(&"real-folder".to_string()));
+        assert!(listing.directories.contains(&"linked-folder".to_string()));
+        assert!(!listing.files.iter().any(|path| path == "linked-folder"));
     }
 }

@@ -70,7 +70,9 @@ use crate::{
     },
     grok_mcp::{self, GrokMcpTracker},
     grok_subagent::GrokSubagentTracker,
-    grok_usage, session_notice,
+    grok_usage,
+    pi_trust::{PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV, PI_TRUST_WORKSPACE_ENV},
+    session_notice,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -85,6 +87,7 @@ use crate::{
     response = SetSessionModelResponse,
     crate = acp
 )]
+#[serde(rename_all = "camelCase")]
 struct SetSessionModelRequest {
     session_id: SessionId,
     model_id: String,
@@ -209,10 +212,6 @@ const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
 // `session/update`s land on whatever Turn comes next. Wait for the acknowledgement,
 // but bounded — an agent that never answers must not wedge the connection.
 const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
-const PI_COMMAND_ENV: &str = "PI_ACP_PI_COMMAND";
-const PI_CONFIG_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
-const PI_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
-const PI_TRUST_WORKSPACE_ENV: &str = "PI_ACP_TRUST_WORKSPACE";
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
 
@@ -1052,6 +1051,10 @@ struct SessionControlState {
     grok_model_windows: HashMap<String, u64>,
     /// Last occupancy pair emitted as `AgentEvent::Usage` for this session.
     last_grok_usage: Option<(u64, u64)>,
+    /// pi-acp prelude captured from `session/new` `_meta.piAcp.startupInfo`.
+    /// The matching first `agent_message_chunk` is dropped so skill paths
+    /// are not rendered as the assistant's opening words.
+    pi_startup_banner: Option<String>,
 }
 
 #[derive(Debug)]
@@ -1580,14 +1583,29 @@ impl AgentConnectionRunner {
                 self.snapshot.working_dir.display()
             )));
         }
-        let mut command = new_hidden_tokio_command(&acp_program, &launch_lock.args);
-
-        if self.snapshot.agent_id.as_str() == "pi"
-            && let Err(error) =
-                seed_pi_workspace_trust(&self.snapshot.working_dir, &self.snapshot.env)
-        {
-            tracing::warn!(%error, "could not seed Pi workspace trust");
+        if self.snapshot.agent_id.as_str() == "pi" {
+            if let Some(message) = crate::pi_trust::launch_preflight(&self.snapshot.env) {
+                return Err(AgentError::Runtime(message));
+            }
+            let home = self
+                .snapshot
+                .env
+                .get("HOME")
+                .or_else(|| self.snapshot.env.get("USERPROFILE"))
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir);
+            if let Some(home) = home
+                && let Some(message) = crate::pi_trust::launch_block(
+                    &self.snapshot.working_dir,
+                    &self.snapshot.env,
+                    &home,
+                    &crate::pi_trust::default_ack_path(),
+                )
+            {
+                return Err(AgentError::PiProjectTrustRequired(message));
+            }
         }
+        let mut command = new_hidden_tokio_command(&acp_program, &launch_lock.args);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -1614,14 +1632,8 @@ impl AgentConnectionRunner {
         {
             command.env_remove(key);
         }
-        for (key, value) in launch_env {
-            command.env(key, value);
-        }
-        // Pi runtime preferences are mutable user settings. They must win over
-        // values captured by an older external-adoption lock; clearing a field
-        // must also remove an inherited or legacy lock value.
         if self.snapshot.agent_id.as_str() == "pi" {
-            for key in [PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV] {
+            for key in [PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV] {
                 match self
                     .snapshot
                     .env
@@ -1631,11 +1643,41 @@ impl AgentConnectionRunner {
                     .filter(|value| !value.is_empty())
                 {
                     Some(value) => {
-                        command.env(key, value);
+                        launch_env.insert(key.to_string(), value.to_string());
                     }
                     None => {
-                        command.env_remove(key);
+                        launch_env.remove(key);
                     }
+                }
+            }
+            let requested = self
+                .snapshot
+                .env
+                .get(PI_COMMAND_ENV)
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if requested.is_none() {
+                launch_env.remove(PI_COMMAND_ENV);
+            }
+            crate::bind_pi_acp_pi_command(&mut launch_env, requested);
+        }
+        for (key, value) in &launch_env {
+            command.env(key, value);
+        }
+        // Pi runtime preferences are mutable user settings. They must win over
+        // values captured by an older external-adoption lock; clearing a field
+        // must also remove an inherited or legacy lock value.
+        if self.snapshot.agent_id.as_str() == "pi" {
+            for key in [PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV] {
+                if launch_env
+                    .get(key)
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_none()
+                {
+                    command.env_remove(key);
                 }
             }
         }
@@ -2518,6 +2560,10 @@ impl AgentConnectionRunner {
                 let windows = grok_usage::windows_from_session_meta(Some(meta));
                 if !windows.is_empty() {
                     entry.grok_model_windows.extend(windows);
+                }
+                if self.snapshot.agent_id.as_str() == "pi" {
+                    entry.pi_startup_banner =
+                        session_notice::pi_startup_banner_from_meta(Some(meta));
                 }
             }
         }
@@ -3456,106 +3502,6 @@ impl AgentConnectionRunner {
     }
 }
 
-fn seed_pi_workspace_trust(
-    working_dir: &Path,
-    env: &HashMap<String, String>,
-) -> Result<(), String> {
-    if env
-        .get(PI_TRUST_WORKSPACE_ENV)
-        .is_some_and(|value| value.trim() == "0")
-    {
-        return Ok(());
-    }
-
-    let canonical_workspace = std::fs::canonicalize(working_dir)
-        .map_err(|error| format!("could not resolve workspace path: {error}"))?;
-    let home = dirs::home_dir().ok_or_else(|| "home directory is unavailable".to_string())?;
-    let agent_dir = env
-        .get(PI_CONFIG_DIR_ENV)
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| expand_pi_home(value, &home))
-        .unwrap_or_else(|| home.join(".pi/agent"));
-    let trust_path = agent_dir.join("trust.json");
-    let mut trust = match std::fs::read(&trust_path) {
-        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
-            .map_err(|error| format!("existing trust.json is invalid: {error}"))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::Value::Object(serde_json::Map::new())
-        }
-        Err(error) => return Err(format!("could not read trust.json: {error}")),
-    };
-    let trust = trust
-        .as_object_mut()
-        .ok_or_else(|| "existing trust.json is not an object".to_string())?;
-    let workspace_key = canonical_workspace.to_string_lossy().into_owned();
-    if trust.contains_key(&workspace_key) {
-        return Ok(());
-    }
-    trust.insert(workspace_key, serde_json::Value::Bool(true));
-
-    std::fs::create_dir_all(&agent_dir)
-        .map_err(|error| format!("could not create Pi config directory: {error}"))?;
-    let bytes = serde_json::to_vec_pretty(&serde_json::Value::Object(trust.clone()))
-        .map_err(|error| format!("could not serialize trust.json: {error}"))?;
-    let temporary_path = agent_dir.join(format!(".trust.json.vibex-{}", uuid::Uuid::new_v4()));
-    std::fs::write(&temporary_path, bytes)
-        .map_err(|error| format!("could not write temporary trust.json: {error}"))?;
-    if let Err(error) = replace_pi_trust_file(&temporary_path, &trust_path) {
-        let _ = std::fs::remove_file(&temporary_path);
-        return Err(format!("could not replace trust.json: {error}"));
-    }
-    Ok(())
-}
-
-fn expand_pi_home(path: &str, home: &Path) -> PathBuf {
-    if path == "~" {
-        home.to_path_buf()
-    } else if let Some(relative) = path.strip_prefix("~/") {
-        home.join(relative)
-    } else {
-        PathBuf::from(path)
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_pi_trust_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
-    std::fs::rename(temporary, destination)
-}
-
-#[cfg(windows)]
-fn replace_pi_trust_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-    };
-
-    let temporary = temporary
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    if unsafe {
-        MoveFileExW(
-            temporary.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    } == 0
-    {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 /// Which streaming text channel a chunk belongs to. Tracked so a thought→message
 /// transition (or vice versa) restarts the snapshot accumulator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4056,6 +4002,34 @@ impl AcpClientBridge {
         Ok(())
     }
 
+    async fn take_pi_startup_banner(
+        &self,
+        session_id: Option<AgentSessionId>,
+        chunk: &acp::schema::v1::ContentChunk,
+    ) -> bool {
+        if self.agent_id.as_str() != "pi" {
+            return false;
+        }
+        let Some(session_id) = session_id else {
+            return false;
+        };
+        let ContentBlock::Text(text) = &chunk.content else {
+            return false;
+        };
+        let mut controls = self.session_controls.write().await;
+        let Some(entry) = controls.get_mut(&session_id) else {
+            return false;
+        };
+        if !session_notice::matches_pi_startup_banner(
+            entry.pi_startup_banner.as_deref(),
+            &text.text,
+        ) {
+            return false;
+        }
+        entry.pi_startup_banner = None;
+        true
+    }
+
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         let acp_session_id = args.session_id.0.to_string();
         let bound_session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
@@ -4079,7 +4053,9 @@ impl AcpClientBridge {
         }
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => {
-                if let Some(notice) = session_notice::from_agent_message_chunk(&chunk) {
+                if self.take_pi_startup_banner(session_id, &chunk).await {
+                    None
+                } else if let Some(notice) = session_notice::from_agent_message_chunk(&chunk) {
                     Some(AgentEvent::RawAcpDiagnostic {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
@@ -6169,6 +6145,55 @@ mod tests {
     }
 
     #[test]
+    fn grok_set_model_wire_uses_camel_case_session_id() {
+        // Grok's ACP 0.10 decoder deserializes `session/set_model` as
+        // `{sessionId, modelId}`. Snake_case params fail with
+        // `Invalid params: missing field sessionId` and take the prompt
+        // path down with "ACP connection failed".
+        let request = SetSessionModelRequest::new(
+            SessionId::new("0193c0de-5e55-7e55-9e55-000000000001"),
+            "grok-4.20".to_string(),
+        );
+        let value = serde_json::to_value(&request).expect("serialize set_model");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "sessionId": "0193c0de-5e55-7e55-9e55-000000000001",
+                "modelId": "grok-4.20",
+            })
+        );
+        assert!(value.get("session_id").is_none());
+        assert!(value.get("model_id").is_none());
+    }
+
+    #[test]
+    fn acp_fork_wire_uses_camel_case_session_id() {
+        let request = AcpForkSessionRequest {
+            session_id: "sess-1".to_string(),
+            cwd: PathBuf::from("/workspace"),
+            meta: None,
+        };
+        let value = serde_json::to_value(&request).expect("serialize fork");
+        assert_eq!(value["sessionId"], "sess-1");
+        assert_eq!(value["cwd"], "/workspace");
+        assert!(value.get("session_id").is_none());
+    }
+
+    #[test]
+    fn acp_steer_wire_uses_camel_case_session_id() {
+        let request = AcpSteerRequest {
+            session_id: "sess-1".to_string(),
+            prompt: Vec::new(),
+            meta: serde_json::json!({ "steering": { "idleBehavior": "promptRequired" } }),
+        };
+        let value = serde_json::to_value(&request).expect("serialize steer");
+        assert_eq!(value["sessionId"], "sess-1");
+        assert_eq!(value["_meta"]["steering"]["idleBehavior"], "promptRequired");
+        assert!(value.get("session_id").is_none());
+        assert!(value.get("meta").is_none());
+    }
+
+    #[test]
     fn grok_vendor_meta_session_config_becomes_standard_controls() {
         // Grok 1.0.5 advertises session config via `_meta["x.ai/sessionConfig"]`
         // instead of the standard `modes`/`configOptions` fields (verified
@@ -6728,115 +6753,6 @@ mod tests {
         assert!(PROXY_ENV_KEYS.contains(&"no_proxy"));
         assert!(PROXY_ENV_KEYS.contains(&"HTTPS_PROXY"));
         assert!(PROXY_ENV_KEYS.contains(&"https_proxy"));
-    }
-
-    #[test]
-    fn pi_workspace_trust_is_seeded_additively_and_idempotently() {
-        let root = tempfile::tempdir().expect("temp dir");
-        let workspace = root.path().join("workspace");
-        let agent_dir = root.path().join("pi-agent");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
-        std::fs::write(
-            agent_dir.join("trust.json"),
-            serde_json::to_vec(&serde_json::json!({ "/already/trusted": true }))
-                .expect("serialize"),
-        )
-        .expect("seed trust");
-        let env = HashMap::from([(
-            PI_CONFIG_DIR_ENV.to_string(),
-            agent_dir.display().to_string(),
-        )]);
-
-        seed_pi_workspace_trust(&workspace, &env).expect("first seed");
-        seed_pi_workspace_trust(&workspace, &env).expect("second seed");
-
-        let document: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(agent_dir.join("trust.json")).expect("read trust"),
-        )
-        .expect("valid trust");
-        let object = document.as_object().expect("object");
-        let canonical = std::fs::canonicalize(workspace).expect("canonical workspace");
-        assert_eq!(
-            object.get("/already/trusted"),
-            Some(&serde_json::json!(true))
-        );
-        assert_eq!(
-            object.get(&canonical.to_string_lossy().into_owned()),
-            Some(&serde_json::json!(true))
-        );
-        assert_eq!(object.len(), 2);
-    }
-
-    #[test]
-    fn pi_workspace_trust_preserves_explicit_false() {
-        let root = tempfile::tempdir().expect("temp dir");
-        let workspace = root.path().join("workspace");
-        let agent_dir = root.path().join("pi-agent");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
-        let canonical = std::fs::canonicalize(&workspace).expect("canonical workspace");
-        std::fs::write(
-            agent_dir.join("trust.json"),
-            serde_json::to_vec(&serde_json::json!({
-                canonical.to_string_lossy().into_owned(): false
-            }))
-            .expect("serialize"),
-        )
-        .expect("seed trust");
-        let env = HashMap::from([(
-            PI_CONFIG_DIR_ENV.to_string(),
-            agent_dir.display().to_string(),
-        )]);
-
-        seed_pi_workspace_trust(&workspace, &env).expect("seed should be a no-op");
-
-        let document: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(agent_dir.join("trust.json")).expect("read trust"),
-        )
-        .expect("valid trust");
-        assert_eq!(
-            document.get(canonical.to_string_lossy().as_ref()),
-            Some(&serde_json::json!(false))
-        );
-    }
-
-    #[test]
-    fn pi_workspace_trust_can_be_disabled() {
-        let root = tempfile::tempdir().expect("temp dir");
-        let workspace = root.path().join("workspace");
-        let agent_dir = root.path().join("pi-agent");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        let env = HashMap::from([
-            (
-                PI_CONFIG_DIR_ENV.to_string(),
-                agent_dir.display().to_string(),
-            ),
-            (PI_TRUST_WORKSPACE_ENV.to_string(), "0".to_string()),
-        ]);
-
-        seed_pi_workspace_trust(&workspace, &env).expect("disabled seed");
-
-        assert!(!agent_dir.join("trust.json").exists());
-    }
-
-    #[test]
-    fn pi_workspace_trust_does_not_clobber_invalid_documents() {
-        let root = tempfile::tempdir().expect("temp dir");
-        let workspace = root.path().join("workspace");
-        let agent_dir = root.path().join("pi-agent");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        std::fs::create_dir_all(&agent_dir).expect("agent dir");
-        let trust_path = agent_dir.join("trust.json");
-        std::fs::write(&trust_path, b"not-json").expect("invalid trust");
-        let env = HashMap::from([(
-            PI_CONFIG_DIR_ENV.to_string(),
-            agent_dir.display().to_string(),
-        )]);
-
-        assert!(seed_pi_workspace_trust(&workspace, &env).is_err());
-
-        assert_eq!(std::fs::read(trust_path).expect("read trust"), b"not-json");
     }
 
     #[test]

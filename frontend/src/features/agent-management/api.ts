@@ -44,7 +44,9 @@ import type {
   PiCommandValidationView,
   PiConfigurationView,
   PiCredentialsSaveRequest,
+  PiProjectTrustStateView,
   PiRuntimeSaveRequest,
+  PiTrustEntryView,
   PlanUsageResult,
 } from 'shared/types';
 
@@ -227,6 +229,25 @@ export const agentManagementApi = {
 
   validatePiCommand: (command: string): Promise<PiCommandValidationView> =>
     backendCall('pi_command_validate', { command }),
+
+  piProjectTrustState: (
+    workspace: string
+  ): Promise<PiProjectTrustStateView> =>
+    backendCall('pi_project_trust_state', { workspace }),
+
+  setPiProjectTrust: (
+    workspace: string,
+    trusted: boolean | null
+  ): Promise<PiProjectTrustStateView> =>
+    backendCall('pi_project_trust_set', { workspace, trusted }),
+
+  acknowledgePiProjectTrust: (
+    workspace: string
+  ): Promise<PiProjectTrustStateView> =>
+    backendCall('pi_project_trust_acknowledge', { workspace }),
+
+  piTrustEntries: (): Promise<PiTrustEntryView[]> =>
+    backendCall('pi_trust_entries'),
 
   authMode: (agentId: AgentId): Promise<AgentAuthModeView> =>
     backendCall('agent_auth_mode', { agentId }),

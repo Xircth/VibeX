@@ -66,6 +66,7 @@ impl From<agents::AgentError> for AppError {
                     agents::SessionLoadFailureReason::Other { message } => message,
                 })
             }
+            agents::AgentError::PiProjectTrustRequired(message) => AppError::BadRequest(message),
             agents::AgentError::InvalidDistribution(message)
             | agents::AgentError::Runtime(message) => AppError::Internal(message),
         }

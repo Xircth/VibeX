@@ -159,6 +159,149 @@ export type DerivedFileTreeEntries = {
   effectiveLazyLoadableDirectories: Set<string>;
 };
 
+export type FileTreeLazyListing = {
+  files: Set<string>;
+  directories: Set<string>;
+  gitignoredFiles: Set<string>;
+  gitignoredDirectories: Set<string>;
+  loadableDirectories: Set<string>;
+  loadedDirectories: Set<string>;
+};
+
+export type ReplaceFileTreeDirectoryListingInput = {
+  parentPath: string;
+  listing: NormalizedDirectoryChildrenResponse;
+  current: FileTreeLazyListing;
+};
+
+export function emptyFileTreeLazyListing(): FileTreeLazyListing {
+  return {
+    files: new Set(),
+    directories: new Set(),
+    gitignoredFiles: new Set(),
+    gitignoredDirectories: new Set(),
+    loadableDirectories: new Set(),
+    loadedDirectories: new Set(),
+  };
+}
+
+function isDirectChildPath(parentPath: string, childPath: string) {
+  if (!parentPath) {
+    return !childPath.includes('/');
+  }
+  if (childPath === parentPath || !childPath.startsWith(`${parentPath}/`)) {
+    return false;
+  }
+  return !childPath.slice(parentPath.length + 1).includes('/');
+}
+
+function isSelfOrDescendantPath(parentPath: string, path: string) {
+  return path === parentPath || path.startsWith(`${parentPath}/`);
+}
+
+export function isFileTreePathUnderRootListing(
+  path: string,
+  rootFiles: Iterable<string>,
+  rootDirectories: Iterable<string>
+) {
+  const top = path.split('/').filter(Boolean)[0];
+  if (!top) {
+    return false;
+  }
+  for (const file of rootFiles) {
+    if (file === path || file === top) {
+      return true;
+    }
+  }
+  for (const directory of rootDirectories) {
+    if (directory === path || directory === top) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function deletePathAndDescendants(paths: Set<string>, parentPath: string) {
+  paths.forEach((path) => {
+    if (isSelfOrDescendantPath(parentPath, path)) {
+      paths.delete(path);
+    }
+  });
+}
+
+export function replaceFileTreeDirectoryListing({
+  parentPath,
+  listing,
+  current,
+}: ReplaceFileTreeDirectoryListingInput): FileTreeLazyListing {
+  const nextFiles = new Set(current.files);
+  const nextDirectories = new Set(current.directories);
+  const nextGitignoredFiles = new Set(current.gitignoredFiles);
+  const nextGitignoredDirectories = new Set(current.gitignoredDirectories);
+  const nextLoadedDirectories = new Set(current.loadedDirectories);
+  const nextLazyLoadableDirectories = new Set(current.loadableDirectories);
+  const nextDirectorySet = new Set(listing.directories);
+  const nextFileSet = new Set(listing.files);
+
+  const removedDirectories = Array.from(nextDirectories).filter(
+    (path) => isDirectChildPath(parentPath, path) && !nextDirectorySet.has(path)
+  );
+  const removedFiles = Array.from(nextFiles).filter(
+    (path) => isDirectChildPath(parentPath, path) && !nextFileSet.has(path)
+  );
+
+  for (const removed of removedDirectories) {
+    deletePathAndDescendants(nextDirectories, removed);
+    deletePathAndDescendants(nextGitignoredDirectories, removed);
+    deletePathAndDescendants(nextLoadedDirectories, removed);
+    deletePathAndDescendants(nextLazyLoadableDirectories, removed);
+    nextFiles.forEach((path) => {
+      if (path.startsWith(`${removed}/`)) {
+        nextFiles.delete(path);
+        nextGitignoredFiles.delete(path);
+      }
+    });
+  }
+
+  for (const removed of removedFiles) {
+    nextFiles.delete(removed);
+    nextGitignoredFiles.delete(removed);
+  }
+
+  Array.from(nextGitignoredFiles).forEach((path) => {
+    if (isDirectChildPath(parentPath, path) && !nextFileSet.has(path)) {
+      nextGitignoredFiles.delete(path);
+    }
+  });
+  Array.from(nextGitignoredDirectories).forEach((path) => {
+    if (isDirectChildPath(parentPath, path) && !nextDirectorySet.has(path)) {
+      nextGitignoredDirectories.delete(path);
+    }
+  });
+
+  listing.files.forEach((path) => nextFiles.add(path));
+  listing.directories.forEach((path) => {
+    nextDirectories.add(path);
+    nextLazyLoadableDirectories.add(path);
+  });
+  listing.gitignoredFiles.forEach((path) => nextGitignoredFiles.add(path));
+  listing.gitignoredDirectories.forEach((path) =>
+    nextGitignoredDirectories.add(path)
+  );
+  if (parentPath) {
+    nextLoadedDirectories.add(parentPath);
+  }
+
+  return {
+    files: nextFiles,
+    directories: nextDirectories,
+    gitignoredFiles: nextGitignoredFiles,
+    gitignoredDirectories: nextGitignoredDirectories,
+    loadableDirectories: nextLazyLoadableDirectories,
+    loadedDirectories: nextLoadedDirectories,
+  };
+}
+
 const GIT_STATUS_PRIORITY: Record<string, number> = {
   D: 4,
   A: 3,
@@ -665,18 +808,32 @@ export function deriveFileTreeEntries({
   lazyLoadAllDirectories,
 }: DeriveFileTreeEntriesInput): DerivedFileTreeEntries {
   const mergedFiles = new Set<string>(files);
-  lazyFiles.forEach((path) => mergedFiles.add(path));
+  lazyFiles.forEach((path) => {
+    if (isFileTreePathUnderRootListing(path, files, directories)) {
+      mergedFiles.add(path);
+    }
+  });
 
   const mergedDirectories = new Set<string>(directories);
-  lazyDirectories.forEach((path) => mergedDirectories.add(path));
+  lazyDirectories.forEach((path) => {
+    if (isFileTreePathUnderRootListing(path, files, directories)) {
+      mergedDirectories.add(path);
+    }
+  });
 
   const mergedGitignoredFiles = new Set<string>(ignoredFiles);
-  lazyGitignoredFiles.forEach((path) => mergedGitignoredFiles.add(path));
+  lazyGitignoredFiles.forEach((path) => {
+    if (isFileTreePathUnderRootListing(path, files, directories)) {
+      mergedGitignoredFiles.add(path);
+    }
+  });
 
   const mergedGitignoredDirectories = new Set<string>(ignoredDirectories);
-  lazyGitignoredDirectories.forEach((path) =>
-    mergedGitignoredDirectories.add(path)
-  );
+  lazyGitignoredDirectories.forEach((path) => {
+    if (isFileTreePathUnderRootListing(path, files, directories)) {
+      mergedGitignoredDirectories.add(path);
+    }
+  });
 
   const effectiveLazyLoadableDirectories = new Set<string>();
   mergedDirectories.forEach((path) => {
@@ -684,9 +841,11 @@ export function deriveFileTreeEntries({
       effectiveLazyLoadableDirectories.add(path);
     }
   });
-  lazyLoadableDirectories.forEach((path) =>
-    effectiveLazyLoadableDirectories.add(path)
-  );
+  lazyLoadableDirectories.forEach((path) => {
+    if (isFileTreePathUnderRootListing(path, files, directories)) {
+      effectiveLazyLoadableDirectories.add(path);
+    }
+  });
 
   return {
     mergedFiles: Array.from(mergedFiles),

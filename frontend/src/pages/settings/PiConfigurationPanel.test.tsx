@@ -13,6 +13,8 @@ vi.mock('@/features/agent-management', () => ({
     savePiCredentials: vi.fn(),
     savePiRuntime: vi.fn(),
     validatePiCommand: vi.fn(),
+    piTrustEntries: vi.fn(),
+    setPiProjectTrust: vi.fn(),
   },
 }));
 
@@ -27,6 +29,16 @@ const configuration: PiConfigurationView = {
       id: 'private',
       base_url: 'https://private.example/v1',
       api: 'openai-responses',
+      models: [
+        {
+          id: 'private-model',
+          reasoning: true,
+          thinking_level_map: {
+            off: 'none',
+            high: 'HIGH',
+          },
+        },
+      ],
     },
   ],
   runtime: {
@@ -45,6 +57,7 @@ describe('PiConfigurationPanel', () => {
       configuration
     );
     vi.mocked(agentManagementApi.savePiRuntime).mockResolvedValue(undefined);
+    vi.mocked(agentManagementApi.piTrustEntries).mockResolvedValue([]);
     vi.mocked(agentManagementApi.validatePiCommand).mockImplementation(
       async (command) => ({
         found: true,
@@ -71,7 +84,6 @@ describe('PiConfigurationPanel', () => {
       screen.getByLabelText('配置目录（PI_CODING_AGENT_DIR）'),
       '/tmp/pi-config'
     );
-    await userEvent.click(screen.getByLabelText('自动信任当前工作区'));
     await userEvent.click(screen.getByRole('button', { name: '保存 Runtime' }));
 
     expect(agentManagementApi.savePiRuntime).toHaveBeenCalledWith({
@@ -79,7 +91,43 @@ describe('PiConfigurationPanel', () => {
       command: '/opt/pi-preview',
       config_dir: '/tmp/pi-config',
       session_dir: '',
-      trust_workspace: false,
+      trust_workspace: true,
+    });
+  });
+
+  it('saves a custom provider with reasoning chips', async () => {
+    vi.mocked(agentManagementApi.savePiCredentials).mockResolvedValue({
+      ...configuration,
+      default_provider: 'private',
+      default_model: 'private-model',
+      thinking_level: 'high',
+    });
+    render(<PiConfigurationPanel disabled={false} />);
+    expect(await screen.findByText('Provider 与模型')).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: '声明推理能力' })
+    ).toBeChecked();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'xhigh', pressed: false })
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: '保存 Provider' })
+    );
+    expect(agentManagementApi.savePiCredentials).toHaveBeenCalledWith({
+      provider: 'private',
+      model: 'private-model',
+      thinking_level: 'high',
+      api_key: null,
+      custom_base_url: 'https://private.example/v1',
+      custom_api: 'openai-responses',
+      model_reasoning: {
+        reasoning: true,
+        thinking_level_map: {
+          off: 'none',
+          high: 'HIGH',
+          xhigh: 'xhigh',
+        },
+      },
     });
   });
 });

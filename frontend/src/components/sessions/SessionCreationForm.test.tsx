@@ -29,8 +29,12 @@ const userSystemConfig = vi.hoisted(() => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) =>
-      typeof options?.error === 'string' ? `${key}: ${options.error}` : key,
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (typeof options?.error === 'string') return `${key}: ${options.error}`;
+      if (typeof options?.title === 'string') return `${key}: ${options.title}`;
+      if (typeof options?.agent === 'string') return `${key}: ${options.agent}`;
+      return key;
+    },
   }),
 }));
 vi.mock('@/components/tasks/RepoBranchSelector', () => ({
@@ -794,13 +798,33 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     renderForm('codex', vi.fn(), 'new_workspace');
 
     expect(
-      await screen.findByText(
-        'sessionCreation.controlsPrepareFailed: Agent session controls discovery failed'
-      )
+      await screen.findByText('sessionCreation.controlsPrepareFailed: codex')
     ).toBeInTheDocument();
+    expect(screen.getByText('statusDock.errorBadge')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: /turnErrorCard\.reloadSession|重新加载会话|Reload session/,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: /turnErrorCard\.rebindSession|重新绑定会话|Rebind session/,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Agent session controls discovery failed')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText('sessionCreation.controlsUnavailable')
     ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'statusDock.showDetailsFor: sessionCreation.controlsPrepareFailed: codex',
+      })
+    );
+    const detail = screen.getByText('Agent session controls discovery failed');
+    expect(detail.closest('.composer-status-details')).not.toBeNull();
   });
 
   it('shows the stored install diagnostic and a settings jump', async () => {
@@ -816,16 +840,89 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       await screen.findByText('sessionCreation.agentNotInstalled')
     ).toBeInTheDocument();
     expect(
+      screen.queryByRole('button', {
+        name: /turnErrorCard\.reloadSession|重新加载会话|Reload session/,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'npm view dist.integrity failed: npm error code ECONNREFUSED'
+      )
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Installation lock/i)).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'statusDock.showDetailsFor: sessionCreation.agentNotInstalled',
+      })
+    );
+    expect(
       screen.getByText(
         'npm view dist.integrity failed: npm error code ECONNREFUSED'
       )
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Installation lock/i)).not.toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'sessionCreation.viewDiagnostics' })
     );
     expect(openAgentDiagnostics).toHaveBeenCalledWith('claude_code');
+  });
+
+  it('shows create failures as a collapsed status card with scrollable details', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <SessionCreationForm
+            mode="existing_workspace"
+            onModeChange={() => {}}
+            workspaceBranchOptions={[WORKSPACE_OPTION]}
+            selectedWorkspaceValue={WORKSPACE_OPTION.value}
+            onSelectedWorkspaceValueChange={() => {}}
+            sessionName=""
+            onSessionNameChange={() => {}}
+            profiles={{}}
+            selectedExecutorProfile={{
+              executor: 'claude_code',
+              variant: null,
+            }}
+            onSelectedExecutorProfileChange={() => {}}
+            repoBranchConfigs={[]}
+            onRepoBranchChange={() => {}}
+            isLoadingBranches={false}
+            canSubmit={true}
+            isSubmitting={false}
+            errorMessage="ACP session preparation failed: Internal error: Cannot call write after a stream was destroyed: {}"
+            onSubmit={() => {}}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByText('sessionCreation.createFailed')
+    ).toBeInTheDocument();
+    expect(screen.getByText('statusDock.errorBadge')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: /turnErrorCard\.reloadSession|重新加载会话|Reload session/,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Cannot call write after a stream was destroyed/)
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'statusDock.showDetailsFor: sessionCreation.createFailed',
+      })
+    );
+    const detail = screen.getByText(
+      /Cannot call write after a stream was destroyed/
+    );
+    expect(detail.closest('.composer-status-details')).not.toBeNull();
   });
 
   it('hides previous-session continuation until the setting is enabled', async () => {
@@ -1044,6 +1141,22 @@ describe('SessionCreationForm git initialization status', () => {
     expect(await screen.findByText('sessionCreation.title')).toBeVisible();
     expect(
       screen.queryByText('sessionCreation.gitInitIncomplete')
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('SessionCreationForm uncommitted copy option', () => {
+  it('offers copying uncommitted changes only for a new workspace', () => {
+    const view = renderForm('codex', vi.fn(), 'new_workspace');
+
+    expect(
+      screen.getByText('sessionCreation.includeUncommitted')
+    ).toBeInTheDocument();
+
+    view.rerender(view.form('codex', 'existing_workspace'));
+
+    expect(
+      screen.queryByText('sessionCreation.includeUncommitted')
     ).not.toBeInTheDocument();
   });
 });

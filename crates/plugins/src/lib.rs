@@ -2,6 +2,7 @@
 
 mod activation;
 mod app_surface;
+mod archive;
 mod artifact_http;
 mod artifact_preview;
 mod catalog;

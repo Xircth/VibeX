@@ -98,6 +98,27 @@ pub fn notice_from_diagnostic_payload(payload: &Value) -> Option<ConversationSes
     })
 }
 
+/// The markdown prelude pi-acp reports on `session/new` as `_meta.piAcp.startupInfo`.
+/// Matching the later `agent_message_chunk` against this string is how the host
+/// drops the banner without guessing from its contents.
+pub fn pi_startup_banner_from_meta(
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> Option<String> {
+    let meta = meta?;
+    let pi_acp = meta.get("piAcp").or_else(|| meta.get("pi_acp"))?;
+    pi_acp
+        .get("startupInfo")
+        .or_else(|| pi_acp.get("startup_info"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|banner| !banner.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+pub fn matches_pi_startup_banner(pending: Option<&str>, text: &str) -> bool {
+    pending.is_some_and(|banner| banner == text.trim())
+}
+
 fn from_adapter_message(text: &str) -> Option<ConversationSessionNotice> {
     let text = text.trim_end_matches(['\r', '\n']);
     if let Some(body) = text.strip_prefix(CODEX_WARNING_PREFIX) {
@@ -110,6 +131,44 @@ fn from_adapter_message(text: &str) -> Option<ConversationSessionNotice> {
         return Some(ConversationSessionNotice {
             title: "Context compacted".into(),
             message: Some("Context compacted to fit the model's context window.".into()),
+            severity: "info".into(),
+            ..Default::default()
+        });
+    }
+    from_pi_acp_lifecycle(text.trim())
+}
+
+/// pi-acp puts lifecycle announcements on the same `agent_message_chunk`
+/// channel as assistant prose. Match the whole trimmed chunk, never a
+/// substring, so slash-command replies and real answers stay in the transcript.
+fn from_pi_acp_lifecycle(text: &str) -> Option<ConversationSessionNotice> {
+    if text == "Retry finished, resuming."
+        || text == "Context nearing limit, running automatic compaction..."
+        || text.starts_with("Automatic compaction finished")
+        || text == "Cleared queued prompts."
+    {
+        return Some(ConversationSessionNotice {
+            title: text.to_string(),
+            message: None,
+            severity: "info".into(),
+            ..Default::default()
+        });
+    }
+    if let Some(rest) = text.strip_prefix("Retrying") {
+        if rest.is_empty() || rest.starts_with(" (") || rest == "..." {
+            return Some(ConversationSessionNotice {
+                title: "Retrying model call".into(),
+                message: Some(text.to_string()),
+                severity: "info".into(),
+                ..Default::default()
+            });
+        }
+    }
+    if text.starts_with("Queued message (position ") || text.starts_with("Starting queued message.")
+    {
+        return Some(ConversationSessionNotice {
+            title: text.to_string(),
+            message: None,
             severity: "info".into(),
             ..Default::default()
         });
@@ -176,7 +235,7 @@ mod tests {
 
     use super::{
         from_agent_message_chunk, from_session_notification_params, from_session_update_value,
-        notice_from_diagnostic_payload,
+        matches_pi_startup_banner, notice_from_diagnostic_payload, pi_startup_banner_from_meta,
     };
 
     fn text_chunk(text: &str, message_id: Option<&str>) -> ContentChunk {
@@ -248,6 +307,46 @@ mod tests {
     fn leaves_ordinary_assistant_text_in_the_transcript() {
         let chunk = text_chunk("I'll inspect the failing test first.", None);
         assert!(from_agent_message_chunk(&chunk).is_none());
+    }
+
+    #[test]
+    fn reads_pi_acp_startup_banner_from_session_meta() {
+        let banner = "# pi 0.0.33\n\n- /tmp/demo/.pi/extensions/hook.js";
+        let meta = json!({
+            "piAcp": { "startupInfo": format!("{banner}\n") }
+        })
+        .as_object()
+        .cloned()
+        .expect("object");
+        assert_eq!(
+            pi_startup_banner_from_meta(Some(&meta)).as_deref(),
+            Some(banner)
+        );
+        assert!(matches_pi_startup_banner(Some(banner), banner));
+        assert!(!matches_pi_startup_banner(
+            Some(banner),
+            "I'll inspect the failing test first."
+        ));
+        assert!(pi_startup_banner_from_meta(None).is_none());
+    }
+
+    #[test]
+    fn peels_pi_acp_lifecycle_announcements_without_eating_prose() {
+        let retry = text_chunk("Retrying (attempt 2/5, waiting 3s)...", None);
+        let notice = from_agent_message_chunk(&retry).expect("retry notice");
+        assert_eq!(notice.title, "Retrying model call");
+        assert_eq!(notice.severity, "info");
+
+        let queued = text_chunk("Queued message (position 2).", None);
+        assert_eq!(
+            from_agent_message_chunk(&queued)
+                .expect("queue notice")
+                .title,
+            "Queued message (position 2)."
+        );
+
+        let prose = text_chunk("Retrying this approach with a smaller change.", None);
+        assert!(from_agent_message_chunk(&prose).is_none());
     }
 
     #[test]

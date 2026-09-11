@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use chrono::{DateTime, Utc};
@@ -212,7 +212,7 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_add(repo_path, worktree_path, branch, create_branch)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(GitServiceError::from_cli)?;
         Ok(())
     }
 
@@ -226,7 +226,53 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_add_from_ref(repo_path, worktree_path, branch, start_point)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(GitServiceError::from_cli)?;
+        Ok(())
+    }
+
+    /// Copy uncommitted tracked and untracked files from `source` into `dest`
+    /// without modifying `source`. `dest` must already be checked out at the
+    /// same commit as `source`'s HEAD.
+    pub fn copy_uncommitted_changes(
+        &self,
+        source: &Path,
+        dest: &Path,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        let diff = git
+            .diff_binary_vs_head(source)
+            .map_err(GitServiceError::from_cli)?;
+        if !diff.is_empty()
+            && let Err(error) = git.apply_binary_diff(dest, &diff)
+        {
+            let _ = git.git(dest, ["reset", "--hard", "HEAD"]);
+            let _ = git.git(dest, ["clean", "-fd"]);
+            return Err(GitServiceError::from_cli(error));
+        }
+
+        let untracked = git
+            .list_untracked_z(source)
+            .map_err(GitServiceError::from_cli)?;
+        for relative in untracked.split(|byte| *byte == 0) {
+            if relative.is_empty() {
+                continue;
+            }
+            let Ok(relative) = std::str::from_utf8(relative) else {
+                continue;
+            };
+            let Some(relative_path) = safe_untracked_path(relative) else {
+                continue;
+            };
+            let from = source.join(relative_path);
+            if !from.is_file() {
+                continue;
+            }
+            let to = dest.join(relative_path);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&from, &to)?;
+        }
         Ok(())
     }
 
@@ -343,4 +389,16 @@ impl GitService {
 
         Ok(branches)
     }
+}
+
+fn safe_untracked_path(path: &str) -> Option<&Path> {
+    let path = Path::new(path);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return None;
+    }
+    Some(path)
 }

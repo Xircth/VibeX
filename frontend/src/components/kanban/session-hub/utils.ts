@@ -318,6 +318,7 @@ export interface CreateProjectSessionRequest {
   executor?: string;
   name: string | null;
   create_workspace: boolean;
+  include_uncommitted?: boolean;
   repos?: Array<{ repo_id: string; target_branch: string }>;
 }
 
@@ -361,6 +362,7 @@ export function getCreateProjectSessionRequest({
   mode,
   workspaceBranchOptions,
   repoInputs,
+  includeUncommitted,
 }: {
   projectId: string | null | undefined;
   workspaceValue: string;
@@ -369,6 +371,7 @@ export function getCreateProjectSessionRequest({
   mode: KanbanSessionCreationMode;
   workspaceBranchOptions: WorkspaceBranchOption[];
   repoInputs?: Array<{ repo_id: string; target_branch: string }>;
+  includeUncommitted?: boolean;
 }): CreateProjectSessionRequest {
   if (mode === 'existing_workspace' && !workspaceValue) {
     throw new Error('Workspace is required');
@@ -394,6 +397,9 @@ export function getCreateProjectSessionRequest({
     executor: executorProfile?.executor ?? undefined,
     name: sessionName.trim() || null,
     create_workspace: mode === 'new_workspace',
+    ...(mode === 'new_workspace'
+      ? { include_uncommitted: Boolean(includeUncommitted) }
+      : {}),
     repos: mode === 'new_workspace' ? repoInputs : undefined,
   };
 }

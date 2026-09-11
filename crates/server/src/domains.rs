@@ -409,6 +409,10 @@ impl ServerApplicationDomains {
             | DomainCommand::PiCredentialsSave
             | DomainCommand::PiRuntimeSave
             | DomainCommand::PiCommandValidate
+            | DomainCommand::PiProjectTrustState
+            | DomainCommand::PiProjectTrustSet
+            | DomainCommand::PiProjectTrustAcknowledge
+            | DomainCommand::PiTrustEntries
             | DomainCommand::OpenCodePluginList
             | DomainCommand::OpenCodePluginAdd
             | DomainCommand::OpenCodePluginInstall

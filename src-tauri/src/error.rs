@@ -80,6 +80,7 @@ impl From<git::GitServiceError> for AppError {
             git::GitServiceError::BranchNotFound(branch) => {
                 AppError::NotFound(format!("Branch not found: {}", branch))
             }
+            other if other.is_user_facing() => AppError::BadRequest(other.to_string()),
             other => AppError::Internal(other.to_string()),
         }
     }

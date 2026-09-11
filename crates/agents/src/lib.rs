@@ -46,6 +46,7 @@ pub mod npm_registry;
 pub mod operations;
 pub mod parsers;
 pub mod permissions;
+pub mod pi_trust;
 pub mod plan_usage;
 pub mod profiles;
 pub mod registry_client;
@@ -80,10 +81,11 @@ pub use api_types::{
 };
 pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
-    apply_built_in_launch_policy, auth_mode_credential_env, auth_mode_kind,
-    auto_approve_mode_for_launch, built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys,
-    is_non_official_api_url, native_uses_custom_endpoint, official_api_url,
-    resolve_built_in_auth_mode,
+    apply_built_in_launch_policy, apply_pi_native_launch_env, auth_mode_credential_env,
+    auth_mode_kind, auto_approve_mode_for_launch, bind_pi_acp_pi_command,
+    built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys, is_non_official_api_url,
+    native_uses_custom_endpoint, official_api_url, resolve_built_in_auth_mode,
+    resolve_pi_acp_command,
 };
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,
@@ -95,8 +97,9 @@ pub use capability::AcpCapabilityNormalizer;
 pub use cli_exposure::{
     CliExposureError, PublishedCliCommand, ShellFamily, ensure_user_cli_path,
     export_managed_node_to_user_environment, publish_managed_runtime_cli,
-    publish_user_toolchain_commands, published_cli_shim_agent, remove_managed_runtime_cli,
-    remove_orphaned_cli_shims, resolve_user_runtime_command, switch_managed_runtime_cli,
+    publish_user_toolchain_commands, published_cli_shim_agent, published_cli_shim_target,
+    remove_managed_runtime_cli, remove_orphaned_cli_shims, resolve_user_runtime_command,
+    switch_managed_runtime_cli,
 };
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,

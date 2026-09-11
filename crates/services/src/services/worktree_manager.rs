@@ -623,20 +623,13 @@ impl WorktreeManager {
         branch_name: &str,
         start_point: Option<&str>,
     ) -> Result<(), GitServiceError> {
-        if let Some(start_point) = start_point
-            && !Self::local_branch_exists(git_repo_path, branch_name)
-        {
-            let start_point =
-                git_service.refresh_worktree_start_point(git_repo_path, start_point)?;
-            return git_service.add_worktree_from_ref(
-                git_repo_path,
-                worktree_path,
-                branch_name,
-                &start_point,
-            );
+        if Self::local_branch_exists(git_repo_path, branch_name) {
+            return git_service.add_worktree(git_repo_path, worktree_path, branch_name, false);
         }
 
-        git_service.add_worktree(git_repo_path, worktree_path, branch_name, false)
+        let start_point = start_point.unwrap_or("HEAD");
+        let start_point = git_service.refresh_worktree_start_point(git_repo_path, start_point)?;
+        git_service.add_worktree_from_ref(git_repo_path, worktree_path, branch_name, &start_point)
     }
 
     fn local_branch_exists(git_repo_path: &Path, branch_name: &str) -> bool {

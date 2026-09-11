@@ -6504,6 +6504,81 @@
   font-weight: 600;
 }
 
+.settings-page .pi-reasoning-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.settings-page .pi-reasoning-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 0.75rem;
+}
+
+.settings-page .pi-thinking-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-page .pi-thinking-chip {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border-content);
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6875rem;
+}
+
+.settings-page .pi-thinking-chip.is-active {
+  border-color: hsl(var(--primary) / 0.42);
+  background: hsl(var(--primary) / 0.08);
+  color: var(--text-strong);
+}
+
+.settings-page .pi-wire-values {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-page .pi-wire-values summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.settings-page .pi-wire-values label {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6875rem;
+}
+
+.settings-page .pi-wire-values input {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border-content);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+  color: var(--text-strong);
+  font-size: 0.75rem;
+}
+
+.settings-page .pi-configuration-body .pi-configuration-state,
+.settings-page .pi-configuration-body .pi-configuration-error {
+  padding: 0;
+}
+
 .settings-page .pi-configuration-actions {
   display: flex;
   min-height: 28px;

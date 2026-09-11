@@ -42,10 +42,201 @@ pub enum GitServiceError {
     WorktreeDirty(String, String),
     #[error("Rebase in progress; resolve or abort it before retrying")]
     RebaseInProgress,
+    #[error("git operation in progress: {operation}")]
+    OperationInProgress { operation: String },
+    #[error("branch '{branch}' is already checked out at {path}")]
+    AlreadyCheckedOut { branch: String, path: String },
+    #[error("invalid git reference: {0}")]
+    InvalidReference(String),
     #[error(
         "Git commit identity is not configured; set user.name and user.email before committing"
     )]
     CommitIdentityNotConfigured,
+}
+
+impl GitServiceError {
+    pub fn from_cli(error: GitCliError) -> Self {
+        match error {
+            GitCliError::RebaseInProgress => Self::RebaseInProgress,
+            GitCliError::CommandFailed(message) => classify_worktree_cli_error(&message).unwrap_or(
+                Self::InvalidRepository(format!("git command failed: {message}")),
+            ),
+            other => Self::GitCLI(other),
+        }
+    }
+
+    pub fn is_user_facing(&self) -> bool {
+        matches!(
+            self,
+            Self::WorktreeDirty(_, _)
+                | Self::RebaseInProgress
+                | Self::OperationInProgress { .. }
+                | Self::AlreadyCheckedOut { .. }
+                | Self::InvalidReference(_)
+                | Self::BranchNotFound(_)
+                | Self::MergeConflicts { .. }
+        )
+    }
+
+    pub fn is_user_facing_message(message: &str) -> bool {
+        classify_worktree_cli_error(message).is_some()
+            || message.contains("already checked out")
+            || message.contains("invalid git reference")
+            || message.contains("git operation in progress")
+            || message.contains("Rebase in progress")
+    }
+}
+
+/// Map git CLI stderr/stdout from worktree add/checkout into a stable error.
+pub fn classify_worktree_cli_error(output: &str) -> Option<GitServiceError> {
+    let lowered = output.to_ascii_lowercase();
+
+    if let Some((branch, path)) = parse_already_checked_out(output) {
+        return Some(GitServiceError::AlreadyCheckedOut { branch, path });
+    }
+
+    if lowered.contains("rebase in progress")
+        || lowered.contains("you are currently rebasing")
+        || lowered.contains("interactive rebase already started")
+    {
+        return Some(GitServiceError::RebaseInProgress);
+    }
+    if lowered.contains("you are in the middle of a merge")
+        || lowered.contains("merging is not possible")
+        || lowered.contains("you have not concluded your merge")
+    {
+        return Some(GitServiceError::OperationInProgress {
+            operation: "merge".to_string(),
+        });
+    }
+    if lowered.contains("cherry-pick") && lowered.contains("in progress") {
+        return Some(GitServiceError::OperationInProgress {
+            operation: "cherry-pick".to_string(),
+        });
+    }
+    if lowered.contains("revert") && lowered.contains("in progress") {
+        return Some(GitServiceError::OperationInProgress {
+            operation: "revert".to_string(),
+        });
+    }
+    if lowered.contains("unmerged files") || lowered.contains("unmerged paths") {
+        return Some(GitServiceError::OperationInProgress {
+            operation: "merge".to_string(),
+        });
+    }
+
+    if lowered.contains("invalid reference")
+        || lowered.contains("needed a single revision")
+        || lowered.contains("unknown revision")
+        || lowered.contains("bad revision")
+        || lowered.contains("ambiguous argument")
+        || (lowered.contains("not a valid object name") && !lowered.contains("already checked out"))
+    {
+        return Some(GitServiceError::InvalidReference(
+            parse_invalid_reference(output).unwrap_or_else(|| output.trim().to_string()),
+        ));
+    }
+
+    if lowered.contains("local changes") && lowered.contains("would be overwritten") {
+        return Some(GitServiceError::WorktreeDirty(
+            "working tree".to_string(),
+            "local changes would be overwritten".to_string(),
+        ));
+    }
+
+    None
+}
+
+fn parse_already_checked_out(output: &str) -> Option<(String, String)> {
+    for line in output.lines() {
+        let line = line.trim();
+        let Some(rest) = line
+            .strip_prefix("fatal: ")
+            .or_else(|| line.strip_prefix("error: "))
+            .or_else(|| Some(line))
+        else {
+            continue;
+        };
+        let Some((branch_part, path_part)) = rest.split_once(" is already checked out at ") else {
+            continue;
+        };
+        let branch = branch_part.trim().trim_matches('\'').trim_matches('"');
+        let path = path_part
+            .trim()
+            .trim_end_matches('.')
+            .trim_matches('\'')
+            .trim_matches('"');
+        if !branch.is_empty() && !path.is_empty() {
+            return Some((branch.to_string(), path.to_string()));
+        }
+    }
+    None
+}
+
+fn parse_invalid_reference(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let lower = line.to_ascii_lowercase();
+        if let Some(index) = lower.find("invalid reference:") {
+            let name = line[index + "invalid reference:".len()..].trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod classify_worktree_cli_error_tests {
+    use super::{GitServiceError, classify_worktree_cli_error};
+
+    #[test]
+    fn classifies_already_checked_out() {
+        let error = classify_worktree_cli_error(
+            "--- stderr\nfatal: 'main' is already checked out at '/tmp/project'\n",
+        )
+        .expect("classified");
+        match error {
+            GitServiceError::AlreadyCheckedOut { branch, path } => {
+                assert_eq!(branch, "main");
+                assert_eq!(path, "/tmp/project");
+            }
+            other => panic!("unexpected {other}"),
+        }
+    }
+
+    #[test]
+    fn classifies_invalid_reference() {
+        let error = classify_worktree_cli_error(
+            "git command failed: fatal: invalid reference: vu/0686-new-session-work",
+        )
+        .expect("classified");
+        match error {
+            GitServiceError::InvalidReference(name) => {
+                assert!(name.contains("vu/0686-new-session-work"));
+            }
+            other => panic!("unexpected {other}"),
+        }
+    }
+
+    #[test]
+    fn classifies_merge_in_progress() {
+        let error = classify_worktree_cli_error(
+            "error: Merging is not possible because you have unmerged files.",
+        )
+        .expect("classified");
+        match error {
+            GitServiceError::OperationInProgress { operation } => {
+                assert_eq!(operation, "merge");
+            }
+            other => panic!("unexpected {other}"),
+        }
+    }
+
+    #[test]
+    fn ignores_unrelated_failures() {
+        assert!(classify_worktree_cli_error("fatal: not a git repository").is_none());
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]

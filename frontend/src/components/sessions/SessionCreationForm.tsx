@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@astryxdesign/core/Badge';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   jsonValueToString,
@@ -100,7 +103,7 @@ interface SessionCreationFormProps {
   canSubmit: boolean;
   isSubmitting: boolean;
   errorMessage?: string | null;
-  onSubmit: () => void;
+  onSubmit: (input?: { includeUncommitted?: boolean }) => void;
   onCancel?: () => void;
   onRemoteSessionImported?: (conversationId: string) => void;
   submitLabel?: string;
@@ -142,7 +145,13 @@ export function SessionCreationForm({
   gitInitIncomplete = false,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const [includeUncommitted, setIncludeUncommitted] = useState(false);
   const { config } = useUserSystem();
+  useEffect(() => {
+    if (mode !== 'new_workspace') {
+      setIncludeUncommitted(false);
+    }
+  }, [mode]);
   const queryClient = useQueryClient();
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
   const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
@@ -459,6 +468,13 @@ export function SessionCreationForm({
   const preparationError = catalogQuery.error
     ? formatSessionControlsError(t, executor, catalogQuery.error)
     : null;
+  const formError = errorMessage
+    ? {
+        title: t('sessionCreation.createFailed'),
+        detail: errorMessage,
+        showDiagnosticsLink: false,
+      }
+    : preparationError;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
     selectedWorkspaceOption
@@ -508,7 +524,10 @@ export function SessionCreationForm({
       className={cn('space-y-4', className)}
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit();
+        onSubmit({
+          includeUncommitted:
+            mode === 'new_workspace' ? includeUncommitted : false,
+        });
       }}
     >
       {title || gitInitIncomplete ? (
@@ -581,6 +600,14 @@ export function SessionCreationForm({
             className="space-y-2"
             dropdownSide={dropdownSide}
           />
+          <label className="flex items-center gap-2 pt-1 text-[11px] text-foreground">
+            <Checkbox
+              checked={includeUncommitted}
+              onCheckedChange={setIncludeUncommitted}
+              disabled={isSubmitting}
+            />
+            {t('sessionCreation.includeUncommitted')}
+          </label>
         </div>
       )}
 
@@ -801,30 +828,24 @@ export function SessionCreationForm({
         ) : null}
       </div>
 
-      {errorMessage || preparationError ? (
-        <div className="space-y-2 text-sm text-destructive">
-          <p className="whitespace-pre-wrap">
-            {errorMessage ?? preparationError?.title}
-          </p>
-          {preparationError?.detail && !errorMessage ? (
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px] text-foreground">
-              {preparationError.detail}
-            </pre>
-          ) : null}
-          {preparationError?.showDiagnosticsLink &&
-          executor &&
-          !errorMessage ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => openAgentDiagnostics(executor)}
-            >
-              {t('sessionCreation.viewDiagnostics')}
-            </Button>
-          ) : null}
-        </div>
+      {formError ? (
+        <SessionCreationStatusCard
+          title={formError.title}
+          detail={formError.detail}
+          action={
+            formError.showDiagnosticsLink && executor ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => openAgentDiagnostics(executor)}
+              >
+                {t('sessionCreation.viewDiagnostics')}
+              </Button>
+            ) : null
+          }
+        />
       ) : null}
 
       <div className="flex items-center justify-end gap-2">
@@ -851,6 +872,55 @@ export function SessionCreationForm({
   );
 }
 
+function SessionCreationStatusCard({
+  title,
+  detail,
+  action,
+}: {
+  title: string;
+  detail: string | null;
+  action?: ReactNode;
+}) {
+  const { t } = useTranslation('conversation');
+  return (
+    <div
+      className="composer-status-surface rounded-lg"
+      data-testid="session-creation-status-card"
+    >
+      <div
+        className="composer-status-row text-xs"
+        data-tone="error"
+        role="alert"
+      >
+        <div className="composer-status-header">
+          <div className="composer-status-heading">
+            <p className="composer-status-title text-foreground">{title}</p>
+            <Badge
+              className="composer-status-badge"
+              variant="error"
+              label={t('statusDock.errorBadge')}
+            />
+          </div>
+          {action ? (
+            <div className="flex shrink-0 items-center gap-1">{action}</div>
+          ) : null}
+        </div>
+        {detail ? (
+          <ConversationStatusDetails
+            key={detail}
+            title={title}
+            label={t('statusDock.showDetails')}
+            accessibleLabel={t('statusDock.showDetailsFor', { title })}
+            mono
+          >
+            <p className="whitespace-pre-wrap break-words">{detail}</p>
+          </ConversationStatusDetails>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function formatSessionControlsError(
   t: TFunction,
   agent: string | null,
@@ -870,11 +940,8 @@ function formatSessionControlsError(
     };
   }
   return {
-    title: t('sessionCreation.controlsPrepareFailed', {
-      agent,
-      error: raw,
-    }),
-    detail: null,
+    title: t('sessionCreation.controlsPrepareFailed', { agent }),
+    detail: raw || null,
     showDiagnosticsLink: false,
   };
 }

@@ -536,6 +536,7 @@ export function PiConfigurationPanel({
               <label>
                 {t('agents.piProviderLabel')}
                 <select
+                  className="raised-control"
                   disabled={busy}
                   name="pi_provider"
                   value={selectedProvider}
@@ -583,6 +584,7 @@ export function PiConfigurationPanel({
                 <label>
                   {t('agents.customProviderProtocol')}
                   <select
+                    className="raised-control"
                     disabled={busy}
                     name="pi_custom_api"
                     value={customApi}
@@ -708,6 +710,7 @@ export function PiConfigurationPanel({
               <label>
                 {t('agents.piThinkingLevel')}
                 <select
+                  className="raised-control"
                   disabled={busy || (isCustom && !reasoning.enabled)}
                   name="pi_thinking_level"
                   value={

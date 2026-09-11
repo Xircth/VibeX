@@ -352,7 +352,9 @@ describe('AgentDetail', () => {
     const repair = screen.getByRole('button', { name: '修复安装' });
     expect(checkNow.closest('.agent-section-heading-toggle')).toBeNull();
     expect(checkNow.closest('.agent-section-heading-actions')).not.toBeNull();
-    expect(diagnostics.closest('.agent-section-heading-actions')).not.toBeNull();
+    expect(
+      diagnostics.closest('.agent-section-heading-actions')
+    ).not.toBeNull();
     expect(repair.closest('.agent-section-heading-actions')).not.toBeNull();
     await userEvent.click(checkNow);
     await userEvent.click(diagnostics);

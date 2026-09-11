@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getFilePreviewKind,
+  isAutoPreviewPath,
   isBinaryContentError,
   isBinaryPreviewPath,
   isImagePreviewPath,
@@ -34,6 +35,23 @@ describe('filePreviewKind', () => {
     expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('binary');
     expect(getFilePreviewKind('C:/repo/docs/data.xlsx')).toBe('binary');
     expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('binary');
+  });
+
+  it('auto-opens only the files that render without an editor', () => {
+    expect(isAutoPreviewPath('C:/repo/docs/page.html')).toBe(true);
+    expect(isAutoPreviewPath('C:/repo/docs/page.htm')).toBe(true);
+    expect(isAutoPreviewPath('C:/repo/docs/icon.SVG')).toBe(true);
+    expect(isAutoPreviewPath('C:\\repo\\docs\\icon.svg')).toBe(true);
+  });
+
+  it('leaves other renderable files to the user to open', () => {
+    // Images render too, but a screenshot appearing is not a reason for a tab.
+    expect(isAutoPreviewPath('C:/repo/docs/shot.png')).toBe(false);
+    expect(isAutoPreviewPath('C:/repo/docs/spec.pdf')).toBe(false);
+    expect(isAutoPreviewPath('C:/repo/README.md')).toBe(false);
+    expect(isAutoPreviewPath('C:/repo/page.html.bak')).toBe(false);
+    expect(isAutoPreviewPath(null)).toBe(false);
+    expect(isAutoPreviewPath(undefined)).toBe(false);
   });
 
   it('detects binary-content read errors', () => {

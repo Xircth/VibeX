@@ -1226,6 +1226,17 @@ impl AgentRuntime {
         ))
     }
 
+    pub async fn live_connection_id(
+        &self,
+        session_id: AgentSessionId,
+    ) -> Option<AgentConnectionId> {
+        let state = self.state.read().await;
+        state
+            .sessions
+            .get(&session_id)
+            .map(|session| session.snapshot.connection_id)
+    }
+
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;

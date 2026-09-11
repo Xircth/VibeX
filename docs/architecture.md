@@ -208,7 +208,7 @@ Workspace-less conversation（ADR-0006）是已接受目标：`sessions.workspac
 - 执行：Full Trust（ADR-0048）。独立 Worker/App frame 提供崩溃与热更新隔离，不是安全沙箱。
 - 贡献：Agent（Skill/MCP/Hook/Workflow）、App（opener/preview/设置/命令/surface）、Host（Worker/事件）、Runtime。
 - 官方产品 MCP（启用插件后才注入后续 Agent session）：`vibex-session-mcp`、`vibex-delegation-mcp`、`vibex-workflow-mcp`、`vibex-plugin-dev-mcp`（`crates/plugins/src/official_mcp.rs`）。
-- 发行快照在 `assets/plugins/`（session-enhance、multi-agent、workflow-creator、office、plugin-development、remote-ssh）。`host-chrome`、`host-surface`、`provider-import` 是作者参考包，不进市场与发行物。
+- 发行快照在 `assets/plugins/`（session-enhance、multi-agent、workflow-creator、office、plugin-development、remote-ssh、science）。`host-chrome`、`host-surface`、`provider-import` 是作者参考包，不进市场与发行物。
 - 「一切皆插件」（ADR-0069）：L0 基座不插件化（会话核、ACP、git、DB、插件内核）；L1 Provider 缝与 L2 UI slot 按接管面总表推进。官方能力插件与第三方走同一控制面，无特权。
 
 [`docs/plugins/platform-architecture.md`](./plugins/platform-architecture.md) 仍有设计期问题陈述（`OfficeRuntime`、v2/v3 双表）。以 `crates/plugins` + ADR-0046/0047/0048/0069 为准。

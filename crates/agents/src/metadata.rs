@@ -103,6 +103,98 @@ pub fn opencode_auth_path_from_env(env: &HashMap<String, String>) -> Option<Path
         .or_else(opencode_auth_path)
 }
 
+pub fn mimo_native_binding_path(
+    binding_id: &str,
+    home: &Path,
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    let env: HashMap<String, String> = environment
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    match binding_id {
+        "mimo_auth" => Some(mimo_auth_path(home, &env)),
+        "mimo_config" => Some(mimo_config_file(home, &env)),
+        _ => None,
+    }
+}
+
+pub fn mimo_config_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    dirs::home_dir().map(|home| mimo_config_dir(&home, env))
+}
+
+pub fn mimo_auth_path_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    dirs::home_dir().map(|home| mimo_auth_path(&home, env))
+}
+
+pub fn mimo_config_path_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    dirs::home_dir().map(|home| mimo_config_file(&home, env))
+}
+
+pub fn mimo_cache_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    dirs::home_dir().map(|home| mimo_cache_dir(&home, env))
+}
+
+fn mimo_config_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+    if let Some(root) = mimo_home_from_env(env) {
+        return root.join("config");
+    }
+    xdg_dir_from_env(env, "XDG_CONFIG_HOME")
+        .map(|root| root.join("mimocode"))
+        .unwrap_or_else(|| home.join(".config").join("mimocode"))
+}
+
+fn mimo_auth_path(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+    if let Some(root) = mimo_home_from_env(env) {
+        return root.join("data").join("auth.json");
+    }
+    xdg_dir_from_env(env, "XDG_DATA_HOME")
+        .map(|root| root.join("mimocode").join("auth.json"))
+        .unwrap_or_else(|| {
+            home.join(".local")
+                .join("share")
+                .join("mimocode")
+                .join("auth.json")
+        })
+}
+
+fn mimo_config_file(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+    let dir = mimo_config_dir(home, env);
+    let json = dir.join("mimocode.json");
+    let jsonc = dir.join("mimocode.jsonc");
+    if json.is_file() {
+        json
+    } else if jsonc.is_file() {
+        jsonc
+    } else {
+        json
+    }
+}
+
+fn mimo_cache_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
+    if let Some(root) = mimo_home_from_env(env) {
+        return root.join("cache");
+    }
+    xdg_dir_from_env(env, "XDG_CACHE_HOME")
+        .map(|root| root.join("mimocode"))
+        .unwrap_or_else(|| home.join(".cache").join("mimocode"))
+}
+
+fn mimo_home_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    env.get("MIMOCODE_HOME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_home_prefix(dirs::home_dir().as_deref(), value))
+        .or_else(|| {
+            std::env::var("MIMOCODE_HOME")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(|value| expand_home_prefix(dirs::home_dir().as_deref(), &value))
+        })
+        .filter(|path| path.is_absolute())
+}
+
 pub fn opencode_cache_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
     xdg_dir_from_env(env, "XDG_CACHE_HOME")
         .map(|root| root.join("opencode"))

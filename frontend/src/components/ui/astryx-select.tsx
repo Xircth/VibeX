@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, X } from 'lucide-react';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
-import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 
 /**
@@ -45,7 +45,7 @@ interface AstryxSelectProps {
   onOpenChange?: (open: boolean) => void;
   /**
    * When false, opening the menu does not hide native CEF surfaces. Use for
-   * chrome that stays outside the page, such as the in-panel zoom control.
+   * chrome that stays outside the page.
    */
   occludeNativeSurface?: boolean;
   /** Prefer opening the menu above the trigger so it stays in HTML chrome. */
@@ -61,27 +61,28 @@ interface MenuPosition {
 
 const TRIGGER_GAP = 4;
 const MENU_MAX_HEIGHT = 300;
+const MIN_USABLE_HEIGHT = 64;
+const MIN_BELOW_HEIGHT = 160;
 
-function getMenuPosition(
-  trigger: HTMLElement,
-  preferAbove = false
+export function getMenuPosition(
+  triggerRect: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>,
+  preferAbove = false,
+  viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight
 ): MenuPosition {
-  const rect = trigger.getBoundingClientRect();
-  const spaceBelow = window.innerHeight - rect.bottom - TRIGGER_GAP;
-  const spaceAbove = rect.top - TRIGGER_GAP;
-  const openAbove =
-    preferAbove || (spaceBelow < 160 && spaceAbove > spaceBelow);
-  const maxHeight = Math.min(
-    MENU_MAX_HEIGHT,
-    Math.max(spaceBelow, spaceAbove) - TRIGGER_GAP
-  );
+  const spaceBelow = viewportHeight - triggerRect.bottom - TRIGGER_GAP;
+  const spaceAbove = triggerRect.top - TRIGGER_GAP;
+  const openAbove = preferAbove
+    ? spaceAbove >= MIN_USABLE_HEIGHT || spaceAbove >= spaceBelow
+    : spaceBelow < MIN_BELOW_HEIGHT && spaceAbove > spaceBelow;
+  const available = openAbove ? spaceAbove : spaceBelow;
+  const maxHeight = Math.min(MENU_MAX_HEIGHT, Math.max(available, 0));
   return {
     top: openAbove
-      ? rect.top - TRIGGER_GAP - maxHeight
-      : rect.bottom + TRIGGER_GAP,
-    left: rect.left,
-    width: rect.width,
-    maxHeight: Math.max(maxHeight, 64),
+      ? triggerRect.top - TRIGGER_GAP - maxHeight
+      : triggerRect.bottom + TRIGGER_GAP,
+    left: triggerRect.left,
+    width: triggerRect.width,
+    maxHeight,
   };
 }
 
@@ -103,7 +104,6 @@ export function AstryxSelect({
   preferAbove = false,
 }: AstryxSelectProps) {
   const container = usePortalContainer();
-  const { setHtmlOverlayOpen } = useWorkspaceOverlay();
   const rootRef = React.useRef<HTMLSpanElement>(null);
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -112,7 +112,6 @@ export function AstryxSelect({
   const [activeIndex, setActiveIndex] = React.useState(-1);
   const [position, setPosition] = React.useState<MenuPosition | null>(null);
   const typeAheadRef = React.useRef({ text: '', at: 0 });
-  const overlayHeldRef = React.useRef(false);
 
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
@@ -125,33 +124,22 @@ export function AstryxSelect({
     [options]
   );
 
-  const holdOverlay = React.useCallback(() => {
-    if (!occludeNativeSurface || overlayHeldRef.current) return;
-    overlayHeldRef.current = true;
-    setHtmlOverlayOpen(true);
-  }, [occludeNativeSurface, setHtmlOverlayOpen]);
-
-  const releaseOverlay = React.useCallback(() => {
-    if (!overlayHeldRef.current) return;
-    overlayHeldRef.current = false;
-    setHtmlOverlayOpen(false);
-  }, [setHtmlOverlayOpen]);
-
   const closeMenu = React.useCallback(() => {
     setOpen(false);
-    releaseOverlay();
     onOpenChange?.(false);
-  }, [onOpenChange, releaseOverlay]);
+  }, [onOpenChange]);
 
   const openMenu = React.useCallback(() => {
-    holdOverlay();
     setOpen(true);
     onOpenChange?.(true);
-  }, [holdOverlay, onOpenChange]);
+  }, [onOpenChange]);
 
   const reposition = React.useCallback(() => {
-    if (triggerRef.current)
-      setPosition(getMenuPosition(triggerRef.current, preferAbove));
+    if (triggerRef.current) {
+      setPosition(
+        getMenuPosition(triggerRef.current.getBoundingClientRect(), preferAbove)
+      );
+    }
   }, [preferAbove]);
 
   React.useEffect(() => {
@@ -191,8 +179,6 @@ export function AstryxSelect({
     );
     active?.scrollIntoView?.({ block: 'nearest' });
   }, [activeIndex, open]);
-
-  React.useEffect(() => () => releaseOverlay(), [releaseOverlay]);
 
   const moveActive = React.useCallback(
     (delta: number) => {
@@ -384,6 +370,7 @@ export function AstryxSelect({
                 triggerRef.current?.focus();
               }}
             >
+              {occludeNativeSurface ? <NativeSurfaceOcclusionHold /> : null}
               {options.length === 0 ? (
                 <div className="astryx-select-empty">
                   {emptyLabel ?? placeholder}

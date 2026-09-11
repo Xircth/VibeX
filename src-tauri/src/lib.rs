@@ -709,6 +709,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::remote_desktop::remote_desktop_cancel_subscription,
         commands::terminal::open_external_terminal,
         commands::filesystem::reveal_in_file_manager,
+        commands::filesystem::allow_preview_asset_scope,
         tray::update_tray_badge,
         commands::repos::open_repo_in_editor,
         commands::desktop_toast::show_desktop_toast,

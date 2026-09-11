@@ -1,6 +1,6 @@
 [package]
 name = "vibex"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 default-run = "vibex"
 
@@ -13,7 +13,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri-plugin-redline = "=0.1.0"
 tauri-plugin-vibex-inspector = { path = "../.vibex/tauri-plugin-vibex-inspector" }
-tauri = { version = "2", features = ["image-png", "tray-icon", "macos-private-api"] }
+tauri = { version = "2", features = ["image-png", "tray-icon", "macos-private-api", "protocol-asset"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"

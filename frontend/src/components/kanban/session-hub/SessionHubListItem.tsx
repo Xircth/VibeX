@@ -193,7 +193,6 @@ export function SessionHubListItem({
       aria-busy={isOpening || undefined}
       onClick={onClick}
       onContextMenu={(event) => {
-        if (isCanvasMode) return;
         event.preventDefault();
         event.stopPropagation();
         setContextMenu({ x: event.clientX, y: event.clientY });
@@ -438,6 +437,33 @@ export function SessionHubListItem({
             <FileCode className="h-3.5 w-3.5" />
             {t('hubListItem.exportAsHtml')}
           </button>
+          {onRenameSession ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                setDraftName(session.fullName);
+                setIsEditing(true);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t('common:contextMenu.rename')}
+            </button>
+          ) : null}
+          {onDeleteSession ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                setContextMenu(null);
+                void onDeleteSession();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('hubListItem.deleteSession')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

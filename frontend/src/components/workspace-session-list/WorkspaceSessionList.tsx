@@ -130,7 +130,7 @@ export function WorkspaceSessionList({
   currentExecutionPlacement = null,
   sortSpecs = [],
 }: WorkspaceSessionListProps) {
-  const { t } = useTranslation(['panels']);
+  const { t } = useTranslation(['panels', 'common']);
   const [orderByWorkspace, setOrderByWorkspace] = useState(
     readWorkspaceSessionOrders
   );
@@ -784,7 +784,7 @@ function WorkspaceSessionRow({
   listeners?: HTMLAttributes<HTMLElement>;
   isDragging?: boolean;
 }) {
-  const { t } = useTranslation(['panels', 'tasks']);
+  const { t } = useTranslation(['panels', 'tasks', 'common']);
   const kanbanSessions = useOptionalKanbanSessionContext();
   const title = sessionListTitle(session);
   const tone = workspaceSessionStatusTone(session);
@@ -1080,6 +1080,35 @@ function WorkspaceSessionRow({
               {t('workspaceSessionList.archive')}
             </button>
           ) : null}
+          {onPin ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                onPin(!isPinned);
+              }}
+            >
+              <Pin className="h-3.5 w-3.5" />
+              {isPinned
+                ? t('workspaceSessionList.unpin')
+                : t('workspaceSessionList.pin')}
+            </button>
+          ) : null}
+          {onRename ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                setDraftName(title);
+                setIsEditing(true);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t('common:contextMenu.rename')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
@@ -1144,6 +1173,19 @@ function WorkspaceSessionRow({
             <FileCode className="h-3.5 w-3.5" />
             {t('tasks:hubListItem.exportAsHtml')}
           </button>
+          {onDelete ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                setContextMenu(null);
+                void onDelete();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('workspaceSessionList.deleteSession')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -37,6 +37,7 @@ import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
+import { useAppContextMenu } from '@/components/context-menu';
 
 type DockviewPanelModule = {
   default: ComponentType<IDockviewPanelProps>;
@@ -340,6 +341,8 @@ export function WorkspaceDockviewTab({
   onPointerLeave,
   ...rest
 }: WorkspaceDockviewTabProps) {
+  const { t } = useTranslation(['common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const [title, setTitle] = React.useState(api.title ?? '');
   const [tabParams, setTabParams] = React.useState<WorkspaceTabParams>(
     params ?? {}
@@ -389,6 +392,37 @@ export function WorkspaceDockviewTab({
       data-testid="dockview-dv-default-tab"
       title={title}
       className="dv-default-tab workspace-tab-surface"
+      onContextMenu={(event) => {
+        const group = api.group;
+        const panels = group?.panels ?? [];
+        const index = panels.findIndex((panel) => panel.id === api.id);
+        openSurfaceMenu(event, [
+          {
+            id: 'close',
+            label: t('contextMenu.closeTab'),
+            disabled: hideClose,
+            onSelect: () => onClose(event),
+          },
+          {
+            id: 'close-others',
+            label: t('contextMenu.closeOtherTabs'),
+            disabled: panels.length <= 1,
+            onSelect: () => {
+              panels
+                .filter((panel) => panel.id !== api.id)
+                .forEach((panel) => panel.api.close());
+            },
+          },
+          {
+            id: 'close-right',
+            label: t('contextMenu.closeTabsToRight'),
+            disabled: index < 0 || index >= panels.length - 1,
+            onSelect: () => {
+              panels.slice(index + 1).forEach((panel) => panel.api.close());
+            },
+          },
+        ]);
+      }}
       onPointerDown={(event) => {
         isMiddleMouseButton.current = event.button === 1;
         onPointerDown?.(event);

@@ -36,7 +36,7 @@ pub(super) async fn collect(
     state: &AppState,
     agent_id: AgentId,
 ) -> Result<AgentEnvironmentDiagnosticsView, AgentManagementErrorView> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(&agent_id).ok_or_else(|| {
         management_error(
             AgentManagementErrorCode::InvalidState,

@@ -648,6 +648,11 @@ button.conv-tool-artifact-title:hover {
   }
 }
 
+.conv-assistant-body .astryx-chat-tool-calls {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
 .astryx-chat-tool-calls [role='button'] {
   border-radius: var(--radius) !important;
 }
@@ -926,7 +931,7 @@ button.vibex-tool-call-target-label:hover {
  * ========================================= */
 
 .conv-thinking {
-  padding: 2px 0;
+  padding: 0;
 }
 
 .conv-thinking-header {
@@ -940,7 +945,7 @@ button.vibex-tool-call-target-label:hover {
   user-select: none;
   background: transparent;
   border: none;
-  padding: 0;
+  padding: 2px 0;
   text-align: left;
 }
 

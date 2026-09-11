@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deleteSessionComposerStructuredToken,
+  formatQuoteToken,
   formatSessionComposerCommand,
   getSessionComposerFileRefs,
   getSessionComposerPluginActionInvocations,
@@ -8,6 +9,8 @@ import {
   getSessionComposerStructuredTokens,
   insertFileReferenceToken,
   insertPreviewElementToken,
+  insertQuoteToken,
+  quoteTokenChipLabel,
   serializeSessionComposerBackendMessage,
 } from './sessionComposerStructuredTokens';
 
@@ -346,5 +349,51 @@ describe('session composer structured commands', () => {
         raw: '[&Codex](vibex://agent/codex)',
       }),
     ]);
+  });
+
+  it('formats a quote token as [:quote](context) and chips the first four characters', () => {
+    const raw = formatQuoteToken('请你帮我完成这次修改');
+    expect(raw).toBe('[:quote](请你帮我完成这次修改)');
+    expect(quoteTokenChipLabel('请你帮我完成这次修改')).toBe('@请你帮我...');
+    expect(quoteTokenChipLabel('**请你帮我完成这次修改**')).toBe(
+      '@请你帮我...'
+    );
+    expect(getSessionComposerStructuredTokens(raw)).toEqual([
+      expect.objectContaining({
+        kind: 'quote',
+        label: '@请你帮我...',
+        value: '请你帮我完成这次修改',
+        raw,
+      }),
+    ]);
+    expect(serializeSessionComposerBackendMessage(`See ${raw}`)).toBe(
+      `See ${raw}`
+    );
+  });
+
+  it('keeps a short quote label without an ellipsis and escapes parentheses', () => {
+    const raw = formatQuoteToken('帮我)');
+    expect(raw).toBe('[:quote](帮我\\))');
+    expect(getSessionComposerStructuredTokens(raw)).toEqual([
+      expect.objectContaining({
+        kind: 'quote',
+        label: '@帮我)',
+        value: '帮我)',
+      }),
+    ]);
+  });
+
+  it('inserts a quote token with boundary spacing', () => {
+    expect(
+      insertQuoteToken({
+        value: 'Please  check',
+        selectionStart: 7,
+        selectionEnd: 7,
+        context: '请你帮我完成这次修改',
+      })
+    ).toEqual({
+      value: `Please ${formatQuoteToken('请你帮我完成这次修改')} check`,
+      caretOffset: `Please ${formatQuoteToken('请你帮我完成这次修改')} `.length,
+    });
   });
 });

@@ -66,6 +66,7 @@ import {
   type PluginImportPreview,
   type PluginRuntimeInventoryItem,
 } from '@/lib/api/plugins';
+import { getInvokeErrorMessage } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { useBackendTransport } from '@/lib/transport';
 import { SettingsSection } from './SettingsUi';
@@ -1324,7 +1325,7 @@ export function PluginsSettings({
         setCapabilitySetup({ ...plugin, ...updated, enabled: true });
       }
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = getInvokeErrorMessage(cause);
       setError(message);
       toast.error(
         t(enabled ? 'plugins.enableFailed' : 'plugins.disableFailed', {

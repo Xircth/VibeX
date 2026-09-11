@@ -175,7 +175,3 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
-export function isTauriRuntime(): boolean {
-  return '__TAURI_INTERNALS__' in window;
-}

@@ -66,6 +66,62 @@ describe('AgentSelector unavailable status', () => {
   });
 });
 
+describe('AgentSelector list membership', () => {
+  beforeEach(() => {
+    agentManagementBar.mockReset();
+  });
+
+  it('lists enabled installed Agents and omits uninstalled built-in Agents', async () => {
+    agentManagementBar.mockResolvedValue([
+      managementView({
+        agent_id: 'grok',
+        display_name: 'Grok',
+        lifecycle: 'ready',
+      }),
+      managementView({
+        agent_id: 'codex',
+        display_name: 'Codex',
+        lifecycle: 'needs_auth',
+      }),
+      managementView({
+        agent_id: 'pi',
+        display_name: 'Pi',
+        lifecycle: 'uninstalled',
+      }),
+      managementView({
+        agent_id: 'opencode',
+        display_name: 'OpenCode',
+        enabled: false,
+        lifecycle: 'ready',
+      }),
+    ]);
+
+    render(
+      <AgentSelector
+        profiles={PROFILES}
+        selectedExecutorProfile={{ executor: 'grok', variant: null }}
+        onChange={() => {}}
+      />
+    );
+
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'agentSelector.selectAgentAriaLabel',
+      })
+    );
+
+    const items = await screen.findAllByRole('menuitem');
+    const labels = items.map((item) => item.textContent ?? '');
+    expect(labels.some((label) => label.includes('Grok'))).toBe(true);
+    expect(labels.some((label) => label.includes('Codex'))).toBe(true);
+    expect(labels.some((label) => label.includes('Pi'))).toBe(false);
+    expect(labels.some((label) => label.includes('OpenCode'))).toBe(false);
+    expect(
+      items.find((item) => item.textContent?.includes('Codex'))
+    ).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
 describe('AgentSelector agent artwork', () => {
   beforeEach(() => {
     agentManagementBar.mockReset();

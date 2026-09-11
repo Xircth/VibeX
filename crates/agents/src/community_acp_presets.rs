@@ -21,19 +21,36 @@ pub struct CommunityAcpPreset {
 
 const DEEPSEEK_HARNESS_DISTRIBUTION: &str = r#"{"npx":{"package":"deepseek-acp@0.8.0","args":[],"env":{},"integrity":"sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg=="}}"#;
 
-const COMMUNITY_ACP_PRESETS: &[CommunityAcpPreset] = &[CommunityAcpPreset {
-    preset_id: "deepseek-acp",
-    agent_id: "deepseek_harness",
-    display_name: "DeepSeek Harness",
-    description: "Community ACP adapter for DeepSeek Harness",
-    authors: &["xintaofei"],
-    repository: "https://github.com/xintaofei/deepseek-acp",
-    version: "0.8.0",
-    distribution_kind: UserAgentDistributionKind::Npx,
-    distribution_json: DEEPSEEK_HARNESS_DISTRIBUTION,
-    icon_light: "/agents/deepseek-harness-light.svg",
-    icon_dark: "/agents/deepseek-harness-dark.svg",
-}];
+const MIMO_CODE_DISTRIBUTION: &str = r#"{"npx":{"package":"@mimo-ai/cli@0.1.14","args":["acp"],"env":{},"integrity":"sha512-L9OQjAeIuWNu9MRKGmaj+aARzY2ShbfugO3ivo0rb9r8OmvolaI0W/iTTbtTwBbBHwqyHuffdplyhFlDouWVug=="}}"#;
+
+const COMMUNITY_ACP_PRESETS: &[CommunityAcpPreset] = &[
+    CommunityAcpPreset {
+        preset_id: "deepseek-acp",
+        agent_id: "deepseek_harness",
+        display_name: "DeepSeek Harness",
+        description: "Community ACP adapter for DeepSeek Harness",
+        authors: &["xintaofei"],
+        repository: "https://github.com/xintaofei/deepseek-acp",
+        version: "0.8.0",
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distribution_json: DEEPSEEK_HARNESS_DISTRIBUTION,
+        icon_light: "/agents/deepseek-harness-light.svg",
+        icon_dark: "/agents/deepseek-harness-dark.svg",
+    },
+    CommunityAcpPreset {
+        preset_id: "mimo-code",
+        agent_id: "mimo_code",
+        display_name: "MiMo Code",
+        description: "Xiaomi MiMo Code native ACP",
+        authors: &["XiaomiMiMo"],
+        repository: "https://github.com/XiaomiMiMo/MiMo-Code",
+        version: "0.1.14",
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distribution_json: MIMO_CODE_DISTRIBUTION,
+        icon_light: "/agents/mimo-code-light.svg",
+        icon_dark: "/agents/mimo-code-dark.svg",
+    },
+];
 
 pub fn bundled_community_acp_presets() -> &'static [CommunityAcpPreset] {
     COMMUNITY_ACP_PRESETS
@@ -65,6 +82,32 @@ mod tests {
         assert_eq!(
             definition.distributions.npx.as_ref().unwrap().package,
             "deepseek-acp@0.8.0"
+        );
+    }
+
+    #[test]
+    fn mimo_code_preset_is_a_valid_user_definition() {
+        let preset = bundled_community_acp_presets()
+            .iter()
+            .find(|preset| preset.preset_id == "mimo-code")
+            .expect("MiMo Code preset");
+        let definition = UserAgentDefinition::parse(
+            AgentId::parse(preset.agent_id).unwrap(),
+            preset.display_name.to_string(),
+            preset.description.to_string(),
+            preset.version.to_string(),
+            preset.distribution_kind,
+            preset.distribution_json,
+        )
+        .expect("preset must parse as a locked user definition");
+        assert_eq!(definition.version, "0.1.14");
+        assert_eq!(
+            definition.distributions.npx.as_ref().unwrap().package,
+            "@mimo-ai/cli@0.1.14"
+        );
+        assert_eq!(
+            definition.distributions.npx.as_ref().unwrap().args,
+            vec!["acp".to_string()]
         );
     }
 }

@@ -7,7 +7,7 @@ import {
   useWorkspaceOverlay,
   WorkspaceOverlayProvider,
 } from '@/contexts/WorkspaceOverlayContext';
-import { AstryxSelect } from './astryx-select';
+import { AstryxSelect, getMenuPosition } from './astryx-select';
 
 const options = [
   { value: 'low', label: 'Low' },
@@ -241,6 +241,45 @@ describe('AstryxSelect', () => {
     );
     await user.click(screen.getByLabelText('Zoom'));
     expect(screen.getByRole('listbox', { name: 'Zoom' })).toBeInTheDocument();
-    expect(onOcclusionChange).not.toHaveBeenCalledWith(true);
+    expect(onOcclusionChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ hide: true })
+    );
+    expect(onOcclusionChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        rects: expect.arrayContaining([expect.anything()]),
+      })
+    );
+  });
+});
+
+describe('getMenuPosition', () => {
+  it('opens below the trigger when there is room underneath', () => {
+    const position = getMenuPosition(
+      { top: 80, bottom: 108, left: 700, width: 80 },
+      false,
+      900
+    );
+    expect(position.top).toBe(112);
+    expect(position.maxHeight).toBeGreaterThan(160);
+  });
+
+  it('keeps a prefer-above menu on screen when the trigger is near the top', () => {
+    const position = getMenuPosition(
+      { top: 80, bottom: 108, left: 700, width: 80 },
+      true,
+      900
+    );
+    expect(position.top).toBe(0);
+    expect(position.top + position.maxHeight).toBe(76);
+  });
+
+  it('opens above the trigger when there is enough chrome space', () => {
+    const position = getMenuPosition(
+      { top: 220, bottom: 248, left: 700, width: 80 },
+      true,
+      900
+    );
+    expect(position.top).toBeGreaterThanOrEqual(0);
+    expect(position.top + position.maxHeight).toBe(216);
   });
 });

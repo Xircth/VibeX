@@ -45,6 +45,9 @@ beforeEach(async () => {
 // Mock Tauri API - all invoke calls return undefined by default
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  // Mirrors the real macOS/Linux asset URL shape closely enough for tests to
+  // assert on the file path the webview would load.
+  convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
   Channel: class MockChannel<T> {
     onmessage: (message: T) => void = () => undefined;
   },

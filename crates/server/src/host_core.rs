@@ -158,6 +158,7 @@ pub fn host_application_core(
     events: Arc<HostEventBus>,
     terminal_bridges: Arc<TerminalBridgeRegistry>,
     agent_management_runtime: Arc<AgentManagementRuntimeState>,
+    delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 ) -> ApplicationCore<SqliteConversationRepository> {
     let domains = Arc::new(ServerApplicationDomains::new(ServerDomainDependencies {
         pool: pool.clone(),
@@ -175,6 +176,7 @@ pub fn host_application_core(
         events,
         terminal_bridges,
         agent_management_runtime,
+        delegation_broker,
     }));
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(

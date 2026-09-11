@@ -6,6 +6,46 @@ import {
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const COMMIT_URI_PREFIX = 'vibex://commit/';
+const QUOTE_TOKEN_PREFIX = '[:quote](';
+const QUOTE_CHIP_CHARS = 4;
+
+function quotePreviewGraphemes(text: string): string[] {
+  const trimmed = text.trim();
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    return Array.from(
+      new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(
+        trimmed
+      ),
+      (part) => part.segment
+    );
+  }
+  return Array.from(trimmed);
+}
+
+function quoteTokenChipSource(text: string): string {
+  return text
+    .replace(/```[^\n]*\n?([\s\S]*?)```/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function quoteTokenChipLabel(text: string): string {
+  const chars = quotePreviewGraphemes(quoteTokenChipSource(text) || text);
+  if (chars.length === 0) return '@';
+  const preview = chars.slice(0, QUOTE_CHIP_CHARS).join('');
+  return chars.length > QUOTE_CHIP_CHARS ? `@${preview}...` : `@${preview}`;
+}
 
 function parseConversationReferenceUri(uri: string): string | null {
   if (!uri.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) return null;
@@ -45,7 +85,8 @@ export type SessionComposerStructuredTokenKind =
   | 'element'
   | 'agent_mention'
   | 'conversation'
-  | 'commit';
+  | 'commit'
+  | 'quote';
 
 export type SessionComposerStructuredToken = {
   kind: SessionComposerStructuredTokenKind;
@@ -140,6 +181,39 @@ function parseConversationReferenceAt(
       title: conversationId,
     },
     end: link.end,
+  };
+}
+
+function parseQuoteTokenAt(
+  source: string,
+  start: number
+): { token: SessionComposerStructuredToken; end: number } | null {
+  if (
+    source.slice(start, start + QUOTE_TOKEN_PREFIX.length) !==
+    QUOTE_TOKEN_PREFIX
+  ) {
+    return null;
+  }
+
+  const valuePart = readEscapedPart(
+    source,
+    start + QUOTE_TOKEN_PREFIX.length,
+    ')'
+  );
+  if (!valuePart) return null;
+
+  const raw = source.slice(start, valuePart.end + 1);
+  return {
+    token: {
+      kind: 'quote',
+      type: '@',
+      key: 'quote',
+      label: quoteTokenChipLabel(valuePart.value),
+      value: valuePart.value,
+      raw,
+      title: valuePart.value,
+    },
+    end: valuePart.end + 1,
   };
 }
 
@@ -608,6 +682,10 @@ export function formatSessionComposerCommand({
   )})`;
 }
 
+export function formatQuoteToken(context: string): string {
+  return `${QUOTE_TOKEN_PREFIX}${escapeCommandPart(context.trim(), ')')})`;
+}
+
 export function getSessionComposerStructuredTokenSegments(
   value: string,
   options: StructuredTokenOptions = {}
@@ -669,6 +747,24 @@ export function getSessionComposerStructuredTokenSegments(
       });
       cursor = commit.end;
       scan = commit.end;
+      continue;
+    }
+
+    const quote = isAgentMentionCodeContext(value, scan)
+      ? null
+      : parseQuoteTokenAt(value, scan);
+    if (quote) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: quote.token,
+        start: scan,
+        end: quote.end,
+      });
+      cursor = quote.end;
+      scan = quote.end;
       continue;
     }
 
@@ -879,7 +975,8 @@ export function serializeSessionComposerBackendMessage(value: string): string {
         ? segment.text
         : segment.token.kind === 'agent_mention' ||
             segment.token.kind === 'conversation' ||
-            segment.token.kind === 'commit'
+            segment.token.kind === 'commit' ||
+            segment.token.kind === 'quote'
           ? segment.token.raw
           : segment.token.value
     )
@@ -1032,5 +1129,24 @@ export function insertPreviewElementToken({
       key,
       value: fullMarkdown,
     }),
+  });
+}
+
+export function insertQuoteToken({
+  value,
+  selectionStart,
+  selectionEnd,
+  context,
+}: {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  context: string;
+}): { value: string; caretOffset: number } {
+  return insertCommandToken({
+    value,
+    selectionStart,
+    selectionEnd,
+    command: formatQuoteToken(context),
   });
 }

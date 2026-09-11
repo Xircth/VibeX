@@ -127,7 +127,7 @@ impl AgentManagementApplicationService {
             .into_iter()
             .map(|definition| (definition.agent_id.clone(), definition))
             .collect::<HashMap<_, _>>();
-        let profiles = BuiltInProfileCatalog::bundled();
+        let profiles = BuiltInProfileCatalog::management();
         let membership_ids = memberships
             .iter()
             .map(|membership| membership.agent_id.clone())

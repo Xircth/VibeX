@@ -1,8 +1,15 @@
-import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import type { BadgeVariant } from '@astryxdesign/core/Badge';
 import { Command, Puzzle, Sparkles } from 'lucide-react';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { cn } from '@/lib/utils';
+import { QuoteTokenPreview } from './QuoteTokenPreview';
 import type {
   SessionComposerStructuredToken,
   SessionComposerStructuredTokenKind,
@@ -22,6 +29,7 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
   agent_mention: 'purple',
   conversation: 'cyan',
   commit: 'cyan',
+  quote: 'cyan',
 };
 
 export function getSessionComposerTokenChipTitle(
@@ -46,8 +54,11 @@ export function getSessionComposerTokenChipClassName(
 ): string {
   return cn(
     'session-composer-token-chip inline-flex max-w-[220px] cursor-default select-none items-center gap-1 align-middle',
-    (token.kind === 'file' || token.kind === 'element') &&
+    (token.kind === 'file' ||
+      token.kind === 'element' ||
+      token.kind === 'quote') &&
       'pointer-events-auto',
+    token.kind === 'quote' && 'cursor-help',
     token.kind === 'plugin_action' && 'mr-1',
     className
   );
@@ -74,6 +85,7 @@ export function SessionComposerTokenIcon({
     case 'conversation':
     case 'commit':
     case 'element':
+    case 'quote':
       return null;
   }
 }
@@ -84,23 +96,62 @@ export function SessionComposerTokenChip({
 }: {
   token: SessionComposerStructuredToken;
 } & HTMLAttributes<HTMLSpanElement>) {
+  const chipRef = useRef<HTMLSpanElement | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
+  const isQuote = token.kind === 'quote';
+
+  const showQuotePreview = () => {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    setQuotePreviewOpen(true);
+  };
+
+  const hideQuotePreview = () => {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = window.setTimeout(() => {
+      setQuotePreviewOpen(false);
+      hideTimerRef.current = null;
+    }, 120);
+  };
+
   return (
-    <span
-      {...elementProps}
-      className={getSessionComposerTokenChipClassName(
-        token,
-        elementProps.className
-      )}
-      data-testid="session-composer-token-chip"
-      data-token-kind={token.kind}
-      data-variant={SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]}
-      data-structured-token-atomic="true"
-      onMouseDown={(event) => event.preventDefault()}
-      title={getSessionComposerTokenChipTitle(token)}
-    >
-      <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
-      <span className="truncate font-medium">{token.label}</span>
-    </span>
+    <>
+      <span
+        {...elementProps}
+        ref={chipRef}
+        className={getSessionComposerTokenChipClassName(
+          token,
+          elementProps.className
+        )}
+        data-testid="session-composer-token-chip"
+        data-token-kind={token.kind}
+        data-variant={SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]}
+        data-structured-token-atomic="true"
+        tabIndex={isQuote ? 0 : elementProps.tabIndex}
+        onMouseDown={(event) => event.preventDefault()}
+        onPointerEnter={isQuote ? showQuotePreview : undefined}
+        onPointerLeave={isQuote ? hideQuotePreview : undefined}
+        onFocus={isQuote ? showQuotePreview : undefined}
+        onBlur={isQuote ? hideQuotePreview : undefined}
+        title={isQuote ? undefined : getSessionComposerTokenChipTitle(token)}
+      >
+        <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
+        <span className="truncate font-medium">{token.label}</span>
+      </span>
+      {isQuote && quotePreviewOpen && chipRef.current ? (
+        <QuoteTokenPreview
+          anchor={chipRef.current}
+          text={token.value}
+          onPointerEnter={showQuotePreview}
+          onPointerLeave={hideQuotePreview}
+        />
+      ) : null}
+    </>
   );
 }
 

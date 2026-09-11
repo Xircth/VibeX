@@ -58,6 +58,8 @@ import {
   toggleFileTreeFolder,
 } from './file-tree-utils';
 import { ConfirmDialog } from '@/components/dialogs';
+import { formatFileTreeStructure } from './fileTreeStructure';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import '@/styles/file-tree.css';
 import type { FileTreeRevealTarget } from '@/stores/useFileTreeStore';
@@ -1169,7 +1171,7 @@ export function FileTreePanel({
 
   const showContextMenu = useCallback(
     (
-      event: MouseEvent<HTMLButtonElement>,
+      event: MouseEvent<HTMLElement>,
       relativePath: string,
       isFolder: boolean
     ) => {
@@ -1574,6 +1576,12 @@ export function FileTreePanel({
           setSelectedNodePath('');
           setSelectedNodeType('folder');
         }}
+        onContextMenu={(event) => {
+          if (event.target !== event.currentTarget) {
+            return;
+          }
+          void showContextMenu(event, '', true);
+        }}
       >
         {showLoading ? (
           <div className="file-tree-skeleton">
@@ -1638,6 +1646,52 @@ export function FileTreePanel({
               >
                 <span>{t('fileTreeMenu.newFolder')}</span>
               </button>
+              {!contextMenu.relativePath ? (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeContextMenu();
+                      toggleAllFolders();
+                    }}
+                  >
+                    <span>
+                      {allVisibleExpanded
+                        ? t('common:contextMenu.collapseAll')
+                        : t('common:contextMenu.expandAll')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeContextMenu();
+                      void writeClipboardViaBridge(
+                        formatFileTreeStructure(nodes)
+                      );
+                    }}
+                  >
+                    <span>{t('common:contextMenu.copyTreeStructure')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeContextMenu();
+                      void copyAbsolutePath('');
+                    }}
+                  >
+                    <span>{t('common:contextMenu.copyRootPath')}</span>
+                  </button>
+                </>
+              ) : null}
               <div className="relative">
                 <button
                   type="button"

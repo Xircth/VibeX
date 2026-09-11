@@ -25,6 +25,8 @@ import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
+import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
+import { useAutoOpenCreatedPreviews } from '@/lib/autoOpenCreatedPreviews';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
@@ -449,6 +451,14 @@ export function IDELayout({
     openPanelInNewEditorGroup,
     canOpenPanelInNewEditorGroup,
   } = usePanelActionsContext();
+
+  const autoOpenCreatedPreviews = useAutoOpenCreatedPreviews();
+  useAutoOpenCreatedFilePreviews({
+    enabled:
+      effectiveActiveTab === 'workspace' &&
+      isEditorAreaVisible &&
+      autoOpenCreatedPreviews,
+  });
 
   serializedLayoutRef.current = serializedLayout;
   const isWorkspaceEditorAreaCollapsed =

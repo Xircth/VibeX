@@ -1176,7 +1176,7 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::Na
                     ""
                 })
                 .to_string();
-            let api_key = auth.get(id).map(pi_auth_key).unwrap_or_default();
+            let api_key = pi_provider_key(&auth, id, Some(provider));
             let credential_present = !api_key.is_empty();
             seen.insert(id.clone());
             providers.push(NativePiProvider {
@@ -1657,6 +1657,12 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
         return Ok(Vec::new());
     };
     let mut drafts = Vec::new();
+    // VibeX projects a provider that enables several models as one `[model.*]`
+    // table per model, so those tables read back as a single draft. Treating
+    // them as separate providers would auto-adopt each extra model as a
+    // phantom provider of its own on every list.
+    let mut vibex_models: Vec<String> = Vec::new();
+    let mut vibex_entry: Option<(&str, &toml::Table)> = None;
     for (id, value) in models {
         let Some(entry) = value.as_table() else {
             continue;
@@ -1681,6 +1687,17 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
             .and_then(toml::Value::as_str)
             .unwrap_or(id)
             .to_string();
+        if is_vibex_grok_table(id) {
+            // `[models] default` names `vibex`, so it leads.
+            if id == "vibex" {
+                vibex_models.insert(0, model_id);
+                vibex_entry = Some((id.as_str(), entry));
+            } else {
+                vibex_models.push(model_id);
+                vibex_entry.get_or_insert((id.as_str(), entry));
+            }
+            continue;
+        }
         let backend = entry
             .get("api_backend")
             .and_then(toml::Value::as_str)
@@ -1705,6 +1722,47 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
             .to_string(),
             skip_reason: None,
         });
+    }
+    if let Some((id, entry)) = vibex_entry {
+        let primary = vibex_models.first().cloned().unwrap_or_default();
+        let mut model = serde_json::json!({
+            "id": primary,
+            "api_backend": entry
+                .get("api_backend")
+                .and_then(toml::Value::as_str)
+                .unwrap_or("responses"),
+            "context_window": entry
+                .get("context_window")
+                .and_then(toml::Value::as_integer),
+        });
+        if !vibex_models.is_empty() {
+            model["models"] = serde_json::json!(vibex_models);
+        }
+        drafts.insert(
+            0,
+            ImportDraft {
+                source_id: format!("native:{id}"),
+                name: entry
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or(id)
+                    .to_string(),
+                api_url: entry
+                    .get("base_url")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                api_key: entry
+                    .get("api_key")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                model: model.to_string(),
+                skip_reason: None,
+            },
+        );
     }
     Ok(drafts)
 }
@@ -1944,30 +2002,60 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
             if api_url.is_empty() {
                 return None;
             }
-            let api_key = auth.get(id).map(pi_auth_key).unwrap_or_default();
-            let model_id = object
+            let api_key = pi_provider_key(&auth, id, Some(provider));
+            // Every model the provider lists, not just the first. Keeping only
+            // one here is what made an imported Pi provider come back with a
+            // single model after the user had enabled several.
+            let mut model_ids: Vec<String> = Vec::new();
+            for entry in object
                 .get("models")
                 .and_then(Value::as_array)
-                .and_then(|models| {
-                    models
-                        .iter()
-                        .find_map(|entry| entry.get("id").and_then(Value::as_str))
-                })
-                .unwrap_or(if default_provider == id {
-                    default_model
+                .into_iter()
+                .flatten()
+            {
+                // pi writes `{ "id": .. }`; cc-switch and hand-edits write the
+                // bare id.
+                let candidate = entry
+                    .as_str()
+                    .or_else(|| entry.get("id").and_then(Value::as_str))
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty());
+                if let Some(candidate) = candidate
+                    && !model_ids.iter().any(|seen| seen == candidate)
+                {
+                    model_ids.push(candidate.to_string());
+                }
+            }
+            // pi starts sessions on `defaultModel`, so it has to lead the list:
+            // `apply_pi` reads the first entry back as the default, and without
+            // this a re-apply would silently move the user off their model.
+            if default_provider == id
+                && let Some(position) = model_ids.iter().position(|model| model == default_model)
+            {
+                let default = model_ids.remove(position);
+                model_ids.insert(0, default);
+            }
+            let model_id = model_ids.first().cloned().unwrap_or_else(|| {
+                if default_provider == id {
+                    default_model.to_string()
                 } else {
-                    ""
-                });
+                    String::new()
+                }
+            });
             let api = object
                 .get("api")
                 .and_then(Value::as_str)
                 .unwrap_or("openai-responses");
+            let mut model = serde_json::json!({ "id": model_id, "api": api });
+            if !model_ids.is_empty() {
+                model["models"] = serde_json::json!(model_ids);
+            }
             Some(ImportDraft {
                 source_id: format!("native:{id}"),
                 name: id.clone(),
                 api_url,
                 api_key,
-                model: serde_json::json!({ "id": model_id, "api": api }).to_string(),
+                model: model.to_string(),
                 skip_reason: None,
             })
         })
@@ -2987,35 +3075,120 @@ async fn apply_antigravity(
     .await
 }
 
+/// One `[model.*]` table a grok provider projects.
 struct GrokModelSpec {
+    /// Table name under `[model.*]`; `[models] default` refers to it by name.
+    table: String,
+    /// Identifier sent to the API.
     id: String,
+    /// Label grok's model picker shows.
+    name: String,
+}
+
+/// Everything a provider's `model` field projects onto `config.toml`.
+struct GrokProviderSpec {
+    models: Vec<GrokModelSpec>,
     api_backend: String,
     context_window: Option<i64>,
 }
 
-fn grok_spec(raw: &str) -> GrokModelSpec {
-    if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(raw) {
-        return GrokModelSpec {
-            id: object
-                .get("id")
-                .or_else(|| object.get("model"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            api_backend: object
-                .get("api_backend")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("responses")
-                .to_string(),
-            context_window: object.get("context_window").and_then(Value::as_i64),
-        };
+/// Whether VibeX mints this `[model.*]` name. Only these get swept, so a table
+/// the user added by hand never disappears.
+fn is_vibex_grok_table(name: &str) -> bool {
+    name == "vibex" || name.starts_with("vibex-")
+}
+
+/// Table name for one model. The first keeps `vibex`, so an existing
+/// single-model config is rewritten in place and `[models] default = "vibex"`
+/// keeps naming the default however often the user changes it. The rest get a
+/// suffix derived from the model id, which survives that reordering.
+fn grok_model_table(taken: &mut HashSet<String>, index: usize, id: &str) -> String {
+    if index == 0 {
+        taken.insert("vibex".to_string());
+        return "vibex".to_string();
     }
-    GrokModelSpec {
-        id: raw.trim().to_string(),
-        api_backend: "responses".to_string(),
-        context_window: None,
+    let mut slug = String::new();
+    for character in id.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let base = if slug.trim_end_matches('-').is_empty() {
+        format!("vibex-{index}")
+    } else {
+        format!("vibex-{}", slug.trim_end_matches('-'))
+    };
+    let mut table = base.clone();
+    let mut suffix = 2;
+    while !taken.insert(table.clone()) {
+        table = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    table
+}
+
+/// The `[model.*]` tables for a provider, default model first.
+///
+/// Grok resolves a model to a whole table and `[models] default` names one, so
+/// a provider that enables several models has to write one table per model.
+/// Writing only the first — as this used to — left the others checked in VibeX
+/// but unreachable in grok.
+fn grok_spec(raw: &str, provider_name: &str) -> GrokProviderSpec {
+    let object = serde_json::from_str::<Value>(raw)
+        .ok()
+        .filter(Value::is_object);
+    let api_backend = object
+        .as_ref()
+        .and_then(|object| object.get("api_backend"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("responses")
+        .to_string();
+    let context_window = object
+        .as_ref()
+        .and_then(|object| object.get("context_window"))
+        .and_then(Value::as_i64);
+    let mut ids = provider_model_ids(raw);
+    if ids.is_empty() {
+        // Older saves put the id in `model`, the key grok's own tables use.
+        if let Some(id) = object
+            .as_ref()
+            .and_then(|object| object.get("model"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            ids.push(id.to_string());
+        }
+    }
+    if ids.is_empty() {
+        // Nothing usable in `model`, so grok gets the provider name alone.
+        ids.push(provider_name.to_string());
+    }
+    // One endpoint, several models: without the id in the label grok's picker
+    // would list the same provider name once per model. The default keeps the
+    // bare name — it is the provider — and the import side reads it back as the
+    // draft's name.
+    let mut taken = HashSet::new();
+    let models = ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, id)| {
+            let table = grok_model_table(&mut taken, index, &id);
+            let name = if index == 0 {
+                provider_name.to_string()
+            } else {
+                format!("{provider_name} ({id})")
+            };
+            GrokModelSpec { table, id, name }
+        })
+        .collect();
+    GrokProviderSpec {
+        models,
+        api_backend,
+        context_window,
     }
 }
 
@@ -3058,40 +3231,44 @@ async fn apply_grok(grok_home: &Path, provider: &StoredProvider) -> Result<(), s
     let filesystem = TokioNativeFileSystem;
     let original = filesystem.read(&path).await?;
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
-    let spec = grok_spec(&provider.model);
+    let spec = grok_spec(&provider.model, &provider.name);
     let models = toml_table_entry(&mut table, "models")?;
     models.insert(
         "default".to_string(),
         toml::Value::String("vibex".to_string()),
     );
+    let owned: HashSet<&str> = spec
+        .models
+        .iter()
+        .map(|model| model.table.as_str())
+        .collect();
     let model_root = toml_table_entry(&mut table, "model")?;
-    let vibex = toml_table_entry(model_root, "vibex")?;
-    vibex.insert(
-        "model".to_string(),
-        toml::Value::String(if spec.id.is_empty() {
-            provider.name.clone()
-        } else {
-            spec.id
-        }),
-    );
-    vibex.insert(
-        "base_url".to_string(),
-        toml::Value::String(provider.api_url.clone()),
-    );
-    vibex.insert(
-        "name".to_string(),
-        toml::Value::String(provider.name.clone()),
-    );
-    vibex.insert(
-        "api_key".to_string(),
-        toml::Value::String(provider.api_key.clone()),
-    );
-    vibex.insert(
-        "api_backend".to_string(),
-        toml::Value::String(spec.api_backend),
-    );
-    if let Some(context) = spec.context_window {
-        vibex.insert("context_window".to_string(), toml::Value::Integer(context));
+    // Drop the tables an earlier save projected but this one does not, so
+    // unchecking a model takes it out of grok's picker instead of leaving it
+    // reachable forever. `vibex` always leads the list, so it is always kept.
+    model_root.retain(|name, _| !is_vibex_grok_table(name) || owned.contains(name));
+    for model in &spec.models {
+        let entry = toml_table_entry(model_root, &model.table)?;
+        // Rebuild rather than merge: a field the user cleared (`context_window`,
+        // say) has to go away, and the table holds nothing VibeX does not own.
+        entry.clear();
+        entry.insert("model".to_string(), toml::Value::String(model.id.clone()));
+        entry.insert(
+            "base_url".to_string(),
+            toml::Value::String(provider.api_url.clone()),
+        );
+        entry.insert("name".to_string(), toml::Value::String(model.name.clone()));
+        entry.insert(
+            "api_key".to_string(),
+            toml::Value::String(provider.api_key.clone()),
+        );
+        entry.insert(
+            "api_backend".to_string(),
+            toml::Value::String(spec.api_backend.clone()),
+        );
+        if let Some(context) = spec.context_window {
+            entry.insert("context_window".to_string(), toml::Value::Integer(context));
+        }
     }
     write_toml_mutation(&path, original, &table, true).await
 }
@@ -3313,8 +3490,17 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
     );
     let providers = object_entry(models.as_object_mut().expect("object"), "providers")?;
     let api_key = provider.api_key.trim();
-    if !api_key.is_empty() {
-        auth.as_object_mut().expect("object").insert(
+    let auth = auth.as_object_mut().expect("object");
+    if api_key.is_empty() {
+        // A present-but-empty entry is not "no credential" to pi: it shadows the
+        // provider's inline `apiKey`, so leaving one behind silently disables a
+        // provider that pi can otherwise reach. VibeX never writes an empty key,
+        // so this only ever clears one left by an earlier keyless save.
+        if auth.get(&native_id).is_some_and(is_empty_pi_api_key_entry) {
+            auth.remove(&native_id);
+        }
+    } else {
+        auth.insert(
             native_id.clone(),
             serde_json::json!({
                 "type": "api_key",
@@ -3322,14 +3508,23 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
             }),
         );
     }
-    providers.insert(
-        native_id,
-        serde_json::json!({
-            "baseUrl": provider.api_url,
-            "api": api,
-            "models": native_models
-        }),
+    // Merge into the existing node rather than replacing it. `models.json`
+    // carries fields VibeX has no UI for and does not own — cc-switch writes the
+    // key inline as `apiKey`, and users hand-tune `name` / `headers` / `compat`.
+    // Replacing the node would drop them on every save.
+    let node = providers
+        .entry(native_id)
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !node.is_object() {
+        *node = Value::Object(Map::new());
+    }
+    let node = node.as_object_mut().expect("object");
+    node.insert(
+        "baseUrl".to_string(),
+        Value::String(provider.api_url.clone()),
     );
+    node.insert("api".to_string(), Value::String(api.to_string()));
+    node.insert("models".to_string(), Value::Array(native_models));
     apply_projection_mutations(&[
         NativeFileMutation {
             path: settings_path,
@@ -3462,6 +3657,43 @@ fn pi_auth_key(entry: &Value) -> String {
                 .map(str::to_string)
         })
         .unwrap_or_default()
+}
+
+/// The API key pi itself would use for one provider node.
+///
+/// pi resolves credentials as `--api-key` -> `auth.json` -> environment -> the
+/// provider node's inline `apiKey` in `models.json`. VibeX only sees the two
+/// file-backed slots, so mirror them in that order. Reading `auth.json` alone
+/// drops a working credential: cc-switch and hand-edited configs keep the key
+/// inline in `models.json` and never write `auth.json` at all.
+fn pi_provider_key(auth: &Value, id: &str, provider: Option<&Value>) -> String {
+    let stored = auth.get(id).map(pi_auth_key).unwrap_or_default();
+    if !stored.is_empty() {
+        return stored;
+    }
+    provider
+        .map(|node| json_text(node, &["apiKey", "api_key"]))
+        .unwrap_or_default()
+}
+
+/// Whether an `auth.json` entry is a credential slot holding no credential.
+///
+/// pi never writes one, and its resolver does not fall through a present-but-
+/// empty entry to the provider's inline `apiKey`, so such an entry only ever
+/// shadows a usable key. OAuth logins (`pi /login`) and any other shape belong
+/// to pi and are never matched here.
+fn is_empty_pi_api_key_entry(entry: &Value) -> bool {
+    match entry {
+        Value::Object(object) => {
+            object
+                .get("type")
+                .and_then(Value::as_str)
+                .is_none_or(|kind| kind == "api_key")
+                && pi_auth_key(entry).is_empty()
+        }
+        Value::String(key) => key.trim().is_empty(),
+        _ => false,
+    }
 }
 
 fn pi_native_id(provider: &StoredProvider) -> String {
@@ -5259,6 +5491,145 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pi_draft_recovers_a_key_kept_inline_in_models_json() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"cc-switch-open-code-go":{"baseUrl":"https://gateway.example/v1","api":"openai-responses","apiKey":"sk-inline","models":[{"id":"glm-5.2"}]}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"cc-switch-open-code-go":{"type":"api_key","key":""}}"#,
+        )
+        .await
+        .unwrap();
+
+        let drafts = native_pi_drafts(&agent_dir).await.unwrap();
+
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].source_id, "native:cc-switch-open-code-go");
+        assert_eq!(drafts[0].api_key, "sk-inline");
+    }
+
+    #[tokio::test]
+    async fn pi_draft_prefers_a_usable_auth_key_over_the_inline_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"gateway":{"baseUrl":"https://gateway.example/v1","api":"openai-responses","apiKey":"sk-inline","models":[{"id":"m"}]}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"gateway":{"type":"api_key","key":"sk-auth"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let drafts = native_pi_drafts(&agent_dir).await.unwrap();
+
+        assert_eq!(drafts[0].api_key, "sk-auth");
+    }
+
+    #[tokio::test]
+    async fn pi_binding_keeps_unmanaged_node_fields_and_repairs_the_auth_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"private-gateway":{"baseUrl":"https://old.example/v1","api":"openai-responses","apiKey":"sk-inline","name":"Gateway","headers":{"x-tenant":"a"},"models":[{"id":"old-model"}]}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"private-gateway":{"type":"api_key","key":""},"anthropic":{"type":"oauth","refresh":"native"}}"#,
+        )
+        .await
+        .unwrap();
+
+        apply_pi(
+            &agent_dir,
+            &StoredProvider {
+                id: "provider-1".to_string(),
+                name: "Private Gateway".to_string(),
+                agent_id: AgentId::parse("pi").unwrap(),
+                api_url: "https://new.example/v1".to_string(),
+                api_key: "sk-fresh".to_string(),
+                model: r#"{"id":"new-model","api":"anthropic-messages"}"#.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let models: Value = serde_json::from_slice(
+            &tokio::fs::read(agent_dir.join("models.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let node = &models["providers"]["private-gateway"];
+        assert_eq!(node["baseUrl"], "https://new.example/v1");
+        assert_eq!(node["api"], "anthropic-messages");
+        assert_eq!(node["name"], "Gateway");
+        assert_eq!(node["headers"]["x-tenant"], "a");
+        assert_eq!(node["apiKey"], "sk-inline");
+
+        let auth: Value =
+            serde_json::from_slice(&tokio::fs::read(agent_dir.join("auth.json")).await.unwrap())
+                .unwrap();
+        assert_eq!(auth["private-gateway"]["key"], "sk-fresh");
+        assert_eq!(auth["anthropic"]["refresh"], "native");
+    }
+
+    #[tokio::test]
+    async fn pi_binding_without_a_key_drops_an_empty_entry_but_keeps_oauth() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"private-gateway":{"baseUrl":"https://old.example/v1","api":"openai-responses","apiKey":"sk-inline"}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("auth.json"),
+            br#"{"private-gateway":{"type":"api_key","key":""},"anthropic":{"type":"oauth","refresh":"native"}}"#,
+        )
+        .await
+        .unwrap();
+
+        apply_pi(
+            &agent_dir,
+            &StoredProvider {
+                id: "provider-1".to_string(),
+                name: "Private Gateway".to_string(),
+                agent_id: AgentId::parse("pi").unwrap(),
+                api_url: "https://old.example/v1".to_string(),
+                api_key: String::new(),
+                model: r#"{"id":"m","api":"openai-responses"}"#.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let auth: Value =
+            serde_json::from_slice(&tokio::fs::read(agent_dir.join("auth.json")).await.unwrap())
+                .unwrap();
+        assert!(auth.get("private-gateway").is_none());
+        assert_eq!(auth["anthropic"]["refresh"], "native");
+    }
+
+    #[tokio::test]
     async fn pi_list_recognizes_native_providers_and_active_binding() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
@@ -5453,5 +5824,216 @@ model = "grok-4"
         assert!(provider.credential_present);
         assert_eq!(provider.api_url, "https://gateway.example/v1");
         assert_eq!(provider.api_key, "sk-grok");
+    }
+
+    /// Bind a grok provider carrying `model`, and hand back the resulting
+    /// `config.toml` so a test can assert on the tables it projected.
+    async fn bind_grok_provider(temp: &Path, model: &str) -> toml::Table {
+        let grok_home = temp.join("home/.grok");
+        let store_path = temp.join("data/providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        let environment = HashMap::from([(
+            "GROK_HOME".to_string(),
+            grok_home.to_string_lossy().to_string(),
+        )]);
+        let agent_id = AgentId::parse("grok").unwrap();
+        let created = save(
+            &store_path,
+            temp,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gateway.example/v1".to_string(),
+                api_key: Some("sk-grok".to_string()),
+                model: model.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        bind(
+            &store_path,
+            temp,
+            &environment,
+            agent_id,
+            Some(created.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        let bytes = tokio::fs::read(grok_home.join("config.toml"))
+            .await
+            .unwrap();
+        toml::from_str(std::str::from_utf8(&bytes).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn grok_binding_writes_one_table_per_enabled_model() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a","b","c"]}"#,
+        )
+        .await;
+
+        // The default names a table, so the primary model has to own `vibex`
+        // while the rest become reachable tables of their own. One table per
+        // model is what makes every checked model usable in grok.
+        assert_eq!(config["models"]["default"].as_str(), Some("vibex"));
+        let models = config["model"].as_table().unwrap();
+        assert_eq!(models.len(), 3);
+        for (table, expected) in [("vibex", "a"), ("vibex-b", "b"), ("vibex-c", "c")] {
+            let entry = models[table].as_table().unwrap();
+            assert_eq!(entry["model"].as_str(), Some(expected), "table {table}");
+            assert_eq!(
+                entry["base_url"].as_str(),
+                Some("https://gateway.example/v1")
+            );
+            assert_eq!(entry["api_key"].as_str(), Some("sk-grok"));
+        }
+        // The default carries the provider's own name — it is the provider —
+        // and the extras are told apart by their model id, since a shared name
+        // would list the same provider three times in grok's picker.
+        assert_eq!(models["vibex"]["name"].as_str(), Some("Gateway"));
+        assert_eq!(models["vibex-b"]["name"].as_str(), Some("Gateway (b)"));
+        assert_eq!(models["vibex-c"]["name"].as_str(), Some("Gateway (c)"));
+    }
+
+    #[tokio::test]
+    async fn grok_import_collapses_the_tables_vibex_projected() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        let store_path = temp.path().join("data/providers.json");
+        bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a","b","c"]}"#,
+        )
+        .await;
+
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("grok").unwrap(),
+            Some(&grok_home),
+        )
+        .await
+        .unwrap();
+
+        // One provider, not one per projected table.
+        assert_eq!(view.providers.len(), 1);
+        assert_eq!(view.providers[0].name, "Gateway");
+        let model: Value = serde_json::from_str(&view.providers[0].model).unwrap();
+        assert_eq!(model["id"], "a");
+        assert_eq!(model["models"], serde_json::json!(["a", "b", "c"]));
+    }
+
+    #[tokio::test]
+    async fn grok_binding_drops_the_tables_of_models_the_user_disabled() {
+        let temp = tempfile::tempdir().unwrap();
+        bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a","b","c"]}"#,
+        )
+        .await;
+        let config = bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a"]}"#,
+        )
+        .await;
+
+        // Unchecking a model has to take it out of grok's picker; leaving the
+        // table behind would keep it selectable forever.
+        let models = config["model"].as_table().unwrap();
+        assert_eq!(models.len(), 1);
+        assert!(models.contains_key("vibex"));
+    }
+
+    #[tokio::test]
+    async fn grok_binding_keeps_a_hand_written_model_table() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[model.company-grok]
+base_url = "https://company.example/v1"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        let config = bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a","b"]}"#,
+        )
+        .await;
+
+        // The sweep only owns the names VibeX mints.
+        let models = config["model"].as_table().unwrap();
+        assert!(models.contains_key("company-grok"));
+        assert!(models.contains_key("vibex"));
+        assert!(models.contains_key("vibex-b"));
+    }
+
+    #[tokio::test]
+    async fn grok_binding_clears_a_field_the_user_emptied() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[model.vibex]
+model = "old"
+context_window = 200000
+"#,
+        )
+        .await
+        .unwrap();
+        let config = bind_grok_provider(
+            temp.path(),
+            r#"{"id":"a","api_backend":"responses","models":["a"]}"#,
+        )
+        .await;
+
+        // Rebuilding the table is what makes clearing a field stick.
+        let vibex = config["model"]["vibex"].as_table().unwrap();
+        assert!(!vibex.contains_key("context_window"));
+        assert_eq!(vibex["model"].as_str(), Some("a"));
+    }
+
+    #[tokio::test]
+    async fn pi_draft_keeps_every_model_the_provider_lists() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"defaultProvider":"gateway","defaultModel":"b"}"#,
+        )
+        .await
+        .unwrap();
+        // `c` is written the way cc-switch writes it: a bare id, not an object.
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"gateway":{"baseUrl":"https://gateway.example/v1","api":"openai-responses","models":[{"id":"a"},{"id":"b"},{"id":"c"}]}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let drafts = native_pi_drafts(&agent_dir).await.unwrap();
+
+        let model: Value = serde_json::from_str(&drafts[0].model).unwrap();
+        // Importing used to keep only the first id, so the models the user had
+        // enabled came back missing.
+        assert_eq!(
+            model["models"],
+            serde_json::json!(["b", "a", "c"]),
+            "every model survives, with pi's default leading"
+        );
+        // Leading matters: `apply_pi` reads the first entry back as the default,
+        // so anything else would move the user off their model on the next save.
+        assert_eq!(model["id"], "b");
+        assert_eq!(model["api"], "openai-responses");
     }
 }

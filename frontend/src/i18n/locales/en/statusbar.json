@@ -1,8 +1,11 @@
 {
   "agentStatus": {
     "defaultAgentAria": "Default Agent: {{agent}}, {{status}}",
+    "defaultAgentAriaWithUpdate": "Default Agent: {{agent}}, {{status}}, updates available",
     "enabledAgentsAria": "Enabled Agent status",
-    "defaultBadge": "Default"
+    "defaultBadge": "Default",
+    "hasUpdates": "Updates",
+    "updateAvailable": "Update available"
   },
   "automationFailureTitle": "Automation run failed",
   "backgroundTasksTitle": "{{count}} background task(s) running",

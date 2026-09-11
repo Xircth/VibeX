@@ -12,7 +12,15 @@ export interface OpenFilePreviewOptions {
   displayPath?: string | null;
   title?: string | null;
   location?: FileOpenLocation | null;
+  /**
+   * Whether opening the file may move the user's attention to it. Pass false to
+   * open a tab without stealing focus or moving the file tree selection.
+   */
+  activate?: boolean;
 }
+
+/** What `openFilePreview` did, or why it could not do anything. */
+export type OpenFilePreviewResult = 'opened' | 'focused' | 'unavailable';
 
 export interface PreviewPanelParams {
   filePath: string;

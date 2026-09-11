@@ -82,13 +82,15 @@ pub fn host_family_event_labels(window_label: &str) -> Vec<String> {
     labels
 }
 
+pub fn webview_profile_directory(profile_key: &str) -> PathBuf {
+    utils::assets::asset_dir()
+        .join("webview-profiles")
+        .join(profile_key)
+}
+
 pub fn host_webview_data_directory(window_label: &str) -> Option<PathBuf> {
     let host_label = host_app_window_label(window_label)?;
-    Some(
-        utils::assets::asset_dir()
-            .join("webview-profiles")
-            .join(host_label),
-    )
+    Some(webview_profile_directory(host_label))
 }
 
 #[cfg(test)]
@@ -175,5 +177,11 @@ mod tests {
         let path = host_webview_data_directory("settings-host-abc").expect("host family");
         assert!(path.ends_with("webview-profiles/host-abc"));
         assert!(host_webview_data_directory("main").is_none());
+        assert_eq!(
+            webview_profile_directory("app-1")
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("app-1")
+        );
     }
 }

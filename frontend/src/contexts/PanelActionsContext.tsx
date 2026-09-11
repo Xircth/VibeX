@@ -43,6 +43,7 @@ import {
 import {
   buildPreviewPanelParams,
   type OpenFilePreviewOptions,
+  type OpenFilePreviewResult,
 } from '@/types/panels';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import {
@@ -143,7 +144,10 @@ function closeRemovedEditorTerminal(panelId: string): void {
 
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
-  openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
+  openFilePreview: (
+    filePath: string,
+    options?: OpenFilePreviewOptions
+  ) => OpenFilePreviewResult;
   openImagePreview: (
     imageUrl: string,
     options?: { title?: string | null }
@@ -407,13 +411,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openFilePreview = useCallback(
-    (filePath: string, options?: OpenFilePreviewOptions) => {
+    (
+      filePath: string,
+      options?: OpenFilePreviewOptions
+    ): OpenFilePreviewResult => {
       void preloadMonacoEditor();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi) return 'unavailable';
 
-      setSelectedFilePath(filePath);
-      revealInTree(filePath, 'file');
+      // Absent an explicit choice, opening a file is the user asking for it.
+      const activate = options?.activate ?? true;
+
+      if (activate) {
+        setSelectedFilePath(filePath);
+        revealInTree(filePath, 'file');
+      }
 
       const panelId = `file:${filePath}`;
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
@@ -427,8 +439,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           existingPanel.api.setTitle(title);
         }
         existingPanel.group.api.setVisible(true);
-        existingPanel.api.setActive();
-        return;
+        if (activate) {
+          existingPanel.api.setActive();
+        }
+        return 'focused';
       }
 
       const panel = addPanelToActiveEditorGroup({
@@ -438,7 +452,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         params,
       });
 
-      panel?.api.setActive();
+      if (!panel) return 'unavailable';
+
+      if (activate) {
+        panel.api.setActive();
+      }
+      return 'opened';
     },
     [addPanelToActiveEditorGroup, revealInTree, setSelectedFilePath]
   );

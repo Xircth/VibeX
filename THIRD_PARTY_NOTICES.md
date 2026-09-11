@@ -36,6 +36,27 @@ execution. VibeX does not execute OfficeCLI's remote installation scripts.
 - License: Apache License 2.0
 - License text: `docs/third-party/licenses/Apache-2.0.txt`
 
+## K-Dense scientific-agent-skills
+
+VibeX's built-in "科学研究" (Scientific Research) plugin bundles Skill content
+vendored byte-identically from K-Dense's scientific Agent Skills library.
+
+- Project: K-Dense-AI/scientific-agent-skills
+- Source: https://github.com/K-Dense-AI/scientific-agent-skills
+- Commit: `9cf7d9aea7d84754db4c167ab04b299d33c444bc`
+- Upstream version: `2.66.0`
+- Copyright: Copyright (c) 2025 K-Dense Inc.
+- Bundled: 146 of the upstream 163 Skills
+
+The upstream library is license-heterogeneous: the repository's own MIT license
+does not cover every Skill. VibeX verified each Skill's declared license when
+vendoring and excluded 17 that cannot be redistributed (GPL, non-commercial,
+proprietary, or undeclared). The bundled set is 99 MIT, 20 Apache-2.0,
+19 BSD-3-Clause, 1 BSD-2-Clause, and 2 CC-BY-4.0.
+
+- Per-Skill license verification and exclusion list: the plugin's `NOTICE.md`
+- Full license texts: the plugin's `NOTICE.md`
+
 ## Hermes Agent brand icon
 
 The Hermes Agent icon is adapted from the official desktop application icon.

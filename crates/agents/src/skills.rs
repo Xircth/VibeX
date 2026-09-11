@@ -1396,6 +1396,10 @@ fn configure_bundled_skills_with_layout(
 /// Project a portable Plugin's Skill directories without overwriting entries
 /// not owned by that Plugin. Sources are first copied into a stable VibeX
 /// provenance store, then linked to Agent directories with copy fallback.
+///
+/// The call is declarative: `skills` is the complete set the Plugin currently
+/// contributes, and any Skill this Plugin projected earlier but that is absent
+/// now is removed from both the store and the Agent directories.
 pub fn project_plugin_skills(
     plugin_id: &str,
     skills: &[(String, PathBuf)],
@@ -1442,6 +1446,46 @@ fn remove_plugin_skill_projections_with_layout(
     remove_if_exists(&store)
 }
 
+/// Skill ids currently materialized in a Plugin's stable Skill store.
+fn stored_plugin_skill_ids(layout: &SkillHostingLayout, plugin_id: &str) -> Vec<String> {
+    let store = layout.store.join(".plugins").join(plugin_id);
+    let Ok(entries) = std::fs::read_dir(&store) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .collect()
+}
+
+/// Drop one Skill's projection from every Agent directory and from the stable
+/// store, leaving sibling Skills of the same Plugin untouched.
+///
+/// Unlike [`remove_plugin_skill_projections_with_layout`] this never removes
+/// the Plugin's store directory itself, so it is safe to run for a subset of a
+/// Plugin's Skills.
+fn prune_plugin_skill_projection_with_layout(
+    layout: &SkillHostingLayout,
+    plugin_id: &str,
+    skill_id: &str,
+) -> Result<(), SkillError> {
+    let skill_id = validate_skill_id(skill_id)?;
+    for directory in layout.agent_dirs.values() {
+        let destination = physical_path_key(&directory.join(&skill_id));
+        if owned_plugin_projection(&destination, plugin_id) {
+            remove_if_exists(&destination)?;
+        }
+    }
+    remove_if_exists(
+        &layout
+            .store
+            .join(".plugins")
+            .join(plugin_id)
+            .join(&skill_id),
+    )
+}
+
 fn project_plugin_skills_with_layout(
     plugin_id: &str,
     skills: &[(String, PathBuf)],
@@ -1450,6 +1494,20 @@ fn project_plugin_skills_with_layout(
     layout: &SkillHostingLayout,
 ) -> Result<Vec<PluginSkillProjectionResult>, SkillError> {
     validate_plugin_projection_id(plugin_id)?;
+    // Projection is declarative: once this returns, the stable store holds
+    // exactly `skills`. Whatever a previous projection left behind — a domain
+    // that has since been switched off, or a Skill a package upgrade dropped —
+    // is pruned first, so Agent directories cannot keep serving entries the
+    // Plugin no longer contributes.
+    let desired = skills
+        .iter()
+        .map(|(skill_id, _)| skill_id.as_str())
+        .collect::<BTreeSet<_>>();
+    for stale in stored_plugin_skill_ids(layout, plugin_id) {
+        if !desired.contains(stale.as_str()) {
+            prune_plugin_skill_projection_with_layout(layout, plugin_id, &stale)?;
+        }
+    }
     let mut results = Vec::new();
     for (skill_id, skill_file) in skills {
         let skill_id = validate_skill_id(skill_id)?;
@@ -2162,6 +2220,91 @@ mod tests {
             &temp.path().join("claude/research"),
             "dev.vibex.research"
         ));
+    }
+
+    #[test]
+    fn plugin_projection_prunes_skills_the_plugin_no_longer_contributes() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([
+                ("codex".to_string(), temp.path().join("codex")),
+                ("claude_code".to_string(), temp.path().join("claude")),
+            ]),
+        };
+        let sources = temp.path().join("source");
+        let skill_source = |id: &str| {
+            let dir = sources.join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("SKILL.md"), format!("---\nname: {id}\n---\n")).unwrap();
+            (id.to_string(), dir.join("SKILL.md"))
+        };
+        let all = vec![skill_source("kept"), skill_source("dropped")];
+        let agents = BTreeSet::from(["codex".to_string(), "claude_code".to_string()]);
+        let store = temp.path().join("store/.plugins/dev.vibex.science");
+
+        project_plugin_skills_with_layout("dev.vibex.science", &all, &agents, true, &layout)
+            .unwrap();
+        assert!(temp.path().join("codex/dropped/SKILL.md").is_file());
+
+        // A later projection contributes only `kept`, as happens when a domain
+        // is switched off or a package upgrade drops a Skill.
+        let results = project_plugin_skills_with_layout(
+            "dev.vibex.science",
+            &all[..1],
+            &agents,
+            true,
+            &layout,
+        )
+        .unwrap();
+
+        assert!(temp.path().join("codex/kept/SKILL.md").is_file());
+        assert!(!temp.path().join("codex/dropped").exists());
+        assert!(!temp.path().join("claude/dropped").exists());
+        assert!(!store.join("dropped").exists());
+        assert!(
+            store.join("kept/SKILL.md").is_file(),
+            "pruning one Skill must not disturb its siblings"
+        );
+        assert!(
+            results.iter().all(|result| result.skill_id != "dropped"),
+            "a pruned Skill is reconciliation, not a per-Agent projection outcome"
+        );
+    }
+
+    #[test]
+    fn bundled_plugin_development_skill_projects_into_agent_dirs() {
+        let skill = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../assets/plugins/plugin-development/contents/skills/vibex-plugin-development/SKILL.md",
+        );
+        assert!(
+            skill.is_file(),
+            "plugin-development Skill is missing: {}",
+            skill.display()
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
+        };
+
+        let results = project_plugin_skills_with_layout(
+            "vibex.plugin-development",
+            &[("vibex-plugin-development".to_string(), skill)],
+            &BTreeSet::from(["codex".to_string()]),
+            false,
+            &layout,
+        )
+        .unwrap();
+
+        assert!(results.iter().any(|result| {
+            result.agent_id == "codex" && result.status == PluginSkillProjectionStatus::Projected
+        }));
+        assert!(
+            temp.path()
+                .join("codex/vibex-plugin-development/SKILL.md")
+                .is_file()
+        );
     }
 
     #[test]

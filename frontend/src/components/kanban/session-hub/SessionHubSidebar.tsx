@@ -57,6 +57,10 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { WorkspaceSessionList } from '@/components/workspace-session-list/WorkspaceSessionList';
 import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
+import { useAppContextMenu } from '@/components/context-menu';
+import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
+import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
+import { sessionListTitle } from '@/components/workspace-session-list/workspaceSessionListModel';
 import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_DRAG_OVERLAY_CLASS,
@@ -487,6 +491,7 @@ export function SessionHubSidebar({
   onDropSessionOnCanvas,
 }: SessionHubSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const listView = useKanbanSessionListView();
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
@@ -984,7 +989,28 @@ export function SessionHubSidebar({
             ) : null}
           </div>
 
-          <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <ScrollArea
+            className="min-h-0 min-w-0 flex-1"
+            onContextMenu={(event) => {
+              openSurfaceMenu(
+                event,
+                buildSessionListBlankMenu({
+                  t,
+                  onSort: (key) => onSortFieldChange(key),
+                  onCreateSession: onCreateSessionRequested,
+                  onExportPack: () => {
+                    const source = isArchiveView ? archivedSessions : sessions;
+                    void exportProjectConversationPack(
+                      source.map((session) => ({
+                        id: session.id,
+                        title: sessionListTitle(session),
+                      }))
+                    );
+                  },
+                })
+              );
+            }}
+          >
             {isWorkspaceListView ? (
               <div className="session-hub-list-body">
                 {isLoading ? (

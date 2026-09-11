@@ -5,6 +5,7 @@ import {
   Languages,
   LayoutGrid,
   ListTree,
+  Eye,
   Loader2,
   Maximize2,
   Palette,
@@ -39,6 +40,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import {
+  getAutoOpenCreatedPreviews,
+  setAutoOpenCreatedPreviews,
+} from '@/lib/autoOpenCreatedPreviews';
 import { backendEmit } from '@/lib/backendTransport';
 import { toPrettyCase } from '@/utils/string';
 
@@ -86,6 +92,9 @@ export function AppearanceSettings() {
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
   const [kanbanBoardStyle, setKanbanBoardStyleState] =
     useState<KanbanBoardStyle>(() => getKanbanBoardStyle());
+  const [autoOpenCreatedPreviews, setAutoOpenCreatedPreviewsState] = useState(
+    () => getAutoOpenCreatedPreviews()
+  );
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -389,6 +398,26 @@ export function AppearanceSettings() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Eye}
+          title={t('appearance.autoOpenCreatedPreviews.title')}
+          description={t('appearance.autoOpenCreatedPreviews.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.autoOpenCreatedPreviews.label')}</Label>
+            </div>
+            <Switch
+              checked={autoOpenCreatedPreviews}
+              onCheckedChange={(enabled) => {
+                setAutoOpenCreatedPreviewsState(enabled);
+                setAutoOpenCreatedPreviews(enabled);
+              }}
+              aria-label={t('appearance.autoOpenCreatedPreviews.label')}
+            />
           </div>
         </SettingsSection>
 

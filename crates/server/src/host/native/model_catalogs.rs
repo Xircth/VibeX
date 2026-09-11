@@ -80,7 +80,7 @@ pub async fn provider(
 ) -> Result<AgentModelCatalogView, String> {
     if !matches!(
         agent_id.as_str(),
-        "claude_code" | "codex" | "kimi_code" | "antigravity" | "gemini"
+        "claude_code" | "codex" | "kimi_code" | "antigravity" | "gemini" | "pi"
     ) {
         return Err("该 Agent 不支持 Provider 模型探测".to_string());
     }
@@ -98,7 +98,10 @@ pub async fn provider(
         .map_err(|error| format!("创建 Provider 模型客户端失败：{error}"))?;
     let mut request = client.get(url).bearer_auth(api_key);
     request = match agent_id.as_str() {
-        "claude_code" => request
+        // A Pi provider speaks the OpenAI or the Anthropic wire format depending
+        // on the node's `api` field, which a draft probe does not carry, so send
+        // both credentials — the Bearer token is already on the request.
+        "claude_code" | "pi" => request
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
         "gemini" | "antigravity" => request.header("x-goog-api-key", api_key),
@@ -1063,6 +1066,49 @@ mod tests {
         assert_eq!(catalog.models[0].id, "a-model");
         assert_eq!(catalog.models[0].label, "A Model");
         assert_eq!(catalog.models[1].id, "z-model");
+    }
+
+    #[tokio::test]
+    async fn pi_provider_catalog_probes_with_both_credential_headers() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
+            assert!(request.starts_with("get /v1/models http/1.1"));
+            assert!(request.contains("authorization: bearer draft-secret"));
+            assert!(request.contains("x-api-key: draft-secret"));
+            assert!(request.contains("anthropic-version: 2023-06-01"));
+
+            let body = r#"{"data":[{"id":"glm-5.2"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let catalog = provider(
+            AgentId::parse("pi").unwrap(),
+            &format!("http://{address}/v1"),
+            "draft-secret",
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+
+        assert_eq!(catalog.agent_id.as_str(), "pi");
+        assert_eq!(catalog.models.len(), 1);
+        assert_eq!(catalog.models[0].id, "glm-5.2");
     }
 
     #[test]

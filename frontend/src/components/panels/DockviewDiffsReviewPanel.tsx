@@ -23,6 +23,8 @@ import { DiffFileTree } from '@/components/diff/DiffFileTree';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
 
@@ -94,6 +96,7 @@ function formatTimestamp(timestamp: number): string {
 
 function DockviewDiffsReviewPanel() {
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -367,6 +370,32 @@ function DockviewDiffsReviewPanel() {
     <div
       className="flex h-full min-h-0 w-full gap-2 overflow-hidden p-2"
       data-panel="diffs"
+      onContextMenu={(event) => {
+        const path =
+          stickyDiff?.newPath ||
+          stickyDiff?.oldPath ||
+          diffs[0]?.newPath ||
+          diffs[0]?.oldPath ||
+          '';
+        openSurfaceMenu(event, [
+          {
+            id: 'copy-path',
+            label: t('common:contextMenu.copyFilePath'),
+            disabled: !path,
+            onSelect: () => {
+              void writeClipboardViaBridge(path);
+            },
+          },
+          {
+            id: 'toggle-diffs',
+            label: allCollapsed
+              ? t('common:contextMenu.expandAllDiffs')
+              : t('common:contextMenu.collapseAllDiffs'),
+            disabled: diffs.length === 0,
+            onSelect: handleCollapseAll,
+          },
+        ]);
+      }}
     >
       {/* Left: Diff content */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">

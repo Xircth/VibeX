@@ -47,6 +47,14 @@
       "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
       "packageDigest": "builtin:vibex.remote-ssh",
       "archive": "builtin://vibex.remote-ssh"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.science",
+      "version": "1.0.0",
+      "summary": "146 项科研技能，按 10 个领域分组。默认只注入「通用科研方法」13 项，其余领域在插件配置中按需开启。",
+      "packageDigest": "builtin:vibex.science",
+      "archive": "builtin://vibex.science"
     }
   ]
 }

@@ -40,6 +40,7 @@ import { useBranchStatus } from '@/hooks/useBranchStatus';
 import { useAttemptConflicts } from '@/hooks/useAttemptConflicts';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
+import { useAppContextMenu } from '@/components/context-menu';
 import { attemptsApi } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -64,6 +65,7 @@ function LoadingState() {
 }
 
 export function GitPanel() {
+  const { openSurfaceMenu } = useAppContextMenu();
   const { openDiffPreview, openMergePanel } = usePanelActions();
   const queryClient = useQueryClient();
   const [conflictBusy, setConflictBusy] = useState<'continue' | 'abort' | null>(
@@ -195,6 +197,35 @@ export function GitPanel() {
     <div
       className="h-full w-full flex flex-col bg-background overflow-hidden"
       data-panel="git"
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'fetch',
+            label: 'Fetch',
+            disabled: fetchLoading,
+            onSelect: () => onFetch(),
+          },
+          {
+            id: 'pull',
+            label: 'Pull',
+            disabled: pullLoading,
+            onSelect: () => onPull(),
+          },
+          {
+            id: 'push',
+            label: 'Push',
+            disabled: pushLoading,
+            onSelect: () => onPush(),
+          },
+          {
+            id: 'refresh',
+            label: 'Refresh',
+            onSelect: () => {
+              refreshStatus();
+            },
+          },
+        ]);
+      }}
     >
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">

@@ -80,6 +80,14 @@ impl PluginSource {
 pub struct PackageSkill {
     pub id: String,
     pub path: String,
+    /// Optional Skill-library group this Skill belongs to.
+    ///
+    /// A Skill without a domain is always projected. A Skill that declares one
+    /// is projected only while the Plugin config switches that domain on, so a
+    /// package can ship a large optional library — a domain-specific reference
+    /// set, for example — without flooding every Agent's Skill directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -888,6 +896,36 @@ impl PluginPackage {
             .unwrap_or(self.source.path.as_path())
     }
 
+    /// Config key holding the per-domain Skill switches that `content.skill`
+    /// integrations read through [`Self::skill_is_enabled`].
+    pub const SKILL_DOMAINS_CONFIG_KEY: &'static str = "domains";
+
+    /// Whether `skill` is switched on for this package's current config.
+    ///
+    /// A Skill declared without a `domain` is always projected, so packages
+    /// authored before domains existed keep their exact behaviour. A Skill that
+    /// declares one is projected only while `config.domains.<domain>` is
+    /// literally `true`; an absent switch reads as off, which is what makes a
+    /// large optional library opt-in rather than opt-out.
+    pub fn skill_is_enabled(&self, skill: &PackageSkill) -> bool {
+        let Some(domain) = skill.domain.as_deref() else {
+            return true;
+        };
+        self.config
+            .get(Self::SKILL_DOMAINS_CONFIG_KEY)
+            .and_then(|domains| domains.get(domain))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    /// The Skills to project for this package's current config, in declaration
+    /// order.
+    pub fn enabled_skills(&self) -> impl Iterator<Item = &PackageSkill> {
+        self.skills
+            .iter()
+            .filter(|skill| self.skill_is_enabled(skill))
+    }
+
     pub fn product_detail(&self) -> Result<PluginProductDetail, PluginError> {
         let root = self.source.path.as_path();
         let readme = fs::read_to_string(checked_package_path(root, &self.readme_path)?)
@@ -1338,6 +1376,7 @@ impl PluginPackage {
             skills: vec![PackageSkill {
                 id: "test".to_owned(),
                 path: "skills/test/SKILL.md".to_owned(),
+                domain: None,
             }],
             runtimes: Vec::new(),
             invocations: Vec::new(),
@@ -1391,6 +1430,21 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
                 });
                 if let Some(targets) = integration.get("targets") {
                     value["targets"] = targets.clone();
+                }
+                if let Some(domain) = integration.get("domain") {
+                    // A malformed domain must not degrade to "no domain", which
+                    // would project the Skill unconditionally — the exact
+                    // outcome the domain gate exists to prevent.
+                    let domain = domain
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|domain| !domain.is_empty())
+                        .ok_or_else(|| {
+                            PluginError::invalid_manifest(
+                                "`content.skill` `domain` must be a non-empty string",
+                            )
+                        })?;
+                    value["domain"] = Value::String(domain.to_owned());
                 }
                 skills.push(value);
             }
@@ -2647,7 +2701,16 @@ fn parse_or_discover_skills(
                 Value::Object(skill) => skill
                     .get("path")
                     .and_then(Value::as_str)
-                    .and_then(skill_from_path),
+                    .and_then(skill_from_path)
+                    .map(|mut parsed| {
+                        parsed.domain = skill
+                            .get("domain")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|domain| !domain.is_empty())
+                            .map(str::to_owned);
+                        parsed
+                    }),
                 _ => None,
             };
             match parsed {
@@ -2697,6 +2760,7 @@ fn discover_skills(root: &Path) -> Result<Vec<PackageSkill>, PluginError> {
             skills.push(PackageSkill {
                 path: format!("skills/{id}/SKILL.md"),
                 id,
+                domain: None,
             });
         }
     }
@@ -2714,6 +2778,7 @@ fn skill_from_path(path: &str) -> Option<PackageSkill> {
     Some(PackageSkill {
         id,
         path: path.to_owned(),
+        domain: None,
     })
 }
 
@@ -3323,7 +3388,7 @@ fn validate_v4_contribution_references(
 
 fn validate_v4_contribution(kind: &str, declaration: &Value) -> Result<(), PluginError> {
     let keys: &[&str] = match kind {
-        "agent.skills" => &["id", "kindVersion", "path", "targets", "required"],
+        "agent.skills" => &["id", "kindVersion", "path", "targets", "required", "domain"],
         "agent.invocations" => &[
             "id",
             "kindVersion",

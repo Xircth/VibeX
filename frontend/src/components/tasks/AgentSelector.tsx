@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { AgentLifecycleState, ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
+import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import {
   useSelectableAgents,
   type SelectableAgent,
@@ -67,7 +68,7 @@ export function AgentSelector({
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
     return selectable
-      .filter((agent) => agent.enabled)
+      .filter(isEnabledInstalledAgent)
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
   }, [selectable]);
   const agentIcons = useMemo(() => {
@@ -79,7 +80,7 @@ export function AgentSelector({
   }, [selectable]);
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel =
-    agents.find((agent) => agent.agentId === selectedAgent)?.displayName ??
+    selectable.find((agent) => agent.agentId === selectedAgent)?.displayName ??
     selectedAgent ??
     'Agent';
   const selectedAgentIcons = selectedAgent

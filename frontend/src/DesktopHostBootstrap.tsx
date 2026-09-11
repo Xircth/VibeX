@@ -11,14 +11,14 @@ import {
   type BackendTransport,
 } from '@/lib/transport';
 import { BoundHostTransport } from '@/lib/transport/boundHostTransport';
+import { isTauriDesktopShell } from '@/utils/platform';
 import { getAppRouteMode } from './appRouteMode';
-import { isTauriRuntime } from './WebTransportBootstrap';
 
 const HOST_CLIENT_CHANGED = 'host-client-changed';
 
 function shouldBindAppShell(): boolean {
   return (
-    isTauriRuntime() &&
+    isTauriDesktopShell() &&
     getAppRouteMode(window.location.pathname) !== 'desktop-toast'
   );
 }

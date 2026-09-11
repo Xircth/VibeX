@@ -261,6 +261,12 @@ describe('AgentDetail', () => {
     expect(
       screen.queryByRole('listitem', { name: '本地 Runtime 检查结果' })
     ).toBeNull();
+    const runtimeEntry = screen.getByRole('listitem', {
+      name: '运行入口 检查结果',
+    });
+    expect(within(runtimeEntry).getByText('可用')).toBeInTheDocument();
+    expect(within(runtimeEntry).getByTitle('1.7.0')).toBeInTheDocument();
+    expect(within(runtimeEntry).queryByTitle('未知')).toBeNull();
     expect(
       within(
         screen.getByRole('listitem', { name: 'ACP 适配器 检查结果' })
@@ -341,9 +347,16 @@ describe('AgentDetail', () => {
     expect(screen.queryByText('安装管理')).not.toBeInTheDocument();
     expect(screen.queryByText('登录状态')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '立即检查' }));
-    await userEvent.click(screen.getByRole('button', { name: '环境诊断' }));
-    await userEvent.click(screen.getByRole('button', { name: '修复安装' }));
+    const checkNow = screen.getByRole('button', { name: '立即检查' });
+    const diagnostics = screen.getByRole('button', { name: '环境诊断' });
+    const repair = screen.getByRole('button', { name: '修复安装' });
+    expect(checkNow.closest('.agent-section-heading-toggle')).toBeNull();
+    expect(checkNow.closest('.agent-section-heading-actions')).not.toBeNull();
+    expect(diagnostics.closest('.agent-section-heading-actions')).not.toBeNull();
+    expect(repair.closest('.agent-section-heading-actions')).not.toBeNull();
+    await userEvent.click(checkNow);
+    await userEvent.click(diagnostics);
+    await userEvent.click(repair);
     expect(onPreflight).toHaveBeenCalled();
     expect(onEnvironmentDiagnostics).toHaveBeenCalled();
     expect(onRepair).toHaveBeenCalled();

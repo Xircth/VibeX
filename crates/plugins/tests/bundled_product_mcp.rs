@@ -146,6 +146,11 @@ fn bundled_plugin_development_is_skill_only() {
         "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。"
     );
     assert_eq!(package.skills.len(), 1);
+    assert_eq!(package.skills[0].id, "vibex-plugin-development");
+    assert_eq!(
+        package.skills[0].path,
+        "contents/skills/vibex-plugin-development/SKILL.md"
+    );
     assert!(
         package
             .mcp

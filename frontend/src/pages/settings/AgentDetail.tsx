@@ -800,8 +800,10 @@ function fallbackPreflight(
       status: agent.retired ? 'fail' : 'pass',
       detail: agent.retired
         ? t('agents.retiredHistoryOnly')
-        : t('agents.agentAdded'),
-      version: null,
+        : agent.acp_version
+          ? t('agents.runtimeEntryAvailable')
+          : t('agents.runtimeVersionUnconfirmed'),
+      version: agent.acp_version,
       path: null,
       source: null,
       repairable: false,

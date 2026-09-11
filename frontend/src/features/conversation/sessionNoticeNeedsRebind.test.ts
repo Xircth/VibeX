@@ -3,6 +3,8 @@ import type { ConversationSessionNotice } from 'shared/types';
 import {
   AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
   AGENT_BINDING_REBIND_NOTICE_ROW_ID,
+  AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+  AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
   sessionNoticeNeedsRebind,
 } from './sessionNoticeNeedsRebind';
 
@@ -43,6 +45,24 @@ describe('sessionNoticeNeedsRebind', () => {
           severity: 'warning',
         }),
         AGENT_BINDING_REBIND_NOTICE_ROW_ID
+      )
+    ).toBe(false);
+    expect(
+      sessionNoticeNeedsRebind(
+        notice({
+          title: '会话加载异常，正在重连 1/10 次…',
+          severity: 'warning',
+        }),
+        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID
+      )
+    ).toBe(false);
+    expect(
+      sessionNoticeNeedsRebind(
+        notice({
+          title: '会话出错',
+          severity: 'error',
+        }),
+        AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID
       )
     ).toBe(false);
   });

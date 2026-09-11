@@ -460,6 +460,36 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
 }
 
 #[tokio::test]
+async fn mimo_code_preset_keeps_management_features_after_user_add() {
+    let pool = migrated_pool().await;
+    let service = AgentManagementApplicationService::new(pool);
+    let agent_id = AgentId::parse("mimo_code").unwrap();
+
+    let view = service
+        .add_user_definition(UserAgentDefinitionRequest {
+            agent_id: agent_id.clone(),
+            display_name: "MiMo Code".to_string(),
+            description: "Xiaomi MiMo Code native ACP".to_string(),
+            version: "0.1.14".to_string(),
+            distribution_kind: UserAgentDistributionKind::Npx,
+            distribution_json: r#"{"npx":{"package":"@mimo-ai/cli@0.1.14","args":["acp"],"env":{},"integrity":"sha512-L9OQjAeIuWNu9MRKGmaj+aARzY2ShbfugO3ivo0rb9r8OmvolaI0W/iTTbtTwBbBHwqyHuffdplyhFlDouWVug=="}}"#
+                .to_string(),
+            skills_shared_store: true,
+            skills_directory: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(view.source, AgentSource::UserDefinition);
+    assert!(!view.built_in);
+    assert_eq!(view.display_name, "MiMo Code");
+    let features = view.settings_features.unwrap();
+    assert!(features.contains(&AgentSettingsFeature::AuthenticationMode));
+    assert!(features.contains(&AgentSettingsFeature::OpenCodeProviders));
+    assert!(features.contains(&AgentSettingsFeature::OpenCodePlugins));
+}
+
+#[tokio::test]
 async fn user_definition_rejects_a_relative_skills_directory() {
     let pool = migrated_pool().await;
     let service = AgentManagementApplicationService::new(pool);

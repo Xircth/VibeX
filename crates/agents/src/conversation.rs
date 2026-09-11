@@ -782,6 +782,9 @@ pub fn classify_turn_error(
         if structured_http_status(raw) == Some(429) || structured_rate_limited(raw) {
             return ConversationTurnErrorKind::RateLimited;
         }
+        if structured_auth_failed(raw) {
+            return ConversationTurnErrorKind::AuthRequired;
+        }
         if structured_http_status(raw).is_some_and(|status| (500..600).contains(&status)) {
             return ConversationTurnErrorKind::ServiceError;
         }
@@ -818,6 +821,20 @@ fn structured_rate_limited(raw: &serde_json::Value) -> bool {
             .get("retry_after")
             .and_then(serde_json::Value::as_u64)
             .is_some()
+}
+
+fn structured_auth_failed(raw: &serde_json::Value) -> bool {
+    if structured_http_status(raw) == Some(401) {
+        return true;
+    }
+    matches!(
+        raw.get("errorKind")
+            .or_else(|| raw.get("error_kind"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("authentication_failed" | "auth_required" | "unauthorized")
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -1695,6 +1712,20 @@ mod event_sourced_tests {
                 Some(&serde_json::json!({ "http_status": 503 }))
             ),
             ConversationTurnErrorKind::ServiceError
+        );
+        assert_eq!(
+            classify_turn_error(
+                Some("internal_error"),
+                Some(&serde_json::json!({ "errorKind": "authentication_failed" }))
+            ),
+            ConversationTurnErrorKind::AuthRequired
+        );
+        assert_eq!(
+            classify_turn_error(
+                Some("internal_error"),
+                Some(&serde_json::json!({ "http_status": 401 }))
+            ),
+            ConversationTurnErrorKind::AuthRequired
         );
         assert_eq!(
             classify_turn_error(

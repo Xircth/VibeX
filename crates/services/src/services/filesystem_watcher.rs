@@ -197,6 +197,66 @@ fn debounced_should_forward(event: &DebouncedEvent, gi: &Gitignore, canonical_ro
         .all(|path| path_allowed(path, gi, canonical_root, kind_hint))
 }
 
+/// How many created files one change batch reports. A batch that lands a whole
+/// directory tree should not hand the UI a tab per file.
+pub const MAX_ADDED_PATHS: usize = 8;
+
+/// Root-relative, forward-slashed paths of the files created in this batch,
+/// capped at `max`. The flag reports whether the cap dropped entries, so a
+/// caller can tell "that was all of them" from "there were more".
+///
+/// Paths are relative because the watcher's root is a canonicalized directory
+/// while the UI joins paths onto the root it is displaying; the two need not
+/// spell the same directory the same way.
+pub fn collect_added_paths(
+    events: &[DebouncedEvent],
+    canonical_root: &Path,
+    max: usize,
+) -> (Vec<String>, bool) {
+    let mut added: Vec<String> = Vec::new();
+
+    for path in events
+        .iter()
+        .filter(|event| brings_a_path_into_existence(&event.kind))
+        .flat_map(|event| event.paths.iter())
+    {
+        // A path that is not a file right now is a directory, or is already
+        // gone — either way there is nothing to preview. This also discards the
+        // source of a rename, which no longer exists at the path it came from.
+        if !path.is_file() {
+            continue;
+        }
+
+        let canonical_path = canonicalize_lossy(path);
+        let Ok(relative) = canonical_path.strip_prefix(canonical_root) else {
+            continue;
+        };
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        if relative.is_empty() || added.iter().any(|existing| existing == &relative) {
+            continue;
+        }
+
+        added.push(relative);
+    }
+
+    let truncated = added.len() > max;
+    added.truncate(max);
+
+    (added, truncated)
+}
+
+/// Whether an event can bring a path into existence.
+///
+/// A rename counts: saving through a temporary file and renaming it into place
+/// reports a rename rather than a create, and the file that appears is just as
+/// new as one written in place.
+fn brings_a_path_into_existence(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_))
+    )
+}
+
 /// Represents a directory to watch with its recursive mode.
 #[derive(Debug, Clone)]
 struct WatchTarget {
@@ -689,5 +749,171 @@ mod tests {
         let directory_event = remove_event(root.join("ignored-dir"), RemoveKind::Folder);
 
         assert!(!debounced_should_forward(&directory_event, &gi, &root));
+    }
+
+    fn create_event(path: PathBuf, kind: CreateKind) -> DebouncedEvent {
+        DebouncedEvent::new(
+            Event::new(EventKind::Create(kind)).add_path(path),
+            Instant::now(),
+        )
+    }
+
+    #[test]
+    fn reports_created_files_as_root_relative_paths() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        std::fs::create_dir(root.join("docs")).unwrap();
+        std::fs::write(root.join("docs/page.html"), "<p>hi</p>").unwrap();
+
+        let events = [create_event(root.join("docs/page.html"), CreateKind::File)];
+
+        let (added, truncated) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert_eq!(added, vec!["docs/page.html"]);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn ignores_created_directories() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        std::fs::create_dir(root.join("assets")).unwrap();
+
+        let events = [create_event(root.join("assets"), CreateKind::Folder)];
+
+        let (added, truncated) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert!(added.is_empty());
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn ignores_paths_outside_the_watched_root() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("page.html");
+        std::fs::write(&outside_file, "<p>hi</p>").unwrap();
+
+        let events = [create_event(outside_file, CreateKind::File)];
+
+        let (added, _) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert!(added.is_empty());
+    }
+
+    #[test]
+    fn ignores_events_that_do_not_bring_a_path_into_existence() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let path = root.join("page.html");
+        std::fs::write(&path, "<p>hi</p>").unwrap();
+
+        let events = [
+            remove_event(path.clone(), RemoveKind::File),
+            DebouncedEvent::new(
+                Event::new(EventKind::Modify(ModifyKind::Data(
+                    notify::event::DataChange::Any,
+                )))
+                .add_path(path.clone()),
+                Instant::now(),
+            ),
+            // An access event is not a content change.
+            DebouncedEvent::new(
+                Event::new(EventKind::Access(notify::event::AccessKind::Any)).add_path(path),
+                Instant::now(),
+            ),
+        ];
+
+        let (added, _) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert!(added.is_empty());
+    }
+
+    #[test]
+    fn counts_a_rename_destination_but_not_its_source() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let source = root.join("page.html.tmp");
+        let destination = root.join("page.html");
+        std::fs::write(&destination, "<p>hi</p>").unwrap();
+
+        // A save through a temporary file arrives as a rename, and the source
+        // is gone by the time the batch is processed.
+        let events = [DebouncedEvent::new(
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                .add_path(source)
+                .add_path(destination),
+            Instant::now(),
+        )];
+
+        let (added, _) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert_eq!(added, vec!["page.html"]);
+    }
+
+    #[test]
+    fn ignores_paths_that_are_no_longer_there() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+
+        let events = [create_event(root.join("vanished.html"), CreateKind::File)];
+
+        let (added, _) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert!(added.is_empty());
+    }
+
+    #[test]
+    fn reports_the_same_path_once() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let path = root.join("page.html");
+        std::fs::write(&path, "<p>hi</p>").unwrap();
+
+        let events = [
+            create_event(path.clone(), CreateKind::File),
+            create_event(path.clone(), CreateKind::Any),
+        ];
+
+        let (added, _) = collect_added_paths(&events, &root, MAX_ADDED_PATHS);
+
+        assert_eq!(added, vec!["page.html"]);
+    }
+
+    #[test]
+    fn caps_the_batch_and_says_so() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let events: Vec<DebouncedEvent> = (0..5)
+            .map(|index| {
+                let path = root.join(format!("page{index}.html"));
+                std::fs::write(&path, "<p>hi</p>").unwrap();
+                create_event(path, CreateKind::File)
+            })
+            .collect();
+
+        let (added, truncated) = collect_added_paths(&events, &root, 3);
+
+        assert_eq!(added, vec!["page0.html", "page1.html", "page2.html"]);
+        assert!(truncated);
+    }
+
+    #[test]
+    fn a_batch_at_the_cap_is_not_truncated() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let events: Vec<DebouncedEvent> = (0..3)
+            .map(|index| {
+                let path = root.join(format!("page{index}.html"));
+                std::fs::write(&path, "<p>hi</p>").unwrap();
+                create_event(path, CreateKind::File)
+            })
+            .collect();
+
+        let (added, truncated) = collect_added_paths(&events, &root, 3);
+
+        assert_eq!(added.len(), 3);
+        assert!(!truncated);
     }
 }

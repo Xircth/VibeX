@@ -16,6 +16,15 @@ export function openAgentDiagnostics(agentId: string): void {
   void settingsWindowApi.open();
 }
 
+export function openAgentSettings(agentId: string): void {
+  const focus: AgentSettingsFocus = {
+    agentId,
+    focusDiagnostics: false,
+  };
+  localStorage.setItem(AGENT_SETTINGS_FOCUS_KEY, JSON.stringify(focus));
+  void settingsWindowApi.open('/settings/agents');
+}
+
 export function consumeAgentSettingsFocus(): AgentSettingsFocus | null {
   const raw = localStorage.getItem(AGENT_SETTINGS_FOCUS_KEY);
   if (!raw) return null;

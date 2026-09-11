@@ -31,6 +31,7 @@ const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.provider-import", "other"),
     ("vibex.host-surface", "other"),
     ("vibex.remote-ssh", "other"),
+    ("vibex.science", "other"),
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1150,6 +1151,7 @@ mod tests {
             bundled_topic_category("vibex.workflow-creator"),
             Some("workflow")
         );
+        assert_eq!(bundled_topic_category("vibex.science"), Some("other"));
     }
 
     #[test]

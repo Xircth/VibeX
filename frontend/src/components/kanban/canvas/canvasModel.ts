@@ -397,13 +397,18 @@ export function computeAlignment(
 
 export function packLayout(
   nodes: readonly SessionCanvasNode[],
-  opts: { gap?: number; rowWidth?: number } = {}
+  opts: {
+    gap?: number;
+    rowWidth?: number;
+    compare?: (left: SessionCanvasNode, right: SessionCanvasNode) => number;
+  } = {}
 ): SessionCanvasMove[] {
   const gap = opts.gap ?? CARD_GAP * 2;
   const rowWidth = opts.rowWidth ?? PACK_ROW_WIDTH;
   const sorted = nodes
     .filter((node) => !node.parentId || node.expanded)
     .sort((a, b) => {
+      if (opts.compare) return opts.compare(a, b);
       const ha = sizeForNode(a).height;
       const hb = sizeForNode(b).height;
       if (ha !== hb) return hb - ha;

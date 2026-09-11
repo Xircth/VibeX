@@ -52,15 +52,17 @@ import {
   type CustomModelTestState,
 } from './CodexModelCatalogEditor';
 
+// `model` fields hold a model id and can be picked from the detected catalog;
+// `text` fields (the custom option's display name and description) are prose.
 const CLAUDE_MODEL_FIELDS = [
-  ['main', 'providerModelMain'],
-  ['reasoning', 'providerModelReasoning'],
-  ['haiku', 'providerModelHaiku'],
-  ['sonnet', 'providerModelSonnet'],
-  ['opus', 'providerModelOpus'],
-  ['customOption', 'providerModelCustomId'],
-  ['customOptionName', 'providerModelCustomName'],
-  ['customOptionDescription', 'providerModelCustomDescription'],
+  ['main', 'providerModelMain', 'model'],
+  ['reasoning', 'providerModelReasoning', 'model'],
+  ['haiku', 'providerModelHaiku', 'model'],
+  ['sonnet', 'providerModelSonnet', 'model'],
+  ['opus', 'providerModelOpus', 'model'],
+  ['customOption', 'providerModelCustomId', 'model'],
+  ['customOptionName', 'providerModelCustomName', 'text'],
+  ['customOptionDescription', 'providerModelCustomDescription', 'text'],
 ] as const;
 
 type Surface = 'list' | 'form';
@@ -265,7 +267,7 @@ export function AgentModelProviderManager({
     );
     if (!detected) return;
     if (agentId === 'claude_code') {
-      const next = parseClaudeModel(model);
+      const next = { ...parseClaudeModel(model).raw };
       if (checked) {
         next[claudeMappingTarget] = detected.id;
       } else {
@@ -328,13 +330,16 @@ export function AgentModelProviderManager({
   const toggleAllDetected = (checked: boolean) => {
     const models = detectedCatalog?.models ?? [];
     if (agentId === 'claude_code') {
-      const next = parseClaudeModel(model);
+      const next = { ...parseClaudeModel(model).raw };
       const detectedIds = new Set(models.map((item) => item.id));
       if (checked) {
         if (models[0]) next[claudeMappingTarget] = models[0].id;
       } else {
         for (const key of Object.keys(next)) {
-          if (detectedIds.has(next[key])) delete next[key];
+          const value = next[key];
+          if (typeof value === 'string' && detectedIds.has(value)) {
+            delete next[key];
+          }
         }
       }
       setModel(Object.keys(next).length ? JSON.stringify(next) : '');
@@ -793,18 +798,21 @@ export function AgentModelProviderManager({
         />
         {agentId === 'claude_code' ? (
           <ClaudeProviderModelEditor
+            choices={providerModelChoices(model, detectedCatalog)}
             disabled={busy}
             value={model}
             onChange={setModel}
           />
         ) : agentId === 'grok' ? (
           <GrokProviderModelEditor
+            choices={providerModelChoices(model, detectedCatalog)}
             disabled={busy}
             value={model}
             onChange={setModel}
           />
         ) : agentId === 'pi' ? (
           <PiProviderModelEditor
+            choices={providerModelChoices(model, detectedCatalog)}
             disabled={busy}
             value={model}
             onChange={setModel}
@@ -1442,7 +1450,10 @@ function ProviderModelDetection({
     models.length > 0 && models.every((item) => selected.has(item.id));
   return (
     <div className="agent-model-provider-detection">
-      <div className="agent-model-provider-detection-actions">
+      <div className="provider-detected-models-heading">
+        <span className="provider-detected-models-title">
+          {t('agents.providerDetectedModels')}
+        </span>
         <Button
           size="sm"
           variant="outline"
@@ -1461,6 +1472,17 @@ function ProviderModelDetection({
           )}
           {t('agents.providerDetectModels')}
         </Button>
+        {loading ? (
+          <p aria-live="polite">{t('agents.providerDetectingModels')}</p>
+        ) : catalog ? (
+          <p aria-live="polite">
+            {models.length
+              ? t('agents.providerDetectedModelCount', {
+                  count: models.length,
+                })
+              : t('agents.providerDetectedModelsEmpty')}
+          </p>
+        ) : null}
         {models.length > 0 && agentId === 'claude_code' ? (
           <AstryxSelect
             ariaLabel={t('agents.providerDetectedMappingTargetAria')}
@@ -1473,106 +1495,211 @@ function ProviderModelDetection({
             onChange={onMappingTargetChange}
           />
         ) : null}
+        {models.length > 0 ? (
+          <div className="provider-detected-models-heading-actions">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              disabled={disabled || loading || allSelected}
+              onClick={() => onToggleAll(true)}
+            >
+              {t('agents.providerDetectedSelectAll')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              disabled={disabled || loading || selected.size === 0}
+              onClick={() => onToggleAll(false)}
+            >
+              {t('agents.providerDetectedClear')}
+            </Button>
+          </div>
+        ) : null}
       </div>
-      {loading ? (
-        <p aria-live="polite">{t('agents.providerDetectingModels')}</p>
-      ) : catalog ? (
-        <p aria-live="polite">
-          {models.length
-            ? t('agents.providerDetectedModelCount', {
-                count: models.length,
-              })
-            : t('agents.providerDetectedModelsEmpty')}
-        </p>
-      ) : null}
       {models.length > 0 ? (
-        <fieldset>
-          <div className="provider-detected-models-heading">
-            <legend>{t('agents.providerDetectedModels')}</legend>
-            <div className="provider-detected-models-heading-actions">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7"
-                disabled={disabled || loading || allSelected}
-                onClick={() => onToggleAll(true)}
-              >
-                {t('agents.providerDetectedSelectAll')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7"
-                disabled={disabled || loading || selected.size === 0}
-                onClick={() => onToggleAll(false)}
-              >
-                {t('agents.providerDetectedClear')}
-              </Button>
-            </div>
-          </div>
-          <div className="provider-detected-models">
-            {models.map((detected) => (
-              <label key={detected.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.has(detected.id)}
-                  disabled={disabled || loading}
-                  name={`detected_model_${detected.id}`}
-                  onChange={(event) =>
-                    onToggleModel(detected.id, event.target.checked)
-                  }
-                />
-                <span>
-                  <strong>{detected.label}</strong>
-                  <code>{detected.id}</code>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <div
+          className="provider-detected-models"
+          role="group"
+          aria-label={t('agents.providerDetectedModels')}
+        >
+          {models.map((detected) => (
+            <label key={detected.id}>
+              <input
+                type="checkbox"
+                checked={selected.has(detected.id)}
+                disabled={disabled || loading}
+                name={`detected_model_${detected.id}`}
+                onChange={(event) =>
+                  onToggleModel(detected.id, event.target.checked)
+                }
+              />
+              <span>
+                <strong>{detected.label}</strong>
+                {/* The id only adds information when it differs from the name. */}
+                {detected.label === detected.id ? null : (
+                  <code title={detected.id}>{detected.id}</code>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
     </div>
   );
 }
 
+/** Menu value that switches the field over to free-text entry. */
+const CUSTOM_MODEL_SENTINEL = '__custom__';
+
+/**
+ * A model id field that offers the models the user enabled above it.
+ *
+ * The detection panel is where models get chosen, so asking for the same name
+ * again as free text made the two halves of the form look unrelated. When
+ * there is nothing to offer the field stays a plain input, which keeps the
+ * "the endpoint does not list the model I want" path intact.
+ */
+function ProviderModelField({
+  label,
+  ariaLabel,
+  name,
+  value,
+  choices,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  ariaLabel: string;
+  name: string;
+  value: string;
+  choices: readonly string[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const listed = value === '' || choices.includes(value);
+  const [typing, setTyping] = useState(!listed);
+  // A value saved before this model list existed has no option to sit on, so
+  // show it as its own entry instead of an empty picker.
+  const unlisted = value !== '' && !choices.includes(value);
+
+  if (choices.length === 0) {
+    return (
+      <label>
+        <span>{label}</span>
+        <input
+          aria-label={ariaLabel}
+          autoComplete="off"
+          disabled={disabled}
+          name={name}
+          spellCheck={false}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+    );
+  }
+
+  if (typing) {
+    return (
+      <label>
+        <span>{label}</span>
+        {/* A span, not a div: a label's content model is phrasing content. */}
+        <span className="provider-model-field-custom">
+          <input
+            aria-label={ariaLabel}
+            autoComplete="off"
+            disabled={disabled}
+            name={name}
+            spellCheck={false}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8"
+            disabled={disabled}
+            onClick={() => setTyping(false)}
+          >
+            {t('agents.providerModelUseList')}
+          </Button>
+        </span>
+      </label>
+    );
+  }
+
+  return (
+    <label>
+      <span>{label}</span>
+      <AstryxSelect
+        ariaLabel={ariaLabel}
+        disabled={disabled}
+        value={value}
+        options={[
+          ...choices.map((id) => ({ value: id, label: id })),
+          ...(unlisted
+            ? [{ value, label: `${value} (${t('agents.custom')})` }]
+            : []),
+          {
+            value: CUSTOM_MODEL_SENTINEL,
+            label: t('agents.providerModelCustomOption'),
+          },
+        ]}
+        onChange={(next) => {
+          if (next === CUSTOM_MODEL_SENTINEL) {
+            setTyping(true);
+            return;
+          }
+          onChange(next);
+        }}
+      />
+    </label>
+  );
+}
+
 function GrokProviderModelEditor({
   value,
+  choices,
   disabled,
   onChange,
 }: {
   value: string;
+  choices: readonly string[];
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation('settings');
   const parsed = parseGrokModel(value);
-  const patch = (next: typeof parsed) => {
-    onChange(
-      JSON.stringify({
-        id: next.id,
-        api_backend: next.api_backend,
-        context_window: next.context_window
-          ? Number(next.context_window)
-          : null,
-      })
-    );
+  const patch = (next: GrokModelSpec) => {
+    const payload: Record<string, unknown> = {
+      ...parsed.raw,
+      id: next.id,
+      api_backend: next.api_backend,
+      context_window: next.context_window ? Number(next.context_window) : null,
+    };
+    // Same as Pi: reorder only for a model the user had already enabled.
+    const enabled = enabledModelIds(value);
+    if (next.id !== '' && enabled.includes(next.id)) {
+      payload.models = [next.id, ...enabled.filter((id) => id !== next.id)];
+    }
+    onChange(JSON.stringify(payload));
   };
   return (
     <fieldset className="agent-model-provider-claude">
       <legend>{t('agents.model')}</legend>
-      <label>
-        <span>{t('agents.model')}</span>
-        <input
-          aria-label={t('agents.providerModelAria')}
-          autoComplete="off"
-          disabled={disabled}
-          name="grok_provider_model"
-          spellCheck={false}
-          value={parsed.id}
-          onChange={(event) => patch({ ...parsed, id: event.target.value })}
-        />
-      </label>
+      <ProviderModelField
+        ariaLabel={t('agents.providerModelAria')}
+        choices={choices}
+        disabled={disabled}
+        label={t('agents.model')}
+        name="grok_provider_model"
+        value={parsed.id}
+        onChange={(id) => patch({ ...parsed, id })}
+      />
       <label>
         <span>{t('agents.grokApiBackend')}</span>
         <AstryxSelect
@@ -1614,33 +1741,45 @@ const PI_PROTOCOLS = [
 
 function PiProviderModelEditor({
   value,
+  choices,
   disabled,
   onChange,
 }: {
   value: string;
+  choices: readonly string[];
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation('settings');
   const parsed = parsePiModel(value);
-  const patch = (next: typeof parsed) => {
-    onChange(JSON.stringify({ id: next.id, api: next.api }));
+  const patch = (next: PiModelSpec) => {
+    const payload: Record<string, unknown> = {
+      ...parsed.raw,
+      id: next.id,
+      api: next.api,
+    };
+    // Picking one of the enabled models makes it the default, and the backend
+    // reads the first entry, so it has to lead the list. A typed id is left
+    // out of the list entirely: the list is what the detection panel manages,
+    // and adding every keystroke to it would fill it with partial ids.
+    const enabled = enabledModelIds(value);
+    if (next.id !== '' && enabled.includes(next.id)) {
+      payload.models = [next.id, ...enabled.filter((id) => id !== next.id)];
+    }
+    onChange(JSON.stringify(payload));
   };
   return (
     <fieldset className="agent-model-provider-claude">
       <legend>{t('agents.model')}</legend>
-      <label>
-        <span>{t('agents.model')}</span>
-        <input
-          aria-label={t('agents.providerModelAria')}
-          autoComplete="off"
-          disabled={disabled}
-          name="pi_provider_model"
-          spellCheck={false}
-          value={parsed.id}
-          onChange={(event) => patch({ ...parsed, id: event.target.value })}
-        />
-      </label>
+      <ProviderModelField
+        ariaLabel={t('agents.providerModelAria')}
+        choices={choices}
+        disabled={disabled}
+        label={t('agents.model')}
+        name="pi_provider_model"
+        value={parsed.id}
+        onChange={(id) => patch({ ...parsed, id })}
+      />
       <label>
         <span>{t('agents.customProviderProtocol')}</span>
         <AstryxSelect
@@ -1658,7 +1797,18 @@ function PiProviderModelEditor({
   );
 }
 
-function parsePiModel(value: string): { id: string; api: string } {
+interface PiModelSpec {
+  id: string;
+  api: string;
+  /**
+   * The parsed object as written, so a patch can add to it instead of
+   * rebuilding it from the keys this editor happens to know. Rebuilding is
+   * what used to drop the selected-models list on an unrelated edit.
+   */
+  raw: Record<string, unknown>;
+}
+
+function parsePiModel(value: string): PiModelSpec {
   try {
     const parsed = JSON.parse(value) as { id?: unknown; api?: unknown };
     if (parsed && typeof parsed === 'object') {
@@ -1669,19 +1819,23 @@ function parsePiModel(value: string): { id: string; api: string } {
           PI_PROTOCOLS.includes(parsed.api as (typeof PI_PROTOCOLS)[number])
             ? parsed.api
             : 'openai-responses',
+        raw: parsed as Record<string, unknown>,
       };
     }
   } catch {
     /* plain model id */
   }
-  return { id: value, api: 'openai-responses' };
+  return { id: value, api: 'openai-responses', raw: {} };
 }
 
-function parseGrokModel(value: string): {
+interface GrokModelSpec {
   id: string;
   api_backend: string;
   context_window: string;
-} {
+  raw: Record<string, unknown>;
+}
+
+function parseGrokModel(value: string): GrokModelSpec {
   try {
     const parsed = JSON.parse(value) as {
       id?: string;
@@ -1695,6 +1849,7 @@ function parseGrokModel(value: string): {
         api_backend: parsed.api_backend || 'responses',
         context_window:
           parsed.context_window == null ? '' : String(parsed.context_window),
+        raw: parsed as Record<string, unknown>,
       };
     }
   } catch {
@@ -1704,61 +1859,94 @@ function parseGrokModel(value: string): {
     id: value,
     api_backend: 'responses',
     context_window: '',
+    raw: {},
   };
 }
 
 function ClaudeProviderModelEditor({
   value,
+  choices,
   disabled,
   onChange,
 }: {
   value: string;
+  choices: readonly string[];
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation('settings');
   const parsed = parseClaudeModel(value);
+  const write = (key: string, nextValue: string) => {
+    // Edit the parsed object rather than a copy of the keys we render: an
+    // unrelated field must not drop what we do not know about.
+    const next = { ...parsed.raw };
+    if (nextValue) next[key] = nextValue;
+    else delete next[key];
+    onChange(Object.keys(next).length ? JSON.stringify(next) : '');
+  };
   return (
     <fieldset className="agent-model-provider-claude">
       <legend>{t('agents.providerModelMapping')}</legend>
-      {CLAUDE_MODEL_FIELDS.map(([key, labelKey]) => (
-        <label key={key}>
-          <span>{t(`agents.${labelKey}`)}</span>
-          <input
-            aria-label={t('agents.providerModelFieldAria', {
-              label: t(`agents.${labelKey}`),
-            })}
-            autoComplete="off"
+      {CLAUDE_MODEL_FIELDS.map(([key, labelKey, kind]) => {
+        const label = t(`agents.${labelKey}`);
+        const ariaLabel = t('agents.providerModelFieldAria', { label });
+        if (kind === 'text') {
+          return (
+            <label key={key}>
+              <span>{label}</span>
+              <input
+                aria-label={ariaLabel}
+                autoComplete="off"
+                disabled={disabled}
+                name={`claude_provider_${key}`}
+                spellCheck={false}
+                value={parsed.values[key] ?? ''}
+                onChange={(event) => write(key, event.target.value)}
+              />
+            </label>
+          );
+        }
+        return (
+          <ProviderModelField
+            key={key}
+            ariaLabel={ariaLabel}
+            choices={choices}
             disabled={disabled}
+            label={label}
             name={`claude_provider_${key}`}
-            spellCheck={false}
-            value={parsed[key] ?? ''}
-            onChange={(event) => {
-              const next = { ...parsed };
-              const nextValue = event.target.value;
-              if (nextValue) next[key] = nextValue;
-              else delete next[key];
-              onChange(Object.keys(next).length ? JSON.stringify(next) : '');
-            }}
+            value={parsed.values[key] ?? ''}
+            onChange={(next) => write(key, next)}
           />
-        </label>
-      ))}
+        );
+      })}
     </fieldset>
   );
 }
 
-function parseClaudeModel(value: string): Record<string, string> {
+interface ClaudeModelSpec {
+  /** The env-var mapping keys this editor renders, values only. */
+  values: Record<string, string>;
+  /** Every key as written, so an edit cannot drop the ones we do not render. */
+  raw: Record<string, unknown>;
+}
+
+function parseClaudeModel(value: string): ClaudeModelSpec {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string'
-      )
-    );
+      return { values: {}, raw: {} };
+    return {
+      values: Object.fromEntries(
+        Object.entries(parsed).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string'
+        )
+      ),
+      raw: parsed as Record<string, unknown>,
+    };
   } catch {
-    return value.trim() ? { main: value.trim() } : {};
+    return value.trim()
+      ? { values: { main: value.trim() }, raw: {} }
+      : { values: {}, raw: {} };
   }
 }
 
@@ -1816,6 +2004,56 @@ function selectedModelIds(value: string): string[] {
   return ids;
 }
 
+/**
+ * The models the picker offers: the ones the user enabled in the detection
+ * panel, plus everything the last detection returned.
+ *
+ * Reading only the `models` list matters. The primary model lives in `id`
+ * (or, for Claude, in the mapping keys), and feeding that back in would make
+ * a typed model id promote itself into the picker mid-keystroke — the field
+ * would turn into a dropdown while the user was still typing.
+ */
+function providerModelChoices(
+  model: string,
+  catalog: AgentModelCatalogView | null
+): string[] {
+  return [
+    ...new Set([
+      ...enabledModelIds(model),
+      ...(catalog?.models ?? []).map((item) => item.id),
+    ]),
+  ];
+}
+
+/** The `models` list as written, ignoring the primary/default model keys. */
+function enabledModelIds(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as { models?: unknown };
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !Array.isArray(parsed.models)
+    ) {
+      return [];
+    }
+    const ids: string[] = [];
+    for (const item of parsed.models) {
+      if (typeof item === 'string' && item.trim()) ids.push(item.trim());
+      else if (
+        item &&
+        typeof item === 'object' &&
+        typeof (item as { id?: unknown }).id === 'string'
+      ) {
+        const id = (item as { id: string }).id.trim();
+        if (id) ids.push(id);
+      }
+    }
+    return [...new Set(ids)];
+  } catch {
+    return [];
+  }
+}
+
 function serializeSelectedModels(
   agentId: AgentId,
   current: string,
@@ -1824,6 +2062,7 @@ function serializeSelectedModels(
   if (agentId === 'grok') {
     const parsed = parseGrokModel(current);
     return JSON.stringify({
+      ...parsed.raw,
       id: ids[0] ?? '',
       api_backend: parsed.api_backend,
       context_window: parsed.context_window
@@ -1835,6 +2074,7 @@ function serializeSelectedModels(
   if (agentId === 'pi') {
     const parsed = parsePiModel(current);
     return JSON.stringify({
+      ...parsed.raw,
       id: ids[0] ?? '',
       api: parsed.api,
       models: ids,
@@ -1862,8 +2102,8 @@ function selectedDetectedIds(
     ].filter((id) => detected.has(id));
   }
   if (agentId === 'claude_code') {
-    return [...new Set(Object.values(parseClaudeModel(model)))].filter((id) =>
-      detected.has(id)
+    return [...new Set(Object.values(parseClaudeModel(model).values))].filter(
+      (id) => detected.has(id)
     );
   }
   return selectedModelIds(model).filter((id) => detected.has(id));

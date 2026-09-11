@@ -9,6 +9,7 @@ import {
   type PluginControlItem,
   type PluginRuntimeInventoryItem,
 } from '@/lib/api/plugins';
+import { getInvokeErrorMessage } from '@/lib/errors';
 
 export const pluginCatalogQueryKey = ['plugin-control-catalog'] as const;
 export { pluginContributionCatalogQueryKey };
@@ -22,7 +23,7 @@ export function isProductPlugin(plugin: PluginControlItem) {
 }
 
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  return getInvokeErrorMessage(error);
 }
 
 export function useProductPluginCatalog(

@@ -145,6 +145,11 @@
       "status": "Status groups",
       "workspace": "Workspace groups"
     },
+    "autoOpenCreatedPreviews": {
+      "title": "New file previews",
+      "description": "Open the preview of a newly created SVG or HTML file while the workspace page is on screen.",
+      "label": "Open previews automatically"
+    },
     "kanbanBoardStyle": {
       "title": "Session board style",
       "description": "Choose how the session monitor and execution area are presented.",
@@ -814,6 +819,57 @@
         "summary": "Install and start a VibeX Server over SSH, then attach this app to that Host.",
         "readme": "# Remote SSH\n\nInstall VibeX Server on a machine you can SSH into, add it to Remote connection, and attach the app to that Host.\n\nUninstalling keeps saved SSH Hosts by default.",
         "config": {}
+      },
+      "science": {
+        "name": "Scientific Research",
+        "summary": "146 research Skills in 10 domains. Only the 13 general methods inject by default; turn other domains on in plugin settings.",
+        "readme": "# Scientific Research\n\nInject research Skills by domain. Only the 13 general-method Skills are on by default; turn on the other 133 from this page.\n\nAfter you enable the plugin, open domains project into `~/.vibex/skills/.plugins/vibex.science/` and then into each Agent's Skill directory. They appear in sessions opened or rebound later.\n\nSkill text ships in the package. Whether an Agent runs a Skill's Python scripts, and which dependencies it installs, is up to that Agent. This plugin does not preinstall a Python environment.\n\nTurning a domain off removes this plugin's projected Skills for that domain. Skills with the same name that do not belong to this plugin are left alone.",
+        "config": {
+          "domains": {
+            "title": "Skill domains",
+            "description": "Enable Skills by domain. Closed domains are not injected into any Agent. Only general research methods start on."
+          },
+          "general": {
+            "title": "General research methods",
+            "description": "Topic ideation, hypotheses, experimental design, statistical power and tests, exploratory analysis, visualization, critical thinking, literature lookup, peer review, citation management, evaluation, and schematics. On by default. (13 Skills)"
+          },
+          "literature": {
+            "title": "Literature and information retrieval",
+            "description": "Search papers, the web, public databases, and ontologies for traceable evidence. (12 Skills)"
+          },
+          "writing": {
+            "title": "Scientific writing and publishing",
+            "description": "Papers, grants, venue templates, posters, slides, figures, and document conversion. (11 Skills)"
+          },
+          "stats": {
+            "title": "Statistics, data science, and machine learning",
+            "description": "Statistical modeling, survival analysis, time series, graphs, dimensionality reduction, classical ML, deep learning, GNNs, reinforcement learning, interpretability, and symbolic computation. (19 Skills)"
+          },
+          "infra": {
+            "title": "Data engineering and compute",
+            "description": "Large tables and arrays, distributed compute, cloud GPU and HPC pipelines, GPU acceleration, resource discovery, and research-agent automation. (17 Skills)"
+          },
+          "singlecell": {
+            "title": "Single-cell and transcriptome analysis",
+            "description": "AnnData/Scanpy workflows: formats, QC, clustering, RNA velocity, generative integration, differential expression, pathway enrichment, GRN inference, and atlas queries. (10 Skills)"
+          },
+          "genomics": {
+            "title": "Genomics and sequence variation",
+            "description": "Intervals and variants, alignment I/O, coordinate conversion, variant stores, population cohorts, DNA language models, pathogen surveillance, somatic pipelines, and phylogenetics. (16 Skills)"
+          },
+          "chemistry": {
+            "title": "Cheminformatics and drug discovery",
+            "description": "Small-molecule and biomolecular modeling: cheminformatics, medicinal-chemistry filters, molecular features, mass spec, ADMET ML, docking, protein language models, binding assays, and molecular dynamics. (14 Skills)"
+          },
+          "medicine": {
+            "title": "Medicine, clinical, and biomedical imaging",
+            "description": "Clinical decision support and reports, treatment and PK/PD, animal-study severity, DICOM/pathology/microscopy, neurophysiology, ELN/LIMS/protocols, lab robotics, and compliance. (21 Skills)"
+          },
+          "physics": {
+            "title": "Physics, materials, earth, and engineering simulation",
+            "description": "Quantum computing and simulation, astronomy, materials structure, CFD/PIV/discrete-event simulation, multi-objective optimization, geospatial analysis, and lab hardware CAD. (13 Skills)"
+          }
+        }
       }
     },
     "contentTab": "Content",
@@ -1799,6 +1855,9 @@
     "authDescClineProvider": "Configure a BYOK provider for Cline.",
     "authDescCodebuddySubscription": "Sign in to the Tencent Cloud CodeBuddy account.",
     "authDescQoderSubscription": "Sign in with a Qoder account.",
+    "authDescMimoSubscription": "Sign in with a Xiaomi MiMo account.",
+    "authDescMimoOfficialApi": "Use a Xiaomi MiMo first-party API key.",
+    "authDescMimoProvider": "Connect catalog or custom OpenAI-compatible providers in MiMo Code.",
     "qoderTokenLabel": "QODER_PERSONAL_ACCESS_TOKEN",
     "qoderTokenPlaceholder": "Personal access token",
     "qoderTokenHint": "Same-account token for machines without a browser.",
@@ -1979,6 +2038,8 @@
     "providerModelCustomId": "Custom option ID",
     "providerModelCustomName": "Custom option name",
     "providerModelCustomDescription": "Custom option description",
+    "providerModelCustomOption": "Custom model ID…",
+    "providerModelUseList": "Choose from enabled models",
     "providerModelFieldAria": "Provider {{label}}",
     "providerDetectModels": "Detect models",
     "providerDetectingModels": "Detecting models…",

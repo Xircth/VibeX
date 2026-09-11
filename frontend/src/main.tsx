@@ -20,8 +20,9 @@ import { warmDefaultSettingsSurface } from '@/lib/settingsPreload';
 import '@/i18n';
 // Import modal type definitions
 import './types/modals';
+import { isTauriDesktopShell } from '@/utils/platform';
 import { DesktopHostBootstrap } from './DesktopHostBootstrap';
-import { isTauriRuntime, WebTransportBootstrap } from './WebTransportBootstrap';
+import { WebTransportBootstrap } from './WebTransportBootstrap';
 import { getAppRouteMode } from './appRouteMode';
 
 export const queryClient = new QueryClient({
@@ -75,7 +76,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <React.Suspense fallback={null}>
-        {isTauriRuntime() ? (
+        {isTauriDesktopShell() ? (
           <DesktopHostBootstrap>
             <App />
           </DesktopHostBootstrap>

@@ -71,6 +71,7 @@ pub struct HostRuntimeParts {
     pub terminal_bridges: Option<Arc<TerminalBridgeRegistry>>,
     pub agent_management_runtime: Option<Arc<AgentManagementRuntimeState>>,
     pub conversation_host: Option<Arc<crate::HostPluginConversationHost>>,
+    pub delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 }
 
 impl HostRuntime {
@@ -102,6 +103,7 @@ impl HostRuntime {
             events.clone(),
             terminal_bridges.clone(),
             agent_management_runtime.clone(),
+            parts.delegation_broker,
         );
         let core = Arc::new(core);
         if let Some(conversation_host) = parts.conversation_host {

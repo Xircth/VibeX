@@ -12,22 +12,13 @@ import { useAttempt } from '@/hooks/useAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
-import { backendCall, backendListen } from '@/lib/backendTransport';
+import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
+import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
 import {
   deriveWorkspaceRootPath,
   deriveWorkspaceRootPathCandidates,
 } from './workspaceRootPath';
-
-function isAbsolutePath(path: string): boolean {
-  const normalizedPath = stripWindowsExtendedPathPrefix(path);
-  return (
-    /^[a-zA-Z]:[\\/]/.test(normalizedPath) ||
-    /^[\\/]\?[\\/][a-zA-Z]:[\\/]/.test(normalizedPath) ||
-    normalizedPath.startsWith('/') ||
-    normalizedPath.startsWith('\\\\')
-  );
-}
 
 function stripWindowsExtendedPathPrefix(path: string): string {
   return path
@@ -106,10 +97,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const [rootScanTruncated, setRootScanTruncated] = useState(false);
   const loadRequestIdRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
-
-  const normalizeWatchedPath = useCallback((path: string) => {
-    return path.replaceAll('\\', '/').replace(/\/+$/, '');
-  }, []);
 
   const workspaceRootCandidates = useMemo(
     () =>
@@ -304,10 +291,6 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       return;
     }
 
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    const normalizedRootPath = normalizeWatchedPath(rootPath);
-
     const scheduleRefresh = () => {
       if (refreshTimerRef.current !== null) {
         return;
@@ -328,40 +311,15 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       }
     };
 
-    void backendCall('subscribe_file_tree_stream', { rootPath }).catch(
-      (error) => {
-        console.error('Failed to subscribe file tree stream:', error);
-      }
-    );
-
-    void backendListen<{ root_path: string }>('file-tree-stream', (payload) => {
-      if (cancelled) {
-        return;
-      }
-
-      if (normalizeWatchedPath(payload.root_path) !== normalizedRootPath) {
-        return;
-      }
-
+    const unsubscribe = subscribeFileTreeChanges(rootPath, () => {
       scheduleRefresh();
-    })
-      .then((dispose) => {
-        if (cancelled) {
-          dispose();
-          return;
-        }
-        unlisten = dispose;
-      })
-      .catch((error) => {
-        console.error('Failed to listen for file tree updates:', error);
-      });
+    });
 
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      cancelled = true;
-      unlisten?.();
+      unsubscribe();
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (refreshTimerRef.current !== null) {
@@ -369,23 +327,12 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         refreshTimerRef.current = null;
       }
     };
-  }, [normalizeWatchedPath, refreshFileTree, rootPath]);
+  }, [refreshFileTree, rootPath]);
 
   const handleOpenFile = useCallback(
     (relativePath: string) => {
       if (!rootPath) return;
-      const normalizedPath = stripWindowsExtendedPathPrefix(relativePath);
-      const absolutePath = isAbsolutePath(normalizedPath)
-        ? normalizedPath
-        : (() => {
-            const usesWindowsSeparator = rootPath.includes('\\');
-            const separator = usesWindowsSeparator ? '\\' : '/';
-            const base = rootPath.replace(/[\\/]+$/, '');
-            const normalizedRelative = usesWindowsSeparator
-              ? normalizedPath.replaceAll('/', '\\')
-              : normalizedPath;
-            return `${base}${separator}${normalizedRelative}`;
-          })();
+      const absolutePath = resolveFileTreeAbsolutePath(rootPath, relativePath);
       setSelectedFilePath(absolutePath);
       openFilePreview(absolutePath);
     },

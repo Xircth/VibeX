@@ -113,7 +113,7 @@ export const SESSION_STATUS_SECTION_STYLES: Record<
   },
 };
 
-export type SortField = 'name' | 'time' | 'status';
+export type SortField = 'name' | 'time' | 'status' | 'agent';
 export type KanbanSessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 export interface SessionMarker {
@@ -147,6 +147,8 @@ export function getSortLabel(sortField: SortField | null) {
       return i18n.t('tasks:hubUtils.sortByTime');
     case 'status':
       return i18n.t('tasks:hubUtils.sortByStatus');
+    case 'agent':
+      return i18n.t('common:contextMenu.sortAgent');
     default:
       return '';
   }
@@ -191,6 +193,15 @@ export function sortSessions(
       return (
         getSessionStatusOrder(left.status) -
           getSessionStatusOrder(right.status) ||
+        dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
+      );
+    }
+
+    if (sortField === 'agent') {
+      const leftAgent = sessionListAgentKey(left) ?? '';
+      const rightAgent = sessionListAgentKey(right) ?? '';
+      return (
+        leftAgent.localeCompare(rightAgent, 'zh-CN') ||
         dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
       );
     }

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useAppContextMenu } from '@/components/context-menu';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
@@ -51,6 +52,7 @@ const welcomeActions = [
 
 function DockviewWelcomePanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const {
     openDiffPreview,
     openFilePreview,
@@ -125,6 +127,30 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
     <div
       className="workspace-welcome h-full w-full overflow-auto"
       data-panel="welcome"
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'files',
+            label: t('common:contextMenu.openFiles'),
+            onSelect: () => handleAction('files'),
+          },
+          {
+            id: 'review',
+            label: t('common:contextMenu.openReview'),
+            onSelect: () => handleAction('diffs'),
+          },
+          {
+            id: 'terminal',
+            label: t('common:contextMenu.openTerminal'),
+            onSelect: () => handleAction('terminal'),
+          },
+          {
+            id: 'browser',
+            label: t('common:contextMenu.openBrowser'),
+            onSelect: () => handleAction('browser'),
+          },
+        ]);
+      }}
     >
       <div className="workspace-welcome__inner">
         <section

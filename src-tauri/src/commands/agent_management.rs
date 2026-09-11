@@ -30,8 +30,8 @@ mod tests {
         cancellable_command_output, codex_provider_config_is_projected,
         compare_and_set_agent_environment, configure_uv_tool_install_command,
         dependency_version_satisfied, detect_account_login, extract_binary_archive,
-        install_locked_plan, managed_artifacts_directory, managed_install_root,
-        managed_node_artifact, managed_node_executables, managed_uv_artifact,
+        install_locked_plan, launch_entry_preflight_item, managed_artifacts_directory,
+        managed_install_root, managed_node_artifact, managed_node_executables, managed_uv_artifact,
         managed_uv_executable, managed_uv_version_matches, management_command_with_environment,
         management_error, native_auth_mode_patch, native_config_view, npm_executable,
         opencode_provider_paths, operation_event, overlay_local_runtime_evidence,
@@ -362,6 +362,18 @@ mod tests {
         assert!(facts.available);
         assert_eq!(facts.version.as_deref(), Some("codex-cli 0.138.0"));
         assert_eq!(facts.path.as_deref(), Some(local_runtime.path.as_str()));
+    }
+
+    #[test]
+    fn settings_launch_entry_preflight_uses_acp_version() {
+        let item = launch_entry_preflight_item(
+            false,
+            Some("0.138.0".to_string()),
+            Some(r"C:\Users\developer\AppData\Roaming\npm\codex-acp.cmd".to_string()),
+        );
+        assert_eq!(item.status, "pass");
+        assert_eq!(item.version.as_deref(), Some("0.138.0"));
+        assert_eq!(item.detail, "运行入口可用。");
     }
 
     #[tokio::test]
@@ -2883,7 +2895,32 @@ fn restore_managed_cli_switch(
     }
 }
 
-pub(crate) async fn reconcile_managed_cli_exposures(_app: &AppHandle, pool: &sqlx::SqlitePool) {
+pub(crate) async fn reconcile_managed_cli_exposures(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    // A published shim outlives the Runtime it points at, and it carries the
+    // vendor command name, so a dead one shadows the user's own command on PATH.
+    // Sweep before anything reads PATH, including the Runtime probe below.
+    match app.path().home_dir() {
+        Ok(home_dir) => match agents::remove_orphaned_cli_shims(&home_dir) {
+            Ok(removed) if !removed.is_empty() => {
+                tracing::info!(
+                    count = removed.len(),
+                    commands = %removed
+                        .iter()
+                        .map(|shim| shim.command_name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    "removed Agent CLI shims whose Runtime no longer exists"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "failed to sweep orphaned Agent CLI shims");
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error, "failed to locate the home directory for the CLI shim sweep");
+        }
+    }
     // Historical managed trees were a second install. ADR-0060: the lock is an
     // observation of the user environment. Reclassify leftover rows so launch
     // never SHA-checks a vendor CLI or republishes shims.
@@ -3031,7 +3068,10 @@ async fn refresh_current_agent_evidence(
 ) {
     let _ = utils::shell::refresh_process_path_after_install().await;
     let runtime = app.state::<AppState>().agent_management_runtime.clone();
-    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id).cloned() {
+    if let Some(profile) = BuiltInProfileCatalog::management()
+        .profile(agent_id)
+        .cloned()
+    {
         let local_runtime = discover_profile_local_runtime(pool, &profile).await.ok();
         let acp_adapter = match profile.topology {
             ProfileTopology::NativeAcp => local_runtime.clone(),
@@ -3120,7 +3160,7 @@ async fn refresh_one_agent_authentication(
 ) -> Result<(AgentAuthenticationStatus, HashMap<String, String>), AgentManagementErrorView> {
     let agent_env = read_agent_environment(pool, agent_id).await?;
     let native_authentication = observe_native_authentication(app, agent_id, &agent_env).await;
-    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+    let authentication_required_by_default = BuiltInProfileCatalog::management()
         .profile(agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
     let (observed, authentication_required) = resolve_authentication_observation(
@@ -3400,11 +3440,15 @@ async fn probe_local_runtime_candidate(
         anyhow::bail!("candidate is not a local Runtime component");
     }
 
-    let executable = utils::shell::resolve_executable_path(candidate.executable)
+    // A Runtime the user already has is the whole question this probe answers.
+    // VibeX publishes its own managed Runtime under the same command name in
+    // `~/.local/bin`, so resolving the first PATH hit would report VibeX's
+    // artifact as the user's and adopt the Agent before the user installed one.
+    let executable = agents::resolve_user_runtime_command(candidate.executable)
         .await
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "external Agent Runtime candidate `{}` was not found",
+                "no user-installed Agent Runtime `{}` was found on PATH",
                 candidate.executable
             )
         })?;
@@ -3691,13 +3735,19 @@ async fn probe_one_built_in_external_installation(
     if profile.agent_id.as_str() == "pi" {
         env.extend(pi_runtime_lock_env(&configured_env));
     }
-    let mut path_entries = components
+    let component_dirs = components
         .iter()
         .filter_map(|component| component.absolute_path.parent().map(Path::to_path_buf))
         .collect::<Vec<_>>();
-    path_entries.extend(std::env::split_paths(
-        &std::env::var_os("PATH").unwrap_or_default(),
-    ));
+    let user_path =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>();
+    let (mut path_entries, fallback_entries) =
+        if agents::component_dirs_precede_user_path(&profile.agent_id) {
+            (component_dirs, user_path)
+        } else {
+            (user_path, component_dirs)
+        };
+    path_entries.extend(fallback_entries);
     env.insert(
         "PATH".to_string(),
         std::env::join_paths(path_entries)?
@@ -4223,6 +4273,41 @@ fn runtime_preflight_facts(
     }
 }
 
+fn nonempty_preflight_text(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn launch_entry_preflight_item(
+    retired: bool,
+    version: Option<String>,
+    path: Option<String>,
+) -> AgentPreflightItemView {
+    let version = nonempty_preflight_text(version);
+    let path = nonempty_preflight_text(path);
+    AgentPreflightItemView {
+        id: "membership".to_string(),
+        label: "运行入口".to_string(),
+        status: if retired { "fail" } else { "pass" }.to_string(),
+        detail: if retired {
+            "此 Agent 仅保留历史记录。".to_string()
+        } else if version.is_some() {
+            "运行入口可用。".to_string()
+        } else {
+            "运行入口可用，但未能确认版本。".to_string()
+        },
+        version,
+        path,
+        source: None,
+        repairable: false,
+        update_available: false,
+        available_version: None,
+        update_group: None,
+    }
+}
+
 #[tauri::command]
 pub async fn agent_management_preflight(
     app: AppHandle,
@@ -4364,23 +4449,17 @@ pub async fn agent_management_preflight(
         .await
         .map_err(internal_error)?;
     let mut items = vec![
-        AgentPreflightItemView {
-            id: "membership".to_string(),
-            label: "运行入口".to_string(),
-            status: status(!view.retired),
-            detail: if view.retired {
-                "此 Agent 仅保留历史记录。".to_string()
-            } else {
-                "Agent 已加入本地列表。".to_string()
-            },
-            version: None,
-            path: None,
-            source: None,
-            repairable: false,
-            update_available: false,
-            available_version: None,
-            update_group: None,
-        },
+        launch_entry_preflight_item(
+            view.retired,
+            acp.map(|(_, _, version, _)| version.clone())
+                .or_else(|| view.acp_version.clone()),
+            acp.map(|(_, path, _, _)| path.display().to_string())
+                .or_else(|| {
+                    discovered_acp_path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                }),
+        ),
         AgentPreflightItemView {
             id: "acp".to_string(),
             label: "ACP 适配器".to_string(),
@@ -5966,7 +6045,7 @@ async fn record_post_install_probe(
     } else {
         AgentAuthenticationStatus::NotRequired
     };
-    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+    let authentication_required_by_default = BuiltInProfileCatalog::management()
         .profile(agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
     let (observed, authentication_required) = resolve_authentication_observation(
@@ -10970,6 +11049,7 @@ fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'stati
         ("antigravity" | "gemini", "gemini-api-key") => Some("antigravity_api_key"),
         ("antigravity" | "gemini", "agent-platform") => Some("antigravity_google_api_key"),
         ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
+        ("mimo_code", "official_api") => Some("mimo_api_key"),
         _ => None,
     }
 }
@@ -11088,6 +11168,17 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescQoderSubscription",
         ),
+        ("mimo_code", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescMimoSubscription",
+        ),
+        ("mimo_code", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescMimoOfficialApi",
+        ),
+        ("mimo_code", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescMimoProvider")
+        }
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")
         }
@@ -11469,7 +11560,7 @@ pub async fn agent_management_actions(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentManagementActionsView, AgentManagementErrorView> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(&agent_id).ok_or_else(|| {
         management_error(
             AgentManagementErrorCode::NotFound,
@@ -11524,7 +11615,7 @@ pub async fn agent_management_run_action(
     agent_id: AgentId,
     action_id: String,
 ) -> Result<AgentManagementActionReceipt, AgentManagementErrorView> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(&agent_id).ok_or_else(|| {
         management_error(
             AgentManagementErrorCode::NotFound,

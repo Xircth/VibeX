@@ -10,6 +10,7 @@ import {
 import {
   useWorkspaceOverlay,
   WorkspaceOverlayProvider,
+  type NativeSurfaceOcclusion,
 } from './WorkspaceOverlayContext';
 
 function MenuTrigger() {
@@ -41,7 +42,7 @@ function WorkspaceShell() {
 function NativeSurfaceBridge({
   onOcclusionChange,
 }: {
-  onOcclusionChange: (occluded: boolean) => void;
+  onOcclusionChange: (occluded: NativeSurfaceOcclusion) => void;
 }) {
   const { subscribeNativeSurfaceOcclusion } = useWorkspaceOverlay();
   const renderCount = useRef(0);
@@ -75,11 +76,17 @@ describe('WorkspaceOverlayProvider', () => {
     expect(
       screen.getByLabelText('native surface bridge renders')
     ).toHaveTextContent('1');
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: false,
+      rects: [],
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
 
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: true,
+      rects: [],
+    });
     expect(
       screen.getByLabelText('native surface bridge renders')
     ).toHaveTextContent('1');
@@ -96,13 +103,47 @@ describe('WorkspaceOverlayProvider', () => {
       </WorkspaceOverlayProvider>
     );
 
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: false,
+      rects: [],
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Open select' }));
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: true,
+      rects: [],
+    });
   });
 
-  it('occludes native surfaces while a dropdown menu is open', () => {
+  it('reports the dropdown rectangle instead of hiding the whole surface', () => {
     const onOcclusionChange = vi.fn();
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'menu') {
+          return {
+            x: 620,
+            y: 40,
+            top: 40,
+            left: 620,
+            right: 800,
+            bottom: 260,
+            width: 180,
+            height: 220,
+            toJSON: () => ({}),
+          };
+        }
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: 0,
+          height: 0,
+          toJSON: () => ({}),
+        };
+      }
+    );
 
     render(
       <WorkspaceOverlayProvider>
@@ -118,7 +159,10 @@ describe('WorkspaceOverlayProvider', () => {
       </WorkspaceOverlayProvider>
     );
 
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(false);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: false,
+      rects: [],
+    });
     fireEvent.pointerDown(
       screen.getByRole('button', { name: 'Open app menu' }),
       { button: 0 }
@@ -126,6 +170,29 @@ describe('WorkspaceOverlayProvider', () => {
     expect(
       screen.getByRole('menuitem', { name: 'Back to home' })
     ).toBeVisible();
-    expect(onOcclusionChange).toHaveBeenLastCalledWith(true);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: false,
+      rects: [{ x: 620, y: 40, width: 180, height: 220 }],
+    });
+
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => ({}),
+      })
+    );
+    fireEvent.resize(window);
+    expect(onOcclusionChange).toHaveBeenLastCalledWith({
+      hide: false,
+      rects: [{ x: 620, y: 40, width: 180, height: 220 }],
+    });
+    vi.restoreAllMocks();
   });
 });

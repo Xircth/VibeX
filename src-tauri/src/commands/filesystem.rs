@@ -50,6 +50,35 @@ pub async fn list_git_repos(
     res.map_err(|e| AppError::Internal(e.to_string()))
 }
 
+/// Grants the webview read access to the given directories so an HTML preview
+/// can load its relative assets (stylesheets, scripts, images) through the
+/// asset protocol. Scope entries are process-global and additive, so this only
+/// ever widens access to directories the user has actually previewed from.
+#[tauri::command]
+pub async fn allow_preview_asset_scope(
+    app: tauri::AppHandle,
+    directories: Vec<String>,
+) -> Result<(), AppError> {
+    use tauri::Manager;
+
+    let scope = app.asset_protocol_scope();
+
+    for directory in directories {
+        let path = sanitize_absolute_path(&directory)?;
+        if !path.is_dir() {
+            // A deleted or unreadable directory must not fail the preview; the
+            // page renders without the assets that are out of reach.
+            continue;
+        }
+
+        scope
+            .allow_directory(&path, true)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn reveal_in_file_manager(path: String) -> Result<(), AppError> {
     let sanitized_path = sanitize_absolute_path(&path)?;

@@ -2254,9 +2254,9 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        // ACP `session/new` can wait on the Agent's native MCP servers (Grok's
-        // default is 30s). The Conversation row already exists, so holding the
-        // turn lock here makes Stop and the first send wait on that handshake.
+        // Explicit reload must not return a stale in-memory snapshot: the ACP
+        // process can still look Ready after a failed turn with outdated models.
+        self.drop_live_agent_connection(conversation_id).await;
         self.ensure_session_controls_locked(conversation_id).await
     }
 
@@ -2499,10 +2499,6 @@ impl ConversationSessionService {
             }
             (snapshot, turn_id)
         };
-        let Some(turn_id) = turn_id else {
-            return Ok(());
-        };
-        let pool = &self.ctx.deployment.db().pool;
         let cancel_target = match (
             snapshot
                 .connection_id
@@ -2521,8 +2517,8 @@ impl ConversationSessionService {
                     .await
             }
         };
-        if let Some((connection_id, prompt_id)) = cancel_target
-            && let Err(error) = self
+        if let Some((connection_id, prompt_id)) = cancel_target {
+            if let Err(error) = self
                 .ctx
                 .agent_runtime
                 .cancel_prompt(CancelAgentPromptInput {
@@ -2531,17 +2527,26 @@ impl ConversationSessionService {
                     prompt_id,
                 })
                 .await
-        {
-            // The runtime may already be dead (auth expiry, crashed process, lost
-            // transport). The user's cancel intent must still settle the durable
-            // turn locally instead of leaving the composer stuck forever.
-            tracing::warn!(
-                %conversation_id,
-                %prompt_id,
-                %error,
-                "Agent prompt cancellation failed; settling turn locally"
-            );
+            {
+                // The runtime may already be dead (auth expiry, crashed process, lost
+                // transport). The user's cancel intent must still settle the durable
+                // turn locally instead of leaving the composer stuck forever.
+                tracing::warn!(
+                    %conversation_id,
+                    %prompt_id,
+                    %error,
+                    "Agent prompt cancellation failed; settling turn locally"
+                );
+            }
+        } else {
+            // Handshake / session-load retries have no prompt yet. Drop the live
+            // connection so Stop aborts `session/new` instead of waiting it out.
+            self.drop_live_agent_connection(conversation_id).await;
         }
+        let Some(turn_id) = turn_id else {
+            return Ok(());
+        };
+        let pool = &self.ctx.deployment.db().pool;
         self.append_event(
             conversation_id,
             Some(turn_id),
@@ -2952,6 +2957,81 @@ impl ConversationSessionService {
     /// `or_insert` a *second* mutex for the same conversation, after which both tasks
     /// believe they hold exclusive access — the very double in-flight Turn the lock
     /// exists to prevent (ADR-0061 §4.2, CONTEXT.md "In-flight turn").
+    async fn drop_live_agent_connection(&self, conversation_id: Uuid) {
+        let from_state = self
+            .runtime_snapshot(conversation_id)
+            .await
+            .connection_id
+            .as_deref()
+            .and_then(parse_agent_connection_id);
+        let from_runtime = self
+            .ctx
+            .agent_runtime
+            .live_connection_id(AgentSessionId(conversation_id))
+            .await;
+        if let Some(connection_id) = from_state.or(from_runtime)
+            && let Err(error) = self
+                .ctx
+                .agent_runtime
+                .discard_connection(connection_id)
+                .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "failed to drop Agent connection while reloading or cancelling"
+            );
+        }
+        self.update_runtime_state(conversation_id, |state| {
+            state.connection_id = None;
+            state.active_prompt_id = None;
+            state.connection_status = Some("closed".to_string());
+        })
+        .await;
+    }
+
+    async fn emit_session_connect_retry(
+        &self,
+        conversation_id: Uuid,
+        turn_id: Option<Uuid>,
+        attempt: u32,
+        max: u32,
+        error: &ConversationServiceError,
+    ) -> Result<(), ConversationServiceError> {
+        self.append_event(
+            conversation_id,
+            turn_id,
+            "runtime",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: agents::SESSION_RECONNECT_PROGRESS_KIND.to_string(),
+                payload: Some(serde_json::json!({
+                    "kind": agents::SESSION_RECONNECT_PROGRESS_KIND,
+                    "attempt": attempt,
+                    "max": max,
+                })),
+            },
+            Some(format!(
+                "session:{conversation_id}:reconnect:{attempt}:{max}"
+            )),
+        )
+        .await?;
+        self.append_event(
+            conversation_id,
+            turn_id,
+            "runtime",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: agents::SESSION_CONNECT_ERROR_KIND.to_string(),
+                payload: Some(serde_json::json!({
+                    "kind": agents::SESSION_CONNECT_ERROR_KIND,
+                    "message": error.to_string(),
+                })),
+            },
+            Some(format!("session:{conversation_id}:connect-error:{attempt}")),
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn forget_conversation_runtime(&self, conversation_id: Uuid) {
         self.prune_turn_lock(conversation_id).await;
         self.ctx
@@ -3124,63 +3204,104 @@ impl ConversationSessionService {
         .await?;
 
         let mut inject_host_history = resume_external_session_id.is_none();
-        let session = if let Some(external_session_id) = resume_external_session_id {
-            match self
-                .ctx
-                .agent_runtime
-                .resume_session(ResumeAgentSessionInput {
-                    agent_id: agent_id.clone(),
-                    launch_lock: launch_settings.launch_lock.clone(),
-                    workspace_id: input.workspace_id,
-                    working_dir: PathBuf::from(working_dir),
-                    additional_directories: additional_directories.to_vec(),
-                    session_id: AgentSessionId(input.conversation_id),
-                    external_session_id,
-                    auto_approve_mode: launch_settings.auto_approve_mode,
-                    env: launch_settings.env.clone(),
-                    preferences: preferences.clone(),
-                })
-                .await
-            {
-                Ok(session) => session.0,
-                Err(agents::AgentError::SessionLoadFailed(_)) => {
-                    inject_host_history = true;
-                    self.ctx
-                        .agent_runtime
-                        .prepare_session(EnsureAgentSessionInput {
-                            agent_id: agent_id.clone(),
-                            launch_lock: launch_settings.launch_lock.clone(),
-                            workspace_id: input.workspace_id,
-                            working_dir: PathBuf::from(working_dir),
-                            additional_directories: additional_directories.to_vec(),
-                            session_id: AgentSessionId(input.conversation_id),
-                            acp_session_id: acp_session_id.clone(),
-                            auto_approve_mode: launch_settings.auto_approve_mode,
-                            env: launch_settings.env.clone(),
-                            preferences: preferences.clone(),
-                        })
-                        .await?
-                        .session
-                }
-                Err(error) => return Err(error.into()),
-            }
-        } else {
-            self.ctx
-                .agent_runtime
-                .prepare_session(EnsureAgentSessionInput {
-                    agent_id: agent_id.clone(),
-                    launch_lock: launch_settings.launch_lock.clone(),
-                    workspace_id: input.workspace_id,
-                    working_dir: PathBuf::from(working_dir),
-                    additional_directories: additional_directories.to_vec(),
-                    session_id: AgentSessionId(input.conversation_id),
-                    acp_session_id: acp_session_id.clone(),
-                    auto_approve_mode: launch_settings.auto_approve_mode,
-                    env: launch_settings.env.clone(),
-                    preferences,
-                })
+        let mut attempt = 1u32;
+        let session = loop {
+            if !self
+                .turn_is_still_in_flight(input.conversation_id, turn_id)
                 .await?
-                .session
+            {
+                return Err(ConversationServiceError::Conflict(
+                    "Turn was cancelled before the Agent handshake".to_string(),
+                ));
+            }
+            let established = if let Some(external_session_id) = resume_external_session_id.clone()
+            {
+                match self
+                    .ctx
+                    .agent_runtime
+                    .resume_session(ResumeAgentSessionInput {
+                        agent_id: agent_id.clone(),
+                        launch_lock: launch_settings.launch_lock.clone(),
+                        workspace_id: input.workspace_id,
+                        working_dir: PathBuf::from(working_dir),
+                        additional_directories: additional_directories.to_vec(),
+                        session_id: AgentSessionId(input.conversation_id),
+                        external_session_id,
+                        auto_approve_mode: launch_settings.auto_approve_mode,
+                        env: launch_settings.env.clone(),
+                        preferences: preferences.clone(),
+                    })
+                    .await
+                {
+                    Ok(session) => Ok(session.0),
+                    Err(agents::AgentError::SessionLoadFailed(_)) => {
+                        inject_host_history = true;
+                        self.ctx
+                            .agent_runtime
+                            .prepare_session(EnsureAgentSessionInput {
+                                agent_id: agent_id.clone(),
+                                launch_lock: launch_settings.launch_lock.clone(),
+                                workspace_id: input.workspace_id,
+                                working_dir: PathBuf::from(working_dir),
+                                additional_directories: additional_directories.to_vec(),
+                                session_id: AgentSessionId(input.conversation_id),
+                                acp_session_id: acp_session_id.clone(),
+                                auto_approve_mode: launch_settings.auto_approve_mode,
+                                env: launch_settings.env.clone(),
+                                preferences: preferences.clone(),
+                            })
+                            .await
+                            .map(|prepared| prepared.session)
+                            .map_err(ConversationServiceError::from)
+                    }
+                    Err(error) => Err(error.into()),
+                }
+            } else {
+                self.ctx
+                    .agent_runtime
+                    .prepare_session(EnsureAgentSessionInput {
+                        agent_id: agent_id.clone(),
+                        launch_lock: launch_settings.launch_lock.clone(),
+                        workspace_id: input.workspace_id,
+                        working_dir: PathBuf::from(working_dir),
+                        additional_directories: additional_directories.to_vec(),
+                        session_id: AgentSessionId(input.conversation_id),
+                        acp_session_id: acp_session_id.clone(),
+                        auto_approve_mode: launch_settings.auto_approve_mode,
+                        env: launch_settings.env.clone(),
+                        preferences: preferences.clone(),
+                    })
+                    .await
+                    .map(|prepared| prepared.session)
+                    .map_err(ConversationServiceError::from)
+            };
+            match established {
+                Ok(session) => break session,
+                Err(error)
+                    if is_retryable_session_error(&error) && attempt < SESSION_CONNECT_ATTEMPTS =>
+                {
+                    if !self
+                        .turn_is_still_in_flight(input.conversation_id, turn_id)
+                        .await?
+                    {
+                        return Err(ConversationServiceError::Conflict(
+                            "Turn was cancelled before the Agent handshake".to_string(),
+                        ));
+                    }
+                    self.emit_session_connect_retry(
+                        input.conversation_id,
+                        Some(turn_id),
+                        attempt,
+                        SESSION_CONNECT_ATTEMPTS,
+                        &error,
+                    )
+                    .await?;
+                    self.drop_live_agent_connection(input.conversation_id).await;
+                    tokio::time::sleep(session_connect_backoff(attempt)).await;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
         };
 
         ConversationAgentBindingRecord::bind_acp_session(
@@ -4223,6 +4344,32 @@ fn agent_prompt_overrides_from_profile(
     AgentPromptOverrides::default()
 }
 
+const SESSION_CONNECT_ATTEMPTS: u32 = 10;
+
+fn is_retryable_session_error(error: &ConversationServiceError) -> bool {
+    match error {
+        ConversationServiceError::AuthenticationRequired(_)
+        | ConversationServiceError::BadRequest(_)
+        | ConversationServiceError::Conflict(_) => false,
+        ConversationServiceError::SessionUnavailable { code, .. } => {
+            matches!(*code, "session_load_failed")
+        }
+        ConversationServiceError::NotFound(_) => true,
+        ConversationServiceError::Internal(message) => {
+            let message = message.to_ascii_lowercase();
+            message.contains("connection closed")
+                || message.contains("command channel closed")
+                || message.contains("session preparation")
+                || message.contains("handshake")
+        }
+    }
+}
+
+fn session_connect_backoff(attempt: u32) -> std::time::Duration {
+    let shift = attempt.saturating_sub(1).min(4);
+    std::time::Duration::from_millis(250 * (1u64 << shift))
+}
+
 fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
     Uuid::parse_str(value).ok().map(AgentConnectionId)
 }
@@ -4750,6 +4897,29 @@ mod tests {
                 if text == "visible request"
         ));
         assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn session_connect_retries_only_transient_failures() {
+        assert!(super::is_retryable_session_error(
+            &ConversationServiceError::Internal(
+                "agent connection closed before ACP session preparation completed".into()
+            )
+        ));
+        assert!(super::is_retryable_session_error(
+            &ConversationServiceError::SessionUnavailable {
+                code: "session_load_failed",
+                message: "session/load failed".into(),
+            }
+        ));
+        assert!(!super::is_retryable_session_error(
+            &ConversationServiceError::AuthenticationRequired("401".into())
+        ));
+        assert!(!super::is_retryable_session_error(
+            &ConversationServiceError::Internal(
+                "Internal error: Failed to authenticate. API Error: 401".into()
+            )
+        ));
     }
 
     #[test]

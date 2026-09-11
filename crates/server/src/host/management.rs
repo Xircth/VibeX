@@ -311,7 +311,7 @@ pub async fn preflight(
     let runtime_ok =
         runtime.is_some_and(|component| component.exists) || view.local_runtime.is_some() || acp_ok;
 
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let dependency_items = if let Some(profile) = catalog.profile(&agent_id) {
         probe_profile_dependencies(profile).await
     } else {
@@ -364,24 +364,18 @@ pub async fn preflight(
         .map_err(internal_error)?;
 
     let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
+    let acp_version = acp
+        .map(|component| component.version.clone())
+        .or_else(|| view.acp_version.clone());
+    let acp_path = acp
+        .map(|component| component.path.display().to_string())
+        .or_else(|| {
+            discovered_acp_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+        });
     let mut items = vec![
-        AgentPreflightItemView {
-            id: "membership".to_string(),
-            label: "运行入口".to_string(),
-            status: status(!view.retired),
-            detail: if view.retired {
-                "此 Agent 仅保留历史记录。".to_string()
-            } else {
-                "Agent 已加入本地列表。".to_string()
-            },
-            version: None,
-            path: None,
-            source: None,
-            repairable: false,
-            update_available: false,
-            available_version: None,
-            update_group: None,
-        },
+        launch_entry_preflight_item(view.retired, acp_version, acp_path),
         AgentPreflightItemView {
             id: "acp".to_string(),
             label: "ACP 适配器".to_string(),
@@ -413,6 +407,41 @@ pub async fn preflight(
         checked_at: Utc::now().to_rfc3339(),
         items,
     })
+}
+
+fn nonempty_preflight_text(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn launch_entry_preflight_item(
+    retired: bool,
+    version: Option<String>,
+    path: Option<String>,
+) -> AgentPreflightItemView {
+    let version = nonempty_preflight_text(version);
+    let path = nonempty_preflight_text(path);
+    AgentPreflightItemView {
+        id: "membership".to_string(),
+        label: "运行入口".to_string(),
+        status: if retired { "fail" } else { "pass" }.to_string(),
+        detail: if retired {
+            "此 Agent 仅保留历史记录。".to_string()
+        } else if version.is_some() {
+            "运行入口可用。".to_string()
+        } else {
+            "运行入口可用，但未能确认版本。".to_string()
+        },
+        version,
+        path,
+        source: None,
+        repairable: false,
+        update_available: false,
+        available_version: None,
+        update_group: None,
+    }
 }
 
 pub async fn diagnostics(
@@ -490,7 +519,7 @@ pub async fn environment_diagnostics(
     pool: &SqlitePool,
     agent_id: AgentId,
 ) -> Result<AgentEnvironmentDiagnosticsView, ApplicationError> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog
         .profile(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("环境诊断当前只适用于内置 Agent"))?;
@@ -749,7 +778,7 @@ pub async fn actions(
     pool: &SqlitePool,
     agent_id: AgentId,
 ) -> Result<AgentManagementActionsView, ApplicationError> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(&agent_id).ok_or_else(|| {
         ApplicationError::not_found(format!("Agent `{agent_id}` 没有内置账号管理动作"))
     })?;
@@ -793,7 +822,7 @@ pub async fn run_action(
     agent_id: AgentId,
     action_id: String,
 ) -> Result<AgentManagementActionReceipt, ApplicationError> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(&agent_id).ok_or_else(|| {
         ApplicationError::not_found(format!("Agent `{agent_id}` 没有内置账号管理动作"))
     })?;
@@ -1328,6 +1357,7 @@ fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'stati
         ("antigravity" | "gemini", "gemini-api-key") => Some("antigravity_api_key"),
         ("antigravity" | "gemini", "agent-platform") => Some("antigravity_google_api_key"),
         ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
+        ("mimo_code", "official_api") => Some("mimo_api_key"),
         _ => None,
     }
 }
@@ -1446,6 +1476,17 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescQoderSubscription",
         ),
+        ("mimo_code", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescMimoSubscription",
+        ),
+        ("mimo_code", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescMimoOfficialApi",
+        ),
+        ("mimo_code", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescMimoProvider")
+        }
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")
         }
@@ -1526,7 +1567,7 @@ async fn persist_authentication_probe(
     agent_id: &AgentId,
     authentication: AgentAuthenticationStatus,
 ) -> Result<(), ApplicationError> {
-    let still_required = BuiltInProfileCatalog::bundled()
+    let still_required = BuiltInProfileCatalog::management()
         .profile(agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default)
         && matches!(
@@ -1657,7 +1698,7 @@ async fn probe_profile_dependencies(profile: &BuiltInProfile) -> Vec<AgentPrefli
 }
 
 async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {
-    let catalog = BuiltInProfileCatalog::bundled();
+    let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(agent_id)?;
     for candidate in profile.external_candidates {
         if !matches!(
@@ -2371,6 +2412,29 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(row, ("ready".into(), "api_key".into(), false));
+    }
+
+    #[test]
+    fn launch_entry_preflight_shows_acp_version_when_available() {
+        let item = launch_entry_preflight_item(
+            false,
+            Some("1.7.0".to_string()),
+            Some("/usr/local/bin/codex-acp".to_string()),
+        );
+        assert_eq!(item.id, "membership");
+        assert_eq!(item.label, "运行入口");
+        assert_eq!(item.status, "pass");
+        assert_eq!(item.version.as_deref(), Some("1.7.0"));
+        assert_eq!(item.path.as_deref(), Some("/usr/local/bin/codex-acp"));
+        assert_eq!(item.detail, "运行入口可用。");
+    }
+
+    #[test]
+    fn launch_entry_preflight_does_not_treat_blank_version_as_known() {
+        let item = launch_entry_preflight_item(false, Some("  ".to_string()), None);
+        assert_eq!(item.status, "pass");
+        assert_eq!(item.version, None);
+        assert_eq!(item.detail, "运行入口可用，但未能确认版本。");
     }
 
     #[test]

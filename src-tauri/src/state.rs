@@ -306,6 +306,7 @@ impl AppState {
             terminal_bridges: None,
             agent_management_runtime: Some(agent_management_runtime.clone()),
             conversation_host: Some(plugin_conversation_host),
+            delegation_broker: Some(delegation.broker.clone()),
         });
         Ok(Self {
             app_handle,

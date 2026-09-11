@@ -29,7 +29,9 @@ import {
   agentManagementErrorMessage as errorMessage,
   useAgentManagement,
 } from '@/features/agent-management';
+import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
 import { consumeAgentSettingsFocus } from '@/features/agent-management/agentSettingsFocus';
+import { agentHasAcpUpdate } from '@/features/agent-management/agentVersion';
 
 import { AgentBar } from './AgentBar';
 import { defaultAgentIdFromOrder, sortAgentsForBar } from './agentBarOrder';
@@ -284,6 +286,7 @@ export function AgentSettings() {
           await agentManagementApi.checkUpdate(selectedAgentId);
         if (!active || inspectGeneration.current !== watchId) return;
         cache.updateCheck.set(selectedAgentId, comparison);
+        recordAgentAcpUpdateCheck(comparison);
         setUpdateCheck(comparison);
         setPreflight((current) => {
           if (!current || current.agent_id !== selectedAgentId) return current;
@@ -467,6 +470,7 @@ export function AgentSettings() {
       const comparison = await agentManagementApi.checkUpdate(agentId, {
         force: true,
       });
+      recordAgentAcpUpdateCheck(comparison);
       setUpdateCheck(comparison);
       setPreflight((current) => {
         if (!current || current.agent_id !== agentId) return current;
@@ -797,8 +801,7 @@ export function AgentSettings() {
       const acpItem = preflight?.items.find((item) => item.id === 'acp');
       const hasUpdate =
         comparison.update_available ||
-        versionIsNewer(comparison.acp_available, comparison.acp_current) ||
-        versionIsNewer(comparison.acp_available, acpItem?.version);
+        agentHasAcpUpdate(comparison, acpItem?.version);
       const learnedLatest = Boolean(
         comparison.acp_available ||
           comparison.runtime_available ||
@@ -1135,8 +1138,10 @@ export function AgentSettings() {
               : undefined
           }
           modelProvider={
-            selectedAgent.agent_id === 'opencode' ? (
+            selectedAgent.agent_id === 'opencode' ||
+            selectedAgent.agent_id === 'mimo_code' ? (
               <OpenCodeProviderConnections
+                agentId={selectedAgent.agent_id}
                 surface="provider"
                 onDirtyChange={setOpenCodeProviderDirty}
                 onChanged={refreshAuthentication}
@@ -1269,7 +1274,8 @@ export function AgentSettings() {
               onRemove={() => void remove()}
               onExportDiagnostics={exportDiagnostics}
               onEnvironmentDiagnostics={
-                selectedAgent.built_in
+                selectedAgent.built_in ||
+                selectedAgent.settings_features?.includes('authentication_mode')
                   ? () =>
                       setEnvironmentDiagnosticsAgentId(selectedAgent.agent_id)
                   : undefined
@@ -1358,7 +1364,8 @@ export function AgentSettings() {
                 onCount={setPluginCount}
               />
             </CollapsibleSettingsSection>
-          ) : selectedAgent.agent_id === 'opencode' ? (
+          ) : selectedAgent.agent_id === 'opencode' ||
+            selectedAgent.agent_id === 'mimo_code' ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
               title={t('settings:agents.pluginsTab')}
@@ -1367,6 +1374,7 @@ export function AgentSettings() {
               summary={t('settings:agents.pluginCount', { count: pluginCount })}
             >
               <OpenCodePluginHealth
+                agentId={selectedAgent.agent_id}
                 onChanged={runPreflight}
                 onCount={setPluginCount}
               />
@@ -1418,26 +1426,6 @@ export function AgentSettings() {
   );
 }
 
-function versionIsNewer(
-  available: string | null | undefined,
-  current: string | null | undefined
-): boolean {
-  if (!available || !current) return false;
-  const parse = (raw: string) =>
-    (raw.match(/\d+(?:\.\d+)*/)?.[0] ?? '')
-      .split('.')
-      .map((part) => Number.parseInt(part, 10) || 0);
-  const availableParts = parse(available);
-  const currentParts = parse(current);
-  const length = Math.max(availableParts.length, currentParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const next = availableParts[index] ?? 0;
-    const seen = currentParts[index] ?? 0;
-    if (next !== seen) return next > seen;
-  }
-  return false;
-}
-
 function applyUpdateCheckToPreflight(
   current: AgentPreflightView,
   check: AgentUpdateCheckView
@@ -1446,10 +1434,7 @@ function applyUpdateCheckToPreflight(
     ...current,
     items: current.items.map((item) => {
       if (item.id === 'acp') {
-        const acpUpdate =
-          versionIsNewer(check.acp_available, item.version) ||
-          versionIsNewer(check.acp_available, check.acp_current) ||
-          Boolean(check.update_available && check.acp_available);
+        const acpUpdate = agentHasAcpUpdate(check, item.version);
         return {
           ...item,
           update_available: acpUpdate,

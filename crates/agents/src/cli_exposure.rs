@@ -1,6 +1,7 @@
 //! Stable terminal command exposure for VibeX-managed Agent runtimes.
 
 use std::{
+    borrow::Cow,
     ffi::OsStr,
     fs,
     io::Write,
@@ -13,8 +14,17 @@ use uuid::Uuid;
 const PROFILE_BLOCK_START: &str = "# >>> VibeX managed Agent CLI >>>";
 const PROFILE_BLOCK_END: &str = "# <<< VibeX managed Agent CLI <<<";
 const SHIM_MARKER_PREFIX: &str = "# VibeX Agent CLI: ";
+const WINDOWS_SHIM_MARKER_PREFIX: &str = "rem VibeX Agent CLI: ";
 const TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "# VibeX toolchain: ";
 const WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "rem VibeX toolchain: ";
+
+/// A published shim is a handful of lines. Anything larger is a real executable
+/// and is never scanned for the ownership marker.
+const MAX_SHIM_BYTES: u64 = 8 * 1024;
+
+/// Prefix of the throwaway directory a managed install is prepared in before it
+/// is promoted to the Agent's install root.
+const STAGING_DIRECTORY_PREFIX: &str = ".staging-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellFamily {
@@ -62,6 +72,13 @@ pub enum CliExposureError {
     RuntimeMissing(PathBuf),
     #[error("managed Runtime executable is outside its Agent installation: {0}")]
     RuntimeOutsideInstallation(PathBuf),
+    #[error(
+        "managed Runtime `{path}` is still inside a staging directory and has not been promoted into {install_root}"
+    )]
+    UnpromotedRuntime {
+        path: PathBuf,
+        install_root: PathBuf,
+    },
     #[error("locked base Runtime PATH entry is not an absolute directory: {0}")]
     InvalidRuntimePath(PathBuf),
     #[error("managed Runtime executable has no safe terminal command name: {0}")]
@@ -180,13 +197,15 @@ fn publish_managed_runtime_cli_with_path(
         shell,
         effective_path,
     } = publication;
-    if !runtime_executable.is_file() {
-        return Err(CliExposureError::RuntimeMissing(
+    if !runtime_executable.starts_with(managed_install_root) {
+        return Err(CliExposureError::RuntimeOutsideInstallation(
             runtime_executable.to_path_buf(),
         ));
     }
-    if !runtime_executable.starts_with(managed_install_root) {
-        return Err(CliExposureError::RuntimeOutsideInstallation(
+    let runtime_executable = published_runtime_target(runtime_executable, managed_install_root)?;
+    let runtime_executable = runtime_executable.as_ref();
+    if !runtime_executable.is_file() {
+        return Err(CliExposureError::RuntimeMissing(
             runtime_executable.to_path_buf(),
         ));
     }
@@ -299,6 +318,41 @@ fn runtime_command_name(runtime_executable: &Path) -> Result<String, CliExposure
     Ok(command.to_string())
 }
 
+/// The path a published shim must name for `runtime_executable`.
+///
+/// A managed install is prepared under a `.staging-<id>` directory and promoted
+/// — renamed — into the Agent's install root; the staging directory does not
+/// outlive the install. A lock that still names a staging path therefore
+/// describes a location that is about to disappear, and a shim published from it
+/// would shadow the user's own command of the same name on PATH only to break.
+/// The promoted location is the one worth publishing, so a staging path is
+/// rewritten onto the install root and refused when nothing has been promoted
+/// there yet.
+fn published_runtime_target<'a>(
+    runtime_executable: &'a Path,
+    managed_install_root: &Path,
+) -> Result<Cow<'a, Path>, CliExposureError> {
+    let Ok(relative) = runtime_executable.strip_prefix(managed_install_root) else {
+        return Ok(Cow::Borrowed(runtime_executable));
+    };
+    let mut components = relative.components();
+    let is_staging = components
+        .next()
+        .and_then(|component| component.as_os_str().to_str())
+        .is_some_and(|name| name.starts_with(STAGING_DIRECTORY_PREFIX));
+    if !is_staging {
+        return Ok(Cow::Borrowed(runtime_executable));
+    }
+    let promoted = managed_install_root.join(components.as_path());
+    if promoted.is_file() {
+        return Ok(Cow::Owned(promoted));
+    }
+    Err(CliExposureError::UnpromotedRuntime {
+        path: runtime_executable.to_path_buf(),
+        install_root: managed_install_root.to_path_buf(),
+    })
+}
+
 fn terminal_shim_path(bin_dir: &Path, command_name: &str) -> PathBuf {
     #[cfg(windows)]
     {
@@ -366,12 +420,214 @@ fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
 }
 
 fn shim_is_owned_by(contents: &[u8], agent_id: &AgentId) -> bool {
-    let unix_marker = format!("{SHIM_MARKER_PREFIX}{}", agent_id.as_str());
-    let windows_marker = format!("rem VibeX Agent CLI: {}", agent_id.as_str());
-    contents.split(|byte| *byte == b'\n').any(|line| {
+    shim_marker_owner(contents).is_some_and(|owner| owner.eq_ignore_ascii_case(agent_id.as_str()))
+}
+
+/// The value on one of VibeX's ownership marker lines, in a file it published.
+///
+/// Every marker is read the same way: the first line carrying either the POSIX
+/// or the Windows prefix yields the name that follows it. Both prefixes are
+/// matched as a full prefix, and a marker with nothing after it names nothing.
+fn marker_value<'a>(contents: &'a [u8], prefixes: (&[u8], &[u8])) -> Option<&'a str> {
+    let (posix_prefix, windows_prefix) = prefixes;
+    contents.split(|byte| *byte == b'\n').find_map(|line| {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
-        line == unix_marker.as_bytes() || line.eq_ignore_ascii_case(windows_marker.as_bytes())
+        let value = line.strip_prefix(posix_prefix).or_else(|| {
+            let (prefix, rest) = line.split_at_checked(windows_prefix.len())?;
+            prefix.eq_ignore_ascii_case(windows_prefix).then_some(rest)
+        })?;
+        let value = std::str::from_utf8(value).ok()?.trim();
+        (!value.is_empty()).then_some(value)
     })
+}
+
+/// The Agent named on a published shim's ownership marker line.
+fn shim_marker_owner(contents: &[u8]) -> Option<&str> {
+    marker_value(
+        contents,
+        (
+            SHIM_MARKER_PREFIX.as_bytes(),
+            WINDOWS_SHIM_MARKER_PREFIX.as_bytes(),
+        ),
+    )
+}
+
+/// The command named on a published toolchain shim's ownership marker line.
+fn toolchain_shim_marker_owner(contents: &[u8]) -> Option<&str> {
+    marker_value(
+        contents,
+        (
+            TOOLCHAIN_SHIM_MARKER_PREFIX.as_bytes(),
+            WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX.as_bytes(),
+        ),
+    )
+}
+
+/// The Agent that owns the published CLI shim at `path`, if `path` is one.
+///
+/// VibeX writes shims for its managed Runtimes into the user's `~/.local/bin`,
+/// where they are indistinguishable from a user-installed command by name alone.
+/// Callers asking "does this machine already have this Runtime?" must be able to
+/// tell VibeX's own artifact from the user's, and the marker line is the only
+/// durable evidence of that.
+pub fn published_cli_shim_agent(path: &Path) -> Option<AgentId> {
+    read_published_shim(path).map(|(agent_id, _)| agent_id)
+}
+
+/// Read a published shim: the Agent that owns it, plus its contents.
+///
+/// The size guard keeps this from slurping a real executable that merely shares
+/// the command's name.
+fn read_published_shim(path: &Path) -> Option<(AgentId, Vec<u8>)> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_SHIM_BYTES {
+        return None;
+    }
+    let contents = fs::read(path).ok()?;
+    let agent_id = AgentId::parse(shim_marker_owner(&contents)?).ok()?;
+    Some((agent_id, contents))
+}
+
+/// Resolve a command to the *user's* executable, stepping over any VibeX
+/// published shim.
+///
+/// VibeX publishes its managed Runtime under the vendor command name, so a probe
+/// that stops at the first PATH hit reports VibeX's own installation as one the
+/// user already had: the Agent is adopted as user-provided and the user's real
+/// Runtime — when they have one — is never consulted. Resolving through here
+/// keeps that distinction: `None` means the user has no Runtime of their own,
+/// not that the command is missing.
+pub async fn resolve_user_runtime_command(command: &str) -> Option<PathBuf> {
+    let command = command.trim();
+    if command.is_empty() {
+        return None;
+    }
+    // The standard resolver also searches the well-known user bin directories
+    // and can repair a desktop-launched PATH from the login shell, which widens
+    // what the PATH scan below can see.
+    let resolved = workspace_utils::shell::resolve_executable_path(command).await;
+    if let Some(resolved) = resolved.as_deref()
+        && published_cli_shim_agent(resolved).is_none()
+    {
+        return Some(resolved.to_path_buf());
+    }
+    // Either nothing resolved or the hit was VibeX's own shim; keep walking PATH
+    // for a genuine user copy that the shim shadowed.
+    let cwd = std::env::current_dir().ok()?;
+    let search_path = std::env::var_os("PATH");
+    first_user_runtime_in(command, search_path.as_deref(), &cwd)
+}
+
+/// The first `command` on `search_path` that is not a shim VibeX published.
+fn first_user_runtime_in(
+    command: &str,
+    search_path: Option<&OsStr>,
+    cwd: &Path,
+) -> Option<PathBuf> {
+    which::which_in_all(command, search_path, cwd)
+        .ok()?
+        .find(|candidate| candidate.is_file() && published_cli_shim_agent(candidate).is_none())
+}
+
+/// The Runtime a published shim runs, read back from the shim itself.
+///
+/// The target cannot be re-derived from settings: a shim outlives the install
+/// that wrote it, which is precisely when the question matters. The shim is the
+/// only durable record of what it points at.
+fn shim_runtime_target(contents: &[u8]) -> Option<PathBuf> {
+    let text = std::str::from_utf8(contents).ok()?;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("exec ") {
+            let quoted = rest.strip_suffix(" \"$@\"")?;
+            return unquote_posix_shim_value(quoted).map(PathBuf::from);
+        }
+        if let Some(rest) = line.strip_suffix(" %*") {
+            let quoted = rest.strip_prefix('"')?.strip_suffix('"')?;
+            return Some(PathBuf::from(quoted.replace("%%", "%")));
+        }
+    }
+    None
+}
+
+fn unquote_posix_shim_value(value: &str) -> Option<String> {
+    let inner = value.strip_prefix('\'')?.strip_suffix('\'')?;
+    Some(inner.replace("'\"'\"'", "'"))
+}
+
+/// Whether VibeX published the file at hand.
+///
+/// The marker line is the only evidence of that, and it is what keeps a user's
+/// own command of the same name from being mistaken for one of ours.
+fn is_vibex_published_shim(contents: &[u8]) -> bool {
+    shim_marker_owner(contents).is_some() || toolchain_shim_marker_owner(contents).is_some()
+}
+
+/// Remove shims VibeX published whose target no longer exists.
+///
+/// A shim outlives the installation it points at: the managed tree is deleted,
+/// or an install is abandoned before it is promoted, and the command stays on
+/// the user's `PATH` pointing at nothing. It carries the vendor command name, so
+/// a dead shim shadows whatever the user installed under that name — their own
+/// Runtime, or their own Node — and the failure names neither VibeX nor the
+/// shim. Nothing else removes it, because nothing else knows it is there.
+///
+/// Only a file carrying one of VibeX's own ownership markers is ever considered,
+/// and the sweep is deliberately literal about liveness: a shim is orphaned only
+/// when the program it names is not an existing file. A shim whose command is
+/// merely *unexpected* — one VibeX would no longer publish — still runs, and
+/// removing it would take a working command away from the user.
+pub fn remove_orphaned_cli_shims(
+    home_dir: &Path,
+) -> Result<Vec<PublishedCliCommand>, CliExposureError> {
+    let bin_dir = home_dir.join(".local").join("bin");
+    let entries = match fs::read_dir(&bin_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut removed = Vec::new();
+    for entry in entries {
+        let shim_path = entry?.path();
+        let Ok(metadata) = fs::metadata(&shim_path) else {
+            continue;
+        };
+        // Same guard as reading a shim: a handful of lines, never a real
+        // executable that merely shares the command's name.
+        if !metadata.is_file() || metadata.len() > MAX_SHIM_BYTES {
+            continue;
+        }
+        let Ok(contents) = fs::read(&shim_path) else {
+            continue;
+        };
+        if !is_vibex_published_shim(&contents) {
+            continue;
+        }
+        let Some(target) = shim_runtime_target(&contents) else {
+            // Not readable as a shim VibeX wrote: it cannot be proven that the
+            // target is gone, so the file is left alone rather than guessed at.
+            continue;
+        };
+        if target.is_file() {
+            continue;
+        }
+        let Some(command_name) = shim_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if let Err(error) = fs::remove_file(&shim_path) {
+            tracing::warn!(
+                path = %shim_path.display(),
+                %error,
+                "failed to remove an orphaned CLI shim"
+            );
+            continue;
+        }
+        removed.push(PublishedCliCommand {
+            command_name: command_name.to_string(),
+            shim_path,
+        });
+    }
+    Ok(removed)
 }
 
 fn write_shim_atomically(
@@ -453,7 +709,7 @@ fn render_shim(
                 format!("set \"PATH={prefix};%PATH%\"\r\n")
             };
             format!(
-                "@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem VibeX Agent CLI: {}\r\n{path_binding}\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n",
+                "@echo off\r\nsetlocal DisableDelayedExpansion\r\n{WINDOWS_SHIM_MARKER_PREFIX}{}\r\n{path_binding}\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n",
                 agent_id.as_str(),
                 escape_windows_batch_value(&runtime_executable.to_string_lossy())
             )
@@ -511,12 +767,7 @@ fn ensure_replaceable_toolchain_shim(
 }
 
 fn toolchain_shim_is_owned(contents: &[u8], command_name: &str) -> bool {
-    let unix_marker = format!("{TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}");
-    let windows_marker = format!("{WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX}{command_name}");
-    contents.split(|byte| *byte == b'\n').any(|line| {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        line == unix_marker.as_bytes() || line.eq_ignore_ascii_case(windows_marker.as_bytes())
-    })
+    toolchain_shim_marker_owner(contents).is_some_and(|owner| owner == command_name)
 }
 
 fn write_toolchain_shim_atomically(
@@ -1318,5 +1569,267 @@ mod tests {
             fs::read_to_string(shim).unwrap(),
             "#!/bin/sh\n# user node\n"
         );
+    }
+
+    #[test]
+    fn shim_ownership_is_read_from_the_marker_line_alone() {
+        assert_eq!(
+            shim_marker_owner(b"#!/bin/sh\n# VibeX Agent CLI: pi\nexec /x \"$@\"\n"),
+            Some("pi")
+        );
+        assert_eq!(
+            shim_marker_owner(b"@echo off\r\nrem VibeX Agent CLI: codex\r\n\"x\" %*\r\n"),
+            Some("codex")
+        );
+        assert_eq!(shim_marker_owner(b"rem VibeX toolchain: node\n"), None);
+        // A command that merely mentions VibeX is not one VibeX published, and
+        // neither is a user's own script next to a published shim.
+        assert_eq!(
+            shim_marker_owner(b"# see VibeX Agent CLI: pi\nexec /x\n"),
+            None
+        );
+        assert_eq!(
+            shim_marker_owner(b"#!/bin/sh\nexec /usr/local/bin/pi \"$@\"\n"),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_published_shim_names_the_agent_that_owns_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/pi");
+        let runtime = install_root.join("release/pi");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&runtime, "#!/bin/sh\n").unwrap();
+
+        let published = publish_for_test(
+            &home,
+            &AgentId::parse("pi").unwrap(),
+            &install_root,
+            &runtime,
+            ShellFamily::Posix,
+        )
+        .unwrap();
+
+        assert_eq!(
+            published_cli_shim_agent(&published.shim_path),
+            Some(AgentId::parse("pi").unwrap())
+        );
+
+        let user_owned = home.join("user-bin/pi");
+        fs::create_dir_all(user_owned.parent().unwrap()).unwrap();
+        fs::write(&user_owned, "#!/bin/sh\nexec /usr/local/bin/pi \"$@\"\n").unwrap();
+        assert_eq!(published_cli_shim_agent(&user_owned), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_staging_runtime_is_published_from_the_promoted_install_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/pi");
+        let relative = Path::new("0-agent_runtime/node_modules/.bin/pi");
+        let staged = install_root.join(".staging-ed0e2b16").join(relative);
+        let promoted = install_root.join(relative);
+        for path in [&staged, &promoted] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "#!/bin/sh\n").unwrap();
+        }
+        fs::create_dir_all(&home).unwrap();
+
+        let published = publish_for_test(
+            &home,
+            &AgentId::parse("pi").unwrap(),
+            &install_root,
+            &staged,
+            ShellFamily::Posix,
+        )
+        .unwrap();
+
+        let shim = fs::read_to_string(&published.shim_path).unwrap();
+        assert!(shim.contains(&promoted.display().to_string()), "{shim}");
+        assert!(!shim.contains(STAGING_DIRECTORY_PREFIX), "{shim}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_runtime_left_in_staging_is_never_published() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/pi");
+        let staged = install_root.join(".staging-ed0e2b16/0-agent_runtime/node_modules/.bin/pi");
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        fs::write(&staged, "#!/bin/sh\n").unwrap();
+        fs::create_dir_all(&home).unwrap();
+
+        let error = publish_for_test(
+            &home,
+            &AgentId::parse("pi").unwrap(),
+            &install_root,
+            &staged,
+            ShellFamily::Posix,
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(error, CliExposureError::UnpromotedRuntime { .. }),
+            "{error}"
+        );
+        assert!(!home.join(".local/bin/pi").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn user_runtime_resolution_steps_over_a_published_shim() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let real_bin = temp.path().join("real-bin");
+        let install_root = temp.path().join("app-data/agents/pi");
+        let runtime = install_root.join("release/pi");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::create_dir_all(&real_bin).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&runtime, "#!/bin/sh\n").unwrap();
+        let real = real_bin.join("pi");
+        fs::write(&real, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let published = publish_for_test(
+            &home,
+            &AgentId::parse("pi").unwrap(),
+            &install_root,
+            &runtime,
+            ShellFamily::Posix,
+        )
+        .unwrap();
+        assert_eq!(published.command_name, "pi");
+
+        // VibeX's shim comes first on PATH and would otherwise be reported as the
+        // Runtime the user already had.
+        let search_path =
+            std::env::join_paths([published.shim_path.parent().unwrap(), &real_bin]).unwrap();
+        let resolved = first_user_runtime_in("pi", Some(&search_path), temp.path()).unwrap();
+
+        assert_eq!(
+            fs::canonicalize(resolved).unwrap(),
+            fs::canonicalize(&real).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_shim_reports_the_target_it_runs() {
+        assert_eq!(
+            shim_runtime_target(b"#!/bin/sh\n# VibeX Agent CLI: pi\nexec '/opt/pi' \"$@\"\n"),
+            Some(PathBuf::from("/opt/pi"))
+        );
+        assert_eq!(
+            shim_runtime_target(b"@echo off\r\nrem VibeX Agent CLI: pi\r\n\"C:/Pi/pi.cmd\" %*\r\n"),
+            Some(PathBuf::from("C:/Pi/pi.cmd"))
+        );
+        // The batch form doubles `%`; the shim's own escaping is undone.
+        assert_eq!(
+            shim_runtime_target(b"\"C:/n%%ode/node.cmd\" %*\r\n"),
+            Some(PathBuf::from("C:/n%ode/node.cmd"))
+        );
+        // A quote inside the path survives the shim's own escaping.
+        assert_eq!(
+            shim_runtime_target(b"#!/bin/sh\nexec '/opt/it'\"'\"'s/pi' \"$@\"\n"),
+            Some(PathBuf::from("/opt/it's/pi"))
+        );
+        assert_eq!(shim_runtime_target(b"#!/bin/sh\necho hello\n"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_sweep_removes_a_shim_only_once_its_target_is_gone() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let mut published = Vec::new();
+        for command in ["pi", "codex"] {
+            let install_root = temp.path().join("app-data/agents").join(command);
+            let runtime = install_root.join("release").join(command);
+            fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+            fs::write(&runtime, "#!/bin/sh\n").unwrap();
+            let shim = publish_for_test(
+                &home,
+                &AgentId::parse(command).unwrap(),
+                &install_root,
+                &runtime,
+                ShellFamily::Posix,
+            )
+            .unwrap();
+            published.push((runtime, shim));
+        }
+        let (live_runtime, live_shim) = published.pop().unwrap();
+        let (dead_runtime, dead_shim) = published.pop().unwrap();
+
+        // Both shims are publishable and both point at a real Runtime.
+        assert!(remove_orphaned_cli_shims(&home).unwrap().is_empty());
+
+        fs::remove_file(&dead_runtime).unwrap();
+        let removed = remove_orphaned_cli_shims(&home).unwrap();
+
+        assert_eq!(
+            removed
+                .iter()
+                .map(|shim| shim.command_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pi"]
+        );
+        assert!(!dead_shim.shim_path.exists());
+        assert!(live_runtime.is_file());
+        assert!(live_shim.shim_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_sweep_removes_a_toolchain_shim_whose_target_is_gone() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let bin = home.join(".local").join("bin");
+        let toolchain = temp.path().join("toolchain/bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&toolchain).unwrap();
+        fs::write(toolchain.join("node"), "#!/bin/sh\n").unwrap();
+        publish_user_toolchain_commands(&home, &toolchain, &["node"], ShellFamily::Posix).unwrap();
+        assert!(bin.join("node").exists());
+
+        assert!(remove_orphaned_cli_shims(&home).unwrap().is_empty());
+        fs::remove_file(toolchain.join("node")).unwrap();
+
+        let removed = remove_orphaned_cli_shims(&home).unwrap();
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert_eq!(removed[0].command_name, "node");
+        assert!(!bin.join("node").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_sweep_never_removes_a_command_vibex_did_not_publish() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let bin = home.join(".local").join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        // The user's own command under the vendor name, pointed at a Runtime that
+        // does not exist. VibeX did not write it, so it is not VibeX's to delete.
+        fs::write(bin.join("pi"), "#!/bin/sh\nexec /opt/gone/pi \"$@\"\n").unwrap();
+        // VibeX's marker with nothing after it names no command to check.
+        fs::write(bin.join("mystery"), "# VibeX Agent CLI:\n").unwrap();
+
+        assert!(remove_orphaned_cli_shims(&home).unwrap().is_empty());
+        assert!(bin.join("pi").exists());
+        assert!(bin.join("mystery").exists());
+    }
+
+    #[test]
+    fn a_home_without_a_user_bin_directory_sweeps_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(remove_orphaned_cli_shims(temp.path()).unwrap().is_empty());
     }
 }

@@ -16,6 +16,9 @@ import { toast } from '@/components/ui/toast';
 import { WorkflowStudio } from '@/features/workflow/WorkflowStudio';
 import { createWorkflowApi } from '@/features/workflow/workflowApi';
 import { useBackendTransport } from '@/lib/transport';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { useTranslation } from 'react-i18next';
 
 const TERMINAL_RUN_STATUSES = new Set([
   'completed',
@@ -65,8 +68,23 @@ export function WorkflowInspectorView({
   onDecideApproval,
   onReview,
 }: WorkflowInspectorViewProps) {
+  const { t } = useTranslation('common');
+  const { openSurfaceMenu } = useAppContextMenu();
   return (
-    <main className="flex h-full min-h-[680px] flex-col bg-background">
+    <main
+      className="flex h-full min-h-[680px] flex-col bg-background"
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'copy-run',
+            label: t('contextMenu.copyRunId'),
+            onSelect: () => {
+              void writeClipboardViaBridge(run.id);
+            },
+          },
+        ]);
+      }}
+    >
       <div className="flex h-11 shrink-0 items-center gap-3 border-b bg-card px-3.5">
         {onBack ? (
           <Button

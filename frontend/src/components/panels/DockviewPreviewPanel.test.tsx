@@ -10,6 +10,7 @@ import {
 import DockviewPreviewPanel from './DockviewPreviewPanel';
 
 const api = vi.hoisted(() => ({ resolveFileOpener: vi.fn() }));
+const platform = vi.hoisted(() => ({ isTauriDesktopShell: vi.fn(() => true) }));
 const fileContent = vi.hoisted(() => ({
   data: '# Preview title' as string | undefined,
   isLoading: false,
@@ -18,6 +19,30 @@ const fileContent = vi.hoisted(() => ({
 
 vi.mock('@/lib/api/plugins', () => ({
   pluginControlApi: { resolveFileOpener: api.resolveFileOpener },
+}));
+
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  isTauriDesktopShell: platform.isTauriDesktopShell,
+}));
+
+vi.mock('@/components/previews/HostHtmlPreview', () => ({
+  HostHtmlPreview: ({
+    filePath,
+    assetRoot,
+    displayPath,
+  }: {
+    filePath: string;
+    assetRoot: string;
+    displayPath: string;
+  }) => (
+    <div
+      data-testid="host-html-preview"
+      data-file-path={filePath}
+      data-asset-root={assetRoot}
+      data-display-path={displayPath}
+    />
+  ),
 }));
 
 vi.mock('@/components/previews/PluginArtifactEditor', () => ({
@@ -117,6 +142,7 @@ function panelProps(filePath = 'README.md'): IDockviewPanelProps {
 describe('DockviewPreviewPanel', () => {
   beforeEach(() => {
     api.resolveFileOpener.mockReset().mockResolvedValue(null);
+    platform.isTauriDesktopShell.mockReturnValue(true);
     fileContent.data = '# Preview title';
     fileContent.isLoading = false;
     fileContent.error = null;
@@ -198,6 +224,67 @@ describe('DockviewPreviewPanel', () => {
     const markdown = await screen.findByTestId('astryx-markdown');
     expect(markdown).toHaveAttribute('data-workspace-path', '/workspace/docs');
     expect(markdown).toHaveAttribute('data-value', '# Preview title');
+  });
+
+  it('opens an HTML file in the rendered preview instead of its source', async () => {
+    render(<DockviewPreviewPanel {...panelProps('docs/page.html')} />);
+
+    // The whole workspace is granted so `../` references stay reachable.
+    expect(await screen.findByTestId('host-html-preview')).toHaveAttribute(
+      'data-asset-root',
+      '/workspace'
+    );
+    expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
+  });
+
+  it('switches an HTML file back to source and to preview again', async () => {
+    render(<DockviewPreviewPanel {...panelProps('docs/page.html')} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    const editor = await screen.findByTestId('monaco-editor');
+    expect(screen.getByRole('button', { name: 'Source' })).toBeVisible();
+    expect(screen.queryByTestId('host-html-preview')).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(editor, { button: 1 });
+
+    expect(await screen.findByTestId('host-html-preview')).toHaveAttribute(
+      'data-file-path',
+      '/workspace/docs/page.html'
+    );
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
+  });
+
+  it('remembers the chosen view per HTML file', async () => {
+    const first = panelProps('docs/page.html');
+    const { rerender } = render(<DockviewPreviewPanel {...first} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('monaco-editor');
+
+    rerender(<DockviewPreviewPanel {...panelProps('docs/other.html')} />);
+
+    // A file that was never toggled still opens rendered; the choice above
+    // belongs to the first file alone.
+    expect(await screen.findByTestId('host-html-preview')).toHaveAttribute(
+      'data-file-path',
+      '/workspace/docs/other.html'
+    );
+
+    rerender(<DockviewPreviewPanel {...first} />);
+    expect(await screen.findByTestId('monaco-editor')).toBeInTheDocument();
+  });
+
+  it('keeps HTML as source where no local webview can serve it', async () => {
+    platform.isTauriDesktopShell.mockReturnValue(false);
+
+    render(<DockviewPreviewPanel {...panelProps('docs/page.html')} />);
+
+    expect(await screen.findByTestId('monaco-editor')).toBeInTheDocument();
+    expect(screen.queryByTestId('host-html-preview')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Preview' })
+    ).not.toBeInTheDocument();
   });
 
   it('lets a diff preview switch to the editable file view', async () => {

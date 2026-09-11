@@ -57,6 +57,7 @@ pub struct ConversationRowWindow {
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
 const AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID: &str = "notice:agent-connection-recovering";
+const AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID: &str = "notice:agent-session-connect-error";
 const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
@@ -1716,6 +1717,28 @@ impl ProjectionFold {
             }
             ConversationEvent::TurnFailed { error } => {
                 settle_turn(turns, turn_order, record, "failed");
+                if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied())
+                    && let Some(turn) = turns.get_mut(&turn_id)
+                    && assistant_content_is_turn_error_echo(&turn.assistant.blocks, &error)
+                {
+                    turn.assistant.blocks.clear();
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id: turn.assistant.id.clone(),
+                        revision: record.sequence,
+                    });
+                }
+                remove_side_row(
+                    side_rows,
+                    &mut deleted_rows,
+                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                    record.sequence,
+                );
+                remove_side_row(
+                    side_rows,
+                    &mut deleted_rows,
+                    AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+                    record.sequence,
+                );
                 side_rows.push(side_row(
                     record.sequence,
                     ConversationTimelineRow::TurnError {
@@ -1773,48 +1796,57 @@ impl ProjectionFold {
                 });
             }
             ConversationEvent::AgentBindingReady { .. } => {
-                if let Some(index) = side_rows
-                    .iter()
-                    .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
-                {
-                    side_rows.remove(index);
-                    deleted_rows.push(ConversationRowOp::Delete {
-                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
-                        revision: record.sequence,
-                    });
-                }
+                remove_side_row(
+                    side_rows,
+                    &mut deleted_rows,
+                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                    record.sequence,
+                );
+                remove_side_row(
+                    side_rows,
+                    &mut deleted_rows,
+                    AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+                    record.sequence,
+                );
             }
             ConversationEvent::AgentConnectionStatusChanged { status } => match status {
-                ConversationAgentConnectionStatus::Recovering => {
-                    side_rows.retain(|row| row.row_id != AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
-                    side_rows.push(TimelineRow {
-                        row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
-                        revision: record.sequence,
-                        row: ConversationTimelineRow::SessionNotice {
-                            notice: ConversationSessionNotice {
-                                title: "正在恢复会话".into(),
-                                message: None,
-                                severity: "info".into(),
-                                ..Default::default()
-                            },
+                ConversationAgentConnectionStatus::Connecting
+                | ConversationAgentConnectionStatus::Recovering => {
+                    upsert_stable_notice(
+                        side_rows,
+                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                        record.sequence,
+                        ConversationSessionNotice {
+                            title: "会话加载异常，正在连接…".into(),
+                            message: None,
+                            severity: "warning".into(),
+                            ..Default::default()
                         },
-                    });
+                    );
                 }
-                ConversationAgentConnectionStatus::Ready
-                | ConversationAgentConnectionStatus::Error
+                ConversationAgentConnectionStatus::Ready => {
+                    remove_side_row(
+                        side_rows,
+                        &mut deleted_rows,
+                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                        record.sequence,
+                    );
+                    remove_side_row(
+                        side_rows,
+                        &mut deleted_rows,
+                        AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+                        record.sequence,
+                    );
+                }
+                ConversationAgentConnectionStatus::Error
                 | ConversationAgentConnectionStatus::Closed => {
-                    if let Some(index) = side_rows
-                        .iter()
-                        .position(|row| row.row_id == AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID)
-                    {
-                        side_rows.remove(index);
-                        deleted_rows.push(ConversationRowOp::Delete {
-                            row_id: AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(),
-                            revision: record.sequence,
-                        });
-                    }
+                    remove_side_row(
+                        side_rows,
+                        &mut deleted_rows,
+                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                        record.sequence,
+                    );
                 }
-                ConversationAgentConnectionStatus::Connecting => {}
             },
             ConversationEvent::AgentBindingRecovered { strategy } => match strategy {
                 SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
@@ -1884,7 +1916,50 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::RawDiagnosticRecorded { label, payload } => {
-                if let Some(notice) = diagnostic_session_notice(&label, payload.as_ref()) {
+                if label == agents::SESSION_RECONNECT_PROGRESS_KIND
+                    || payload
+                        .as_ref()
+                        .and_then(|value| value.get("kind"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(agents::SESSION_RECONNECT_PROGRESS_KIND)
+                {
+                    let (attempt, max) = reconnect_attempt_from_payload(payload.as_ref());
+                    upsert_stable_notice(
+                        side_rows,
+                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                        record.sequence,
+                        ConversationSessionNotice {
+                            title: format!("会话加载异常，正在重连 {attempt}/{max} 次…"),
+                            message: None,
+                            severity: "warning".into(),
+                            ..Default::default()
+                        },
+                    );
+                } else if label == agents::SESSION_CONNECT_ERROR_KIND
+                    || payload
+                        .as_ref()
+                        .and_then(|value| value.get("kind"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(agents::SESSION_CONNECT_ERROR_KIND)
+                {
+                    let message = payload
+                        .as_ref()
+                        .and_then(|value| value.get("message"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("Agent session could not be established")
+                        .to_string();
+                    upsert_stable_notice(
+                        side_rows,
+                        AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+                        record.sequence,
+                        ConversationSessionNotice {
+                            title: "会话出错".into(),
+                            message: Some(message),
+                            severity: "error".into(),
+                            ..Default::default()
+                        },
+                    );
+                } else if let Some(notice) = diagnostic_session_notice(&label, payload.as_ref()) {
                     side_rows.push(side_row(
                         record.sequence,
                         ConversationTimelineRow::SessionNotice { notice },
@@ -2348,6 +2423,95 @@ fn side_row(sequence: i64, row: ConversationTimelineRow) -> TimelineRow {
     }
 }
 
+fn upsert_stable_notice(
+    side_rows: &mut Vec<TimelineRow>,
+    row_id: &str,
+    sequence: i64,
+    notice: ConversationSessionNotice,
+) {
+    side_rows.retain(|row| row.row_id != row_id);
+    side_rows.push(TimelineRow {
+        row_id: row_id.into(),
+        revision: sequence,
+        row: ConversationTimelineRow::SessionNotice { notice },
+    });
+}
+
+fn remove_side_row(
+    side_rows: &mut Vec<TimelineRow>,
+    deleted_rows: &mut Vec<ConversationRowOp>,
+    row_id: &str,
+    sequence: i64,
+) {
+    if side_rows.iter().any(|row| row.row_id == row_id) {
+        side_rows.retain(|row| row.row_id != row_id);
+        deleted_rows.push(ConversationRowOp::Delete {
+            row_id: row_id.into(),
+            revision: sequence,
+        });
+    }
+}
+
+fn reconnect_attempt_from_payload(payload: Option<&serde_json::Value>) -> (u32, u32) {
+    let attempt = payload
+        .and_then(|value| value.get("attempt"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(1)
+        .max(1);
+    let max = payload
+        .and_then(|value| value.get("max"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(attempt)
+        .max(attempt);
+    (attempt, max)
+}
+
+fn assistant_content_is_turn_error_echo(
+    blocks: &[ContentBlock],
+    error: &ConversationError,
+) -> bool {
+    if blocks.is_empty() {
+        return false;
+    }
+    if blocks.iter().any(|block| {
+        !matches!(
+            block,
+            ContentBlock::Text { .. } | ContentBlock::Thinking { .. }
+        )
+    }) {
+        return false;
+    }
+    let assistant_text = blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if assistant_text.is_empty() {
+        return false;
+    }
+    texts_are_error_echo(&assistant_text, &error.message)
+}
+
+fn texts_are_error_echo(assistant_text: &str, error_message: &str) -> bool {
+    let assistant = collapse_ws(assistant_text);
+    let error = collapse_ws(error_message);
+    if assistant.is_empty() || error.is_empty() {
+        return false;
+    }
+    error.contains(&assistant) || assistant.contains(&error)
+}
+
+fn collapse_ws(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Build the current `TimelineRow` for one side of a turn (`user` / `assistant`),
 /// used when emitting an `Upsert` op. row_id is the `${turn}:user` / `${turn}:assistant`
 /// message id; revision is the turn's latest-touched sequence.
@@ -2620,6 +2784,9 @@ fn diagnostic_session_notice(
             severity: "warning".into(),
             ..Default::default()
         }),
+        agents::AGENT_SESSION_NOTICE_KIND => {
+            payload.and_then(agents::session_notice_from_diagnostic)
+        }
         "user_message_acknowledged" | "companion_capability" | "ext_notification" => None,
         _ => Some(ConversationSessionNotice {
             title: "未识别的会话更新".into(),
@@ -3400,6 +3567,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_session_notices_project_as_warning_cards() {
+        let conversation_id = Uuid::new_v4();
+        let event = ConversationEvent::RawDiagnosticRecorded {
+            label: agents::AGENT_SESSION_NOTICE_KIND.into(),
+            payload: Some(serde_json::json!({
+                "kind": agents::AGENT_SESSION_NOTICE_KIND,
+                "title": "Skill descriptions were shortened to fit the skills context budget.",
+                "message": "Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter.",
+                "severity": "warning",
+            })),
+        };
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[diagnostic_record(conversation_id, 1, &event)],
+        )
+        .expect("agent notice should fold");
+        assert_eq!(timeline.rows.len(), 1);
+        match &timeline.rows[0].row {
+            ConversationTimelineRow::SessionNotice { notice } => {
+                assert_eq!(
+                    notice.title,
+                    "Skill descriptions were shortened to fit the skills context budget."
+                );
+                assert_eq!(notice.severity, "warning");
+                assert!(
+                    notice
+                        .message
+                        .as_deref()
+                        .is_some_and(|message| message.contains("Codex can still see every skill"))
+                );
+            }
+            other => panic!("expected session notice, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn announcement_updates_replace_previous_banners() {
         let conversation_id = Uuid::new_v4();
         let first = ConversationEvent::AnnouncementsUpdated {
@@ -3932,6 +4135,149 @@ mod tests {
                 "assistant metrics: {assistant_metrics:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn turn_failure_does_not_keep_error_text_as_an_assistant_message() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let error_text =
+            "Failed to authenticate. API Error: 401 Model deepseek-v4.1-flash is not supported";
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "你是谁".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: error_text.into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnFailed {
+                error: ConversationError {
+                    message: format!("Internal error: {error_text}"),
+                    code: Some("internal_error".into()),
+                    raw: Some(serde_json::json!({
+                        "errorKind": "authentication_failed"
+                    })),
+                    kind: Default::default(),
+                    plan_usage: None,
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let assistant_text = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                Some(
+                    turn.blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(""),
+                )
+            }
+            _ => None,
+        });
+        assert_eq!(assistant_text.as_deref(), None);
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .any(|row| matches!(row.row, ConversationTimelineRow::TurnError { .. }))
+        );
+    }
+
+    #[test]
+    fn reconnect_progress_notice_replaces_itself_and_clears_on_ready() {
+        let conversation_id = Uuid::new_v4();
+        let progress = ConversationEvent::RawDiagnosticRecorded {
+            label: agents::SESSION_RECONNECT_PROGRESS_KIND.into(),
+            payload: Some(serde_json::json!({
+                "kind": agents::SESSION_RECONNECT_PROGRESS_KIND,
+                "attempt": 3,
+                "max": 10,
+            })),
+        };
+        let error = ConversationEvent::RawDiagnosticRecorded {
+            label: agents::SESSION_CONNECT_ERROR_KIND.into(),
+            payload: Some(serde_json::json!({
+                "kind": agents::SESSION_CONNECT_ERROR_KIND,
+                "message": "agent connection closed",
+            })),
+        };
+        let ready = ConversationEvent::AgentConnectionStatusChanged {
+            status: ConversationAgentConnectionStatus::Ready,
+        };
+        let retrying = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &progress),
+                diagnostic_record(conversation_id, 2, &error),
+            ],
+        )
+        .expect("reconnect notices");
+        let notices: Vec<_> = retrying
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 2);
+        assert!(
+            notices
+                .iter()
+                .any(|notice| notice.title.contains("正在重连 3/10"))
+        );
+        assert!(notices.iter().any(|notice| notice.severity == "error"));
+
+        let recovered = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &progress),
+                diagnostic_record(conversation_id, 2, &error),
+                diagnostic_record(conversation_id, 3, &ready),
+            ],
+        )
+        .expect("ready clears reconnect notices");
+        assert!(
+            recovered
+                .rows
+                .iter()
+                .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) })
+        );
     }
 
     #[tokio::test]

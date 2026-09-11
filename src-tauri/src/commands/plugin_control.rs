@@ -648,19 +648,15 @@ pub async fn plugin_save_config(
         .ok_or_else(|| AppError::NotFound(format!("plugin {plugin_id}")))?;
     plugin.write_config(config).map_err(plugin_error)?;
     apply_official_product_runtime(&state).await?;
-    if plugin.activation == plugins::PluginActivation::Enabled {
-        let (known, desired) = desired_plugin_mcp_agents(&state, &plugin_id).await?;
-        let all_agents = desired == known;
-        for error in configure_plugin_mcp(&state, &plugin, all_agents, &desired).await {
-            tracing::warn!(
-                plugin_id = %plugin_id,
-                %error,
-                "plugin config MCP projection failed"
-            );
-        }
-    }
+    // Re-inspect before projecting: `plugin` still carries the config loaded
+    // before the write, and the Skill domain gate must read the one that was
+    // just persisted.
     let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
         .map_err(plugin_error)?;
+    if plugin.activation == plugins::PluginActivation::Enabled {
+        configure_plugin_skill_projections(&state, &refreshed).await?;
+        configure_plugin_default_mcp(&state, &plugin).await?;
+    }
     product_detail_dto(refreshed.product_detail().map_err(plugin_error)?)
 }
 
@@ -2106,9 +2102,16 @@ pub async fn plugin_control_set_enabled(
     Ok(plugin_dto(plugin))
 }
 
-async fn configure_plugin_default_projections(
+/// Project a Plugin's currently-enabled Skills onto the Agents it is bound to
+/// and persist the resulting bindings.
+///
+/// Takes the package rather than an installed Plugin so a caller that has just
+/// written `config.json` re-projects from the config it persisted rather than
+/// the one loaded before the write — that config is what switches Skill
+/// domains on and off.
+async fn configure_plugin_skill_projections(
     state: &AppState,
-    plugin: &plugins::InstalledPlugin,
+    plugin: &plugins::PluginPackage,
 ) -> Result<(), AppError> {
     let known = agents::skills::skill_capable_agent_ids()
         .into_iter()
@@ -2124,13 +2127,13 @@ async fn configure_plugin_default_projections(
         "SELECT agent_id FROM plugin_agent_bindings_v4
          WHERE plugin_id = ? AND desired = 1",
     )
-    .bind(plugin.id())
+    .bind(plugin.id.as_str())
     .fetch_all(&state.deployment.db().pool)
     .await?;
     let has_saved_agent_preferences = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM plugin_agent_bindings_v4 WHERE plugin_id = ?",
     )
-    .bind(plugin.id())
+    .bind(plugin.id.as_str())
     .fetch_one(&state.deployment.db().pool)
     .await?
         > 0;
@@ -2144,12 +2147,11 @@ async fn configure_plugin_default_projections(
         .cloned()
         .collect::<Vec<_>>();
     let skill_sources = plugin
-        .skills
-        .iter()
+        .enabled_skills()
         .map(|skill| (skill.id.clone(), plugin.source.path.join(&skill.path)))
         .collect::<Vec<_>>();
     let projections =
-        agents::skills::project_plugin_skills(plugin.id(), &skill_sources, targets, true)
+        agents::skills::project_plugin_skills(plugin.id.as_str(), &skill_sources, targets, true)
             .map_err(|error| AppError::Internal(error.to_string()))?
             .into_iter()
             .map(|result| PluginSkillProjectionDto {
@@ -2166,13 +2168,23 @@ async fn configure_plugin_default_projections(
             .collect::<Vec<_>>();
     persist_agent_bindings(
         state,
-        plugin.id(),
+        plugin.id.as_str(),
         &known,
         &desired_agents,
         &installed,
         &projections,
     )
-    .await?;
+    .await
+}
+
+/// Project a Plugin's managed MCP servers onto the Agents it is bound to.
+async fn configure_plugin_default_mcp(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+) -> Result<(), AppError> {
+    let known = agents::skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
     let (_, desired_mcp) = desired_plugin_mcp_agents(state, plugin.id()).await?;
     let all_mcp_agents = desired_mcp == known;
     for error in configure_plugin_mcp(state, plugin, all_mcp_agents, &desired_mcp).await {
@@ -2181,11 +2193,19 @@ async fn configure_plugin_default_projections(
     Ok(())
 }
 
+async fn configure_plugin_default_projections(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+) -> Result<(), AppError> {
+    configure_plugin_skill_projections(state, plugin).await?;
+    configure_plugin_default_mcp(state, plugin).await
+}
+
 /// Re-materialize enabled plugin projections after Host startup.
 ///
-/// Managed MCP specs contain App-lifetime connection details. Replaying the
-/// saved projection here replaces stale credentials from the prior process
-/// while preserving an explicit per-Agent selection (including select-none).
+/// Skill projections are filesystem links into Agent skill directories; they
+/// must be replayed because enable can persist while a later projection call
+/// fails. Managed MCP specs also contain App-lifetime connection details.
 pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
     let plugins = match state.plugin_control_plane.catalog().await {
         Ok(plugins) => plugins,
@@ -2197,40 +2217,16 @@ pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
     if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
         tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
     }
-    for plugin in plugins.iter().filter(|plugin| {
-        plugin.activation == plugins::PluginActivation::Enabled
-            && plugin
-                .mcp
-                .get("mcpServers")
-                .unwrap_or(&plugin.mcp)
-                .as_object()
-                .is_some_and(|servers| {
-                    servers
-                        .values()
-                        .any(|spec| spec.get("managedRuntime").is_some())
-                })
-    }) {
-        let refreshed = async {
-            let (known, desired) = desired_plugin_mcp_agents(state, plugin.id()).await?;
-            let all_agents = desired == known;
-            Ok::<_, AppError>(configure_plugin_mcp(state, plugin, all_agents, &desired).await)
-        }
-        .await;
-        match refreshed {
-            Ok(errors) => {
-                for error in errors {
-                    tracing::warn!(
-                        plugin_id = plugin.id(),
-                        %error,
-                        "managed MCP projection refresh failed"
-                    );
-                }
-            }
-            Err(error) => tracing::warn!(
+    for plugin in plugins
+        .iter()
+        .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
+    {
+        if let Err(error) = configure_plugin_default_projections(state, plugin).await {
+            tracing::warn!(
                 plugin_id = plugin.id(),
                 %error,
-                "managed MCP projection refresh failed"
-            ),
+                "enabled plugin projection refresh failed"
+            );
         }
     }
 }
@@ -2536,8 +2532,7 @@ pub async fn plugin_control_configure_agents(
         .cloned()
         .collect::<Vec<_>>();
     let skill_sources = plugin
-        .skills
-        .iter()
+        .enabled_skills()
         .map(|skill| (skill.id.clone(), plugin.source.path.join(&skill.path)))
         .collect::<Vec<_>>();
     let projected =

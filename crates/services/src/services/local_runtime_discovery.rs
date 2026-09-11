@@ -146,7 +146,25 @@ async fn discover_profile_local_runtime(
             )
         })
         .ok_or_else(|| anyhow::anyhow!("Profile does not declare a local Runtime candidate"))?;
-    probe_candidate(candidate.executable, candidate.version_args).await
+    probe_user_runtime_candidate(candidate.executable, candidate.version_args).await
+}
+
+/// Probe a Runtime the *user* installed.
+///
+/// VibeX publishes its managed Runtime into the user's `~/.local/bin` under the
+/// vendor command name, so the first PATH hit is VibeX's own artifact on a
+/// machine where the user has nothing. Adoption asks whether the user already
+/// had a Runtime, and a shim VibeX wrote is not an answer to that question.
+async fn probe_user_runtime_candidate(
+    executable: &str,
+    version_args: &[&str],
+) -> anyhow::Result<LocalRuntimeEvidence> {
+    let executable = agents::resolve_user_runtime_command(executable)
+        .await
+        .ok_or_else(|| {
+            anyhow::anyhow!("no user-installed Runtime `{executable}` was found on PATH")
+        })?;
+    probe_resolved_candidate(executable, version_args).await
 }
 
 async fn probe_candidate(
@@ -156,6 +174,13 @@ async fn probe_candidate(
     let executable = utils::shell::resolve_executable_path(executable)
         .await
         .ok_or_else(|| anyhow::anyhow!("external candidate `{executable}` was not found"))?;
+    probe_resolved_candidate(executable, version_args).await
+}
+
+async fn probe_resolved_candidate(
+    executable: std::path::PathBuf,
+    version_args: &[&str],
+) -> anyhow::Result<LocalRuntimeEvidence> {
     let executable =
         utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(executable).await?);
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {

@@ -238,22 +238,33 @@ export const agentManagementApi = {
   ): Promise<AgentAuthModeView> =>
     backendCall('agent_auth_mode_set', { agentId, mode, apiKey }),
 
-  openCodePlugins: (): Promise<OpenCodePluginSummaryView> =>
-    backendCall('opencode_plugin_list'),
+  openCodePlugins: (
+    agentId: AgentId = 'opencode'
+  ): Promise<OpenCodePluginSummaryView> =>
+    backendCall('opencode_plugin_list', { agentId }),
 
   installOpenCodePlugins: (
-    names: string[] | null = null
+    names: string[] | null = null,
+    agentId: AgentId = 'opencode'
   ): Promise<OpenCodePluginSummaryView> =>
-    backendCall('opencode_plugin_install', { names }),
+    backendCall('opencode_plugin_install', { names, agentId }),
 
-  addOpenCodePlugin: (spec: string): Promise<OpenCodePluginSummaryView> =>
-    backendCall('opencode_plugin_add', { spec }),
+  addOpenCodePlugin: (
+    spec: string,
+    agentId: AgentId = 'opencode'
+  ): Promise<OpenCodePluginSummaryView> =>
+    backendCall('opencode_plugin_add', { spec, agentId }),
 
-  uninstallOpenCodePlugin: (name: string): Promise<OpenCodePluginSummaryView> =>
-    backendCall('opencode_plugin_uninstall', { name }),
+  uninstallOpenCodePlugin: (
+    name: string,
+    agentId: AgentId = 'opencode'
+  ): Promise<OpenCodePluginSummaryView> =>
+    backendCall('opencode_plugin_uninstall', { name, agentId }),
 
-  openCodeProviders: (): Promise<OpenCodeProviderConnectionsView> =>
-    backendCall('opencode_provider_connections'),
+  openCodeProviders: (
+    agentId: AgentId = 'opencode'
+  ): Promise<OpenCodeProviderConnectionsView> =>
+    backendCall('opencode_provider_connections', { agentId }),
 
   openCodeProviderCatalog: (
     forceRefresh = false
@@ -261,9 +272,10 @@ export const agentManagementApi = {
     backendCall('opencode_provider_catalog', { forceRefresh }),
 
   connectOpenCodeProvider: (
-    request: OpenCodeProviderConnectRequest
+    request: OpenCodeProviderConnectRequest,
+    agentId: AgentId = 'opencode'
   ): Promise<OpenCodeProviderConnectionsView> =>
-    backendCall('opencode_provider_connect', { request }),
+    backendCall('opencode_provider_connect', { agentId, request }),
 
   importOpenCodeProviders: (
     request: AgentModelProviderImportRequest
@@ -271,15 +283,21 @@ export const agentManagementApi = {
     backendCall('opencode_provider_import', { request }),
 
   disconnectOpenCodeProvider: (
-    providerId: string
+    providerId: string,
+    agentId: AgentId = 'opencode'
   ): Promise<OpenCodeProviderConnectionsView> =>
-    backendCall('opencode_provider_disconnect', { providerId }),
+    backendCall('opencode_provider_disconnect', { agentId, providerId }),
 
   setOpenCodeProviderEnabled: (
     providerId: string,
-    enabled: boolean
+    enabled: boolean,
+    agentId: AgentId = 'opencode'
   ): Promise<OpenCodeProviderConnectionsView> =>
-    backendCall('opencode_provider_set_enabled', { providerId, enabled }),
+    backendCall('opencode_provider_set_enabled', {
+      agentId,
+      providerId,
+      enabled,
+    }),
 
   dshProviders: (): Promise<DshProvidersView> => backendCall('dsh_providers'),
 

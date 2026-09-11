@@ -139,20 +139,31 @@ export function reduceAgentEvent(
         ...state.prompts,
         [envelope.event.snapshot.id]: envelope.event.snapshot,
       };
+      next.sessions = withSessionPrompt(
+        state.sessions,
+        envelope.session_id,
+        envelope.event.snapshot.id
+      );
       return next;
     case 'prompt_finished': {
       const prompt = state.prompts[envelope.event.finished.prompt_id];
-      if (!prompt) return next;
-      next.prompts = {
-        ...state.prompts,
-        [prompt.id]: {
-          ...prompt,
-          status: {
-            kind: 'completed',
-            stop_reason: envelope.event.finished.stop_reason ?? null,
+      if (prompt) {
+        next.prompts = {
+          ...state.prompts,
+          [prompt.id]: {
+            ...prompt,
+            status: {
+              kind: 'completed',
+              stop_reason: envelope.event.finished.stop_reason ?? null,
+            },
           },
-        },
-      };
+        };
+      }
+      next.sessions = clearSessionPrompt(
+        next.sessions,
+        envelope.session_id,
+        envelope.event.finished.prompt_id
+      );
       return next;
     }
     case 'permission_requested':
@@ -231,10 +242,54 @@ export function reduceAgentEvent(
           envelope.event.error.message,
         ],
       };
+      next.sessions = clearSessionPrompt(state.sessions, envelope.session_id);
       return next;
     default:
       return next;
   }
+}
+
+function withSessionPrompt(
+  sessions: AgentWorkbenchState['sessions'],
+  sessionId: string | null | undefined,
+  promptId: string
+): AgentWorkbenchState['sessions'] {
+  if (!sessionId) return sessions;
+  const session = sessions[sessionId];
+  if (!session) return sessions;
+  return {
+    ...sessions,
+    [sessionId]: {
+      ...session,
+      active_prompt_id: promptId,
+      status: 'running',
+    },
+  };
+}
+
+function clearSessionPrompt(
+  sessions: AgentWorkbenchState['sessions'],
+  sessionId: string | null | undefined,
+  promptId?: string
+): AgentWorkbenchState['sessions'] {
+  if (!sessionId) return sessions;
+  const session = sessions[sessionId];
+  if (!session) return sessions;
+  if (
+    promptId &&
+    session.active_prompt_id &&
+    session.active_prompt_id !== promptId
+  ) {
+    return sessions;
+  }
+  return {
+    ...sessions,
+    [sessionId]: {
+      ...session,
+      active_prompt_id: null,
+      status: session.status === 'running' ? 'ready' : session.status,
+    },
+  };
 }
 
 function scopeId(envelope: AgentEventEnvelope): string {

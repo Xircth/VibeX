@@ -12,6 +12,7 @@ import { projectsApi } from '@/lib/api';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toast } from '@/components/ui/toast';
+import { useAppContextMenu } from '@/components/context-menu';
 import {
   deriveProjectVisualState,
   ProjectRecentSessionsPopover,
@@ -36,6 +37,7 @@ export function ProjectRail({
   mouseContainerRef?: RefObject<HTMLElement | null>;
 }) {
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { projects, isLoading: isProjectsLoading } = useProjects();
   const { projectId } = useProject();
   const switchProject = useProjectSwitcher();
@@ -309,6 +311,24 @@ export function ProjectRail({
       <div
         ref={projectListRef}
         className={cn('project-rail-projects', isDragging && 'is-dragging')}
+        onContextMenu={(event) => {
+          openSurfaceMenu(event, [
+            {
+              id: 'open-folder',
+              label: t('common:contextMenu.openFolder'),
+              onSelect: () => {
+                void handleOpenProject();
+              },
+            },
+            {
+              id: 'new-project',
+              label: t('common:contextMenu.newProject'),
+              onSelect: () => {
+                void handleCreateProject();
+              },
+            },
+          ]);
+        }}
         onPointerDown={handleProjectListPointerDown}
         onPointerMove={handleProjectListPointerMove}
         onPointerUp={endProjectListDrag}
@@ -339,6 +359,27 @@ export function ProjectRail({
                   dragStateRef.current = null;
                 }}
                 onClick={() => handleProjectClick(project.id)}
+                onContextMenu={(event) => {
+                  event.stopPropagation();
+                  openSurfaceMenu(event, [
+                    {
+                      id: 'open',
+                      label: t('common:contextMenu.open'),
+                      onSelect: () => handleProjectClick(project.id),
+                    },
+                    {
+                      id: 'delete',
+                      label: t('common:delete'),
+                      danger: true,
+                      onSelect: () => {
+                        void handleDeleteProject({
+                          id: project.id,
+                          name: project.name,
+                        });
+                      },
+                    },
+                  ]);
+                }}
                 title={`${project.name}: ${meta.label}`}
                 className={cn(
                   'project-rail-project-button',

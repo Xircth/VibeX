@@ -240,7 +240,7 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
 }
 
 /**
- * Hover-revealed action rail anchored to the left of a user bubble. Copy is
+ * Hover-revealed action rail at the bottom-right of a user bubble. Copy is
  * always available (client-side); Retry re-sends this turn, optionally
  * restoring workspace files first. Mirrors the pre-ACP user-message controls.
  */
@@ -287,9 +287,9 @@ function UserMessageActions({
           }
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5" />
+            <Check className="h-3 w-3" />
           ) : (
-            <Clipboard className="h-3.5 w-3.5" />
+            <Clipboard className="h-3 w-3" />
           )}
         </button>
       ) : null}
@@ -301,7 +301,7 @@ function UserMessageActions({
           title={t('messageTurnView.resendHint')}
           aria-label={t('messageTurnView.resend')}
         >
-          <RotateCcw className="h-3.5 w-3.5" />
+          <RotateCcw className="h-3 w-3" />
         </button>
       ) : null}
       {onEdit ? (
@@ -312,7 +312,7 @@ function UserMessageActions({
           title={t('messageTurnView.edit')}
           aria-label={t('messageTurnView.edit')}
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil className="h-3 w-3" />
         </button>
       ) : null}
     </div>

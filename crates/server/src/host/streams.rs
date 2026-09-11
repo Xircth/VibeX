@@ -89,6 +89,10 @@ struct SlashCommandsStreamArgs {
 #[derive(serde::Serialize)]
 struct FileTreeChangedPayload {
     root_path: String,
+    /// Root-relative paths of files created in this batch. The frontend opens
+    /// previews for the ones it can render on its own.
+    added_paths: Vec<String>,
+    added_paths_truncated: bool,
 }
 
 impl ServerApplicationDomains {
@@ -285,10 +289,18 @@ impl ServerApplicationDomains {
                     while let Some(result) = receiver.next().await {
                         match result {
                             Ok(events) if !events.is_empty() => {
+                                let (added_paths, added_paths_truncated) =
+                                    services::services::filesystem_watcher::collect_added_paths(
+                                        &events,
+                                        &normalized_root,
+                                        services::services::filesystem_watcher::MAX_ADDED_PATHS,
+                                    );
                                 host_events.emit(
                                     "file-tree-stream",
                                     &FileTreeChangedPayload {
                                         root_path: normalized_root_str.clone(),
+                                        added_paths,
+                                        added_paths_truncated,
                                     },
                                 );
                             }

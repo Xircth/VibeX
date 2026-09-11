@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentId,
   AgentModelProviderImportPreviewView,
   OpenCodeCatalogProviderView,
   OpenCodeProviderCatalogSource,
@@ -50,6 +51,7 @@ const PROVIDER_PACKAGES = [
 type OpenCodeProviderSurface = 'all' | 'go' | 'official' | 'provider';
 
 type Props = {
+  agentId?: AgentId;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   surface?: OpenCodeProviderSurface;
@@ -73,6 +75,7 @@ function matchesOpenCodeSurface(
 type ProviderModelDraft = OpenCodeProviderModelRequest;
 
 export function OpenCodeProviderConnections({
+  agentId = 'opencode',
   onChanged,
   onDirtyChange,
   surface = 'all',
@@ -121,7 +124,7 @@ export function OpenCodeProviderConnections({
     setLoading(true);
     setConnectionError(null);
     try {
-      setView(await agentManagementApi.openCodeProviders());
+      setView(await agentManagementApi.openCodeProviders(agentId));
     } catch (error) {
       const message = errorMessage(
         error,
@@ -132,7 +135,7 @@ export function OpenCodeProviderConnections({
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   const loadCatalog = useCallback(
     async (forceRefresh = false) => {
@@ -264,16 +267,19 @@ export function OpenCodeProviderConnections({
     setSaving(true);
     try {
       setView(
-        await agentManagementApi.connectOpenCodeProvider({
-          provider_id: id,
-          name: name.trim() || id,
-          npm: npm.trim() || null,
-          api: api.trim() || null,
-          base_url: baseUrl.trim() || null,
-          api_key: apiKey.trim() || null,
-          models: normalizedModels,
-          enabled: existingProvider?.enabled ?? true,
-        })
+        await agentManagementApi.connectOpenCodeProvider(
+          {
+            provider_id: id,
+            name: name.trim() || id,
+            npm: npm.trim() || null,
+            api: api.trim() || null,
+            base_url: baseUrl.trim() || null,
+            api_key: apiKey.trim() || null,
+            models: normalizedModels,
+            enabled: existingProvider?.enabled ?? true,
+          },
+          agentId
+        )
       );
       resetForm();
       toast.success(
@@ -306,7 +312,8 @@ export function OpenCodeProviderConnections({
     try {
       setView(
         await agentManagementApi.disconnectOpenCodeProvider(
-          provider.provider_id
+          provider.provider_id,
+          agentId
         )
       );
       toast.success(
@@ -336,7 +343,8 @@ export function OpenCodeProviderConnections({
       setView(
         await agentManagementApi.setOpenCodeProviderEnabled(
           provider.provider_id,
-          enabled
+          enabled,
+          agentId
         )
       );
       toast.success(
@@ -500,7 +508,7 @@ export function OpenCodeProviderConnections({
                       try {
                         setView(
                           await agentManagementApi.importOpenCodeProviders({
-                            agent_id: 'opencode',
+                            agent_id: agentId,
                             source: 'cc_switch',
                             source_ids: importSelected,
                           })

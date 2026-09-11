@@ -1,12 +1,12 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
+我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`science`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
 详情页能关，不能当第三方快照卸掉。关掉以后，这一代对外投影按反序拆掉。已经开着的会话通常不会热拆 STDIO MCP，新开会话才干净。
 
-这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。
+这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。科学研究只管按领域注入科研技能。
 
 ## VibeX Office
 
@@ -193,14 +193,41 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 卸载后隧道关闭，插件配置清除。已保存的 SSH Host 默认保留，要忘掉服务器请在「设置 → 远程连接」里删除。
 
+## 科学研究
+
+身份 `vibex.science`，版本 `1.0.0`，产品名「科学研究」。简介是 146 项科研技能，按 10 个领域分组；默认只注入「通用科研方法」13 项。源码是 git 子仓库 `assets/plugins/science`（`https://github.com/Xircth/vibex-plugin-science`）。
+
+这个包没有 Worker，也没有文件页。它把按领域开关的 Skill 投影给之后新开或重新绑定的 Agent 会话。
+
+### 领域开关
+
+配置在「技能领域」。没列出的领域视为关闭。默认只开 `general`。
+
+- `general`，通用科研方法，13 项，默认开启
+- `literature`，文献检索与信息获取，12 项
+- `writing`，科研写作与出版传播，11 项
+- `stats`，统计、数据科学与机器学习，19 项
+- `infra`，数据工程与计算基础设施，17 项
+- `singlecell`，单细胞与转录组分析，10 项
+- `genomics`，基因组学与序列变异分析，16 项
+- `chemistry`，化学信息学与药物发现，14 项
+- `medicine`，医学、临床与生物医学影像，21 项
+- `physics`，物理、材料、地球与工程仿真，13 项
+
+打开哪个领域，哪个领域的 Skill 才进入 `~/.vibex/skills/.plugins/vibex.science/`，再按 Agent 投影。关掉领域会撤掉本插件投影的那些 Skill，不会动同名的外来 Skill。
+
+技能文本随包分发。技能里附带的 Python 脚本是否执行、装什么依赖，由会话里的 Agent 决定。本插件不预装 Python 环境。
+
+技能内容 vendored 自 [K-Dense-AI/scientific-agent-skills](https://github.com/K-Dense-AI/scientific-agent-skills)，pin 在 `9cf7d9aea7d84754db4c167ab04b299d33c444bc`。上游 163 项里收录 146 项；GPL、非商业、专有或未声明许可的 17 项未收录。许可核验见插件 `NOTICE.md` 与仓库根 `THIRD_PARTY_NOTICES.md`。
+
 ## 怎么一起用
 
 常见组合很直接。
 
-写文档、表或幻灯片，开 Office。要 Agent 中途问你、读你的备注或管子会话，开会话增强。要父 Agent 把活分给另一个 Agent，开多智能体。要画或改 DAG，开 Workflow Creator。要让 Agent 帮你写插件，开插件开发。
+写文档、表或幻灯片，开 Office。要 Agent 中途问你、读你的备注或管子会话，开会话增强。要父 Agent 把活分给另一个 Agent，开多智能体。要画或改 DAG，开 Workflow Creator。要让 Agent 帮你写插件，开插件开发。要按领域注入科研技能，开科学研究，并只打开正在用的领域。
 
 官方 MCP 只进启用之后的新会话或重新绑定的会话。先开插件，再开对话，少踩一次「工具清单还是旧的」这个坑。
 
 Office 卡在 Runtime 没锁住或探测失败。预览停了，先看空闲超时是不是到了。多智能体看不到 `&`，先确认开关是开的，再确认对方 Agent 已经装上。Workflow 保存失败，先看修订号冲不冲突。会话工具没出现，结束当前对话再开一次。
 
-这些包覆盖的是文档、会话、委托、工作流创作、插件作者工具和 SSH 远端 Host。页面布局、会话日志、Agent 连接和工作区隔离仍由 Host 自己负责。
+这些包覆盖的是文档、会话、委托、工作流创作、插件作者工具、SSH 远端 Host 和科研技能。页面布局、会话日志、Agent 连接和工作区隔离仍由 Host 自己负责。

@@ -70,7 +70,7 @@ use crate::{
     },
     grok_mcp::{self, GrokMcpTracker},
     grok_subagent::GrokSubagentTracker,
-    grok_usage,
+    grok_usage, session_notice,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -4018,15 +4018,16 @@ impl AcpClientBridge {
             {
                 return self.session_notification(notification).await;
             }
+            let diagnostic = session_notice::from_session_notification_params(&params)
+                .map(|notice| session_notice::diagnostic_payload(&notice))
+                .unwrap_or_else(|| bounded_ext_notification(ext.method.as_ref(), &params));
             send_manager_event(
                 &self.event_tx,
                 AgentConnectionManagerEvent {
                     connection_id: self.connection_id,
                     session_id,
                     prompt_id: None,
-                    event: AgentEvent::RawAcpDiagnostic {
-                        raw: bounded_ext_notification(ext.method.as_ref(), &params),
-                    },
+                    event: AgentEvent::RawAcpDiagnostic { raw: diagnostic },
                 },
             );
             return Ok(());
@@ -4077,14 +4078,21 @@ impl AcpClientBridge {
                 .await;
         }
         let event = match args.update {
-            SessionUpdate::AgentMessageChunk(chunk) => self
-                .gate_stream_chunk(
-                    &acp_session_id,
-                    StreamKind::Message,
-                    acp_content_to_agent(chunk.content),
-                )
-                .await
-                .map(|content| AgentEvent::MessageChunk { content }),
+            SessionUpdate::AgentMessageChunk(chunk) => {
+                if let Some(notice) = session_notice::from_agent_message_chunk(&chunk) {
+                    Some(AgentEvent::RawAcpDiagnostic {
+                        raw: session_notice::diagnostic_payload(&notice),
+                    })
+                } else {
+                    self.gate_stream_chunk(
+                        &acp_session_id,
+                        StreamKind::Message,
+                        acp_content_to_agent(chunk.content),
+                    )
+                    .await
+                    .map(|content| AgentEvent::MessageChunk { content })
+                }
+            }
             SessionUpdate::AgentThoughtChunk(chunk) => self
                 .gate_stream_chunk(
                     &acp_session_id,
@@ -4260,10 +4268,16 @@ impl AcpClientBridge {
             other => {
                 let mut raw_notification =
                     serde_json::to_value(other).unwrap_or(serde_json::Value::Null);
-                bound_meta_fields(&mut raw_notification);
-                Some(AgentEvent::RawAcpDiagnostic {
-                    raw: raw_notification,
-                })
+                if let Some(notice) = session_notice::from_session_update_value(&raw_notification) {
+                    Some(AgentEvent::RawAcpDiagnostic {
+                        raw: session_notice::diagnostic_payload(&notice),
+                    })
+                } else {
+                    bound_meta_fields(&mut raw_notification);
+                    Some(AgentEvent::RawAcpDiagnostic {
+                        raw: raw_notification,
+                    })
+                }
             }
         };
 

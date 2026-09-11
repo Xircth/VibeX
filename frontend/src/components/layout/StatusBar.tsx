@@ -7,7 +7,11 @@ import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBad
 import { BackgroundTaskCountBadge } from '@/components/layout/BackgroundTaskCountBadge';
 import { UpdateAvailableBadge } from '@/components/layout/UpdateAvailableBadge';
 import { AgentStatusMenu } from '@/components/layout/AgentStatusMenu';
-import { useAgentManagement } from '@/features/agent-management';
+import {
+  openAgentSettings,
+  useAgentAcpUpdates,
+  useAgentManagement,
+} from '@/features/agent-management';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { PluginStatusItems } from '@/components/plugins/PluginStatusItems';
 
@@ -15,6 +19,7 @@ export function StatusBar() {
   const { project } = useProject();
   const { config } = useUserSystem();
   const { state: agentManagementState } = useAgentManagement();
+  const updatableAgentIds = useAgentAcpUpdates(agentManagementState.agents);
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
 
   return (
@@ -39,6 +44,8 @@ export function StatusBar() {
         <AgentStatusMenu
           agents={agentManagementState.agents}
           defaultAgentId={config?.executor_profile.executor ?? null}
+          updatableAgentIds={updatableAgentIds}
+          onOpenAgentSettings={openAgentSettings}
         />
       </div>
     </div>

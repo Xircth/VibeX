@@ -41,7 +41,9 @@ export function AgentSectionHeading({
       ) : (
         <h3 id={headingId}>{title}</h3>
       )}
-      {children}
+      {children ? (
+        <div className="agent-section-heading-actions">{children}</div>
+      ) : null}
     </div>
   );
 }

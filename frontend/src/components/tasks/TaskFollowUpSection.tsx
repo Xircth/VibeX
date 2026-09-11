@@ -1,6 +1,10 @@
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  COMPOSER_INSERT_EVENT,
+  type ComposerInsertDetail,
+} from '@/lib/composerInsert';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentKind } from 'shared/types';
@@ -320,6 +324,22 @@ export function TaskFollowUpSection({
     attachedImagePaths,
     executorProfileRef,
   } = useSessionComposerLocalState();
+
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const detail = (event as CustomEvent<ComposerInsertDetail>).detail;
+      if (!detail || detail.mode === 'token') return;
+      const text = detail.text;
+      if (typeof text !== 'string' || !text.trim()) return;
+      setLocalMessage((current) =>
+        current.trim() ? `${current.trim()}\n\n${text.trim()}` : text.trim()
+      );
+    };
+    window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    return () => {
+      window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    };
+  }, [setLocalMessage]);
   const {
     createdSessionProfiles,
     handleSelectSession,

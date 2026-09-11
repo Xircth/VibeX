@@ -37,7 +37,15 @@ import {
   peekCanvasReveal,
   subscribeCanvasReveal,
 } from '@/lib/canvasSessionReveal';
-import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
+import {
+  sessionAttentionKind,
+  sessionListAgentKey,
+} from '@/components/kanban/session-hub/utils';
+import { useAppContextMenu } from '@/components/context-menu';
+import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
+import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
+import { sessionListTitle } from '@/components/workspace-session-list/workspaceSessionListModel';
+import { dateTimestamp } from '@/utils/date';
 import { cn } from '@/lib/utils';
 import { FloatingSessionList } from './FloatingSessionList';
 import { ImportRecentSessionsDialog } from './ImportRecentSessionsDialog';
@@ -275,7 +283,8 @@ function SessionCanvasFlow({
   onWindowSessionIdsChange,
   onCreateSession,
 }: SessionCanvasViewProps) {
-  const { t } = useTranslation(['tasks']);
+  const { t } = useTranslation(['tasks', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const queryClient = useQueryClient();
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition } = useReactFlow();
@@ -1077,6 +1086,44 @@ function SessionCanvasFlow({
     window.setTimeout(() => void fitView({ padding: 0.2, duration: 300 }), 40);
   }, [fitView, updateNodes]);
 
+  const autoArrangeBy = useCallback(
+    (key: 'name' | 'time' | 'agent') => {
+      const bySessionId = new Map(
+        sessions.map((session) => [session.id, session])
+      );
+      const compare = (left: SessionCanvasNode, right: SessionCanvasNode) => {
+        const leftSession = bySessionId.get(left.sessionId);
+        const rightSession = bySessionId.get(right.sessionId);
+        if (key === 'name') {
+          return (leftSession?.fullName ?? left.name).localeCompare(
+            rightSession?.fullName ?? right.name,
+            'zh-CN'
+          );
+        }
+        if (key === 'agent') {
+          const empty = { executor: null };
+          return (
+            sessionListAgentKey(leftSession ?? empty) ?? ''
+          ).localeCompare(
+            sessionListAgentKey(rightSession ?? empty) ?? '',
+            'zh-CN'
+          );
+        }
+        return (
+          dateTimestamp(rightSession?.updatedAt ?? 0) -
+          dateTimestamp(leftSession?.updatedAt ?? 0)
+        );
+      };
+      const moves = packLayout(documentRef.current.nodes, { compare });
+      updateNodes((items) => applyMoves(items, moves));
+      window.setTimeout(
+        () => void fitView({ padding: 0.2, duration: 300 }),
+        40
+      );
+    },
+    [fitView, sessions, updateNodes]
+  );
+
   const flowOriginAtCanvasCenter = useCallback(() => {
     const rect = surfaceRef.current?.getBoundingClientRect();
     return screenToFlowPosition(
@@ -1291,7 +1338,22 @@ function SessionCanvasFlow({
             }, 0);
           }}
           onPaneContextMenu={(event) => {
-            event.preventDefault();
+            openSurfaceMenu(
+              event,
+              buildSessionListBlankMenu({
+                t,
+                onSort: autoArrangeBy,
+                onCreateSession: () => onCreateSession?.(),
+                onExportPack: () => {
+                  void exportProjectConversationPack(
+                    sessions.map((session) => ({
+                      id: session.id,
+                      title: sessionListTitle(session),
+                    }))
+                  );
+                },
+              })
+            );
           }}
           onNodeContextMenu={(event) => {
             event.preventDefault();

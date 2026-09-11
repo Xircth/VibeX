@@ -41,7 +41,7 @@ impl HeadlessDelegationRuntime {
         pool: SqlitePool,
         conversation_context: ConversationContext,
         official_mcp: Arc<OfficialMcpRuntime>,
-    ) -> (Self, Arc<InMemoryCompanionFeatures>) {
+    ) -> (Self, Arc<InMemoryCompanionFeatures>, Arc<DelegationBroker>) {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
             Arc::new(RuntimeSpawner {
@@ -108,6 +108,7 @@ impl HeadlessDelegationRuntime {
                 tasks: vec![listener_task, resolver_task, teardown_task],
             },
             features,
+            broker,
         )
     }
 }

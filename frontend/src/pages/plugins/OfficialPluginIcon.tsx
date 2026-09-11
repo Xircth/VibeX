@@ -1,6 +1,7 @@
 import {
   Cloud,
   FileText,
+  FlaskConical,
   FolderCode,
   Layers,
   MessageSquareWarning,
@@ -26,6 +27,7 @@ const OFFICIAL_GLYPHS: Record<OfficialPluginI18nKey, LucideIcon> = {
   hostSurface: Layers,
   providerImport: Plug,
   remoteSsh: Cloud,
+  science: FlaskConical,
 };
 
 export function PluginProductIcon({ pluginId }: { pluginId?: string }) {

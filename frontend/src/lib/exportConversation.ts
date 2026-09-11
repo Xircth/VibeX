@@ -4,7 +4,7 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import i18n from '@/i18n';
 import { getBackendTransport } from '@/lib/transport';
 
-function fileStem(name: string): string {
+export function conversationExportFileStem(name: string): string {
   const cleaned = name
     .trim()
     .replace(/[/\\:*?"<>|]+/g, '_')
@@ -41,7 +41,7 @@ export async function exportConversation(
         ? await conversationApi.exportMarkdown(conversationId)
         : await conversationApi.exportHtml(conversationId);
     const ext = format === 'markdown' ? 'md' : 'html';
-    const filename = `${fileStem(title)}.${ext}`;
+    const filename = `${conversationExportFileStem(title)}.${ext}`;
     const mime = format === 'markdown' ? 'text/markdown' : 'text/html';
     const transport = getBackendTransport();
     if (transport.environment === 'desktop') {

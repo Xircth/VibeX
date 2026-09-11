@@ -12,6 +12,14 @@ import { Loader2 } from 'lucide-react';
 import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
 import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import { useAppContextMenu } from '@/components/context-menu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
+import { ConversationSelectionToolbar } from '@/components/NormalizedConversation/ConversationSelectionToolbar';
+import { copyConversationMarkdown } from '@/lib/copyConversationMarkdown';
+import { exportConversation } from '@/lib/exportConversation';
+import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -48,7 +56,11 @@ import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
-import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
+import {
+  AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+  AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+  sessionNoticeNeedsRebind,
+} from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
 import {
@@ -268,6 +280,13 @@ function assistantCopyText(turn: MessageTurn): string {
     .join('\n\n');
 }
 
+function turnCopyText(turn: MessageTurn): string {
+  return turn.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n\n')
+    .trim();
+}
+
 /**
  * Latest assistant-turn token usage for the composer's context-usage ring,
  * shaped from the agent-reported context window. Returns null (which hides the
@@ -393,6 +412,8 @@ const AgentTimelineConversation = forwardRef<
   ref
 ) {
   const { t } = useTranslation(['panels', 'conversation', 'common', 'tasks']);
+  const { openSurfaceMenu } = useAppContextMenu();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { config } = useUserSystem();
   const { collapseAiMessages: collapseProcess, expandFileChanges } =
@@ -606,9 +627,17 @@ const AgentTimelineConversation = forwardRef<
     }
     return ids;
   }, [sideRows]);
-  const latestSessionNoticeRow = sideRows
-    .filter((entry) => entry.row.kind === 'session_notice')
-    .at(-1);
+  const sessionNoticeRows = sideRows.filter(
+    (entry) => entry.row.kind === 'session_notice'
+  );
+  const reconnectNoticeRow = sessionNoticeRows.find(
+    (entry) => entry.row_id === AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID
+  );
+  const connectErrorNoticeRow = sessionNoticeRows.find(
+    (entry) => entry.row_id === AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID
+  );
+  const latestSessionNoticeRow = sessionNoticeRows.at(-1);
+  const hasReconnectNotice = Boolean(reconnectNoticeRow);
 
   // Feed the composer's context-usage ring (EntriesContext). The setter is
   // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
@@ -954,7 +983,7 @@ const AgentTimelineConversation = forwardRef<
 
   // Inline turn stats are sourced from the parsed MessageTurn / live usage.
   const handleForkFromTurn = useCallback(
-    async (turnId: string) => {
+    async (turnId?: string) => {
       if (!sessionId) return;
       try {
         const result = await conversationApi.fork(sessionId, turnId);
@@ -1018,7 +1047,7 @@ const AgentTimelineConversation = forwardRef<
             void handleForkFromTurn(vibexTurnId);
           }
         : null;
-      return row.phase === 'streaming' ? (
+      return row.phase === 'streaming' && !hasReconnectNotice ? (
         <LiveTurnStats
           stats={liveStats}
           startedAt={row.turn.timestamp}
@@ -1040,6 +1069,7 @@ const AgentTimelineConversation = forwardRef<
       detachFromBottom,
       forkSupported,
       handleForkFromTurn,
+      hasReconnectNotice,
       isTurnInFlight,
       liveStats,
       rowVirtualizer,
@@ -1232,6 +1262,24 @@ const AgentTimelineConversation = forwardRef<
 
   const statusNotices = useMemo(() => {
     const notices = [];
+    const pushSessionNotice = (
+      row:
+        | (typeof sessionNoticeRows)[number]
+        | typeof latestSessionNoticeRow
+        | undefined
+    ) => {
+      if (!row || row.row.kind !== 'session_notice' || !row.row.notice) return;
+      if (notices.some((notice) => notice.id === row.row_id)) return;
+      const notice = row.row.notice;
+      notices.push({
+        id: row.row_id,
+        kind: 'session-notice' as const,
+        notice,
+        onRebind: sessionNoticeNeedsRebind(notice, row.row_id)
+          ? conversationRebindSession
+          : undefined,
+      });
+    };
     if (latestTurnError && latestTurnErrorRow) {
       notices.push({
         id: latestTurnErrorRow.row_id,
@@ -1240,7 +1288,10 @@ const AgentTimelineConversation = forwardRef<
         onReload: conversationReconnectAndReload,
         onRebind: conversationRebindSession,
       });
+    } else {
+      pushSessionNotice(connectErrorNoticeRow);
     }
+    pushSessionNotice(reconnectNoticeRow);
     if (latestInterruptedRow) {
       notices.push({
         id: latestInterruptedRow.key,
@@ -1253,24 +1304,14 @@ const AgentTimelineConversation = forwardRef<
       });
     }
     if (
-      latestSessionNoticeRow?.row.kind === 'session_notice' &&
-      latestSessionNoticeRow.row.notice
+      latestSessionNoticeRow?.row_id !== reconnectNoticeRow?.row_id &&
+      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id
     ) {
-      const notice = latestSessionNoticeRow.row.notice;
-      notices.push({
-        id: latestSessionNoticeRow.row_id,
-        kind: 'session-notice' as const,
-        notice,
-        onRebind: sessionNoticeNeedsRebind(
-          notice,
-          latestSessionNoticeRow.row_id
-        )
-          ? conversationRebindSession
-          : undefined,
-      });
+      pushSessionNotice(latestSessionNoticeRow);
     }
     return notices;
   }, [
+    connectErrorNoticeRow,
     conversationReconnectAndReload,
     conversationRebindSession,
     handleRetry,
@@ -1278,6 +1319,7 @@ const AgentTimelineConversation = forwardRef<
     latestSessionNoticeRow,
     latestTurnError,
     latestTurnErrorRow,
+    reconnectNoticeRow,
     userOrdinalByKey,
   ]);
 
@@ -1330,6 +1372,7 @@ const AgentTimelineConversation = forwardRef<
           }}
         />
       ) : null}
+      <ConversationSelectionToolbar rootRef={containerRef} />
       <div
         ref={containerRef}
         className={cn(
@@ -1338,6 +1381,98 @@ const AgentTimelineConversation = forwardRef<
         )}
         data-panel="conversation-logs"
         onScroll={handleScroll}
+        onContextMenu={(event) => {
+          const rowEl = (event.target as HTMLElement | null)?.closest(
+            '[data-index]'
+          );
+          const index = rowEl
+            ? Number(rowEl.getAttribute('data-index'))
+            : Number.NaN;
+          const item = Number.isFinite(index) ? timelineItems[index] : null;
+          const row = item?.kind === 'message' ? item.item : null;
+          const items: ProductContextMenuItem[] = [];
+          if (row) {
+            const copyText = turnCopyText(row.turn);
+            if (copyText) {
+              items.push({
+                id: 'copy-turn',
+                label: t('common:contextMenu.copy'),
+                onSelect: () => {
+                  void writeClipboardViaBridge(copyText);
+                },
+              });
+            }
+            const turnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+            const forkPointStatus = row.forkPointStatus ?? null;
+            const canOfferFork =
+              forkSupported && forkPointStatus !== 'unsupported';
+            items.push({
+              id: 'fork-from-here',
+              label: t('common:contextMenu.forkFromHere'),
+              disabled:
+                !canOfferFork ||
+                isTurnInFlight ||
+                forkPointStatus === 'unnamed' ||
+                row.phase === 'streaming' ||
+                row.phase === 'optimistic',
+              onSelect: () => {
+                void handleForkFromTurn(turnId);
+              },
+            });
+            items.push({ type: 'separator', id: 'turn-sep' });
+          }
+          if (sessionId) {
+            const title =
+              attempt.session?.name ?? t('tasks:hubListItem.sessionFallback');
+            items.push({
+              type: 'submenu',
+              id: 'export-session',
+              label: t('common:contextMenu.exportSession'),
+              children: [
+                {
+                  id: 'export-md',
+                  label: t('common:contextMenu.exportMarkdown'),
+                  onSelect: () => {
+                    void exportConversation(sessionId, 'markdown', title);
+                  },
+                },
+                {
+                  id: 'export-html',
+                  label: t('common:contextMenu.exportHtml'),
+                  onSelect: () => {
+                    void exportConversation(sessionId, 'html', title);
+                  },
+                },
+              ],
+            });
+            items.push({
+              id: 'fork-session',
+              label: t('common:contextMenu.forkSession'),
+              disabled: !forkSupported,
+              onSelect: () => {
+                void handleForkFromTurn();
+              },
+            });
+            items.push({
+              id: 'copy-markdown',
+              label: t('common:contextMenu.copyAsMarkdown'),
+              onSelect: () => {
+                void copyConversationMarkdown(sessionId);
+              },
+            });
+          }
+          items.push({
+            id: 'create-session',
+            label: t('common:contextMenu.createSession'),
+            onSelect: () => {
+              requestCreateSessionInExecutionArea(
+                setSearchParams,
+                searchParams
+              );
+            },
+          });
+          openSurfaceMenu(event, items);
+        }}
       >
         <PluginTimelineCards />
         {detailLoading && timeline.length === 0 ? (
@@ -1434,9 +1569,11 @@ const AgentTimelineConversation = forwardRef<
                                 (candidate) => candidate.key === row.key
                               )
                             )}
-                            hasTurnError={turnIdsWithErrors.has(
-                              vibexTurnIdFromTimelineRowId(row.turn.id)
-                            )}
+                            hasTurnError={
+                              turnIdsWithErrors.has(
+                                vibexTurnIdFromTimelineRowId(row.turn.id)
+                              ) || hasReconnectNotice
+                            }
                           />
                         ) : null}
                         {row?.turn.role === 'assistant'

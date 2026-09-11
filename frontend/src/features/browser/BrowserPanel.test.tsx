@@ -102,6 +102,12 @@ describe('BrowserPanel', () => {
         if (this.getAttribute('role') === 'toolbar') {
           return rect(12, 12, 800, 36);
         }
+        if (this.getAttribute('role') === 'menu') {
+          return rect(620, 40, 180, 220);
+        }
+        if (this.getAttribute('role') === 'listbox') {
+          return rect(700, 52, 80, 220);
+        }
         return rect(
           initialSurface.x,
           initialSurface.y,
@@ -152,6 +158,36 @@ describe('BrowserPanel', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
+
+  async function fulfillPageSnapshot(data = 'ZmFrZQ==') {
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'executeDevTools',
+          method: 'Page.captureScreenshot',
+        })
+      )
+    );
+    const screenshotCall = [...applyBrowserIntentMock.mock.calls]
+      .reverse()
+      .find(
+        ([, intent]) =>
+          intent?.type === 'executeDevTools' &&
+          intent.method === 'Page.captureScreenshot'
+      );
+    expect(screenshotCall).toBeDefined();
+    const requestId = screenshotCall![1].requestId as number;
+    act(() => {
+      browserEventListener?.({
+        type: 'devToolsResult',
+        tabId: 'browser-tab-1',
+        requestId,
+        success: true,
+        result: { data },
+      });
+    });
+  }
 
   async function startElementInspection() {
     const selectElement = await screen.findByRole('button', {
@@ -613,13 +649,16 @@ describe('BrowserPanel', () => {
       screen.getByRole('button', { name: 'Open workspace menu' })
     );
 
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
-      type: 'setSurface',
-      surface: { ...initialSurface, visible: false },
-    });
+    await fulfillPageSnapshot();
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: { ...initialSurface, visible: false },
+      })
+    );
   });
 
-  it('keeps the native surface visible while the in-panel zoom menu is open', async () => {
+  it('hides the native surface without resizing it while the zoom menu is open', async () => {
     render(
       <WorkspaceOverlayProvider>
         <BrowserPanel
@@ -653,9 +692,45 @@ describe('BrowserPanel', () => {
         surface: expect.objectContaining({ visible: false }),
       })
     );
+
+    await fulfillPageSnapshot();
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: { ...initialSurface, visible: false },
+      })
+    );
+    expect(
+      screen.getByTestId('native-browser-surface').querySelector('img')
+    ).toHaveAttribute('src', 'data:image/jpeg;base64,ZmFrZQ==');
+
+    fireEvent.pointerDown(document.body);
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: initialSurface,
+      })
+    );
+    expect(
+      screen.getByTestId('native-browser-surface').querySelector('img')
+    ).toBeTruthy();
+
+    applyBrowserIntentMock.mockClear();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Zoom' }));
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+
+    applyBrowserIntentMock.mockClear();
+    fireEvent.scroll(window);
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({ type: 'setSurface' })
+    );
   });
 
-  it('hides the native surface while a portaled dropdown menu is open', async () => {
+  it('hides the native surface without resizing it while a portaled dropdown is open', async () => {
     render(
       <WorkspaceOverlayProvider>
         <BrowserPanel
@@ -695,10 +770,16 @@ describe('BrowserPanel', () => {
     expect(
       screen.getByRole('menuitem', { name: 'Back to home' })
     ).toBeVisible();
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
-      type: 'setSurface',
-      surface: { ...initialSurface, visible: false },
-    });
+    await fulfillPageSnapshot();
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: { ...initialSurface, visible: false },
+      })
+    );
+    expect(
+      screen.getByTestId('native-browser-surface').querySelector('img')
+    ).toBeTruthy();
   });
 
   it('keeps the native Chromium tab when the preview host remounts', async () => {
@@ -1297,6 +1378,12 @@ describe('BrowserPanel', () => {
       type: 'setZoom',
       level: level80,
     });
+
+    const device = screen.getByRole('combobox', { name: 'Device emulation' });
+    fireEvent.click(device);
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent)
+    ).toEqual(['Desktop', 'Tablet', 'Mobile']);
 
     act(() => {
       browserEventListener?.({

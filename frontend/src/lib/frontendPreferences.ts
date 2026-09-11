@@ -23,6 +23,7 @@ const STORAGE_KEYS = {
   'vibex.skills.grouping': 'skills_grouping',
   'vibex.skills.hostMode': 'skills_host_mode',
   'vibex:operation-diagnostics': 'operation_diagnostics_enabled',
+  'vibex:auto-open-created-previews': 'auto_open_created_previews',
 } as const;
 
 type StorageKey = keyof typeof STORAGE_KEYS;

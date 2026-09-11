@@ -14,6 +14,7 @@ import {
   getSessionMarker,
   groupKanbanSessionsByStatus,
   sessionAttentionKind,
+  sortSessions,
 } from './utils';
 
 function session(
@@ -118,6 +119,24 @@ describe('session hub data helpers', () => {
       inreview: [],
       done: [sessions[2]],
     });
+  });
+
+  it('sorts sessions by Agent then recency', () => {
+    const olderCodex = session('older-codex', {
+      workspaceId: 'workspace-main',
+      executor: 'codex',
+      status: 'todo',
+    });
+    olderCodex.updatedAt = '2026-05-01T00:00:00.000Z';
+    const newerClaude = session('newer-claude', {
+      workspaceId: 'workspace-main',
+      executor: 'claude_code',
+      status: 'todo',
+    });
+    newerClaude.updatedAt = '2026-05-20T00:00:00.000Z';
+    expect(
+      sortSessions([olderCodex, newerClaude], 'agent').map((item) => item.id)
+    ).toEqual(['newer-claude', 'older-codex']);
   });
 
   it('uses filtered count only when filters or sort are active', () => {

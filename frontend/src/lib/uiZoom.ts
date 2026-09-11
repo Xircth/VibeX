@@ -1,5 +1,6 @@
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
+import { isTauriDesktopShell } from '@/utils/platform';
 
 /**
  * UI zoom (P3): a frontend-only, localStorage-persisted scale for readability.
@@ -16,10 +17,6 @@ export const UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25] as const;
 const DEFAULT_ZOOM = 1;
 
 let nativeZoomGeneration = 0;
-
-function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
 
 function applyCssFontScale(scale: number): void {
   if (scale === DEFAULT_ZOOM) {
@@ -56,7 +53,7 @@ export function applyUiZoom(scale: number): void {
   root.style.setProperty('--ui-zoom', String(scale));
 
   const generation = ++nativeZoomGeneration;
-  if (isTauriRuntime()) {
+  if (isTauriDesktopShell()) {
     root.style.removeProperty('font-size');
     void applyNativeWebviewZoom(scale, generation);
     return;

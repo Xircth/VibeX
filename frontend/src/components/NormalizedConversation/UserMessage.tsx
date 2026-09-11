@@ -509,99 +509,103 @@ const UserMessage = ({
           )}
 
           {hasTextBubble && (
-            <ChatMessage
-              sender="user"
-              density="compact"
-              className="vibex-user-message"
-            >
-              <ChatMessageBubble
-                className="conv-user-bubble relative"
-                data-testid="user-message-bubble"
-              >
-                <div
-                  ref={contentRef}
-                  className="conv-user-collapsible"
-                  style={{
-                    maxHeight:
-                      isCollapsed && needsCollapse
-                        ? `${COLLAPSED_MAX_HEIGHT}px`
-                        : undefined,
-                    paddingBottom:
-                      !isCollapsed && needsCollapse
-                        ? `${EXPANDED_BOTTOM_SAFE_SPACE}px`
-                        : undefined,
-                  }}
-                >
-                  <UserMessageMarkdown
-                    value={displayText}
-                    className={SESSION_INPUT_TEXT_CLASS_NAME}
-                    workspacePath={taskAttempt?.container_ref}
-                  />
-                  {isCollapseMeasured && needsCollapse && isCollapsed && (
-                    <div className="conv-user-collapsible-overlay" />
+            <div className="conv-user-bubble-wrap">
+              {showActionRail && (
+                <div className="conv-user-actions">
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="conv-user-action-btn"
+                    title={copied ? 'Copied!' : 'Copy as Markdown'}
+                    aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
+                  >
+                    {copied ? (
+                      <Check className="h-3 w-3 text-[hsl(var(--success))]" />
+                    ) : (
+                      <Clipboard className="h-3 w-3" />
+                    )}
+                  </button>
+                  {canRetry && (
+                    <button
+                      type="button"
+                      onClick={startRetry}
+                      className="conv-user-action-btn"
+                      title={continuityCopy.retryLabel}
+                      aria-label={continuityCopy.retryLabel}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                  {canRetry && (
+                    <button
+                      type="button"
+                      onClick={handleRollback}
+                      disabled={isRollingBack}
+                      className="conv-user-action-btn"
+                      title={t('userMessage.rollbackToHere')}
+                      aria-label={t('userMessage.rollbackToHere')}
+                    >
+                      <Undo2 className="h-3 w-3" />
+                    </button>
                   )}
                 </div>
-
-                {isCollapseMeasured && needsCollapse && (
-                  <button
-                    className="conv-user-toggle"
-                    title={
-                      isCollapsed
-                        ? t('userMessage.viewFullMessage')
-                        : t('userMessage.collapseMessage')
-                    }
-                    aria-label={
-                      isCollapsed
-                        ? t('userMessage.viewFullMessage')
-                        : t('userMessage.collapseMessage')
-                    }
-                    onClick={() => setIsCollapsed((value) => !value)}
+              )}
+              <ChatMessage
+                sender="user"
+                density="compact"
+                className="vibex-user-message"
+              >
+                <ChatMessageBubble
+                  className="conv-user-bubble relative"
+                  data-testid="user-message-bubble"
+                >
+                  <div
+                    ref={contentRef}
+                    className="conv-user-collapsible"
+                    style={{
+                      maxHeight:
+                        isCollapsed && needsCollapse
+                          ? `${COLLAPSED_MAX_HEIGHT}px`
+                          : undefined,
+                      paddingBottom:
+                        !isCollapsed && needsCollapse
+                          ? `${EXPANDED_BOTTOM_SAFE_SPACE}px`
+                          : undefined,
+                    }}
                   >
-                    <ChevronDown
-                      className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
+                    <UserMessageMarkdown
+                      value={displayText}
+                      className={SESSION_INPUT_TEXT_CLASS_NAME}
+                      workspacePath={taskAttempt?.container_ref}
                     />
-                  </button>
-                )}
-
-                {showActionRail && (
-                  <div className="absolute right-full top-2 mr-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button
-                      onClick={handleCopy}
-                      className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                      title={copied ? 'Copied!' : 'Copy as Markdown'}
-                      aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
-                    >
-                      {copied ? (
-                        <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
-                      ) : (
-                        <Clipboard className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                    {canRetry && (
-                      <button
-                        onClick={startRetry}
-                        className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                        title={continuityCopy.retryLabel}
-                        aria-label={continuityCopy.retryLabel}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canRetry && (
-                      <button
-                        onClick={handleRollback}
-                        disabled={isRollingBack}
-                        className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                        title={t('userMessage.rollbackToHere')}
-                        aria-label={t('userMessage.rollbackToHere')}
-                      >
-                        <Undo2 className="h-3.5 w-3.5" />
-                      </button>
+                    {isCollapseMeasured && needsCollapse && isCollapsed && (
+                      <div className="conv-user-collapsible-overlay" />
                     )}
                   </div>
-                )}
-              </ChatMessageBubble>
-            </ChatMessage>
+
+                  {isCollapseMeasured && needsCollapse && (
+                    <button
+                      className="conv-user-toggle"
+                      title={
+                        isCollapsed
+                          ? t('userMessage.viewFullMessage')
+                          : t('userMessage.collapseMessage')
+                      }
+                      aria-label={
+                        isCollapsed
+                          ? t('userMessage.viewFullMessage')
+                          : t('userMessage.collapseMessage')
+                      }
+                      onClick={() => setIsCollapsed((value) => !value)}
+                    >
+                      <ChevronDown
+                        className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
+                      />
+                    </button>
+                  )}
+                </ChatMessageBubble>
+              </ChatMessage>
+            </div>
           )}
         </div>
       </div>

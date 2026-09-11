@@ -70,6 +70,10 @@ import {
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { cn } from '@/lib/utils';
+import {
+  COMPOSER_INSERT_EVENT,
+  type ComposerInsertDetail,
+} from '@/lib/composerInsert';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
 import {
@@ -101,6 +105,7 @@ import {
   slashCommandsToTypeaheadOptions,
   type ComposerTypeaheadOption,
 } from './sessionComposerTypeaheadOptions';
+import { QuoteTokenPreview } from './QuoteTokenPreview';
 import {
   formatSessionComposerCommand,
   getSessionComposerStructuredTokenSegments,
@@ -495,23 +500,24 @@ function parsePreviewElementTokenDetails(
   return { dom, selector, source, html };
 }
 
-function getElementTokenFromEventTarget(
+function getHoverableTokenFromEventTarget(
   target: EventTarget | null
 ): HTMLElement | null {
   return target instanceof Element
     ? target.closest<HTMLElement>(
-        '[data-astryx-token][data-token-kind="element"]'
+        '[data-astryx-token][data-token-kind="element"],' +
+          ' [data-astryx-token][data-token-kind="quote"]'
       )
     : null;
 }
 
-function getStructuredElementToken(
+function getStructuredHoverToken(
   element: HTMLElement
 ): SessionComposerStructuredToken | null {
   const raw = element.dataset.astryxTokenValue;
   if (!raw) return null;
   const token = getTokenFromInsertText(raw);
-  return token?.kind === 'element' ? token : null;
+  return token?.kind === 'element' || token?.kind === 'quote' ? token : null;
 }
 
 function PreviewElementTokenTooltip({
@@ -673,7 +679,8 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
             kind === 'tag' ||
             kind === 'conversation' ||
             kind === 'commit' ||
-            kind === 'element') &&
+            kind === 'element' ||
+            kind === 'quote') &&
             'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
           kind === 'plugin_action' &&
             'bg-pink-500/10 text-pink-700 dark:text-pink-300',
@@ -724,11 +731,38 @@ function decorateStructuredTokenElement(
   element.dataset.tokenKind = token.kind;
   if (token.kind === 'element') {
     element.dataset.previewElementToken = '';
+    delete element.dataset.quoteToken;
+    element.tabIndex = 0;
+  } else if (token.kind === 'quote') {
+    element.dataset.quoteToken = '';
+    delete element.dataset.previewElementToken;
     element.tabIndex = 0;
   } else {
     delete element.dataset.previewElementToken;
+    delete element.dataset.quoteToken;
     element.removeAttribute('tabindex');
   }
+}
+
+function getSessionComposerEditable(
+  composerRoot: HTMLDivElement | null
+): HTMLElement | null {
+  return (
+    composerRoot?.querySelector<HTMLElement>(
+      '[contenteditable="true"], [contenteditable="false"][role="combobox"]'
+    ) ?? null
+  );
+}
+
+function prepareEmptyComposerForTokenInsert(editor: HTMLElement | null) {
+  if (!editor) return;
+  if (editor.querySelector('[data-astryx-token]')) return;
+  const text = (editor.textContent ?? '').replace(/[\u200B\uFEFF\u00A0]/g, '');
+  if (text.trim() !== '') return;
+  // Empty contenteditables keep a caret <br>. insertToken then places the
+  // chip after it, so serialize() starts with a newline and the token drops
+  // to the second line.
+  editor.replaceChildren();
 }
 
 function restoreStructuredTokens(
@@ -736,9 +770,7 @@ function restoreStructuredTokens(
   value: string,
   bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>
 ): void {
-  const editor = composerRoot.querySelector<HTMLDivElement>(
-    '[contenteditable="true"], [contenteditable="false"][role="combobox"]'
-  );
+  const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
 
   const segments = getSessionComposerStructuredTokenSegments(value, {
@@ -844,39 +876,66 @@ export function SessionComposerInput({
     setDropActive(active);
   }, []);
   const elementTokenTooltipId = useId();
-  const [activeElementToken, setActiveElementToken] = useState<{
+  const quoteTokenTooltipId = useId();
+  const hoverHideTimerRef = useRef<number | null>(null);
+  const [activeHoverToken, setActiveHoverToken] = useState<{
     anchor: HTMLElement;
     token: SessionComposerStructuredToken;
   } | null>(null);
   const agentMentions = useAgentMentions();
   const executor = executorProfile?.executor ?? null;
 
-  const showElementTokenDetails = useCallback((target: EventTarget | null) => {
-    const anchor = getElementTokenFromEventTarget(target);
-    if (!anchor) return;
-    const token = getStructuredElementToken(anchor);
-    if (!token) return;
-    setActiveElementToken((current) =>
-      current?.anchor === anchor ? current : { anchor, token }
-    );
+  const cancelHoverHide = useCallback(() => {
+    if (hoverHideTimerRef.current != null) {
+      window.clearTimeout(hoverHideTimerRef.current);
+      hoverHideTimerRef.current = null;
+    }
   }, []);
 
-  const hideElementTokenDetails = useCallback((anchor: HTMLElement) => {
-    setActiveElementToken((current) =>
-      current?.anchor === anchor ? null : current
-    );
-  }, []);
-
-  const handleElementTokenPointerOver = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      showElementTokenDetails(event.target);
+  const showTokenHover = useCallback(
+    (target: EventTarget | null) => {
+      const anchor = getHoverableTokenFromEventTarget(target);
+      if (!anchor) return;
+      const token = getStructuredHoverToken(anchor);
+      if (!token) return;
+      cancelHoverHide();
+      setActiveHoverToken((current) =>
+        current?.anchor === anchor && current.token.raw === token.raw
+          ? current
+          : { anchor, token }
+      );
     },
-    [showElementTokenDetails]
+    [cancelHoverHide]
   );
 
-  const handleElementTokenPointerOut = useCallback(
+  const hideTokenHover = useCallback(
+    (anchor: HTMLElement, delayMs = 0) => {
+      const hide = () => {
+        setActiveHoverToken((current) =>
+          current?.anchor === anchor ? null : current
+        );
+        hoverHideTimerRef.current = null;
+      };
+      cancelHoverHide();
+      if (delayMs <= 0) {
+        hide();
+        return;
+      }
+      hoverHideTimerRef.current = window.setTimeout(hide, delayMs);
+    },
+    [cancelHoverHide]
+  );
+
+  const handleTokenPointerOver = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
-      const anchor = getElementTokenFromEventTarget(event.target);
+      showTokenHover(event.target);
+    },
+    [showTokenHover]
+  );
+
+  const handleTokenPointerOut = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const anchor = getHoverableTokenFromEventTarget(event.target);
       if (!anchor) return;
       if (
         event.relatedTarget instanceof Node &&
@@ -884,24 +943,24 @@ export function SessionComposerInput({
       ) {
         return;
       }
-      hideElementTokenDetails(anchor);
+      hideTokenHover(anchor, 120);
     },
-    [hideElementTokenDetails]
+    [hideTokenHover]
   );
 
-  const handleElementTokenFocus = useCallback(
+  const handleTokenFocus = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
-      showElementTokenDetails(event.target);
+      showTokenHover(event.target);
     },
-    [showElementTokenDetails]
+    [showTokenHover]
   );
 
-  const handleElementTokenBlur = useCallback(
+  const handleTokenBlur = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
-      const anchor = getElementTokenFromEventTarget(event.target);
-      if (anchor) hideElementTokenDetails(anchor);
+      const anchor = getHoverableTokenFromEventTarget(event.target);
+      if (anchor) hideTokenHover(anchor, 120);
     },
-    [hideElementTokenDetails]
+    [hideTokenHover]
   );
 
   const composerActions = usePluginHostContributions('composer_action');
@@ -945,14 +1004,18 @@ export function SessionComposerInput({
   }, [agentMentions.candidates, agentMentions.capability, value]);
 
   useEffect(() => {
-    const anchor = activeElementToken?.anchor;
+    const anchor = activeHoverToken?.anchor;
     if (!anchor) return undefined;
+    const tooltipId =
+      activeHoverToken.token.kind === 'quote'
+        ? quoteTokenTooltipId
+        : elementTokenTooltipId;
 
     const previousDescription = anchor.getAttribute('aria-describedby');
     const descriptionIds = new Set(
       previousDescription?.split(/\s+/).filter(Boolean) ?? []
     );
-    descriptionIds.add(elementTokenTooltipId);
+    descriptionIds.add(tooltipId);
     anchor.setAttribute(
       'aria-describedby',
       Array.from(descriptionIds).join(' ')
@@ -963,7 +1026,7 @@ export function SessionComposerInput({
         anchor.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ??
           []
       );
-      remainingIds.delete(elementTokenTooltipId);
+      remainingIds.delete(tooltipId);
       if (remainingIds.size > 0) {
         anchor.setAttribute(
           'aria-describedby',
@@ -973,7 +1036,7 @@ export function SessionComposerInput({
         anchor.removeAttribute('aria-describedby');
       }
     };
-  }, [activeElementToken, elementTokenTooltipId]);
+  }, [activeHoverToken, elementTokenTooltipId, quoteTokenTooltipId]);
 
   useLayoutEffect(() => {
     const composerRoot = composerRootRef.current;
@@ -1164,7 +1227,8 @@ export function SessionComposerInput({
         token.kind !== 'tag' &&
         token.kind !== 'conversation' &&
         token.kind !== 'commit' &&
-        token.kind !== 'element' ? (
+        token.kind !== 'element' &&
+        token.kind !== 'quote' ? (
           <SessionComposerTokenIcon token={token} />
         ) : undefined,
     };
@@ -1235,18 +1299,64 @@ export function SessionComposerInput({
 
   // --- Programmatic token insertion (code selection, file-reference drop) ---
 
-  const insertFileReferenceTokenAtCaret = useCallback(
-    (relativePath: string) => {
+  const insertComposerTokenAtCaret = useCallback(
+    (token: { value: string; label: string; variant?: 'cyan' }) => {
       const handle = composerHandleRef.current;
-      if (!handle) return;
+      if (!handle) {
+        onChange(
+          value.trim() ? `${value.trim()} ${token.value} ` : `${token.value} `
+        );
+        return;
+      }
+      prepareEmptyComposerForTokenInsert(
+        getSessionComposerEditable(composerRootRef.current)
+      );
       handle.insertToken({
-        value: fileReferenceTokenText(relativePath),
-        label: `@${getFileName(relativePath)}`,
+        value: token.value,
+        label: token.label,
+        variant: token.variant,
       });
       onChange(handle.getValue());
     },
-    [onChange]
+    [onChange, value]
   );
+
+  const insertFileReferenceTokenAtCaret = useCallback(
+    (relativePath: string) => {
+      insertComposerTokenAtCaret({
+        value: fileReferenceTokenText(relativePath),
+        label: `@${getFileName(relativePath)}`,
+      });
+    },
+    [insertComposerTokenAtCaret]
+  );
+
+  const insertStructuredTokenAtCaret = useCallback(
+    (token: { value: string; label: string }) => {
+      insertComposerTokenAtCaret({
+        value: token.value,
+        label: token.label,
+        variant: 'cyan',
+      });
+      window.requestAnimationFrame(() => composerHandleRef.current?.focus());
+    },
+    [insertComposerTokenAtCaret]
+  );
+
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const detail = (event as CustomEvent<ComposerInsertDetail>).detail;
+      if (!detail || detail.mode !== 'token' || !detail.text) return;
+      insertStructuredTokenAtCaret({
+        value: detail.text,
+        label: detail.label ?? detail.text,
+      });
+    };
+    window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    return () => {
+      window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    };
+  }, [insertStructuredTokenAtCaret]);
 
   // P2-4: consume a code selection requested from a file viewer, inserting a
   // `@path:start-end` reference at the caret (or end of input).
@@ -1543,10 +1653,10 @@ export function SessionComposerInput({
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
-        onPointerOver={handleElementTokenPointerOver}
-        onPointerOut={handleElementTokenPointerOut}
-        onFocusCapture={handleElementTokenFocus}
-        onBlurCapture={handleElementTokenBlur}
+        onPointerOver={handleTokenPointerOver}
+        onPointerOut={handleTokenPointerOut}
+        onFocusCapture={handleTokenFocus}
+        onBlurCapture={handleTokenBlur}
       >
         <ChatComposerInput
           ref={composerRootRef}
@@ -1613,11 +1723,20 @@ export function SessionComposerInput({
           onDragLeave={handleDragLeave}
           data-testid="session-composer-editor"
         />
-        {activeElementToken ? (
+        {activeHoverToken?.token.kind === 'element' ? (
           <PreviewElementTokenTooltip
-            anchor={activeElementToken.anchor}
+            anchor={activeHoverToken.anchor}
             id={elementTokenTooltipId}
-            token={activeElementToken.token}
+            token={activeHoverToken.token}
+          />
+        ) : null}
+        {activeHoverToken?.token.kind === 'quote' ? (
+          <QuoteTokenPreview
+            anchor={activeHoverToken.anchor}
+            id={quoteTokenTooltipId}
+            text={activeHoverToken.token.value}
+            onPointerEnter={cancelHoverHide}
+            onPointerLeave={() => hideTokenHover(activeHoverToken.anchor, 120)}
           />
         ) : null}
       </div>

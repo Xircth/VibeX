@@ -67,6 +67,10 @@ const BUILT_IN_ICON_PATHS: Partial<
     dark: '/agents/deepseek-harness-dark.svg',
   },
   qoder: { light: '/agents/qoder.svg', dark: '/agents/qoder.svg' },
+  mimo_code: {
+    light: '/agents/mimo-code-light.svg',
+    dark: '/agents/mimo-code-dark.svg',
+  },
 };
 
 const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
@@ -86,6 +90,7 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   cursor: 'Cursor',
   deepseek_harness: 'DeepSeek Harness',
   qoder: 'Qoder',
+  mimo_code: 'MiMo Code',
 };
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
@@ -115,6 +120,9 @@ export function normalizeAgentIconKey(
       return 'deepseek_harness';
     case 'qodercli':
       return 'qoder';
+    case 'mimo':
+    case 'mimocode':
+      return 'mimo_code';
     default:
       return key;
   }

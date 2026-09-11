@@ -1286,6 +1286,29 @@ mod tests {
     }
 
     #[test]
+    fn agent_session_notices_are_persisted_as_diagnostics() {
+        let envelope = envelope(AgentEvent::RawAcpDiagnostic {
+            raw: serde_json::json!({
+                "kind": agents::AGENT_SESSION_NOTICE_KIND,
+                "title": "Skill descriptions were shortened to fit the skills context budget.",
+                "message": "Disable unused skills or plugins to leave more room for the rest.",
+                "severity": "warning",
+            }),
+        });
+
+        assert_eq!(conversation_event_source(&envelope.event), "acp");
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::RawDiagnosticRecorded { label, payload })
+                if label == agents::AGENT_SESSION_NOTICE_KIND
+                    && payload
+                        .as_ref()
+                        .and_then(agents::session_notice_from_diagnostic)
+                        .is_some_and(|notice| notice.severity == "warning")
+        ));
+    }
+
+    #[test]
     fn unknown_acp_diagnostics_are_persisted() {
         let envelope = envelope(AgentEvent::RawAcpDiagnostic {
             raw: serde_json::json!({

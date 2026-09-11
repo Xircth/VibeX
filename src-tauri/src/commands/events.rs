@@ -12,6 +12,10 @@ use crate::{error::AppError, state::AppState};
 #[derive(Debug, Clone, Serialize)]
 pub struct FileTreeChangedPayload {
     pub root_path: String,
+    /// Root-relative paths of files created in this batch. The frontend opens
+    /// previews for the ones it can render on its own.
+    pub added_paths: Vec<String>,
+    pub added_paths_truncated: bool,
 }
 
 /// Subscribe to diff stream for a workspace.
@@ -252,11 +256,19 @@ pub async fn subscribe_file_tree_stream(
                 while let Some(result) = receiver.next().await {
                     match result {
                         Ok(events) if !events.is_empty() => {
+                            let (added_paths, added_paths_truncated) =
+                                filesystem_watcher::collect_added_paths(
+                                    &events,
+                                    &normalized_root,
+                                    filesystem_watcher::MAX_ADDED_PATHS,
+                                );
                             if app
                                 .emit(
                                     "file-tree-stream",
                                     &FileTreeChangedPayload {
                                         root_path: normalized_root_str.clone(),
+                                        added_paths,
+                                        added_paths_truncated,
                                     },
                                 )
                                 .is_err()

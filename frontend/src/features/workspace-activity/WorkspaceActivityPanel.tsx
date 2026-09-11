@@ -8,6 +8,8 @@ import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import { SessionFlameGraph } from './SessionFlameGraph';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
   activityNoticesFromRows,
   activitySpansFromTimeline,
@@ -21,6 +23,7 @@ export function WorkspaceActivityPanel({
   sessionId?: string;
 }) {
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { projectId } = useProject();
   const { sessions } = useKanbanProjectSessions(projectId);
   const { executionProcesses } = useExecutionProcesses(sessionId ?? '', {
@@ -139,6 +142,22 @@ export function WorkspaceActivityPanel({
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted/60"
                   onClick={() => setSelectedSessionId(session.id)}
+                  onContextMenu={(event) => {
+                    openSurfaceMenu(event, [
+                      {
+                        id: 'open',
+                        label: t('common:contextMenu.open'),
+                        onSelect: () => setSelectedSessionId(session.id),
+                      },
+                      {
+                        id: 'copy-title',
+                        label: t('common:contextMenu.copyTitle'),
+                        onSelect: () => {
+                          void writeClipboardViaBridge(session.fullName);
+                        },
+                      },
+                    ]);
+                  }}
                 >
                   <Flame className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">

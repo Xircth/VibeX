@@ -1,8 +1,11 @@
 {
   "agentStatus": {
     "defaultAgentAria": "默认 Agent：{{agent}}，{{status}}",
+    "defaultAgentAriaWithUpdate": "默认 Agent：{{agent}}，{{status}}，有更新",
     "enabledAgentsAria": "已启用 Agent 状态",
-    "defaultBadge": "默认"
+    "defaultBadge": "默认",
+    "hasUpdates": "有更新",
+    "updateAvailable": "可更新"
   },
   "automationFailureTitle": "自动化运行失败",
   "backgroundTasksTitle": "{{count}} 个后台任务运行中",

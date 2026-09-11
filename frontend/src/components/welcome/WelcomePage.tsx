@@ -28,6 +28,7 @@ import {
 } from '@/lib/projectDeleteUi';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 import { toast } from '@/components/ui/toast';
+import { useAppContextMenu } from '@/components/context-menu';
 
 function WelcomeSection({
   title,
@@ -115,6 +116,7 @@ type ProjectContextMenuState = {
 
 export function WelcomePage() {
   const { t } = useTranslation(['app', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const navigate = useNavigate();
   const openSettings = useOpenSettings();
   const tauriClient = useTauriClient();
@@ -319,7 +321,34 @@ export function WelcomePage() {
   }, [contextMenu, isDeletingProject, t]);
 
   return (
-    <div className="welcome-page-surface relative h-full overflow-auto">
+    <div
+      className="welcome-page-surface relative h-full overflow-auto"
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'open-folder',
+            label: t('common:contextMenu.openFolder'),
+            onSelect: () => {
+              void handleOpenFolder();
+            },
+          },
+          {
+            id: 'new-project',
+            label: t('common:contextMenu.newProject'),
+            onSelect: () => {
+              void handleCreateProject();
+            },
+          },
+          {
+            id: 'clone',
+            label: t('common:contextMenu.cloneRepo'),
+            onSelect: () => {
+              void handleCloneRepo();
+            },
+          },
+        ]);
+      }}
+    >
       {tauriClient ? (
         <div
           data-tauri-drag-region
@@ -407,9 +436,10 @@ export function WelcomePage() {
                 key={project.id}
                 project={project}
                 onClick={() => handleProjectClick(project.id)}
-                onContextMenu={(event) =>
-                  handleProjectContextMenu(project, event)
-                }
+                onContextMenu={(event) => {
+                  event.stopPropagation();
+                  handleProjectContextMenu(project, event);
+                }}
               />
             ))
           )}

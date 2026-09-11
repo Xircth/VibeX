@@ -559,6 +559,52 @@ describe('product plugin experience', () => {
     });
   });
 
+  it('shows the Host error message when enabling a skill plugin fails', async () => {
+    const disabledPlugin = {
+      ...plugin,
+      enabled: false,
+      skills: [{ id: 'office', path: 'contents/skills/office/SKILL.md' }],
+    };
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [disabledPlugin], runtimes: [] };
+      }
+      if (command === 'plugin_control_set_enabled') {
+        return { ...disabledPlugin, enabled: true };
+      }
+      if (command === 'plugin_control_configure_agents') {
+        throw {
+          code: 'bad_request',
+          message: 'missing field `path`',
+          retryable: false,
+          operation_id: 'op-1',
+          details: null,
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    fireEvent.click(
+      await screen.findByRole('switch', { name: /VibeX Office/i })
+    );
+
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        expect.stringMatching(/无法更改|Could not change/),
+        expect.objectContaining({ description: 'missing field `path`' })
+      )
+    );
+    expect(toastMock.error).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ description: '[object Object]' })
+    );
+  });
+
   it('opens the marketplace tab with official listings first', async () => {
     const call = vi.fn(async (command: string) => {
       if (command === 'plugin_control_catalog') {

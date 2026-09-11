@@ -38,6 +38,21 @@ describe('DesktopWindowControls', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
+  it('does not let the Windows chrome overlay steal clicks outside the buttons', () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
+    render(<DesktopWindowControls />);
+
+    const overlay = screen
+      .getByRole('button', { name: 'Minimize' })
+      .closest('.desktop-window-controls');
+    expect(overlay).toHaveClass('pointer-events-none');
+    expect(
+      screen
+        .getByRole('button', { name: 'Minimize' })
+        .closest('.pointer-events-auto')
+    ).not.toBeNull();
+  });
+
   it('uses the same circular hover for minimize, maximize, and close', () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     render(<DesktopWindowControls />);

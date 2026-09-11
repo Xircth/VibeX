@@ -535,6 +535,7 @@ export const DESKTOP_SHELL_COMMANDS = [
   'revoke_host_device',
   'fixture_delegate',
   'fixture_reset',
+  'allow_preview_asset_scope',
   'backup_cancel',
   'backup_inspect',
   'backup_restore_stage',

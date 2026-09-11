@@ -361,6 +361,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
         isResizingList ? ' is-resizing-terminal-list' : ''
       }`}
       data-panel="terminal"
+      data-context-menu-zone="forbidden"
       data-terminal-surface={isEditorSurface ? 'editor' : 'panel'}
     >
       <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">

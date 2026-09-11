@@ -17,6 +17,9 @@ import type {
   MergePanelParams,
 } from '@/types/mergeConflict';
 import { applyConflictHunk, type HunkChoice } from './applyConflictHunk';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { useTranslation } from 'react-i18next';
 
 function languageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
@@ -52,6 +55,9 @@ export function MergeConflictEditor({
   onDirtyChange,
 }: MergePanelParams & { onDirtyChange?: (dirty: boolean) => void }) {
   const { resolvedTheme } = useTheme();
+  const { t } = useTranslation('common');
+  const { openSurfaceMenu } = useAppContextMenu();
+  const panelRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const monacoTheme =
     resolvedTheme === 'dark' ? MONACO_THEME_AYU_DARK : MONACO_THEME_AYU_LIGHT;
@@ -202,7 +208,44 @@ export function MergeConflictEditor({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      ref={panelRef}
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-context-menu-editable="ignore"
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'copy-path',
+            label: t('contextMenu.copyFilePath'),
+            onSelect: () => {
+              void writeClipboardViaBridge(filePath);
+            },
+          },
+          {
+            id: 'jump-top',
+            label: t('contextMenu.jumpToTop'),
+            onSelect: () => {
+              const el = panelRef.current?.querySelector(
+                '.monaco-editor, .monaco-diff-editor, [class*="overflow"]'
+              );
+              if (el instanceof HTMLElement) el.scrollTop = 0;
+            },
+          },
+          {
+            id: 'jump-bottom',
+            label: t('contextMenu.jumpToBottom'),
+            onSelect: () => {
+              const el = panelRef.current?.querySelector(
+                '.monaco-scrollable-element'
+              );
+              if (el instanceof HTMLElement) {
+                el.scrollTop = el.scrollHeight;
+              }
+            },
+          },
+        ]);
+      }}
+    >
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 px-3 py-1.5">
         <span className="truncate font-mono text-xs">{filePath}</span>
         <div className="flex-1" />

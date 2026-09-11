@@ -51,6 +51,7 @@ pub struct ServerApplicationDomains {
     pub(crate) terminal_bridges: Arc<TerminalBridgeRegistry>,
     pub(crate) agent_management_runtime:
         Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
+    pub(crate) delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 }
 
 pub struct ServerDomainDependencies {
@@ -70,6 +71,7 @@ pub struct ServerDomainDependencies {
     pub terminal_bridges: Arc<TerminalBridgeRegistry>,
     pub agent_management_runtime:
         Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
+    pub delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 }
 
 impl ServerApplicationDomains {
@@ -90,6 +92,7 @@ impl ServerApplicationDomains {
             events,
             terminal_bridges,
             agent_management_runtime,
+            delegation_broker,
         } = dependencies;
         Self {
             pool,
@@ -107,6 +110,7 @@ impl ServerApplicationDomains {
             events,
             terminal_bridges,
             agent_management_runtime,
+            delegation_broker,
         }
     }
 
@@ -499,7 +503,8 @@ impl ServerApplicationDomains {
             .runtime_inventory()
             .await
             .map_err(internal_error)?;
-        let plugin_values = plugins.iter().map(plugin_control_item).collect::<Vec<_>>();
+        let mut plugin_values = plugins.iter().map(plugin_control_item).collect::<Vec<_>>();
+        self.merge_native_cli_plugins(&mut plugin_values).await;
         let runtime_values = runtimes
             .into_iter()
             .map(|runtime| {
@@ -543,13 +548,17 @@ impl ServerApplicationDomains {
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
         plugin.write_config(args.config).map_err(internal_error)?;
-        self.plugin_control_plane()
-            .await?
-            .sync_official_product_mcp_gate()
-            .await
-            .map_err(internal_error)?;
+        self.refresh_official_product_runtime().await?;
+        // Re-inspect before projecting: `plugin` still carries the config loaded
+        // before the write, and the Skill domain gate must read the one that was
+        // just persisted.
         let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
             .map_err(internal_error)?;
+        if plugin.activation == plugins::PluginActivation::Enabled {
+            self.apply_default_plugin_skill_projections(&refreshed)
+                .await?;
+            self.apply_default_plugin_mcp_projections(&plugin).await?;
+        }
         serialize(refreshed.product_detail().map_err(internal_error)?)
     }
 
@@ -577,6 +586,17 @@ impl ServerApplicationDomains {
     async fn plugin_control_set_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PluginEnabledArgs = parse(args)?;
         let control_plane = self.plugin_control_plane().await?;
+        if control_plane
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .is_none()
+        {
+            return self
+                .native_plugin_set_enabled(&args.plugin_id, args.enabled)
+                .await?
+                .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)));
+        }
         if args.enabled {
             let plugin = control_plane
                 .plugin(&args.plugin_id)
@@ -604,16 +624,28 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(|error| ApplicationError::conflict(error.to_string()))?;
         } else {
+            if let Some(plugin) = control_plane
+                .plugin(&args.plugin_id)
+                .await
+                .map_err(internal_error)?
+            {
+                Self::remove_plugin_projections(&plugin).await?;
+                self.mark_plugin_bindings_disabled(&args.plugin_id).await?;
+            }
             control_plane
                 .set_enabled(&args.plugin_id, false)
                 .await
                 .map_err(internal_error)?;
         }
+        self.refresh_official_product_runtime().await?;
         let plugin = control_plane
             .plugin(&args.plugin_id)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        if args.enabled {
+            self.apply_default_plugin_projections(&plugin).await?;
+        }
         Ok(plugin_control_item(&plugin))
     }
 
@@ -1126,8 +1158,22 @@ impl ServerApplicationDomains {
             .plugin_control_plane
             .plugin(&args.plugin_id)
             .await
-            .map_err(plugin_error)?
-            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+            .map_err(plugin_error)?;
+        let Some(plugin) = plugin else {
+            if self.native_plugin_uninstall(&args.plugin_id).await? {
+                return Ok(json!({
+                    "removed": true,
+                    "pluginId": args.plugin_id,
+                    "dataRetention": if retain_data { "retained" } else { "deleted" },
+                    "reclaimedRuntimes": [],
+                }));
+            }
+            return Err(ApplicationError::not_found(format!(
+                "plugin {}",
+                args.plugin_id
+            )));
+        };
+        Self::remove_plugin_projections(&plugin).await?;
         let snapshot = matches!(
             plugin.source.kind,
             plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
@@ -2534,7 +2580,7 @@ fn runtime_lock_matches(
         && locked.executable_path.is_file()
 }
 
-fn plugin_error(error: plugins::PluginError) -> ApplicationError {
+pub(crate) fn plugin_error(error: plugins::PluginError) -> ApplicationError {
     match error.code() {
         "plugin_not_found" => ApplicationError::not_found(error.message()),
         "plugin_manifest_invalid" | "plugin_manifest_major_unsupported" => {

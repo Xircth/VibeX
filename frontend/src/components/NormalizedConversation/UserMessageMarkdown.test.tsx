@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import {
+  formatQuoteToken,
+  formatSessionComposerCommand,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
 
 const userMessageStyles = [
@@ -142,6 +145,38 @@ describe('UserMessageMarkdown', () => {
     expect(getComputedStyle(slashChip as Element).color).toBe(
       'var(--color-text-blue)'
     );
+  });
+
+  it('renders a quote token as a truncated @ chip and shows full text on hover', async () => {
+    render(
+      <UserMessageMarkdown value={formatQuoteToken('请你帮我完成这次修改')} />
+    );
+
+    const chip = screen
+      .getByText('@请你帮我...')
+      .closest('[data-testid="session-composer-token-chip"]');
+    expect(chip).toHaveAttribute('data-token-kind', 'quote');
+    expect(chip).toHaveAttribute('data-variant', 'cyan');
+
+    fireEvent.pointerEnter(chip as HTMLElement);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('请你帮我完成这次修改');
+    expect(tooltip).toHaveClass('quote-token-preview');
+    expect(tooltip.className).toMatch(/overflow-y-auto/);
+  });
+
+  it('renders quoted markdown formatting in the hover preview', async () => {
+    render(
+      <UserMessageMarkdown value={formatQuoteToken('Use **bold** text')} />
+    );
+
+    fireEvent.pointerEnter(
+      screen
+        .getByText('@Use ...')
+        .closest('[data-testid="session-composer-token-chip"]') as HTMLElement
+    );
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.querySelector('strong')).toHaveTextContent('bold');
   });
 
   it('uses legible adaptive colors for every prose node', () => {

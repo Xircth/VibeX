@@ -771,6 +771,8 @@ function agentDisplayName(agentId: AgentId) {
       return 'Cursor';
     case 'qoder':
       return 'Qoder';
+    case 'mimo_code':
+      return 'MiMo Code';
     default:
       return agentId;
   }

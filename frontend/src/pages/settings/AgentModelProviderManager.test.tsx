@@ -170,6 +170,227 @@ describe('AgentModelProviderManager', () => {
     });
   });
 
+  it('picks the default model from the detected models a Pi provider enabled', async () => {
+    const enabled =
+      '{"id":"a","api":"openai-responses","models":["a","b","c"]}';
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [{ ...gateway, agent_id: 'pi', model: enabled }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'pi',
+      source: 'live',
+      models: ['a', 'b', 'c'].map((id) => ({
+        id,
+        label: id.toUpperCase(),
+        context_window: null,
+        reasoning_levels: [],
+      })),
+      default_model: 'a',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    // The field offers the enabled models instead of asking for the name again.
+    await pickAstryxOption(user, screen.getByLabelText('Provider 模型'), 'c');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    // Whichever model is picked becomes the default the backend starts on, so
+    // it has to lead the list rather than only sitting in it.
+    expect(JSON.parse(saved.model)).toEqual({
+      id: 'c',
+      api: 'openai-responses',
+      models: ['c', 'a', 'b'],
+    });
+  });
+
+  it('keeps the enabled Pi models when an unrelated field changes', async () => {
+    const enabled =
+      '{"id":"a","api":"openai-responses","models":["a","b","c"]}';
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [{ ...gateway, agent_id: 'pi', model: enabled }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'pi',
+      source: 'live',
+      models: ['a', 'b', 'c'].map((id) => ({
+        id,
+        label: id.toUpperCase(),
+        context_window: null,
+        reasoning_levels: [],
+      })),
+      default_model: 'a',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    // Changing the wire protocol used to rebuild the payload from a fixed set
+    // of keys and silently drop everything the user had checked.
+    await pickAstryxOption(
+      user,
+      screen.getByLabelText('接入协议'),
+      'anthropic-messages'
+    );
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    expect(JSON.parse(saved.model)).toEqual({
+      id: 'a',
+      api: 'anthropic-messages',
+      models: ['a', 'b', 'c'],
+    });
+  });
+
+  it('still accepts a Pi model id the endpoint does not list', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [
+        { ...gateway, agent_id: 'pi', model: '{"id":"a","models":["a"]}' },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'pi',
+      source: 'live',
+      models: [
+        {
+          id: 'a',
+          label: 'A',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'a',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    await pickAstryxOption(
+      user,
+      screen.getByLabelText('Provider 模型'),
+      '自定义模型 ID…'
+    );
+    const input = screen.getByLabelText('Provider 模型');
+    await user.clear(input);
+    await user.type(input, 'private-model');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    // The typed id becomes the default; the enabled list is left to the
+    // detection panel rather than absorbing every keystroke.
+    expect(JSON.parse(saved.model)).toEqual({
+      api: 'openai-responses',
+      id: 'private-model',
+      models: ['a'],
+    });
+  });
+
+  it('picks a Claude model from the detected list and keeps its other keys', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'claude_code',
+      providers: [
+        {
+          ...gateway,
+          model: '{"main":"m1","models":["m1","m2"]}',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'claude_code',
+      source: 'live',
+      models: ['m1', 'm2'].map((id) => ({
+        id,
+        label: id.toUpperCase(),
+        context_window: null,
+        reasoning_levels: [],
+      })),
+      default_model: 'm1',
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+      />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    // The mapping fields are model ids, so they offer the detected models...
+    await pickAstryxOption(
+      user,
+      screen.getByLabelText('Provider 主模型'),
+      'm2'
+    );
+    // ...while the custom option's name stays prose the user types.
+    expect(screen.getByLabelText('Provider 自定义选项名称')).toHaveProperty(
+      'tagName',
+      'INPUT'
+    );
+
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    // `models` is not a Claude concept; the whole point is that editing one
+    // mapping no longer throws away keys this editor does not render.
+    expect(JSON.parse(saved.model)).toEqual({
+      main: 'm2',
+      models: ['m1', 'm2'],
+    });
+  });
+
+  it('keeps a free-text Claude model field when nothing has been detected', async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: '新建供应商' }));
+    // No detection has run, so there is nothing to offer and the fields must
+    // stay plain inputs rather than empty dropdowns.
+    for (const label of [
+      'Provider 主模型',
+      'Provider 推理模型',
+      'Provider 自定义选项 ID',
+    ]) {
+      expect(screen.getByLabelText(label)).toHaveProperty('tagName', 'INPUT');
+    }
+  });
+
   it('lists a native Pi provider with the same actions as other providers', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'pi',

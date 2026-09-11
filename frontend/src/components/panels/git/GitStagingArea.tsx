@@ -121,6 +121,7 @@ export const GitStagingArea = memo(function GitStagingArea({
   const handleContextMenu = useCallback(
     (path: string, section: 'staged' | 'unstaged', e: React.MouseEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       // If right-clicked file is not in selection, select it
       if (!selectedPaths.has(path)) {
         setSelectedPaths(new Set([path]));

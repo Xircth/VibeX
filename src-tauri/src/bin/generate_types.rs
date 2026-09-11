@@ -340,6 +340,9 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "revoke_host_device",
     "fixture_delegate",
     "fixture_reset",
+    // The asset protocol lives in the local webview, so the Host — which may be
+    // remote — can never grant it. The desktop shell owns this one end to end.
+    "allow_preview_asset_scope",
     "backup_cancel",
     "backup_inspect",
     "backup_restore_stage",

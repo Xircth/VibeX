@@ -51,6 +51,11 @@ pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
 pub mod session;
+mod session_notice;
+pub use session_notice::{
+    AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,
+    notice_from_diagnostic_payload as session_notice_from_diagnostic,
+};
 pub mod session_gate;
 pub mod shell_flavor;
 pub mod skills;
@@ -90,7 +95,8 @@ pub use capability::AcpCapabilityNormalizer;
 pub use cli_exposure::{
     CliExposureError, PublishedCliCommand, ShellFamily, ensure_user_cli_path,
     export_managed_node_to_user_environment, publish_managed_runtime_cli,
-    publish_user_toolchain_commands, remove_managed_runtime_cli, switch_managed_runtime_cli,
+    publish_user_toolchain_commands, published_cli_shim_agent, remove_managed_runtime_cli,
+    remove_orphaned_cli_shims, resolve_user_runtime_command, switch_managed_runtime_cli,
 };
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
@@ -165,9 +171,10 @@ pub use install_planner::{
 };
 pub use launch_gate::{
     LaunchComponentEvidence, LaunchGate, LaunchGateError, bind_runtime_executable_env,
-    discover_path_acp_launch_lock, launch_program_available, lifecycle_ready_for_path_acp,
-    missing_launch_program_error, prefer_path_launch_program, runtime_executable_env_key,
-    sanitize_runtime_executable_env, sanitize_runtime_executable_lock_env,
+    component_dirs_precede_user_path, discover_path_acp_launch_lock, launch_program_available,
+    lifecycle_ready_for_path_acp, missing_launch_program_error, prefer_path_launch_program,
+    runtime_executable_env_key, sanitize_runtime_executable_env,
+    sanitize_runtime_executable_lock_env,
 };
 pub use lifecycle::{
     BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
@@ -195,8 +202,10 @@ pub use manager::{
 };
 pub use metadata::{
     AgentCapability, agent_capabilities, claude_config_path, codex_auth_path, codex_config_path,
-    codex_home, opencode_auth_path, opencode_auth_path_from_env, opencode_cache_dir_from_env,
-    opencode_config_dir, opencode_config_dir_from_env, opencode_config_path,
+    codex_home, mimo_auth_path_from_env, mimo_cache_dir_from_env, mimo_config_dir_from_env,
+    mimo_config_path_from_env, mimo_native_binding_path, opencode_auth_path,
+    opencode_auth_path_from_env, opencode_cache_dir_from_env, opencode_config_dir,
+    opencode_config_dir_from_env, opencode_config_path,
 };
 pub use native_config::{
     ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFilePatch,

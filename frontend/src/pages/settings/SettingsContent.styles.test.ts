@@ -173,6 +173,22 @@ describe('settings page alignment', () => {
     expect(glass.get('transform')).toBeUndefined();
   });
 
+  it('keeps section heading actions above the collapse control', () => {
+    const heading = declarationsFor('.settings-page .agent-section-heading');
+    const toggle = declarationsFor(
+      '.settings-page .agent-section-heading-toggle'
+    );
+    const actions = declarationsFor(
+      '.settings-page .agent-section-heading-actions'
+    );
+
+    expect(heading.get('display')).toBe('flex');
+    expect(toggle.get('min-width')).toBe('0');
+    expect(toggle.get('overflow')).toBe('hidden');
+    expect(actions.get('position')).toBe('relative');
+    expect(actions.get('z-index')).toBe('1');
+  });
+
   it('keeps the Agent header on one row when switching Agents', () => {
     const header = declarationsFor('.settings-page .agent-detail-header');
     const title = declarationsFor(
@@ -296,5 +312,20 @@ describe('settings page alignment', () => {
     // Default settings window leaves the preflight grid at ~750px. Wrapping
     // at 760px made the stacked version row the common case.
     expect(Number(maxWidth![1])).toBe(400);
+  });
+
+  it('renders the preflight update action as a white chip with a gray border', () => {
+    const update = declarationsFor(
+      '.settings-page .agent-preflight-status.is-update'
+    );
+    const hover = declarationsFor(
+      '.settings-page button.agent-preflight-status.is-update:hover:not(:disabled)'
+    );
+
+    expect(update.get('background')).toBe('var(--kanban-column-background)');
+    expect(update.get('border-color')).toBe('var(--border-strong)');
+    expect(update.get('color')).toBe('var(--text-strong)');
+    expect(hover.get('background')).toBe('var(--kanban-column-background)');
+    expect(hover.get('border-color')).toBe('var(--text-muted)');
   });
 });

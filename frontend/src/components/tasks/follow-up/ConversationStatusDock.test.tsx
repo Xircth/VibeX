@@ -121,6 +121,48 @@ describe('ConversationStatusDock', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders agent operational warnings on the composer status card', () => {
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'notice-skill-budget',
+            kind: 'session-notice',
+            notice: {
+              title:
+                'Skill descriptions were shortened to fit the skills context budget.',
+              message:
+                'Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.',
+              severity: 'warning',
+            },
+          },
+        ]}
+      />
+    );
+
+    const dock = screen.getByTestId('conversation-status-dock');
+    expect(dock).toHaveTextContent(
+      'Skill descriptions were shortened to fit the skills context budget.'
+    );
+    expect(
+      Array.from(dock.querySelectorAll('.astryx-badge')).map(
+        (badge) => badge.textContent
+      )
+    ).toEqual(['Warning']);
+    expect(
+      screen.queryByText(/Disable unused skills or plugins/)
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: '查看详细信息：Skill descriptions were shortened to fit the skills context budget.',
+      })
+    );
+    expect(
+      screen.getByText(/Disable unused skills or plugins/)
+    ).toBeInTheDocument();
+  });
+
   it('keeps local, turn, and interruption details behind disclosure controls', () => {
     render(
       <ConversationStatusDock

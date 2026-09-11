@@ -3,7 +3,8 @@
     "pickFolderTitle": "Select project folder",
     "title": "File Explorer",
     "noFolderSelected": "No folder selected",
-    "openFolder": "Open Folder"
+    "openFolder": "Open Folder",
+    "autoOpenSkipped": "{{count}} more new file(s) were not opened automatically"
   },
   "logsPanel": {
     "selectWorkspaceToViewLogs": "Select a workspace to view logs"

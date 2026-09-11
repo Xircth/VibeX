@@ -7,14 +7,15 @@ import { useBackendTransport } from '@/lib/transport';
 const hostClientStatus = vi.hoisted(() => vi.fn());
 const tauriListen = vi.hoisted(() => vi.fn(async () => () => undefined));
 const getCurrentWindow = vi.hoisted(() => vi.fn(() => ({ label: 'main' })));
-const isTauriRuntime = vi.hoisted(() => vi.fn(() => true));
+const isTauriDesktopShell = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow,
 }));
 
-vi.mock('./WebTransportBootstrap', () => ({
-  isTauriRuntime,
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  isTauriDesktopShell,
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -53,7 +54,7 @@ describe('DesktopHostBootstrap', () => {
   afterEach(() => {
     vi.clearAllMocks();
     getCurrentWindow.mockReturnValue({ label: 'main' });
-    isTauriRuntime.mockReturnValue(true);
+    isTauriDesktopShell.mockReturnValue(true);
     tauriListen.mockResolvedValue(() => undefined);
   });
 

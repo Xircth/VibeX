@@ -75,6 +75,19 @@ pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
         .unwrap_or(locked)
 }
 
+/// Whether VibeX's own component directories may precede the user's `PATH` in a
+/// launch environment.
+///
+/// An adapter that ships its own vendor CLI (`claude_code`, `codex`) must keep
+/// VibeX's copy first: it was built against that exact CLI. An adapter that does
+/// not bundle one resolves its runtime from `PATH` — `pi-acp` spawns `pi` — and
+/// pushing VibeX's component directories ahead of the user's would silently
+/// shadow a runtime the user already installed. Appending keeps VibeX's copy
+/// reachable as a fallback when the user has none.
+pub fn component_dirs_precede_user_path(agent_id: &AgentId) -> bool {
+    crate::adapter_bundles_runtime(agent_id)
+}
+
 /// Environment variable an adapter-backed Agent uses to locate its local Runtime.
 pub fn runtime_executable_env_key(agent_id: &AgentId) -> Option<&'static str> {
     BuiltInProfileCatalog::bundled()
@@ -284,9 +297,10 @@ mod tests {
     };
 
     use super::{
-        bind_runtime_executable_env, launch_command_name, launch_program_available,
-        lifecycle_ready_for_path_acp, missing_launch_program_error, prefer_path_launch_program,
-        sanitize_runtime_executable_env, sanitize_runtime_executable_lock_env,
+        bind_runtime_executable_env, component_dirs_precede_user_path, launch_command_name,
+        launch_program_available, lifecycle_ready_for_path_acp, missing_launch_program_error,
+        prefer_path_launch_program, sanitize_runtime_executable_env,
+        sanitize_runtime_executable_lock_env,
     };
     use crate::{AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent};
 
@@ -385,6 +399,22 @@ mod tests {
         )]);
         sanitize_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &mut env);
         assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+    }
+
+    #[test]
+    fn only_a_bundled_runtime_may_shadow_the_user_path() {
+        for agent_id in ["claude_code", "codex"] {
+            assert!(
+                component_dirs_precede_user_path(&AgentId::parse(agent_id).unwrap()),
+                "{agent_id} ships its runtime with the adapter and must stay ahead of PATH"
+            );
+        }
+        for agent_id in ["pi", "opencode", "cursor"] {
+            assert!(
+                !component_dirs_precede_user_path(&AgentId::parse(agent_id).unwrap()),
+                "{agent_id} resolves its runtime from PATH and must not shadow the user's"
+            );
+        }
     }
 
     #[test]

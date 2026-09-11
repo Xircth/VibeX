@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import { useAppContextMenu } from '@/components/context-menu';
 import { cn } from '@/lib/utils';
 import { browserApi } from './browserApi';
 import {
@@ -41,6 +42,7 @@ import { recordBrowserAddress } from './browserAddressHistory';
 import { BrowserDevToolsSession } from './devToolsSession';
 import { applyDevicePreset, type DevicePresetId } from './deviceEmulation';
 import { createFrameScheduler, type FrameScheduler } from './frameScheduler';
+import { overlayCoversSurface } from './nativeSurfaceOverlay';
 import type { OpenInEditorPayload } from './inspectTypes';
 import type {
   BrowserEvent,
@@ -267,7 +269,8 @@ export function BrowserPanel({
   onInspectElement,
   onOpenExternalTab,
 }: BrowserPanelProps) {
-  const { t } = useTranslation('panels');
+  const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { subscribeNativeSurfaceOcclusion } = useWorkspaceOverlay();
   const panelElementRef = useRef<HTMLDivElement>(null);
   const toolbarElementRef = useRef<HTMLDivElement>(null);
@@ -280,6 +283,12 @@ export function BrowserPanel({
   const intersectionVisibleRef = useRef(true);
   const panelVisibleRef = useRef(visible);
   const overlayOccludedRef = useRef(false);
+  const lastVisibleSurfaceRef = useRef<BrowserSurface | null>(null);
+  const frozenPageRef = useRef<string | null>(null);
+  const snapshotCaptureInFlightRef = useRef(false);
+  const snapshotRefreshTimerRef = useRef<ReturnType<
+    typeof window.setTimeout
+  > | null>(null);
   const surfaceBlockedRef = useRef(false);
   const blankPageVisibleRef = useRef(initialUrl === null);
   const onInspectElementRef = useRef(onInspectElement);
@@ -295,6 +304,7 @@ export function BrowserPanel({
   const pageWasLoadingRef = useRef(false);
   const scrollCommandInFlightRef = useRef(false);
   const [surfaceReady, setSurfaceReady] = useState(false);
+  const [frozenPage, setFrozenPage] = useState<string | null>(null);
   const [showBlankPage, setShowBlankPage] = useState(initialUrl === null);
   const [tabBootstrapUrl, setTabBootstrapUrl] = useState(initialUrl);
   const [tab, setTab] = useState<BrowserTab | null>(null);
@@ -350,11 +360,13 @@ export function BrowserPanel({
   );
 
   const nativeSurfaceShouldBeVisible = useCallback((showPage: boolean) => {
+    const overlayHidesPage =
+      overlayOccludedRef.current && frozenPageRef.current != null;
     return (
       showPage &&
       panelVisibleRef.current &&
       intersectionVisibleRef.current &&
-      !overlayOccludedRef.current &&
+      !overlayHidesPage &&
       !surfaceBlockedRef.current &&
       document.visibilityState !== 'hidden'
     );
@@ -372,6 +384,32 @@ export function BrowserPanel({
         browserApi.applyIntent(tabId, {
           type: 'setSurface',
           surface: hiddenSurface,
+        })
+      ).catch((error: unknown) => showError(commandErrorMessage(error)));
+    },
+    [showError]
+  );
+
+  const restoreNativeSurface = useCallback(
+    (tabId = tabIdRef.current) => {
+      const lastVisible = lastVisibleSurfaceRef.current;
+      if (!lastVisible) {
+        surfaceSchedulerRef.current?.request();
+        return;
+      }
+      const restored = { ...lastVisible, visible: true };
+      if (
+        currentSurfaceRef.current &&
+        surfacesEqual(currentSurfaceRef.current, restored)
+      ) {
+        return;
+      }
+      currentSurfaceRef.current = restored;
+      if (!tabId) return;
+      void Promise.resolve(
+        browserApi.applyIntent(tabId, {
+          type: 'setSurface',
+          surface: restored,
         })
       ).catch((error: unknown) => showError(commandErrorMessage(error)));
     },
@@ -413,6 +451,32 @@ export function BrowserPanel({
       })
       .catch(() => {
         setHorizontalPageScroll(null);
+      });
+  }, []);
+
+  const captureFrozenPage = useCallback(() => {
+    const session = devToolsSessionRef.current;
+    if (!session || snapshotCaptureInFlightRef.current) return;
+    if (overlayOccludedRef.current && frozenPageRef.current) return;
+    snapshotCaptureInFlightRef.current = true;
+    void session
+      .execute('Page.captureScreenshot', {
+        format: 'jpeg',
+        quality: 90,
+      })
+      .then((result) => {
+        const data = objectValue(result)?.data;
+        if (typeof data !== 'string' || data.length === 0) return;
+        if (overlayOccludedRef.current && frozenPageRef.current) return;
+        const url = `data:image/jpeg;base64,${data}`;
+        const image = new Image();
+        image.src = url;
+        frozenPageRef.current = url;
+        setFrozenPage(url);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        snapshotCaptureInFlightRef.current = false;
       });
   }, []);
 
@@ -507,6 +571,7 @@ export function BrowserPanel({
 
     if (previous && surfacesEqual(previous, surface)) return;
     currentSurfaceRef.current = surface;
+    if (surface.visible) lastVisibleSurfaceRef.current = surface;
     if (!previous) setSurfaceReady(true);
     if (tabIdRef.current) {
       applyIntent({ type: 'setSurface', surface });
@@ -521,7 +586,10 @@ export function BrowserPanel({
 
     const scheduler = createFrameScheduler(syncSurface);
     surfaceSchedulerRef.current = scheduler;
-    const scheduleSurfaceSync = () => scheduler.request();
+    const scheduleSurfaceSync = () => {
+      if (overlayOccludedRef.current) return;
+      scheduler.request();
+    };
     const resizeObserver = new ResizeObserver(scheduleSurfaceSync);
     const intersectionObserver = new IntersectionObserver(([entry]) => {
       intersectionVisibleRef.current = entry?.isIntersecting ?? false;
@@ -564,16 +632,61 @@ export function BrowserPanel({
 
   useLayoutEffect(
     () =>
-      subscribeNativeSurfaceOcclusion((occluded) => {
-        overlayOccludedRef.current = occluded;
-        if (occluded) {
+      subscribeNativeSurfaceOcclusion((occlusion) => {
+        const surface = currentSurfaceRef.current;
+        const covered =
+          occlusion.hide ||
+          (surface != null &&
+            overlayCoversSurface(
+              {
+                x: surface.x,
+                y: surface.y,
+                width: surface.width,
+                height: surface.height,
+              },
+              occlusion.rects
+            ));
+        const wasCovered = overlayOccludedRef.current;
+        overlayOccludedRef.current = covered;
+        if (covered) {
           surfaceSchedulerRef.current?.cancel();
-          hideNativeSurfaces();
+          if (frozenPageRef.current) {
+            hideNativeSurfaces();
+          } else {
+            captureFrozenPage();
+          }
           return;
         }
-        surfaceSchedulerRef.current?.request();
+        if (!wasCovered) return;
+        restoreNativeSurface();
+        if (snapshotRefreshTimerRef.current != null) {
+          window.clearTimeout(snapshotRefreshTimerRef.current);
+        }
+        snapshotRefreshTimerRef.current = window.setTimeout(() => {
+          snapshotRefreshTimerRef.current = null;
+          if (!overlayOccludedRef.current) captureFrozenPage();
+        }, 120);
       }),
-    [hideNativeSurfaces, subscribeNativeSurfaceOcclusion]
+    [
+      captureFrozenPage,
+      hideNativeSurfaces,
+      restoreNativeSurface,
+      subscribeNativeSurfaceOcclusion,
+    ]
+  );
+
+  useLayoutEffect(() => {
+    if (!overlayOccludedRef.current || !frozenPage) return;
+    hideNativeSurfaces();
+  }, [frozenPage, hideNativeSurfaces]);
+
+  useEffect(
+    () => () => {
+      if (snapshotRefreshTimerRef.current != null) {
+        window.clearTimeout(snapshotRefreshTimerRef.current);
+      }
+    },
+    []
   );
 
   useEffect(() => {
@@ -735,6 +848,7 @@ export function BrowserPanel({
           }
           pageWasLoadingRef.current = false;
           refreshHorizontalPageScroll();
+          captureFrozenPage();
         }
       }
     };
@@ -829,6 +943,7 @@ export function BrowserPanel({
     };
   }, [
     attachDevToolsSession,
+    captureFrozenPage,
     clearError,
     hideNativeSurfaces,
     nativeSurfaceShouldBeVisible,
@@ -1000,6 +1115,35 @@ export function BrowserPanel({
         'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background',
         className
       )}
+      onMouseEnter={() => captureFrozenPage()}
+      onContextMenu={(event) => {
+        openSurfaceMenu(event, [
+          {
+            id: 'back',
+            label: t('common:contextMenu.back'),
+            disabled: !tab?.canGoBack,
+            onSelect: () => applyIntent({ type: 'back' }),
+          },
+          {
+            id: 'forward',
+            label: t('common:contextMenu.forward'),
+            disabled: !tab?.canGoForward,
+            onSelect: () => applyIntent({ type: 'forward' }),
+          },
+          {
+            id: 'inspect',
+            label: t('common:contextMenu.enableElementPicker'),
+            disabled: !tab || !onInspectElement,
+            onSelect: () => toggleElementInspection(),
+          },
+          {
+            id: 'devtools',
+            label: t('common:contextMenu.openDevTools'),
+            disabled: !tab,
+            onSelect: () => applyIntent({ type: 'openDevTools' }),
+          },
+        ]);
+      }}
     >
       <div
         ref={toolbarElementRef}
@@ -1076,8 +1220,6 @@ export function BrowserPanel({
               level,
             });
           }}
-          occludeNativeSurface={false}
-          preferAbove
           size="compact"
           className="w-20 shrink-0"
         />
@@ -1091,8 +1233,6 @@ export function BrowserPanel({
             { value: 'mobile', label: 'Mobile' },
           ]}
           onChange={(value) => changeDevicePreset(value as DevicePresetId)}
-          occludeNativeSurface={false}
-          preferAbove
           size="compact"
           className="w-24 shrink-0"
         />
@@ -1283,6 +1423,7 @@ export function BrowserPanel({
         <div
           ref={surfaceElementRef}
           data-testid="native-browser-surface"
+          data-context-menu-zone="native"
           aria-busy={loading}
           aria-hidden={showBlankPage || !!loadError ? 'true' : undefined}
           className={cn(
@@ -1292,7 +1433,16 @@ export function BrowserPanel({
               : 'bg-transparent'
           )}
           onPointerDown={() => applyIntent({ type: 'focus' })}
-        />
+        >
+          {frozenPage ? (
+            <img
+              alt=""
+              aria-hidden="true"
+              src={frozenPage}
+              className="pointer-events-none absolute inset-0 h-full w-full object-fill"
+            />
+          ) : null}
+        </div>
         {!tab && !loadError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background text-muted-foreground">
             <LoaderCircle

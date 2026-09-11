@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { Search, ChevronRight } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
   fileTreeApi,
   type TextSearchResponse,
@@ -18,6 +20,7 @@ import {
 
 function DockviewSearchPanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { rootPath } = useFileTreeStore();
   const { openFilePreview } = usePanelActionsContext();
 
@@ -158,6 +161,23 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
             type="button"
             className="w-full flex items-center gap-1 px-2 py-1 text-left text-xs hover:bg-accent/50 transition-colors"
             onClick={() => toggleExpanded(result.path)}
+            onContextMenu={(event) => {
+              event.stopPropagation();
+              openSurfaceMenu(event, [
+                {
+                  id: 'open',
+                  label: t('common:contextMenu.open'),
+                  onSelect: () => handleOpenFile(result.path),
+                },
+                {
+                  id: 'copy-path',
+                  label: t('common:contextMenu.copyPath'),
+                  onSelect: () => {
+                    void writeClipboardViaBridge(result.path);
+                  },
+                },
+              ]);
+            }}
           >
             <ChevronRight
               className={`h-3 w-3 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -182,6 +202,27 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                       column: match.column,
                     })
                   }
+                  onContextMenu={(event) => {
+                    event.stopPropagation();
+                    openSurfaceMenu(event, [
+                      {
+                        id: 'open',
+                        label: t('common:contextMenu.open'),
+                        onSelect: () =>
+                          handleOpenFile(result.path, {
+                            line: match.line,
+                            column: match.column,
+                          }),
+                      },
+                      {
+                        id: 'copy-line',
+                        label: t('common:contextMenu.copy'),
+                        onSelect: () => {
+                          void writeClipboardViaBridge(match.preview);
+                        },
+                      },
+                    ]);
+                  }}
                 >
                   <span className="shrink-0 text-muted-foreground w-12 text-right tabular-nums">
                     {match.line}:{match.column}
@@ -196,7 +237,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         </div>
       );
     },
-    [expandedFiles, toggleExpanded, handleOpenFile]
+    [expandedFiles, toggleExpanded, handleOpenFile, openSurfaceMenu, t]
   );
 
   return (

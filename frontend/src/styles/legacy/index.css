@@ -584,7 +584,8 @@
       [data-token-kind='tag'],
       [data-token-kind='conversation'],
       [data-token-kind='commit'],
-      [data-token-kind='element']
+      [data-token-kind='element'],
+      [data-token-kind='quote']
     ) {
     background: var(--color-background-cyan);
     color: var(--color-text-cyan);
@@ -611,12 +612,78 @@
       box-shadow 120ms ease-out;
   }
 
+  .legacy-design .session-composer-editor [data-quote-token] {
+    cursor: help;
+  }
+
   .legacy-design
     .session-composer-editor
     [data-preview-element-token]:is(:hover, :focus-visible) {
     background: hsl(var(--primary) / 0.19);
     box-shadow: 0 0 0 2px hsl(var(--primary) / 0.18);
     outline: none;
+  }
+
+  .legacy-design .conversation-selection-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: var(--shadow-card);
+    color: var(--text-strong);
+  }
+
+  .legacy-design.dark .conversation-selection-toolbar,
+  .dark .legacy-design .conversation-selection-toolbar {
+    background: var(--surface-card-strong);
+  }
+
+  .legacy-design .conversation-selection-toolbar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-strong);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .legacy-design .conversation-selection-toolbar button svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .legacy-design .conversation-selection-toolbar button:hover,
+  .legacy-design .conversation-selection-toolbar button:focus-visible {
+    background: var(--surface-control);
+    outline: none;
+  }
+
+  .legacy-design .quote-token-preview {
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    box-shadow: none;
+  }
+
+  .legacy-design .quote-token-preview .conv-markdown {
+    font-size: 12px;
+    line-height: 1.55;
+    color: inherit;
+  }
+
+  .legacy-design.dark .quote-token-preview,
+  .dark .legacy-design .quote-token-preview {
+    background: var(--surface-card-strong);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -2214,6 +2281,16 @@
     -webkit-backdrop-filter: blur(20px) saturate(1.28);
   }
 
+  .product-context-menu {
+    font-family: var(--font-ui);
+    font-optical-sizing: auto;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    background: var(--surface-dialog);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .branch-selector-menu {
     background: var(--surface-glass-solid);
     backdrop-filter: none;
@@ -2330,6 +2407,8 @@
   .settings-page .agent-codex-quick-field .astryx-select-trigger,
   .settings-page .agent-model-catalog-actions .astryx-select-trigger,
   .settings-page .agent-model-provider-binding .astryx-select-trigger,
+  .settings-page .agent-model-provider-claude .astryx-select-trigger,
+  .settings-page .agent-model-provider-form-grid .astryx-select-trigger,
   .settings-page .codex-default-model .astryx-select-trigger,
   .settings-page .pi-configuration-grid .astryx-select-trigger,
   .settings-page .pi-custom-provider-fields .astryx-select-trigger,
@@ -6195,18 +6274,6 @@
   gap: 5px;
 }
 
-.settings-page .agent-model-provider-detection-actions {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.settings-page .agent-model-provider-detection-actions > .astryx-select {
-  min-width: 180px;
-  flex: 1 1 220px;
-}
-
 .settings-page .agent-model-provider-detection p {
   margin: 0;
   color: var(--text-muted);
@@ -6237,6 +6304,22 @@
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 600;
+}
+
+/* Free-text model id, with the way back to the picker beside it. */
+.settings-page .provider-model-field-custom {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-page .provider-model-field-custom > input {
+  flex: 1 1 auto;
+}
+
+.settings-page .provider-model-field-custom > button {
+  flex: 0 0 auto;
 }
 
 .settings-page .agent-model-provider-codex > span {
@@ -6290,15 +6373,14 @@
     grid-template-columns: 1fr;
   }
 
-  .settings-page .agent-model-provider-detection-actions {
-    align-items: stretch;
-    flex-direction: column;
+  .settings-page .provider-detected-models-heading {
+    flex-wrap: wrap;
   }
 
-  .settings-page .agent-model-provider-detection-actions > .astryx-select {
+  .settings-page .provider-detected-models-heading > .astryx-select {
     width: 100%;
     min-width: 0;
-    flex-basis: auto;
+    flex-basis: 100%;
   }
 }
 
@@ -7335,7 +7417,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-section-heading-toggle {
   display: flex;
   min-width: 0;
+  max-width: 100%;
+  flex: 1 1 8rem;
   align-items: center;
+  overflow: hidden;
   gap: 8px;
   padding: 0;
   border: 0;
@@ -7343,6 +7428,17 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.settings-page .agent-section-heading-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .settings-page .agent-section-heading-toggle:focus-visible {
@@ -7532,9 +7628,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-preflight-status.is-update {
-  border-color: hsl(var(--primary) / 0.28);
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
+  border-color: var(--border-strong);
+  background: var(--kanban-column-background);
+  color: var(--text-strong);
 }
 
 .settings-page button.agent-preflight-status {
@@ -7547,8 +7643,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   cursor: pointer;
 }
 
-.settings-page button.agent-preflight-status:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.18);
+.settings-page button.agent-preflight-status.is-update:hover:not(:disabled) {
+  background: var(--kanban-column-background);
+  border-color: var(--text-muted);
 }
 
 .settings-page button.agent-preflight-status:focus-visible {
@@ -9485,59 +9582,91 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
-.settings-page .provider-detected-models-heading legend {
+.settings-page .provider-detected-models-title {
+  flex: 0 0 auto;
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 600;
 }
 
+.settings-page .provider-detected-models-heading > p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .provider-detected-models-heading > .astryx-select {
+  min-width: 180px;
+  flex: 0 1 220px;
+}
+
 .settings-page .provider-detected-models-heading-actions {
   display: flex;
   flex: 0 0 auto;
+  margin-left: auto;
   gap: 4px;
 }
 
+/* Three flexible columns fill the row: a fixed card width leaves the right of
+   the row empty, and three is what the pane is wide enough for by default. The
+   row height is fixed so the six-row cap below lands exactly. */
 .settings-page .codex-official-models,
 .settings-page .provider-detected-models {
+  /* 20px line + 16px padding + 2px border, pinned so the fixed row height the
+     six-row cap is computed from can never disagree with the card. */
+  --model-card-row: 38px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 240px));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: var(--model-card-row);
   gap: 8px;
+  max-height: calc(6 * var(--model-card-row) + 5 * 8px);
   margin-top: 8px;
+  overflow-y: auto;
 }
 
 .settings-page .codex-official-models label,
 .settings-page .provider-detected-models label {
   display: flex;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 8px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   color: var(--text-strong);
   font-size: 0.75rem;
+  line-height: 20px;
 }
 
 .settings-page .codex-official-models input[type='checkbox'],
 .settings-page .provider-detected-models input[type='checkbox'] {
   flex: 0 0 auto;
-  margin-top: 2px;
   accent-color: hsl(var(--primary));
 }
 
 .settings-page .codex-official-models label > span,
 .settings-page .provider-detected-models label > span {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 1px;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.settings-page .codex-official-models label > span > strong,
+.settings-page .provider-detected-models label > span > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-page .codex-official-models code,
 .settings-page .provider-detected-models code {
+  min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -9721,6 +9850,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (max-width: 980px) {
+  .settings-page .codex-official-models,
+  .settings-page .provider-detected-models {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settings-page .codex-custom-models > li {
     grid-template-columns: repeat(2, minmax(0, 240px));
   }
@@ -9729,7 +9863,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 @media (max-width: 620px) {
   .settings-page .codex-official-models,
   .settings-page .provider-detected-models {
-    grid-template-columns: minmax(0, 240px);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-page .codex-custom-models > li {
@@ -13246,6 +13380,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .canvas-surface .canvas-session-window.canvas-window-slotted {
   background: hsl(var(--canvas-window-slot) / 0.14);
+}
+
+.legacy-design .session-monitor-slotted {
+  background-color: hsl(var(--monitor-window-slot) / 0.14);
+  border-color: hsl(var(--monitor-window-slot) / 0.7);
 }
 
 .canvas-surface

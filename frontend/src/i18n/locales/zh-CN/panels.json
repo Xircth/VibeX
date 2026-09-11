@@ -3,7 +3,8 @@
     "pickFolderTitle": "选择项目文件夹",
     "title": "文件管理器",
     "noFolderSelected": "未选择文件夹",
-    "openFolder": "打开文件夹"
+    "openFolder": "打开文件夹",
+    "autoOpenSkipped": "另有 {{count}} 个新增文件未自动打开"
   },
   "logsPanel": {
     "selectWorkspaceToViewLogs": "选择一个工作区以查看日志"

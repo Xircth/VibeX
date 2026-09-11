@@ -96,15 +96,85 @@ describe('agent workbench store', () => {
       },
     };
 
-    const state = reduceAgentEvent(
-      reduceAgentEvent(emptyAgentWorkbenchState(), started),
-      finished
+    const created: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_created',
+        snapshot: {
+          id: 'session',
+          connection_id: 'connection',
+          acp_session_id: 'acp',
+          status: 'ready',
+          queued_prompt_ids: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    };
+    const startedWithSession: AgentEventEnvelope = {
+      ...started,
+      sequence: 2,
+    };
+    const finishedAfterStart: AgentEventEnvelope = {
+      ...finished,
+      sequence: 3,
+    };
+    const running = reduceAgentEvent(
+      reduceAgentEvent(emptyAgentWorkbenchState(), created),
+      startedWithSession
     );
+    expect(running.sessions.session?.active_prompt_id).toBe('prompt');
+
+    const state = reduceAgentEvent(running, finishedAfterStart);
 
     expect(state.prompts.prompt?.status).toEqual({
       kind: 'completed',
       stop_reason: 'end_turn',
     });
+    expect(state.sessions.session?.active_prompt_id).toBeNull();
+  });
+
+  it('clears a stuck active prompt when the agent reports an error', () => {
+    const created: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_created',
+        snapshot: {
+          id: 'session',
+          connection_id: 'connection',
+          acp_session_id: 'acp',
+          status: 'running',
+          active_prompt_id: 'prompt',
+          queued_prompt_ids: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    };
+    const failed: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'error',
+        error: { message: 'internal error' },
+      },
+    };
+    const state = reduceAgentEvent(
+      reduceAgentEvent(emptyAgentWorkbenchState(), created),
+      failed
+    );
+    expect(state.sessions.session?.active_prompt_id).toBeNull();
   });
 
   it('keeps transcript events by session scope', () => {

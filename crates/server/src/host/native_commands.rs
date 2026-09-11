@@ -111,6 +111,7 @@ struct DevicePollArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PluginSpecArgs {
+    agent_id: Option<AgentId>,
     spec: Option<String>,
     name: Option<String>,
     names: Option<Vec<String>>,
@@ -119,6 +120,7 @@ struct PluginSpecArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderIdArgs {
+    agent_id: Option<AgentId>,
     provider_id: String,
 }
 
@@ -687,8 +689,12 @@ pub async fn dispatch_grok_plugin_remove(
     serialize(view)
 }
 
-pub async fn dispatch_opencode_plugin_list(pool: &SqlitePool) -> Result<Value, ApplicationError> {
-    let paths = opencode_paths(pool).await?;
+pub async fn dispatch_opencode_plugin_list(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let agent_id = optional_coding_agent_id(args)?;
+    let paths = coding_cli_paths(pool, &agent_id).await?;
     serialize(opencode_plugins::check_plugins(&paths.config_path, &paths.cache_dir).map_err(bad)?)
 }
 
@@ -697,11 +703,13 @@ pub async fn dispatch_opencode_plugin_install(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let args: PluginSpecArgs = parse(args).unwrap_or(PluginSpecArgs {
+        agent_id: None,
         spec: None,
         name: None,
         names: None,
     });
-    let paths = opencode_paths(pool).await?;
+    let agent_id = coding_agent_id(args.agent_id)?;
+    let paths = coding_cli_paths(pool, &agent_id).await?;
     let view = opencode_plugins::install_missing(paths.config_path, paths.cache_dir, args.names)
         .await
         .map_err(bad)?;
@@ -718,7 +726,8 @@ pub async fn dispatch_opencode_plugin_add(
         .spec
         .or(args.name)
         .ok_or_else(|| bad("缺少插件 spec"))?;
-    let paths = opencode_paths(pool).await?;
+    let agent_id = coding_agent_id(args.agent_id)?;
+    let paths = coding_cli_paths(pool, &agent_id).await?;
     let view = opencode_plugins::add_plugin(paths.config_path, paths.cache_dir, spec)
         .await
         .map_err(bad)?;
@@ -732,7 +741,8 @@ pub async fn dispatch_opencode_plugin_uninstall(
 ) -> Result<Value, ApplicationError> {
     let args: PluginSpecArgs = parse(args)?;
     let name = args.name.or(args.spec).ok_or_else(|| bad("缺少插件名"))?;
-    let paths = opencode_paths(pool).await?;
+    let agent_id = coding_agent_id(args.agent_id)?;
+    let paths = coding_cli_paths(pool, &agent_id).await?;
     let view = opencode_plugins::uninstall(paths.config_path, paths.cache_dir, name)
         .await
         .map_err(bad)?;
@@ -760,8 +770,10 @@ pub async fn dispatch_opencode_provider_catalog(args: Value) -> Result<Value, Ap
 
 pub async fn dispatch_opencode_provider_connections(
     pool: &SqlitePool,
+    args: Value,
 ) -> Result<Value, ApplicationError> {
-    let (auth, config) = load_opencode_documents(pool).await?;
+    let agent_id = optional_coding_agent_id(args)?;
+    let (auth, config) = load_coding_cli_documents(pool, &agent_id).await?;
     serialize(opencode_providers::project_opencode_provider_connections(
         &auth, &config,
     ))
@@ -771,8 +783,9 @@ pub async fn dispatch_opencode_provider_connect(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let agent_id = optional_coding_agent_id(args.clone())?;
     let request: OpenCodeProviderConnectRequest = parse_request(args)?;
-    mutate_opencode_documents(pool, |auth, config| {
+    mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
         opencode_providers::apply_opencode_provider_connection(auth, config, &request)
     })
     .await
@@ -782,13 +795,9 @@ pub async fn dispatch_opencode_provider_disconnect(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ProviderIdArgs {
-        provider_id: String,
-    }
     let args: ProviderIdArgs = parse(args)?;
-    mutate_opencode_documents(pool, |auth, config| {
+    let agent_id = coding_agent_id(args.agent_id)?;
+    mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
         opencode_providers::disconnect_opencode_provider(auth, config, &args.provider_id)
     })
     .await
@@ -801,12 +810,14 @@ pub async fn dispatch_opencode_provider_set_enabled(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct SetEnabledArgs {
+        agent_id: Option<AgentId>,
         provider_id: String,
         enabled: bool,
     }
     let args: SetEnabledArgs = parse(args)?;
+    let agent_id = coding_agent_id(args.agent_id)?;
     opencode_providers::validate_opencode_provider_id(&args.provider_id).map_err(bad)?;
-    mutate_opencode_documents(pool, |auth, config| {
+    mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
         if !opencode_providers::provider_exists(auth, config, &args.provider_id) {
             return Err("OpenCode Provider 不存在".to_string());
         }
@@ -821,7 +832,7 @@ pub async fn dispatch_opencode_provider_import(
 ) -> Result<Value, ApplicationError> {
     let request: AgentModelProviderImportRequest = parse_request(args)?;
     let home = require_home()?;
-    let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
+    let agent_id = coding_agent_id(Some(request.agent_id.clone()))?;
     let selected: std::collections::HashSet<&str> =
         request.source_ids.iter().map(String::as_str).collect();
     let drafts = match request.source {
@@ -832,7 +843,7 @@ pub async fn dispatch_opencode_provider_import(
         }
         AgentModelProviderImportSource::Native => Vec::new(),
     };
-    mutate_opencode_documents(pool, |auth, config| {
+    mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
         for draft in &drafts {
             if !selected.contains(draft.source_id.as_str()) || draft.skip_reason.is_some() {
                 continue;
@@ -870,8 +881,32 @@ pub async fn dispatch_opencode_provider_import(
     .await
 }
 
-async fn load_opencode_documents(pool: &SqlitePool) -> Result<(Value, Value), ApplicationError> {
-    let paths = opencode_paths(pool).await?;
+fn coding_agent_id(agent_id: Option<AgentId>) -> Result<AgentId, ApplicationError> {
+    let agent_id = match agent_id {
+        Some(agent_id) => agent_id,
+        None => AgentId::parse("opencode").map_err(internal_error)?,
+    };
+    match agent_id.as_str() {
+        "opencode" | "mimo_code" => Ok(agent_id),
+        _ => Err(bad("此 Agent 没有 OpenCode 形态的 Provider / 插件配置")),
+    }
+}
+
+fn optional_coding_agent_id(args: Value) -> Result<AgentId, ApplicationError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct OptionalAgent {
+        agent_id: Option<AgentId>,
+    }
+    let parsed: OptionalAgent = parse(args).unwrap_or(OptionalAgent { agent_id: None });
+    coding_agent_id(parsed.agent_id)
+}
+
+async fn load_coding_cli_documents(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<(Value, Value), ApplicationError> {
+    let paths = coding_cli_paths(pool, agent_id).await?;
     let auth = read_json_object_or_empty(&paths.auth_path)
         .await
         .map_err(bad)?;
@@ -881,11 +916,12 @@ async fn load_opencode_documents(pool: &SqlitePool) -> Result<(Value, Value), Ap
     Ok((auth, config))
 }
 
-async fn mutate_opencode_documents(
+async fn mutate_coding_cli_documents(
     pool: &SqlitePool,
+    agent_id: &AgentId,
     mutate: impl FnOnce(&mut Value, &mut Value) -> Result<(), String>,
 ) -> Result<Value, ApplicationError> {
-    let paths = opencode_paths(pool).await?;
+    let paths = coding_cli_paths(pool, agent_id).await?;
     let (mut auth, auth_original) = read_json_object_state(&paths.auth_path)
         .await
         .map_err(bad)?;
@@ -1023,7 +1059,7 @@ fn map_native_config_view(
     agent_id: AgentId,
     snapshot: agents::NativeConfigSnapshot,
 ) -> AgentNativeConfigView {
-    let settings_features = BuiltInProfileCatalog::bundled()
+    let settings_features = BuiltInProfileCatalog::management()
         .profile(&agent_id)
         .map(|profile| profile.settings_features.to_vec())
         .unwrap_or_default();
@@ -1108,24 +1144,38 @@ struct OpenCodePaths {
     cache_dir: PathBuf,
 }
 
-async fn opencode_paths(pool: &SqlitePool) -> Result<OpenCodePaths, ApplicationError> {
-    let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
-    let env = env_for(pool, &agent_id).await?;
-    let config_dir = agents::metadata::opencode_config_dir_from_env(&env)
-        .ok_or_else(|| bad("用户目录不可用"))?;
-    let primary = config_dir.join("opencode.json");
-    let legacy = config_dir.join("config.json");
-    Ok(OpenCodePaths {
-        auth_path: agents::metadata::opencode_auth_path_from_env(&env)
-            .ok_or_else(|| bad("用户目录不可用"))?,
-        config_path: if !primary.is_file() && legacy.is_file() {
-            legacy
-        } else {
-            primary
-        },
-        cache_dir: agents::metadata::opencode_cache_dir_from_env(&env)
-            .ok_or_else(|| bad("用户目录不可用"))?,
-    })
+async fn coding_cli_paths(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<OpenCodePaths, ApplicationError> {
+    let env = env_for(pool, agent_id).await?;
+    match agent_id.as_str() {
+        "mimo_code" => Ok(OpenCodePaths {
+            auth_path: agents::metadata::mimo_auth_path_from_env(&env)
+                .ok_or_else(|| bad("用户目录不可用"))?,
+            config_path: agents::metadata::mimo_config_path_from_env(&env)
+                .ok_or_else(|| bad("用户目录不可用"))?,
+            cache_dir: agents::metadata::mimo_cache_dir_from_env(&env)
+                .ok_or_else(|| bad("用户目录不可用"))?,
+        }),
+        _ => {
+            let config_dir = agents::metadata::opencode_config_dir_from_env(&env)
+                .ok_or_else(|| bad("用户目录不可用"))?;
+            let primary = config_dir.join("opencode.json");
+            let legacy = config_dir.join("config.json");
+            Ok(OpenCodePaths {
+                auth_path: agents::metadata::opencode_auth_path_from_env(&env)
+                    .ok_or_else(|| bad("用户目录不可用"))?,
+                config_path: if !primary.is_file() && legacy.is_file() {
+                    legacy
+                } else {
+                    primary
+                },
+                cache_dir: agents::metadata::opencode_cache_dir_from_env(&env)
+                    .ok_or_else(|| bad("用户目录不可用"))?,
+            })
+        }
+    }
 }
 
 #[cfg(test)]

@@ -22,6 +22,8 @@ import {
 } from '@/hooks/usePluginHostContributions';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
+import { useAppContextMenu } from '@/components/context-menu';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { Command, type LucideIcon } from 'lucide-react';
 
@@ -51,6 +53,7 @@ export function SearchPalette() {
   } = useSearchStore();
 
   const { t } = useTranslation(['panels', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
   const { openFilePreview } = usePanelActionsContext();
   const pluginCommands = usePluginHostContributions('command');
   const transport = useBackendTransport();
@@ -300,6 +303,28 @@ export function SearchPalette() {
                   index === paletteSelectedIndex ? 'is-active' : ''
                 }`}
                 onClick={() => handleSelect(result)}
+                onContextMenu={(event) => {
+                  event.stopPropagation();
+                  openSurfaceMenu(event, [
+                    {
+                      id: 'open',
+                      label: t('common:contextMenu.open'),
+                      onSelect: () => handleSelect(result),
+                    },
+                    {
+                      id: 'copy',
+                      label:
+                        result.kind === 'conversation'
+                          ? t('common:contextMenu.copyTitle')
+                          : t('common:contextMenu.copyPath'),
+                      onSelect: () => {
+                        void writeClipboardViaBridge(
+                          result.filePath ?? result.subtitle ?? result.title
+                        );
+                      },
+                    },
+                  ]);
+                }}
               >
                 {result.kind === 'file' ? (
                   <File className="h-4 w-4 text-muted-foreground shrink-0" />

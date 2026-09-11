@@ -159,6 +159,14 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: &[],
             default_mode: "official_subscription",
         }),
+        "mimo_code" => Some(BuiltInAuthModePolicy {
+            mode_env: "MIMO_AUTH_MODE",
+            credential_env: "MIMO_API_KEY",
+            modes: MIMO_MODES,
+            credential_modes: MIMO_CREDENTIAL_MODES,
+            subscription_scrub_env: MIMO_SCRUB_ENV,
+            default_mode: "official_subscription",
+        }),
         _ => None,
     }
 }
@@ -173,6 +181,9 @@ const CLINE_MODES: &[&str] = &["official_subscription", "official_api", "model_p
 const CLINE_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const CODEBUDDY_MODES: &[&str] = &["official_subscription"];
 const QODER_MODES: &[&str] = &["official_subscription"];
+const MIMO_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const MIMO_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const MIMO_SCRUB_ENV: &[&str] = &["MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
 const PI_MODES: &[&str] = &["model_provider"];
 const OPENCLAW_MODES: &[&str] = &["model_provider"];
 
@@ -649,6 +660,24 @@ mod tests {
             AgentAuthModeKind::Subscription
         );
         assert_eq!(official_api_url(&qoder, "official_subscription"), None);
+
+        let mimo = AgentId::parse("mimo_code").unwrap();
+        assert_eq!(
+            built_in_auth_mode_policy(&mimo).unwrap().modes,
+            ["official_subscription", "official_api", "model_provider"]
+        );
+        assert_eq!(
+            auth_mode_kind(&mimo, "official_subscription"),
+            AgentAuthModeKind::Subscription
+        );
+        assert_eq!(
+            auth_mode_kind(&mimo, "official_api"),
+            AgentAuthModeKind::OfficialApi
+        );
+        assert_eq!(
+            auth_mode_kind(&mimo, "model_provider"),
+            AgentAuthModeKind::Provider
+        );
     }
 
     #[test]

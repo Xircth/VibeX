@@ -356,12 +356,21 @@ impl HeadlessServer {
         .reconcile_interrupted()
         .await
         .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
-        let (delegation_runtime, companion_memory) = HeadlessDelegationRuntime::start(
-            agent_runtime.clone(),
-            pool.clone(),
-            conversation_context.clone(),
-            plugin_control_plane.official_product_mcp_gate(),
-        );
+        let (delegation_runtime, companion_memory, delegation_broker) =
+            HeadlessDelegationRuntime::start(
+                agent_runtime.clone(),
+                pool.clone(),
+                conversation_context.clone(),
+                plugin_control_plane.official_product_mcp_gate(),
+            );
+        if let Err(error) = crate::host::plugin_projections::refresh_official_product_runtime_with(
+            &plugin_control_plane,
+            &delegation_broker,
+        )
+        .await
+        {
+            tracing::warn!(%error, "official product runtime sync failed");
+        }
         let host = crate::HostRuntime::build(crate::HostRuntimeParts {
             pool: pool.clone(),
             conversations: conversation_context.clone(),
@@ -381,6 +390,7 @@ impl HeadlessServer {
             terminal_bridges: None,
             agent_management_runtime: None,
             conversation_host: Some(conversation_host),
+            delegation_broker: Some(delegation_broker),
         });
         {
             let runtime = host.agent_management_runtime.clone();

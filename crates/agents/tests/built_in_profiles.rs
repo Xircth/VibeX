@@ -316,6 +316,42 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
 }
 
 #[test]
+fn mimo_code_management_profile_is_not_a_permanent_member() {
+    let bundled = BuiltInProfileCatalog::bundled();
+    let management = BuiltInProfileCatalog::management();
+    let mimo_id = AgentId::parse("mimo_code").unwrap();
+    assert!(bundled.profile(&mimo_id).is_none());
+    let mimo = management
+        .profile(&mimo_id)
+        .expect("community management profile");
+    assert_eq!(mimo.display_name, "MiMo Code");
+    assert_eq!(mimo.install_sources.len(), 1);
+    assert!(matches!(
+        &mimo.install_sources[0],
+        ProfileInstallSource::Npx {
+            package: "@mimo-ai/cli",
+            version: "0.1.14",
+            command: "mimo",
+            args,
+            ..
+        } if *args == ["acp"]
+    ));
+    assert!(
+        mimo.settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
+    );
+    assert!(
+        mimo.settings_features
+            .contains(&AgentSettingsFeature::OpenCodeProviders)
+    );
+    assert!(
+        mimo.settings_features
+            .contains(&AgentSettingsFeature::OpenCodePlugins)
+    );
+    assert_eq!(mimo.management_actions[0].args, &["auth", "login"]);
+}
+
+#[test]
 fn built_in_profiles_are_declarative_and_bind_explicitly() {
     let catalog = BuiltInProfileCatalog::bundled();
     let ids = catalog

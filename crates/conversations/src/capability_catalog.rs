@@ -163,11 +163,19 @@ fn native_model_source_dir(
     home: Option<&Path>,
 ) -> Option<PathBuf> {
     match launch_lock.agent_id.as_str() {
-        "codex" => env_dir(launch_lock, "CODEX_HOME", home, ".codex"),
-        "claude_code" => env_dir(launch_lock, "CLAUDE_CONFIG_DIR", home, ".claude"),
-        "pi" => env_dir(launch_lock, "PI_HOME", home, ".pi/agent"),
-        "grok" => env_dir(launch_lock, "GROK_HOME", home, ".grok"),
-        "openclaw" => env_dir(launch_lock, "OPENCLAW_HOME", home, ".openclaw"),
+        "codex" => env_dir(launch_lock, &["CODEX_HOME"], home, ".codex"),
+        "claude_code" => env_dir(launch_lock, &["CLAUDE_CONFIG_DIR"], home, ".claude"),
+        // Pi reads `PI_CODING_AGENT_DIR`; `PI_HOME` is not a variable pi knows.
+        // Kept as a fallback only so a lock written before this keeps hashing the
+        // directory it always did.
+        "pi" => env_dir(
+            launch_lock,
+            &["PI_CODING_AGENT_DIR", "PI_HOME"],
+            home,
+            ".pi/agent",
+        ),
+        "grok" => env_dir(launch_lock, &["GROK_HOME"], home, ".grok"),
+        "openclaw" => env_dir(launch_lock, &["OPENCLAW_HOME"], home, ".openclaw"),
         _ => None,
     }
 }
@@ -189,16 +197,17 @@ fn native_model_source_files(agent_id: &str) -> &'static [&'static str] {
 
 fn env_dir(
     launch_lock: &SessionLaunchLock,
-    key: &str,
+    keys: &[&str],
     home: Option<&Path>,
     fallback: &str,
 ) -> Option<PathBuf> {
-    if let Some(value) = launch_lock
-        .env
-        .get(key)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(value) = keys.iter().find_map(|key| {
+        launch_lock
+            .env
+            .get(*key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+    }) {
         return Some(PathBuf::from(value));
     }
     home.map(|home| home.join(fallback))
@@ -462,6 +471,38 @@ mod tests {
             runtime_version: "1.0.0".to_string(),
             acp_version: "0.8".to_string(),
         }
+    }
+
+    #[test]
+    fn pi_model_sources_follow_the_directory_pi_actually_reads() {
+        let mut lock = launch_lock();
+        lock.agent_id = AgentId::parse("pi").unwrap();
+        lock.env = BTreeMap::from([
+            (
+                "PI_CODING_AGENT_DIR".to_string(),
+                "/custom/pi-agent".to_string(),
+            ),
+            // A stale `PI_HOME` must not win over the variable pi reads.
+            ("PI_HOME".to_string(), "/legacy/pi".to_string()),
+        ]);
+        assert_eq!(
+            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
+            Some(PathBuf::from("/custom/pi-agent"))
+        );
+
+        // A lock written before VibeX read `PI_CODING_AGENT_DIR` keeps hashing
+        // the directory it always did.
+        lock.env = BTreeMap::from([("PI_HOME".to_string(), "/legacy/pi".to_string())]);
+        assert_eq!(
+            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
+            Some(PathBuf::from("/legacy/pi"))
+        );
+
+        lock.env = BTreeMap::new();
+        assert_eq!(
+            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
+            Some(PathBuf::from("/home/developer/.pi/agent"))
+        );
     }
 
     #[tokio::test]

@@ -10,6 +10,7 @@ import {
   AGENT_SETTINGS_FOCUS_KEY,
   consumeAgentSettingsFocus,
   openAgentDiagnostics,
+  openAgentSettings,
 } from './agentSettingsFocus';
 
 describe('agent settings focus', () => {
@@ -26,5 +27,14 @@ describe('agent settings focus', () => {
       focusDiagnostics: true,
     });
     expect(localStorage.getItem(AGENT_SETTINGS_FOCUS_KEY)).toBeNull();
+  });
+
+  it('opens the matching Agent settings page for an ACP update', () => {
+    openAgentSettings('codex');
+    expect(openSettings).toHaveBeenCalledWith('/settings/agents');
+    expect(consumeAgentSettingsFocus()).toEqual({
+      agentId: 'codex',
+      focusDiagnostics: false,
+    });
   });
 });

@@ -51,6 +51,7 @@ const FirstRunExperience = lazy(() =>
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
+import { AppContextMenuHost } from '@/components/context-menu';
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
@@ -311,7 +312,9 @@ function App() {
                 <SequenceTrackerProvider>
                   <GlobalShortcutActionBridge />
                   <PluginContributionBridge />
-                  <AppContent />
+                  <AppContextMenuHost>
+                    <AppContent />
+                  </AppContextMenuHost>
                   <SequenceIndicator />
                 </SequenceTrackerProvider>
               </HotkeysProvider>

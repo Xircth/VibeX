@@ -13,3 +13,6 @@
 [submodule "assets/plugins/workflow-creator"]
 	path = assets/plugins/workflow-creator
 	url = https://github.com/Xircth/vibex-plugin-workflow-creator.git
+[submodule "assets/plugins/science"]
+	path = assets/plugins/science
+	url = https://github.com/Xircth/vibex-plugin-science.git

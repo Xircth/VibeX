@@ -18,6 +18,7 @@ describe('AgentIcon', () => {
       'DeepSeek Harness',
       '/agents/deepseek-harness-light.svg',
     ],
+    ['mimo_code', 'MiMo Code', '/agents/mimo-code-light.svg'],
   ])('renders the real %s artwork', (agent, name, src) => {
     render(<AgentIcon agent={agent} />);
 
@@ -59,6 +60,7 @@ describe('AgentIcon', () => {
       '/agents/deepseek-harness-light.svg',
     ],
     ['gemini', 'Google Antigravity', '/agents/antigravity.svg'],
+    ['mimo', 'MiMo Code', '/agents/mimo-code-light.svg'],
   ])('normalizes %s to built-in artwork', (agent, name, src) => {
     render(<AgentIcon agent={agent} />);
 

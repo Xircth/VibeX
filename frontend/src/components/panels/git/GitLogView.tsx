@@ -287,6 +287,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, entry: GitLogEntry) => {
       e.preventDefault();
+      e.stopPropagation();
       setContextMenu({ x: e.clientX, y: e.clientY, entry });
     },
     []

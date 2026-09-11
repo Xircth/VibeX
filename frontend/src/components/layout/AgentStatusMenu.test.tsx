@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
 import { AgentStatusMenu } from './AgentStatusMenu';
@@ -71,6 +71,45 @@ describe('AgentStatusMenu', () => {
     expect(within(list).queryByText('OpenCode')).not.toBeInTheDocument();
   });
 
+  it('omits uninstalled Agents from the enabled status list', () => {
+    render(
+      <AgentStatusMenu
+        agents={[
+          ...agents,
+          agent({
+            agent_id: 'pi',
+            display_name: 'Pi',
+            lifecycle: 'uninstalled',
+            position: 3,
+          }),
+          agent({
+            agent_id: 'cursor',
+            display_name: 'Cursor',
+            lifecycle: 'needs_auth',
+            position: 4,
+          }),
+        ]}
+        defaultAgentId="codex"
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', {
+        name: /默认 Agent：Codex，已就绪/,
+      })
+    );
+
+    const list = screen.getByRole('list');
+    expect(
+      within(list).getByText('Claude Code', { selector: 'span' })
+    ).toBeInTheDocument();
+    expect(
+      within(list).getByText('Cursor', { selector: 'span' })
+    ).toBeInTheDocument();
+    expect(within(list).queryByText('Pi')).not.toBeInTheDocument();
+    expect(within(list).queryByText('OpenCode')).not.toBeInTheDocument();
+  });
+
   it('also expands for keyboard focus', () => {
     render(<AgentStatusMenu agents={agents} defaultAgentId="codex" />);
 
@@ -81,5 +120,39 @@ describe('AgentStatusMenu', () => {
 
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('list')).toBeInTheDocument();
+  });
+
+  it('shows an update cue and opens the matching Agent settings page', () => {
+    const onOpenAgentSettings = vi.fn();
+    render(
+      <AgentStatusMenu
+        agents={agents}
+        defaultAgentId="codex"
+        updatableAgentIds={new Set(['claude_code'])}
+        onOpenAgentSettings={onOpenAgentSettings}
+      />
+    );
+
+    const trigger = screen.getByRole('button', {
+      name: /默认 Agent：Codex，已就绪，有更新/,
+    });
+    expect(within(trigger).getByText('有更新')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '可更新' })).toBeNull();
+
+    fireEvent.mouseEnter(trigger);
+
+    const claudeRow = screen.getByRole('listitem', { name: /Claude Code/ });
+    const updateButton = within(claudeRow).getByRole('button', {
+      name: '可更新',
+    });
+    expect(
+      within(screen.getByRole('listitem', { name: /Codex/ })).queryByRole(
+        'button',
+        { name: '可更新' }
+      )
+    ).toBeNull();
+
+    fireEvent.click(updateButton);
+    expect(onOpenAgentSettings).toHaveBeenCalledWith('claude_code');
   });
 });

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+} from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -19,6 +25,9 @@ import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { paths } from '@/lib/paths';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+import { useAppContextMenu } from '@/components/context-menu';
+import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
+import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import { useKanbanSessionMutations } from '@/components/kanban/session-hub/useKanbanSessionMutations';
 import {
@@ -28,6 +37,7 @@ import {
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
 import {
+  sessionListTitle,
   sessionMatchesQuery,
   toggleSessionListSort,
   type SessionListSortSpec,
@@ -365,8 +375,31 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     setIsDeletingSessions(false);
   };
 
+  const { openSurfaceMenu } = useAppContextMenu();
+
   const handleCreateSession = () => {
     requestCreateSessionInExecutionArea(setSearchParams, searchParams);
+  };
+
+  const handleBlankContextMenu = (event: MouseEvent<HTMLElement>) => {
+    openSurfaceMenu(
+      event,
+      buildSessionListBlankMenu({
+        t,
+        onSort: (key) => {
+          setSortSpecs((current) => toggleSessionListSort(current, key));
+        },
+        onCreateSession: handleCreateSession,
+        onExportPack: () => {
+          void exportProjectConversationPack(
+            visibleSessions.map((session) => ({
+              id: session.id,
+              title: sessionListTitle(session),
+            }))
+          );
+        },
+      })
+    );
   };
 
   const emptyMessage = searchQuery.trim()
@@ -401,7 +434,10 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
           }}
           onClearSort={() => setSortSpecs([])}
         />
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-0.5">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-0.5"
+          onContextMenu={handleBlankContextMenu}
+        >
           {!isLoading && visibleSessions.length === 0 && emptyMessage ? (
             <div className="flex h-full items-center justify-center px-5 text-center text-sm text-muted-foreground">
               {emptyMessage}

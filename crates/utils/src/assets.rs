@@ -497,6 +497,7 @@ mod tests {
             super::BuiltinPluginAssets::get("provider-import/.vibex-plugin/plugin.json").is_none()
         );
         assert!(super::BuiltinPluginAssets::get("office/.vibex-plugin/plugin.json").is_some());
+        assert!(super::BuiltinPluginAssets::get("science/.vibex-plugin/plugin.json").is_some());
     }
 
     #[test]
@@ -522,6 +523,7 @@ mod tests {
                 "vibex.office",
                 "vibex.plugin-development",
                 "vibex.remote-ssh",
+                "vibex.science",
                 "vibex.session-enhance",
                 "vibex.workflow-creator",
             ]
@@ -562,7 +564,7 @@ mod tests {
             roots.iter().any(|root| root == &extra),
             "already materialized packages must stay visible to Host import"
         );
-        assert_eq!(roots.len(), 7);
+        assert_eq!(roots.len(), 8);
     }
 
     #[test]

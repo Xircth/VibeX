@@ -16,7 +16,11 @@ import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
 } from './SessionComposerInput';
-import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
+import {
+  formatQuoteToken,
+  formatSessionComposerCommand,
+} from './sessionComposerStructuredTokens';
+import { requestComposerTokenInsert } from '@/lib/composerInsert';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
 import { tagsApi } from '@/lib/api';
@@ -744,6 +748,106 @@ describe('SessionComposerInput (Astryx)', () => {
         '[@:App.tsx](src/App.tsx)'
       );
       expect(token).toHaveTextContent('@App.tsx');
+    });
+  });
+
+  it('restores a quote token as a truncated @ chip and shows full text on hover', async () => {
+    const quote = formatQuoteToken('请你帮我完成这次修改');
+    renderComposerInput({ value: `See ${quote}` });
+
+    const editor = getEditor();
+    const token = await waitFor(() => {
+      const restoredToken = editor.querySelector<HTMLElement>(
+        '[data-token-kind="quote"]'
+      );
+      expect(restoredToken).not.toBeNull();
+      return restoredToken!;
+    });
+
+    expect(token).toHaveTextContent('@请你帮我...');
+    fireEvent.pointerOver(token);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('请你帮我完成这次修改');
+    expect(tooltip).toHaveClass('quote-token-preview');
+    expect(tooltip.className).toMatch(/overflow-y-auto/);
+  });
+
+  it('inserts a quote token from an external insert request', async () => {
+    const onChange = vi.fn();
+    renderComposerInput({ onChange });
+    const editor = getEditor();
+    await waitFor(() => {
+      expect(editor).toBeInTheDocument();
+    });
+
+    act(() => {
+      requestComposerTokenInsert({
+        value: formatQuoteToken('请你帮我完成这次修改'),
+        label: '@请你帮我...',
+      });
+    });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+    const nextValue = onChange.mock.calls.at(-1)?.[0] as string;
+    expect(nextValue).toContain(formatQuoteToken('请你帮我完成这次修改'));
+  });
+
+  it('keeps a quoted token on the first line of an empty composer', async () => {
+    const quote = formatQuoteToken('请你帮我完成这次修改');
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={vi.fn()}
+            onAttachImages={vi.fn()}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+    editor.replaceChildren(document.createElement('br'));
+
+    act(() => {
+      requestComposerTokenInsert({
+        value: quote,
+        label: '@请你帮我...',
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('status', { name: 'Composer value' })
+      ).toHaveTextContent(quote);
+    });
+    expect(
+      screen
+        .getByRole('status', { name: 'Composer value' })
+        .textContent?.startsWith('\n')
+    ).toBe(false);
+
+    await waitFor(() => {
+      const token = editor.querySelector<HTMLElement>(
+        '[data-token-kind="quote"]'
+      );
+      expect(token).not.toBeNull();
+      expect(token?.previousElementSibling).toBeNull();
+      expect(token?.previousSibling?.textContent ?? '').not.toMatch(/^\n/);
     });
   });
 

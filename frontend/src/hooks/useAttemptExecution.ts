@@ -88,12 +88,13 @@ export function useAttemptExecution(
         await attemptsApi.stop(attemptId);
       }
     } catch (error) {
-      setIsStopping(false);
       if (attemptId) {
         clearStopToastSuppression(attemptId);
       }
       console.error('Failed to stop executions:', error);
       throw error;
+    } finally {
+      setIsStopping(false);
     }
   }, [
     attemptId,

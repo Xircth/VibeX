@@ -145,6 +145,11 @@
       "status": "状态分组视图",
       "workspace": "工作区分组视图"
     },
+    "autoOpenCreatedPreviews": {
+      "title": "新增文件预览",
+      "description": "停留在工作区页面时，自动打开新增 SVG 或 HTML 文件的预览。",
+      "label": "自动打开预览"
+    },
     "kanbanBoardStyle": {
       "title": "会话看板样式",
       "description": "选择会话监控与执行区的呈现方式。",
@@ -814,6 +819,57 @@
         "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
         "readme": "# Remote SSH\n\n在能 SSH 登录的服务器上安装 VibeX Server，经隧道加入远程连接列表并把应用接到该 Host。\n\n卸载后已保存的 SSH Host 默认保留。",
         "config": {}
+      },
+      "science": {
+        "name": "科学研究",
+        "summary": "146 项科研技能，按 10 个领域分组。默认只注入「通用科研方法」13 项，其余领域在插件配置中按需开启。",
+        "readme": "# 科学研究\n\n把科研技能按领域开关注入 Agent。默认只开「通用科研方法」13 项；其余 133 项要在本页打开对应领域。\n\n启用后，打开的领域会投影到 `~/.vibex/skills/.plugins/vibex.science/`，再链到各 Agent 的技能目录。新开或重新绑定的会话才会带上。\n\n技能文本随包分发。技能里的 Python 脚本是否执行、装什么依赖，由会话里的 Agent 决定。本插件不预装 Python 环境。\n\n关掉某个领域时，该领域已投影的技能会从 Agent 目录里移除；同名的、不属于本插件的技能不会被覆盖或删除。",
+        "config": {
+          "domains": {
+            "title": "技能领域",
+            "description": "按领域启用技能。关闭的领域不会把技能注入任何 Agent；默认只启用「通用科研方法」。"
+          },
+          "general": {
+            "title": "通用科研方法",
+            "description": "选题构思、假设、实验设计、统计功效与检验、探索性数据分析、科学可视化、批判性思维、文献检索、同行评审、引文管理、成果评估、科研示意图。默认开启。（13 项技能）"
+          },
+          "literature": {
+            "title": "文献检索与信息获取",
+            "description": "跨学术文献、网页、公共数据库与本体/知识图谱检索可复现证据，返回可追溯来源。（12 项技能）"
+          },
+          "writing": {
+            "title": "科研写作与出版传播",
+            "description": "论文/报告/标书撰写、投稿模板、会议海报与幻灯片、图文表达、文档解析转换。（11 项技能）"
+          },
+          "stats": {
+            "title": "统计、数据科学与机器学习",
+            "description": "统计建模与推断、生存分析、时间序列、图网络、降维、经典 ML、深度学习框架、GNN、强化学习与可解释性、符号计算。（19 项技能）"
+          },
+          "infra": {
+            "title": "数据工程与计算基础设施",
+            "description": "大表/大数组存储、分布式计算、云 GPU 与 HPC 流水线、GPU 加速与资源探测，以及科研 AI/智能体自动化工具。（17 项技能）"
+          },
+          "singlecell": {
+            "title": "单细胞与转录组分析",
+            "description": "单细胞与 bulk 转录组标准链路：数据格式、QC/聚类/降维、RNA velocity、生成式整合、差异表达、通路富集、GRN 推断、群体图谱查询。（10 项技能）"
+          },
+          "genomics": {
+            "title": "基因组学与序列变异分析",
+            "description": "基因组区间与变异处理、比对与文件 I/O、坐标/装配转换、变异存储与人群队列查询、DNA 语言模型、病原体变异监测、肿瘤体细胞流程、系统发生分析。（16 项技能）"
+          },
+          "chemistry": {
+            "title": "化学信息学与药物发现",
+            "description": "小分子与生物大分子建模：化学信息学工具链、药化规则筛选、分子特征化、质谱/组学分析、分子性质与毒性 ML、分子对接、蛋白语言模型、结合实验 API、分子动力学。（14 项技能）"
+          },
+          "medicine": {
+            "title": "医学、临床与生物医学影像",
+            "description": "临床决策支持与报告、治疗与 PK/PD 建模、动物实验严重度评估、DICOM/病理切片/显微影像、神经电生理与生理信号，以及 ELN/LIMS/协议库、实验室机器人自动化与法规合规。（21 项技能）"
+          },
+          "physics": {
+            "title": "物理、材料、地球与工程仿真",
+            "description": "量子计算与量子系统模拟、天文与天体物理、材料结构分析、CFD/PIV/离散事件仿真、多目标工程优化、地理空间与遥感、实验硬件 CAD。（13 项技能）"
+          }
+        }
       }
     },
     "contentTab": "内容",
@@ -1799,6 +1855,9 @@
     "authDescClineProvider": "为 Cline 配置 BYOK Provider。",
     "authDescCodebuddySubscription": "登录腾讯云 CodeBuddy 账号。",
     "authDescQoderSubscription": "登录 Qoder 账号。",
+    "authDescMimoSubscription": "使用小米 MiMo 账号登录。",
+    "authDescMimoOfficialApi": "使用小米 MiMo 官方 API Key。",
+    "authDescMimoProvider": "在 MiMo Code 中连接目录或自定义 OpenAI 兼容供应商。",
     "qoderTokenLabel": "QODER_PERSONAL_ACCESS_TOKEN",
     "qoderTokenPlaceholder": "个人访问令牌",
     "qoderTokenHint": "无浏览器环境使用同一账号的个人访问令牌。",
@@ -1976,6 +2035,8 @@
     "providerModelCustomId": "自定义选项 ID",
     "providerModelCustomName": "自定义选项名称",
     "providerModelCustomDescription": "自定义选项说明",
+    "providerModelCustomOption": "自定义模型 ID…",
+    "providerModelUseList": "从已启用模型中选择",
     "providerModelFieldAria": "Provider {{label}}",
     "providerDetectModels": "检测模型",
     "providerDetectingModels": "正在检测模型…",

@@ -32,6 +32,7 @@ import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import type { PreviewPanelParams } from '@/types/panels';
 import {
   deriveRelativeFilePath,
+  isAbsoluteFilePath,
   resolveFilePathFromRoot,
 } from '@/utils/filePaths';
 import {
@@ -40,17 +41,24 @@ import {
   MONACO_THEME_AYU_LIGHT,
 } from '@/utils/monacoThemes';
 import {
+  defaultRenderedPreview,
+  getFilePreviewForm,
   getFilePreviewKind,
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
+import { isTauriDesktopShell } from '@/utils/platform';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 import { toast } from '@/components/ui/toast';
+import { useAppContextMenu } from '@/components/context-menu';
+import { copyImageFromSrc, saveImageFromSrc } from '@/lib/previewMediaActions';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { fileTreeApi } from '@/lib/api';
 import { fileToBase64 } from '@/lib/api/misc';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
 import { insertPastedImagesAsMarkdown } from '@/utils/markdownImagePaste';
 import { FilePreviewLoading } from './FilePreviewLoading';
+import { HostHtmlPreview } from '@/components/previews/HostHtmlPreview';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PluginFilePreview } from '@/components/previews/PluginFilePreview';
 import { PluginArtifactEditor } from '@/components/previews/PluginArtifactEditor';
@@ -110,11 +118,6 @@ function getLanguageFromPath(filePath: string): string {
   return langMap[ext] || 'plaintext';
 }
 
-function isMarkdownFile(filePath: string): boolean {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-  return ext === 'md' || ext === 'mdx' || ext === 'markdown';
-}
-
 function fileExtension(filePath: string) {
   const name = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
   const index = name.lastIndexOf('.');
@@ -166,10 +169,13 @@ function ContentLoadingFallback({ label }: { label: string }) {
   );
 }
 
-const markdownRenderStateMap = new Map<string, boolean>();
+/** Remembered rendered/source choice per file, so a tab keeps its view. */
+const renderStateMap = new Map<string, boolean>();
 
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
-  const { t } = useTranslation('conversation');
+  const { t } = useTranslation(['conversation', 'common']);
+  const { openSurfaceMenu } = useAppContextMenu();
+  const markdownScrollRef = useRef<HTMLDivElement>(null);
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
   const filePath = params.filePath ?? null;
   const displayPath = params.displayPath ?? null;
@@ -263,7 +269,30 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     );
   }, [displayPath, filePath, resolvedFilePath, rootPath]);
 
-  const isMd = filePath ? isMarkdownFile(filePath) : false;
+  const previewForm = useMemo(() => {
+    const form = filePath ? getFilePreviewForm(filePath) : null;
+    // The HTML form renders through the desktop webview's asset protocol; a web
+    // or remote-desktop client has no local filesystem to serve it from.
+    return form === 'html' && !isTauriDesktopShell() ? null : form;
+  }, [filePath]);
+  const isMd = previewForm === 'markdown';
+  const isHtml = previewForm === 'html';
+  // Assets resolve against the file's own directory, but granting the whole
+  // workspace keeps `../` references reachable from inside a project.
+  const htmlAssetRoot = useMemo(() => {
+    if (!isHtml || !resolvedFilePath || !isAbsoluteFilePath(resolvedFilePath)) {
+      return null;
+    }
+
+    if (
+      rootPath &&
+      deriveRelativeFilePath(resolvedFilePath, rootPath) !== null
+    ) {
+      return rootPath;
+    }
+
+    return dirnamePath(resolvedFilePath);
+  }, [isHtml, resolvedFilePath, rootPath]);
   // Relative image / link destinations inside a markdown file resolve against
   // the file's own directory (like GitHub), not the workspace root.
   const markdownBasePath = isMd
@@ -304,8 +333,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       : String(binaryAssetError);
   }, [binaryAssetError]);
 
+  const canToggleView =
+    previewForm !== null && effectivePreviewKind === 'text' && !isDiffMode;
   const [isRendered, setIsRendered] = useState(() =>
-    filePath ? (markdownRenderStateMap.get(filePath) ?? false) : false
+    filePath && previewForm
+      ? (renderStateMap.get(filePath) ?? defaultRenderedPreview(previewForm))
+      : false
   );
   const pathSegments = useMemo(
     () => (resolvedDisplayPath ? getPathSegments(resolvedDisplayPath) : []),
@@ -317,25 +350,33 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [filePath, requestedMode]);
 
   useEffect(() => {
-    if (filePath) {
-      setIsRendered(markdownRenderStateMap.get(filePath) ?? false);
-    }
-  }, [filePath]);
+    setIsRendered(
+      filePath && previewForm
+        ? (renderStateMap.get(filePath) ?? defaultRenderedPreview(previewForm))
+        : false
+    );
+  }, [filePath, previewForm]);
 
-  useEffect(() => {
-    if (filePath && isMd) {
-      markdownRenderStateMap.set(filePath, isRendered);
-    }
-  }, [filePath, isMd, isRendered]);
+  // The map is written only where the user chooses a view, so switching files
+  // can never record one file's choice against another.
+  const setRenderedView = useCallback(
+    (next: boolean) => {
+      setIsRendered(next);
+      if (filePath && previewForm) {
+        renderStateMap.set(filePath, next);
+      }
+    },
+    [filePath, previewForm]
+  );
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
-      if (event.button === 1 && isMd && !isDiffMode) {
+      if (event.button === 1 && canToggleView) {
         event.preventDefault();
-        setIsRendered((prev) => !prev);
+        setRenderedView(!isRendered);
       }
     },
-    [isDiffMode, isMd]
+    [canToggleView, isRendered, setRenderedView]
   );
 
   const applyReadRange = useCallback(
@@ -482,6 +523,24 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         <div
           className="flex h-full w-full items-center justify-center overflow-auto bg-muted/10 p-4"
           data-panel="preview"
+          onContextMenu={(event) => {
+            openSurfaceMenu(event, [
+              {
+                id: 'copy-image',
+                label: t('common:contextMenu.copyImage'),
+                onSelect: () => {
+                  void copyImageFromSrc(imageSource, displayPath ?? undefined);
+                },
+              },
+              {
+                id: 'save-image',
+                label: t('common:contextMenu.saveImageAs'),
+                onSelect: () => {
+                  void saveImageFromSrc(imageSource, displayPath ?? 'image');
+                },
+              },
+            ]);
+          }}
         >
           <ZoomableImagePreview
             src={imageSource}
@@ -599,11 +658,11 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             <GitCompare className="h-3 w-3" />
             {t('preview.switchToDiffView')}
           </button>
-        ) : isMd && effectivePreviewKind === 'text' ? (
+        ) : canToggleView ? (
           <button
             className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
             title="Click to toggle preview"
-            onClick={() => setIsRendered((prev) => !prev)}
+            onClick={() => setRenderedView(!isRendered)}
           >
             {isRendered ? (
               <>
@@ -620,7 +679,77 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div
+        className="min-h-0 flex-1"
+        data-context-menu-editable="ignore"
+        onContextMenu={(event) => {
+          if (pluginOpener) return;
+          if (effectivePreviewKind === 'image' && fileAssetSrc) {
+            openSurfaceMenu(event, [
+              {
+                id: 'copy-image',
+                label: t('common:contextMenu.copyImage'),
+                onSelect: () => {
+                  void copyImageFromSrc(
+                    fileAssetSrc,
+                    resolvedFilePath ?? filePath ?? undefined
+                  );
+                },
+              },
+              {
+                id: 'save-image',
+                label: t('common:contextMenu.saveImageAs'),
+                onSelect: () => {
+                  void saveImageFromSrc(
+                    fileAssetSrc,
+                    resolvedDisplayPath ?? filePath ?? 'image'
+                  );
+                },
+              },
+            ]);
+            return;
+          }
+          if (
+            effectivePreviewKind === 'binary' ||
+            effectivePreviewKind === 'pdf'
+          ) {
+            return;
+          }
+          openSurfaceMenu(event, [
+            {
+              id: 'copy-content',
+              label: t('common:contextMenu.copyFileContent'),
+              onSelect: () => {
+                const text = editorRef.current?.getValue() ?? content ?? '';
+                void writeClipboardViaBridge(text);
+              },
+            },
+            {
+              id: 'jump-bottom',
+              label: t('common:contextMenu.jumpToBottom'),
+              onSelect: () => {
+                const editor = editorRef.current;
+                if (editor) {
+                  const line = editor.getModel()?.getLineCount() ?? 1;
+                  editor.revealLine(line);
+                  return;
+                }
+                const scroller = markdownScrollRef.current;
+                if (scroller) scroller.scrollTop = scroller.scrollHeight;
+              },
+            },
+            {
+              id: 'jump-top',
+              label: t('common:contextMenu.jumpToTop'),
+              onSelect: () => {
+                editorRef.current?.revealLine(1);
+                const scroller = markdownScrollRef.current;
+                if (scroller) scroller.scrollTop = 0;
+              },
+            },
+          ]);
+        }}
+      >
         {pluginResolutionPending ? (
           <FilePreviewLoading
             fileName={resolvedDisplayPath ?? filePath}
@@ -760,6 +889,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               )}
             </div>
           )
+        ) : isHtml && isRendered && htmlAssetRoot ? (
+          <HostHtmlPreview
+            filePath={resolvedFilePath ?? filePath}
+            assetRoot={htmlAssetRoot}
+            displayPath={resolvedDisplayPath ?? filePath}
+          />
         ) : isLoading ? (
           <FilePreviewLoading
             fileName={resolvedDisplayPath ?? filePath}
@@ -780,7 +915,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               />
             }
           >
-            <div className="h-full overflow-auto px-6 py-4">
+            <div
+              ref={markdownScrollRef}
+              className="h-full overflow-auto px-6 py-4"
+            >
               <LazyMarkdown
                 value={content ?? ''}
                 workspacePath={markdownBasePath}
@@ -807,6 +945,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             onMount={handleEditorMount}
             options={{
               readOnly: false,
+              contextmenu: false,
               minimap: { enabled: false },
               fontSize: 12,
               lineNumbers: 'on',

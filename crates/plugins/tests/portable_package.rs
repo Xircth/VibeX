@@ -105,6 +105,112 @@ fn v4_product_package_reads_readme_summary_content_and_mutable_root_config() {
 }
 
 #[test]
+fn skill_domains_gate_projection_from_package_config() {
+    let root = tempfile::tempdir().expect("package root");
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.science","publisher":"dev.vibex","name":"Science","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "config":{"schema":{
+            "type":"object","additionalProperties":false,"required":["domains"],
+            "properties":{"domains":{"type":"object","additionalProperties":false,"properties":{
+              "general":{"type":"boolean"},
+              "genomics":{"type":"boolean"}
+            }}}
+          }},
+          "integrations":[
+            {"id":"general-one","kind":"content.skill","resource":"contents/skills/general-one","domain":"general"},
+            {"id":"genomics-one","kind":"content.skill","resource":"contents/skills/genomics-one","domain":"genomics"},
+            {"id":"undomained","kind":"content.skill","resource":"contents/skills/undomained"}
+          ]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Domain-gated skills.\n---\n# Science\n",
+    );
+    write(
+        &root.path().join("config.json"),
+        r#"{"domains":{"general":true,"genomics":false}}"#,
+    );
+    write(
+        &root.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/general-one/SKILL.md","kind":"skill","title":"General"}]}"#,
+    );
+    for id in ["general-one", "genomics-one", "undomained"] {
+        write(
+            &root.path().join(format!("contents/skills/{id}/SKILL.md")),
+            &format!("---\nname: {id}\ndescription: Skill {id}.\n---\n"),
+        );
+    }
+
+    let package =
+        PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("gated package");
+
+    assert_eq!(
+        package
+            .skills
+            .iter()
+            .map(|skill| skill.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["general-one", "genomics-one", "undomained"],
+        "every declared Skill is parsed regardless of its domain switch"
+    );
+    assert_eq!(package.skills[0].domain.as_deref(), Some("general"));
+    assert_eq!(package.skills[1].domain.as_deref(), Some("genomics"));
+    assert_eq!(
+        package.skills[2].domain, None,
+        "a Skill without a domain is unconditional"
+    );
+
+    assert_eq!(
+        package
+            .enabled_skills()
+            .map(|skill| skill.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["general-one", "undomained"],
+        "a switched-off domain must not project; an undeclared one must"
+    );
+
+    package
+        .write_config(serde_json::json!({"domains": {"general": true, "genomics": true}}))
+        .expect("domain switches validate against the nested config schema");
+    assert!(
+        package
+            .write_config(serde_json::json!({"domains": {"general": true, "unknown": true}}))
+            .is_err(),
+        "an unknown domain is not a valid switch"
+    );
+
+    let refreshed =
+        PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("re-inspect");
+    assert_eq!(
+        refreshed
+            .enabled_skills()
+            .map(|skill| skill.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["general-one", "genomics-one", "undomained"],
+        "enabling a domain projects its Skills"
+    );
+
+    let disabled = PluginPackage::for_test(
+        "dev.vibex.science",
+        "Science",
+        "1.0.0",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    assert!(
+        disabled.skill_is_enabled(&disabled.skills[0]),
+        "packages without a domains config keep projecting every Skill"
+    );
+}
+
+#[test]
 fn v4_product_package_requires_a_single_sentence_readme_summary() {
     let root = tempfile::tempdir().expect("package root");
     write(

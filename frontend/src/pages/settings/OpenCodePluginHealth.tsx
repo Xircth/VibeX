@@ -19,7 +19,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { OpenCodePluginSummaryView } from 'shared/types';
+import type { AgentId, OpenCodePluginSummaryView } from 'shared/types';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -30,11 +30,16 @@ import {
 } from '@/features/agent-management';
 
 type Props = {
+  agentId?: AgentId;
   onChanged?: () => void | Promise<void>;
   onCount?: (count: number) => void;
 };
 
-export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
+export function OpenCodePluginHealth({
+  agentId = 'opencode',
+  onChanged,
+  onCount,
+}: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [summary, setSummary] = useState<OpenCodePluginSummaryView | null>(
     null
@@ -48,7 +53,7 @@ export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      setSummary(await agentManagementApi.openCodePlugins());
+      setSummary(await agentManagementApi.openCodePlugins(agentId));
     } catch (error) {
       const message = errorMessage(
         error,
@@ -59,7 +64,7 @@ export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   useEffect(() => void load(), [load]);
   useEffect(() => {
@@ -80,7 +85,7 @@ export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
     if (!next) return;
     setRunning(next);
     try {
-      setSummary(await agentManagementApi.addOpenCodePlugin(next));
+      setSummary(await agentManagementApi.addOpenCodePlugin(next, agentId));
       setSpec('');
       toast.success(t('settings:agents.openCodePluginAdded', { name: next }));
       await onChanged?.();
@@ -96,7 +101,9 @@ export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
   const install = async (names: string[] | null) => {
     setRunning(names?.[0] ?? 'all');
     try {
-      setSummary(await agentManagementApi.installOpenCodePlugins(names));
+      setSummary(
+        await agentManagementApi.installOpenCodePlugins(names, agentId)
+      );
       toast.success(
         names
           ? t('settings:agents.openCodePluginInstalled', { name: names[0] })
@@ -123,7 +130,9 @@ export function OpenCodePluginHealth({ onChanged, onCount }: Props) {
     if (result !== 'confirmed') return;
     setRunning(name);
     try {
-      setSummary(await agentManagementApi.uninstallOpenCodePlugin(name));
+      setSummary(
+        await agentManagementApi.uninstallOpenCodePlugin(name, agentId)
+      );
       toast.success(t('settings:agents.openCodePluginUninstalled', { name }));
       await onChanged?.();
     } catch (error) {

@@ -226,8 +226,6 @@ struct PluginPathArgs {
     package_kind: Option<String>,
     plugin_id: Option<String>,
     permission_ids: Option<Vec<String>>,
-    all_agents: Option<bool>,
-    agents: Option<Vec<String>>,
     source: Option<Value>,
     conflict: Option<String>,
 }
@@ -576,6 +574,9 @@ impl ServerApplicationDomains {
             DomainCommand::PluginInstall => self.plugin_install(args).await,
             DomainCommand::PluginUninstall => self.plugin_control_uninstall(args).await,
             DomainCommand::PluginUpdate | DomainCommand::PluginControlUpdate => {
+                if let Some(item) = self.native_plugin_update(args.clone()).await? {
+                    return Ok(item);
+                }
                 self.plugin_control_import(args).await
             }
             DomainCommand::PluginControlPreviewImport => self.plugin_preview_import(args).await,
@@ -593,7 +594,7 @@ impl ServerApplicationDomains {
                 super::native_commands::dispatch_pi_plugins(&self.pool).await
             }
             DomainCommand::OpenCodePluginList => {
-                super::native_commands::dispatch_opencode_plugin_list(&self.pool).await
+                super::native_commands::dispatch_opencode_plugin_list(&self.pool, args).await
             }
             DomainCommand::DshPluginAdd => {
                 super::native_commands::dispatch_dsh_plugin_add(&self.pool, args).await
@@ -638,7 +639,8 @@ impl ServerApplicationDomains {
                 super::native_commands::dispatch_opencode_provider_catalog(args).await
             }
             DomainCommand::OpenCodeProviderConnections => {
-                super::native_commands::dispatch_opencode_provider_connections(&self.pool).await
+                super::native_commands::dispatch_opencode_provider_connections(&self.pool, args)
+                    .await
             }
             DomainCommand::OpenCodeProviderConnect => {
                 self.dispatch_opencode_provider_mutation(
@@ -2086,67 +2088,20 @@ impl ServerApplicationDomains {
         let plugin_id = args
             .plugin_id
             .ok_or_else(|| ApplicationError::bad_request("pluginId required"))?;
-        let plugin = self
+        if let Some(plugin) = self
             .plugin_control_plane
             .plugin(&plugin_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?
-            .ok_or_else(|| ApplicationError::not_found(plugin_id))?;
-        serialize(json!({
-            "skills": plugin.skills,
-            "mcp": plugin.mcp,
-        }))
-    }
-
-    async fn plugin_configure_agents(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: PluginPathArgs = parse(args)?;
-        let plugin_id = args
-            .plugin_id
-            .ok_or_else(|| ApplicationError::bad_request("pluginId required"))?;
-        let plugin = self
-            .plugin_control_plane
-            .plugin(&plugin_id)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?
-            .ok_or_else(|| ApplicationError::not_found(plugin_id.clone()))?;
-        let known = agents::skills::skill_capable_agent_ids();
-        let desired = if args.all_agents.unwrap_or(false) {
-            known.clone()
-        } else {
-            args.agents.unwrap_or_default()
-        };
-        let memberships = self.management().list().await.map_err(internal_error)?;
-        let installed = memberships
-            .into_iter()
-            .map(|view| view.agent_id.to_string())
-            .collect::<Vec<_>>();
-        let targets = desired
-            .into_iter()
-            .filter(|agent| installed.iter().any(|item| item == agent))
-            .collect::<Vec<_>>();
-        let skill_sources = plugin
-            .skills
-            .iter()
-            .map(|skill| (skill.id.clone(), plugin.source.path.join(&skill.path)))
-            .collect::<Vec<_>>();
-        let projected =
-            agents::skills::project_plugin_skills(&plugin_id, &skill_sources, targets, true)
-                .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        serialize(json!({ "projections": projected }))
-    }
-
-    async fn plugin_configure_mcp(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: PluginPathArgs = parse(args)?;
-        let plugin_id = args
-            .plugin_id
-            .ok_or_else(|| ApplicationError::bad_request("pluginId required"))?;
-        let plugin = self
-            .plugin_control_plane
-            .plugin(&plugin_id)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?
-            .ok_or_else(|| ApplicationError::not_found(plugin_id))?;
-        serialize(json!({ "mcp": plugin.mcp }))
+        {
+            return serialize(json!({
+                "skills": plugin.skills,
+                "mcp": plugin.mcp,
+            }));
+        }
+        self.native_plugin_contributions(&plugin_id)
+            .await?
+            .ok_or_else(|| ApplicationError::not_found(plugin_id))
     }
 }
 
@@ -2401,5 +2356,19 @@ mod tests {
         assert_eq!(args.agent_id.as_str(), "codex");
         assert_eq!(args.acp_version.as_deref(), Some("1.2.3"));
         assert_eq!(args.runtime_version.as_deref(), Some("0.4.0"));
+    }
+
+    #[test]
+    fn plugin_path_args_still_require_a_filesystem_path() {
+        let parsed = serde_json::from_value::<PluginPathArgs>(json!({
+            "pluginId": "vibex.plugin-development",
+            "allAgents": true,
+            "agents": []
+        }));
+        let error = match parsed {
+            Err(error) => error,
+            Ok(_) => panic!("legacy path args must not accept the enable payload"),
+        };
+        assert!(error.to_string().contains("path"));
     }
 }

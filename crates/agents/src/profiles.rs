@@ -378,6 +378,15 @@ impl BuiltInProfileCatalog {
         }
     }
 
+    /// Permanent built-ins plus community presets that still receive a
+    /// management profile after the user adds them. This catalog is not a
+    /// membership source: `ensure_current_built_ins` only seeds [`Self::bundled`].
+    pub fn management() -> Self {
+        let mut profiles = Self::bundled().profiles;
+        profiles.extend(community_managed_profiles());
+        Self { profiles }
+    }
+
     pub fn profiles(&self) -> &[BuiltInProfile] {
         &self.profiles
     }
@@ -444,6 +453,8 @@ const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] = &[ProfileExternalCandid
     version_args: &["--version"],
     acp_args: &[],
 }];
+const MIMO_ACP_ARGS: &[&str] = &["acp"];
+const MIMO_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("mimo", MIMO_ACP_ARGS)];
 const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
     ProfileExternalCandidate {
         component: ProfileComponent::AgentRuntime,
@@ -1155,6 +1166,76 @@ const OPENCODE_CONFIG: &[NativeConfigBinding] = &[
         format: NativeConfigFormat::Json,
         fields: OPENCODE_SETTINGS_FIELDS,
     },
+];
+
+const MIMO_AUTH_FIELDS: &[NativeConfigField] = &[authentication(tagged_secret_field(
+    "mimo_api_key",
+    "MiMo API Key",
+    "Xiaomi MiMo first-party API key in auth.json",
+    &["mimo", "key"],
+    ("type", "api"),
+))];
+const MIMO_SETTINGS_FIELDS: &[NativeConfigField] = &[
+    text_field(
+        "mimo_model",
+        "默认模型",
+        "provider/model，例如 mimo/mimo-auto",
+        &["model"],
+    ),
+    text_field(
+        "mimo_default_agent",
+        "默认 Agent",
+        "未指定时使用的主 Agent（build / plan / compose）",
+        &["default_agent"],
+    ),
+    text_field(
+        "mimo_username",
+        "显示名称",
+        "对话中显示的用户名称",
+        &["username"],
+    ),
+];
+const MIMO_CONFIG: &[NativeConfigBinding] = &[
+    NativeConfigBinding {
+        binding_id: "mimo_auth",
+        home_relative_path: ".local/share/mimocode/auth.json",
+        directory_override_env: Some("MIMOCODE_HOME"),
+        override_relative_path: "data/auth.json",
+        format: NativeConfigFormat::Json,
+        fields: MIMO_AUTH_FIELDS,
+    },
+    NativeConfigBinding {
+        binding_id: "mimo_config",
+        home_relative_path: ".config/mimocode/mimocode.json",
+        directory_override_env: Some("MIMOCODE_HOME"),
+        override_relative_path: "config/mimocode.json",
+        format: NativeConfigFormat::Json,
+        fields: MIMO_SETTINGS_FIELDS,
+    },
+];
+const MIMO_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 MiMo",
+        "启动 Xiaomi MiMo 官方账号登录",
+        ProfileManagementActionKind::Login,
+        "mimo",
+        &["auth", "login"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Xiaomi MiMo 本地账号",
+        ProfileManagementActionKind::Logout,
+        "mimo",
+        &["auth", "logout"],
+    ),
+    url_action(
+        "subscription",
+        "管理订阅",
+        "打开 Xiaomi MiMo 平台",
+        "https://mimo.xiaomi.com/coder",
+    ),
 ];
 
 const PI_AUTH_FIELDS: &[NativeConfigField] = &[
@@ -2311,6 +2392,17 @@ const DEEPSEEK_HARNESS_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::DshPlugins,
     AgentSettingsFeature::NativeSkills,
 ];
+/// MiMo Code is an OpenCode fork: Xiaomi OAuth is the official subscription,
+/// first-party keys live in `auth.json`, and catalog/custom endpoints use the
+/// same provider JSON as OpenCode. Plugins are the `plugin` array in
+/// `mimocode.json` plus the cache under `~/.cache/mimocode`.
+const MIMO_CODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::OpenCodeProviders,
+    AgentSettingsFeature::OpenCodePlugins,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
 
 fn claude_code_profile() -> BuiltInProfile {
     BuiltInProfile {
@@ -2976,6 +3068,48 @@ fn deepseek_harness_profile() -> BuiltInProfile {
         authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: true,
         account_evidence: None,
+    }
+}
+
+fn community_managed_profiles() -> Vec<BuiltInProfile> {
+    vec![mimo_code_profile()]
+}
+
+fn mimo_code_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("mimo_code").expect("bundled AgentId"),
+        display_name: "MiMo Code",
+        description: "Xiaomi MiMo Code through native ACP",
+        icon: ProfileIcon {
+            light: "/agents/mimo-code-light.svg",
+            dark: "/agents/mimo-code-dark.svg",
+        },
+        registry_binding: None,
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@mimo-ai/cli",
+            "0.1.14",
+            "mimo",
+            MIMO_ACP_ARGS,
+            ">=20",
+            "sha512-L9OQjAeIuWNu9MRKGmaj+aARzY2ShbfugO3ivo0rb9r8OmvolaI0W/iTTbtTwBbBHwqyHuffdplyhFlDouWVug==",
+        )],
+        external_candidates: MIMO_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: MIMO_ACTIONS,
+        runtime_executable_env: None,
+        native_config: MIMO_CONFIG,
+        settings_features: MIMO_CODE_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".local/share/mimocode",
+            directory_override_env: Some("MIMOCODE_HOME"),
+            override_relative_directory: "data",
+            relative_file: "auth.json",
+            kind: AccountEvidenceKind::ProviderEntryNotApiKey,
+        }),
     }
 }
 

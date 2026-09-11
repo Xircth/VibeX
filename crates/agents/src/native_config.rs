@@ -143,7 +143,7 @@ impl NativeConfigProvider {
             filesystem,
             home,
             environment,
-            profiles: BuiltInProfileCatalog::bundled(),
+            profiles: BuiltInProfileCatalog::management(),
         }
     }
 
@@ -408,6 +408,13 @@ impl NativeConfigProvider {
     }
 
     fn binding_path(&self, binding: &NativeConfigBinding) -> PathBuf {
+        if let Some(path) = crate::metadata::mimo_native_binding_path(
+            binding.binding_id,
+            &self.home,
+            &self.environment,
+        ) {
+            return path;
+        }
         let override_directory = binding
             .directory_override_env
             .and_then(|name| {
@@ -461,6 +468,65 @@ const fn empty_document_preview(format: NativeConfigFormat) -> &'static str {
     }
 }
 
+fn parse_json_document(bytes: &[u8]) -> Result<Value, NativeConfigError> {
+    match serde_json::from_slice(bytes) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let text = std::str::from_utf8(bytes)
+                .map_err(|error| NativeConfigError::Invalid(error.to_string()))?;
+            serde_json::from_str(&strip_jsonc_comments(text))
+                .map_err(|_| NativeConfigError::Invalid(error.to_string()))
+        }
+    }
+}
+
+fn strip_jsonc_comments(source: &str) -> String {
+    let mut output = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(ch) = chars.next() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => {
+                in_string = true;
+                output.push(ch);
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        output.push(next);
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = '\0';
+                for next in chars.by_ref() {
+                    if previous == '*' && next == '/' {
+                        break;
+                    }
+                    previous = next;
+                }
+            }
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
 fn parse_document(
     binding: &NativeConfigBinding,
     bytes: Option<&[u8]>,
@@ -469,8 +535,7 @@ fn parse_document(
         return Ok(Value::Object(Map::new()));
     };
     let value = match binding.format {
-        NativeConfigFormat::Json => serde_json::from_slice(bytes)
-            .map_err(|error| NativeConfigError::Invalid(error.to_string()))?,
+        NativeConfigFormat::Json => parse_json_document(bytes)?,
         NativeConfigFormat::Toml => {
             let text = std::str::from_utf8(bytes)
                 .map_err(|error| NativeConfigError::Invalid(error.to_string()))?;

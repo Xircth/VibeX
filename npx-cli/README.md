@@ -4,18 +4,18 @@
 
 ## Quick Start
 
-`npx @xircth/vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
+`npx @omnione/vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
 It downloads the GitHub Release tarball for this platform, verifies the
 sidecar SHA-256 and the inner `SHA256SUMS`, then starts `vibex-server` with
 `VIBEX_STATIC_ROOT` pointed at the packaged `web/` tree.
 
 ```bash
-npx @xircth/vibex
-npx @xircth/vibex serve
-npx @xircth/vibex --mcp
+npx @omnione/vibex
+npx @omnione/vibex serve
+npx @omnione/vibex --mcp
 ```
 
-`npx @xircth/vibex` starts the Host on loopback. `npx @xircth/vibex serve` opens the Web UI on
+`npx @omnione/vibex` starts the Host on loopback. `npx @omnione/vibex serve` opens the Web UI on
 the LAN and prints the long-lived host token. Use `--local` to keep loopback, or
 `--rotate-token` to replace the token.
 
@@ -30,7 +30,7 @@ directory with `VIBEX_HOST_FAMILY_DIR`.
 Package a validated VibeX product plugin from its project directory:
 
 ```bash
-npx @xircth/vibex plugin pack .
+npx @omnione/vibex plugin pack .
 ```
 
 The default output is `dist/<plugin-id>-<version>.vxp`. Use
@@ -39,11 +39,11 @@ The default output is `dist/<plugin-id>-<version>.vxp`. Use
 Install onto a running Desktop or Server Host:
 
 ```bash
-npx @xircth/vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
-npx @xircth/vibex plugin add --profile ./search.vxp
-npx @xircth/vibex plugin add --dev .
-npx @xircth/vibex plugin list
-npx @xircth/vibex plugin remove acme.search
+npx @omnione/vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
+npx @omnione/vibex plugin add --profile ./search.vxp
+npx @omnione/vibex plugin add --dev .
+npx @omnione/vibex plugin list
+npx @omnione/vibex plugin remove acme.search
 ```
 
 ## What is VibeX?
@@ -201,7 +201,7 @@ VibeX supports customization through its configuration system:
 **Ready to supercharge your development workflow?**
 
 ```bash
-npx @xircth/vibex
+npx @omnione/vibex
 ```
 
 _Start managing your projects with the power of AI coding agents today!_

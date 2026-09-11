@@ -21,9 +21,9 @@ frontend/dist
 launch-site/dist
 npx-cli/dist
 npx-cli/vibex-*
-npx-cli/xircth-vibex-*
+npx-cli/omnione-vibex-*
 vibex-*.tgz
-xircth-vibex-*.tgz
+omnione-vibex-*.tgz
 
 # ===== Environment variables =====
 .env

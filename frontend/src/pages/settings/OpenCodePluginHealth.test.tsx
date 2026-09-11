@@ -47,7 +47,9 @@ describe('OpenCodePluginHealth', () => {
     expect(screen.getByText(/缺失/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '安装 opencode-foo' }));
 
-    await waitFor(() => expect(install).toHaveBeenCalledWith(['opencode-foo']));
+    await waitFor(() =>
+      expect(install).toHaveBeenCalledWith(['opencode-foo'], 'opencode')
+    );
     expect(await screen.findByText(/已安装 · 1\.2\.3/)).toBeInTheDocument();
     expect(onChanged).toHaveBeenCalledOnce();
   });
@@ -104,7 +106,7 @@ describe('OpenCodePluginHealth', () => {
     );
     await user.click(screen.getByRole('button', { name: '添加插件' }));
     await waitFor(() =>
-      expect(add).toHaveBeenCalledWith('opencode-wakatime@1.0.0')
+      expect(add).toHaveBeenCalledWith('opencode-wakatime@1.0.0', 'opencode')
     );
     expect(await screen.findByText('opencode-wakatime')).toBeInTheDocument();
   });

@@ -69,19 +69,22 @@ describe('OpenCodeProviderConnections', () => {
     await user.click(screen.getByRole('button', { name: '保存并连接' }));
 
     await waitFor(() =>
-      expect(connect).toHaveBeenCalledWith({
-        provider_id: 'my-provider',
-        name: 'My Provider',
-        npm: '@ai-sdk/openai-compatible',
-        api: 'openai.responses',
-        base_url: 'https://api.example.com/v1',
-        api_key: 'secret-key',
-        models: [
-          { id: 'model-a', name: 'Model A', previous_id: null },
-          { id: 'model-b', name: 'model-b', previous_id: null },
-        ],
-        enabled: true,
-      })
+      expect(connect).toHaveBeenCalledWith(
+        {
+          provider_id: 'my-provider',
+          name: 'My Provider',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'openai.responses',
+          base_url: 'https://api.example.com/v1',
+          api_key: 'secret-key',
+          models: [
+            { id: 'model-a', name: 'Model A', previous_id: null },
+            { id: 'model-b', name: 'model-b', previous_id: null },
+          ],
+          enabled: true,
+        },
+        'opencode'
+      )
     );
     expect(onChanged).toHaveBeenCalledOnce();
   }, 10_000);
@@ -119,7 +122,7 @@ describe('OpenCodeProviderConnections', () => {
     );
 
     await waitFor(() =>
-      expect(setEnabled).toHaveBeenCalledWith('openrouter', false)
+      expect(setEnabled).toHaveBeenCalledWith('openrouter', false, 'opencode')
     );
     expect(
       screen.getByRole('switch', { name: '启用 OpenRouter' })
@@ -181,7 +184,8 @@ describe('OpenCodeProviderConnections', () => {
               previous_id: 'anthropic/claude-sonnet-4',
             },
           ],
-        })
+        }),
+        'opencode'
       )
     );
   });

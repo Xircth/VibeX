@@ -96,14 +96,14 @@ describe('WorkspaceTabAddMenu', () => {
 
   it('occludes the native surface while the tab creation menu is open', () => {
     const props = headerProps();
-    const setHtmlOverlayRect = vi.fn();
+    const setTabCreationMenuOpen = vi.fn();
 
     render(
       <WorkspaceOverlayContext.Provider
         value={{
-          setTabCreationMenuOpen: vi.fn(),
+          setTabCreationMenuOpen,
           setHtmlOverlayOpen: vi.fn(),
-          setHtmlOverlayRect,
+          setHtmlOverlayRect: vi.fn(),
           subscribeNativeSurfaceOcclusion: () => () => {},
         }}
       >
@@ -117,7 +117,7 @@ describe('WorkspaceTabAddMenu', () => {
     });
 
     expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
-    expect(setHtmlOverlayRect).toHaveBeenCalled();
+    expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
   });
 
   it('opens the terminal from the tab creation menu', () => {

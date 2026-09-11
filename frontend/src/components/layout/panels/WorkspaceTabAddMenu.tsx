@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import {
@@ -37,6 +38,7 @@ export function WorkspaceTabAddMenu({
     openPluginPanel,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
+  const { setTabCreationMenuOpen } = useWorkspaceOverlay();
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
   const canOpenWebPreview =
@@ -50,7 +52,7 @@ export function WorkspaceTabAddMenu({
   };
 
   return (
-    <DropdownMenu modal={false}>
+    <DropdownMenu modal={false} onOpenChange={setTabCreationMenuOpen}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

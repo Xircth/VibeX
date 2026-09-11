@@ -21,9 +21,9 @@ frontend/dist
 launch-site/dist
 npx-cli/dist
 npx-cli/vibex-*
-npx-cli/vibexs-*
+npx-cli/vibexcli-*
 vibex-*.tgz
-vibexs-*.tgz
+vibexcli-*.tgz
 
 # ===== Environment variables =====
 .env

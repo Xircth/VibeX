@@ -76,5 +76,8 @@ test('conversation help prints usage instead of calling the host', async () => {
   } finally {
     process.stdout.write = original;
   }
-  assert.match(chunks.join(''), /vibexs conversation/);
+  assert.match(
+    chunks.join(''),
+    new RegExp(`${require('../package.json').name} conversation`)
+  );
 });

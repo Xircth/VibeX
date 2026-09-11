@@ -85,7 +85,10 @@ import {
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
-import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
+import {
+  useOptionalConversationStatus,
+  type ConversationStatusNotice,
+} from '@/contexts/ConversationStatusContext';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import {
   resolveResendExecutorProfile,
@@ -1261,7 +1264,7 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const statusNotices = useMemo(() => {
-    const notices = [];
+    const notices: ConversationStatusNotice[] = [];
     const pushSessionNotice = (
       row:
         | (typeof sessionNoticeRows)[number]

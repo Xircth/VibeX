@@ -286,9 +286,7 @@ export function BrowserPanel({
   const lastVisibleSurfaceRef = useRef<BrowserSurface | null>(null);
   const frozenPageRef = useRef<string | null>(null);
   const snapshotCaptureInFlightRef = useRef(false);
-  const snapshotRefreshTimerRef = useRef<ReturnType<
-    typeof window.setTimeout
-  > | null>(null);
+  const snapshotRefreshTimerRef = useRef<number | null>(null);
   const surfaceBlockedRef = useRef(false);
   const blankPageVisibleRef = useRef(initialUrl === null);
   const onInspectElementRef = useRef(onInspectElement);

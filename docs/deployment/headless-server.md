@@ -23,7 +23,7 @@ Apple Developer ID and Windows Authenticode are not required for this family.
 Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
 present.
 
-`npx vibexcli`, `install.sh`, and `install.ps1` download
+`npx @xircth/vibex`, `install.sh`, and `install.ps1` download
 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
 from the matching GitHub Release, verify the sidecar `.sha256` and the inner
 `SHA256SUMS`, then run `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
@@ -33,31 +33,31 @@ installers all derive from it.
 Start the Web UI on the LAN and print the long-lived host token:
 
 ```bash
-npx vibexcli serve
+npx @xircth/vibex serve
 ```
 
 `serve` (alias `web`) is the opt-in. It binds `0.0.0.0:17891`, lists reachable
 HTTP origins, and prints the host token. Loopback-only Web UI is
-`npx vibexcli serve --local`. Replace the token with `npx vibexcli serve --rotate-token`.
+`npx @xircth/vibex serve --local`. Replace the token with `npx @xircth/vibex serve --rotate-token`.
 The token is stored as `host.token` in the data directory (mode `0600` on Unix)
 so later `serve` runs print the same value. SQLite still stores only the hash.
 
-Plain `npx vibexcli` stays on loopback. Docker Compose still publishes
+Plain `npx @xircth/vibex` stays on loopback. Docker Compose still publishes
 `127.0.0.1:17891`. Public exposure still needs an external TLS proxy.
 
 Install Agent Runtime and ACP into the Host machine's user environment
 without starting the HTTP server:
 
 ```bash
-npx vibexcli list
-npx vibexcli list --refresh
-npx vibexcli install claude_code --yes
+npx @xircth/vibex list
+npx @xircth/vibex list --refresh
+npx @xircth/vibex install claude_code --yes
 ```
 
 `list` groups Built-in Agents above other ACP Registry entries. `install`
 writes `npm` / `uv` / Binary packages into the user environment, then binds
 the Installation lock used by later `serve` sessions. Pass `--yes` to skip
-the confirmation prompt. The remote control command `npx vibexcli agent list`
+the confirmation prompt. The remote control command `npx @xircth/vibex agent list`
 still talks to a running Host and is not this installer.
 
 In-place upgrade: verify `SHA256SUMS`, snapshot the data directory, then replace

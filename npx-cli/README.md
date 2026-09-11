@@ -4,18 +4,18 @@
 
 ## Quick Start
 
-`npx vibexcli` launches the Host family `vibex-server` (not the Tauri desktop app).
+`npx @xircth/vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
 It downloads the GitHub Release tarball for this platform, verifies the
 sidecar SHA-256 and the inner `SHA256SUMS`, then starts `vibex-server` with
 `VIBEX_STATIC_ROOT` pointed at the packaged `web/` tree.
 
 ```bash
-npx vibexcli
-npx vibexcli serve
-npx vibexcli --mcp
+npx @xircth/vibex
+npx @xircth/vibex serve
+npx @xircth/vibex --mcp
 ```
 
-`npx vibexcli` starts the Host on loopback. `npx vibexcli serve` opens the Web UI on
+`npx @xircth/vibex` starts the Host on loopback. `npx @xircth/vibex serve` opens the Web UI on
 the LAN and prints the long-lived host token. Use `--local` to keep loopback, or
 `--rotate-token` to replace the token.
 
@@ -30,7 +30,7 @@ directory with `VIBEX_HOST_FAMILY_DIR`.
 Package a validated VibeX product plugin from its project directory:
 
 ```bash
-vibexcli plugin pack .
+npx @xircth/vibex plugin pack .
 ```
 
 The default output is `dist/<plugin-id>-<version>.vxp`. Use
@@ -39,11 +39,11 @@ The default output is `dist/<plugin-id>-<version>.vxp`. Use
 Install onto a running Desktop or Server Host:
 
 ```bash
-vibexcli plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
-vibexcli plugin add --profile ./search.vxp
-vibexcli plugin add --dev .
-vibexcli plugin list
-vibexcli plugin remove acme.search
+npx @xircth/vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
+npx @xircth/vibex plugin add --profile ./search.vxp
+npx @xircth/vibex plugin add --dev .
+npx @xircth/vibex plugin list
+npx @xircth/vibex plugin remove acme.search
 ```
 
 ## What is VibeX?
@@ -201,7 +201,7 @@ VibeX supports customization through its configuration system:
 **Ready to supercharge your development workflow?**
 
 ```bash
-npx vibexcli
+npx @xircth/vibex
 ```
 
 _Start managing your projects with the power of AI coding agents today!_

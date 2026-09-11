@@ -118,7 +118,7 @@ Tauri 无关的领域与基础设施。桌面与 `vibex-server` 都链接同一�
 | VibeX Server | 跨平台目录 | `vibex-server`、`vibex-mcp`、`web/`、`plugins/bundled/` |
 | VibeX Companion | Android APK（iOS 后续） | 薄客户端，不跑 Agent / Git / 插件 |
 
-无头入口：`crates/server/src/bin/vibex-server.rs` → `HeadlessServer::bootstrap`（`crates/server/src/composition.rs`）。HTTP/WS 在 `crates/server/src/runtime.rs`。打包脚本：`scripts/package-host-family.js`。部署说明：[`docs/deployment/headless-server.md`](./deployment/headless-server.md)（与当前 `HeadlessServer` / `npx vibexcli serve` 一致）。
+无头入口：`crates/server/src/bin/vibex-server.rs` → `HeadlessServer::bootstrap`（`crates/server/src/composition.rs`）。HTTP/WS 在 `crates/server/src/runtime.rs`。打包脚本：`scripts/package-host-family.js`。部署说明：[`docs/deployment/headless-server.md`](./deployment/headless-server.md)（与当前 `HeadlessServer` / `npx @xircth/vibex serve` 一致）。
 
 数据目录：`utils::assets::asset_dir()`。debug 桌面用仓库 `dev_assets/`；release / Server 用 `ProjectDirs`（`app.vibex.vibex`）或 `VIBEX_DATA_DIR`。同一数据目录被 Server 占用时，本机桌面只能当客户端，不能再起第二份 Host。
 
@@ -267,7 +267,7 @@ PTY 不能放进 object-safe trait（向上依赖），所以桌面 `AppState.pt
 | `mobile/android/` | Companion 配对核心 + Compose 壳 |
 | `docs/adr/` | 已接受架构决定 |
 | `docs/protocol/v1/` | Remote Protocol schema |
-| `npx-cli/` | `npx vibexcli` 安装/启动 Server |
+| `npx-cli/` | `npx @xircth/vibex` 安装/启动 Server |
 
 ### `crates/`
 

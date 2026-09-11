@@ -79,7 +79,7 @@ See [Plugin](https://vibex.com/docs/reference/plugin) and [plugin architecture](
 | --- | --- |
 | **Desktop** | Default entry. The desktop app includes the window and a full Host. |
 | **Server + WebUI** | `vibex-server` is the headless Host. Open the packaged `web/` tree in a browser for WebUI. |
-| **CLI** | `npx vibexcli` downloads the Host-family archive for this platform, verifies checksums, and starts the Server. |
+| **CLI** | `npx @xircth/vibex` downloads the Host-family archive for this platform, verifies checksums, and starts the Server. |
 | **Mobile APP** | The Android companion pairs to a Host and is used to read conversations, send input, and handle permissions. |
 
 Desktop and Server share the data directory, agents, conversations, automations, and plugins. The same data directory cannot run Desktop and Server as Host at the same time. A workstation desktop can connect as a client to a Host that already occupies that directory.
@@ -129,11 +129,11 @@ Full steps: [Install the desktop app](https://vibex.com/docs/install-desktop).
 Download, verify, and start with the official helper:
 
 ```bash
-npx vibexcli
+npx @xircth/vibex
 # or: curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
 ```
 
-`npx vibexcli` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
+`npx @xircth/vibex` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
 
 The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `plugins/bundled/`.
 

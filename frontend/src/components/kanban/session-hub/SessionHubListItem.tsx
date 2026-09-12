@@ -150,7 +150,7 @@ export function SessionHubListItem({
             <button
               type="button"
               aria-label={t('hubListItem.deleteSession')}
-              className="composer-control rounded-md p-1 text-muted-foreground hover:text-foreground"
+              className="session-hub-card-action"
               onPointerDown={(event) => {
                 event.stopPropagation();
               }}
@@ -173,7 +173,7 @@ export function SessionHubListItem({
         <button
           type="button"
           aria-label={t('hubListItem.renameSession')}
-          className="composer-control rounded-md p-1"
+          className="session-hub-card-action"
           onClick={(event) => {
             event.stopPropagation();
             setDraftName(session.fullName);
@@ -339,11 +339,11 @@ export function SessionHubListItem({
                 {isCanvasMode ? workspaceLabel : session.branch}
               </span>
             </span>
-            {attention === 'running' ? (
+            {isCanvasMode && attention === 'running' ? (
               <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
                 {t('hubListItem.running')}
               </span>
-            ) : attention === 'review' ? (
+            ) : isCanvasMode && attention === 'review' ? (
               <span className="session-status-inreview-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
                 {t('hubListItem.reviewing')}
               </span>

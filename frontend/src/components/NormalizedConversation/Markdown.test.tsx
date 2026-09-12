@@ -190,9 +190,46 @@ describe('Markdown', () => {
       const style = getComputedStyle(marker);
       expect(style.whiteSpace).toBe('nowrap');
       expect(style.width).not.toBe('12px');
-      expect(style.minWidth).toBe('1.5em');
+      expect(style.minWidth).not.toBe('1.5em');
     }
-    expect(getComputedStyle(ordered as Element).paddingLeft).toBe('8px');
+    expect(getComputedStyle(ordered as Element).paddingLeft).toBe('2.2px');
+    expect(getComputedStyle(ordered as Element).paddingInlineStart).toBe(
+      '2.2px'
+    );
+  });
+
+  it('uses the same indent and marker gap for ordered and unordered lists', () => {
+    renderMarkdown('- bullet\n\n1. first');
+
+    const unordered = screen
+      .getAllByRole('list')
+      .find((list) => list.tagName === 'UL');
+    const ordered = screen
+      .getAllByRole('list')
+      .find((list) => list.tagName === 'OL');
+    const unorderedItem = unordered?.querySelector(':scope > li');
+    const orderedItem = ordered?.querySelector(':scope > li');
+    const unorderedMarker = unorderedItem?.querySelector(
+      ':scope > span:first-child'
+    );
+    const orderedMarker = orderedItem?.querySelector(
+      ':scope > span:first-child'
+    );
+
+    expect(getComputedStyle(unordered as Element).paddingInlineStart).toBe(
+      '2.2px'
+    );
+    expect(getComputedStyle(ordered as Element).paddingInlineStart).toBe(
+      '2.2px'
+    );
+    expect(getComputedStyle(unorderedItem as Element).paddingLeft).toBe(
+      getComputedStyle(orderedItem as Element).paddingLeft
+    );
+    expect(getComputedStyle(unorderedItem as Element).gap).toBe(
+      getComputedStyle(orderedItem as Element).gap
+    );
+    expect(getComputedStyle(unorderedMarker as Element).width).toBe('8px');
+    expect(getComputedStyle(orderedMarker as Element).width).not.toBe('8px');
   });
 
   it('keeps unordered list markers compact', () => {
@@ -202,6 +239,7 @@ describe('Markdown', () => {
     const marker = unordered.querySelector(':scope > li > span:first-child');
 
     expect(getComputedStyle(unordered).paddingLeft).toBe('2.2px');
+    expect(getComputedStyle(unordered).paddingInlineStart).toBe('2.2px');
     expect(getComputedStyle(marker as Element).width).toBe('8px');
   });
 

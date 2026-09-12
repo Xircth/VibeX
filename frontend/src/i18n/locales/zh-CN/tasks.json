@@ -32,6 +32,7 @@
       "materializeFailed": "无法写入 Host 连接文件",
       "tabs": {
         "file": "文件",
+        "project": "项目",
         "conversation": "会话",
         "commit": "提交",
         "instruction": "快捷指令",

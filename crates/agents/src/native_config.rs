@@ -623,6 +623,8 @@ fn field_snapshot(
         // revision 必须反映实际生效的凭据来源。
         let effective = claude_credential_value(document);
         (scalar_string(effective), effective)
+    } else if field.field_id == "grok_permission" {
+        (scalar_string(raw).map(canonical_grok_permission_mode), raw)
     } else {
         (scalar_string(raw), raw)
     };
@@ -697,38 +699,55 @@ fn codex_base_url_value(document: &Value) -> Option<&Value> {
         .or_else(|| value_at_path(document, &["api_base_url"]))
 }
 
-/// Codex WebSocket 开关的有效来源：自定义 provider 表的 `supports_websockets` 节点。
-/// 内置 provider（reserved）无法通过配置表覆盖，返回 None 表示由引擎内置值决定。
-fn codex_websockets_source(document: &Value) -> Option<&Value> {
-    let provider = codex_active_provider(document)?;
-    if CODEX_RESERVED_PROVIDER_IDS.contains(&provider) {
-        return None;
-    }
+fn codex_websockets_feature(document: &Value) -> Option<&Value> {
+    value_at_path(document, &["features", "responses_websockets_v2"])
+}
+
+fn codex_provider_websockets<'a>(document: &'a Value, provider: &str) -> Option<&'a Value> {
     document
         .get("model_providers")
         .and_then(|table| table.get(provider))
         .and_then(|entry| entry.get("supports_websockets"))
 }
 
+/// Codex WebSocket 开关的 revision 来源：自定义表的 `supports_websockets`，
+/// 否则是用户写入的 `features.responses_websockets_v2`。内置 provider 的表
+/// 不能作为可写覆盖，但 features 键必须参与冲突检测，否则保存后读回丢失。
+fn codex_websockets_source(document: &Value) -> Option<&Value> {
+    if let Some(provider) = codex_active_provider(document)
+        && !CODEX_RESERVED_PROVIDER_IDS.contains(&provider)
+    {
+        return codex_provider_websockets(document, provider)
+            .or_else(|| codex_websockets_feature(document));
+    }
+    codex_websockets_feature(document).or_else(|| {
+        codex_active_provider(document)
+            .and_then(|provider| codex_provider_websockets(document, provider))
+    })
+}
+
 /// 活跃 provider 实际是否走 Responses WebSocket 传输（用于开关显示）：
-/// 未指定 provider → 默认 openai（支持）；openai → 支持；其余内置 → 不支持；
-/// 自定义 provider → 表内 `supports_websockets`，缺省为 false（与 Codex serde 默认一致）。
+/// 自定义 provider → 表内 `supports_websockets`，缺省为 false；
+/// 未指定 / openai → 支持，但用户写入的 features 或表覆盖优先；
+/// 其余内置 → 不支持，同样尊重用户覆盖，避免保存后开关弹回。
 fn codex_websockets_supported(document: &Value) -> bool {
+    let feature = codex_websockets_feature(document).and_then(Value::as_bool);
     let Some(provider) = codex_active_provider(document) else {
-        return true;
+        return feature.unwrap_or(true);
     };
+    if let Some(explicit) = codex_provider_websockets(document, provider).and_then(Value::as_bool) {
+        return explicit;
+    }
+    if let Some(feature) = feature {
+        return feature;
+    }
     if provider == "openai" {
         return true;
     }
     if CODEX_RESERVED_PROVIDER_IDS.contains(&provider) {
         return false;
     }
-    document
-        .get("model_providers")
-        .and_then(|table| table.get(provider))
-        .and_then(|entry| entry.get("supports_websockets"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    false
 }
 
 fn prepare_special_native_shape(
@@ -1158,6 +1177,14 @@ fn validate_codebuddy_url(value: &str) -> Result<(), NativeConfigError> {
         ));
     }
     Ok(())
+}
+
+fn canonical_grok_permission_mode(value: String) -> String {
+    match value.as_str() {
+        "bypassPermissions" => "always-approve".to_string(),
+        "default" => "ask".to_string(),
+        _ => value,
+    }
 }
 
 fn scalar_string(value: Option<&Value>) -> Option<String> {

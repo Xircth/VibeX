@@ -473,6 +473,20 @@ const AgentTimelineConversation = forwardRef<
       ),
     [sideRows]
   );
+  const timelineQuestions = useMemo(
+    () =>
+      sideRows.flatMap((row) =>
+        row.row.kind === 'question_request'
+          ? [
+              {
+                request: row.row.request,
+                response: row.row.response ?? null,
+              },
+            ]
+          : []
+      ),
+    [sideRows]
+  );
   const timelineItems = useMemo(
     () =>
       conversation.items.filter((item) => {
@@ -489,11 +503,7 @@ const AgentTimelineConversation = forwardRef<
           return false;
         }
         if (kind === 'session_notice') return false;
-        if (
-          usesComposerStatusDock &&
-          kind === 'question_request' &&
-          !item.row.row.response
-        ) {
+        if (usesComposerStatusDock && kind === 'question_request') {
           return false;
         }
         return true;
@@ -1570,6 +1580,7 @@ const AgentTimelineConversation = forwardRef<
                             }
                             collapseProcess={collapseProcess}
                             delegations={delegations}
+                            questions={timelineQuestions}
                             onOpenChild={handleOpenChild}
                             showInterruptedNotice={false}
                             contextCompact={contextCompactPresentationForRow(

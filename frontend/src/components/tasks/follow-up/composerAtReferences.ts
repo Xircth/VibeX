@@ -5,6 +5,7 @@ import { matchTypeaheadTrigger } from './typeahead-triggers';
 
 export const AT_REFERENCE_TAB_ORDER = [
   'file',
+  'project',
   'conversation',
   'commit',
   'instruction',
@@ -44,6 +45,12 @@ export type AtReferenceHost = {
   insertText: string;
 };
 
+export type AtReferenceProject = {
+  id: string;
+  name: string;
+  path: string;
+};
+
 export type AtReferenceSources = {
   files: Array<{ path: string; name: string }>;
   conversations: DbConversationSummary[];
@@ -53,10 +60,12 @@ export type AtReferenceSources = {
   currentConversationId?: string | null;
   actions?: AtReferenceAction[];
   hosts?: AtReferenceHost[];
+  projects?: AtReferenceProject[];
 };
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const COMMIT_URI_PREFIX = 'vibex://commit/';
+const PROJECT_URI_PREFIX = 'vibex://project/';
 
 export function conversationReferenceUri(conversationId: string): string {
   return `${CONVERSATION_URI_PREFIX}${conversationId}`;
@@ -70,6 +79,27 @@ export function parseConversationReferenceUri(uri: string): string | null {
   if (!uri.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) return null;
   const id = uri.slice(CONVERSATION_URI_PREFIX.length).trim();
   return id || null;
+}
+
+export function projectReferenceUri(projectId: string, path: string): string {
+  return `${PROJECT_URI_PREFIX}${encodeURIComponent(projectId)}@${encodeURIComponent(path)}`;
+}
+
+export function parseProjectReferenceUri(
+  uri: string
+): { projectId: string; path: string } | null {
+  if (!uri.toLowerCase().startsWith(PROJECT_URI_PREFIX)) return null;
+  const body = uri.slice(PROJECT_URI_PREFIX.length);
+  const separator = body.lastIndexOf('@');
+  if (separator <= 0 || separator === body.length - 1) return null;
+  try {
+    const projectId = decodeURIComponent(body.slice(0, separator));
+    const path = decodeURIComponent(body.slice(separator + 1));
+    if (!projectId || !path) return null;
+    return { projectId, path };
+  } catch {
+    return null;
+  }
 }
 
 export function parseCommitReferenceUri(
@@ -126,6 +156,22 @@ export function fileToAtReference(file: {
       key: name,
       value: file.path,
     }),
+  };
+}
+
+export function projectToAtReference(
+  project: AtReferenceProject
+): AtReferenceItem {
+  const name = project.name.trim() || project.path;
+  return {
+    id: `project:${project.id}`,
+    tab: 'project',
+    label: name,
+    detail: project.path,
+    insertText: `[${name.replace(/[\\\]]/g, '\\$&')}](${projectReferenceUri(
+      project.id,
+      project.path
+    )})`,
   };
 }
 
@@ -197,6 +243,10 @@ export function buildAtReferenceGroups(
     .filter((file) => matchesQuery(q, file.name, file.path))
     .map(fileToAtReference);
 
+  const projects = (sources.projects ?? [])
+    .filter((project) => matchesQuery(q, project.name, project.path))
+    .map(projectToAtReference);
+
   const conversations = (sources.conversations ?? [])
     .filter((conversation) => conversation.id !== currentId)
     .filter((conversation) =>
@@ -244,6 +294,7 @@ export function buildAtReferenceGroups(
 
   return [
     { tab: 'file', ...capItems(files) },
+    { tab: 'project', ...capItems(projects) },
     { tab: 'conversation', ...capItems(conversations) },
     { tab: 'commit', ...capItems(commits) },
     { tab: 'instruction', ...capItems(instructions) },

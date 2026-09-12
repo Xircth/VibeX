@@ -16,7 +16,7 @@ overrides:
 
 patchedDependencies:
   '@astryxdesign/core@0.3.0':
-    hash: 0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29
+    hash: 67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73
     path: patches/@astryxdesign__core@0.3.0.patch
 
 importers:
@@ -31,10 +31,10 @@ importers:
     dependencies:
       '@astryxdesign/core':
         specifier: 0.3.0
-        version: 0.3.0(patch_hash=0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 0.3.0(patch_hash=67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@astryxdesign/theme-neutral':
         specifier: ^0.3.0
-        version: 0.3.0(@astryxdesign/core@0.3.0(patch_hash=0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        version: 0.3.0(@astryxdesign/core@0.3.0(patch_hash=67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -4073,16 +4073,16 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@astryxdesign/core@0.3.0(patch_hash=0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/core@0.3.0(patch_hash=67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@stylexjs/stylex': 0.19.0
       intl-messageformat: 11.2.13
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@astryxdesign/theme-neutral@0.3.0(@astryxdesign/core@0.3.0(patch_hash=0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/theme-neutral@0.3.0(@astryxdesign/core@0.3.0(patch_hash=67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@astryxdesign/core': 0.3.0(patch_hash=0af2dc9c0c0ca5ccdd4eb73b560d130cdb1cb116a3ea9ab92b0dfcbc4d6b3a29)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/core': 0.3.0(patch_hash=67580f715e50a7acb76fb4b5a3b89aa468f17b18beb7d640c3dfa9a1df6d1a73)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.30.0(react@19.2.8)
       react: 19.2.8
 

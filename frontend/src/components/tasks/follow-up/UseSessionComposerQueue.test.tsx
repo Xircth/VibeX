@@ -150,6 +150,38 @@ describe('useSessionComposerQueue', () => {
     );
   });
 
+  it('keeps file-tree @ tokens as fileRefs when the agent text is already serialized', async () => {
+    const { result } = renderHook(
+      () =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning: true,
+        }),
+      { wrapper: wrapperFor(client()) }
+    );
+
+    await act(async () => {
+      await result.current.queueMessage(
+        'Review [@:App.tsx](src/App.tsx)',
+        profile,
+        [],
+        [],
+        'Review src/App.tsx'
+      );
+    });
+
+    expect(api.submitInput).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        text: 'Review src/App.tsx',
+        displayText: 'Review [@:App.tsx](src/App.tsx)',
+        fileRefs: [{ path: 'src/App.tsx' }],
+      }),
+      expect.any(String)
+    );
+  });
+
   it('reuses the same operation id when queue persist times out', async () => {
     api.submitInput
       .mockRejectedValueOnce(new Error('timeout'))

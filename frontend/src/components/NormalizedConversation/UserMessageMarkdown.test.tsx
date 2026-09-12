@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { projectReferenceUri } from '@/components/tasks/follow-up/composerAtReferences';
 import {
   formatQuoteToken,
   formatSessionComposerCommand,
@@ -147,6 +148,24 @@ describe('UserMessageMarkdown', () => {
     );
   });
 
+  it('renders a project reference as @name with the absolute path on hover', () => {
+    render(
+      <UserMessageMarkdown
+        value={`[VibeX](${projectReferenceUri(
+          'proj-1',
+          '/Users/mac/Projects/VibeX'
+        )})`}
+      />
+    );
+
+    const chip = screen
+      .getByText('@VibeX')
+      .closest('[data-testid="session-composer-token-chip"]');
+    expect(chip).toHaveAttribute('data-token-kind', 'project');
+    expect(chip).toHaveAttribute('title', '/Users/mac/Projects/VibeX');
+    expect(chip).not.toHaveTextContent('/Users/mac/Projects/VibeX');
+  });
+
   it('renders a quote token as a truncated @ chip and shows full text on hover', async () => {
     render(
       <UserMessageMarkdown value={formatQuoteToken('请你帮我完成这次修改')} />
@@ -206,17 +225,57 @@ describe('UserMessageMarkdown', () => {
     expect(getComputedStyle(paragraph).color).toBe('var(--conv-user-text)');
   });
 
-  it('reduces the user-message list indentation by eighty percent', () => {
-    render(<StyledUserMessage value={'- Parent\n  - Child'} />);
+  it('uses the same list indentation and item spacing as assistant markdown', () => {
+    render(
+      <StyledUserMessage value={'- Parent\n  - Child\n\n1. first\n2. second'} />
+    );
 
-    const list = screen.getAllByRole('list')[0];
-    const item = list.querySelector(':scope > li');
-    const marker = item?.querySelector(':scope > span:first-child');
+    const lists = screen.getAllByRole('list');
+    const unordered = lists.filter((list) => list.tagName === 'UL');
+    const ordered = lists.find((list) => list.tagName === 'OL');
+    const parentItem = unordered[0]?.querySelector(':scope > li');
+    const parentMarker = parentItem?.querySelector(':scope > span:first-child');
+    const nestedItem = unordered[1]?.querySelector(':scope > li');
+    const parentListStyle = getComputedStyle(unordered[0] as Element);
+    const parentItemStyle = getComputedStyle(parentItem as Element);
+    const nestedListStyle = getComputedStyle(unordered[1] as Element);
+    const nestedItemStyle = getComputedStyle(nestedItem as Element);
+    const orderedStyle = getComputedStyle(ordered as Element);
 
-    expect(getComputedStyle(list).paddingInlineStart).toBe('0.05rem');
-    expect(getComputedStyle(item as Element).paddingInlineStart).toBe('0px');
-    expect(getComputedStyle(item as Element).gap).toBe('0.125rem');
-    expect(getComputedStyle(marker as Element).width).toBe('0.5rem');
+    expect(parentListStyle.paddingLeft).toBe('2.2px');
+    expect(parentListStyle.paddingInlineStart).toBe('2.2px');
+    expect(parentListStyle.marginTop).toBe('10px');
+    expect(parentListStyle.marginBottom).toBe('10px');
+    expect(parentItemStyle.paddingLeft).toBe('4px');
+    expect(parentItemStyle.paddingInlineStart).toBe('4px');
+    expect(parentItemStyle.paddingRight).toBe('4px');
+    expect(parentItemStyle.marginBottom).toBe('4px');
+    expect(parentItemStyle.gap).not.toBe('0.125rem');
+    expect(['1.7', '23.8px']).toContain(parentItemStyle.lineHeight);
+    expect(getComputedStyle(parentMarker as Element).width).toBe('8px');
+    expect(nestedListStyle.paddingLeft).toBe('2.2px');
+    expect(nestedListStyle.paddingInlineStart).toBe('2.2px');
+    expect(nestedItemStyle.paddingLeft).toBe('4px');
+    expect(nestedItemStyle.paddingInlineStart).toBe('4px');
+    expect(orderedStyle.paddingLeft).toBe('2.2px');
+    expect(orderedStyle.paddingInlineStart).toBe('2.2px');
+    expect(orderedStyle.marginTop).toBe('10px');
+    expect(orderedStyle.paddingInlineStart).toBe(
+      parentListStyle.paddingInlineStart
+    );
+    expect(
+      getComputedStyle(ordered?.querySelector(':scope > li') as Element).gap
+    ).toBe(parentItemStyle.gap);
+  });
+
+  it('keeps single line breaks as visible hard breaks', () => {
+    const { container } = render(
+      <StyledUserMessage value={'first line\nsecond line'} />
+    );
+
+    expect(container.querySelector('br')).toBeInTheDocument();
+    expect(container).toHaveTextContent('first line');
+    expect(container).toHaveTextContent('second line');
   });
 
   it('keeps user-message ordered-list numbers on one line', () => {
@@ -229,7 +288,7 @@ describe('UserMessageMarkdown', () => {
     const style = getComputedStyle(marker as Element);
 
     expect(style.whiteSpace).toBe('nowrap');
-    expect(style.minWidth).toBe('1.5em');
+    expect(style.minWidth).not.toBe('1.5em');
   });
 
   it('renders file and website links with the shared inline resource style', () => {

@@ -27,6 +27,7 @@ import { useConversationTimeline } from '@/features/conversation/useConversation
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { agentDisplayLabel } from './DelegationCard';
+import { hasAskQuestionTool } from '@/components/tasks/follow-up/agentQuestionModel';
 
 const CONVERSATION_REGION_SELECTOR = '.right-panel-conversation-region';
 
@@ -67,14 +68,34 @@ export function ChildConversationViewer({
       ),
     [conversation.items, messages, taskPreview]
   );
-  const leftoverSideRows = useMemo(
-    () => leftoverUninlinedSideRows(conversation.sideRows, stream),
-    [conversation.sideRows, stream]
+  const hideAnsweredQuestionRows = hasAskQuestionTool(
+    messages.map((row) => row.turn)
   );
+  const leftoverSideRows = useMemo(() => {
+    const leftover = leftoverUninlinedSideRows(conversation.sideRows, stream);
+    if (!hideAnsweredQuestionRows) return leftover;
+    return leftover.filter(
+      (entry) => !(entry.row.kind === 'question_request' && entry.row.response)
+    );
+  }, [conversation.sideRows, hideAnsweredQuestionRows, stream]);
   const delegations = useMemo(
     () =>
       conversation.sideRows.flatMap((row) =>
         row.row.kind === 'delegation' ? [row.row.delegation] : []
+      ),
+    [conversation.sideRows]
+  );
+  const timelineQuestions = useMemo(
+    () =>
+      conversation.sideRows.flatMap((row) =>
+        row.row.kind === 'question_request'
+          ? [
+              {
+                request: row.row.request,
+                response: row.row.response ?? null,
+              },
+            ]
+          : []
       ),
     [conversation.sideRows]
   );
@@ -189,9 +210,17 @@ export function ChildConversationViewer({
                             collapseProcess={collapseAiMessages}
                             showInterruptedNotice={false}
                             delegations={delegations}
+                            questions={timelineQuestions}
                             onOpenChild={onOpenChild}
                           />
                         );
+                      }
+                      if (
+                        hideAnsweredQuestionRows &&
+                        entry.row.row.kind === 'question_request' &&
+                        entry.row.row.response
+                      ) {
+                        return null;
                       }
                       return (
                         <ChildInlineSideRow

@@ -17,6 +17,7 @@ import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurn
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { toast } from '@/components/ui/toast';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
+import { hasAskQuestionTool } from '@/components/tasks/follow-up/agentQuestionModel';
 import '@/styles/conversation.css';
 
 export function WorkflowStepConversation({
@@ -44,6 +45,20 @@ export function WorkflowStepConversation({
   const messages = useMemo(
     () => conversation.timeline,
     [conversation.timeline]
+  );
+  const timelineQuestions = useMemo(
+    () =>
+      conversation.sideRows.flatMap((row) =>
+        row.row.kind === 'question_request'
+          ? [
+              {
+                request: row.row.request,
+                response: row.row.response ?? null,
+              },
+            ]
+          : []
+      ),
+    [conversation.sideRows]
   );
   const turnRunning =
     stepRun?.status === 'running' && !stepRun.awaitingInput && !sending;
@@ -102,6 +117,7 @@ export function WorkflowStepConversation({
               task={null}
               workspacePath={workspacePath}
               collapseProcess={collapseAiMessages}
+              questions={timelineQuestions}
             />
           ))
         )}
@@ -117,6 +133,12 @@ export function WorkflowStepConversation({
             );
           }
           if (entry.row.kind === 'question_request') {
+            if (
+              entry.row.response &&
+              hasAskQuestionTool(messages.map((row) => row.turn))
+            ) {
+              return null;
+            }
             return (
               <QuestionRequestCard
                 key={entry.row_id}

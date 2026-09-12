@@ -461,21 +461,15 @@ pub fn apply_built_in_launch_argument_policy(
             let mode = env
                 .get("GROK_PERMISSION_MODE")
                 .map(|value| value.trim())
-                .filter(|value| {
-                    matches!(
-                        *value,
-                        "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions" | "plan"
-                    )
-                });
-            if let Some(mode) = mode {
-                prefix.extend(["--permission-mode".to_string(), mode.to_string()]);
-            }
+                .filter(|value| !value.is_empty());
             if grok_mode_skips_permission_prompts(mode) {
                 if let Some(index) = args.iter().position(|argument| argument == "agent") {
                     args.insert(index + 1, "--always-approve".to_string());
                 } else {
                     args.insert(0, "--always-approve".to_string());
                 }
+            } else if let Some(cli_mode) = grok_cli_permission_mode(mode) {
+                prefix.extend(["--permission-mode".to_string(), cli_mode.to_string()]);
             }
         }
         "openclaw" => {
@@ -798,7 +792,17 @@ pub fn auto_approve_mode_for_launch(
 }
 
 fn grok_mode_skips_permission_prompts(mode: Option<&str>) -> bool {
-    matches!(mode, Some("bypassPermissions" | "dontAsk"))
+    matches!(mode, Some("always-approve" | "bypassPermissions"))
+}
+
+fn grok_cli_permission_mode(mode: Option<&str>) -> Option<&'static str> {
+    match mode {
+        Some("auto") => Some("auto"),
+        Some("acceptEdits") => Some("acceptEdits"),
+        Some("dontAsk") => Some("dontAsk"),
+        Some("plan") => Some("plan"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1196,21 +1200,27 @@ mod tests {
         );
         assert_eq!(
             grok_bypass,
-            [
-                "--no-auto-update",
-                "--permission-mode",
-                "bypassPermissions",
-                "agent",
-                "--always-approve",
-                "stdio"
-            ]
+            ["--no-auto-update", "agent", "--always-approve", "stdio"]
+        );
+        let mut grok_always_approve = vec!["agent".to_string(), "stdio".to_string()];
+        apply_built_in_launch_argument_policy(
+            &AgentId::parse("grok").unwrap(),
+            &HashMap::from([(
+                "GROK_PERMISSION_MODE".to_string(),
+                "always-approve".to_string(),
+            )]),
+            &mut grok_always_approve,
+        );
+        assert_eq!(
+            grok_always_approve,
+            ["--no-auto-update", "agent", "--always-approve", "stdio"]
         );
         assert_eq!(
             auto_approve_mode_for_launch(
                 &AgentId::parse("grok").unwrap(),
                 &HashMap::from([(
                     "GROK_PERMISSION_MODE".to_string(),
-                    "bypassPermissions".to_string(),
+                    "always-approve".to_string(),
                 )])
             ),
             crate::permissions::AgentAutoApproveMode::Yolo

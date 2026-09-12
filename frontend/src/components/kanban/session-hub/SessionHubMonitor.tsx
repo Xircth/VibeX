@@ -42,7 +42,7 @@ export function SessionHubMonitor({
           ) : (
             <div
               className={cn(
-                'grid min-h-0 flex-1 gap-4 p-1',
+                'grid min-h-0 flex-1 gap-1 p-1',
                 monitorGridClassName
               )}
             >

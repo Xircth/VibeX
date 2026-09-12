@@ -9,6 +9,7 @@ import {
   type SessionComposerStructuredToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
+import { applySoftBreaks } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
   MarkdownResourceLink,
   resolveMarkdownInlineResource,
@@ -186,7 +187,7 @@ function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
     })
     .join('\n');
 
-  return { value, tokens, underlines, links };
+  return { value: applySoftBreaks(value), tokens, underlines, links };
 }
 
 function UserCodeBlock({
@@ -287,7 +288,6 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
       <Markdown
         autolink="gfm"
         display="block"
-        density="compact"
         contentWidth="100%"
         components={components}
         inlinePlugins={inlinePlugins}

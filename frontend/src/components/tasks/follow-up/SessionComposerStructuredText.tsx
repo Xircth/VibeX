@@ -29,6 +29,7 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
   agent_mention: 'purple',
   conversation: 'cyan',
   commit: 'cyan',
+  project: 'cyan',
   quote: 'cyan',
 };
 
@@ -41,7 +42,8 @@ export function getSessionComposerTokenChipTitle(
     token.kind === 'element' ||
     token.kind === 'plugin_action' ||
     token.kind === 'conversation' ||
-    token.kind === 'commit'
+    token.kind === 'commit' ||
+    token.kind === 'project'
   ) {
     return token.title ?? token.value;
   }
@@ -84,6 +86,7 @@ export function SessionComposerTokenIcon({
     case 'tag':
     case 'conversation':
     case 'commit':
+    case 'project':
     case 'element':
     case 'quote':
       return null;

@@ -7,10 +7,12 @@ import {
   canSendFollowUp,
   canTypeFollowUp,
   getAfterSendCleanup,
+  getBeforeSendCleanup,
   isComposerExecutionActive,
   hasPendingToolApproval,
   getSubmitShortcutAction,
   hasFollowUpContent,
+  restoreComposerAttachmentsAfterSendFailure,
 } from './sessionComposerSubmit';
 
 const profile = { executor: 'codex' as const };
@@ -403,6 +405,56 @@ describe('session composer submit helpers', () => {
         },
       ],
     });
+  });
+
+  it('clears composer text and attachments immediately on send', () => {
+    const image = {
+      id: 'image-1',
+      name: 'image.png',
+      path: 'vibe://image-1',
+      previewUrl: 'blob:image-1',
+    };
+
+    expect(getBeforeSendCleanup([image])).toEqual({
+      message: '',
+      attachments: [],
+      sentAttachments: [image],
+    });
+  });
+
+  it('restores the sent attachments when send fails and the composer is still empty', () => {
+    const image = {
+      id: 'image-1',
+      name: 'image.png',
+      path: 'vibe://image-1',
+      previewUrl: 'blob:image-1',
+    };
+
+    expect(
+      restoreComposerAttachmentsAfterSendFailure({
+        currentAttachments: [],
+        sentAttachments: [image],
+      })
+    ).toEqual([image]);
+
+    expect(
+      restoreComposerAttachmentsAfterSendFailure({
+        currentAttachments: [
+          {
+            id: 'later',
+            name: 'later.png',
+            path: 'vibe://later',
+          },
+        ],
+        sentAttachments: [image],
+      })
+    ).toEqual([
+      {
+        id: 'later',
+        name: 'later.png',
+        path: 'vibe://later',
+      },
+    ]);
   });
 
   it('derives after-send cleanup state without hiding side effects', () => {

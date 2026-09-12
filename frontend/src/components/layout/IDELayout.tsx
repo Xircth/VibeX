@@ -47,6 +47,7 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
+import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
@@ -1328,22 +1329,23 @@ export function IDELayout({
                 />
               </div>
 
-              {effectiveActiveTab === 'kanban' && (
-                <div className="kanban-overlay absolute inset-0 z-10">
-                  <Suspense
-                    fallback={
-                      <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                        <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                          <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                          <span>Loading Kanban...</span>
-                        </div>
+              <KeepAliveSurface
+                active={effectiveActiveTab === 'kanban'}
+                className="kanban-overlay absolute inset-0 z-10"
+              >
+                <Suspense
+                  fallback={
+                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                        <span>Loading Kanban...</span>
                       </div>
-                    }
-                  >
-                    <LazyKanbanBoard />
-                  </Suspense>
-                </div>
-              )}
+                    </div>
+                  }
+                >
+                  <LazyKanbanBoard />
+                </Suspense>
+              </KeepAliveSurface>
 
               {activePluginTab ? (
                 <div className="kanban-overlay absolute inset-0 z-10">

@@ -148,4 +148,29 @@ describe('Product Plugin content layout', () => {
     expect(callout.get('display')).toBe('flex');
     expect(permission.get('font-size')).toBe('0.6875rem');
   });
+
+  it('gives plugin config groups a distinct header and full-width rows without hairlines', () => {
+    const block = declarationsFor(
+      '.settings-page .product-plugin-config-block'
+    );
+    const legend = declarationsFor(
+      '.settings-page .product-plugin-config-block > legend'
+    );
+    const legendTitle = declarationsFor(
+      '.settings-page .product-plugin-config-block > legend .product-plugin-config-copy strong'
+    );
+    const row = declarationsFor('.settings-page .product-plugin-config-row');
+    const copy = declarationsFor('.settings-page .product-plugin-config-copy');
+
+    expect(block.get('width')).toBe('100%');
+    expect(block.get('min-width')).toBe('0');
+    expect(block.get('min-inline-size')).toBe('0');
+    expect(block.get('border')).toBe('0');
+    expect(legend.get('padding')).toBe('24px 16px 8px');
+    expect(legendTitle.get('font-size')).toBe('1rem');
+    expect(row.get('grid-template-columns')).toBe('minmax(0, 1fr) auto');
+    expect(row.get('width')).toBe('100%');
+    expect(row.get('border-bottom')).toBe('0');
+    expect(copy.get('min-width')).toBe('0');
+  });
 });

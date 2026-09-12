@@ -675,7 +675,7 @@ pub async fn start_create_host_tunnel(
     let token = extract_relay_token(&address)
         .or_else(|| relay_token_for(&store, &endpoint.host, endpoint.port))
         .unwrap_or_else(|| format!("vbx_tun_{}", Uuid::new_v4().simple()));
-    let command = install_command(&token, endpoint.port);
+    let command = install_command(&token, endpoint.port, &endpoint.host);
     remember_relay(&mut store, &endpoint.host, endpoint.port, &token);
     store.enabled = true;
     store.pending = Some(PendingSetup {

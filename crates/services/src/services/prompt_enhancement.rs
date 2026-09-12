@@ -18,6 +18,15 @@ pub enum PromptEnhancementError {
 }
 
 pub const PROMPT_ENHANCE_TIMEOUT_SECS: u64 = 45;
+pub const PROMPT_ENHANCEMENT_CANCELLED: &str = "Prompt enhancement cancelled";
+
+pub fn is_prompt_enhancement_cancelled_stop(stop_reason: Option<&str>) -> bool {
+    matches!(
+        stop_reason.map(str::trim),
+        Some(reason) if reason.eq_ignore_ascii_case("cancelled")
+            || reason.eq_ignore_ascii_case("canceled")
+    )
+}
 const PROMPT_ENHANCE_CONTEXT_CHAR_LIMIT: usize = 32_000;
 const DEFAULT_PROMPT_ENHANCE_INSTRUCTION: &str = r#"You are PromptEnhance (PE).
 
@@ -312,7 +321,8 @@ pub fn extract_enhanced_prompt(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        PromptEnhancementContextMessage, extract_enhanced_prompt, trim_prompt_enhancement_context,
+        PromptEnhancementContextMessage, extract_enhanced_prompt,
+        is_prompt_enhancement_cancelled_stop, trim_prompt_enhancement_context,
     };
 
     #[test]
@@ -365,5 +375,13 @@ mod tests {
 
         assert_eq!(trimmed.len(), 1);
         assert_eq!(trimmed[0].role, "assistant");
+    }
+
+    #[test]
+    fn treats_cancelled_stop_reasons_as_user_abort() {
+        assert!(is_prompt_enhancement_cancelled_stop(Some("cancelled")));
+        assert!(is_prompt_enhancement_cancelled_stop(Some("Canceled")));
+        assert!(!is_prompt_enhancement_cancelled_stop(Some("end_turn")));
+        assert!(!is_prompt_enhancement_cancelled_stop(None));
     }
 }

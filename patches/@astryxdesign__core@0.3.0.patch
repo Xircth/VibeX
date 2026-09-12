@@ -1,8 +1,61 @@
 diff --git a/dist/Chat/ChatComposerInput.js b/dist/Chat/ChatComposerInput.js
-index edd9080e2d948dcdbb0ac355ae8c1d519958352d..c78984fcb8efd4bc9e2e9e4a77b784bd4438b166 100644
+index edd9080e2d948dcdbb0ac355ae8c1d519958352d..3f9cb06d13fd842239330f96272309f33b060947 100644
 --- a/dist/Chat/ChatComposerInput.js
 +++ b/dist/Chat/ChatComposerInput.js
-@@ -318,30 +318,48 @@ export function ChatComposerInput(props) {
+@@ -103,6 +103,12 @@ function serialize(node) {
+         result += child.getAttribute('data-astryx-token-value') ?? '';
+       } else if (child.tagName === 'BR') {
+         result += '\n';
++      } else if (child.tagName === 'DIV' || child.tagName === 'P') {
++        if (result.length > 0) {
++          result += '\n';
++        }
++        const inner = serialize(child);
++        result += inner === '\n' ? '' : inner;
+       } else {
+         result += serialize(child);
+       }
+@@ -110,6 +116,19 @@ function serialize(node) {
+   }
+   return result;
+ }
++function applyPlainTextValue(editable, value) {
++  const fragment = document.createDocumentFragment();
++  const parts = value.split('\n');
++  for (let index = 0; index < parts.length; index += 1) {
++    if (index > 0) {
++      fragment.appendChild(document.createElement('br'));
++    }
++    if (parts[index]) {
++      fragment.appendChild(document.createTextNode(parts[index]));
++    }
++  }
++  editable.replaceChildren(fragment);
++}
+ 
+ // =============================================================================
+ // Component
+@@ -226,13 +245,12 @@ export function ChatComposerInput(props) {
+       // echo before we rewrite the DOM.
+       pendingEchoValueRef.current = undefined;
+       const wasFocused = document.activeElement === editable;
+-      editable.textContent = controlledValue;
+-      // Setting `textContent` tears down the existing text node,
+-      // which collapses any Selection inside this editable to
+-      // offset 0. If the user was focused (e.g. a programmatic
+-      // insert from a slash-menu pick), restore the caret to the
+-      // end of the new content so the next keystroke appends rather
+-      // than prepends.
++      applyPlainTextValue(editable, controlledValue);
++      // Rewriting children collapses any Selection inside this
++      // editable to offset 0. If the user was focused (e.g. a
++      // programmatic insert from a slash-menu pick), restore the
++      // caret to the end of the new content so the next keystroke
++      // appends rather than prepends.
+       if (wasFocused) {
+         const selection = window.getSelection();
+         if (selection) {
+@@ -318,30 +336,48 @@ export function ChatComposerInput(props) {
      // Handle Backspace near tokens — prevent browser from creating
      // stray <br> elements or moving the cursor unexpectedly.
      if (e.key === 'Backspace') {
@@ -66,6 +119,40 @@ index edd9080e2d948dcdbb0ac355ae8c1d519958352d..c78984fcb8efd4bc9e2e9e4a77b784bd
            emitChange();
            return;
          }
+@@ -368,7 +404,7 @@ export function ChatComposerInput(props) {
+         currentDraftRef.current = '';
+       }
+       onSubmit?.(text);
+-      editableRef.current.textContent = '';
++      editableRef.current.replaceChildren();
+       setIsEmpty(true);
+       onChange?.('');
+       return;
+@@ -390,7 +426,7 @@ export function ChatComposerInput(props) {
+         }
+         const nextIndex = historyIndexRef.current === -1 ? history.length - 1 : Math.max(0, historyIndexRef.current - 1);
+         historyIndexRef.current = nextIndex;
+-        editableRef.current.textContent = history[nextIndex];
++        applyPlainTextValue(editableRef.current, history[nextIndex]);
+         selectAll(editableRef.current);
+         emitChange();
+         e.preventDefault();
+@@ -398,13 +434,13 @@ export function ChatComposerInput(props) {
+         const nextIndex = historyIndexRef.current + 1;
+         if (nextIndex >= history.length) {
+           historyIndexRef.current = -1;
+-          editableRef.current.textContent = currentDraftRef.current;
++          applyPlainTextValue(editableRef.current, currentDraftRef.current);
+           if (currentDraftRef.current) {
+             selectAll(editableRef.current);
+           }
+         } else {
+           historyIndexRef.current = nextIndex;
+-          editableRef.current.textContent = history[nextIndex];
++          applyPlainTextValue(editableRef.current, history[nextIndex]);
+           selectAll(editableRef.current);
+         }
+         emitChange();
 diff --git a/dist/Chat/ChatToolCalls.d.ts b/dist/Chat/ChatToolCalls.d.ts
 index 7bece6857c7470545a94977fd687dc5534e43c9c..e99705176c81f0959d76ffb3cebc572fabcd750b 100644
 --- a/dist/Chat/ChatToolCalls.d.ts
@@ -158,7 +245,7 @@ index 1f7560a2cc9b2a7dc3e391b420c1a45da36b63de..4a77ce55c695292812e4598df04b0dd3
            const {startContainer, startOffset} = range;
 +          const spacerCharacters = /^[\u00A0\u200B\uFEFF]*$/;
 +          let previous: Node | null = null;
-
+ 
 -          // Case 1: Cursor is in a text node right after a token.
 -          // If the text node is just the trailing NBSP, remove it
 -          // and place cursor after the token.
@@ -264,7 +351,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
 @@ -536,8 +539,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
      return null;
    }
-
+ 
 -  // Single call: render inline, no group chrome
 -  if (calls.length === 1) {
 +  // Single calls render inline unless the consumer requests a consistent group.
@@ -277,7 +364,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
    const latestCall = calls[calls.length - 1];
    const latestStatus = latestCall.status ?? 'complete';
 +  const showSummary = isExpanded || _customLabel != null;
-
+ 
    return (
      <div
 @@ -581,13 +585,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {

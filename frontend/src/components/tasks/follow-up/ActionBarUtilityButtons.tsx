@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 
 const COMPACT_CONTEXT_LABEL = '\u538b\u7f29\u4e0a\u4e0b\u6587';
 const ENHANCE_PROMPT_LABEL = '\u63d0\u793a\u8bcd\u4f18\u5316';
+const STOP_ENHANCE_PROMPT_LABEL = '\u505c\u6b62\u63d0\u793a\u8bcd\u4f18\u5316';
 
 type ActionBarUtilityButtonsProps = {
   canCompactContext: boolean;
@@ -45,12 +46,17 @@ export function ActionBarUtilityButtons({
       {promptEnhancementEnabled ? (
         <Button
           onClick={onEnhancePrompt}
-          disabled={!canEnhancePrompt || isEnhancingPrompt}
+          disabled={!canEnhancePrompt && !isEnhancingPrompt}
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0"
-          title={ENHANCE_PROMPT_LABEL}
-          aria-label={ENHANCE_PROMPT_LABEL}
+          title={
+            isEnhancingPrompt ? STOP_ENHANCE_PROMPT_LABEL : ENHANCE_PROMPT_LABEL
+          }
+          aria-label={
+            isEnhancingPrompt ? STOP_ENHANCE_PROMPT_LABEL : ENHANCE_PROMPT_LABEL
+          }
+          aria-busy={isEnhancingPrompt}
         >
           {isEnhancingPrompt ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

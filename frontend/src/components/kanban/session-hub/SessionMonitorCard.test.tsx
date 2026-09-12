@@ -140,6 +140,50 @@ describe('SessionMonitorCard', () => {
     expect(container.firstElementChild).not.toHaveClass('is-running');
   });
 
+  it('applies the monitor slot color with the same hue as the session list marker', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={createSession()}
+          variant="monitor"
+          slotIndex={1}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(container.firstElementChild).toHaveClass('session-monitor-slotted');
+    expect(container.firstElementChild).toHaveAttribute(
+      'style',
+      expect.stringContaining('--monitor-window-slot: var(--session-slot-2)')
+    );
+    expect(container.firstElementChild).not.toHaveClass(
+      'canvas-window-slotted'
+    );
+  });
+
+  it('does not apply monitor slot styling to canvas windows', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={createSession()}
+          variant="canvas"
+          slotIndex={1}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(container.firstElementChild).toHaveClass('canvas-window-slotted');
+    expect(container.firstElementChild).not.toHaveClass(
+      'session-monitor-slotted'
+    );
+    expect(container.firstElementChild).not.toHaveAttribute(
+      'style',
+      expect.stringContaining('--monitor-window-slot')
+    );
+  });
+
   it('applies the canvas window slot color to the shell', () => {
     const { container } = render(
       <TooltipProvider>

@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, useOpenSettings } from '@/lib/api';
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, startTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -523,7 +523,9 @@ function WorkspaceTabSwitcher() {
 
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
-      setActiveTab(tab);
+      startTransition(() => {
+        setActiveTab(tab);
+      });
       if (!projectId) return;
 
       if (tab !== 'workspace') {

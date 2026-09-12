@@ -47,8 +47,22 @@ function renderItem(
 }
 
 describe('SessionHubListItem', () => {
-  it('shows a review pill for an unviewed finished session', () => {
+  it('does not repeat status on cards already grouped by status', () => {
+    const { unmount } = renderItem({
+      session: { ...session(), isRunning: true, status: 'inprogress' },
+    });
+    expect(screen.queryByText('进行中')).not.toBeInTheDocument();
+    unmount();
+
     renderItem({
+      session: { ...session(), isRunning: false, status: 'inreview' },
+    });
+    expect(screen.queryByText('待检查')).not.toBeInTheDocument();
+  });
+
+  it('keeps status pills on canvas cards that are not grouped by status', () => {
+    renderItem({
+      displayMode: 'canvas',
       session: { ...session(), isRunning: false, status: 'inreview' },
     });
     expect(screen.getByText('待检查')).toBeInTheDocument();
@@ -118,5 +132,17 @@ describe('SessionHubListItem', () => {
     expect(
       screen.getByRole('button', { name: '删除会话' }).parentElement
     ).not.toHaveClass('pointer-events-none');
+  });
+
+  it('renders hover edit and delete as bare icons without a control shell', () => {
+    renderItem();
+
+    const deleteButton = screen.getByRole('button', { name: '删除会话' });
+    const renameButton = screen.getByRole('button', { name: '重命名会话' });
+
+    expect(deleteButton).not.toHaveClass('composer-control');
+    expect(renameButton).not.toHaveClass('composer-control');
+    expect(deleteButton).toHaveClass('session-hub-card-action');
+    expect(renameButton).toHaveClass('session-hub-card-action');
   });
 });

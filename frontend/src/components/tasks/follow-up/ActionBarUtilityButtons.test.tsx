@@ -81,11 +81,13 @@ describe('ActionBarUtilityButtons', () => {
       />
     );
 
-    expect(
-      screen
-        .getByRole('button', { name: '提示词优化' })
-        .querySelector('.animate-spin')
-    ).toBeInTheDocument();
+    const loadingButton = screen.getByRole('button', {
+      name: '停止提示词优化',
+    });
+    expect(loadingButton).toBeEnabled();
+    expect(loadingButton.querySelector('.animate-spin')).toBeInTheDocument();
+    fireEvent.click(loadingButton);
+    expect(onEnhancePrompt).toHaveBeenCalledTimes(1);
   });
 
   it('calls prompt enhancement when available', () => {

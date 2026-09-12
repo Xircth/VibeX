@@ -29,6 +29,7 @@ import {
   originAllowsPlaintextHttp,
   parseProbeOutput,
   pickDurableOrigin,
+  remoteProbeScript,
   remoteInstallScript,
   remoteUnpackNodeScript,
   reuseExistingStartScript,
@@ -684,6 +685,14 @@ test('pinned Node catalog matches the Host bootstrap toolchain', () => {
     nodeDownloadUrls('linux-x86_64').some((url) => url.includes('npmmirror.com')),
     true
   );
+});
+
+test('probe script keeps bash if/then newlines instead of then;', () => {
+  const script = remoteProbeScript();
+  assert.equal(script.includes('then;'), false);
+  assert.match(script, /if command -v pgrep[^\n]*; then\n/);
+  assert.match(script, /if command -v systemctl[^\n]*; then\n/);
+  assert.match(script, /uname -s/);
 });
 
 test('probe without node/npm is treated as missing the user toolchain', () => {

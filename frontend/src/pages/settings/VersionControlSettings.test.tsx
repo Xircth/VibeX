@@ -1,7 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from 'shared/types';
+
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { VersionControlSettings } from './VersionControlSettings';
 
@@ -12,6 +14,7 @@ const agentManagementApiMock = vi.hoisted(() => ({
 const agentsApiMock = vi.hoisted(() => ({
   refreshCapabilityCatalog: vi.fn(),
   capabilityCatalog: vi.fn(),
+  capabilityCatalogFresh: vi.fn(),
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -59,9 +62,16 @@ vi.mock('@/features/agents/api', () => ({
   agentsApi: agentsApiMock,
 }));
 
-vi.mock('@/features/agents/sessionControlsQuery', () => ({
-  loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
-}));
+vi.mock('@/features/agents/sessionControlsQuery', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@/features/agents/sessionControlsQuery')
+    >();
+  return {
+    ...actual,
+    loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
+  };
+});
 
 vi.mock('@/lib/api', () => ({
   versionControlApi: {
@@ -121,6 +131,7 @@ describe('VersionControlSettings', () => {
     agentManagementApiMock.bar.mockReset();
     agentsApiMock.refreshCapabilityCatalog.mockReset();
     agentsApiMock.capabilityCatalog.mockReset();
+    agentsApiMock.capabilityCatalogFresh.mockReset();
     agentManagementApiMock.bar.mockResolvedValue([
       {
         agent_id: 'opencode',
@@ -134,6 +145,7 @@ describe('VersionControlSettings', () => {
       current_mode: null,
       config_options: [],
     });
+    agentsApiMock.capabilityCatalogFresh.mockResolvedValue(true);
     agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
   });
 

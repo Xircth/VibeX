@@ -395,6 +395,20 @@ impl ConversationInputRecord {
         .fetch_all(pool)
         .await
     }
+
+    /// Claims left without a Turn. After a process restart every such claim is
+    /// orphaned: the previous dispatcher is gone, even if its deadline is still
+    /// in the future.
+    pub async fn list_unsubmitted_claims(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {INPUT_COLUMNS}
+               FROM conversation_inputs
+               WHERE status = 'claimed' AND turn_id IS NULL
+               ORDER BY created_at ASC, id ASC"#
+        ))
+        .fetch_all(pool)
+        .await
+    }
 }
 
 #[cfg(test)]

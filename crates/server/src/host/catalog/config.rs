@@ -1,8 +1,8 @@
 use std::{collections::HashMap, time::Duration};
 
 use agents::{
-    AgentCapability, AgentContentBlock, AgentId, AgentSessionId, EnsureAgentSessionInput,
-    SendAgentPromptInput, agent_capabilities,
+    AgentCapability, AgentContentBlock, AgentId, AgentSessionId, CancelAgentPromptInput,
+    EnsureAgentSessionInput, SendAgentPromptInput, agent_capabilities,
     events::{AgentEvent, AgentSessionConfigOverride},
     permissions::AgentAutoApproveMode,
 };
@@ -18,17 +18,19 @@ use services::services::{
         load_config_from_file, publish_config_runtime, save_config_to_file,
     },
     prompt_enhancement::{
-        PROMPT_ENHANCE_TIMEOUT_SECS, PromptEnhancementRequest, PromptEnhancementResponse,
-        build_prompt_enhancement_payload, extract_enhanced_prompt,
-        selected_prompt_enhancement_agent, validate_prompt_enhancement_request,
+        PROMPT_ENHANCE_TIMEOUT_SECS, PROMPT_ENHANCEMENT_CANCELLED, PromptEnhancementRequest,
+        PromptEnhancementResponse, build_prompt_enhancement_payload, extract_enhanced_prompt,
+        is_prompt_enhancement_cancelled_stop, selected_prompt_enhancement_agent,
+        validate_prompt_enhancement_request,
     },
     worktree_manager::WorktreeManager,
 };
 use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 use super::unwrap_named;
 use crate::{
-    domains::{ServerApplicationDomains, internal_error, parse, serialize},
+    domains::{PromptEnhancementRun, ServerApplicationDomains, internal_error, parse, serialize},
     host::events::current_host_events,
 };
 
@@ -210,6 +212,109 @@ pub(super) async fn play_notification_sound(args: Value) -> Result<Value, Applic
     Ok(Value::Null)
 }
 
+fn prompt_enhancement_cancelled() -> ApplicationError {
+    ApplicationError::bad_request(PROMPT_ENHANCEMENT_CANCELLED)
+}
+
+async fn disconnect_prompt_enhancement_run(
+    domains: &ServerApplicationDomains,
+    run: &PromptEnhancementRun,
+) {
+    if let Some(connection_id) = run.connection_id {
+        let _ = domains
+            .conversations
+            .agent_runtime
+            .disconnect(connection_id)
+            .await;
+    }
+}
+
+async fn abort_prompt_enhancement_run(
+    domains: &ServerApplicationDomains,
+    run: PromptEnhancementRun,
+) {
+    run.cancel.cancel();
+    if let (Some(connection_id), Some(session_id), Some(prompt_id)) =
+        (run.connection_id, run.session_id, run.prompt_id)
+    {
+        let _ = domains
+            .conversations
+            .agent_runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id,
+                session_id,
+                prompt_id,
+            })
+            .await;
+    }
+    disconnect_prompt_enhancement_run(domains, &run).await;
+}
+
+async fn begin_prompt_enhancement(domains: &ServerApplicationDomains) -> (u64, CancellationToken) {
+    let cancel = CancellationToken::new();
+    let (generation, previous) = {
+        let mut slot = domains.prompt_enhancement.lock().await;
+        let generation = slot
+            .as_ref()
+            .map(|run| run.generation.wrapping_add(1))
+            .unwrap_or(1);
+        let previous = slot.replace(PromptEnhancementRun {
+            generation,
+            cancel: cancel.clone(),
+            connection_id: None,
+            session_id: None,
+            prompt_id: None,
+        });
+        (generation, previous)
+    };
+    if let Some(previous) = previous {
+        abort_prompt_enhancement_run(domains, previous).await;
+    }
+    (generation, cancel)
+}
+
+async fn bind_prompt_enhancement_run(
+    domains: &ServerApplicationDomains,
+    generation: u64,
+    connection_id: agents::AgentConnectionId,
+    session_id: AgentSessionId,
+    prompt_id: Option<agents::AgentPromptId>,
+) {
+    let mut slot = domains.prompt_enhancement.lock().await;
+    if let Some(run) = slot.as_mut()
+        && run.generation == generation
+    {
+        run.connection_id = Some(connection_id);
+        run.session_id = Some(session_id);
+        run.prompt_id = prompt_id;
+    }
+}
+
+async fn finish_prompt_enhancement(
+    domains: &ServerApplicationDomains,
+    generation: u64,
+) -> Option<PromptEnhancementRun> {
+    let mut slot = domains.prompt_enhancement.lock().await;
+    if slot
+        .as_ref()
+        .is_some_and(|run| run.generation == generation)
+    {
+        slot.take()
+    } else {
+        None
+    }
+}
+
+pub(super) async fn cancel_enhance_prompt(
+    domains: &ServerApplicationDomains,
+) -> Result<Value, ApplicationError> {
+    let run = domains.prompt_enhancement.lock().await.take();
+    if let Some(run) = run {
+        abort_prompt_enhancement_run(domains, run).await;
+    }
+    Ok(Value::Null)
+}
+
 pub(super) async fn enhance_prompt(
     domains: &ServerApplicationDomains,
     args: Value,
@@ -240,8 +345,12 @@ pub(super) async fn enhance_prompt(
         .await
         .map_err(internal_error)?;
     let runtime = &domains.conversations.agent_runtime;
+    let (generation, cancel) = begin_prompt_enhancement(domains).await;
+    if cancel.is_cancelled() {
+        return Err(prompt_enhancement_cancelled());
+    }
     let events = runtime.subscribe_events();
-    let session = runtime
+    let session = match runtime
         .ensure_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: launch.launch_lock,
@@ -255,8 +364,23 @@ pub(super) async fn enhance_prompt(
             preferences: Default::default(),
         })
         .await
-        .map_err(internal_error)?;
-    let prompt = runtime
+    {
+        Ok(session) => session,
+        Err(error) => {
+            let _ = finish_prompt_enhancement(domains, generation).await;
+            return Err(internal_error(error));
+        }
+    };
+    bind_prompt_enhancement_run(domains, generation, session.connection_id, session.id, None).await;
+    if cancel.is_cancelled() {
+        if let Some(run) = finish_prompt_enhancement(domains, generation).await {
+            abort_prompt_enhancement_run(domains, run).await;
+        } else {
+            let _ = runtime.disconnect(session.connection_id).await;
+        }
+        return Err(prompt_enhancement_cancelled());
+    }
+    let prompt = match runtime
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,
             session_id: session.id,
@@ -265,28 +389,58 @@ pub(super) async fn enhance_prompt(
             config_overrides,
         })
         .await
-        .map_err(internal_error)?;
+    {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            if let Some(run) = finish_prompt_enhancement(domains, generation).await {
+                abort_prompt_enhancement_run(domains, run).await;
+            } else {
+                let _ = runtime.disconnect(session.connection_id).await;
+            }
+            return Err(internal_error(error));
+        }
+    };
+    bind_prompt_enhancement_run(
+        domains,
+        generation,
+        session.connection_id,
+        session.id,
+        Some(prompt.id),
+    )
+    .await;
     if let agents::state::AgentPromptStatus::Failed { message } = &prompt.status {
-        let _ = runtime.disconnect(session.connection_id).await;
+        if let Some(run) = finish_prompt_enhancement(domains, generation).await {
+            abort_prompt_enhancement_run(domains, run).await;
+        } else {
+            let _ = runtime.disconnect(session.connection_id).await;
+        }
         return Err(ApplicationError::internal(format!(
             "Prompt enhancement Agent failed: {message}"
         )));
     }
-    let response_text = match tokio::time::timeout(
-        Duration::from_secs(PROMPT_ENHANCE_TIMEOUT_SECS),
-        collect_response_text(events, session.id, session.connection_id),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            let _ = runtime.disconnect(session.connection_id).await;
-            return Err(ApplicationError::internal(format!(
+    let response_text = tokio::select! {
+        _ = cancel.cancelled() => Err(prompt_enhancement_cancelled()),
+        result = collect_response_text(events, session.id, session.connection_id) => result,
+        _ = tokio::time::sleep(Duration::from_secs(PROMPT_ENHANCE_TIMEOUT_SECS)) => {
+            Err(ApplicationError::internal(format!(
                 "Prompt enhancement Agent timed out after {PROMPT_ENHANCE_TIMEOUT_SECS} seconds"
-            )));
+            )))
         }
     };
-    let _ = runtime.disconnect(session.connection_id).await;
+    let finished = finish_prompt_enhancement(domains, generation).await;
+    if cancel.is_cancelled() {
+        if let Some(run) = finished {
+            abort_prompt_enhancement_run(domains, run).await;
+        } else {
+            let _ = runtime.disconnect(session.connection_id).await;
+        }
+        return Err(prompt_enhancement_cancelled());
+    }
+    if let Some(run) = finished {
+        disconnect_prompt_enhancement_run(domains, &run).await;
+    } else {
+        let _ = runtime.disconnect(session.connection_id).await;
+    }
     let response_text = response_text?;
     let enhanced_prompt = extract_enhanced_prompt(&response_text).ok_or_else(|| {
         let detail = response_text.trim();
@@ -337,7 +491,12 @@ async fn collect_response_text(
             AgentEvent::MessageChunk {
                 content: AgentContentBlock::Text { text },
             } => response_text.push_str(&text),
-            AgentEvent::PromptFinished { .. } => return Ok(response_text),
+            AgentEvent::PromptFinished { finished } => {
+                if is_prompt_enhancement_cancelled_stop(finished.stop_reason.as_deref()) {
+                    return Err(prompt_enhancement_cancelled());
+                }
+                return Ok(response_text);
+            }
             AgentEvent::Error { error } => {
                 return Err(ApplicationError::internal(format!(
                     "Prompt enhancement Agent failed: {}",

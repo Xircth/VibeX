@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type {
   AgentSessionConfigOverride,
+  ContentBlock,
   ExecutorProfileId,
 } from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
@@ -18,6 +19,30 @@ import {
   getSessionComposerPluginActionInvocations,
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import { fileExtension, mimeForMediaExtension } from '@/utils/mediaAttachments';
+
+export function buildOptimisticUserTurnBlocks({
+  displayText,
+  images,
+}: {
+  displayText: string;
+  images: string[];
+}): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  if (displayText.trim()) {
+    blocks.push({ type: 'text', text: displayText });
+  }
+  for (const uri of images) {
+    const mime = mimeForMediaExtension(fileExtension(uri));
+    blocks.push({
+      type: 'image',
+      data: '',
+      mime_type: mime.startsWith('image/') ? mime : 'image/png',
+      uri,
+    });
+  }
+  return blocks;
+}
 
 type Args = {
   sessionId?: string;
@@ -187,9 +212,10 @@ export function useFollowUpSend({
           turn: {
             id: optimisticTurnId,
             role: 'user',
-            blocks: displayPrompt
-              ? [{ type: 'text', text: displayPrompt }]
-              : [],
+            blocks: buildOptimisticUserTurnBlocks({
+              displayText: displayPrompt,
+              images,
+            }),
             timestamp: new Date().toISOString(),
           },
         });
@@ -228,6 +254,7 @@ export function useFollowUpSend({
           if (acceptedInput) {
             turnAccepted = true;
             operationIdRef.current = null;
+            await onAfterSendCleanup();
             return;
           }
           throw error;

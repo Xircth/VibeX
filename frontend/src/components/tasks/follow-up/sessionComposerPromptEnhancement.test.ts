@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPromptEnhancementRequest,
   canEnhancePrompt,
-  getPromptEnhancementStartDecision,
+  getPromptEnhancementClickAction,
   getPromptEnhancementErrorMessage,
+  isPromptEnhancementCancelledError,
   normalizeEnhancedPrompt,
 } from './sessionComposerPromptEnhancement';
 
@@ -41,25 +42,34 @@ describe('session composer prompt enhancement helpers', () => {
 
   it('starts prompt enhancement only for non-empty drafts while idle', () => {
     expect(
-      getPromptEnhancementStartDecision({
+      getPromptEnhancementClickAction({
         isEnhancingPrompt: false,
         draftPrompt: ' improve this ',
       })
-    ).toEqual({ shouldStartEnhancement: true });
+    ).toBe('start');
 
     expect(
-      getPromptEnhancementStartDecision({
-        isEnhancingPrompt: true,
-        draftPrompt: 'improve this',
-      })
-    ).toEqual({ shouldStartEnhancement: false });
-
-    expect(
-      getPromptEnhancementStartDecision({
+      getPromptEnhancementClickAction({
         isEnhancingPrompt: false,
         draftPrompt: '   ',
       })
-    ).toEqual({ shouldStartEnhancement: false });
+    ).toBe('ignore');
+  });
+
+  it('cancels the in-flight enhancement when the loading control is clicked', () => {
+    expect(
+      getPromptEnhancementClickAction({
+        isEnhancingPrompt: true,
+        draftPrompt: 'improve this',
+      })
+    ).toBe('cancel');
+
+    expect(
+      getPromptEnhancementClickAction({
+        isEnhancingPrompt: true,
+        draftPrompt: '   ',
+      })
+    ).toBe('cancel');
   });
 
   it('builds prompt enhancement requests with null session and workspace fallbacks', () => {
@@ -129,5 +139,19 @@ describe('session composer prompt enhancement helpers', () => {
     expect(disabled).not.toContain('Prompt enhancement is disabled');
     expect(empty).not.toContain('Prompt enhancement returned empty content');
     expect(missingAgent).not.toContain('No enabled Agent');
+  });
+
+  it('treats user cancellation as a silent non-error', () => {
+    expect(
+      isPromptEnhancementCancelledError('Prompt enhancement cancelled')
+    ).toBe(true);
+    expect(
+      isPromptEnhancementCancelledError(
+        new Error('Prompt enhancement cancelled')
+      )
+    ).toBe(true);
+    expect(
+      isPromptEnhancementCancelledError('Prompt enhancement failed: timeout')
+    ).toBe(false);
   });
 });

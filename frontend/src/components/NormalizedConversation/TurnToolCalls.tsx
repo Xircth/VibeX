@@ -9,6 +9,8 @@ import { ChevronDown, Images } from 'lucide-react';
 import type {
   ActionType,
   ConversationDelegationView,
+  ConversationQuestionRequest,
+  ConversationQuestionResponse,
   FileChange,
   ImageData,
   MessageTurn,
@@ -34,6 +36,13 @@ import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
+import { AskQuestionToolCard } from './tools/AskQuestionToolCard';
+import {
+  firstQuestionTitle,
+  isAskQuestionTool,
+  questionRequestFromToolUse,
+  questionTabsFromRequest,
+} from '@/components/tasks/follow-up/agentQuestionModel';
 import {
   applySubagentLifecycle,
   buildSubagentCardModel,
@@ -374,6 +383,11 @@ function summaryCategory(action: string): ToolSummaryCategory {
   }
 }
 
+export type TimelineQuestion = {
+  request: ConversationQuestionRequest;
+  response: ConversationQuestionResponse | null;
+};
+
 export function TurnToolCalls({
   turnId,
   timestamp,
@@ -385,6 +399,7 @@ export function TurnToolCalls({
   delegations = [],
   pollResults: suppliedPollResults,
   onOpenChild,
+  questions = [],
 }: {
   turnId: string;
   timestamp: MessageTurn['timestamp'];
@@ -396,6 +411,7 @@ export function TurnToolCalls({
   delegations?: ConversationDelegationView[];
   pollResults?: readonly ToolResultBlock[];
   onOpenChild?: (childConversationId: string) => void;
+  questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation('conversation');
   const lifecycleIndex = useSubagentLifecycleIndex();
@@ -414,6 +430,7 @@ export function TurnToolCalls({
             result: item.result,
             isHostDelegation: isHostDelegationTool(item.use),
             isSubagent: isNativeSubagentTool(item.use),
+            isAskQuestion: isAskQuestionTool(item.use),
           },
         ];
       }),
@@ -448,6 +465,7 @@ export function TurnToolCalls({
           return false;
         }
         if (entry.isSubagent) return false;
+        if (entry.isAskQuestion) return false;
         if (!isSubagentLifecycleTool(entry.use)) return true;
         if (entry.toolUseId && folded.hiddenToolUseIds.has(entry.toolUseId)) {
           return false;
@@ -459,6 +477,10 @@ export function TurnToolCalls({
         );
       }),
     [entries, folded.hiddenToolUseIds, lifecycleIndex.spawnBindingIds]
+  );
+  const askQuestionEntries = useMemo(
+    () => entries.filter((entry) => entry.isAskQuestion),
+    [entries]
   );
   const hostDelegationEntries = useMemo(
     () => entries.filter((entry) => entry.isHostDelegation),
@@ -594,6 +616,18 @@ export function TurnToolCalls({
 
   return (
     <div className="conv-entry-item vibex-turn-tool-calls space-y-1">
+      {askQuestionEntries.map(({ use, result, toolUseId, index }) => {
+        const matched = matchTimelineQuestion(use, questions);
+        return (
+          <AskQuestionToolCard
+            key={toolUseId || `${turnId}-ask-question-${index}`}
+            use={use}
+            result={result}
+            request={matched?.request}
+            response={matched?.response ?? null}
+          />
+        );
+      })}
       {hostDelegationEntries.map(({ use, result, toolUseId, index }) => (
         <HostDelegationToolCall
           key={toolUseId || `${turnId}-delegation-${index}`}
@@ -653,5 +687,26 @@ export function TurnToolCalls({
         />
       ) : null}
     </div>
+  );
+}
+
+function matchTimelineQuestion(
+  use: ToolUseBlock,
+  questions: TimelineQuestion[]
+): TimelineQuestion | null {
+  if (questions.length === 0) return null;
+  if (questions.length === 1) return questions[0] ?? null;
+  const title = firstQuestionTitle(
+    questionTabsFromRequest(questionRequestFromToolUse(use))
+  );
+  if (!title) return questions[0] ?? null;
+  return (
+    questions.find((item) => {
+      const prompt = item.request.prompt;
+      const headers = questionTabsFromRequest(item.request).map(
+        (question) => question.question
+      );
+      return prompt.includes(title) || headers.includes(title);
+    }) ?? null
   );
 }

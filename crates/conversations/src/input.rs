@@ -499,9 +499,30 @@ impl ConversationInputControl {
         &self,
         now: DateTime<Utc>,
     ) -> Result<usize, ConversationInputControlError> {
-        let stale = ConversationInputRecord::list_stale_unsubmitted_claims(&self.pool, now).await?;
+        self.release_unsubmitted_claims(
+            ConversationInputRecord::list_stale_unsubmitted_claims(&self.pool, now).await?,
+        )
+        .await
+    }
+
+    /// Release every claimed input that never produced a Turn. Call this only
+    /// when no dispatcher from this process can still be holding those claims
+    /// (host startup / crash recovery).
+    pub async fn recover_orphaned_unsubmitted_claims(
+        &self,
+    ) -> Result<usize, ConversationInputControlError> {
+        self.release_unsubmitted_claims(
+            ConversationInputRecord::list_unsubmitted_claims(&self.pool).await?,
+        )
+        .await
+    }
+
+    async fn release_unsubmitted_claims(
+        &self,
+        claims: Vec<ConversationInputRecord>,
+    ) -> Result<usize, ConversationInputControlError> {
         let mut released = 0;
-        for input in stale {
+        for input in claims {
             let Some(claim_token) = input.claim_token else {
                 continue;
             };
@@ -1605,6 +1626,69 @@ mod tests {
         .await
         .expect("count claim events");
         assert_eq!(claimed_events, 1);
+    }
+
+    #[tokio::test]
+    async fn previous_process_claims_are_released_even_when_the_deadline_has_not_elapsed() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let control = ConversationInputControl::new(pool.clone());
+        let queued = control
+            .submit(SubmitConversationInput {
+                conversation_id,
+                operation_id: Uuid::new_v4(),
+                payload: payload("resume after restart"),
+                principal: serde_json::json!({ "kind": "test" }),
+            })
+            .await
+            .expect("submit input");
+        control
+            .claim_next(conversation_id, Duration::seconds(30))
+            .await
+            .expect("claim query")
+            .expect("claimed input");
+
+        assert!(
+            ConversationInputRecord::queued_conversation_ids(&pool)
+                .await
+                .expect("queued conversation ids")
+                .is_empty(),
+            "a live claim must not look like a queued input to startup dispatch"
+        );
+
+        let released = control
+            .recover_orphaned_unsubmitted_claims()
+            .await
+            .expect("recover orphaned claims");
+        assert_eq!(released, 1);
+        assert_eq!(
+            control
+                .find(conversation_id, queued.id)
+                .await
+                .expect("recovered input")
+                .status,
+            ConversationInputStatus::Queued
+        );
+        assert_eq!(
+            ConversationInputRecord::queued_conversation_ids(&pool)
+                .await
+                .expect("queued conversation ids"),
+            vec![conversation_id]
+        );
     }
 
     #[tokio::test]

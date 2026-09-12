@@ -23,18 +23,18 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
-export function getPromptEnhancementStartDecision({
+export type PromptEnhancementClickAction = 'start' | 'cancel' | 'ignore';
+
+export function getPromptEnhancementClickAction({
   isEnhancingPrompt,
   draftPrompt,
 }: {
   isEnhancingPrompt: boolean;
   draftPrompt: string;
-}): {
-  shouldStartEnhancement: boolean;
-} {
-  return {
-    shouldStartEnhancement: !isEnhancingPrompt && Boolean(draftPrompt.trim()),
-  };
+}): PromptEnhancementClickAction {
+  if (isEnhancingPrompt) return 'cancel';
+  if (draftPrompt.trim()) return 'start';
+  return 'ignore';
 }
 
 export function canEnhancePrompt({
@@ -45,6 +45,14 @@ export function canEnhancePrompt({
   draftPrompt: string;
 }): boolean {
   return canTypeFollowUp && Boolean(draftPrompt.trim());
+}
+
+export function isPromptEnhancementCancelledError(error: unknown): boolean {
+  const rawMessage = getErrorMessage(error).toLowerCase();
+  return (
+    rawMessage.includes('prompt enhancement cancelled') ||
+    rawMessage.includes('prompt enhancement canceled')
+  );
 }
 
 export function getPromptEnhancementErrorMessage(error: unknown): string {

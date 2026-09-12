@@ -30,6 +30,7 @@ pub(crate) fn handles(command: DomainCommand) -> bool {
             | DomainCommand::PlayNotificationSound
             | DomainCommand::CheckEditorAvailability
             | DomainCommand::EnhancePrompt
+            | DomainCommand::CancelEnhancePrompt
             | DomainCommand::ListPromptEnhancementModels
             | DomainCommand::RefreshPromptEnhancementCatalogs
             | DomainCommand::GetClaudeSettings
@@ -141,6 +142,7 @@ pub(crate) async fn dispatch(
         DomainCommand::PlayNotificationSound => config::play_notification_sound(args).await,
         DomainCommand::CheckEditorAvailability => config::check_editor_availability(args).await,
         DomainCommand::EnhancePrompt => config::enhance_prompt(domains, args).await,
+        DomainCommand::CancelEnhancePrompt => config::cancel_enhance_prompt(domains).await,
         DomainCommand::ListPromptEnhancementModels
         | DomainCommand::RefreshPromptEnhancementCatalogs => {
             config::list_prompt_enhancement_models(domains).await

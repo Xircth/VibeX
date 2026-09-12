@@ -294,20 +294,24 @@ impl ConversationAgentEventRecorder {
                 publisher.publish(&record).await;
             }
 
-            // A terminal Turn makes the conversation idle. Let the same
-            // Conversation Core claim and dispatch the next durable input; hosts
-            // never maintain their own queue effects.
-            if terminal
-                && let Some(context) = self.conversation_context.clone()
-                && let Err(error) = ConversationSessionService::new(context)
-                    .dispatch_next_queued_input(mapped.conversation_id)
-                    .await
-            {
-                tracing::warn!(
-                    conversation_id = %mapped.conversation_id,
-                    %error,
-                    "failed to dispatch the next durable conversation input"
-                );
+            // A terminal Turn makes the conversation idle. Pump the next durable
+            // input on a separate task: this recorder owns the Agent event
+            // stream, and `dispatch_next_queued_input` performs Agent I/O that
+            // must not wait on the same consumer.
+            if terminal && let Some(context) = self.conversation_context.clone() {
+                let conversation_id = mapped.conversation_id;
+                tokio::spawn(async move {
+                    if let Err(error) = ConversationSessionService::new(context)
+                        .dispatch_next_queued_input(conversation_id)
+                        .await
+                    {
+                        tracing::warn!(
+                            %conversation_id,
+                            %error,
+                            "failed to dispatch the next durable conversation input"
+                        );
+                    }
+                });
             }
 
             if mapped.complete_reply
@@ -325,20 +329,20 @@ impl ConversationAgentEventRecorder {
                                 origin: turn.origin,
                             });
                         }
-                        if let Err(error) = start_commit_reminder_if_needed(
-                            context,
-                            mapped.conversation_id,
-                            turn_id,
-                        )
-                        .await
-                        {
-                            tracing::warn!(
-                                conversation_id = %mapped.conversation_id,
-                                %turn_id,
-                                %error,
-                                "failed to start commit reminder"
-                            );
-                        }
+                        let conversation_id = mapped.conversation_id;
+                        tokio::spawn(async move {
+                            if let Err(error) =
+                                start_commit_reminder_if_needed(context, conversation_id, turn_id)
+                                    .await
+                            {
+                                tracing::warn!(
+                                    %conversation_id,
+                                    %turn_id,
+                                    %error,
+                                    "failed to start commit reminder"
+                                );
+                            }
+                        });
                     }
                     Ok(false) => {}
                     Err(error) => tracing::warn!(
@@ -1697,6 +1701,29 @@ mod tests {
             is_turn_scoped_content(&message_chunk()),
             "turn content with no in-flight turn is dropped by `map_record`"
         );
+    }
+
+    #[test]
+    fn connection_status_with_a_session_maps_to_conversation_status() {
+        let snapshot = agents::state::AgentConnectionSnapshot {
+            id: AgentConnectionId::new(),
+            agent_id: agents::AgentId::parse("codex").expect("agent"),
+            workspace_id: Uuid::new_v4(),
+            status: agents::state::AgentConnectionStatus::Recovering,
+            working_dir: "/tmp".into(),
+            status_message: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(matches!(
+            map_agent_event(
+                &envelope(AgentEvent::ConnectionStatusChanged { snapshot }),
+                None
+            ),
+            Some(ConversationEvent::AgentConnectionStatusChanged {
+                status: agents::conversation::ConversationAgentConnectionStatus::Recovering
+            })
+        ));
     }
 
     #[test]

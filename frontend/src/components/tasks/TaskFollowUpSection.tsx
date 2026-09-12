@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   COMPOSER_INSERT_EVENT,
   type ComposerInsertDetail,
@@ -68,6 +68,7 @@ import {
   clearComposerImageAttachments,
   imageAttachmentFromPath,
   revokeComposerImagePreviewUrl,
+  type SessionComposerImageAttachment,
 } from './follow-up/sessionComposerImages';
 import {
   getChangedFileCount,
@@ -90,8 +91,10 @@ import {
   canEditFollowUp as getCanEditFollowUp,
   canSendFollowUp as getCanSendFollowUp,
   canTypeFollowUp as getCanTypeFollowUp,
+  getBeforeSendCleanup,
   hasPendingToolApproval,
   isComposerExecutionActive,
+  restoreComposerAttachmentsAfterSendFailure,
   buildQueuedFollowUp,
 } from './follow-up/sessionComposerSubmit';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
@@ -619,21 +622,37 @@ export function TaskFollowUpSection({
 
   // Once a turn is sent the pending mode/config overrides were applied by the
   // backend; clear them so they don't re-apply on every subsequent turn.
+  const sentAttachmentsRef = useRef<SessionComposerImageAttachment[]>([]);
   const handleAfterSendWithSessionControlCleanup = useCallback(async () => {
     setSelectedMode(null);
     setSelectedConfigValues({});
+    sentAttachmentsRef.current.forEach(revokeComposerImagePreviewUrl);
+    sentAttachmentsRef.current = [];
     await handleAfterSendCleanup();
   }, [handleAfterSendCleanup]);
   const handleBeforeSend = useCallback(() => {
     cancelDebouncedSave();
     clearStopping();
     setLocalMessage('');
-  }, [cancelDebouncedSave, clearStopping, setLocalMessage]);
+    setAttachedImages((prev) => {
+      const cleanup = getBeforeSendCleanup(prev);
+      sentAttachmentsRef.current = cleanup.sentAttachments;
+      return cleanup.attachments;
+    });
+  }, [cancelDebouncedSave, clearStopping, setAttachedImages, setLocalMessage]);
   const handleSendFailure = useCallback(
     (failedMessage: string) => {
       setLocalMessage((current) => (current ? current : failedMessage));
+      setAttachedImages((current) => {
+        const restored = restoreComposerAttachmentsAfterSendFailure({
+          currentAttachments: current,
+          sentAttachments: sentAttachmentsRef.current,
+        });
+        sentAttachmentsRef.current = [];
+        return restored;
+      });
     },
-    [setLocalMessage]
+    [setAttachedImages, setLocalMessage]
   );
   const codexGoalState = useMemo(() => {
     if (

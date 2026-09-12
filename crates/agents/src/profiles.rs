@@ -1965,12 +1965,9 @@ const KIMI_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
 }];
 
 const GROK_PERMISSION_OPTIONS: &[(&str, &str)] = &[
-    ("default", "默认询问"),
-    ("acceptEdits", "自动接受编辑"),
+    ("ask", "询问"),
     ("auto", "自动执行"),
-    ("dontAsk", "不主动询问"),
-    ("bypassPermissions", "跳过权限确认"),
-    ("plan", "计划模式"),
+    ("always-approve", "跳过权限确认"),
 ];
 const GROK_FIELDS: &[NativeConfigField] = &[
     select_field(

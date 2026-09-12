@@ -117,6 +117,9 @@ export const configApi = {
       payload,
     });
   },
+  cancelEnhancePrompt: async (): Promise<void> => {
+    await backendCall<void>('cancel_enhance_prompt');
+  },
   listPromptEnhancementModels:
     async (): Promise<PromptEnhancementModelsResponse> => {
       return backendCall<PromptEnhancementModelsResponse>(

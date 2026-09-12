@@ -11,7 +11,7 @@ import type {
   ChatComposerInputHandle,
   ChatComposerToken,
 } from '@astryxdesign/core/Chat';
-import { fileTreeApi, repoApi, tagsApi } from '@/lib/api';
+import { fileTreeApi, projectsApi, repoApi, tagsApi } from '@/lib/api';
 import { loadHostReferenceCatalog } from '@/lib/materializeHostReferences';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import { attemptsApi } from '@/lib/api/attempts';
@@ -33,6 +33,7 @@ import {
   type AtReferenceGroup,
   type AtReferenceHost,
   type AtReferenceItem,
+  type AtReferenceProject,
   type AtReferenceTab,
 } from './composerAtReferences';
 import {
@@ -203,6 +204,29 @@ async function loadConversations(
   return Array.from(conversations.values());
 }
 
+async function loadProjects(): Promise<AtReferenceProject[]> {
+  const projects = await projectsApi.getAll();
+  const matches = await Promise.all(
+    projects.map(async (project) => {
+      try {
+        const repos = await projectsApi.getRepositories(project.id);
+        const path = repos[0]?.path?.trim();
+        if (!path) return null;
+        return {
+          id: project.id,
+          name: project.name,
+          path,
+        } satisfies AtReferenceProject;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return matches.filter((project): project is AtReferenceProject =>
+    Boolean(project)
+  );
+}
+
 async function loadHosts(localLabel: string): Promise<AtReferenceHost[]> {
   const catalog = await loadHostReferenceCatalog();
   return catalog.map((entry) => ({
@@ -266,7 +290,7 @@ export function useComposerAtReferencePanel({
       const requestId = ++requestRef.current;
       const ctx = context ?? {};
       const transport = ctx.transport;
-      const [files, conversations, commits, instructions, hosts] =
+      const [files, conversations, commits, instructions, hosts, projects] =
         await Promise.all([
           loadFiles(query, ctx).catch(() => []),
           transport
@@ -281,6 +305,7 @@ export function useComposerAtReferencePanel({
             }
           }),
           loadHosts(t('composer.atReference.localHost')).catch(() => []),
+          loadProjects().catch(() => []),
         ]);
       if (requestId !== requestRef.current) return;
       const groups = buildAtReferenceGroups(query, {
@@ -292,6 +317,7 @@ export function useComposerAtReferencePanel({
         currentConversationId: ctx.sessionId,
         actions: ctx.actions ?? [],
         hosts,
+        projects,
       });
       searchedQueryRef.current = query;
       setPanel((current) => {

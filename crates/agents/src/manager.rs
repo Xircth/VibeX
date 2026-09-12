@@ -193,8 +193,10 @@ fn acp_tool_content_preview(content: &[ToolCallContent]) -> Option<String> {
 }
 
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_SESSION_PREP_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
+const SESSION_PREP_TIMEOUT_ENV: &str = "VIBEX_ACP_SESSION_PREP_TIMEOUT_SECS";
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
 // Opt-in prompt idle watchdog. Unset or `0` disables it: an in-flight turn
 // stays alive until the agent returns, the user cancels, or the connection
@@ -291,11 +293,22 @@ fn handshake_timeout() -> Duration {
 }
 
 fn handshake_timeout_from_env_value(value: Option<&str>) -> Duration {
-    let seconds = value
+    positive_timeout_secs(value).unwrap_or(Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECS))
+}
+
+fn session_prep_timeout() -> Duration {
+    session_prep_timeout_from_env_value(std::env::var(SESSION_PREP_TIMEOUT_ENV).ok().as_deref())
+}
+
+fn session_prep_timeout_from_env_value(value: Option<&str>) -> Duration {
+    positive_timeout_secs(value).unwrap_or(Duration::from_secs(DEFAULT_SESSION_PREP_TIMEOUT_SECS))
+}
+
+fn positive_timeout_secs(value: Option<&str>) -> Option<Duration> {
+    value
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
-        .unwrap_or(DEFAULT_HANDSHAKE_TIMEOUT_SECS);
-    Duration::from_secs(seconds)
+        .map(Duration::from_secs)
 }
 
 fn prompt_idle_timeout() -> Option<Duration> {
@@ -303,10 +316,7 @@ fn prompt_idle_timeout() -> Option<Duration> {
 }
 
 fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Option<Duration> {
-    value
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
+    positive_timeout_secs(value)
 }
 
 fn prompt_idle_watchdog_blocked(
@@ -324,6 +334,24 @@ fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> 
             format!("ACP handshake timed out after {seconds}s. Recent stderr: {stderr}")
         }
         None => format!("ACP handshake timed out after {seconds}s. No stderr captured."),
+    }
+}
+
+fn format_session_prep_timeout_error(timeout: Duration) -> String {
+    let seconds = timeout.as_secs().max(1);
+    format!("ACP session preparation timed out after {seconds}s")
+}
+
+async fn await_command_result<T>(
+    result_rx: oneshot::Receiver<AgentResult<T>>,
+    timeout: Duration,
+    closed_message: &'static str,
+    timeout_message: String,
+) -> AgentResult<T> {
+    match tokio::time::timeout(timeout, result_rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(AgentError::Runtime(closed_message.into())),
+        Err(_) => Err(AgentError::Runtime(timeout_message)),
     }
 }
 
@@ -762,9 +790,14 @@ impl AgentConnectionManager {
             },
         )
         .await?;
-        result_rx.await.map_err(|_| {
-            AgentError::Runtime("agent connection closed before session resume completed".into())
-        })?
+        let timeout = session_prep_timeout();
+        await_command_result(
+            result_rx,
+            timeout,
+            "agent connection closed before session resume completed",
+            format_session_prep_timeout_error(timeout),
+        )
+        .await
     }
 
     pub async fn prepare_session(
@@ -783,11 +816,14 @@ impl AgentConnectionManager {
             },
         )
         .await?;
-        result_rx.await.map_err(|_| {
-            AgentError::Runtime(
-                "agent connection closed before ACP session preparation completed".into(),
-            )
-        })?
+        let timeout = session_prep_timeout();
+        await_command_result(
+            result_rx,
+            timeout,
+            "agent connection closed before ACP session preparation completed",
+            format_session_prep_timeout_error(timeout),
+        )
+        .await
     }
 
     pub async fn discard_session(
@@ -1182,7 +1218,7 @@ impl AgentConnectionRunner {
             if let Some(tx) = ready.lock().await.take() {
                 let _ = tx.send(Err(error));
             }
-            self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()));
+            self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()), None);
             // If a prompt was still in flight when the connection died (the agent
             // crashed, the transport dropped, or prompt setup like session/new
             // failed and propagated out of run_prompt), emit a turn-terminal Error
@@ -2268,7 +2304,7 @@ impl AgentConnectionRunner {
                 .await,
             );
             *self.pending_session_id.lock().await = Some(session_id);
-            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
+            self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
             let resume_result = conn.send_request(request).block_task().await;
             match resume_result {
                 Ok(response) => {
@@ -2329,7 +2365,7 @@ impl AgentConnectionRunner {
                 .await,
             );
             *self.pending_session_id.lock().await = Some(session_id);
-            self.emit_connection_status(AgentConnectionStatus::Recovering, None);
+            self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
             let load_result = conn.send_request(request).block_task().await;
             match load_result {
                 Ok(response) => {
@@ -2414,6 +2450,7 @@ impl AgentConnectionRunner {
             .session_mcp_servers_with_companion(working_dir, session_id, companion_capabilities)
             .await;
         *self.pending_session_id.lock().await = Some(session_id);
+        self.emit_connection_status(AgentConnectionStatus::Connecting, None, Some(session_id));
         let response = conn.send_request(request).block_task().await;
         let response = match response {
             Ok(response) => response,
@@ -3481,10 +3518,11 @@ impl AgentConnectionRunner {
         &self,
         status: AgentConnectionStatus,
         status_message: Option<String>,
+        session_id: Option<AgentSessionId>,
     ) {
         let now = Utc::now();
         self.emit(
-            None,
+            session_id,
             None,
             AgentEvent::ConnectionStatusChanged {
                 snapshot: AgentConnectionSnapshot {
@@ -5093,11 +5131,25 @@ fn merge_session_config_options(
 ) -> Vec<AcpSessionConfigOption> {
     let mut options = standard;
     for option in vendor {
-        if !options.iter().any(|existing| existing.id == option.id) {
-            options.push(option);
+        if options.iter().any(|existing| {
+            existing.id == option.id || session_config_options_overlap(existing, &option)
+        }) {
+            continue;
         }
+        options.push(option);
     }
     options
+}
+
+fn session_config_options_overlap(
+    left: &AcpSessionConfigOption,
+    right: &AcpSessionConfigOption,
+) -> bool {
+    config_option_is_thought_level(left) && config_option_is_thought_level(right)
+}
+
+fn config_option_is_thought_level(option: &AcpSessionConfigOption) -> bool {
+    config_option_matches(option, "thought_level")
 }
 
 /// Parse grok's `_meta["x.ai/sessionConfig"]` extension
@@ -6329,6 +6381,57 @@ mod tests {
     }
 
     #[test]
+    fn vendor_fallback_does_not_duplicate_standard_thought_level() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "high", "category": "mode", "label": "High Effort", "selected": true }
+                ]
+            }
+        });
+        let standard_options = Some(vec![
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                "grok-4.6",
+                vec![SessionConfigSelectOption::new("grok-4.6", "Grok 4.6")],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+            AcpSessionConfigOption::select(
+                "reasoning_effort",
+                "Reasoning Effort",
+                "high",
+                vec![
+                    SessionConfigSelectOption::new("high", "High"),
+                    SessionConfigSelectOption::new("medium", "Medium"),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::ThoughtLevel)),
+        ]);
+
+        let (_, config_options, _) =
+            session_controls_with_vendor_fallback(None, standard_options, meta.as_object());
+
+        let options = config_options.expect("merged config");
+        let thought_levels: Vec<_> = options
+            .iter()
+            .filter(|option| {
+                option.category.as_ref() == Some(&SessionConfigOptionCategory::ThoughtLevel)
+                    || option.id.0.as_ref() == "effort"
+                    || option.id.0.as_ref() == "reasoning_effort"
+            })
+            .map(|option| option.id.0.to_string())
+            .collect();
+        assert_eq!(
+            thought_levels,
+            vec!["reasoning_effort"],
+            "vendor 推理强度 must not sit beside the standard Reasoning Effort option"
+        );
+        assert_eq!(options.len(), 2);
+    }
+
+    #[test]
     fn vendor_fallback_keeps_standard_permission_modes_and_adds_effort() {
         let meta = serde_json::json!({
             "x.ai/sessionConfig": {
@@ -6772,6 +6875,46 @@ mod tests {
 
         assert!(message.contains("3s"));
         assert!(message.contains("last line"));
+    }
+
+    #[test]
+    fn session_prep_timeout_uses_default_for_missing_or_invalid_env() {
+        assert_eq!(
+            session_prep_timeout_from_env_value(None),
+            Duration::from_secs(DEFAULT_SESSION_PREP_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            session_prep_timeout_from_env_value(Some("0")),
+            Duration::from_secs(DEFAULT_SESSION_PREP_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            session_prep_timeout_from_env_value(Some("not-a-number")),
+            Duration::from_secs(DEFAULT_SESSION_PREP_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn session_prep_timeout_accepts_positive_env_value() {
+        assert_eq!(
+            session_prep_timeout_from_env_value(Some("12")),
+            Duration::from_secs(12)
+        );
+    }
+
+    #[tokio::test]
+    async fn session_prep_times_out_when_the_agent_never_replies() {
+        let (_tx, rx) = tokio::sync::oneshot::channel::<AgentResult<()>>();
+        let error = await_command_result(
+            rx,
+            Duration::from_millis(20),
+            "agent connection closed before ACP session preparation completed",
+            format_session_prep_timeout_error(Duration::from_secs(20)),
+        )
+        .await
+        .expect_err("hanging session/new must surface a timeout");
+        let message = error.to_string();
+        assert!(message.contains("session preparation timed out"));
+        assert!(message.contains("20s"));
     }
 
     #[test]

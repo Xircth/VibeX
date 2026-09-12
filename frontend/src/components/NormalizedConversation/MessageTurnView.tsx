@@ -34,7 +34,9 @@ import {
   resolveHideModelThinking,
 } from '@/lib/conversationCollapsePreferences';
 import { AstryxMarkdown } from './AstryxMarkdown';
+import { UserMessageAttachments } from './UserMessageImageAttachment';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
+import { splitUserTurnContent } from './userMessageImages';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
 import { ConversationPlanCard } from './ConversationPlanCard';
@@ -56,7 +58,7 @@ import {
 import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
 import { collectHostDelegationPollResults } from './conversation/hostDelegation';
-import { TurnToolCalls } from './TurnToolCalls';
+import { TurnToolCalls, type TimelineQuestion } from './TurnToolCalls';
 import {
   STREAMING_ACTIVITY_INTERVAL_MS,
   STREAMING_ACTIVITY_VERBS,
@@ -480,6 +482,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   hasTurnError = false,
   delegations = [],
   onOpenChild,
+  questions = [],
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -494,6 +497,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   hasTurnError?: boolean;
   delegations?: ConversationDelegationView[];
   onOpenChild?: (childConversationId: string) => void;
+  questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
   const { config } = useOptionalUserSystem() ?? {};
@@ -512,9 +516,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   );
 
   if (turn.role === 'user') {
-    const text = turn.blocks
-      .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-      .join('\n\n');
+    const { text, images } = splitUserTurnContent(turn.blocks);
+    const hasText = text.trim().length > 0;
     if (editing && onEditRetry) {
       return (
         <div className="conv-entry-item conv-user-turn conv-user-turn-editing">
@@ -528,27 +531,34 @@ export const MessageTurnView = memo(function MessageTurnView({
     }
     return (
       <div className="conv-entry-item conv-user-turn group">
-        <div className="conv-user-bubble-wrap">
-          <UserMessageActions
-            text={text}
-            onRetry={onRetry}
-            onEdit={onEditRetry ? () => setEditing(true) : undefined}
-          />
-          <ChatMessage
-            sender="user"
-            density="compact"
-            className="vibex-user-message"
-          >
-            <ChatMessageBubble
-              className="conv-user-bubble"
-              data-testid="user-message-bubble"
-            >
-              <UserMessageMarkdown
-                value={text}
-                workspacePath={resolvedWorkspacePath}
+        <div className="flex w-full max-w-full flex-col items-end gap-1.5">
+          <UserMessageAttachments images={images} taskAttemptId={attempt.id} />
+          {hasText || onRetry || onEditRetry ? (
+            <div className="conv-user-bubble-wrap">
+              <UserMessageActions
+                text={text}
+                onRetry={onRetry}
+                onEdit={onEditRetry ? () => setEditing(true) : undefined}
               />
-            </ChatMessageBubble>
-          </ChatMessage>
+              {hasText ? (
+                <ChatMessage
+                  sender="user"
+                  density="compact"
+                  className="vibex-user-message"
+                >
+                  <ChatMessageBubble
+                    className="conv-user-bubble"
+                    data-testid="user-message-bubble"
+                  >
+                    <UserMessageMarkdown
+                      value={text}
+                      workspacePath={resolvedWorkspacePath}
+                    />
+                  </ChatMessageBubble>
+                </ChatMessage>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         {phase === 'interrupted' && showInterruptedNotice ? (
           <InterruptedTurnNotice onResend={onRetry} />
@@ -631,6 +641,7 @@ export const MessageTurnView = memo(function MessageTurnView({
           delegations={delegations}
           pollResults={pollResults}
           onOpenChild={onOpenChild}
+          questions={questions}
         />
       );
     });

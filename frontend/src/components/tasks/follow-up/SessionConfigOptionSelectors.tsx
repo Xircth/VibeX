@@ -75,11 +75,34 @@ function configModeMatchesSessionModes(
 export function visibleSessionConfigOptions(
   options: AgentSessionConfigOption[]
 ): AgentSessionConfigOption[] {
-  return options.filter(
+  const visible = options.filter(
     (option) =>
       !HIDDEN_SESSION_CONFIG_OPTION_KEYS.has(
         normalizedConfigOptionKey(option.key)
       )
+  );
+  let seenEffort = false;
+  return visible.filter((option) => {
+    if (!isEffortConfigOption(option)) return true;
+    if (seenEffort) return false;
+    seenEffort = true;
+    return true;
+  });
+}
+
+/**
+ * Agent-advertised current values, keyed like the create-form and prompt
+ * enhancement drafts. Empty advertised values stay absent so a dependent
+ * option (model → effort) is not treated as selected.
+ */
+export function advertisedSessionConfigValues(
+  options: AgentSessionConfigOption[]
+): Record<string, string> {
+  return Object.fromEntries(
+    visibleSessionConfigOptions(options).flatMap((option) => {
+      const value = jsonValueToString(option.value ?? null);
+      return value ? [[option.key, value]] : [];
+    })
   );
 }
 
@@ -480,7 +503,9 @@ export function jsonValueToString(value: JsonValue | null): string {
  */
 function isEffortConfigOption(option: AgentSessionConfigOption): boolean {
   if (option.category === 'thought_level') return true;
-  const normalized = `${option.category ?? ''} ${option.key}`.toLowerCase();
+  const normalized = `${option.category ?? ''} ${option.key} ${
+    option.label
+  }`.toLowerCase();
   return (
     normalized.includes('thought') ||
     normalized.includes('effort') ||

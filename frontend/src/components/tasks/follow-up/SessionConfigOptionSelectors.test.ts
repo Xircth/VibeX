@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSessionConfigOption } from 'shared/types';
 import {
+  advertisedSessionConfigValues,
   configOptionDisplayState,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
@@ -117,6 +118,51 @@ describe('Agent-advertised choice presentation', () => {
         ]
       )
     ).toEqual([modeOption]);
+  });
+
+  it('keeps one reasoning-effort control when Grok advertises both labels', () => {
+    const model: AgentSessionConfigOption = {
+      key: 'model',
+      label: 'Model',
+      category: 'model',
+      value: 'grok-4.6',
+      choices: [{ value: 'grok-4.6', label: 'Grok 4.6' }],
+    };
+    const vendorEffort: AgentSessionConfigOption = {
+      key: 'effort',
+      label: '推理强度',
+      category: 'thought_level',
+      value: 'high',
+      choices: [
+        { value: 'high', label: 'High Effort' },
+        { value: 'medium', label: 'Medium Effort' },
+      ],
+    };
+    const standardEffort: AgentSessionConfigOption = {
+      key: 'reasoning_effort',
+      label: 'Reasoning Effort',
+      category: 'thought_level',
+      value: 'high',
+      choices: [
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+      ],
+    };
+
+    expect(
+      visibleSessionConfigOptions([model, vendorEffort, standardEffort]).map(
+        (option) => option.key
+      )
+    ).toEqual(['model', 'effort']);
+    expect(
+      presentableSessionConfigOptions(
+        [model, vendorEffort, standardEffort],
+        []
+      ).map((option) => option.key)
+    ).toEqual(['model', 'effort']);
+    expect(
+      advertisedSessionConfigValues([model, vendorEffort, standardEffort])
+    ).toEqual({ model: 'grok-4.6', effort: 'high' });
   });
 
   it('shortens the Codex Agent full access choice without changing its value', () => {
@@ -242,5 +288,32 @@ describe('Agent-advertised choice presentation', () => {
       ],
       presentedActiveValue: 'gpt-5.6-sol',
     });
+  });
+
+  it('serializes advertised model and effort values for create and enhance drafts', () => {
+    expect(
+      advertisedSessionConfigValues([
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'grok-4.6',
+          choices: [{ value: 'grok-4.6', label: 'Grok 4.6' }],
+        },
+        {
+          key: 'effort',
+          label: '推理强度',
+          category: 'thought_level',
+          value: 'high',
+          choices: [{ value: 'high', label: 'High Effort' }],
+        },
+        {
+          key: 'collaboration_mode',
+          label: 'Collaboration',
+          value: 'default',
+          choices: [{ value: 'default', label: 'Default' }],
+        },
+      ])
+    ).toEqual({ model: 'grok-4.6', effort: 'high' });
   });
 });

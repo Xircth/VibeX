@@ -32,6 +32,7 @@
       "materializeFailed": "Could not copy Host connection files",
       "tabs": {
         "file": "Files",
+        "project": "Projects",
         "conversation": "Sessions",
         "commit": "Commits",
         "instruction": "Quick instructions",

@@ -501,64 +501,106 @@
   display: none !important;
 }
 
-/* Allow tab bar to scroll horizontally when tabs overflow, instead of hiding them */
+/*
+ * Tab strip scrolling: keep overflow-x so trackpads can pan, but hide the
+ * native scrollbar. Dockview's `scrollbar-width: thin` plus macOS overlay
+ * painting draws a track on top of tab titles. The custom `.dv-scrollbar`
+ * overlay is the remaining thumb.
+ */
 [class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container {
   overflow-x: auto !important;
   overflow-y: hidden !important;
+  scrollbar-width: none;
 }
 
-@supports not selector(::-webkit-scrollbar) {
-  [class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container {
-    scrollbar-width: thin;
-    scrollbar-color: var(
-        --dv-tabs-container-scrollbar-color,
-        rgba(0, 0, 0, 0.2)
-      )
-      transparent;
-  }
-}
 [class*='dockview-theme-ayu']
   .dv-scrollable
   > .dv-tabs-container::-webkit-scrollbar {
-  height: 4px;
+  display: none;
+  width: 0;
+  height: 0;
   background: transparent;
-}
-[class*='dockview-theme-ayu']
-  .dv-scrollable
-  > .dv-tabs-container::-webkit-scrollbar-track,
-[class*='dockview-theme-ayu']
-  .dv-scrollable
-  > .dv-tabs-container::-webkit-scrollbar-track-piece {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-[class*='dockview-theme-ayu']
-  .dv-scrollable
-  > .dv-tabs-container::-webkit-scrollbar-thumb {
-  background-color: var(
-    --dv-tabs-container-scrollbar-color,
-    rgba(0, 0, 0, 0.2)
-  );
-  border-radius: 9999px;
-  border: none;
-}
-[class*='dockview-theme-ayu']
-  .dv-scrollable
-  > .dv-tabs-container:hover::-webkit-scrollbar-thumb {
-  background-color: var(
-    --dv-paneview-active-outline-color,
-    rgba(168, 190, 223, 0.6)
-  );
 }
 
-/* Keep overflow tab dropdown list text consistent with tab bar font size */
+[class*='dockview-theme-ayu'] .dv-tabs-and-actions-container .dv-scrollbar {
+  border-radius: 999px;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-and-actions-container
+  .dv-scrollbar-horizontal {
+  height: 3px;
+  bottom: 1px;
+}
+
+[class*='dockview-theme-ayu'] .dv-tabs-overflow-dropdown-default {
+  height: 28px;
+  margin: 4px 4px 4px 0;
+  padding: 0 8px;
+  gap: 2px;
+  border-radius: var(--radius);
+  color: var(--dv-theme-muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+[class*='dockview-theme-ayu'] .dv-tabs-overflow-dropdown-default:hover {
+  background-color: var(--dv-theme-hover);
+  color: var(--dv-theme-text);
+}
+
+/*
+ * Dockview opens the overflow list at the click point, covering the trigger
+ * so it cannot be clicked to dismiss. Shift the list below the tab bar.
+ * While it is open, pass pointer events through the trigger so an outside
+ * click on that same control closes instead of immediately reopening.
+ */
+[class*='dockview-theme-ayu']:has(
+    .dv-popover-anchor .dv-tabs-overflow-container
+  )
+  .dv-tabs-overflow-dropdown-root {
+  pointer-events: none;
+}
+
 [class*='dockview-theme-ayu'] .dv-tabs-overflow-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: calc(var(--dv-tabs-and-actions-container-height, 36px) - 4px);
+  max-height: min(50vh, 400px);
+  padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--dv-theme-border);
+  border-radius: var(--radius);
+  background-color: var(--surface-popover, var(--dv-theme-bg));
+  box-shadow: var(--shadow-popover, var(--dv-floating-box-shadow));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   font-size: var(--dv-tabs-and-actions-container-font-size, 12px) !important;
+  scrollbar-width: none;
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-overflow-container .dv-tab {
+  height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
   font-size: inherit !important;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-overflow-container
+  .dv-tab:not(:last-child) {
+  border-bottom: none;
+}
+
+[class*='dockview-theme-ayu'] .dv-tabs-overflow-container .dv-tab.dv-active-tab,
+[class*='dockview-theme-ayu'] .dv-tabs-overflow-container .dv-tab:hover {
+  background-color: var(--dv-tab-state-background) !important;
+  color: var(--dv-theme-text) !important;
 }
 
 [class*='dockview-theme-ayu']

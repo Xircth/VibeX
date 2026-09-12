@@ -8,6 +8,7 @@
     "updateAvailable": "可更新"
   },
   "automationFailureTitle": "自动化运行失败",
+  "openProject": "打开 {{name}}",
   "backgroundTasksTitle": "{{count}} 个后台任务运行中",
   "updateAvailableTitle": "有新版本可更新",
   "attentionInbox": {

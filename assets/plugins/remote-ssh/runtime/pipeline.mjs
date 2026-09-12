@@ -134,6 +134,34 @@ export function execStartPath(raw) {
   return /(?:^|[;{\s])path=([^\s;]+)/.exec(text)?.[1] ?? '';
 }
 
+export function remoteProbeScript() {
+  return [
+    'export PATH="$HOME/.local/bin:$PATH"',
+    'printf \'os=%s\\narch=%s\\n\' "$(uname -s | tr A-Z a-z)" "$(uname -m)"',
+    'printf \'glibc=%s\\n\' "$(getconf GNU_LIBC_VERSION 2>/dev/null | awk \'{print $NF}\')"',
+    'command -v vibex || true',
+    'command -v vibex-server || true',
+    'printf \'node=%s\\n\' "$(command -v node 2>/dev/null || true)"',
+    'printf \'npm=%s\\n\' "$(command -v npm 2>/dev/null || true)"',
+    'printf \'home=%s\\n\' "$HOME"',
+    'printf \'health=%s\\n\' "$(curl -fsS --max-time 2 http://127.0.0.1:17891/health 2>/dev/null || true)"',
+    'exe=""',
+    'if command -v pgrep >/dev/null 2>&1; then',
+    '  pid=$(pgrep -n -x vibex-server 2>/dev/null || true)',
+    '  if [ -n "$pid" ] && [ -r "/proc/$pid/exe" ]; then exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)',
+    '  elif [ -n "$pid" ]; then exe=$(ps -ww -o args= -p "$pid" 2>/dev/null | awk \'{print $1}\')',
+    '  fi',
+    'fi',
+    'printf \'exe=%s\\n\' "$exe"',
+    'execstart=""',
+    'if command -v systemctl >/dev/null 2>&1; then',
+    '  execstart=$(systemctl show -p ExecStart --value vibex-server.service 2>/dev/null || true)',
+    '  if [ -z "$execstart" ]; then execstart=$(systemctl --user show -p ExecStart --value vibex-server.service 2>/dev/null || true); fi',
+    'fi',
+    'printf \'execstart=%s\\n\' "$execstart"',
+  ].join('\n');
+}
+
 export function parseProbeOutput(output) {
   const text = String(output ?? '');
   const os = /os=(\S+)/.exec(text)?.[1] ?? '';
@@ -414,35 +442,7 @@ export function createPipeline(deps) {
   }
 
   async function probe(session, onChunk) {
-    const output = await session.exec(
-      [
-        'export PATH="$HOME/.local/bin:$PATH"',
-        'printf \'os=%s\\narch=%s\\n\' "$(uname -s | tr A-Z a-z)" "$(uname -m)"',
-        'printf \'glibc=%s\\n\' "$(getconf GNU_LIBC_VERSION 2>/dev/null | awk \'{print $NF}\')"',
-        'command -v vibex || true',
-        'command -v vibex-server || true',
-        'printf \'node=%s\\n\' "$(command -v node 2>/dev/null || true)"',
-        'printf \'npm=%s\\n\' "$(command -v npm 2>/dev/null || true)"',
-        'printf \'home=%s\\n\' "$HOME"',
-        'printf \'health=%s\\n\' "$(curl -fsS --max-time 2 http://127.0.0.1:17891/health 2>/dev/null || true)"',
-        'exe=""',
-        'if command -v pgrep >/dev/null 2>&1; then',
-        '  pid=$(pgrep -n -x vibex-server 2>/dev/null || true)',
-        '  if [ -n "$pid" ] && [ -r "/proc/$pid/exe" ]; then exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)',
-        '  elif [ -n "$pid" ]; then exe=$(ps -ww -o args= -p "$pid" 2>/dev/null | awk \'{print $1}\')',
-        '  fi',
-        'fi',
-        'printf \'exe=%s\\n\' "$exe"',
-        'execstart=""',
-        'if command -v systemctl >/dev/null 2>&1; then',
-        '  execstart=$(systemctl show -p ExecStart --value vibex-server.service 2>/dev/null || true)',
-        '  if [ -z "$execstart" ]; then execstart=$(systemctl --user show -p ExecStart --value vibex-server.service 2>/dev/null || true); fi',
-        'fi',
-        'printf \'execstart=%s\\n\' "$execstart"',
-      ].join('; '),
-      30000,
-      onChunk
-    );
+    const output = await session.exec(remoteProbeScript(), 30000, onChunk);
     return parseProbeOutput(output);
   }
 

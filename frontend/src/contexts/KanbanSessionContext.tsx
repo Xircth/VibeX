@@ -71,7 +71,10 @@ interface KanbanSessionContextValue {
   activateExecutionSession: (session: KanbanSessionPlacement) => void;
   promoteMonitorSession: (sessionId: string) => void;
   cancelMonitorSession: (sessionId: string) => void;
-  pruneSessions: (availableSessionIds: Set<string>) => void;
+  pruneSessions: (
+    availableSessionIds: Set<string>,
+    knownWorkspaceIds?: Set<string>
+  ) => void;
 }
 
 const KanbanSessionContext = createContext<KanbanSessionContextValue | null>(
@@ -358,9 +361,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const pruneSessions = useCallback(
-    (availableSessionIds: Set<string>) => {
+    (availableSessionIds: Set<string>, knownWorkspaceIds?: Set<string>) => {
       commitLayoutState((current) =>
-        pruneUnavailableSessions(current, availableSessionIds)
+        pruneUnavailableSessions(current, availableSessionIds, {
+          knownWorkspaceIds,
+        })
       );
     },
     [commitLayoutState]

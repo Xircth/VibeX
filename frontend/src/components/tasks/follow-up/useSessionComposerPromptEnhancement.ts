@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { PromptEnhancementContextMessage } from '@/lib/api/config';
 import { configApi } from '@/lib/api';
 import {
   buildPromptEnhancementRequest,
+  getPromptEnhancementClickAction,
   getPromptEnhancementErrorMessage,
-  getPromptEnhancementStartDecision,
+  isPromptEnhancementCancelledError,
   normalizeEnhancedPrompt,
 } from './sessionComposerPromptEnhancement';
 
@@ -24,14 +25,30 @@ export function useSessionComposerPromptEnhancement({
   setFollowUpError: (message: string | null) => void;
 }) {
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
+  const enhancementGenerationRef = useRef(0);
+  const isEnhancingPromptRef = useRef(false);
 
   const handleEnhancePrompt = useCallback(async () => {
-    const startDecision = getPromptEnhancementStartDecision({
-      isEnhancingPrompt,
+    const action = getPromptEnhancementClickAction({
+      isEnhancingPrompt: isEnhancingPromptRef.current,
       draftPrompt,
     });
-    if (!startDecision.shouldStartEnhancement) return;
+    if (action === 'ignore') return;
 
+    if (action === 'cancel') {
+      enhancementGenerationRef.current += 1;
+      isEnhancingPromptRef.current = false;
+      setIsEnhancingPrompt(false);
+      try {
+        await configApi.cancelEnhancePrompt();
+      } catch {
+        // The in-flight request is already abandoned locally.
+      }
+      return;
+    }
+
+    const generation = ++enhancementGenerationRef.current;
+    isEnhancingPromptRef.current = true;
     setIsEnhancingPrompt(true);
     setFollowUpError(null);
 
@@ -44,17 +61,22 @@ export function useSessionComposerPromptEnhancement({
           contextMessages,
         })
       );
+      if (generation !== enhancementGenerationRef.current) return;
 
       applyEnhancedPrompt(
         normalizeEnhancedPrompt({ enhancedPrompt: result.enhancedPrompt })
       );
     } catch (error) {
+      if (generation !== enhancementGenerationRef.current) return;
+      if (isPromptEnhancementCancelledError(error)) return;
       setFollowUpError(getPromptEnhancementErrorMessage(error));
     } finally {
-      setIsEnhancingPrompt(false);
+      if (generation === enhancementGenerationRef.current) {
+        isEnhancingPromptRef.current = false;
+        setIsEnhancingPrompt(false);
+      }
     }
   }, [
-    isEnhancingPrompt,
     draftPrompt,
     sessionId,
     workspaceId,

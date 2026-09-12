@@ -4,63 +4,87 @@ set -eu
 
 TOKEN=""
 PORT=""
+HOST=""
 BIND="0.0.0.0"
 PY_URL="https://vibex.xforever.xin/tunnel.py"
 MODE="install"
 
 usage() {
-  echo "usage: sh tunnel.sh -t <token> -p <port> [--bind 0.0.0.0]" >&2
+  echo "usage: sh tunnel.sh -t <token> -p <port> [-h <public-host>] [--bind 0.0.0.0]" >&2
   echo "       sh tunnel.sh status" >&2
   exit 2
 }
 
-if [ "${1:-}" = "status" ]; then
-  MODE="status"
-  shift
-fi
-
-while [ "${#}" -gt 0 ]; do
+is_public_ipv4() {
   case "${1}" in
-    -t|--token)
-      [ "${#}" -ge 2 ] || usage
-      TOKEN="${2}"
-      shift 2
-      ;;
-    -p|--port)
-      [ "${#}" -ge 2 ] || usage
-      PORT="${2}"
-      shift 2
-      ;;
-    --bind)
-      [ "${#}" -ge 2 ] || usage
-      BIND="${2}"
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      ;;
-    *)
-      echo "unknown argument: ${1}" >&2
-      usage
-      ;;
+    ""|*[!0-9.]*|.*) return 1 ;;
   esac
-done
+  case "${1}" in
+    *.*.*.*.*) return 1 ;;
+    *.*.*.*) ;;
+    *) return 1 ;;
+  esac
+  case "${1}" in
+    10.*|127.*|192.168.*|169.254.*|0.*|255.*) return 1 ;;
+    172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 1 ;;
+  esac
+  return 0
+}
 
-if [ "${MODE}" = "install" ]; then
-  [ -n "${TOKEN}" ] || usage
-  [ -n "${PORT}" ] || usage
-  case "${PORT}" in
-    *[!0-9]*|"") echo "port must be a number" >&2; exit 2 ;;
-  esac
-  if [ "${PORT}" -lt 1 ] || [ "${PORT}" -gt 65535 ]; then
-    echo "port must be between 1 and 65535" >&2
-    exit 2
+lookup_public_ip() {
+  url=""
+  ipaddr=""
+  for url in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com; do
+    ipaddr=""
+    if command -v curl >/dev/null 2>&1; then
+      ipaddr="$(command curl -fsS --max-time 2 "${url}" 2>/dev/null || true)"
+    elif command -v wget >/dev/null 2>&1; then
+      ipaddr="$(command wget -qO- --timeout=2 "${url}" 2>/dev/null || true)"
+    else
+      return 1
+    fi
+    ipaddr="$(printf '%s' "${ipaddr}" | tr -d ' \t\r\n')"
+    if is_public_ipv4 "${ipaddr}"; then
+      printf '%s\n' "${ipaddr}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+public_ip() {
+  if [ -n "${HOST:-}" ]; then
+    printf '%s\n' "${HOST}"
+    return 0
   fi
-  if [ "${PORT}" -lt 1024 ] && [ "$(id -u)" -ne 0 ]; then
-    echo "port ${PORT} requires root; rerun with sudo" >&2
-    exit 1
+  candidate=""
+  if command -v hostname >/dev/null 2>&1; then
+    for candidate in $(command hostname -I 2>/dev/null || true); do
+      if is_public_ipv4 "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    done
   fi
-fi
+  if command -v ip >/dev/null 2>&1; then
+    candidate="$(command ip -4 route get 1.1.1.1 2>/dev/null | awk '{
+      for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }
+    }')"
+    if is_public_ipv4 "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  fi
+  if command -v ifconfig >/dev/null 2>&1; then
+    candidate="$(command ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" { print $2; exit }')"
+    candidate="${candidate#addr:}"
+    if is_public_ipv4 "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  fi
+  lookup_public_ip || true
+}
 
 download() {
   url="${1}"
@@ -127,22 +151,6 @@ connection_name() {
   name="${name%%.*}"
   [ -n "${name}" ] || name="vibex"
   printf '%s\n' "${name}"
-}
-
-public_ip() {
-  ipaddr=""
-  if command -v hostname >/dev/null 2>&1; then
-    ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  fi
-  if [ -z "${ipaddr}" ] && command -v ip >/dev/null 2>&1; then
-    ipaddr="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{
-      for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }
-    }')"
-  fi
-  if [ -z "${ipaddr}" ] && command -v ifconfig >/dev/null 2>&1; then
-    ipaddr="$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" { print $2; exit }')"
-  fi
-  printf '%s\n' "${ipaddr}"
 }
 
 host_state_raw() {
@@ -249,6 +257,63 @@ print_report() {
   printf '\n'
 }
 
+if [ "${TUNNEL_SH_LIB:-}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+if [ "${1:-}" = "status" ]; then
+  MODE="status"
+  shift
+fi
+
+while [ "${#}" -gt 0 ]; do
+  case "${1}" in
+    -t|--token)
+      [ "${#}" -ge 2 ] || usage
+      TOKEN="${2}"
+      shift 2
+      ;;
+    -p|--port)
+      [ "${#}" -ge 2 ] || usage
+      PORT="${2}"
+      shift 2
+      ;;
+    -h|--host)
+      [ "${#}" -ge 2 ] || usage
+      HOST="${2}"
+      shift 2
+      ;;
+    --bind)
+      [ "${#}" -ge 2 ] || usage
+      BIND="${2}"
+      shift 2
+      ;;
+    --help)
+      usage
+      ;;
+    *)
+      echo "unknown argument: ${1}" >&2
+      usage
+      ;;
+  esac
+done
+
+if [ "${MODE}" = "install" ]; then
+  [ -n "${TOKEN}" ] || usage
+  [ -n "${PORT}" ] || usage
+  case "${PORT}" in
+    *[!0-9]*|"") echo "port must be a number" >&2; exit 2 ;;
+  esac
+  if [ "${PORT}" -lt 1 ] || [ "${PORT}" -gt 65535 ]; then
+    echo "port must be between 1 and 65535" >&2
+    exit 2
+  fi
+  if [ "${PORT}" -lt 1024 ] && [ "$(id -u)" -ne 0 ]; then
+    echo "port ${PORT} requires root; rerun with sudo" >&2
+    exit 1
+  fi
+fi
+
 if [ "$(id -u)" -eq 0 ]; then
   LIBDIR="/usr/local/lib/vibex-tunnel"
   CONFDIR="/etc/vibex-tunnel"
@@ -264,6 +329,9 @@ PYTHON="$(resolve_python || true)"
 if [ "${MODE}" = "status" ]; then
   if [ -z "${PORT}" ] && [ -f "${CONFDIR}/port" ]; then
     PORT="$(tr -d '\n' < "${CONFDIR}/port")"
+  fi
+  if [ -z "${HOST}" ] && [ -f "${CONFDIR}/public-host" ]; then
+    HOST="$(tr -d '\n' < "${CONFDIR}/public-host")"
   fi
   if [ -f "${CONFDIR}/bind" ]; then
     BIND="$(tr -d '\n' < "${CONFDIR}/bind")"
@@ -283,6 +351,7 @@ umask 077
 printf '%s\n' "${TOKEN}" > "${CONFDIR}/token"
 printf '%s\n' "${PORT}" > "${CONFDIR}/port"
 printf '%s\n' "${BIND}" > "${CONFDIR}/bind"
+printf '%s\n' "${HOST}" > "${CONFDIR}/public-host"
 printf '%s\n' "waiting" > "${CONFDIR}/host"
 
 START_CMD="${PYTHON} ${LIBDIR}/server.py --token ${TOKEN} --port ${PORT} --bind ${BIND} --status-file ${CONFDIR}/host"

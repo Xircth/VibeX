@@ -625,6 +625,14 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
         ["ui", "permission_mode"]
     );
     assert_eq!(
+        native_field(&catalog, "grok", "grok_permission")
+            .options
+            .iter()
+            .map(|(value, _)| *value)
+            .collect::<Vec<_>>(),
+        ["ask", "auto", "always-approve"]
+    );
+    assert_eq!(
         native_field(&catalog, "cursor", "cursor_sandbox_mode").path,
         ["sandbox", "mode"]
     );

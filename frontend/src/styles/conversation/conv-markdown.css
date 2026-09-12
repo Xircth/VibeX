@@ -317,22 +317,25 @@
 .conv-markdown ol {
   margin: 10px 0;
   max-width: 100%;
+  padding-left: 2.2px;
+  padding-inline-start: 2.2px;
   list-style-position: outside;
+  line-height: 1.7;
 }
 
 .conv-markdown ul {
-  padding-left: 2.2px;
   list-style-type: disc;
 }
 
 .conv-markdown ol {
-  padding-left: 8px;
   list-style-type: decimal;
 }
 
 .conv-markdown .astryx-list-item {
   padding-left: 4px !important;
   padding-right: 4px !important;
+  padding-inline-start: 4px !important;
+  padding-inline-end: 4px !important;
 }
 
 .conv-markdown .astryx-list-item > span:first-child {
@@ -344,7 +347,7 @@
   > .astryx-list-item
   > span:first-child {
   width: auto !important;
-  min-width: 1.5em !important;
+  min-width: 0 !important;
   white-space: nowrap;
 }
 

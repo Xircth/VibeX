@@ -1,4 +1,5 @@
 import {
+  Folder,
   GitCommitHorizontal,
   Hash,
   MessageSquare,
@@ -18,6 +19,7 @@ import {
 
 const TAB_ICON = {
   file: FileIcon,
+  project: Folder,
   conversation: MessageSquare,
   commit: GitCommitHorizontal,
   instruction: Hash,

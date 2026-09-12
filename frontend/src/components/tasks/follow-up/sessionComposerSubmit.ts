@@ -220,6 +220,30 @@ export function buildQueuedFollowUp({
   };
 }
 
+export function getBeforeSendCleanup(
+  attachments: SessionComposerImageAttachment[]
+): {
+  message: string;
+  attachments: SessionComposerImageAttachment[];
+  sentAttachments: SessionComposerImageAttachment[];
+} {
+  return {
+    message: '',
+    attachments: [],
+    sentAttachments: attachments,
+  };
+}
+
+export function restoreComposerAttachmentsAfterSendFailure({
+  currentAttachments,
+  sentAttachments,
+}: {
+  currentAttachments: SessionComposerImageAttachment[];
+  sentAttachments: SessionComposerImageAttachment[];
+}): SessionComposerImageAttachment[] {
+  return currentAttachments.length > 0 ? currentAttachments : sentAttachments;
+}
+
 export function getAfterSendCleanup({
   attachments,
   scratchId,

@@ -259,17 +259,49 @@ export function resolveCurrentExecutionPlacement(
   return rightSession ?? activeWorkspaceSession;
 }
 
+export function shouldPruneKanbanSessionPlacements(input: {
+  isLayoutHydrated: boolean;
+  isLoading: boolean;
+  availableSessionCount: number;
+}): boolean {
+  if (!input.isLayoutHydrated || input.isLoading) {
+    return false;
+  }
+
+  // An empty available set is not evidence that placements are gone —
+  // workspace streams can emit an empty snapshot before sessions arrive.
+  return input.availableSessionCount > 0;
+}
+
 export function pruneUnavailableSessions(
   state: KanbanSessionLayoutState,
-  availableSessionIds: Set<string>
+  availableSessionIds: Set<string>,
+  options?: { knownWorkspaceIds?: Set<string> }
 ): KanbanSessionLayoutState {
+  const isUnavailable = (placement: KanbanSessionPlacement) => {
+    if (availableSessionIds.has(placement.sessionId)) {
+      return false;
+    }
+
+    // A workspace missing from the current snapshot is not evidence the
+    // session is gone — streams can emit a partial workspace list first.
+    if (
+      options?.knownWorkspaceIds &&
+      !options.knownWorkspaceIds.has(placement.workspaceId)
+    ) {
+      return false;
+    }
+
+    return true;
+  };
+
   const rightSession =
-    state.rightSession && availableSessionIds.has(state.rightSession.sessionId)
+    state.rightSession && !isUnavailable(state.rightSession)
       ? state.rightSession
       : null;
 
-  const monitorSessions = state.monitorSessions.filter((session) =>
-    availableSessionIds.has(session.sessionId)
+  const monitorSessions = state.monitorSessions.filter(
+    (session) => !isUnavailable(session)
   );
 
   if (

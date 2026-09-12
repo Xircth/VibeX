@@ -187,7 +187,8 @@
     "questionLabel": "问题",
     "optionsLabel": "选项",
     "answerLabel": "回答",
-    "declined": "已跳过"
+    "declined": "已跳过",
+    "viewDetails": "查看详情"
   },
   "permissionRequestCard": {
     "title": "权限申请",

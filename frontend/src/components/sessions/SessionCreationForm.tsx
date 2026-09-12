@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
+  advertisedSessionConfigValues,
   jsonValueToString,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
@@ -344,12 +345,8 @@ export function SessionCreationForm({
       selectConfigOptionValue(visibleConfigOptions, previous, key, value)
     );
   };
-  const advertisedConfigValues = Object.fromEntries(
-    visibleConfigOptions.flatMap((option) => {
-      const value = jsonValueToString(option.value ?? null);
-      return value ? [[option.key, value]] : [];
-    })
-  );
+  const advertisedConfigValues =
+    advertisedSessionConfigValues(visibleConfigOptions);
   const sanitizedConfigValues = sanitizeDependentConfigValues(
     visibleConfigOptions,
     {

@@ -187,7 +187,8 @@
     "questionLabel": "Question",
     "optionsLabel": "Options",
     "answerLabel": "Answer",
-    "declined": "Dismissed"
+    "declined": "Dismissed",
+    "viewDetails": "View details"
   },
   "permissionRequestCard": {
     "title": "Permission Request",

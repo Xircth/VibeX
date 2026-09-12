@@ -1283,30 +1283,21 @@ impl AgentRuntime {
                 if !was_active {
                     state.prompt_blocks.remove(&input.prompt_id);
                     state.prompt_options.remove(&input.prompt_id);
-                }
-                Self::emit_with_parts_locked(
-                    &mut state,
-                    &*self.event_sink,
-                    &self.event_tx,
-                    input.connection_id,
-                    Some(input.session_id),
-                    if was_active {
-                        AgentEvent::RawAcpDiagnostic {
-                            raw: serde_json::json!({
-                                "kind": "prompt_cancel_requested",
-                                "prompt_id": input.prompt_id,
-                            }),
-                        }
-                    } else {
+                    Self::emit_with_parts_locked(
+                        &mut state,
+                        &*self.event_sink,
+                        &self.event_tx,
+                        input.connection_id,
+                        Some(input.session_id),
                         AgentEvent::PromptFinished {
                             finished: crate::AgentPromptFinished {
                                 prompt_id: input.prompt_id,
                                 stop_reason: Some("cancelled".to_string()),
                                 usage: None,
                             },
-                        }
-                    },
-                );
+                        },
+                    );
+                }
                 drop(state);
 
                 if was_active {
@@ -1829,7 +1820,10 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_cancels_active_prompt_and_advances_queue() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
         let connection = runtime
             .connect(ConnectAgentInput {
                 agent_id: AgentId::parse("codex").unwrap(),
@@ -1890,6 +1884,17 @@ mod tests {
             .unwrap();
         assert_eq!(session.active_prompt_id, Some(second.id));
         assert!(session.queued_prompt_ids.is_empty());
+        assert!(
+            sink.events.lock().unwrap().iter().all(|envelope| {
+                !matches!(
+                    &envelope.event,
+                    AgentEvent::RawAcpDiagnostic { raw }
+                        if raw.get("kind").and_then(serde_json::Value::as_str)
+                            == Some("prompt_cancel_requested")
+                )
+            }),
+            "cancel handshake must not emit a user-visible diagnostic"
+        );
     }
 
     #[tokio::test]

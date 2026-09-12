@@ -85,6 +85,10 @@ export function composerSessionControlDisplay(
   };
 }
 
+function isThoughtLevelOption(option: AgentSessionConfigOption): boolean {
+  return option.category === 'thought_level';
+}
+
 export function mergeCreateSessionControls(
   snapshots: Array<AgentSessionControlsSnapshot | null | undefined>
 ): AgentSessionControlsSnapshot | null {
@@ -103,6 +107,12 @@ export function mergeCreateSessionControls(
     for (const option of snapshot.config_options) {
       const existing = optionsByKey.get(option.key);
       if (!existing) {
+        if (
+          isThoughtLevelOption(option) &&
+          [...optionsByKey.values()].some(isThoughtLevelOption)
+        ) {
+          continue;
+        }
         optionsByKey.set(option.key, option);
         continue;
       }

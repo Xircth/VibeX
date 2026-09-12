@@ -836,7 +836,9 @@ supports_websockets = false
         .iter()
         .find(|field| field.field_id == "codex_responses_websockets")
         .unwrap();
-    assert_eq!(websockets.value.as_deref(), Some("true"));
+    // 用户在配置表里写了 supports_websockets=false，读回应是关闭 WebSocket
+    //（开关开启），不能再用内置 openai 默认把保存结果弹回。
+    assert_eq!(websockets.value.as_deref(), Some("false"));
 
     // ollama 内置不支持 WebSocket → 开关显示为开启。
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
@@ -850,6 +852,53 @@ model_provider = "ollama"
     );
     let snapshot = provider.read(&codex, false).await.unwrap();
     let websockets = snapshot
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("false"));
+}
+
+#[tokio::test]
+async fn codex_websockets_default_openai_save_round_trips_disable() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-5.6-sol""#.to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let websockets = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_responses_websockets")
+        .unwrap();
+    assert_eq!(websockets.value.as_deref(), Some("true"));
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_responses_websockets".to_string(),
+                    Some("false".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let after = provider.read(&codex, false).await.unwrap();
+    let websockets = after
         .fields
         .iter()
         .find(|field| field.field_id == "codex_responses_websockets")
@@ -1192,7 +1241,7 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
                 values: BTreeMap::from([
                     (
                         "grok_permission".to_string(),
-                        Some("acceptEdits".to_string()),
+                        Some("always-approve".to_string()),
                     ),
                     (
                         "grok_api_backend".to_string(),
@@ -1215,7 +1264,7 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
     let grok_config: toml::Value = toml::from_str(&grok_config).unwrap();
     assert_eq!(
         grok_config["ui"]["permission_mode"].as_str(),
-        Some("acceptEdits")
+        Some("always-approve")
     );
     assert_eq!(
         grok_config["model"]["vibex"]["api_backend"].as_str(),
@@ -1298,6 +1347,24 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
     assert_eq!(antigravity_cli["agentMode"], "accept-edits");
     assert_eq!(antigravity_cli["enableTerminalSandbox"], true);
     assert_eq!(antigravity_cli["permissions"]["allow"][0], "command(git)");
+}
+
+#[tokio::test]
+async fn grok_reads_bypass_permissions_as_always_approve() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.grok/config.toml"),
+        b"[ui]\npermission_mode = \"bypassPermissions\"\n".to_vec(),
+    );
+    let provider = NativeConfigProvider::bundled(filesystem, PathBuf::from("/home/user"));
+    let snapshot = provider
+        .read(&AgentId::parse("grok").unwrap(), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot.field_text("grok_permission"),
+        Some("always-approve")
+    );
 }
 
 #[tokio::test]

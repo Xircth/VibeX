@@ -173,7 +173,7 @@ export function RightPanelContent() {
   const effectiveActiveTab = routeTab ?? activeTab;
   const {
     visibleRightSession,
-    replaceRightSession,
+    activateExecutionSession,
     placeCreatedSession,
     isRightSessionPending,
     lastActiveWorkspaceId,
@@ -362,10 +362,10 @@ export function RightPanelContent() {
 
   const handleSelectedSession = useCallback(
     (session: { sessionId: string; workspaceId: string }) => {
-      replaceRightSession(session);
+      activateExecutionSession(session);
       syncWorkspaceRouteSession(session);
     },
-    [replaceRightSession, syncWorkspaceRouteSession]
+    [activateExecutionSession, syncWorkspaceRouteSession]
   );
 
   const canCreateSession =

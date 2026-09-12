@@ -24,6 +24,8 @@ use local_deployment::LocalDeployment;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
@@ -52,6 +54,15 @@ pub struct ServerApplicationDomains {
     pub(crate) agent_management_runtime:
         Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
     pub(crate) delegation_broker: Option<Arc<delegation::DelegationBroker>>,
+    pub(crate) prompt_enhancement: Arc<Mutex<Option<PromptEnhancementRun>>>,
+}
+
+pub(crate) struct PromptEnhancementRun {
+    pub generation: u64,
+    pub cancel: CancellationToken,
+    pub connection_id: Option<agents::AgentConnectionId>,
+    pub session_id: Option<agents::AgentSessionId>,
+    pub prompt_id: Option<agents::AgentPromptId>,
 }
 
 pub struct ServerDomainDependencies {
@@ -111,6 +122,7 @@ impl ServerApplicationDomains {
             terminal_bridges,
             agent_management_runtime,
             delegation_broker,
+            prompt_enhancement: Arc::new(Mutex::new(None)),
         }
     }
 

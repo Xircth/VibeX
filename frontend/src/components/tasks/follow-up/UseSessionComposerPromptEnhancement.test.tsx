@@ -2,13 +2,15 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSessionComposerPromptEnhancement } from './useSessionComposerPromptEnhancement';
 
-const { enhancePromptMock } = vi.hoisted(() => ({
+const { enhancePromptMock, cancelEnhancePromptMock } = vi.hoisted(() => ({
   enhancePromptMock: vi.fn(),
+  cancelEnhancePromptMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
   configApi: {
     enhancePrompt: enhancePromptMock,
+    cancelEnhancePrompt: cancelEnhancePromptMock,
   },
 }));
 
@@ -23,6 +25,8 @@ const contextMessages = [
 describe('useSessionComposerPromptEnhancement', () => {
   beforeEach(() => {
     enhancePromptMock.mockReset();
+    cancelEnhancePromptMock.mockReset();
+    cancelEnhancePromptMock.mockResolvedValue(undefined);
   });
 
   it('suppresses empty drafts and applies normalized enhancement results', async () => {
@@ -103,5 +107,56 @@ describe('useSessionComposerPromptEnhancement', () => {
       'Prompt enhancement failed: disabled in system settings.'
     );
     expect(result.current.isEnhancingPrompt).toBe(false);
+  });
+
+  it('stops an in-flight enhancement and ignores its late result', async () => {
+    const applyEnhancedPrompt = vi.fn();
+    const setFollowUpError = vi.fn();
+    let resolveEnhancement: (value: {
+      enhancedPrompt: string;
+      model: string;
+    }) => void = () => undefined;
+    enhancePromptMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnhancement = resolve;
+        })
+    );
+
+    const { result } = renderHook(() =>
+      useSessionComposerPromptEnhancement({
+        draftPrompt: 'improve this',
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+        contextMessages,
+        applyEnhancedPrompt,
+        setFollowUpError,
+      })
+    );
+
+    let enhancePromise: Promise<void> = Promise.resolve();
+    await act(async () => {
+      enhancePromise = result.current.handleEnhancePrompt();
+    });
+    expect(result.current.isEnhancingPrompt).toBe(true);
+
+    await act(async () => {
+      await result.current.handleEnhancePrompt();
+    });
+
+    expect(cancelEnhancePromptMock).toHaveBeenCalledTimes(1);
+    expect(result.current.isEnhancingPrompt).toBe(false);
+
+    await act(async () => {
+      resolveEnhancement({
+        enhancedPrompt: 'stale enhanced prompt',
+        model: 'opencode-test',
+      });
+      await enhancePromise;
+    });
+
+    expect(applyEnhancedPrompt).not.toHaveBeenCalled();
+    expect(setFollowUpError).toHaveBeenCalledWith(null);
+    expect(setFollowUpError).toHaveBeenCalledTimes(1);
   });
 });

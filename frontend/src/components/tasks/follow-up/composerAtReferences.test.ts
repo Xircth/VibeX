@@ -5,6 +5,7 @@ import {
   commitReferenceUri,
   conversationReferenceUri,
   cycleAtReferenceTab,
+  projectReferenceUri,
   firstNonEmptyTab,
   isAtReferenceNavigationKey,
   matchAtReferenceTrigger,
@@ -65,6 +66,7 @@ describe('composer @ references', () => {
 
     expect(groups.map((group) => group.tab)).toEqual([
       'file',
+      'project',
       'conversation',
       'commit',
       'instruction',
@@ -72,14 +74,49 @@ describe('composer @ references', () => {
       'action',
     ]);
     expect(groups[0]?.items[0]?.insertText).toBe('[@:App.tsx](src/App.tsx)');
-    expect(groups[1]?.items[0]?.insertText).toBe(
+    expect(groups[1]?.items).toEqual([]);
+    expect(groups[2]?.items[0]?.insertText).toBe(
       `[Fix auth](${conversationReferenceUri('conv-1')})`
     );
-    expect(groups[2]?.items[0]?.insertText).toBe(
+    expect(groups[3]?.items[0]?.insertText).toBe(
       `[${shortCommitSha(commit.sha)}](${commitReferenceUri('repo-1', commit.sha)})`
     );
-    expect(groups[3]?.items[0]?.label).toBe('#review-changes');
+    expect(groups[4]?.items[0]?.label).toBe('#review-changes');
     expect(groups.find((group) => group.tab === 'host')?.items).toEqual([]);
+  });
+
+  it('lists projects by name with their absolute path', () => {
+    const groups = buildAtReferenceGroups('vibe', {
+      files: [],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'VibeX',
+          path: '/Users/mac/Projects/VibeX',
+        },
+        {
+          id: 'proj-2',
+          name: 'Notes',
+          path: '/Users/mac/Documents/notes',
+        },
+      ],
+    });
+    expect(groups.find((group) => group.tab === 'project')?.items).toEqual([
+      {
+        id: 'project:proj-1',
+        tab: 'project',
+        label: 'VibeX',
+        detail: '/Users/mac/Projects/VibeX',
+        insertText: `[VibeX](${projectReferenceUri(
+          'proj-1',
+          '/Users/mac/Projects/VibeX'
+        )})`,
+      },
+    ]);
   });
 
   it('lists Host references in their own tab', () => {
@@ -179,12 +216,13 @@ describe('composer @ references', () => {
   });
 
   it('cycles tabs left and right', () => {
-    expect(cycleAtReferenceTab('file', 1)).toBe('conversation');
+    expect(cycleAtReferenceTab('file', 1)).toBe('project');
+    expect(cycleAtReferenceTab('project', 1)).toBe('conversation');
     expect(cycleAtReferenceTab('instruction', 1)).toBe('host');
     expect(cycleAtReferenceTab('host', 1)).toBe('action');
     expect(cycleAtReferenceTab('action', 1)).toBe('file');
     expect(cycleAtReferenceTab('file', -1)).toBe('action');
-    expect(cycleAtReferenceTab('conversation', -1)).toBe('file');
+    expect(cycleAtReferenceTab('conversation', -1)).toBe('project');
   });
 
   it('keeps the highlighted row when the same query refreshes', () => {

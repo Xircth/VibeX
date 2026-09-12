@@ -15,12 +15,10 @@ import { CANVAS_WINDOW_SLOT_COUNT } from '@/components/kanban/canvas/canvasModel
 export { CANVAS_WINDOW_SLOT_COUNT };
 
 export function sessionSlotClasses(index: number): {
-  shell: string;
   bar: string;
 } {
   const slot = (Math.max(0, index) % CANVAS_WINDOW_SLOT_COUNT) + 1;
   return {
-    shell: `session-monitor-slot-${slot}`,
     bar: `session-marker-slot-${slot}`,
   };
 }
@@ -29,15 +27,6 @@ export function sessionSlotHue(index: number): string {
   const slot = (Math.max(0, index) % CANVAS_WINDOW_SLOT_COUNT) + 1;
   return `var(--session-slot-${slot})`;
 }
-
-// 监控区 Slot 配色（见 Kanban 会话看板升级设计）：Slot 1 蓝 / 2 紫 / 3 绿 / 4 橙。
-// `shell` 为监控卡片的着色边框 + 浅色背景，`bar` 为左侧会话列表卡片的色条。
-export const MONITOR_SLOT_STYLES = [
-  sessionSlotClasses(0),
-  sessionSlotClasses(1),
-  sessionSlotClasses(2),
-  sessionSlotClasses(3),
-] as const;
 
 // 执行区（右侧栏）会话在列表中使用浅红色条标记。
 export const RIGHT_PANEL_MARKER = {

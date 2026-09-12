@@ -131,7 +131,9 @@ export function useSessionComposerQueue({
         })),
         modeOverride,
         configOverrides,
-        fileRefs: getSessionComposerFileRefs(agentMessage ?? message),
+        // File-tree @ tokens live in the composer/display string. The agent
+        // text is already serialized to a bare path and would lose the refs.
+        fileRefs: getSessionComposerFileRefs(message),
       };
       const editing = editingInputRef.current;
       if (editing?.session_id === sessionId && editing.status === 'queued') {

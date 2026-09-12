@@ -161,7 +161,9 @@ describe('AgentQuestionCard', () => {
       <AgentQuestionCard request={delegatedQuestion()} onRespond={onRespond} />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '拒绝回答' }));
+    const decline = screen.getByRole('button', { name: '拒绝回答' });
+    expect(decline).toHaveClass('agent-question-decline');
+    fireEvent.click(decline);
 
     expect(onRespond).toHaveBeenCalledWith('question-set-1', {
       action: 'decline',

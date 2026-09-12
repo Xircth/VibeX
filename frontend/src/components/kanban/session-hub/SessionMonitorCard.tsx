@@ -12,12 +12,7 @@ import { KanbanSessionConversationView } from '@/components/kanban/KanbanSession
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
 import { DRAG_HANDLE_CLASS } from '@/components/kanban/canvas/canvasModel';
-import {
-  MONITOR_SLOT_STYLES,
-  formatTimeAgo,
-  sessionAttentionKind,
-  sessionSlotHue,
-} from './utils';
+import { formatTimeAgo, sessionAttentionKind, sessionSlotHue } from './utils';
 
 export type SessionMonitorCardVariant = 'monitor' | 'canvas';
 
@@ -49,6 +44,10 @@ export function SessionMonitorCard({
     isCanvas && typeof slotIndex === 'number'
       ? sessionSlotHue(slotIndex)
       : null;
+  const monitorSlotHue =
+    !isCanvas && !session.isErrored
+      ? sessionSlotHue(typeof slotIndex === 'number' ? slotIndex : 0)
+      : null;
   const primaryAction = isCanvas ? onZoom : onMoveToExecution;
   const primaryLabel = isCanvas
     ? t('hubCanvas.resetCardSize')
@@ -73,11 +72,7 @@ export function SessionMonitorCard({
             )
           : session.isErrored
             ? 'session-monitor-slot-error rounded-lg hover:bg-[var(--surface-control-hover)]'
-            : cn(
-                'rounded-lg',
-                MONITOR_SLOT_STYLES[slotIndex ?? 0]?.shell,
-                'hover:bg-[var(--surface-control-hover)]'
-              )
+            : cn('rounded-lg', monitorSlotHue && 'session-monitor-slotted')
       )}
       style={
         canvasSlotHue
@@ -85,7 +80,13 @@ export function SessionMonitorCard({
               '--canvas-window-slot': canvasSlotHue,
               backgroundColor: `hsl(${canvasSlotHue} / 0.14)`,
             } as CSSProperties)
-          : undefined
+          : monitorSlotHue
+            ? ({
+                '--monitor-window-slot': monitorSlotHue,
+                backgroundColor: `hsl(${monitorSlotHue} / 0.14)`,
+                borderColor: `hsl(${monitorSlotHue} / 0.7)`,
+              } as CSSProperties)
+            : undefined
       }
     >
       <div

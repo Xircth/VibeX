@@ -295,6 +295,23 @@ describe('session composer structured commands', () => {
     ).toBeNull();
   });
 
+  it('parses project references as @name chips that serialize to the absolute path', () => {
+    const project =
+      '[VibeX](vibex://project/proj-1@%2FUsers%2Fmac%2FProjects%2FVibeX)';
+    expect(getSessionComposerStructuredTokens(project)).toEqual([
+      expect.objectContaining({
+        kind: 'project',
+        label: '@VibeX',
+        value: '/Users/mac/Projects/VibeX',
+        title: '/Users/mac/Projects/VibeX',
+      }),
+    ]);
+    expect(
+      serializeSessionComposerBackendMessage(`Open ${project} please`)
+    ).toBe('Open /Users/mac/Projects/VibeX please');
+    expect(getSessionComposerFileRefs(`See ${project}`)).toEqual([]);
+  });
+
   it('parses conversation and commit markdown links as tokens', () => {
     const conversation =
       '[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)';

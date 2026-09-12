@@ -987,6 +987,38 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(onChange).toHaveBeenLastCalledWith('line1\n');
   });
 
+  it('restores a multiline draft as visible line breaks', () => {
+    renderComposerInput({ value: 'first line\nsecond line' });
+
+    expect(getEditor().querySelector('br')).toBeInTheDocument();
+  });
+
+  it('serializes contenteditable line boxes as newlines', () => {
+    const onChange = vi.fn();
+    renderComposerInput({ onChange });
+    const editor = getEditor();
+    editor.innerHTML = '<div>line1</div><div>line2</div>';
+    fireEvent.input(editor);
+
+    expect(onChange).toHaveBeenLastCalledWith('line1\nline2');
+  });
+
+  it('keeps newlines around restored structured tokens', async () => {
+    const token = formatSessionComposerCommand({
+      type: '@',
+      key: 'App.tsx',
+      value: 'src/App.tsx',
+    });
+
+    renderComposerInput({ value: `hello\n${token}\nworld` });
+    const editor = getEditor();
+
+    await waitFor(() => {
+      expect(editor.querySelector('[data-astryx-token]')).toBeInTheDocument();
+    });
+    expect(editor.querySelectorAll('br')).toHaveLength(2);
+  });
+
   it('opens the dollar trigger menu and inserts a structured token on select', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

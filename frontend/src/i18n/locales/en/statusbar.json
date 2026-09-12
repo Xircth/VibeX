@@ -8,6 +8,7 @@
     "updateAvailable": "Update available"
   },
   "automationFailureTitle": "Automation run failed",
+  "openProject": "Open {{name}}",
   "backgroundTasksTitle": "{{count}} background task(s) running",
   "updateAvailableTitle": "An update is available",
   "attentionInbox": {

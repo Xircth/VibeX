@@ -698,8 +698,9 @@ describe('conversation tool cards', () => {
       />
     );
 
-    expect(screen.getAllByText('Deploy now?')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('yes').length).toBeGreaterThan(0);
+    expect(screen.getByText('Deploy now?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('yes').closest('label')).toHaveClass('is-answered');
   });
 
   it('routes feedback check results to a feedback card', () => {

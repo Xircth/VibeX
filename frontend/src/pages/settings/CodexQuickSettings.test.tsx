@@ -149,6 +149,48 @@ describe('CodexQuickSettings', () => {
     expect(onChange).toHaveBeenCalledWith('codex_network_access', 'true');
   });
 
+  it('keeps the inverted disable-WebSocket toggle checked after saving false', async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <CodexQuickSettings
+        fields={[
+          booleanField(
+            'codex_responses_websockets',
+            '关闭 WebSocket 连接',
+            'true'
+          ),
+        ]}
+        drafts={{ codex_responses_websockets: 'true' }}
+        disabled={false}
+        onChange={onChange}
+      />
+    );
+
+    const toggle = screen.getByLabelText('关闭 WebSocket 连接');
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(
+      'codex_responses_websockets',
+      'false'
+    );
+
+    rerender(
+      <CodexQuickSettings
+        fields={[
+          booleanField(
+            'codex_responses_websockets',
+            '关闭 WebSocket 连接',
+            'false'
+          ),
+        ]}
+        drafts={{ codex_responses_websockets: 'false' }}
+        disabled={false}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('关闭 WebSocket 连接')).toBeChecked();
+  });
+
   it('does not stretch the last compact field across the leftover cell', () => {
     render(
       <CodexQuickSettings

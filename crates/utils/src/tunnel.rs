@@ -2,7 +2,7 @@
 
 use std::net::IpAddr;
 
-pub const DEFAULT_TUNNEL_PORT: u16 = 443;
+pub const DEFAULT_TUNNEL_PORT: u16 = 17891;
 pub const TUNNEL_INSTALL_URL: &str = "https://vibex.xforever.xin/tunnel.sh";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,9 +109,14 @@ pub fn display_host(host: &str) -> String {
     }
 }
 
-pub fn install_command(token: &str, port: u16) -> String {
+pub fn install_command(token: &str, port: u16, host: &str) -> String {
     let sudo = if port < 1024 { "sudo " } else { "" };
-    format!("curl -fsSL {TUNNEL_INSTALL_URL} | {sudo}sh -s -- -t {token} -p {port}")
+    let host = host.trim();
+    if host.is_empty() {
+        format!("curl -fsSL {TUNNEL_INSTALL_URL} | {sudo}sh -s -- -t {token} -p {port}")
+    } else {
+        format!("curl -fsSL {TUNNEL_INSTALL_URL} | {sudo}sh -s -- -t {token} -p {port} -h {host}")
+    }
 }
 
 pub fn extract_relay_token(input: &str) -> Option<String> {
@@ -150,12 +155,13 @@ mod tests {
     }
 
     #[test]
-    fn host_without_port_defaults_to_443() {
+    fn host_without_port_defaults_to_17891() {
+        assert_eq!(DEFAULT_TUNNEL_PORT, 17891);
         assert_eq!(
             parse_tunnel_endpoint("gate.example.com", DEFAULT_TUNNEL_PORT).unwrap(),
             TunnelEndpoint {
                 host: "gate.example.com".to_string(),
-                port: 443,
+                port: 17891,
             }
         );
     }
@@ -230,7 +236,7 @@ mod tests {
     fn extract_relay_token_from_install_command() {
         assert_eq!(
             extract_relay_token(
-                "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t vbx_tun_e22cd3763db1436f847e709d79b3f9f9 -p 13630"
+                "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t vbx_tun_e22cd3763db1436f847e709d79b3f9f9 -p 17891 -h 103.236.98.173"
             )
             .as_deref(),
             Some("vbx_tun_e22cd3763db1436f847e709d79b3f9f9")
@@ -239,14 +245,22 @@ mod tests {
     }
 
     #[test]
+    fn install_command_includes_the_public_host() {
+        assert_eq!(
+            install_command("tok_abc", 17891, "103.236.98.173"),
+            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h 103.236.98.173"
+        );
+    }
+
+    #[test]
     fn install_command_uses_sudo_for_privileged_ports() {
         assert_eq!(
-            install_command("tok_abc", 443),
-            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sudo sh -s -- -t tok_abc -p 443"
+            install_command("tok_abc", 443, "203.0.113.10"),
+            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sudo sh -s -- -t tok_abc -p 443 -h 203.0.113.10"
         );
         assert_eq!(
-            install_command("tok_abc", 8443),
-            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok_abc -p 8443"
+            install_command("tok_abc", 8443, "203.0.113.10"),
+            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok_abc -p 8443 -h 203.0.113.10"
         );
     }
 }

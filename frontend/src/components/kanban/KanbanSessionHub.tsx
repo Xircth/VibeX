@@ -41,7 +41,10 @@ import {
   useKanbanCanvasListVisible,
 } from '@/lib/kanbanCanvasListVisible';
 import type { KanbanZone } from '@/lib/layoutArrangement';
-import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
+import {
+  resolveCurrentExecutionPlacement,
+  shouldPruneKanbanSessionPlacements,
+} from '@/lib/kanbanSessionLayout';
 import {
   kanbanZoneFills,
   shouldShowKanbanMonitor,
@@ -170,6 +173,7 @@ export function KanbanSessionHub({
     activateExecutionSession,
     cancelMonitorSession,
     pruneSessions,
+    isLayoutHydrated,
   } = useKanbanSessionContext();
   const isKanbanListVisible = useLayoutStore(
     (state) => state.isKanbanListVisible
@@ -416,26 +420,33 @@ export function KanbanSessionHub({
   }, [openingSessionId]);
 
   useEffect(() => {
-    // The workspace stream can briefly expose an empty session snapshot while
-    // the active workspace query already has a session. Pruning placements in
-    // that window races KanbanSessionProvider's seeding effect: it removes the
-    // right session and the provider immediately adds it back, causing an
-    // update loop during workspace -> Kanban transitions.
-    if (isLoading || (sessions.length === 0 && activeAttempt?.session?.id)) {
-      return;
-    }
-
+    // Workspace streams can briefly expose an empty snapshot after a project
+    // switch. Pruning against that set would wipe restored kanban placements.
     const availableSessionIds = new Set([
       ...sessions.map((session) => session.id),
       ...pendingCreatedSessionIds,
     ]);
-    pruneSessions(availableSessionIds);
+    if (
+      !shouldPruneKanbanSessionPlacements({
+        isLayoutHydrated,
+        isLoading,
+        availableSessionCount: availableSessionIds.size,
+      })
+    ) {
+      return;
+    }
+
+    pruneSessions(
+      availableSessionIds,
+      new Set(workspaces.map((workspace) => workspace.id))
+    );
   }, [
-    activeAttempt?.session?.id,
+    isLayoutHydrated,
     isLoading,
     pendingCreatedSessionIds,
     pruneSessions,
     sessions,
+    workspaces,
   ]);
 
   useEffect(() => {

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type {
-  AgentManagementView,
-  AgentSessionControlsSnapshot,
-} from 'shared/types';
+import type { AgentManagementView } from 'shared/types';
 
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { Button } from '@/components/ui/button';
@@ -19,7 +17,12 @@ import {
 import { toast } from '@/components/ui/toast';
 import { agentManagementApi } from '@/features/agent-management/api';
 import { agentsApi } from '@/features/agents/api';
-import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
+import {
+  loadAgentSessionControlsCatalog,
+  mergeCreateSessionControls,
+  sessionControlsQueryKey,
+  sessionControlsSchemaQueryKey,
+} from '@/features/agents/sessionControlsQuery';
 
 export function AgentSessionConfigPicker({
   agentId,
@@ -39,11 +42,8 @@ export function AgentSessionConfigPicker({
   agentLabel: string;
 }) {
   const { t } = useTranslation('settings');
+  const queryClient = useQueryClient();
   const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>([]);
-  const [sessionControls, setSessionControls] =
-    useState<AgentSessionControlsSnapshot | null>(null);
-  const [sessionControlsLoading, setSessionControlsLoading] = useState(false);
-  const sessionControlsRequestIdRef = useRef(0);
   const selectedAgentId = agentId.trim();
 
   useEffect(() => {
@@ -64,43 +64,80 @@ export function AgentSessionConfigPicker({
     };
   }, [t]);
 
+  const catalogQuery = useQuery({
+    queryKey: sessionControlsQueryKey(selectedAgentId, null),
+    queryFn: () => loadAgentSessionControlsCatalog(selectedAgentId),
+    enabled: Boolean(selectedAgentId),
+    staleTime: 60_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const schemaQuery = useQuery({
+    queryKey: sessionControlsSchemaQueryKey(selectedAgentId),
+    queryFn: () => loadAgentSessionControlsCatalog(selectedAgentId),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const catalogFreshnessQuery = useQuery({
+    queryKey: ['agentCapabilityCatalogFreshness', selectedAgentId],
+    queryFn: () => agentsApi.capabilityCatalogFresh(selectedAgentId),
+    enabled: Boolean(selectedAgentId && catalogQuery.data),
+    staleTime: 0,
+    retry: false,
+  });
+  const sessionControls = mergeCreateSessionControls([
+    catalogQuery.data,
+    schemaQuery.data,
+  ]);
+  const sessionControlsLoading = catalogQuery.isFetching;
+  const backgroundRefreshAgent = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !selectedAgentId ||
+      catalogFreshnessQuery.data !== false ||
+      backgroundRefreshAgent.current === selectedAgentId
+    ) {
+      return;
+    }
+    backgroundRefreshAgent.current = selectedAgentId;
+    void agentsApi
+      .refreshCapabilityCatalog(selectedAgentId)
+      .then(async (refreshed) => {
+        if (!refreshed) return;
+        await catalogQuery.refetch();
+        await catalogFreshnessQuery.refetch();
+      })
+      .catch(() => undefined);
+  }, [catalogFreshnessQuery, catalogQuery, selectedAgentId]);
+
+  useEffect(() => {
+    backgroundRefreshAgent.current = null;
+  }, [selectedAgentId]);
+
   const loadSessionControls = useCallback(
     async (nextAgentId: string, refresh: boolean) => {
-      const requestId = ++sessionControlsRequestIdRef.current;
-      setSessionControlsLoading(true);
       try {
         if (refresh) {
           await agentsApi.refreshCapabilityCatalog(nextAgentId);
         }
-        const controls = await loadAgentSessionControlsCatalog(nextAgentId);
-        if (requestId === sessionControlsRequestIdRef.current) {
-          setSessionControls(controls);
-        }
+        await queryClient.fetchQuery({
+          queryKey: sessionControlsQueryKey(nextAgentId, null),
+          queryFn: () => loadAgentSessionControlsCatalog(nextAgentId),
+          staleTime: refresh ? 0 : 60_000,
+        });
       } catch (error) {
-        if (requestId === sessionControlsRequestIdRef.current) {
-          setSessionControls(null);
-        }
         toast.error(
           error instanceof Error
             ? error.message
             : t('general.sessionControlsLoadFailed')
         );
-      } finally {
-        if (requestId === sessionControlsRequestIdRef.current) {
-          setSessionControlsLoading(false);
-        }
       }
     },
-    [t]
+    [queryClient, t]
   );
-
-  useEffect(() => {
-    if (!selectedAgentId) {
-      setSessionControls(null);
-      return;
-    }
-    void loadSessionControls(selectedAgentId, false);
-  }, [loadSessionControls, selectedAgentId]);
 
   return (
     <>

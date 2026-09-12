@@ -679,6 +679,7 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
             kind === 'tag' ||
             kind === 'conversation' ||
             kind === 'commit' ||
+            kind === 'project' ||
             kind === 'element' ||
             kind === 'quote') &&
             'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
@@ -729,6 +730,11 @@ function decorateStructuredTokenElement(
   token: SessionComposerStructuredToken
 ) {
   element.dataset.tokenKind = token.kind;
+  if (token.title) {
+    element.title = token.title;
+  } else {
+    element.removeAttribute('title');
+  }
   if (token.kind === 'element') {
     element.dataset.previewElementToken = '';
     delete element.dataset.quoteToken;
@@ -765,6 +771,18 @@ function prepareEmptyComposerForTokenInsert(editor: HTMLElement | null) {
   editor.replaceChildren();
 }
 
+function appendPlainTextWithLineBreaks(parent: ParentNode, text: string): void {
+  const parts = text.split('\n');
+  parts.forEach((part, index) => {
+    if (index > 0) {
+      parent.appendChild(document.createElement('br'));
+    }
+    if (part) {
+      parent.appendChild(document.createTextNode(part));
+    }
+  });
+}
+
 function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string,
@@ -799,7 +817,7 @@ function restoreStructuredTokens(
   const fragment = document.createDocumentFragment();
   for (const segment of segments) {
     if (segment.kind === 'text') {
-      fragment.append(document.createTextNode(segment.text));
+      appendPlainTextWithLineBreaks(fragment, segment.text);
       continue;
     }
 
@@ -1227,6 +1245,7 @@ export function SessionComposerInput({
         token.kind !== 'tag' &&
         token.kind !== 'conversation' &&
         token.kind !== 'commit' &&
+        token.kind !== 'project' &&
         token.kind !== 'element' &&
         token.kind !== 'quote' ? (
           <SessionComposerTokenIcon token={token} />
@@ -1698,6 +1717,7 @@ export function SessionComposerInput({
             event.preventDefault();
             if (action === 'newline') {
               composerHandleRef.current?.insertText('\n');
+              onChange(composerHandleRef.current?.getValue() ?? value);
               return;
             }
             const text = composerHandleRef.current?.getValue().trim() ?? '';
@@ -1707,7 +1727,7 @@ export function SessionComposerInput({
               composerRootRef.current?.querySelector<HTMLElement>(
                 '[contenteditable="true"]'
               );
-            if (editable) editable.textContent = '';
+            if (editable) editable.replaceChildren();
             onChange('');
           }}
           onSubmit={handleSubmit}

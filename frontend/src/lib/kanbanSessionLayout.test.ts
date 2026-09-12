@@ -11,6 +11,7 @@ import {
   removeMonitorSession,
   replaceRightSession,
   resolveCurrentExecutionPlacement,
+  shouldPruneKanbanSessionPlacements,
   type KanbanSessionPlacement,
 } from './kanbanSessionLayout';
 
@@ -154,6 +155,37 @@ describe('kanban session layout', () => {
     expect(next.monitorSessions.map((item) => item.sessionId)).toEqual(['b']);
   });
 
+  it('does not prune placements against an empty or unready session snapshot', () => {
+    expect(
+      shouldPruneKanbanSessionPlacements({
+        isLayoutHydrated: true,
+        isLoading: false,
+        availableSessionCount: 0,
+      })
+    ).toBe(false);
+    expect(
+      shouldPruneKanbanSessionPlacements({
+        isLayoutHydrated: false,
+        isLoading: false,
+        availableSessionCount: 2,
+      })
+    ).toBe(false);
+    expect(
+      shouldPruneKanbanSessionPlacements({
+        isLayoutHydrated: true,
+        isLoading: true,
+        availableSessionCount: 2,
+      })
+    ).toBe(false);
+    expect(
+      shouldPruneKanbanSessionPlacements({
+        isLayoutHydrated: true,
+        isLoading: false,
+        availableSessionCount: 2,
+      })
+    ).toBe(true);
+  });
+
   it('replaces the right panel session without queueing the previous one', () => {
     const state = {
       rightSession: session('right'),
@@ -207,5 +239,55 @@ describe('kanban session layout', () => {
     });
 
     expect(next).toBeNull();
+  });
+
+  it('parks the previous execution session in the monitor FIFO when another session is activated', () => {
+    const state = {
+      rightSession: session('a'),
+      monitorSessions: [session('b'), session('c'), session('d'), session('e')],
+    };
+
+    const next = activateSessionInExecutionArea(state, session('f'), {
+      canUseRightPanel: true,
+    });
+
+    expect(next.rightSession?.sessionId).toBe('f');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual([
+      'c',
+      'd',
+      'e',
+      'a',
+    ]);
+  });
+
+  it('keeps placements whose workspace has not loaded yet', () => {
+    const state = {
+      rightSession: session('a', 'ws-a'),
+      monitorSessions: [session('b', 'ws-b'), session('c', 'ws-c')],
+    };
+
+    const next = pruneUnavailableSessions(state, new Set(['a']), {
+      knownWorkspaceIds: new Set(['ws-a']),
+    });
+
+    expect(next.rightSession?.sessionId).toBe('a');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual([
+      'b',
+      'c',
+    ]);
+  });
+
+  it('prunes a missing session once its workspace has loaded', () => {
+    const state = {
+      rightSession: session('a', 'ws-a'),
+      monitorSessions: [session('gone', 'ws-a'), session('b', 'ws-b')],
+    };
+
+    const next = pruneUnavailableSessions(state, new Set(['a']), {
+      knownWorkspaceIds: new Set(['ws-a']),
+    });
+
+    expect(next.rightSession?.sessionId).toBe('a');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual(['b']);
   });
 });

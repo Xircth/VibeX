@@ -64,9 +64,9 @@ describe('HostTunnelPanel', () => {
       active_id: null,
       pending: {
         host: '203.0.113.10',
-        port: 443,
+        port: 17891,
         command:
-          'curl -fsSL https://vibex.xforever.xin/tunnel.sh | sudo sh -s -- -t tok -p 443',
+          'curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok -p 17891 -h 203.0.113.10',
       },
       relay_state: 'idle',
       last_error: null,

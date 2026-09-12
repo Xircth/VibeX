@@ -284,4 +284,48 @@ describe('TurnToolCalls subagent expansion', () => {
       )
     ).toBe(false);
   });
+
+  it('renders ask_user_question as a dedicated card instead of a grouped tool', () => {
+    captured.groups = [];
+    render(
+      <TurnToolCalls
+        turnId="turn-ask"
+        timestamp="2026-08-18T00:00:00.000Z"
+        offset={0}
+        items={[
+          toolItem(
+            'ask_user_question',
+            {
+              questions: [
+                {
+                  id: 'tracker',
+                  question: 'Pick a tracker',
+                  options: [{ label: 'Local markdown' }],
+                },
+              ],
+            },
+            JSON.stringify({
+              outcome: 'accepted',
+              answers: { tracker: ['Local markdown'] },
+            }),
+            0
+          ),
+          toolItem('bash', { command: 'ls' }, 'ok', 1),
+        ]}
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
+    expect(screen.getByText('Pick a tracker')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '查看详情' })
+    ).toBeInTheDocument();
+    expect(
+      capturedNames().some((name) =>
+        /ask_user_question|问题|Question/i.test(name)
+      )
+    ).toBe(false);
+  });
 });

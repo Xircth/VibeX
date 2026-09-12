@@ -147,6 +147,67 @@ describe('useFollowUpSend', () => {
     }
   });
 
+  it('includes attached images in the payload and optimistic user turn', async () => {
+    sendTurnMock.mockReturnValue(new Promise(() => {}));
+    const events: OptimisticConversationTurnEvent[] = [];
+    const unsubscribe = subscribeToOptimisticConversationTurns((event) =>
+      events.push(event)
+    );
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'Please inspect this.',
+          images: ['.vibe-images/screen.png'],
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    try {
+      act(() => {
+        void result.current.onSendFollowUp();
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: 'add',
+          conversationId: 'conversation-1',
+          turn: expect.objectContaining({
+            role: 'user',
+            blocks: [
+              { type: 'text', text: 'Please inspect this.' },
+              {
+                type: 'image',
+                data: '',
+                mime_type: 'image/png',
+                uri: '.vibe-images/screen.png',
+              },
+            ],
+          }),
+        }),
+      ]);
+      expect(sendTurnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'Please inspect this.',
+          displayText: 'Please inspect this.',
+          images: ['.vibe-images/screen.png'],
+        })
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('invalidates the existing session list after its first turn starts', async () => {
     sendTurnMock.mockResolvedValue({});
     const queryClient = new QueryClient();
@@ -330,6 +391,48 @@ describe('useFollowUpSend', () => {
 
     expect(onBeforeSend).toHaveBeenCalledOnce();
     expect(onSendFailure).toHaveBeenCalledWith('keep this draft');
+  });
+
+  it('cleans up after send when the input was accepted even if the runtime call fails', async () => {
+    const onAfterSendCleanup = vi.fn();
+    const onPendingOperationIdChange = vi.fn();
+    sendTurnMock.mockRejectedValue(new Error('runtime unavailable'));
+    listInputsMock.mockImplementation(async () => {
+      const operationId = onPendingOperationIdChange.mock.calls[0]?.[0];
+      return [
+        {
+          id: 'input-1',
+          status: 'queued',
+          operationId,
+          revision: 1,
+        },
+      ];
+    });
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'keep this draft',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup,
+          onPendingOperationIdChange,
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(onAfterSendCleanup).toHaveBeenCalledOnce();
   });
 
   it('sends stable agent mention URIs unchanged to the parent agent', async () => {

@@ -355,9 +355,11 @@ async fn read_workspace_file_link(
             file_ref.path
         )));
     }
-    if !file_path.is_file() {
+    // File-tree drops can be files or directories. Rejecting directories
+    // left the durable input queued after Turn end because dispatch failed.
+    if !file_path.is_file() && !file_path.is_dir() {
         return Err(ConversationServiceError::NotFound(format!(
-            "File not found: {}",
+            "Path not found: {}",
             file_ref.path
         )));
     }
@@ -772,6 +774,32 @@ mod tests {
             &blocks[1],
             AgentContentBlock::Resource { title, uri }
                 if title.as_deref() == Some("notes.md:1-2") && uri.starts_with("file:")
+        ));
+    }
+
+    #[tokio::test]
+    async fn prompt_blocks_emit_resource_links_for_directories() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        std::fs::create_dir(workspace.path().join("src")).expect("dir");
+
+        let blocks = DefaultConversationHost::default()
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                "see this".to_string(),
+                &[],
+                &[agents::ConversationFileRef {
+                    path: "src".to_string(),
+                    start_line: None,
+                    end_line: None,
+                }],
+            )
+            .await
+            .expect("blocks");
+
+        assert!(matches!(
+            &blocks[1],
+            AgentContentBlock::Resource { title, uri }
+                if title.as_deref() == Some("src") && uri.starts_with("file:")
         ));
     }
 

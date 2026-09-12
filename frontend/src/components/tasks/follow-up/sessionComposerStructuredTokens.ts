@@ -6,6 +6,7 @@ import {
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const COMMIT_URI_PREFIX = 'vibex://commit/';
+const PROJECT_URI_PREFIX = 'vibex://project/';
 const QUOTE_TOKEN_PREFIX = '[:quote](';
 const QUOTE_CHIP_CHARS = 4;
 
@@ -53,6 +54,23 @@ function parseConversationReferenceUri(uri: string): string | null {
   return id || null;
 }
 
+function parseProjectReferenceUri(
+  uri: string
+): { projectId: string; path: string } | null {
+  if (!uri.toLowerCase().startsWith(PROJECT_URI_PREFIX)) return null;
+  const body = uri.slice(PROJECT_URI_PREFIX.length);
+  const separator = body.lastIndexOf('@');
+  if (separator <= 0 || separator === body.length - 1) return null;
+  try {
+    const projectId = decodeURIComponent(body.slice(0, separator));
+    const path = decodeURIComponent(body.slice(separator + 1));
+    if (!projectId || !path) return null;
+    return { projectId, path };
+  } catch {
+    return null;
+  }
+}
+
 function parseCommitReferenceUri(
   uri: string
 ): { repoId: string; sha: string } | null {
@@ -86,6 +104,7 @@ export type SessionComposerStructuredTokenKind =
   | 'agent_mention'
   | 'conversation'
   | 'commit'
+  | 'project'
   | 'quote';
 
 export type SessionComposerStructuredToken = {
@@ -214,6 +233,29 @@ function parseQuoteTokenAt(
       title: valuePart.value,
     },
     end: valuePart.end + 1,
+  };
+}
+
+function parseProjectReferenceAt(
+  source: string,
+  start: number
+): { token: SessionComposerStructuredToken; end: number } | null {
+  const link = parseMarkdownLinkAt(source, start);
+  if (!link) return null;
+  const parsed = parseProjectReferenceUri(link.uri);
+  if (!parsed) return null;
+  const raw = source.slice(start, link.end);
+  return {
+    token: {
+      kind: 'project',
+      type: '@',
+      key: parsed.projectId,
+      label: atReferenceChipLabel(link.label || parsed.path),
+      value: parsed.path,
+      raw,
+      title: parsed.path,
+    },
+    end: link.end,
   };
 }
 
@@ -714,6 +756,24 @@ export function getSessionComposerStructuredTokenSegments(
       continue;
     }
 
+    const project = isAgentMentionCodeContext(value, scan)
+      ? null
+      : parseProjectReferenceAt(value, scan);
+    if (project) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: project.token,
+        start: scan,
+        end: project.end,
+      });
+      cursor = project.end;
+      scan = project.end;
+      continue;
+    }
+
     const conversation = isAgentMentionCodeContext(value, scan)
       ? null
       : parseConversationReferenceAt(value, scan);
@@ -973,12 +1033,14 @@ export function serializeSessionComposerBackendMessage(value: string): string {
     .map((segment) =>
       segment.kind === 'text'
         ? segment.text
-        : segment.token.kind === 'agent_mention' ||
-            segment.token.kind === 'conversation' ||
-            segment.token.kind === 'commit' ||
-            segment.token.kind === 'quote'
-          ? segment.token.raw
-          : segment.token.value
+        : segment.token.kind === 'project'
+          ? segment.token.value
+          : segment.token.kind === 'agent_mention' ||
+              segment.token.kind === 'conversation' ||
+              segment.token.kind === 'commit' ||
+              segment.token.kind === 'quote'
+            ? segment.token.raw
+            : segment.token.value
     )
     .join('');
 }

@@ -74,7 +74,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const { projectId } = useProject();
   const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
-  const { visibleRightSession, replaceRightSession, pruneSessions } =
+  const { visibleRightSession, activateExecutionSession, pruneSessions } =
     useKanbanSessionContext();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -169,7 +169,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
 
   const openSession = useCallback(
     (session: KanbanProjectSessionRecord) => {
-      replaceRightSession(session.placement);
+      activateExecutionSession(session.placement);
       setActiveWorktree(session.workspace.id, session.taskId);
       if (projectId) {
         navigate(
@@ -177,7 +177,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
         );
       }
     },
-    [navigate, projectId, replaceRightSession, setActiveWorktree]
+    [activateExecutionSession, navigate, projectId, setActiveWorktree]
   );
 
   const refreshWorkspaceSessions = useCallback(

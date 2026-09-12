@@ -19,6 +19,7 @@ const agentManagementApiMock = vi.hoisted(() => ({
 const agentsApiMock = vi.hoisted(() => ({
   refreshCapabilityCatalog: vi.fn(),
   capabilityCatalog: vi.fn(),
+  capabilityCatalogFresh: vi.fn(),
 }));
 
 const userSystemMock = vi.hoisted(() => ({
@@ -37,9 +38,16 @@ vi.mock('@/features/agents/api', () => ({
   agentsApi: agentsApiMock,
 }));
 
-vi.mock('@/features/agents/sessionControlsQuery', () => ({
-  loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
-}));
+vi.mock('@/features/agents/sessionControlsQuery', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@/features/agents/sessionControlsQuery')
+    >();
+  return {
+    ...actual,
+    loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
+  };
+});
 
 vi.mock('@/components/ConfigProvider', () => userSystemMock);
 
@@ -103,6 +111,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     agentManagementApiMock.bar.mockReset();
     agentsApiMock.refreshCapabilityCatalog.mockReset();
     agentsApiMock.capabilityCatalog.mockReset();
+    agentsApiMock.capabilityCatalogFresh.mockReset();
     userSystemMock.useUserSystem.mockReset();
     configApiMock.checkEditorAvailability.mockResolvedValue({
       available: true,
@@ -121,6 +130,7 @@ describe('GeneralSettings Agent model catalogs', () => {
       current_mode: null,
       config_options: [],
     });
+    agentsApiMock.capabilityCatalogFresh.mockResolvedValue(true);
     agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
   });
 

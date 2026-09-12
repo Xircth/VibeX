@@ -301,7 +301,7 @@ function applySoftBreaksToText(value: string): string {
     .join('\n');
 }
 
-function applySoftBreaks(value: string): string {
+export function applySoftBreaks(value: string): string {
   return splitFencedCodeSegments(value)
     .map((segment) =>
       segment.protected ? segment.text : applySoftBreaksToText(segment.text)

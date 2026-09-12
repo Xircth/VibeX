@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -22,6 +23,7 @@ import {
   isAgentDefaultsSchema,
 } from './AgentDefaultsField';
 import { officialConfigFieldCopy } from './officialPlugins';
+import { pluginConfigEnableItemCount } from './pluginConfigEnableConfirm';
 import { errorMessage } from './pluginQueries';
 
 type JsonSchema = Record<string, unknown>;
@@ -36,6 +38,60 @@ function schemaProperties(schema: JsonSchema): Array<[string, JsonSchema]> {
     return [];
   }
   return Object.entries(properties as Record<string, JsonSchema>);
+}
+
+function BooleanSchemaField({
+  label,
+  description,
+  schema,
+  value,
+  disabled,
+  copy,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  schema: JsonSchema;
+  value: unknown;
+  disabled: boolean;
+  copy: ReactNode;
+  onChange: (value: unknown) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const [confirming, setConfirming] = useState(false);
+  const enabled = Boolean(value);
+  const enableCount = pluginConfigEnableItemCount(schema, description);
+
+  return (
+    <div className="product-plugin-config-row">
+      {copy}
+      <Switch
+        aria-label={label}
+        checked={enabled}
+        disabled={disabled || confirming}
+        onCheckedChange={(checked) => {
+          if (!checked || enabled || enableCount == null) {
+            onChange(checked);
+            return;
+          }
+          setConfirming(true);
+          void ConfirmDialog.show({
+            title: label,
+            message: t('plugins.configEnablePackConfirm', {
+              count: enableCount,
+            }),
+            confirmText: t('plugins.configEnablePackConfirmAction'),
+            cancelText: t('common:cancel'),
+            variant: 'info',
+          })
+            .then((result) => {
+              if (result === 'confirmed') onChange(true);
+            })
+            .finally(() => setConfirming(false));
+        }}
+      />
+    </div>
+  );
 }
 
 function SchemaField({
@@ -93,15 +149,15 @@ function SchemaField({
 
   if (schema.type === 'boolean') {
     return (
-      <div className="product-plugin-config-row">
-        {copy}
-        <Switch
-          aria-label={label}
-          checked={Boolean(value)}
-          disabled={disabled}
-          onCheckedChange={onChange}
-        />
-      </div>
+      <BooleanSchemaField
+        label={label}
+        description={description}
+        schema={schema}
+        value={value}
+        disabled={disabled}
+        copy={copy}
+        onChange={onChange}
+      />
     );
   }
 

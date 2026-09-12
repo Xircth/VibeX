@@ -22,7 +22,7 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 
 | 触发符 | 职责 |
 |---|---|
-| `@` | 引用面板。Tab：文件、会话、提交、指令 |
+| `@` | 引用面板。Tab：文件、项目、会话、提交、指令 |
 | `/` | 斜杠命令（Plugin Command 与 Agent Command） |
 | `$` | 技能 / 变量 |
 | `&` | Agent Mention（委派建议，不变） |
@@ -36,9 +36,10 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 输入 `@` 后弹出与 Composer 同宽的面板。Tab 顺序固定：
 
 1. **文件** — 现有工作区/仓库文件引用
-2. **会话** — 可点名的 Conversation，参考 Codeg
-3. **提交** — 当前仓库 git log
-4. **指令** — 原 `#` 标签/内置指令
+2. **项目** — VibeX 中仍存在的 Project（用户已删除的不出现）
+3. **会话** — 可点名的 Conversation，参考 Codeg
+4. **提交** — 当前仓库 git log
+5. **指令** — 原 `#` 标签/内置指令
 
 每个 Tab 独立检索、独立计数、至多 50 条；空 Tab 仍显示。Tab / Shift+Tab 切换 Tab，Enter 选中当前行。无仓库时文件与提交为空，会话与指令仍可用。
 
@@ -47,6 +48,7 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 | 种类 | 写入 Composer 的值 | Agent 看到的意义 |
 |---|---|---|
 | 文件 | `[@:name](relative/path)` | 现有文件引用 |
+| 项目 | `[name](vibex://project/<uuid>@<encoded-path>)` | Token 为 `@name`，Hover 为绝对路径；发给 Agent 的消息为绝对路径 |
 | 会话 | `[title](vibex://conversation/<uuid>)` | 会话增强 `get_session_info` 已认识的 URI |
 | 提交 | `[shortSha](vibex://commit/<repoId>@<sha>)` | 提交身份；正文带短 SHA 与说明 |
 | 指令 | `[#:name]([[tag:...]])` | 现有标签附录展开 |

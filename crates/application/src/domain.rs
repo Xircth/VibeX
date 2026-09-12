@@ -469,6 +469,7 @@ domain_commands! {
     PlayNotificationSound => "play_notification_sound" / "application.call",
     CheckEditorAvailability => "check_editor_availability" / "application.call",
     EnhancePrompt => "enhance_prompt" / "application.call",
+    CancelEnhancePrompt => "cancel_enhance_prompt" / "application.call",
     ListPromptEnhancementModels => "list_prompt_enhancement_models" / "application.call",
     RefreshPromptEnhancementCatalogs => "refresh_prompt_enhancement_catalogs" / "application.call",
     GetClaudeSettings => "get_claude_settings" / "application.call",

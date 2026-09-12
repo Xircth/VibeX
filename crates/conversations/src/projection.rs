@@ -1515,11 +1515,14 @@ impl ProjectionFold {
             ConversationEvent::AgentSessionInfoUpdated { .. } => {}
             ConversationEvent::TurnCompleted { .. } => {
                 settle_turn(turns, turn_order, record, "settled");
+                clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnCancelled { .. } => {
                 settle_turn(turns, turn_order, record, "cancelled");
+                clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnInterrupted { .. } => {
+                clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
                 // Mark the turn's phase so the timeline renders the "因重启中断" state
                 // with a one-click resend affordance (the user prompt lives on the
                 // turn's user row). Never auto-retried — ADR-0001.
@@ -1727,18 +1730,7 @@ impl ProjectionFold {
                         revision: record.sequence,
                     });
                 }
-                remove_side_row(
-                    side_rows,
-                    &mut deleted_rows,
-                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
-                    record.sequence,
-                );
-                remove_side_row(
-                    side_rows,
-                    &mut deleted_rows,
-                    AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
-                    record.sequence,
-                );
+                clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
                 side_rows.push(side_row(
                     record.sequence,
                     ConversationTimelineRow::TurnError {
@@ -2437,6 +2429,25 @@ fn upsert_stable_notice(
     });
 }
 
+fn clear_session_connect_notices(
+    side_rows: &mut Vec<TimelineRow>,
+    deleted_rows: &mut Vec<ConversationRowOp>,
+    sequence: i64,
+) {
+    remove_side_row(
+        side_rows,
+        deleted_rows,
+        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+        sequence,
+    );
+    remove_side_row(
+        side_rows,
+        deleted_rows,
+        AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+        sequence,
+    );
+}
+
 fn remove_side_row(
     side_rows: &mut Vec<TimelineRow>,
     deleted_rows: &mut Vec<ConversationRowOp>,
@@ -2774,8 +2785,16 @@ fn diagnostic_session_notice(
     payload: Option<&serde_json::Value>,
 ) -> Option<ConversationSessionNotice> {
     let kind = payload
-        .and_then(|value| value.get("kind"))
-        .and_then(serde_json::Value::as_str)
+        .and_then(|value| {
+            value
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| {
+                    value
+                        .get("sessionUpdate")
+                        .and_then(serde_json::Value::as_str)
+                })
+        })
         .unwrap_or(label);
     match kind {
         "session_config_override_skipped" => Some(ConversationSessionNotice {
@@ -2787,7 +2806,10 @@ fn diagnostic_session_notice(
         agents::AGENT_SESSION_NOTICE_KIND => {
             payload.and_then(agents::session_notice_from_diagnostic)
         }
-        "user_message_acknowledged" | "companion_capability" | "ext_notification" => None,
+        "user_message_acknowledged"
+        | "companion_capability"
+        | "ext_notification"
+        | "prompt_cancel_requested" => None,
         _ => Some(ConversationSessionNotice {
             title: "未识别的会话更新".into(),
             message: Some(label.to_string()),
@@ -3567,6 +3589,40 @@ mod tests {
     }
 
     #[test]
+    fn prompt_cancel_requested_is_not_a_timeline_notice() {
+        let conversation_id = Uuid::new_v4();
+        let cancel = ConversationEvent::RawDiagnosticRecorded {
+            label: "prompt_cancel_requested".into(),
+            payload: Some(serde_json::json!({
+                "kind": "prompt_cancel_requested",
+                "prompt_id": Uuid::new_v4(),
+            })),
+        };
+        let acp_update = ConversationEvent::RawDiagnosticRecorded {
+            label: "prompt_cancel_requested".into(),
+            payload: Some(serde_json::json!({
+                "sessionUpdate": "prompt_cancel_requested",
+            })),
+        };
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &cancel),
+                diagnostic_record(conversation_id, 2, &acp_update),
+            ],
+        )
+        .expect("cancel handshake diagnostics should fold");
+
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) }),
+            "stopping a turn must not surface a session notice"
+        );
+    }
+
+    #[test]
     fn agent_session_notices_project_as_warning_cards() {
         let conversation_id = Uuid::new_v4();
         let event = ConversationEvent::RawDiagnosticRecorded {
@@ -4277,6 +4333,47 @@ mod tests {
                 .rows
                 .iter()
                 .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) })
+        );
+    }
+
+    #[test]
+    fn connecting_warning_is_visible_until_the_turn_settles() {
+        let conversation_id = Uuid::new_v4();
+        let connecting = ConversationEvent::AgentConnectionStatusChanged {
+            status: ConversationAgentConnectionStatus::Connecting,
+        };
+        let waiting = ConversationProjector::project_records(
+            conversation_id,
+            &[diagnostic_record(conversation_id, 1, &connecting)],
+        )
+        .expect("connecting notice");
+        let notices: Vec<_> = waiting
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].severity, "warning");
+        assert!(notices[0].title.contains("正在连接"));
+
+        let cancelled = ConversationEvent::TurnCancelled { reason: None };
+        let settled = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &connecting),
+                diagnostic_record(conversation_id, 2, &cancelled),
+            ],
+        )
+        .expect("cancel clears connecting notice");
+        assert!(
+            settled
+                .rows
+                .iter()
+                .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) }),
+            "stopping a hang must remove the connecting warning so the user is not left waiting"
         );
     }
 

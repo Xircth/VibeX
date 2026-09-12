@@ -229,9 +229,54 @@ describe('mergeCreateSessionControls', () => {
     expect(
       merged?.config_options.find((option) => option.key === 'model')?.value
     ).toBe('gpt-6-astra');
-    expect(merged?.modes.map((mode) => mode.id)).toEqual([
-      'auto',
-      'agent-full-access',
+  });
+
+  it('does not keep a second reasoning-effort option from a later snapshot', () => {
+    const catalog: AgentSessionControlsSnapshot = {
+      modes: [],
+      current_mode: null,
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'grok-4.6',
+          choices: [{ value: 'grok-4.6', label: 'Grok 4.6' }],
+        },
+        {
+          key: 'effort',
+          label: '推理强度',
+          category: 'thought_level',
+          value: 'high',
+          choices: [{ value: 'high', label: 'High Effort' }],
+        },
+      ],
+    };
+    const live: AgentSessionControlsSnapshot = {
+      modes: [],
+      current_mode: null,
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'grok-4.6',
+          choices: [{ value: 'grok-4.6', label: 'Grok 4.6' }],
+        },
+        {
+          key: 'reasoning_effort',
+          label: 'Reasoning Effort',
+          category: 'thought_level',
+          value: 'high',
+          choices: [{ value: 'high', label: 'High' }],
+        },
+      ],
+    };
+
+    const merged = mergeCreateSessionControls([live, catalog]);
+    expect(merged?.config_options.map((option) => option.key)).toEqual([
+      'model',
+      'reasoning_effort',
     ]);
   });
 });

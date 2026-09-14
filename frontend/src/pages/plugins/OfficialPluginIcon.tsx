@@ -4,6 +4,7 @@ import {
   FlaskConical,
   FolderCode,
   Layers,
+  LayoutGrid,
   MessageSquareWarning,
   Puzzle,
   Plug,
@@ -26,6 +27,7 @@ const OFFICIAL_GLYPHS: Record<OfficialPluginI18nKey, LucideIcon> = {
   hostChrome: Puzzle,
   hostSurface: Layers,
   providerImport: Plug,
+  providerSwitch: LayoutGrid,
   remoteSsh: Cloud,
   science: FlaskConical,
 };

@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DshProvidersView } from 'shared/types';
+import type { AgentAuthModeView, DshProvidersView } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
@@ -61,10 +61,10 @@ const view: DshProvidersView = {
   catalog: [],
 };
 
-const saved = {
-  agent_id: 'deepseek_harness' as const,
-  mode: 'deepseek' as const,
-  modes: ['deepseek', 'custom'] as const,
+const saved: AgentAuthModeView = {
+  agent_id: 'deepseek_harness',
+  mode: 'deepseek',
+  modes: ['deepseek', 'custom'],
   options: [],
   credential_env: 'DEEPSEEK_API_KEY',
   credential_present: true,

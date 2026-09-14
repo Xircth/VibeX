@@ -27,7 +27,9 @@ export function blobSrcFromDataUrl(dataUrl: string): string | null {
     const bytes = isBase64
       ? decodeBase64Bytes(payload)
       : new TextEncoder().encode(decodeURIComponent(payload));
-    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+    return URL.createObjectURL(
+      new Blob([bytesToArrayBuffer(bytes)], { type: mime })
+    );
   } catch {
     return null;
   }
@@ -40,6 +42,12 @@ function decodeBase64Bytes(encoded: string): Uint8Array {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
 }
 
 export async function hostFileSrc(path: string): Promise<string> {
@@ -61,7 +69,7 @@ export async function hostFileSrc(path: string): Promise<string> {
     mimeForMediaExtension(fileExtension(path)) ||
     'application/octet-stream';
   const url = URL.createObjectURL(
-    new Blob([decodeBase64Bytes(encoded)], { type: mime })
+    new Blob([bytesToArrayBuffer(decodeBase64Bytes(encoded))], { type: mime })
   );
   blobUrls.set(path, url);
   return url;

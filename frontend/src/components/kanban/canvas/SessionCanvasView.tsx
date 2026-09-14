@@ -1177,22 +1177,26 @@ function SessionCanvasFlow({
       x: center.x - footprint.width / 2,
       y: center.y - footprint.height / 2,
     };
-    let created: SessionCanvasNode | null = null;
+    let createdId: string | null = null;
+    let focusX = 0;
+    let focusY = 0;
     updateNodes((items) => {
       const origin = findEmptyCanvasPlacement(items, footprint, preferred);
       const next = createEmptyGroup(items, origin);
-      created =
-        next.find(
-          (node) =>
-            isGroupNode(node) && !items.some((item) => item.id === node.id)
-        ) ?? null;
+      const created = next.find(
+        (node) =>
+          isGroupNode(node) && !items.some((item) => item.id === node.id)
+      );
+      if (created) {
+        createdId = created.id;
+        const size = sizeForNode(created);
+        focusX = created.x + size.width / 2;
+        focusY = created.y + size.height / 2;
+      }
       return next;
     });
-    if (created) {
-      setSelectedIds(new Set([created.id]));
-      const size = sizeForNode(created);
-      const focusX = created.x + size.width / 2;
-      const focusY = created.y + size.height / 2;
+    if (createdId) {
+      setSelectedIds(new Set([createdId]));
       window.setTimeout(() => {
         void setCenter(focusX, focusY, {
           duration: 280,

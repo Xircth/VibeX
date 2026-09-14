@@ -477,6 +477,7 @@ fn is_builtin_runtime_asset(path: &std::path::Path) -> bool {
                 || first == "contents"
                 || first == "depends"
                 || first == "assets"
+                || first == "catalogs"
     )
 }
 
@@ -498,6 +499,12 @@ mod tests {
         );
         assert!(super::BuiltinPluginAssets::get("office/.vibex-plugin/plugin.json").is_some());
         assert!(super::BuiltinPluginAssets::get("science/.vibex-plugin/plugin.json").is_some());
+        assert!(
+            super::BuiltinPluginAssets::get("provider-switch/.vibex-plugin/plugin.json").is_some()
+        );
+        assert!(
+            super::BuiltinPluginAssets::get("provider-switch/catalogs/claude_code.json").is_some()
+        );
     }
 
     #[test]
@@ -522,6 +529,7 @@ mod tests {
                 "vibex.multi-agent",
                 "vibex.office",
                 "vibex.plugin-development",
+                "vibex.provider-switch",
                 "vibex.remote-ssh",
                 "vibex.science",
                 "vibex.session-enhance",

@@ -519,8 +519,9 @@ Normal HTTP calls use \`Authorization: Bearer <token>\`. WebSocket clients put
 the token in the \`Sec-WebSocket-Protocol\` offer as
 \`vibex.token.<base64url-token>\`; credentials are never accepted in a URL.
 
-An authenticated administrator creates a five-minute pairing challenge with
-\`POST /api/v1/auth/pairings\`. A device redeems the secret exactly once at
+An authenticated administrator creates a pairing challenge with
+\`POST /api/v1/auth/pairings\` (default 30 minutes, optional \`ttl_seconds\` up to
+30 days). A device redeems the secret exactly once at
 \`POST /api/v1/auth/pairings/redeem\`, receives only the approved scopes, and
 can be revoked with \`DELETE /api/v1/auth/devices/{device_id}\`. Revocation is
 enforced for both new HTTP requests and existing WebSocket connections.

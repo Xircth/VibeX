@@ -58,7 +58,10 @@ const UserMessage = ({
     text: displayText,
     images: displayImages,
     files: displayFiles,
-  } = useMemo(() => splitDisplayContentImages(displayContent), [displayContent]);
+  } = useMemo(
+    () => splitDisplayContentImages(displayContent),
+    [displayContent]
+  );
   useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;

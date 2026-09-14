@@ -86,7 +86,10 @@ export function splitUserTurnContent(blocks: ContentBlock[]): {
       id: `${path || 'inline'}:${imageBlocks.length}`,
       path,
       altText: path ? fileNameFromPath(path) : 'Image',
-      kind: attachmentPreviewKind(path || fileNameFromPath(path), block.mime_type),
+      kind: attachmentPreviewKind(
+        path || fileNameFromPath(path),
+        block.mime_type
+      ),
       ...(sourceUrl ? { sourceUrl } : {}),
     });
   }
@@ -95,9 +98,10 @@ export function splitUserTurnContent(blocks: ContentBlock[]): {
   const seenPaths = new Set(
     imageBlocks.map((image) => image.path).filter(Boolean)
   );
-  const markdownAttachments = [...fromMarkdown.images, ...fromMarkdown.files].filter(
-    (image) => !seenPaths.has(image.path)
-  );
+  const markdownAttachments = [
+    ...fromMarkdown.images,
+    ...fromMarkdown.files,
+  ].filter((image) => !seenPaths.has(image.path));
 
   return {
     text: fromMarkdown.text,

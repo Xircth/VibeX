@@ -39,11 +39,7 @@ export function useOpenAttachmentPreview(): (
       }
 
       const filePath = args.filePath?.trim() || '';
-      if (
-        presentation === 'workspace-tab' &&
-        panelActions &&
-        filePath
-      ) {
+      if (presentation === 'workspace-tab' && panelActions && filePath) {
         const result = panelActions.openFilePreview(filePath, {
           title: args.fileName,
           displayPath: args.fileName,

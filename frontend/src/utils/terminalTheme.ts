@@ -94,7 +94,7 @@ export function getTerminalTheme(): ITheme {
 
   const bgHex = resolveThemeColor(
     'hsl(var(--console-background))',
-    isDark ? '#10151f' : '#f3f4f6',
+    isDark ? '#0e1319' : '#f3f4f6',
     'backgroundColor'
   );
   const fgHex = resolveThemeColor(
@@ -118,7 +118,7 @@ export function getTerminalTheme(): ITheme {
       foreground: fgHex,
       cursor: fgHex,
       cursorAccent: bgHex,
-      selectionBackground: '#3d4966',
+      selectionBackground: '#E7EBEF4D',
       selectionForeground: fgHex,
       black: '#1a1a1a',
       red: redHex,

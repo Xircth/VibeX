@@ -207,20 +207,20 @@ describe('UserMessageMarkdown', () => {
     const paragraph = screen.getByRole('paragraph');
     const theme = bubble.closest('.legacy-design') as Element;
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-bg')).toBe(
-      '#f3f3f4'
+      'var(--surface-raised-control)'
     );
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-text')).toBe(
-      '#000'
+      'var(--text-strong)'
     );
     expect(getComputedStyle(paragraph).color).toBe('var(--conv-user-text)');
 
     rerender(<StyledUserMessage dark value="Plain **bold** message" />);
 
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-bg')).toBe(
-      '#242424'
+      'var(--surface-raised-control)'
     );
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-text')).toBe(
-      '#fff'
+      'var(--text-strong)'
     );
     expect(getComputedStyle(paragraph).color).toBe('var(--conv-user-text)');
   });

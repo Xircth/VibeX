@@ -64,9 +64,9 @@ export const queryClient = new QueryClient({
 
 applyHostPlatformToDocument();
 initUiZoom();
-initAccentColor();
 initMonoFont();
 initResolvedTheme();
+initAccentColor();
 warmDefaultSettingsSurface();
 if (getAppRouteMode(window.location.pathname) === 'desktop-toast') {
   document.documentElement.classList.add('desktop-toast-shell');

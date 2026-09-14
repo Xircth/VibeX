@@ -115,7 +115,13 @@ describe('shared raised controls', () => {
     );
     expect(css).toContain('--switch-checked-track: hsl(213 25% 15%);');
     expect(css).toContain('--switch-checked-thumb: hsl(0 0% 100%);');
-    expect(css).toContain('--switch-checked-border: hsl(0 0% 100% / 0.34);');
+    expect(css).toContain('--switch-checked-track: hsl(var(--primary));');
+    expect(css).toContain(
+      '--switch-checked-thumb: hsl(var(--primary-foreground));'
+    );
+    expect(css).toContain(
+      '--switch-checked-border: hsl(var(--primary) / 0.85);'
+    );
     expect(css).toContain('--_ring: var(--_primary);');
     expect(css).toContain('--surface-raised-control: hsl(220 14% 97%);');
     expect(css).toContain('border: 1px solid var(--border-subtle) !important;');

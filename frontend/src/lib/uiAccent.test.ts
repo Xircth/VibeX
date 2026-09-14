@@ -11,14 +11,17 @@ import {
   ACCENT_COLOR_CHANGED_EVENT,
   ACCENT_COLOR_KEY,
   DEFAULT_ACCENT_COLOR,
+  DEFAULT_DARK_ACCENT_COLOR,
   accentForegroundHsl,
   applyAccentColor,
+  contrastAgainstHangar,
   getAccentColor,
   hexToHslComponents,
   hexToHsv,
   hsvToHex,
   initAccentColor,
   parseAccentColor,
+  resolveAccentForTheme,
   setAccentColor,
 } from './uiAccent';
 
@@ -34,6 +37,7 @@ describe('uiAccent', () => {
   afterEach(() => {
     localStorage.clear();
     clearLocalStorageCache(ACCENT_COLOR_KEY);
+    document.documentElement.classList.remove('light', 'dark');
   });
 
   it('defaults to graphite #171717 and ignores invalid stored values', () => {
@@ -106,5 +110,38 @@ describe('uiAccent', () => {
       document.documentElement.style.getPropertyValue('--accent-foreground-hsl')
     ).toBe('0 0% 9.02%');
     expect(localStorage.getItem(ACCENT_COLOR_KEY)).toBeNull();
+  });
+
+  it('maps the graphite default to Pearl Ink in dark and keeps custom hues', () => {
+    expect(resolveAccentForTheme('#171717', 'light')).toBe('#171717');
+    expect(resolveAccentForTheme('#171717', 'dark')).toBe(
+      DEFAULT_DARK_ACCENT_COLOR
+    );
+    expect(resolveAccentForTheme('#3f6cc4', 'dark')).toBe('#3f6cc4');
+    expect(hexToHslComponents(DEFAULT_DARK_ACCENT_COLOR)).toBe(
+      '210 20% 92.16%'
+    );
+    expect(accentForegroundHsl(DEFAULT_DARK_ACCENT_COLOR)).toBe('0 0% 9.02%');
+  });
+
+  it('lifts a custom dark fill until it is visible on Hangar', () => {
+    const stored = '#1a365d';
+    const resolved = resolveAccentForTheme(stored, 'dark');
+    expect(resolved).not.toBe(stored);
+    expect(contrastAgainstHangar(resolved)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('applies Pearl Ink CSS variables when the document is in dark mode', () => {
+    document.documentElement.classList.add('dark');
+    applyAccentColor(DEFAULT_ACCENT_COLOR);
+
+    expect(
+      document.documentElement.style.getPropertyValue('--accent-hsl')
+    ).toBe('210 20% 92.16%');
+    expect(
+      document.documentElement.style.getPropertyValue('--accent-foreground-hsl')
+    ).toBe('0 0% 9.02%');
+
+    document.documentElement.classList.remove('dark');
   });
 });

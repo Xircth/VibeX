@@ -55,24 +55,25 @@
     --_syntax-deleted: hsl(0 91% 53%);
   }
 
-  /* Dark mode - Ayu Mirage */
+  /* Dark mode — Hangar chrome + Ayu Mirage content. Pearl Ink is the
+     default accent fallback when JS has not applied --accent-hsl. */
   .legacy-design.dark,
   .dark .legacy-design {
     color-scheme: dark;
-    --_background: 220 22% 14%;
-    --_foreground: 215 20% 73%;
-    --_primary: var(--accent-hsl, 0 0% 9.02%);
-    --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
-    --_secondary: 220 20% 17%;
-    --_secondary-foreground: 215 20% 73%;
-    --_muted: 220 18% 20%;
-    --_muted-foreground: 215 10% 55%;
-    --_accent: 220 18% 20%;
-    --_accent-foreground: 0 0% 100%;
+    --_background: 222 22% 15%;
+    --_foreground: 212 17% 81%;
+    --_primary: var(--accent-hsl, 210 20% 92%);
+    --_primary-foreground: var(--accent-foreground-hsl, 0 0% 9.02%);
+    --_secondary: 223 20% 18%;
+    --_secondary-foreground: 212 17% 81%;
+    --_muted: 222 16% 20%;
+    --_muted-foreground: 212 9% 58%;
+    --_accent: 222 16% 20%;
+    --_accent-foreground: 210 20% 92%;
     --_destructive: 0 80% 55%;
     --_destructive-foreground: 0 0% 100%;
-    --_border: 220 15% 25%;
-    --_input: 220 15% 25%;
+    --_border: 210 16% 28%;
+    --_input: 222 16% 20%;
     --_ring: var(--_primary);
 
     /* Status (dark - Ayu Mirage) */
@@ -82,12 +83,12 @@
     --_warning-foreground: 38 92% 90%;
     --_info: 190 60% 60%;
     --_info-foreground: 0 0% 100%;
-    --_neutral: 220 20% 17%;
-    --_neutral-foreground: 215 20% 73%;
+    --_neutral: 222 18% 18%;
+    --_neutral-foreground: 212 17% 81%;
 
     /* Console (dark - Ayu Mirage) */
-    --_console-background: 220 25% 10%;
-    --_console-foreground: 215 20% 73%;
+    --_console-background: 213 28% 8%;
+    --_console-foreground: 212 17% 81%;
     --_console-success: 78 72% 50%;
     --_console-error: 0 80% 55%;
 
@@ -241,13 +242,33 @@
     --border-glass: hsl(0 0% 100% / 0.62);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.28);
+    --highlight-edge: hsl(0 0% 100% / 0.36);
+    --surface-wash: linear-gradient(
+      145deg,
+      #e2effc 0%,
+      #f1f8fe 28%,
+      transparent 52%
+    );
     --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
     --shadow-popover: 0 18px 42px hsl(220 36% 8% / 0.2);
     --shadow-glass:
-      0 18px 42px hsl(220 36% 8% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.36);
+      0 18px 42px hsl(220 36% 8% / 0.14), inset 0 1px 0 var(--highlight-edge);
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
     --shadow-control:
       0 1px 1px hsl(220 36% 8% / 0.08), 0 2px 4px hsl(220 36% 8% / 0.1);
+    --shadow-surface:
+      0 1px 2px hsl(220 36% 8% / 0.05), 0 10px 30px hsl(220 36% 8% / 0.06);
+    --shadow-composer:
+      0 -4px 12px hsl(220 36% 8% / 0.045), 0 5px 14px hsl(220 36% 8% / 0.06),
+      0 0 0 1px hsl(220 36% 8% / 0.025), inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    --shadow-sidebar:
+      0 1px 2px hsl(220 36% 8% / 0.04), 0 8px 24px hsl(220 36% 8% / 0.05);
+    --shadow-inset: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    --shadow-switch-track:
+      inset 0 1px 2px hsl(220 36% 8% / 0.18), 0 1px 2px hsl(220 36% 8% / 0.08);
+    --shadow-switch-thumb: 0 1px 2px hsl(220 36% 8% / 0.24);
+    --shadow-switch-checkbox: 0 1px 2px hsl(220 36% 8% / 0.06);
+    --surface-scrim: hsl(220 42% 4% / 0.58);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
     --status-running: var(--info);
@@ -305,47 +326,81 @@
 @layer base {
   .legacy-design.dark,
   .dark .legacy-design {
-    --text-strong: hsl(210 18% 92%);
-    --text-primary: hsl(215 16% 78%);
-    --text-muted: hsl(215 10% 63%);
+    --text-strong: #e7ebef;
+    --text-primary: #c5cdd6;
+    --text-muted: #8b949e;
     --text-subtle: hsl(215 8% 52%);
-    --text-faint: hsl(215 8% 42%);
-    --surface-shell: hsl(222 24% 10%);
-    --surface-topbar: hsl(222 22% 13% / 0.9);
-    --surface-sidebar: hsl(222 20% 14% / 0.92);
-    --surface-right-panel: hsl(222 22% 12% / 0.9);
-    --surface-composer: hsl(222 20% 13% / 0.94);
-    --surface-glass: hsl(222 20% 14% / 0.82);
-    --surface-glass-solid: hsl(222 20% 15%);
+    --text-faint: hsl(211 11% 41%);
+    --surface-shell: #0e1319;
+    --surface-topbar: hsl(210 18% 16% / 0.55);
+    --surface-sidebar: hsl(210 16% 18% / 0.55);
+    --surface-right-panel: hsl(210 18% 15% / 0.55);
+    --surface-composer: hsl(210 16% 18% / 0.78);
+    --surface-glass: hsl(210 16% 22% / 0.55);
+    --surface-glass-solid: #191e2a;
     --surface-popover: var(--surface-glass);
-    --surface-dialog: var(--surface-glass-solid);
-    --surface-content: hsl(220 18% 18% / 0.96);
-    --surface-card: hsl(220 18% 18% / 0.68);
-    --surface-card-strong: hsl(220 18% 20% / 0.92);
-    --surface-control: hsl(0 0% 100% / 0.07);
-    --surface-control-hover: hsl(0 0% 100% / 0.12);
-    --surface-raised-control: hsl(220 18% 20%);
-    --surface-raised-control-hover: hsl(220 18% 23%);
-    --surface-hover: hsl(0 0% 100% / 0.08);
+    --surface-dialog: #242936;
+    --surface-content: #1f2430;
+    --surface-card: #1f2430;
+    --surface-card-strong: #242936;
+    --surface-control: hsl(210 30% 80% / 0.07);
+    --surface-control-hover: hsl(210 30% 80% / 0.12);
+    --surface-raised-control: #242936;
+    --surface-raised-control-hover: hsl(222 16% 22%);
+    --surface-hover: hsl(210 30% 80% / 0.08);
     --surface-active: hsl(var(--primary) / 0.18);
-    --surface-page-solid: hsl(0 0% 11%);
-    --kanban-column-background: hsl(222 20% 15%);
-    --composer-token-usage-ring: hsl(0 0% 100% / 0.96);
-    --composer-token-usage-track: hsl(0 0% 100% / 0.2);
-    --composer-token-usage-core: hsl(0 0% 100% / 0.96);
-    --border-subtle: hsl(0 0% 100% / 0.1);
-    --border-strong: hsl(0 0% 100% / 0.18);
-    --border-glass: hsl(0 0% 100% / 0.14);
+    --surface-page-solid: #0e1319;
+    --kanban-column-background: #242936;
+    --border-subtle: hsl(210 30% 80% / 0.1);
+    --border-strong: hsl(210 30% 80% / 0.18);
+    --border-glass: hsl(210 30% 80% / 0.12);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.36);
-    --shadow-shell: 0 18px 42px hsl(220 48% 2% / 0.34);
-    --shadow-popover: 0 18px 42px hsl(220 48% 2% / 0.44);
+    --highlight-edge: hsl(210 30% 80% / 0.12);
+    --surface-wash: linear-gradient(
+      145deg,
+      hsl(210 32% 42% / 0.22) 0%,
+      hsl(210 24% 30% / 0.08) 28%,
+      transparent 52%
+    );
+    --shadow-shell: 0 18px 42px hsl(210 40% 2% / 0.55);
+    --shadow-popover: 0 18px 42px hsl(210 40% 2% / 0.62);
     --shadow-glass:
-      0 18px 42px hsl(220 48% 2% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.08);
-    --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
+      0 18px 42px hsl(210 40% 2% / 0.42), inset 0 1px 0 var(--highlight-edge);
+    --shadow-card: 0 1px 0 hsl(210 30% 80% / 0.06);
     --shadow-control:
-      0 1px 1px hsl(220 48% 2% / 0.2), 0 2px 4px hsl(220 48% 2% / 0.3);
-    --switch-checked-border: hsl(0 0% 100% / 0.34);
+      0 1px 1px hsl(210 40% 2% / 0.35), 0 2px 4px hsl(210 40% 2% / 0.4);
+    --shadow-surface: 0 1px 0 hsl(210 30% 80% / 0.08);
+    --shadow-composer:
+      0 -8px 28px hsl(210 40% 2% / 0.4), 0 8px 20px hsl(210 40% 2% / 0.28),
+      inset 0 1px 0 var(--highlight-edge);
+    --shadow-sidebar:
+      0 8px 28px hsl(210 40% 2% / 0.45), inset 0 1px 0 var(--highlight-edge);
+    --shadow-inset: inset 0 1px 0 hsl(210 30% 80% / 0.08);
+    --shadow-switch-track:
+      inset 0 1px 2px hsl(210 40% 2% / 0.45), 0 1px 0 hsl(210 30% 80% / 0.08);
+    --shadow-switch-thumb: 0 1px 2px hsl(210 40% 2% / 0.55);
+    --shadow-switch-checkbox: 0 1px 0 hsl(210 30% 80% / 0.08);
+    --surface-scrim: hsl(210 40% 2% / 0.62);
+    --composer-token-usage-ring: hsl(var(--primary));
+    --composer-token-usage-track: hsl(210 30% 80% / 0.2);
+    --composer-token-usage-core: var(--surface-content);
+    --color-background-body: #0e1319;
+    --color-background-card: #1f2430;
+    --color-background-muted: #1f2430;
+    --color-background-surface: #242936;
+    --color-background-popover: #242936;
+    --color-accent: hsl(var(--primary));
+    --color-accent-muted: hsl(var(--primary) / 0.12);
+    --color-on-accent: hsl(var(--primary-foreground));
+    --color-text-primary: #e7ebef;
+    --color-text-secondary: #8b949e;
+    --color-text-accent: hsl(var(--primary));
+    --color-icon-primary: #e7ebef;
+    --color-icon-accent: hsl(var(--primary));
+    --switch-checked-track: hsl(var(--primary));
+    --switch-checked-thumb: hsl(var(--primary-foreground));
+    --switch-checked-border: hsl(var(--primary) / 0.85);
     --usage-pink: hsl(340 26% 24% / 0.6);
     --usage-pink-border: hsl(340 34% 66% / 0.22);
     --usage-pink-fg: hsl(342 55% 76%);
@@ -631,14 +686,9 @@
     padding: 4px;
     border: 1px solid var(--border-subtle);
     border-radius: 999px;
-    background: #ffffff;
+    background: var(--surface-dialog);
     box-shadow: var(--shadow-card);
     color: var(--text-strong);
-  }
-
-  .legacy-design.dark .conversation-selection-toolbar,
-  .dark .legacy-design .conversation-selection-toolbar {
-    background: var(--surface-card-strong);
   }
 
   .legacy-design .conversation-selection-toolbar button {
@@ -670,7 +720,7 @@
   }
 
   .legacy-design .quote-token-preview {
-    background: #ffffff;
+    background: var(--surface-dialog);
     border: 1px solid var(--border-subtle);
     box-shadow: none;
   }
@@ -679,11 +729,6 @@
     font-size: 12px;
     line-height: 1.55;
     color: inherit;
-  }
-
-  .legacy-design.dark .quote-token-preview,
-  .dark .legacy-design .quote-token-preview {
-    background: var(--surface-card-strong);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -908,12 +953,12 @@
   }
 
   .dark .settings-page {
-    --foreground: 0 0% 93%;
-    --muted-foreground: 0 0% 70%;
-    --card: 220 18% 18%;
-    --card-foreground: 0 0% 93%;
-    --border: 220 14% 38%;
-    --input: 220 16% 24%;
+    --foreground: 210 20% 92%;
+    --muted-foreground: 212 9% 58%;
+    --card: 222 22% 15%;
+    --card-foreground: 210 20% 92%;
+    --border: 210 16% 28%;
+    --input: 222 16% 20%;
   }
 
   .settings-page .settings-card {
@@ -1034,7 +1079,7 @@
   .settings-page .chat-channel-tabs > button.is-active {
     background: var(--surface-card-strong);
     color: var(--text-strong);
-    box-shadow: 0 1px 2px hsl(220 36% 8% / 0.1);
+    box-shadow: var(--shadow-card);
   }
 
   .settings-page .chat-channel-tabs > button:focus-visible {
@@ -1776,11 +1821,9 @@
     border: 1px solid var(--border-glass);
     background: color-mix(in srgb, var(--surface-glass) 16%, transparent);
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.58),
-      inset 0 -1px 0 hsl(0 0% 100% / 0.2),
-      inset 1px 0 0 hsl(0 0% 100% / 0.18),
-      inset -1px 0 0 hsl(0 0% 100% / 0.18),
-      0 3px 8px hsl(220 36% 8% / 0.1) !important;
+      inset 0 1px 0 var(--highlight-edge),
+      inset 0 -1px 0 var(--highlight-edge),
+      var(--shadow-card) !important;
   }
 
   .settings-page .settings-action-bar__glass .glass__warp {
@@ -2097,7 +2140,7 @@
     border-width: 1px;
     border-color: var(--border-subtle);
     background-color: var(--surface-control);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
+    box-shadow: var(--shadow-inset);
   }
 
   .settings-page input:not([type='checkbox']):not([type='radio']),
@@ -2132,9 +2175,7 @@
 
   .settings-page button[role='switch'] {
     border: 1px solid hsl(var(--border) / 0.95);
-    box-shadow:
-      inset 0 1px 2px hsl(0 0% 0% / 0.18),
-      0 1px 2px hsl(0 0% 0% / 0.08);
+    box-shadow: var(--shadow-switch-track);
   }
 
   .settings-page button[role='switch'][data-state='unchecked'] {
@@ -2143,13 +2184,13 @@
 
   .settings-page button[role='switch'][data-state='unchecked'] > span {
     background-color: hsl(var(--muted-foreground) / 0.58);
-    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.24);
+    box-shadow: var(--shadow-switch-thumb);
   }
 
   .settings-page button[role='checkbox'] {
     border: 1px solid hsl(var(--border) / 0.95);
     background-color: hsl(var(--background));
-    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+    box-shadow: var(--shadow-switch-checkbox);
   }
 
   .settings-page button[role='checkbox'][aria-checked='true'] {
@@ -2554,7 +2595,7 @@
     background: var(--surface-glass);
     backdrop-filter: blur(18px) saturate(1.2);
     -webkit-backdrop-filter: blur(18px) saturate(1.2);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    box-shadow: inset 0 1px 0 var(--highlight-edge);
   }
 
   .branch-info-header-host {
@@ -2594,8 +2635,8 @@
     border: 1px solid var(--border-glass);
     background: color-mix(in srgb, var(--surface-glass) 24%, transparent);
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.28),
-      0 2px 6px hsl(220 36% 8% / 0.08) !important;
+      inset 0 1px 0 var(--highlight-edge),
+      var(--shadow-card) !important;
   }
 
   .branch-info-liquid-glass .glass__warp {
@@ -2730,11 +2771,11 @@
   }
 
   .branch-info-action-primary {
-    color: #000 !important;
+    color: var(--text-strong) !important;
   }
 
   .branch-info-action-primary:hover {
-    color: #000 !important;
+    color: var(--text-strong) !important;
   }
 
   .branch-info-error {
@@ -2801,7 +2842,7 @@
   .workspace-tab-switcher {
     border: 1px solid var(--border-subtle);
     background: var(--surface-control);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.06);
+    box-shadow: var(--shadow-inset);
   }
 
   .workspace-tab-button {
@@ -2818,7 +2859,7 @@
     color: var(--text-strong);
     border-color: var(--border-subtle);
     background: var(--surface-content);
-    box-shadow: 0 1px 5px hsl(220 36% 8% / 0.08);
+    box-shadow: var(--shadow-card);
   }
 
   .workspace-branch-ahead {
@@ -2875,7 +2916,7 @@
     z-index: 3;
     color: hsl(var(--foreground));
     background: hsl(var(--accent));
-    box-shadow: 0 4px 8px hsl(220 36% 8% / 0.14);
+    box-shadow: var(--shadow-control);
   }
 
   .workspace-side-rail-button:focus-visible {
@@ -2979,7 +3020,7 @@
         hsl(var(--success) / 0.1)
       ),
       var(--surface-card-strong);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.18);
+    box-shadow: var(--shadow-inset);
   }
 
   .workspace-welcome__eyebrow {
@@ -3037,7 +3078,7 @@
     color: var(--text-primary);
     text-align: left;
     background: var(--surface-card-strong);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    box-shadow: var(--shadow-inset);
     transition:
       background 150ms ease,
       border-color 150ms ease,
@@ -3228,16 +3269,16 @@
   }
 
   .dark .project-rail-inline-stage {
-    --project-rail-glass: hsl(225 9% 14% / 0.52);
-    --project-rail-glass-edge: hsl(0 0% 100% / 0.2);
-    --project-rail-glass-shadow: hsl(0 0% 0% / 0.42);
-    --project-rail-control: hsl(225 8% 19% / 0.96);
-    --project-rail-control-hover: #35373e;
-    --project-rail-control-border: hsl(225 7% 32% / 0.9);
-    --project-rail-control-shadow: hsl(0 0% 0% / 0.34);
-    --project-rail-ink: #f5f7fa;
-    --project-rail-muted: #aeb3bd;
-    --project-rail-divider: hsl(225 7% 42% / 0.72);
+    --project-rail-glass: hsl(210 16% 16% / 0.52);
+    --project-rail-glass-edge: hsl(210 30% 80% / 0.14);
+    --project-rail-glass-shadow: hsl(210 40% 2% / 0.45);
+    --project-rail-control: hsl(210 16% 18% / 0.96);
+    --project-rail-control-hover: #242936;
+    --project-rail-control-border: hsl(210 30% 80% / 0.16);
+    --project-rail-control-shadow: hsl(210 40% 2% / 0.34);
+    --project-rail-ink: #e7ebef;
+    --project-rail-muted: #8b949e;
+    --project-rail-divider: hsl(210 30% 80% / 0.14);
     --project-rail-accent: #409cff;
   }
 
@@ -3274,7 +3315,7 @@
     border: 1px solid var(--project-rail-glass-edge);
     background: var(--project-rail-glass);
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.48),
+      inset 0 1px 0 var(--highlight-edge),
       0 12px 30px var(--project-rail-glass-shadow) !important;
   }
 
@@ -3403,7 +3444,7 @@
     border: 1px solid var(--project-rail-control-border);
     background: var(--project-rail-control);
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.78),
+      inset 0 1px 0 var(--project-rail-glass-edge),
       0 3px 10px var(--project-rail-control-shadow);
   }
 
@@ -3424,7 +3465,11 @@
   .project-rail-project-badge__shine {
     position: absolute;
     inset: 0;
-    background: linear-gradient(145deg, hsl(0 0% 100% / 0.74), transparent 44%);
+    background: linear-gradient(
+      145deg,
+      var(--project-rail-glass-edge),
+      transparent 44%
+    );
     pointer-events: none;
   }
 
@@ -4574,11 +4619,7 @@
     background:
       linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
       var(--surface-card);
-    box-shadow:
-      0 -4px 12px hsl(220 36% 8% / 0.045),
-      0 5px 14px hsl(220 36% 8% / 0.06),
-      0 0 0 1px hsl(220 36% 8% / 0.025),
-      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    box-shadow: var(--shadow-composer);
   }
 
   .agent-question-composer-stack {
@@ -4597,10 +4638,11 @@
     overflow: hidden;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--surface-card-strong) 58%, transparent);
+    background: var(--surface-dialog);
     color: var(--text-primary);
-    box-shadow: 0 5px 8px hsl(220 36% 8% / 0.1);
-    backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow: var(--shadow-control);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     transform: translateY(calc(100% - 40px));
     transition:
       transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -4610,7 +4652,7 @@
   .agent-question-card:hover,
   .agent-question-card:focus-within,
   .agent-question-card[data-expanded='true'] {
-    box-shadow: 0 8px 8px hsl(220 36% 8% / 0.14);
+    box-shadow: var(--shadow-popover);
     transform: translateY(0);
   }
 
@@ -5256,28 +5298,20 @@
   .settings-titlebar {
     border-bottom: 1px solid var(--border-glass);
     background: var(--surface-glass);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.14);
+    box-shadow: inset 0 1px 0 var(--highlight-edge);
     backdrop-filter: blur(18px) saturate(1.2);
     -webkit-backdrop-filter: blur(18px) saturate(1.2);
   }
 
   /* Floating rounded sidebar container (macOS-style inset panel). The upper
-     region carries a faint diagonal blue wash from the top-left corner. */
+     region carries a faint diagonal wash from the top-left corner. */
   .settings-sidebar {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
-    background:
-      linear-gradient(145deg, #e2effc 0%, #f1f8fe 28%, transparent 52%),
-      var(--surface-sidebar);
+    background: var(--surface-wash), var(--surface-sidebar);
     backdrop-filter: blur(30px) saturate(180%);
     -webkit-backdrop-filter: blur(30px) saturate(180%);
-    box-shadow:
-      0 1px 2px hsl(220 36% 8% / 0.04),
-      0 8px 24px hsl(220 36% 8% / 0.05);
-  }
-
-  .dark .settings-sidebar {
-    background: var(--surface-sidebar);
+    box-shadow: var(--shadow-sidebar);
   }
 
   .settings-search {
@@ -5320,7 +5354,7 @@
     border-radius: var(--radius);
     outline: 0;
     background: var(--surface-control);
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
+    box-shadow: var(--shadow-inset);
     color: var(--text-primary);
     font: inherit;
     font-size: 0.8125rem;
@@ -5483,7 +5517,7 @@
     border-color: hsl(var(--primary) / 0.62);
     background: hsl(var(--primary));
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.16),
+      inset 0 1px 0 var(--highlight-edge),
       0 1px 3px hsl(var(--primary) / 0.2);
   }
 
@@ -5499,13 +5533,11 @@
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     background: var(--surface-card-strong);
-    box-shadow:
-      0 1px 2px hsl(220 36% 8% / 0.05),
-      0 10px 30px hsl(220 36% 8% / 0.06);
+    box-shadow: var(--shadow-surface);
   }
 
   .dialog-backdrop {
-    background: hsl(220 42% 4% / 0.58);
+    background: var(--surface-scrim);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
   }
@@ -5786,7 +5818,7 @@
 
   .welcome-page-surface {
     position: relative;
-    background: #fafafa;
+    background: var(--surface-dialog);
   }
 
   .welcome-page-drop-overlay {
@@ -5821,10 +5853,8 @@
 
   .welcome-project-form-surface {
     border: 0;
-    background: #fafafa;
-    box-shadow:
-      0 0 0 1px hsl(220 16% 28% / 0.1),
-      0 0 24px hsl(220 36% 8% / 0.18);
+    background: var(--surface-dialog);
+    box-shadow: var(--shadow-popover);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -5833,11 +5863,6 @@
     padding-inline-start: 0.875rem;
     padding-inline-end: 0.875rem;
     text-indent: 0.125rem;
-  }
-
-  .dark .welcome-page-surface,
-  .dark .welcome-project-form-surface {
-    background: var(--surface-content);
   }
 
   .ansi-red {
@@ -6813,14 +6838,15 @@
     --border-strong: hsl(220 16% 28% / 0.44);
     --border-glass: var(--border-strong);
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: #fafafa;
+    --surface-popover: var(--surface-dialog);
     --focus-ring: hsl(var(--primary) / 0.52);
   }
 
   .legacy-design.dark,
   .dark .legacy-design {
-    --border-subtle: hsl(0 0% 100% / 0.28);
-    --border-strong: hsl(0 0% 100% / 0.44);
+    --border-subtle: hsl(210 30% 80% / 0.28);
+    --border-strong: hsl(210 30% 80% / 0.44);
+    --surface-popover: var(--surface-dialog);
   }
 
   .project-rail-inline-stage {
@@ -6875,9 +6901,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 @media (prefers-reduced-transparency: reduce) {
   .legacy-design {
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: #fafafa;
+    --surface-popover: var(--surface-dialog);
     --surface-topbar: var(--surface-glass-solid);
     --surface-sidebar: var(--surface-glass-solid);
+  }
+
+  .legacy-design.dark,
+  .dark .legacy-design {
+    --surface-popover: var(--surface-dialog);
   }
 
   .project-rail-inline-stage {
@@ -6885,7 +6916,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 
   .dark .project-rail-inline-stage {
-    --project-rail-glass: #202126;
+    --project-rail-glass: var(--surface-glass-solid);
   }
 
   :where(.legacy-design) .tahoe-glass,
@@ -6914,9 +6945,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :where(.legacy-design.reduced-transparency),
 :where(.app.reduced-transparency .legacy-design) {
   --surface-glass: var(--surface-glass-solid);
-  --surface-popover: #fafafa;
+  --surface-popover: var(--surface-dialog);
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
+}
+
+.dark :where(.legacy-design.reduced-transparency),
+.dark :where(.app.reduced-transparency .legacy-design) {
+  --surface-popover: var(--surface-dialog);
 }
 
 :where(.legacy-design.reduced-transparency) .project-rail-inline-stage,
@@ -6928,7 +6964,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .dark
   :where(.app.reduced-transparency .legacy-design)
   .project-rail-inline-stage {
-  --project-rail-glass: #202126;
+  --project-rail-glass: var(--surface-glass-solid);
 }
 
 :where(.legacy-design.reduced-transparency) .tahoe-glass,
@@ -7007,7 +7043,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 ) {
   .legacy-design {
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: #fafafa;
+    --surface-popover: var(--surface-dialog);
   }
 }
 
@@ -7174,7 +7210,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-color: hsl(var(--primary) / 0.36);
   color: var(--text-strong);
   background: var(--surface-card-strong);
-  box-shadow: 0 1px 3px hsl(220 36% 8% / 0.12);
+  box-shadow: var(--shadow-card);
 }
 
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-disabled {
@@ -7185,7 +7221,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   z-index: 3;
   cursor: grabbing;
   background: var(--surface-card-strong);
-  box-shadow: 0 4px 8px hsl(220 36% 8% / 0.14);
+  box-shadow: var(--shadow-control);
 }
 
 :is(.settings-page, .plan-usage-page)
@@ -9237,7 +9273,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-registry-tab.is-selected {
   color: var(--text-strong);
   background: var(--surface-card-strong);
-  box-shadow: 0 1px 2px hsl(220 36% 8% / 0.1);
+  box-shadow: var(--shadow-card);
 }
 
 .settings-page .agent-registry-search {
@@ -10706,7 +10742,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   outline: 0;
   background: var(--surface-control) !important;
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
+  box-shadow: var(--shadow-inset);
   color: var(--text-default);
   font-size: 0.75rem;
   appearance: none;

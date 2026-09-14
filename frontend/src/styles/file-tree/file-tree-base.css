@@ -6,27 +6,20 @@
  * workspace search, file preview popover, and code preview lines.
  */
 
-/* Tahoe file tree compatibility bridge */
+/* File-tree-only aliases. Do not overwrite Tahoe hover, selection, hairline,
+   or type tokens — those already flip with the night scene. */
 .file-tree-panel {
-  --surface-hover: hsl(var(--_accent));
-  --surface-active: hsl(var(--_accent));
-  --surface-secondary: hsl(var(--_secondary));
-  --surface-popover: hsl(var(--_background));
-  --surface-command: hsl(var(--_secondary));
-  --surface-card-strong: hsl(var(--_background));
-  --surface-card-muted: hsl(var(--_secondary));
-  --surface-right-panel: hsl(var(--_background));
-  --text-emphasis: hsl(var(--_foreground));
-  --text-strong: hsl(var(--_foreground));
-  --text-quiet: hsl(var(--_muted-foreground));
-  --text-faint: hsl(var(--text-low));
-  --text-fainter: hsl(var(--text-low));
-  --text-dim: hsl(var(--_muted-foreground));
-  --text-danger: hsl(var(--error));
-  --text-danger-hover: hsl(var(--error));
-  --text-warning: hsl(var(--_warning));
-  --border-subtle: hsl(var(--_border));
-  --border-stronger: hsl(var(--_border));
+  --surface-secondary: var(--surface-raised-control);
+  --surface-command: var(--surface-raised-control);
+  --surface-card-muted: var(--surface-raised-control);
+  --text-emphasis: var(--text-strong);
+  --text-quiet: var(--text-muted);
+  --text-fainter: var(--text-faint);
+  --text-dim: var(--text-muted);
+  --text-danger: hsl(var(--destructive));
+  --text-danger-hover: hsl(var(--destructive));
+  --text-warning: hsl(var(--warning));
+  --border-stronger: var(--border-strong);
   --border-accent: hsl(var(--primary));
   --accent-500: hsl(var(--primary));
   --status-error: hsl(var(--destructive));
@@ -588,9 +581,9 @@
 .dark .file-tree-skeleton-row {
   background: linear-gradient(
     110deg,
-    rgba(255, 255, 255, 0.04) 8%,
-    rgba(255, 255, 255, 0.18) 18%,
-    rgba(255, 255, 255, 0.04) 33%
+    hsl(210 30% 80% / 0.04) 8%,
+    hsl(210 30% 80% / 0.14) 18%,
+    hsl(210 30% 80% / 0.04) 33%
   );
   background-size: 200% 100%;
 }

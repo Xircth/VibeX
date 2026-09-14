@@ -10,7 +10,8 @@ colors:
   primary-control-foreground: "#ffffff"
   switch-checked-track: "#1d2530"
   switch-checked-thumb: "#ffffff"
-  dark-switch-checked-border: "#ffffff57"
+  dark-switch-checked-track: "hsl(var(--primary))"
+  dark-switch-checked-thumb: "hsl(var(--primary-foreground))"
   # Window backdrop sits BEHIND translucent chrome; content layer is opaque.
   shell-bg: "#eef1f5"
   content-bg: "#fafbfc"
@@ -29,17 +30,21 @@ colors:
   success: "#86b300"
   warning: "#f2ae49"
   destructive: "#f51818"
-  dark-shell-bg: "#10151c"
-  dark-content-bg: "#161c25"
-  dark-panel-bg: "#1f2733"
-  dark-text-strong: "#e7ebef"
+  dark-primary: "#E7EBEF"
+  dark-primary-foreground: "#0E1319"
+  dark-shell-bg: "#0E1319"
+  dark-content-bg: "#1F2430"
+  dark-panel-bg: "#242936"
+  dark-text-strong: "#E7EBEF"
   dark-border-subtle: "#ffffff1a"
 materials:
   # Liquid Glass = navigation / controls layer ONLY. Never on content.
   glass-titlebar: "blur(18px) saturate(1.2) over var(--surface-topbar)"
   glass-sidebar: "blur(30px) saturate(1.8) over var(--surface-sidebar)"
   glass-popover: "blur(24px) saturate(1.55)  # menus, popovers, toasts"
-  dialog-surface: "opaque #FAFAFA in light mode; solid themed surface in dark mode"
+  dark-glass-fill: "cool blue-gray 55% over Hangar, same blur as light"
+  dark-highlight: "moonlight hsl(210 30% 80% / 0.12)"
+  dialog-surface: "opaque #FAFAFA in light mode; opaque #242936 in dark mode"
   content-surface: "opaque var(--surface-card-strong) + 1px hairline  # lists, cards, editors"
   reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
 typography:
@@ -141,7 +146,8 @@ components:
   switch-default:
     checkedBackgroundColor: "{colors.switch-checked-track}"
     checkedThumbColor: "{colors.switch-checked-thumb}"
-    darkCheckedBorderColor: "{colors.dark-switch-checked-border}"
+    darkCheckedBackgroundColor: "{colors.dark-switch-checked-track}"
+    darkCheckedThumbColor: "{colors.dark-switch-checked-thumb}"
     rounded: "{rounded.pill}"
   card-default:
     backgroundColor: "{colors.panel-bg}"
@@ -151,7 +157,7 @@ components:
   sidebar-nav-row:
     rounded: "14px"
     height: "36px"
-    selectedBackground: "{colors.primary}  # accent fill, white label"
+    selectedBackground: "{colors.primary}  # accent fill, contrasting label"
 ---
 
 # Design System: VibeX Tahoe
@@ -175,8 +181,8 @@ VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and
 
 - Dense information, quiet surfaces, visible state.
 - Glass is structural, not decorative — chrome only, never content.
-- One user-configurable accent (default `#171717`, white on fill), used only for selected / focused / primary / live.
-- Light mode is the primary working scene; dark mode (Ayu Mirage) is first-class for code-heavy sessions.
+- One user-configurable accent (default Ink `#171717` in light, Pearl Ink `#E7EBEF` in dark), used only for selected / focused / primary / live.
+- Light mode is the primary working scene; dark mode is a first-class night scene: Tahoe glass over Hangar, opaque Ayu Mirage content.
 - Hierarchy is expressed by grouping and spacing; remove any background, border, or internal rule added purely for emphasis.
 
 ## 2. Materials & Layering
@@ -187,10 +193,10 @@ This is the section that makes VibeX feel like Tahoe rather than a web app. Deci
 
 Translucent, blurred, lightly saturated material that floats and lets the workspace show through. Reserved for chrome that frames content:
 
-- **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a near-white translucent fill, 1px hairline beneath. Unified with the window; the whole strip is a drag region.
-- **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow. Content scrolls independently beneath it.
+- **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a translucent fill, 1px hairline beneath. Light uses near-white glass; dark uses cool blue-gray glass at 55% over Hangar with a moonlight top edge. Unified with the window; the whole strip is a drag region.
+- **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow, and a corner wash (pale blue in light, moonlight in dark). Content scrolls independently beneath it.
 - **Popovers, menus, toasts**: `blur(24px) saturate(1.55)` glass with a popover shadow.
-- **Dialogs**: opaque `--surface-dialog` with a popover shadow. The light-mode value is exactly `#FAFAFA`; dark mode uses the solid themed dialog surface. Dialog content never inherits translucent popover glass.
+- **Dialogs**: opaque `--surface-dialog` with a popover shadow. The light-mode value is exactly `#FAFAFA`; dark mode uses opaque Mirage `#242936`. Dialog content never inherits translucent popover glass.
 
 ### The Content Layer — Opaque Grouped Surfaces
 
@@ -217,7 +223,8 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 ### Accent
 
-- **Ink** (`--primary`, `#171717`): the default accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default). Users can change the hex in Settings → Appearance.
+- **Ink** (`--primary`, `#171717`): the default light accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default).
+- **Pearl Ink** (`--primary` in dark, `#E7EBEF`): the reciprocal night default — graphite inverted to pearl, with Hangar `#0E1319` on fill. Custom accents keep hue and lift lightness only until the fill stays visible on Hangar. Users change the hex in Settings → Appearance.
 
 ### Semantic status
 
@@ -227,11 +234,15 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 ### Neutrals (tinted, never pure)
 
-- **Shell Mist** — the window backdrop behind the glass chrome.
-- **Panel White / Panel Strong** — opaque content surfaces.
+- **Shell Mist** — the light window backdrop behind the glass chrome.
+- **Hangar** — the dark window backdrop (`#0E1319`).
+- **Panel White / Panel Strong** — opaque light content surfaces.
+- **Mirage** — opaque Ayu Mirage content boards (`#1F2430` content, `#242936` elevated).
 - **Control Wash** — quiet toolbar buttons, chips, inactive controls (a low-alpha ink tint).
 - **Ink Strong / Ink Muted** — headings vs. metadata.
 - **Hairline / Hairline Strong** — alpha-based seams that read correctly on both glass and opaque surfaces.
+
+Astryx `theme-neutral` chrome follows the same night scene: Hangar body, Mirage cards, raised `#242936` surfaces, Pearl Ink accent. Do not let the package's warm-black `#1b1b1b` remain as a third dark palette.
 
 ## 6. Radius, Elevation, And Motion
 
@@ -239,7 +250,7 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 **The System-Adaptive Rule.** Surfaces are built from tinted-neutral tokens that flip with light/dark and strengthen under `prefers-contrast: more`. Avoid pure `#000`/`#fff` and hard-coded hex; reach for the tokens.
 
-**The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is `#171717`.
+**The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is Ink `#171717` in light and Pearl Ink `#E7EBEF` in dark.
 
 ## 4. Typography
 
@@ -276,10 +287,11 @@ so custom and fallback rows inherit the same density.
 
 Resting surfaces are flat with a 1px hairline. Shadow is reserved for things that genuinely float above another layer.
 
-- **Shell Shadow** (`0 18px 42px hsl(220 36% 8% / 0.16)`): floating sidebar, project rail, loading shells.
-- **Popover Shadow** (`0 18px 42px hsl(220 36% 8% / 0.2)`): dialogs, menus, command surfaces.
-- **Card Shadow** (`0 1px 2px / 0 10px 30px hsl(220 36% 8% / 0.05)`): grouped `.settings-surface` cards and repeated items, kept very low.
+- **Shell Shadow** (`0 18px 42px hsl(220 36% 8% / 0.16)` in light; deeper cool hangar shadow in dark): floating sidebar, project rail, loading shells.
+- **Popover Shadow** (`0 18px 42px hsl(220 36% 8% / 0.2)` in light; matching hangar shadow in dark): dialogs, menus, command surfaces.
+- **Card Shadow** (`0 1px 2px / 0 10px 30px hsl(220 36% 8% / 0.05)` in light; moonlight hairline in dark): grouped `.settings-surface` cards and repeated items, kept very low.
 - **Composer Shadow**: the persistent follow-up composer, slightly lifted from the right panel.
+- Dark elevation prefers lighter surfaces and moonlight hairlines over wide drop shadows copied from light mode.
 
 ### Corners (continuous, macOS-leaning)
 
@@ -320,7 +332,7 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 
 ### Controls
 
-- **Switch**: dark-ink track with a white thumb when on; dark mode adds a light hairline so the track stays distinct. Keep a clear off state and never use the switch as the only signal for a meaningful change.
+- **Switch**: Ink track with a white thumb when on in light. Dark mode uses the resolved accent fill (Pearl Ink by default) with a contrasting thumb. Keep a clear off state and never use the switch as the only signal for a meaningful change.
 - **Secondary / outline buttons and selects**: a very light cool-gray surface in light mode, a 1px hairline border, no drop shadow, and `14px` radius. Dark mode uses the reciprocal dark surface with the same hairline.
 - **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
 

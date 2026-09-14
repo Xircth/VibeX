@@ -29,7 +29,7 @@
 .workflow-studio-node {
   min-height: 94px;
   background: var(--surface-card-strong);
-  box-shadow: 0 1px 2px hsl(220 36% 8% / 0.05);
+  box-shadow: var(--shadow-card);
 }
 
 .workflow-confirmation-node {
@@ -57,7 +57,7 @@
   border-color: hsl(var(--primary));
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent),
-    0 10px 24px hsl(220 36% 8% / 0.08);
+    var(--shadow-control);
   transform: translateY(-1px);
 }
 

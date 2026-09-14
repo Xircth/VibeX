@@ -572,7 +572,7 @@ mod tests {
             roots.iter().any(|root| root == &extra),
             "already materialized packages must stay visible to Host import"
         );
-        assert_eq!(roots.len(), 8);
+        assert_eq!(roots.len(), 9);
     }
 
     #[test]

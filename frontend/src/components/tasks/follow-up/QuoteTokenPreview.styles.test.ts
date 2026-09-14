@@ -47,16 +47,16 @@ describe('quote token hover preview', () => {
     );
 
     expect(toolbar.get('border-radius')).toBe('999px');
-    expect(toolbar.get('background')).toBe('#ffffff');
+    expect(toolbar.get('background')).toBe('var(--surface-dialog)');
     expect(toolbar.get('border')).toBe('1px solid var(--border-subtle)');
     expect(action.get('border-radius')).toBe('999px');
     expect(action.get('background')).toBe('transparent');
   });
 
-  it('shows quote preview on a white surface with a hairline border', () => {
+  it('shows quote preview on the themed dialog surface with a hairline border', () => {
     const preview = declarationsFor('.legacy-design .quote-token-preview');
 
-    expect(preview.get('background')).toBe('#ffffff');
+    expect(preview.get('background')).toBe('var(--surface-dialog)');
     expect(preview.get('border')).toBe('1px solid var(--border-subtle)');
     expect(preview.get('box-shadow')).toBe('none');
   });

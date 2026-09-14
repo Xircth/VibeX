@@ -49,7 +49,7 @@ export function defineAyuMonacoThemes(monaco: MonacoThemeDefiner) {
       'editorLineNumber.foreground': '#5C6773',
       'editorLineNumber.activeForeground': '#B8C4D0',
       'editorCursor.foreground': '#5CCFE6',
-      'editor.selectionBackground': '#1717174D',
+      'editor.selectionBackground': '#E7EBEF4D',
       'editor.inactiveSelectionBackground': '#3B425280',
     },
   });

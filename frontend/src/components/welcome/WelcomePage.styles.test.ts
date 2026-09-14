@@ -29,18 +29,18 @@ describe('welcome project surfaces', () => {
     expect(enApp.welcomePage.tagline).toBe('Super Agent Coding Platform');
   });
 
-  it('uses the requested light background on the home page', () => {
+  it('uses the themed dialog surface on the home page', () => {
     const surface = declarationsFor('.welcome-page-surface');
 
-    expect(surface.get('background')).toBe('#fafafa');
+    expect(surface.get('background')).toBe('var(--surface-dialog)');
     expect(surface.get('position')).toBe('relative');
   });
 
-  it('uses the requested background and a four-sided shadow on forms', () => {
+  it('uses the themed dialog surface and popover shadow on forms', () => {
     const surface = declarationsFor('.welcome-project-form-surface');
 
-    expect(surface.get('background')).toBe('#fafafa');
-    expect(surface.get('box-shadow')).toMatch(/^0 0 /);
+    expect(surface.get('background')).toBe('var(--surface-dialog)');
+    expect(surface.get('box-shadow')).toBe('var(--shadow-popover)');
   });
 
   it('keeps the description caret clear of the first glyph', () => {

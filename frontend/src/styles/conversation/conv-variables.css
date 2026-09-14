@@ -5,8 +5,8 @@
 
 :root,
 .legacy-design {
-  --conv-user-bg: #f3f3f4;
-  --conv-user-text: #000;
+  --conv-user-bg: var(--surface-raised-control);
+  --conv-user-text: var(--text-strong);
   --conv-user-code-bg: rgb(0 0 0 / 0.06);
   --conv-user-code-border: rgb(0 0 0 / 0.1);
   --conv-user-bubble-radius: var(--radius);
@@ -41,13 +41,13 @@
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
-  --conv-user-bg: #242424;
-  --conv-user-text: #fff;
-  --conv-user-code-bg: rgb(255 255 255 / 0.12);
-  --conv-user-code-border: rgb(255 255 255 / 0.18);
-  --conv-thinking-border: hsl(var(--primary, 0 0% 9.02%) / 0.44);
-  --conv-tool-icon: hsl(var(--primary, 0 0% 9.02%));
-  --conv-shimmer-from: hsl(var(--primary, 0 0% 9.02%) / 0.12);
-  --conv-shimmer-via: hsl(var(--primary, 0 0% 9.02%) / 0.32);
-  --conv-shimmer-to: hsl(var(--primary, 0 0% 9.02%) / 0.12);
+  --conv-user-bg: var(--surface-raised-control);
+  --conv-user-text: var(--text-strong);
+  --conv-user-code-bg: rgb(231 235 239 / 0.08);
+  --conv-user-code-border: rgb(231 235 239 / 0.14);
+  --conv-thinking-border: hsl(var(--primary, 210 20% 92%) / 0.44);
+  --conv-tool-icon: hsl(var(--primary, 210 20% 92%));
+  --conv-shimmer-from: hsl(var(--primary, 210 20% 92%) / 0.12);
+  --conv-shimmer-via: hsl(var(--primary, 210 20% 92%) / 0.32);
+  --conv-shimmer-to: hsl(var(--primary, 210 20% 92%) / 0.12);
 }

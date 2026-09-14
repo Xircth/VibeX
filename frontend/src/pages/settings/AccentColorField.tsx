@@ -7,10 +7,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useTheme } from '@/components/ThemeProvider';
 import {
   getAccentColor,
   hexToHsv,
   hsvToHex,
+  resolveAccentForTheme,
   setAccentColor,
   type Hsv,
 } from '@/lib/uiAccent';
@@ -35,6 +37,7 @@ function hsvFromClient(
 
 export function AccentColorField() {
   const { t } = useTranslation('settings');
+  const { resolvedTheme } = useTheme();
   const hueLabelId = useId();
   const [hexDraft, setHexDraft] = useState(() => getAccentColor());
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(getAccentColor()));
@@ -73,7 +76,8 @@ export function AccentColorField() {
     commit(hexDraft);
   };
 
-  const preview = hsvToHex(hsv);
+  const draft = hsvToHex(hsv);
+  const applied = resolveAccentForTheme(draft, resolvedTheme);
 
   return (
     <div className="flex items-center gap-2">
@@ -82,7 +86,7 @@ export function AccentColorField() {
           <button
             type="button"
             className="h-8 w-8 shrink-0 rounded-lg border border-[var(--border-strong)] shadow-none"
-            style={{ backgroundColor: preview }}
+            style={{ backgroundColor: applied }}
             aria-label={t('appearance.accent.picker')}
             aria-haspopup="dialog"
             aria-expanded={open}
@@ -120,7 +124,7 @@ export function AccentColorField() {
                 left: `${hsv.s * 100}%`,
                 top: `${(1 - hsv.v) * 100}%`,
                 boxShadow: '0 0 0 1px rgb(0 0 0 / 0.35)',
-                backgroundColor: preview,
+                backgroundColor: draft,
               }}
             />
           </div>

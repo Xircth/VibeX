@@ -40,10 +40,10 @@
   width: 100%;
   overflow: hidden;
   color: var(--text-primary, hsl(213 10% 30%));
-  background: var(--surface-popover, #fafafa);
-  border: 1px solid var(--border-glass, hsl(0 0% 100% / 0.62));
+  background: var(--surface-popover);
+  border: 1px solid var(--border-glass);
   border-radius: var(--radius);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.38);
+  box-shadow: inset 0 1px 0 var(--highlight-edge);
   backdrop-filter: blur(24px) saturate(1.55);
   -webkit-backdrop-filter: blur(24px) saturate(1.55);
 }
@@ -283,7 +283,7 @@
   height: 13px;
   padding: 2px;
   color: currentColor;
-  background: var(--surface-popover, #fafafa);
+  background: var(--surface-popover);
   border-radius: 999px;
 }
 
@@ -308,7 +308,7 @@
   flex: 1;
   padding: 0 10px;
   color: var(--text-strong, hsl(222 30% 16%));
-  background: var(--surface-content, hsl(0 0% 100% / 0.96));
+  background: var(--surface-content);
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
   border-radius: var(--radius);
   outline: none;
@@ -428,7 +428,7 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .vu-toast-surface {
-    background: var(--surface-popover, #fafafa);
+    background: var(--surface-popover);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

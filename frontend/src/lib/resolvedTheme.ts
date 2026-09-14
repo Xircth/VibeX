@@ -1,3 +1,4 @@
+import { applyAccentColor, getAccentColor } from '@/lib/uiAccent';
 import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 export type CachedResolvedTheme = 'light' | 'dark';
@@ -17,6 +18,7 @@ export function applyResolvedThemeClass(theme: CachedResolvedTheme): void {
   const root = document.documentElement;
   root.classList.remove('light', 'dark');
   root.classList.add(theme);
+  applyAccentColor(getAccentColor(), theme);
 }
 
 export function initResolvedTheme(): void {

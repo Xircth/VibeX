@@ -287,7 +287,7 @@ describe('settings page alignment', () => {
     const surface = declarationsFor('.settings-surface');
     expect(surface.get('border-radius')).toBe('var(--radius)');
     expect(surface.get('box-shadow')?.replace(/\s+/g, ' ')).toBe(
-      '0 1px 2px hsl(220 36% 8% / 0.05), 0 10px 30px hsl(220 36% 8% / 0.06)'
+      'var(--shadow-surface)'
     );
   });
 

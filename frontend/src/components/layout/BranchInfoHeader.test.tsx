@@ -130,7 +130,9 @@ describe('BranchInfoHeader', () => {
       legacyStyles.match(/\.branch-info-action-primary\s*\{[^}]+\}/u)?.[0] ??
       '';
     expect(actionsRule).not.toContain('border-left');
-    expect(primaryActionRule).toContain('color: #000 !important;');
+    expect(primaryActionRule).toContain(
+      'color: var(--text-strong) !important;'
+    );
   });
 
   it('does not render Git controls for a workspace without a worktree', () => {

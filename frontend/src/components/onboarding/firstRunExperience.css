@@ -32,12 +32,12 @@
 }
 
 .dark .onboarding-experience {
-  --onboarding-void: #09090b;
-  --onboarding-ink: #fafafa;
-  --onboarding-ink-muted: #9f9fa9;
-  --onboarding-ink-inverse: #18181b;
-  --onboarding-line: #66666633;
-  --onboarding-shot-shadow: 0 24px 80px #00000066;
+  --onboarding-void: #0e1319;
+  --onboarding-ink: #e7ebef;
+  --onboarding-ink-muted: #8b949e;
+  --onboarding-ink-inverse: #0e1319;
+  --onboarding-line: hsl(210 30% 80% / 0.12);
+  --onboarding-shot-shadow: 0 24px 80px hsl(210 40% 2% / 0.55);
 }
 
 .onboarding-hero-glow {
@@ -692,13 +692,8 @@
 }
 
 .onboarding-status-badge.is-installed {
-  color: #2f6a50;
-  background: #e6f5ed;
-}
-
-.dark .onboarding-status-badge.is-installed {
-  color: #98d7b6;
-  background: #183c2c;
+  color: hsl(var(--success-foreground));
+  background: hsl(var(--success) / 0.16);
 }
 
 .onboarding-default-agent-field {

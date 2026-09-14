@@ -20,11 +20,11 @@
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
-  --conv-user-action-button-color: rgba(255, 255, 255, 0.72);
-  --conv-user-action-button-bg: rgba(255, 255, 255, 0.1);
-  --conv-user-action-button-border: rgba(255, 255, 255, 0.18);
-  --conv-user-action-button-hover-color: rgba(255, 255, 255, 0.96);
-  --conv-user-action-button-hover-bg: rgba(255, 255, 255, 0.12);
+  --conv-user-action-button-color: hsl(210 30% 80% / 0.72);
+  --conv-user-action-button-bg: hsl(210 30% 80% / 0.1);
+  --conv-user-action-button-border: hsl(210 30% 80% / 0.18);
+  --conv-user-action-button-hover-color: hsl(210 20% 92% / 0.96);
+  --conv-user-action-button-hover-bg: hsl(210 30% 80% / 0.14);
 }
 
 /* Right-aligned user turn: the bubble hugs the right edge and shrinks to its
@@ -222,7 +222,7 @@
   color: var(--conv-user-action-button-color);
   border: 1px solid var(--conv-user-action-button-border);
   background: var(--conv-user-action-button-bg);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-control);
 }
 
 .conv-user-bubble > div.absolute button:hover {

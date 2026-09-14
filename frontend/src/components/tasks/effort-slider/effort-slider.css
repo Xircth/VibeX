@@ -125,6 +125,19 @@
 
 /* ── track (dark well in both themes; see file header) ── */
 .vx-effort-track {
+  --effort-thumb-fill: linear-gradient(
+    170deg,
+    #ffffff 0%,
+    #f0f0f2 40%,
+    #e4e4e6 100%
+  );
+  --effort-thumb-border: hsl(220 16% 28% / 0.12);
+  --effort-thumb-shadow:
+    0 0.5px 1px hsl(220 36% 8% / 0.18), 0 1.5px 4px hsl(220 36% 8% / 0.25),
+    0 4px 10px hsl(220 36% 8% / 0.12), inset 0 0.5px 0 hsl(0 0% 100% / 0.85),
+    inset 0 -0.5px 0 hsl(220 36% 8% / 0.06);
+  --effort-thumb-glow:
+    0 0 16px rgba(63, 108, 196, 0.5), 0 0 30px rgba(63, 108, 196, 0.25);
   position: relative;
   height: 18px;
   border-radius: var(--radius);
@@ -132,6 +145,22 @@
   border: 1px solid #1a1a1e;
   background: #0c0c0c;
   isolation: isolate;
+}
+
+.dark .vx-effort-track {
+  --effort-thumb-fill: linear-gradient(
+    170deg,
+    #e7ebef 0%,
+    #c5cdd6 52%,
+    #8b949e 100%
+  );
+  --effort-thumb-border: hsl(210 30% 80% / 0.18);
+  --effort-thumb-shadow:
+    0 0.5px 1px hsl(210 40% 2% / 0.4), 0 1.5px 4px hsl(210 40% 2% / 0.45),
+    0 4px 10px hsl(210 40% 2% / 0.28), inset 0 0.5px 0 hsl(210 30% 80% / 0.28),
+    inset 0 -0.5px 0 hsl(210 40% 2% / 0.35);
+  --effort-thumb-glow:
+    0 0 16px rgba(63, 108, 196, 0.5), 0 0 30px rgba(63, 108, 196, 0.25);
 }
 
 .vx-effort-track-bg {
@@ -255,14 +284,9 @@
   width: 17px;
   height: 17px;
   border-radius: var(--radius);
-  background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
-  border: 0.5px solid rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.18),
-    0 1.5px 4px rgba(0, 0, 0, 0.25),
-    0 4px 10px rgba(0, 0, 0, 0.12),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.85),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+  background: var(--effort-thumb-fill);
+  border: 0.5px solid var(--effort-thumb-border);
+  box-shadow: var(--effort-thumb-shadow);
   cursor: grab;
   transition:
     box-shadow 0.4s ease,
@@ -272,46 +296,24 @@
 .vx-effort-track input[type='range']::-webkit-slider-thumb:active {
   cursor: grabbing;
   transform: scale(0.95);
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 2px 5px rgba(0, 0, 0, 0.15),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: var(--effort-thumb-shadow);
 }
 
 .vx-effort-track input[type='range'].vx-glowing::-webkit-slider-thumb {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.18),
-    0 1.5px 4px rgba(0, 0, 0, 0.25),
-    0 4px 10px rgba(0, 0, 0, 0.12),
-    0 0 16px rgba(63, 108, 196, 0.5),
-    0 0 30px rgba(63, 108, 196, 0.25),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.85),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
 }
 
 .vx-effort-track input[type='range'].vx-glowing::-webkit-slider-thumb:active {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 2px 5px rgba(0, 0, 0, 0.15),
-    0 0 18px rgba(63, 108, 196, 0.55),
-    0 0 32px rgba(63, 108, 196, 0.3),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
 }
 
 .vx-effort-track input[type='range']::-moz-range-thumb {
   width: 15px;
   height: 15px;
   border-radius: var(--radius);
-  background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
-  border: 0.5px solid rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.18),
-    0 1.5px 4px rgba(0, 0, 0, 0.25),
-    0 4px 10px rgba(0, 0, 0, 0.12);
+  background: var(--effort-thumb-fill);
+  border: 0.5px solid var(--effort-thumb-border);
+  box-shadow: var(--effort-thumb-shadow);
   cursor: grab;
   transition: box-shadow 0.4s ease;
 }
@@ -322,21 +324,11 @@
 }
 
 .vx-effort-track input[type='range'].vx-glowing::-moz-range-thumb {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.18),
-    0 1.5px 4px rgba(0, 0, 0, 0.25),
-    0 4px 10px rgba(0, 0, 0, 0.12),
-    0 0 16px rgba(63, 108, 196, 0.5),
-    0 0 30px rgba(63, 108, 196, 0.25);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
 }
 
 .vx-effort-track input[type='range'].vx-glowing::-moz-range-thumb:active {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 2px 5px rgba(0, 0, 0, 0.15),
-    0 0 18px rgba(63, 108, 196, 0.55),
-    0 0 32px rgba(63, 108, 196, 0.3);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
 }
 
 .vx-effort-track input[type='range']::-moz-range-track {
@@ -347,23 +339,11 @@
 
 /* Thumb glow while dragging (independent of the top-level flame glow). */
 .vx-effort-track.vx-dragging input[type='range']::-webkit-slider-thumb {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 2px 5px rgba(0, 0, 0, 0.15),
-    0 0 12px rgba(63, 108, 196, 0.55),
-    0 0 24px rgba(63, 108, 196, 0.3),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
   transition: box-shadow 0.12s ease;
 }
 
 .vx-effort-track.vx-dragging input[type='range']::-moz-range-thumb {
-  box-shadow:
-    0 0.5px 1px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 2px 5px rgba(0, 0, 0, 0.15),
-    0 0 12px rgba(63, 108, 196, 0.55),
-    0 0 24px rgba(63, 108, 196, 0.3);
+  box-shadow: var(--effort-thumb-shadow), var(--effort-thumb-glow);
   transition: box-shadow 0.12s ease;
 }

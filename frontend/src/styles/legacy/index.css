@@ -1169,6 +1169,24 @@
     justify-content: flex-start;
   }
 
+  .settings-page .settings-row--stacked .settings-row__stack {
+    display: flex;
+    min-inline-size: 0;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .settings-page
+    .settings-row--stacked
+    .settings-row__stack
+    .settings-row__description {
+    margin-top: 0;
+  }
+
+  .settings-page .settings-command-line {
+    min-inline-size: 0;
+  }
+
   .settings-page .settings-release-notes {
     max-height: 14rem;
     overflow: auto;

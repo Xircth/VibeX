@@ -18,6 +18,13 @@ use uuid::Uuid;
 use crate::error::AppError;
 
 const SETTINGS_SECTION: &str = "host_tunnel";
+const ERR_NEED_COMMAND: &str = "Generate a setup command first";
+const ERR_HOST_UNREACHABLE: &str = "Could not reach a VibeX Host at that address. For a new VPS tunnel, generate a setup command first.";
+const ERR_RELAY_WAIT: &str = "The public tunnel is waiting for this Host. Confirm the VPS command is still running, then try again.";
+const ERR_HEALTH: &str = "Reached the tunnel, but this Host did not answer. Confirm the remote connection service is running.";
+const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+const HEALTH_RETRY_ATTEMPTS: u32 = 8;
+const HEALTH_RETRY_DELAY: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct HostTunnelStore {
@@ -461,12 +468,43 @@ async fn probe_endpoint(
     endpoint: &TunnelEndpoint,
     scheme_hint: Option<&str>,
 ) -> Result<Option<String>, AppError> {
-    for origin in probe_origins(endpoint, scheme_hint) {
-        if probe_health(&origin).await? {
-            return Ok(Some(origin));
+    probe_endpoint_until(endpoint, scheme_hint, 1, Duration::ZERO).await
+}
+
+async fn probe_endpoint_until(
+    endpoint: &TunnelEndpoint,
+    scheme_hint: Option<&str>,
+    attempts: u32,
+    delay: Duration,
+) -> Result<Option<String>, AppError> {
+    let attempts = attempts.max(1);
+    for attempt in 0..attempts {
+        for origin in probe_origins(endpoint, scheme_hint) {
+            if probe_health(&origin).await? {
+                return Ok(Some(origin));
+            }
+        }
+        if attempt + 1 < attempts {
+            tokio::time::sleep(delay).await;
         }
     }
     Ok(None)
+}
+
+fn pending_setup_ready(store: &HostTunnelStore, relay: &RelayState) -> Result<(), String> {
+    if store.pending.is_some() {
+        return Ok(());
+    }
+    let Some(active_id) = store.active_id.as_deref() else {
+        return Err(ERR_NEED_COMMAND.to_string());
+    };
+    let Some(active) = store.saved.iter().find(|item| item.id == active_id) else {
+        return Err(ERR_NEED_COMMAND.to_string());
+    };
+    if active.kind == "relay" && (relay.status == "connected" || relay.status == "connecting") {
+        return Ok(());
+    }
+    Err(ERR_NEED_COMMAND.to_string())
 }
 
 fn parse_address(address: &str) -> Result<(TunnelEndpoint, Option<&'static str>), AppError> {
@@ -621,9 +659,7 @@ pub async fn check_existing_host_tunnel(
     let Some(token) =
         input_token.or_else(|| relay_token_for(&store, &endpoint.host, endpoint.port))
     else {
-        return Err(AppError::BadRequest(
-            "Could not reach a VibeX Host at that address".to_string(),
-        ));
+        return Err(AppError::BadRequest(ERR_HOST_UNREACHABLE.to_string()));
     };
     remember_relay(&mut store, &endpoint.host, endpoint.port, &token);
     store.enabled = true;
@@ -636,16 +672,18 @@ pub async fn check_existing_host_tunnel(
         local_port,
     )
     .await;
-    if !wait_until_relay_connected(Duration::from_secs(8)).await {
-        return Err(AppError::BadRequest(
-            "Could not reach a VibeX Host at that address".to_string(),
-        ));
+    if !wait_until_relay_connected(RELAY_CONNECT_TIMEOUT).await {
+        return Err(AppError::BadRequest(ERR_RELAY_WAIT.to_string()));
     }
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    let Some(origin) = probe_endpoint(&endpoint, Some("http")).await? else {
-        return Err(AppError::BadRequest(
-            "Could not reach a VibeX Host at that address".to_string(),
-        ));
+    let Some(origin) = probe_endpoint_until(
+        &endpoint,
+        Some("http"),
+        HEALTH_RETRY_ATTEMPTS,
+        HEALTH_RETRY_DELAY,
+    )
+    .await?
+    else {
+        return Err(AppError::BadRequest(ERR_HEALTH.to_string()));
     };
     persist_checked_origin(endpoint, origin, Some(token)).await
 }
@@ -686,6 +724,7 @@ pub async fn start_create_host_tunnel(
         created_at: Utc::now().to_rfc3339(),
     });
     save_store(&store).await?;
+    sync_relay().await;
     current_status().await
 }
 
@@ -693,15 +732,12 @@ pub async fn start_create_host_tunnel(
 pub async fn confirm_create_host_tunnel(
     app: tauri::AppHandle,
 ) -> Result<HostTunnelStatus, AppError> {
-    let store = load_store().await?;
-    if store.pending.is_none() {
-        return Err(AppError::BadRequest(
-            "Generate a setup command first".to_string(),
-        ));
-    }
     crate::commands::web_service::ensure_listening(app).await?;
+    let store = load_store().await?;
+    let relay = relay_snapshot().await;
+    pending_setup_ready(&store, &relay).map_err(AppError::BadRequest)?;
     sync_relay().await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    let _ = wait_until_relay_connected(Duration::from_secs(3)).await;
     let _ = promote_if_relay_already_up().await;
     current_status().await
 }
@@ -735,7 +771,8 @@ pub async fn remove_saved_host_tunnel(id: String) -> Result<HostTunnelStatus, Ap
 #[cfg(test)]
 mod tests {
     use super::{
-        HostTunnelStore, SavedTunnel, merge_host_reachability, relay_token_for, remember_relay,
+        ERR_NEED_COMMAND, HostTunnelStore, RelayState, SavedTunnel, merge_host_reachability,
+        pending_setup_ready, relay_token_for, remember_relay,
     };
 
     #[test]
@@ -808,5 +845,56 @@ mod tests {
             relay_token_for(&store, "203.0.113.10", 13630).as_deref(),
             Some("vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
+    }
+
+    #[test]
+    fn confirm_requires_a_generated_command_until_the_relay_is_saved() {
+        let store = HostTunnelStore::default();
+        let relay = RelayState::default();
+        assert_eq!(
+            pending_setup_ready(&store, &relay).unwrap_err(),
+            ERR_NEED_COMMAND
+        );
+    }
+
+    #[test]
+    fn confirm_succeeds_after_the_generated_command_is_saved() {
+        let store = HostTunnelStore {
+            pending: Some(super::PendingSetup {
+                host: "203.0.113.10".to_string(),
+                port: 17891,
+                token: "vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                command: "curl".to_string(),
+                created_at: "now".to_string(),
+            }),
+            ..HostTunnelStore::default()
+        };
+        assert!(pending_setup_ready(&store, &RelayState::default()).is_ok());
+    }
+
+    #[test]
+    fn confirm_succeeds_when_pending_was_already_promoted() {
+        let store = HostTunnelStore {
+            enabled: true,
+            active_id: Some("t1".to_string()),
+            saved: vec![SavedTunnel {
+                id: "t1".to_string(),
+                origin: "http://203.0.113.10:17891".to_string(),
+                host: "203.0.113.10".to_string(),
+                port: 17891,
+                kind: "relay".to_string(),
+                token: Some("vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+            }],
+            pending: None,
+            relays: Vec::new(),
+        };
+        let relay = RelayState {
+            status: "connected".to_string(),
+            error: None,
+            connected_key: Some(
+                "203.0.113.10:17891:vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            ),
+        };
+        assert!(pending_setup_ready(&store, &relay).is_ok());
     }
 }

@@ -123,11 +123,96 @@ describe('HostTunnelPanel', () => {
       expect(hostTunnelApi.startCreate).toHaveBeenCalledWith('203.0.113.10')
     );
     expect(
-      await screen.findByText(
+      await screen.findByDisplayValue(
         /curl -fsSL https:\/\/vibex\.xforever\.xin\/tunnel.sh/
       )
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '已完成配置' })).toBeVisible();
+    expect(
+      screen.getByText('未写端口时使用 17891，请在云服务器中运行以下命令')
+    ).toBeVisible();
+  });
+
+  it('keeps the generated command after a later status refresh without pending', async () => {
+    const user = userEvent.setup();
+    hostTunnelApi.setEnabled.mockResolvedValue({
+      ...idleStatus,
+      enabled: true,
+    });
+    render(
+      <HostTunnelPanel serviceRunning onReachabilityChange={() => undefined} />
+    );
+
+    await user.click(await screen.findByRole('switch', { name: '远程穿透' }));
+    await user.click(await screen.findByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: '新建穿透' }));
+    await user.type(
+      screen.getByPlaceholderText('203.0.113.10'),
+      '203.0.113.10'
+    );
+    await user.click(screen.getByRole('button', { name: '生成命令' }));
+    expect(
+      await screen.findByDisplayValue(
+        /curl -fsSL https:\/\/vibex\.xforever\.xin\/tunnel.sh/
+      )
+    ).toBeVisible();
+
+    hostTunnelApi.confirmCreate.mockResolvedValue({
+      enabled: true,
+      saved: [],
+      active_id: null,
+      pending: null,
+      relay_state: 'connecting',
+      last_error: null,
+    });
+    await user.click(screen.getByRole('button', { name: '已完成配置' }));
+    expect(
+      screen.getByDisplayValue(
+        /curl -fsSL https:\/\/vibex\.xforever\.xin\/tunnel.sh/
+      )
+    ).toBeVisible();
+  });
+
+  it('maps a missing setup-command error to an actionable message', async () => {
+    const user = userEvent.setup();
+    hostTunnelApi.setEnabled.mockResolvedValue({
+      ...idleStatus,
+      enabled: true,
+    });
+    hostTunnelApi.startCreate.mockResolvedValue({
+      enabled: true,
+      saved: [],
+      active_id: null,
+      pending: {
+        host: '203.0.113.10',
+        port: 17891,
+        command:
+          'curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok -p 17891 -h 203.0.113.10',
+      },
+      relay_state: 'idle',
+      last_error: null,
+    });
+    hostTunnelApi.confirmCreate.mockRejectedValue(
+      new Error('Bad request: Generate a setup command first')
+    );
+    render(
+      <HostTunnelPanel serviceRunning onReachabilityChange={() => undefined} />
+    );
+
+    await user.click(await screen.findByRole('switch', { name: '远程穿透' }));
+    await user.click(await screen.findByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: '新建穿透' }));
+    await user.type(
+      screen.getByPlaceholderText('203.0.113.10'),
+      '203.0.113.10'
+    );
+    await user.click(screen.getByRole('button', { name: '生成命令' }));
+    await user.click(await screen.findByRole('button', { name: '已完成配置' }));
+
+    const { toast } = await import('@/components/ui/toast');
+    expect(toast.error).toHaveBeenCalledWith(
+      '请先生成命令，并在云服务器运行后再点已完成配置。'
+    );
   });
 
   it('lists saved tunnels like paired devices and can remove one', async () => {

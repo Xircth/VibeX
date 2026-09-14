@@ -33,6 +33,29 @@ const EMPTY_STATUS: HostTunnelStatus = {
   last_error: null,
 };
 
+function tunnelErrorMessage(
+  error: unknown,
+  t: (key: string) => string
+): string {
+  const raw = getErrorMessage(error);
+  if (raw.includes('Generate a setup command first')) {
+    return t('webService.tunnelNeedCommand');
+  }
+  if (raw.includes('waiting for this Host')) {
+    return t('webService.tunnelRelayWait');
+  }
+  if (raw.includes('did not answer')) {
+    return t('webService.tunnelHealthFailed');
+  }
+  if (
+    raw.includes('Could not reach a VibeX Host') ||
+    raw.includes('For a new VPS tunnel')
+  ) {
+    return t('webService.tunnelHostUnreachable');
+  }
+  return raw || t('webService.tunnelCheckFailed');
+}
+
 export function HostTunnelPanel({
   serviceRunning,
   onReachabilityChange,
@@ -48,11 +71,16 @@ export function HostTunnelPanel({
   const [polling, setPolling] = useState(false);
   const [listExpanded, setListExpanded] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [setupCommand, setSetupCommand] = useState<string | null>(null);
   const savedListId = useId();
 
   const applyStatus = useCallback((next: HostTunnelStatus) => {
     setStatus(next);
-    if (next.pending) setMode('create');
+    if (next.pending) {
+      setMode('create');
+      setSetupCommand(next.pending.command);
+    }
+    if (!next.enabled) setSetupCommand(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -71,6 +99,7 @@ export function HostTunnelPanel({
         applyStatus(next);
         if (!next.pending && next.active_id) {
           setPolling(false);
+          setSetupCommand(null);
           onReachabilityChange();
           toast.success(t('webService.tunnelConnected'));
         }
@@ -91,7 +120,9 @@ export function HostTunnelPanel({
       applyStatus(await hostTunnelApi.setEnabled(enabled));
       onReachabilityChange();
     } catch (error) {
-      toast.error(getErrorMessage(error) || t('webService.tunnelSaveFailed'));
+      toast.error(
+        tunnelErrorMessage(error, t) || t('webService.tunnelSaveFailed')
+      );
     } finally {
       setBusy(false);
     }
@@ -117,7 +148,7 @@ export function HostTunnelPanel({
       }
       onReachabilityChange();
     } catch (error) {
-      toast.error(getErrorMessage(error) || t('webService.tunnelCheckFailed'));
+      toast.error(tunnelErrorMessage(error, t));
     } finally {
       setBusy(false);
     }
@@ -144,10 +175,14 @@ export function HostTunnelPanel({
     }
     setBusy(true);
     try {
-      applyStatus(await hostTunnelApi.startCreate(value));
+      const next = await hostTunnelApi.startCreate(value);
+      applyStatus(next);
       setMode('create');
+      if (next.pending?.command) setSetupCommand(next.pending.command);
     } catch (error) {
-      toast.error(getErrorMessage(error) || t('webService.tunnelSaveFailed'));
+      toast.error(
+        tunnelErrorMessage(error, t) || t('webService.tunnelSaveFailed')
+      );
     } finally {
       setBusy(false);
     }
@@ -157,10 +192,17 @@ export function HostTunnelPanel({
     if (!requireRunning()) return;
     setBusy(true);
     try {
-      applyStatus(await hostTunnelApi.confirmCreate());
+      const next = await hostTunnelApi.confirmCreate();
+      applyStatus(next);
       setPolling(true);
+      if (!next.pending && next.active_id) {
+        setPolling(false);
+        setSetupCommand(null);
+        onReachabilityChange();
+        toast.success(t('webService.tunnelConnected'));
+      }
     } catch (error) {
-      toast.error(getErrorMessage(error) || t('webService.tunnelCheckFailed'));
+      toast.error(tunnelErrorMessage(error, t));
     } finally {
       setBusy(false);
     }
@@ -250,66 +292,81 @@ export function HostTunnelPanel({
               <Label htmlFor="host-tunnel-address">
                 {t('webService.tunnelAddress')}
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="host-tunnel-address"
-                  value={address}
-                  placeholder="gate.example.com"
-                  disabled={busy}
-                  onChange={(event) => setAddress(event.target.value)}
-                />
-                <Button
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
-                  disabled={busy}
-                  onClick={() => void checkExisting()}
-                >
-                  {busy ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : null}
-                  {t('webService.tunnelCheck')}
-                </Button>
+              <div className="settings-row__stack">
+                <div className="flex gap-2">
+                  <Input
+                    id="host-tunnel-address"
+                    value={address}
+                    placeholder="gate.example.com"
+                    disabled={busy}
+                    onChange={(event) => setAddress(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 shrink-0 text-xs"
+                    disabled={busy}
+                    onClick={() => void checkExisting()}
+                  >
+                    {busy ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {t('webService.tunnelCheck')}
+                  </Button>
+                </div>
+                <p className="settings-row__description">
+                  {t('webService.tunnelAddressHint')}
+                </p>
               </div>
-              <p className="settings-row__description">
-                {t('webService.tunnelAddressHint')}
-              </p>
             </div>
           ) : (
             <div className="settings-row settings-row--stacked">
               <Label htmlFor="host-tunnel-create-address">
                 {t('webService.tunnelCreateAddress')}
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="host-tunnel-create-address"
-                  value={address}
-                  placeholder="203.0.113.10"
-                  disabled={busy}
-                  onChange={(event) => setAddress(event.target.value)}
-                />
-                <Button
-                  size="sm"
-                  className="h-8 shrink-0 text-xs"
-                  disabled={busy}
-                  onClick={() => void startCreate()}
-                >
-                  {t('webService.tunnelGenerateCommand')}
-                </Button>
+              <div className="settings-row__stack">
+                <div className="flex gap-2">
+                  <Input
+                    id="host-tunnel-create-address"
+                    value={address}
+                    placeholder="203.0.113.10"
+                    disabled={busy}
+                    onChange={(event) => setAddress(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 shrink-0 text-xs"
+                    disabled={busy}
+                    onClick={() => void startCreate()}
+                  >
+                    {t('webService.tunnelGenerateCommand')}
+                  </Button>
+                </div>
+                <p className="settings-row__description">
+                  {t('webService.tunnelCreateHint')}
+                </p>
               </div>
-              <p className="settings-row__description">
-                {t('webService.tunnelCreateHint')}
-              </p>
-              {status.pending ? (
+              {setupCommand || status.pending ? (
                 <>
-                  <div className="flex gap-2">
-                    <code className="settings-row__description min-w-0 flex-1 break-all font-mono text-xs">
-                      {status.pending.command}
-                    </code>
+                  <div className="flex min-w-0 gap-2">
+                    <Input
+                      readOnly
+                      value={status.pending?.command ?? setupCommand ?? ''}
+                      className="settings-command-line font-mono text-xs"
+                      aria-label={t('webService.tunnelCommand')}
+                      onFocus={(event) => event.currentTarget.select()}
+                    />
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       className="h-8 w-8 shrink-0 p-0"
-                      onClick={() => void copyCommand(status.pending!.command)}
+                      onClick={() =>
+                        void copyCommand(
+                          status.pending?.command ?? setupCommand ?? ''
+                        )
+                      }
                       aria-label={t('webService.copyOrigin')}
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -317,6 +374,7 @@ export function HostTunnelPanel({
                   </div>
                   <div className="flex justify-end">
                     <Button
+                      type="button"
                       size="sm"
                       className="h-8 text-xs"
                       disabled={busy}
@@ -395,6 +453,7 @@ export function HostTunnelPanel({
                           </p>
                         </button>
                         <Button
+                          type="button"
                           variant="outline"
                           size="sm"
                           className="h-8 shrink-0"

@@ -525,4 +525,16 @@ describe('WebServiceSettings', () => {
     expect(screen.getByText('Pixel 9')).toBeVisible();
     expect(screen.getByRole('button', { name: '撤销' })).toBeVisible();
   });
+
+  it('keeps the remote tunnel panel mounted when settings change', async () => {
+    webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
+    renderSettings();
+
+    const tunnel = await screen.findByRole('switch', { name: '远程穿透' });
+    expect(tunnel).toBeVisible();
+    webServiceApiMock.getConfig.mockClear();
+    window.dispatchEvent(new Event('vibex://settings-file-changed'));
+    await waitFor(() => expect(webServiceApiMock.getConfig).toHaveBeenCalled());
+    expect(screen.getByRole('switch', { name: '远程穿透' })).toBe(tunnel);
+  });
 });

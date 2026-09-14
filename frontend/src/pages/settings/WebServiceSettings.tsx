@@ -119,37 +119,40 @@ export function WebServiceSettings({
     },
   };
 
-  const load = useCallback(async () => {
-    if (!hostConsole || boundToRemote) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [savedConfig, currentStatus] = await Promise.all([
-        webServiceApi.getConfig(),
-        webServiceApi.getStatus(),
-      ]);
-      setConfig(savedConfig);
-      setDraft(savedConfig);
-      const lanMissing =
-        currentStatus.running &&
-        savedConfig.allow_lan &&
-        !(currentStatus.addresses ?? []).some(
-          (address) =>
-            !address.includes('127.0.0.1') && !address.includes('localhost')
+  const load = useCallback(
+    async (showSpinner = true) => {
+      if (!hostConsole || boundToRemote) {
+        setLoading(false);
+        return;
+      }
+      if (showSpinner) setLoading(true);
+      try {
+        const [savedConfig, currentStatus] = await Promise.all([
+          webServiceApi.getConfig(),
+          webServiceApi.getStatus(),
+        ]);
+        setConfig(savedConfig);
+        setDraft(savedConfig);
+        const lanMissing =
+          currentStatus.running &&
+          savedConfig.allow_lan &&
+          !(currentStatus.addresses ?? []).some(
+            (address) =>
+              !address.includes('127.0.0.1') && !address.includes('localhost')
+          );
+        setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('webService.configLoadFailed')
         );
-      setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('webService.configLoadFailed')
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [boundToRemote, hostConsole, t]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [boundToRemote, hostConsole, t]
+  );
 
   useEffect(() => {
     if (boundToRemote) setRole('client');
@@ -161,7 +164,7 @@ export function WebServiceSettings({
 
   useEffect(() => {
     const reloadFromJson = () => {
-      if (!dirty) void load();
+      if (!dirty) void load(false);
     };
     window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
     return () =>

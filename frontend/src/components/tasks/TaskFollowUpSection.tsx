@@ -3,6 +3,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   COMPOSER_INSERT_EVENT,
+  shouldAcceptComposerInsert,
   type ComposerInsertDetail,
 } from '@/lib/composerInsert';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +25,7 @@ import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContex
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { listenToConversationEvents } from '@/features/conversation/events';
 import {
   composerSessionControlDisplay,
   liveSessionControlsSnapshot,
@@ -227,31 +229,20 @@ export function TaskFollowUpSection({
     sessionConfigOptions,
     conversationPlanEntries,
     conversationTurnInFlight,
+    conversationSteeringTurnId,
     userMessageHistory,
   } = useEntries();
   const isComposerExecutionRunning = isComposerExecutionActive({
     isAttemptRunning,
     isConversationTurnInFlight: conversationTurnInFlight,
   });
-  const { data: steeringTarget } = useQuery({
-    queryKey: ['conversation-steering-target', sessionId],
-    queryFn: async () => {
-      if (!sessionId) return null;
-      const detail = await conversationApi.detail(sessionId);
-      if (
-        !detail?.active_binding?.capabilities.steering ||
-        !detail.current_turn ||
-        !['pending', 'queued', 'running', 'blocked'].includes(
-          detail.current_turn.status
-        )
-      ) {
-        return null;
-      }
-      return { turnId: detail.current_turn.id };
-    },
-    enabled: Boolean(sessionId && isComposerExecutionRunning),
-    refetchInterval: isComposerExecutionRunning ? 2_000 : false,
-  });
+  const steeringTarget = useMemo(
+    () =>
+      conversationSteeringTurnId
+        ? { turnId: conversationSteeringTurnId }
+        : null,
+    [conversationSteeringTurnId]
+  );
   const pluginApi = useMemo(
     () => createPluginControlApi(configuredBackendTransport),
     []
@@ -264,15 +255,38 @@ export function TaskFollowUpSection({
     },
     staleTime: 5_000,
   });
-  const { data: liveFeedbackNotes = [] } = useQuery({
-    queryKey: ['conversation-live-feedback', sessionId],
-    queryFn: async () => {
-      if (!sessionId) return [];
-      return conversationApi.listFeedback(sessionId);
-    },
-    enabled: Boolean(sessionId && liveFeedbackOn),
-    refetchInterval: liveFeedbackOn ? 2_000 : false,
-  });
+  const { data: liveFeedbackNotes = [], refetch: refetchLiveFeedback } =
+    useQuery({
+      queryKey: ['conversation-live-feedback', sessionId],
+      queryFn: async () => {
+        if (!sessionId) return [];
+        return conversationApi.listFeedback(sessionId);
+      },
+      enabled: Boolean(sessionId && liveFeedbackOn),
+      // Events are the fast path; this only converges after a missed host event.
+      refetchInterval: liveFeedbackOn ? 15_000 : false,
+    });
+  useEffect(() => {
+    if (!sessionId || !liveFeedbackOn) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    listenToConversationEvents((batch) => {
+      if (!active || batch.conversation_id !== sessionId) return;
+      void refetchLiveFeedback();
+    }, sessionId)
+      .then((unsubscribe) => {
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+        unlisten = unsubscribe;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [liveFeedbackOn, refetchLiveFeedback, sessionId]);
   const summaryRepoId = useMemo(
     () => getSummaryRepoId(selectedRepoId, repos),
     [repos, selectedRepoId]
@@ -331,6 +345,13 @@ export function TaskFollowUpSection({
   useEffect(() => {
     const onInsert = (event: Event) => {
       const detail = (event as CustomEvent<ComposerInsertDetail>).detail;
+      if (
+        !shouldAcceptComposerInsert(detail, {
+          conversationId: sessionId,
+        })
+      ) {
+        return;
+      }
       if (!detail || detail.mode === 'token') return;
       const text = detail.text;
       if (typeof text !== 'string' || !text.trim()) return;
@@ -342,7 +363,7 @@ export function TaskFollowUpSection({
     return () => {
       window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
     };
-  }, [setLocalMessage]);
+  }, [sessionId, setLocalMessage]);
   const {
     createdSessionProfiles,
     handleSelectSession,

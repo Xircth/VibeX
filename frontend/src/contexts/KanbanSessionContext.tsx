@@ -324,11 +324,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     (session: KanbanSessionPlacement) => {
       commitLayoutState((current) =>
         replaceRightSession(current, session, {
-          canUseRightPanel: canUseRightPanelForSessions,
+          canUseRightPanel: true,
         })
       );
     },
-    [canUseRightPanelForSessions, commitLayoutState]
+    [commitLayoutState]
   );
 
   const activateExecutionSession = useCallback(

@@ -327,7 +327,41 @@ describe('SessionComposerInput (Astryx)', () => {
 
     expect(
       screen.getByTestId('session-composer-file-attachment')
-    ).toHaveTextContent('MD');
+    ).toHaveTextContent('notes.md');
+  });
+
+  it('lays composer file cards in a row without stacking', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={[
+            {
+              id: 'doc-1',
+              name: 'notes.md',
+              path: '.vibe-images/notes.md',
+            },
+            {
+              id: 'doc-2',
+              name: 'report.pdf',
+              path: '.vibe-images/report.pdf',
+            },
+          ]}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const drawer = screen.getByTestId('session-composer-attachment-drawer');
+    expect(drawer.querySelector('.attachment-file-stack')).toBeNull();
+    expect(
+      drawer.querySelector('.session-composer-attachment-row')
+    ).not.toBeNull();
+    expect(
+      screen.getAllByTestId('session-composer-file-attachment')
+    ).toHaveLength(2);
   });
 
   it('separates the attachment drawer with a hairline and narrow shadow', () => {
@@ -794,6 +828,51 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(nextValue).toContain(formatQuoteToken('请你帮我完成这次修改'));
   });
 
+  it('inserts a targeted quote token only into the matching conversation composer', async () => {
+    const onChangeA = vi.fn();
+    const onChangeB = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerInput
+          value=""
+          context={{ sessionId: 'conv-a' }}
+          onChange={onChangeA}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+        <SessionComposerInput
+          value=""
+          context={{ sessionId: 'conv-b' }}
+          onChange={onChangeB}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('session-composer-editor')).toHaveLength(2);
+    });
+
+    act(() => {
+      requestComposerTokenInsert({
+        value: formatQuoteToken('请你帮我完成这次修改'),
+        label: '@请你帮我...',
+        conversationId: 'conv-a',
+      });
+    });
+
+    await waitFor(() => {
+      expect(onChangeA).toHaveBeenCalled();
+    });
+    const nextValue = onChangeA.mock.calls.at(-1)?.[0] as string;
+    expect(nextValue).toContain(formatQuoteToken('请你帮我完成这次修改'));
+    expect(onChangeB).not.toHaveBeenCalled();
+  });
+
   it('keeps a quoted token on the first line of an empty composer', async () => {
     const quote = formatQuoteToken('请你帮我完成这次修改');
 
@@ -1221,6 +1300,22 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(onAttachImages).toHaveBeenCalledWith([
       expect.objectContaining({ name: 'readme.md' }),
       expect.objectContaining({ name: 'report.pdf' }),
+    ]);
+  });
+
+  it('attaches a marked preview image dropped from the image tab', () => {
+    const onAttachImages = vi.fn();
+    renderComposerInput({ onAttachImages });
+    const zone = screen.getByTestId('session-composer-file-drop-zone');
+    const marked = new File(['marked'], 'shot-marked.png', {
+      type: 'image/png',
+    });
+    fireEvent(
+      zone,
+      new CustomEvent('vibex-annotated-image-drop', { detail: marked })
+    );
+    expect(onAttachImages).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'shot-marked.png', type: 'image/png' }),
     ]);
   });
 

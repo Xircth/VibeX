@@ -110,7 +110,8 @@ function effortLabel(value: string, fallback: string): string {
     .toLowerCase()
     .replace(/[^a-z]/g, '');
 
-  if (/(ultra|maximum|max|ultrathink)/.test(normalized)) return '极高';
+  if (/(ultrathink|ultra)/.test(normalized)) return 'Ultra';
+  if (/(maximum|max)/.test(normalized)) return 'Max';
   if (/(xhigh|extrahigh|veryhigh)/.test(normalized)) return '超高';
   if (/(default|auto)/.test(normalized)) return '默认';
   if (/high/.test(normalized)) return '高';

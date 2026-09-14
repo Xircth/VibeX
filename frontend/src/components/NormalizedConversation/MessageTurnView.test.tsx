@@ -198,6 +198,55 @@ describe('MessageTurnView', () => {
     });
   });
 
+  it('renders document attachments as file cards instead of image placeholders', () => {
+    useImageMetadataMock.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'notes.pdf',
+        path: '/tmp/notes.pdf',
+        size_bytes: 2048n,
+        format: 'pdf',
+        proxy_url: null,
+        updated_at: '2026-09-13T04:30:00.000Z',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-1:user',
+            role: 'user',
+            blocks: [
+              { type: 'text', text: 'See the spec.' },
+              {
+                type: 'image',
+                data: '',
+                mime_type: 'image/png',
+                uri: '.vibe-images/notes.pdf',
+              },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByTestId('attachment-file-card')).toHaveTextContent(
+      'notes.pdf'
+    );
+    expect(screen.getByTestId('attachment-file-card')).toHaveTextContent(
+      '2.0 KB'
+    );
+    expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
+      'See the spec.'
+    );
+  });
+
   it('renders an image-only user turn without an empty text bubble', () => {
     useImageMetadataMock.mockReturnValue({
       data: {
@@ -613,6 +662,70 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('inspect the project')).toBeInTheDocument();
     expect(screen.queryByText('因重启中断')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '重发' })).toBeNull();
+  });
+
+  it('keeps post-tool assistant text after the tool run while streaming', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-split:assistant',
+            role: 'assistant',
+            blocks: [
+              { type: 'text', text: 'A' },
+              toolUseBlock(1, 'bash', { command: 'ls' }),
+              toolUseBlock(2, 'Task', { description: 'child' }),
+              { type: 'text', text: 'D' },
+            ],
+            timestamp: '2026-08-08T00:00:00.000Z',
+          } as never
+        }
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess={false}
+      />
+    );
+
+    expect(markdownMock.mock.calls.map((call) => call[0].value)).toEqual([
+      'A',
+      'D',
+    ]);
+    expect(
+      screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('collapses earlier turn items and leaves the last assistant text visible', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-split:assistant',
+            role: 'assistant',
+            blocks: [
+              { type: 'text', text: 'A' },
+              toolUseBlock(1, 'bash', { command: 'ls' }),
+              toolUseBlock(2, 'Task', { description: 'child' }),
+              { type: 'text', text: 'D' },
+            ],
+            timestamp: '2026-08-08T00:00:00.000Z',
+          } as never
+        }
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess
+      />
+    );
+
+    expect(screen.getByText('D')).toBeInTheDocument();
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 3 条消息/ }));
+    expect(
+      screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('keeps one tool call inside the Astryx aggregate disclosure', () => {

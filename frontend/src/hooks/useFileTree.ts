@@ -14,6 +14,5 @@ export function useFileTree(rootPath: string | null, depth?: number) {
     queryFn: () => fileTreeApi.getTree(rootPath!, depth),
     enabled: !!rootPath,
     staleTime: 5_000,
-    refetchInterval: 10_000,
   });
 }

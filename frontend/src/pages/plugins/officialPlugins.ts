@@ -15,6 +15,7 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.host-chrome': 'hostChrome',
   'vibex.host-surface': 'hostSurface',
   'vibex.provider-import': 'providerImport',
+  'vibex.provider-switch': 'providerSwitch',
   'vibex.remote-ssh': 'remoteSsh',
   'vibex.science': 'science',
 } as const;

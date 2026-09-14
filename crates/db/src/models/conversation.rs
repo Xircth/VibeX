@@ -281,6 +281,26 @@ impl DbConversationSummary {
         .await?;
         Ok(())
     }
+
+    pub async fn update_cached_model_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        model: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
+            return Ok(());
+        };
+        sqlx::query(
+            r#"UPDATE sessions
+               SET model = ?, updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(model)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]

@@ -13,6 +13,7 @@ import {
   computeAlignment,
   expandNode,
   filterRecentSessions,
+  flowNodeBox,
   layoutImportedSessions,
   packLayout,
   parseCanvasNodeId,
@@ -61,6 +62,18 @@ describe('canvas node ids', () => {
 describe('collapsed card size', () => {
   it('is 30% narrower than the original 280px board card', () => {
     expect(CARD_WIDTH).toBe(Math.round(280 * 0.7));
+  });
+});
+
+describe('flowNodeBox', () => {
+  it('applies the stored board size as both node metrics and CSS', () => {
+    expect(flowNodeBox({ width: 440, height: 320 })).toEqual({
+      width: 440,
+      height: 320,
+      initialWidth: 440,
+      initialHeight: 320,
+      style: { width: 440, height: 320 },
+    });
   });
 });
 

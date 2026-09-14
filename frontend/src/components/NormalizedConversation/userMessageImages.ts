@@ -1,4 +1,8 @@
 import type { ContentBlock } from 'shared/types';
+import {
+  attachmentPreviewKind,
+  type AttachmentPreviewKind,
+} from '@/utils/mediaAttachments';
 
 const VIBE_IMAGE_MARKDOWN_PATTERN =
   /!\[([^\]]*)\]\((\.vibe-images\/[^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
@@ -8,6 +12,7 @@ export type UserMessageImage = {
   path: string;
   altText: string;
   sourceUrl?: string | null;
+  kind: AttachmentPreviewKind;
 };
 
 function fileNameFromPath(path: string): string {
@@ -16,20 +21,32 @@ function fileNameFromPath(path: string): string {
   return name || path;
 }
 
+function partitionAttachments(attachments: UserMessageImage[]): {
+  images: UserMessageImage[];
+  files: UserMessageImage[];
+} {
+  return {
+    images: attachments.filter((item) => item.kind !== 'file'),
+    files: attachments.filter((item) => item.kind === 'file'),
+  };
+}
+
 export function splitDisplayContentImages(content: string): {
   text: string;
   images: UserMessageImage[];
+  files: UserMessageImage[];
 } {
-  const images: UserMessageImage[] = [];
+  const attachments: UserMessageImage[] = [];
   const text = content
     .replace(VIBE_IMAGE_MARKDOWN_PATTERN, (_match, altText, imagePath) => {
       const path = String(imagePath ?? '').trim();
       if (!path) return '';
 
-      images.push({
-        id: `${path}:${images.length}`,
+      attachments.push({
+        id: `${path}:${attachments.length}`,
         path,
         altText: String(altText ?? '').trim() || 'Image',
+        kind: attachmentPreviewKind(path),
       });
 
       return '';
@@ -38,12 +55,13 @@ export function splitDisplayContentImages(content: string): {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return { text, images };
+  return { text, ...partitionAttachments(attachments) };
 }
 
 export function splitUserTurnContent(blocks: ContentBlock[]): {
   text: string;
   images: UserMessageImage[];
+  files: UserMessageImage[];
 } {
   const imageBlocks: UserMessageImage[] = [];
   const textParts: string[] = [];
@@ -68,6 +86,7 @@ export function splitUserTurnContent(blocks: ContentBlock[]): {
       id: `${path || 'inline'}:${imageBlocks.length}`,
       path,
       altText: path ? fileNameFromPath(path) : 'Image',
+      kind: attachmentPreviewKind(path || fileNameFromPath(path), block.mime_type),
       ...(sourceUrl ? { sourceUrl } : {}),
     });
   }
@@ -76,12 +95,12 @@ export function splitUserTurnContent(blocks: ContentBlock[]): {
   const seenPaths = new Set(
     imageBlocks.map((image) => image.path).filter(Boolean)
   );
-  const markdownImages = fromMarkdown.images.filter(
+  const markdownAttachments = [...fromMarkdown.images, ...fromMarkdown.files].filter(
     (image) => !seenPaths.has(image.path)
   );
 
   return {
     text: fromMarkdown.text,
-    images: [...imageBlocks, ...markdownImages],
+    ...partitionAttachments([...imageBlocks, ...markdownAttachments]),
   };
 }

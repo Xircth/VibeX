@@ -684,6 +684,10 @@ pub struct ConversationUsage {
     pub cost_amount: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_currency: Option<String>,
+    /// Model id the Agent named for this usage sample. Missing stays missing
+    /// (ADR-0075); never inferred from the Agent kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

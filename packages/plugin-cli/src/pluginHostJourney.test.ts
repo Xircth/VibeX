@@ -55,6 +55,15 @@ describe("hostJourneyKindsFromIntegrations", () => {
       "app.composer.action",
     ]);
   });
+
+  it("includes provider.model.catalog", () => {
+    expect(
+      hostJourneyKindsFromIntegrations([
+        { kind: "provider.model.catalog" },
+        { kind: "provider.model.importSource" },
+      ]),
+    ).toEqual(["provider.model.catalog"]);
+  });
 });
 
 describe("live contribution catalog", () => {
@@ -67,6 +76,9 @@ describe("live contribution catalog", () => {
   it("maps manifest kinds onto Host catalog keys", () => {
     expect(catalogKindFor("app.command")).toBe("command");
     expect(catalogKindFor("app.panel")).toBe("app_panel");
+    expect(catalogKindFor("provider.model.catalog")).toBe(
+      "provider_model_catalog",
+    );
   });
 
   it("only counts the plugin under test", () => {

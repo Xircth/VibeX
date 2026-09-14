@@ -3,7 +3,21 @@ import { useQuery } from '@tanstack/react-query';
 import type { ImageMetadata } from 'shared/types';
 import type { LocalImageMetadata } from '@/types/local-image-metadata';
 import { backendCall } from '@/lib/backendTransport';
-import { hostFileSrc } from '@/lib/hostAsset';
+import { hostFileSrc, isBrowserDisplayUrl } from '@/lib/hostAsset';
+
+async function withDisplayProxyUrl(
+  data: ImageMetadata
+): Promise<ImageMetadata> {
+  if (!data.proxy_url || isBrowserDisplayUrl(data.proxy_url)) {
+    return data;
+  }
+
+  try {
+    return { ...data, proxy_url: await hostFileSrc(data.proxy_url) };
+  } catch {
+    return data;
+  }
+}
 
 export function useImageMetadata(
   taskAttemptId: string | undefined,
@@ -30,6 +44,7 @@ export function useImageMetadata(
             size_bytes: BigInt(localImage.size_bytes),
             format: localImage.format,
             proxy_url: localImage.proxy_url,
+            updated_at: null,
           }
         : null,
     [localImage]
@@ -50,9 +65,7 @@ export function useImageMetadata(
             path: src,
           }
         );
-        return data.proxy_url
-          ? { ...data, proxy_url: await hostFileSrc(data.proxy_url) }
-          : data;
+        return withDisplayProxyUrl(data);
       }
       if (taskId) {
         const data = await backendCall<ImageMetadata>(
@@ -62,9 +75,7 @@ export function useImageMetadata(
             path: src,
           }
         );
-        return data.proxy_url
-          ? { ...data, proxy_url: await hostFileSrc(data.proxy_url) }
-          : data;
+        return withDisplayProxyUrl(data);
       }
       return null;
     },

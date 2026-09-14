@@ -21,6 +21,7 @@ use crate::{AuthenticatedCredential, runtime::ServerState};
 
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const REVOCATION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_CLIENT_FRAME_BYTES: usize = 1024 * 1024;
 
 struct DurablePollingRegistration;
@@ -98,6 +99,11 @@ async fn handle_socket<R>(
     live_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revocation_ticker = tokio::time::interval(REVOCATION_POLL_INTERVAL);
     revocation_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut keepalive_ticker = tokio::time::interval_at(
+        tokio::time::Instant::now() + KEEP_ALIVE_INTERVAL,
+        KEEP_ALIVE_INTERVAL,
+    );
+    keepalive_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let principal = credential.principal();
     let mut host_events = state.events.subscribe();
 
@@ -107,8 +113,17 @@ async fn handle_socket<R>(
                 let Some(Ok(message)) = incoming else {
                     break;
                 };
-                let Message::Text(text) = message else {
-                    continue;
+                let text = match message {
+                    Message::Close(_) => break,
+                    Message::Ping(payload) => {
+                        if sender.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                    Message::Pong(_) => continue,
+                    Message::Text(text) => text,
+                    Message::Binary(_) => continue,
                 };
                 let message = match serde_json::from_str::<SubscriptionClientMessage>(&text) {
                     Ok(message) => message,
@@ -201,6 +216,11 @@ async fn handle_socket<R>(
                     {
                         return;
                     }
+                }
+            }
+            _ = keepalive_ticker.tick() => {
+                if sender.send(Message::Ping(Default::default())).await.is_err() {
+                    break;
                 }
             }
             _ = live_ticker.tick(), if !subscriptions.is_empty() => {

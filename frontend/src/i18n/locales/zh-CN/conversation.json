@@ -100,6 +100,11 @@
     "collapseMessage": "收起消息",
     "rollbackToHere": "回滚到此处"
   },
+  "attachments": {
+    "closePreview": "关闭预览",
+    "kanbanUnsupported": "当前格式不支持在看板中预览",
+    "workspaceUnsupported": "当前格式暂不支持预览"
+  },
   "nextActionCard": {
     "viewDiffs": "查看差异",
     "filesChanged": "{{count}} 个文件已更改",
@@ -188,7 +193,8 @@
     "optionsLabel": "选项",
     "answerLabel": "回答",
     "declined": "已跳过",
-    "viewDetails": "查看详情"
+    "viewDetails": "查看详情",
+    "kindTag": "Questions"
   },
   "permissionRequestCard": {
     "title": "权限申请",
@@ -288,6 +294,28 @@
     "switchToFileView": "切换文件视图",
     "switchToDiffView": "切换差异视图",
     "pasteImageError": "无法粘贴图片到 Markdown 文件"
+  },
+  "imagePreview": {
+    "wheelToZoom": "滚轮缩放",
+    "dragToPan": "拖动平移",
+    "holdToInsert": "长按插入",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "actualSize": "1:1",
+    "actualSizeAria": "按实际大小查看",
+    "fit": "适应",
+    "fitAria": "适应窗口",
+    "toolView": "移动",
+    "toolRect": "方框",
+    "toolEllipse": "圆框",
+    "toolBrush": "涂抹",
+    "toolText": "文本",
+    "color": "颜色",
+    "strokeWidth": "粗细",
+    "brushSize": "大小",
+    "fontSize": "字号",
+    "deleteAnnotation": "删除标记",
+    "textPlaceholder": "文本"
   },
   "fileTool": {
     "openPreview": "打开预览",

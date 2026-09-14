@@ -264,21 +264,7 @@ fn setup_browser_runtime(
     };
     let app_handle = app.handle().clone();
     let scheduler: PumpScheduler = Arc::new(move |delay_ms| {
-        if delay_ms < 0 {
-            CEF_PUMP_GENERATION.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let generation = CEF_PUMP_GENERATION.load(Ordering::Relaxed);
-        let app_handle = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
-            if delay_ms > 0 {
-                tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
-                if CEF_PUMP_GENERATION.load(Ordering::Relaxed) != generation {
-                    return;
-                }
-            }
-            let _ = app_handle.run_on_main_thread(pump_cef_session);
-        });
+        schedule_cef_pump(&app_handle, delay_ms);
     });
     let wake_scheduler = scheduler.clone();
     let (engine, commands) =
@@ -314,7 +300,33 @@ fn setup_browser_runtime(
             runtime,
         }));
     });
+    // Bind CEF's UI thread to this thread (Tauri setup runs on the main thread).
+    // Lazily initializing from a tokio-scheduled pump can make Chromium treat a
+    // worker as TID_UI and later CHECK-fail with brk #0.
+    pump_cef_session();
     Ok(())
+}
+
+fn schedule_cef_pump(app_handle: &tauri::AppHandle, delay_ms: i64) {
+    if delay_ms < 0 {
+        CEF_PUMP_GENERATION.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    // Immediate work must not hop through tokio. CEF CHECKs that many APIs run
+    // on the thread that called CefInitialize; a tokio-rt-worker is not that.
+    if delay_ms == 0 {
+        let _ = app_handle.run_on_main_thread(pump_cef_session);
+        return;
+    }
+    let generation = CEF_PUMP_GENERATION.load(Ordering::Relaxed);
+    let app_handle = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
+        if CEF_PUMP_GENERATION.load(Ordering::Relaxed) != generation {
+            return;
+        }
+        let _ = app_handle.run_on_main_thread(pump_cef_session);
+    });
 }
 
 fn setup_unavailable_browser_runtime(app: &mut tauri::App, message: String) {

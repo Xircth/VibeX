@@ -54,10 +54,11 @@ const UserMessage = ({
     getExecutorContinuityMode(taskAttempt?.session?.executor ?? null)
   );
   const displayContent = stripTagReferenceAppendix(content);
-  const { text: displayText, images: displayImages } = useMemo(
-    () => splitDisplayContentImages(displayContent),
-    [displayContent]
-  );
+  const {
+    text: displayText,
+    images: displayImages,
+    files: displayFiles,
+  } = useMemo(() => splitDisplayContentImages(displayContent), [displayContent]);
   useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;
@@ -178,6 +179,7 @@ const UserMessage = ({
         <div className="flex w-full max-w-full flex-col items-end gap-1.5">
           <UserMessageAttachments
             images={displayImages}
+            files={displayFiles}
             taskAttemptId={taskAttempt?.id}
           />
 

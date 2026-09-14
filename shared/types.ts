@@ -493,6 +493,7 @@ export type ImageMetadata = {
   size_bytes: bigint | null;
   format: string | null;
   proxy_url: string | null;
+  updated_at?: string | null;
 };
 
 export type CreateTaskAttemptBody = {
@@ -995,7 +996,7 @@ export type AskForApproval =
   | "on-request"
   | "never";
 
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export type ReasoningSummary = "auto" | "concise" | "detailed" | "none";
 
@@ -1309,7 +1310,12 @@ title?: string | null, status?: string | null, content?: string | null,
  */
 input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
-export type AgentUsage = { used: bigint, limit: bigint | null, input_tokens?: bigint | null, output_tokens?: bigint | null, cache_read_tokens?: bigint | null, cache_write_tokens?: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
+export type AgentUsage = { used: bigint, limit: bigint | null, input_tokens?: bigint | null, output_tokens?: bigint | null, cache_read_tokens?: bigint | null, cache_write_tokens?: bigint | null, cost_amount?: number | null, cost_currency?: string | null,
+/**
+ * Agent-advertised model id for this usage sample (`_meta.modelId` or
+ * the session's current model config option). Missing stays missing.
+ */
+model?: string | null, };
 
 export type ImportedAgentMessage = { role: ImportedAgentMessageRole, content: string, created_at?: string | null, metadata?: ImportedAgentMessageMetadata, };
 
@@ -1582,7 +1588,12 @@ context_used?: bigint | null,
  * Context-window size reported by the agent (ACP usage `size`), when
  * provided. None for agents that don't report a window.
  */
-context_window_max: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
+context_window_max: bigint | null, cost_amount?: number | null, cost_currency?: string | null,
+/**
+ * Model id the Agent named for this usage sample. Missing stays missing
+ * (ADR-0075); never inferred from the Agent kind.
+ */
+model?: string | null, };
 
 export type SessionLoadFailureReason = { "kind": "resource_not_found" } | { "kind": "authentication_required", message: string, } | { "kind": "unsupported" } | { "kind": "other", message: string, };
 

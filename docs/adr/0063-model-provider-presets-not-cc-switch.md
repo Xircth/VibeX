@@ -10,6 +10,10 @@ decision-makers:
 > 导入来源已由 [ADR-0069](0069-everything-is-a-plugin-platform.md) 修订：外部供应商
 > 导入从「原生配置、CC Switch」封闭枚举改为 `provider.model.importSource` 插件贡献，
 > CC Switch 导入降为一个内置 provider。「导入不绑定、原生配置为权威」语义不变。
+>
+> [ADR-0079](0079-provider-catalog-templates-are-not-import-sources.md) 划界：供应商
+> 预置目录不是导入源。本 ADR 的导入仍是「收成已有连接」；无密钥模板不走
+> `provider.model.importSource`，目录不在本 ADR 范围内。导入不绑定、原生配置为权威。
 
 设置 → Agent → 鉴权 Provider 管理可复用 Model Provider 预设：卡片列表、启用即互斥绑定、新建/编辑走同栏子页。不恢复已删除的全局「模型提供商」页，也不采用 CC Switch 的全量覆盖 + 本地代理架构。
 

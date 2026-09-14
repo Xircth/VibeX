@@ -900,6 +900,157 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
   });
 
+  it('gives the conversation to a visible workspace slot while the canvas stay-alive surface is hidden', () => {
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({
+      surface,
+    }: {
+      surface: 'canvas' | 'workspace';
+    }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              <div
+                data-testid="canvas-slot"
+                style={surface === 'canvas' ? undefined : { display: 'none' }}
+              >
+                <KanbanSessionConversationView
+                  key="canvas"
+                  workspaceId={workspace.id}
+                  sessionId={session.id}
+                  interactive={true}
+                />
+              </div>
+              {surface === 'workspace' ? (
+                <div data-testid="workspace-slot">
+                  <KanbanSessionConversationView
+                    key="workspace"
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                    interactive={true}
+                    showSessionSelector={true}
+                  />
+                </div>
+              ) : null}
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<PlacementHarness surface="canvas" />);
+    const conversation = screen.getByTestId('virtualized-list');
+    expect(screen.getByTestId('canvas-slot')).toContainElement(conversation);
+
+    rerender(<PlacementHarness surface="workspace" />);
+    expect(screen.getByTestId('virtualized-list')).toBe(conversation);
+    expect(screen.getByTestId('workspace-slot')).toContainElement(conversation);
+  });
+
+  it('returns the conversation to a visible canvas window instead of a remounted hidden execution slot', () => {
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({
+      surface,
+    }: {
+      surface: 'canvas' | 'workspace';
+    }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              <div
+                data-testid="canvas-slot"
+                style={surface === 'canvas' ? undefined : { display: 'none' }}
+              >
+                <KanbanSessionConversationView
+                  key="canvas"
+                  workspaceId={workspace.id}
+                  sessionId={session.id}
+                  interactive={true}
+                />
+              </div>
+              {surface === 'workspace' ? (
+                <div data-testid="workspace-slot">
+                  <KanbanSessionConversationView
+                    key="workspace"
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                    interactive={true}
+                    showSessionSelector={true}
+                  />
+                </div>
+              ) : (
+                <div data-testid="right-slot" style={{ display: 'none' }}>
+                  <KanbanSessionConversationView
+                    key="execution"
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                    interactive={true}
+                    showSessionSelector={true}
+                  />
+                </div>
+              )}
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<PlacementHarness surface="workspace" />);
+    const conversation = screen.getByTestId('virtualized-list');
+    expect(screen.getByTestId('workspace-slot')).toContainElement(conversation);
+
+    rerender(<PlacementHarness surface="canvas" />);
+    expect(screen.getByTestId('virtualized-list')).toBe(conversation);
+    expect(screen.getByTestId('canvas-slot')).toContainElement(conversation);
+    expect(screen.getByTestId('right-slot')).not.toContainElement(conversation);
+  });
+
   it('reuses the same conversation tree when a workspace-route session moves into monitor placement', () => {
     const workspace = createWorkspace('workspace-1');
     const session = createSession('session-1', workspace.id);

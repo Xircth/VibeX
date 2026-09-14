@@ -181,6 +181,16 @@ function formatOptionalCost(
   return value == null ? notProvided : formatCost(value);
 }
 
+function displayUsageLabel(
+  value: string | null | undefined,
+  notProvided: string
+): string {
+  if (value == null || value === '' || value === 'unprovided') {
+    return notProvided;
+  }
+  return value;
+}
+
 function UsageHeatmap({
   sessions,
 }: {
@@ -1287,7 +1297,7 @@ export function KanbanUsageDashboard() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-foreground">
-                            {model.model}
+                            {displayUsageLabel(model.model, notProvided)}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {formatOptionalCost(model.cost, notProvided)} ·{' '}
@@ -1370,9 +1380,7 @@ export function KanbanUsageDashboard() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-foreground">
-                            {agent.agent_id === 'unprovided'
-                              ? notProvided
-                              : agent.agent_id}
+                            {displayUsageLabel(agent.agent_id, notProvided)}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             {t('usageDashboard.sessionsCount', {
@@ -1422,7 +1430,7 @@ export function KanbanUsageDashboard() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-foreground">
-                              {model.model}
+                              {displayUsageLabel(model.model, notProvided)}
                             </span>
                             <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
                               {t('usageDashboard.sessionsCount', {
@@ -1554,7 +1562,7 @@ export function KanbanUsageDashboard() {
                             {formatDate(session.timestamp)}
                           </span>
                           <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            {session.model ?? notProvided}
+                            {displayUsageLabel(session.model, notProvided)}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
                             {formatOptionalNumber(

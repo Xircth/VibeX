@@ -16,6 +16,7 @@ export const PLUGIN_TEMPLATES = [
   "host-service",
   "host-chrome",
   "provider-import",
+  "provider-catalog",
   "hooks",
   "panel",
   "kanban-view",
@@ -118,6 +119,33 @@ export async function scaffoldPlugin(
   }
   if (template === "python-worker") await writePythonWorker(root, id);
   if (template === "rust-worker") await writeRustWorker(root, id);
+  if (template === "provider-catalog") {
+    await mkdir(join(root, "catalogs"), { recursive: true });
+    await writeJson(join(root, "catalogs", "example.json"), {
+      schemaVersion: 1,
+      agentId: "claude_code",
+      templates: [
+        {
+          id: "example-one",
+          name: "Example One",
+          surface: "reusable",
+          apiUrl: "https://api.example.com",
+          model: "example-model",
+          websiteUrl: "https://example.com",
+          category: "community",
+        },
+        {
+          id: "example-two",
+          name: "Example Two",
+          surface: "reusable",
+          apiUrl: "https://api.example.org/v1",
+          model: "example-two",
+          websiteUrl: "https://example.org",
+          category: "community",
+        },
+      ],
+    });
+  }
   return root;
 }
 
@@ -307,6 +335,28 @@ function templateSpec(template: PluginTemplate): TemplateSpec {
         nodeWorker: true,
         usesJsSdk: true,
         hasApp: true,
+        hasSkill: false,
+        hasWorkflow: false,
+        hasMcp: false,
+        hasHook: false,
+      };
+    case "provider-catalog":
+      return {
+        integrations: [
+          {
+            id: "example",
+            kind: "provider.model.catalog",
+            label: "Example presets",
+            resource: "catalogs/example.json",
+            icon: "layers",
+            agents: ["claude_code"],
+          },
+        ],
+        contentItems: [],
+        nodeHandlers: null,
+        nodeWorker: false,
+        usesJsSdk: false,
+        hasApp: false,
         hasSkill: false,
         hasWorkflow: false,
         hasMcp: false,

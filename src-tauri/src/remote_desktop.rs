@@ -9,6 +9,17 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 
+const WS_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+
+fn websocket_keepalive_ticker() -> tokio::time::Interval {
+    let mut ticker = tokio::time::interval_at(
+        tokio::time::Instant::now() + WS_KEEPALIVE_INTERVAL,
+        WS_KEEPALIVE_INTERVAL,
+    );
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker
+}
+
 #[derive(Clone)]
 struct RemoteCredential(String);
 
@@ -406,6 +417,7 @@ async fn pump_host_event_socket(
         .await
         .map_err(internal)?;
     tokio::pin!(cancel_rx);
+    let mut keepalive = websocket_keepalive_ticker();
     loop {
         tokio::select! {
             _ = &mut cancel_rx => {
@@ -416,19 +428,32 @@ async fn pump_host_event_socket(
                 let _ = stream.send(Message::Text(detach.to_string().into())).await;
                 break;
             }
+            _ = keepalive.tick() => {
+                stream
+                    .send(Message::Ping(Vec::new().into()))
+                    .await
+                    .map_err(internal)?;
+            }
             frame = stream.next() => {
                 let Some(frame) = frame else { break };
-                let Message::Text(text) = frame.map_err(internal)? else {
-                    continue;
-                };
-                let Ok(value) = serde_json::from_str::<Value>(&text) else {
-                    continue;
-                };
-                if value.get("type").and_then(Value::as_str) != Some("event") {
-                    continue;
-                }
-                if let Some(payload) = value.pointer("/event/payload") {
-                    emit_host_event_to_window_family(&app, &window_label, &channel, payload);
+                match frame.map_err(internal)? {
+                    Message::Close(_) => break,
+                    Message::Ping(payload) => {
+                        stream.send(Message::Pong(payload)).await.map_err(internal)?;
+                    }
+                    Message::Pong(_) => {}
+                    Message::Text(text) => {
+                        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                            continue;
+                        };
+                        if value.get("type").and_then(Value::as_str) != Some("event") {
+                            continue;
+                        }
+                        if let Some(payload) = value.pointer("/event/payload") {
+                            emit_host_event_to_window_family(&app, &window_label, &channel, payload);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -462,6 +487,7 @@ async fn pump_subscription_socket(
         .await
         .map_err(internal)?;
     tokio::pin!(cancel_rx);
+    let mut keepalive = websocket_keepalive_ticker();
     loop {
         tokio::select! {
             _ = &mut cancel_rx => {
@@ -472,10 +498,23 @@ async fn pump_subscription_socket(
                 let _ = stream.send(Message::Text(detach.to_string().into())).await;
                 break;
             }
+            _ = keepalive.tick() => {
+                stream
+                    .send(Message::Ping(Vec::new().into()))
+                    .await
+                    .map_err(internal)?;
+            }
             frame = stream.next() => {
                 let Some(frame) = frame else { break };
-                let Message::Text(text) = frame.map_err(internal)? else {
-                    continue;
+                let text = match frame.map_err(internal)? {
+                    Message::Close(_) => break,
+                    Message::Ping(payload) => {
+                        stream.send(Message::Pong(payload)).await.map_err(internal)?;
+                        continue;
+                    }
+                    Message::Pong(_) => continue,
+                    Message::Text(text) => text,
+                    _ => continue,
                 };
                 let Ok(value) = serde_json::from_str::<Value>(&text) else {
                     continue;

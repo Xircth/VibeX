@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "agentId": "codex",
+  "templates": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "surface": "reusable",
+      "apiUrl": "https://openrouter.ai/api/v1",
+      "model": "{\"default_model\":\"openai/gpt-5\",\"customs\":[],\"excluded_officials\":[]}",
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "surface": "reusable",
+      "apiUrl": "https://api.deepseek.com/v1",
+      "model": "{\"default_model\":\"deepseek-chat\",\"customs\":[],\"excluded_officials\":[]}",
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "surface": "reusable",
+      "apiUrl": "https://api.moonshot.cn/v1",
+      "model": "{\"default_model\":\"kimi-k2.5\",\"customs\":[],\"excluded_officials\":[]}",
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "surface": "reusable",
+      "apiUrl": "https://api.siliconflow.cn/v1",
+      "model": "{\"default_model\":\"Qwen/Qwen2.5-72B-Instruct\",\"customs\":[],\"excluded_officials\":[]}",
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner"
+    }
+  ]
+}

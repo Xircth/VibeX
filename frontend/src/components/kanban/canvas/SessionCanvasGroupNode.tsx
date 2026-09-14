@@ -74,7 +74,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
           {editing ? (
             <input
               value={draft}
-              className="nodrag nopan min-w-0 flex-1 rounded-md border border-border bg-[var(--surface-control)] px-1.5 py-0.5 text-[14px] font-semibold text-[var(--text-strong)]"
+              className="canvas-group-name-input nodrag nopan min-w-0 flex-1 rounded-md bg-[var(--surface-control)] px-1.5 py-0.5 text-[14px] font-semibold text-[var(--text-strong)] outline-none ring-0"
               autoFocus
               onChange={(event) => setDraft(event.target.value)}
               onBlur={() => {

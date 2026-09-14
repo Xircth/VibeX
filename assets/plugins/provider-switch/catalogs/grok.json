@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "agentId": "grok",
+  "templates": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "surface": "reusable",
+      "apiUrl": "https://openrouter.ai/api/v1",
+      "model": "{\"id\":\"x-ai/grok-4\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"x-ai/grok-4\"]}",
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "surface": "reusable",
+      "apiUrl": "https://api.siliconflow.cn/v1",
+      "model": "{\"id\":\"Qwen/Qwen2.5-72B-Instruct\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"Qwen/Qwen2.5-72B-Instruct\"]}",
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "surface": "reusable",
+      "apiUrl": "https://api.deepseek.com/v1",
+      "model": "{\"id\":\"deepseek-chat\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"deepseek-chat\"]}",
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "surface": "reusable",
+      "apiUrl": "https://api.moonshot.cn/v1",
+      "model": "{\"id\":\"kimi-k2.5\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"kimi-k2.5\"]}",
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime"
+    }
+  ]
+}

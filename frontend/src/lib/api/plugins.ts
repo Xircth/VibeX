@@ -232,6 +232,7 @@ export type PluginContributionKind =
   | 'host_service'
   | 'workflow_binding'
   | 'provider_import_source'
+  | 'provider_model_catalog'
   | 'app_panel'
   | 'app_tab'
   | 'kanban_view'
@@ -453,6 +454,14 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'plugin_contribution_catalog'
       ) as Promise<PluginContributionCatalog>,
+    /** Template directory for the new-provider form. Not modelProviderCatalog. */
+    providerCatalogList: (agentId: string) =>
+      transport.call('provider_catalog_list', { agentId }) as Promise<{
+        agent_id: string;
+        generation: number;
+        templates: unknown[];
+        sources: unknown[];
+      }>,
     invokeContribution: (
       pluginId: string,
       handler: string,

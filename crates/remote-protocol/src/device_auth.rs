@@ -80,6 +80,14 @@ impl DevicePermissionPreset {
         }
     }
 
+    pub fn from_command(value: &str) -> Option<Self> {
+        match value.trim() {
+            "companion" => Some(Self::Companion),
+            "workstation" => Some(Self::Workstation),
+            _ => None,
+        }
+    }
+
     /// Scopes granted to a Workstation Device. Host administration stays off this list.
     pub const fn workstation_scopes() -> &'static [&'static str] {
         &[

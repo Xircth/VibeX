@@ -281,12 +281,14 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Grok plugin（Grok 插件）** — 官方 `grok plugin` 管理的安装物，发现自 `grok plugin list` 或 `~/.grok/installed-plugins`；添加走 `grok plugin install <source> --trust`，移除走 `grok plugin uninstall`。Skill 目录不是 Grok 插件。
 - **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
 - **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
-- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
+- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。供应商预置目录模板在用户保存之前不是预设。
 _Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
 - **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中可复制、可测连。Codex 外部 `model_catalog_json` 属于可启用的原生通道：启用即恢复当时的 `config.toml` 与该外部 catalog 文件，不生成 sidecar、不要求官方 bundled catalog。其它 Agent 的原生项不能启用、编辑或删除；收成预设必须走外部供应商导入。
 - **Provider connection probe（供应商连接探测）** — 用已存凭据对该端点做一次模型目录请求，返回成功或失败与耗时；密钥不出前端。
-- **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。Codex 外部 catalog 不是导入源，不 diff 进 sidecar。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
+- **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。Codex 外部 catalog 不是导入源，不 diff 进 sidecar。无密钥的预置目录模板不是导入候选项；导入仍是收成已有连接。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
 _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
+- **Provider catalog template（供应商预置目录模板）** — 插件向供应商鉴权模式新建表单贡献的无密钥填表模板。点选只填充该表面草稿；用户保存之前它不是 Model Provider preset，也不是外部供应商导入。它不是 OpenCode Provider catalog，也不是对已填端点的模型探测。官方目录以独立市场插件交付、默认禁用，不是能力等价插件。见 [ADR-0079](docs/adr/0079-provider-catalog-templates-are-not-import-sources.md)。
+_Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由 vendor CLI 提供的 agent。预检查与会话只验证 ACP 启动命令（Claude/Codex 为适配器包，Pi 为 `pi-acp`）。PATH 上的 vendor CLI 不是健康项，也不是启动门；原生 ACP 的 Runtime 与 ACP 是同一安装物，预检查只保留一条启动入口。见 [ADR-0010](docs/adr/0010-agent-runtime-topology.md)。

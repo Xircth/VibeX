@@ -41,6 +41,9 @@ export type UseConversationTimelineResult = {
   items: ConversationTimelineItem[];
   sideRows: TimelineRow[];
   agentId: string | null;
+  currentTurnId: string | null;
+  steeringSupported: boolean;
+  forkSessionSupported: boolean;
   loading: boolean;
   error: string | null;
   lastSequence: bigint;
@@ -388,6 +391,13 @@ export function useConversationTimeline(
       items: timelineItemsForEntry(entry),
       sideRows: sideRowsForEntry(entry),
       agentId: entry?.detail?.summary.agent_id ?? null,
+      currentTurnId: entry?.currentTurnId ?? null,
+      steeringSupported: Boolean(
+        entry?.detail?.active_binding?.capabilities.steering
+      ),
+      forkSessionSupported: Boolean(
+        entry?.detail?.active_binding?.capabilities.fork_session
+      ),
       loading: entry?.loading ?? false,
       error: entry?.error ?? null,
       lastSequence: entry?.lastSequence ?? 0n,

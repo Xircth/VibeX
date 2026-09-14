@@ -6,6 +6,7 @@ import {
   DETAIL_CARD_WIDTH,
   canvasNodeId,
   createCanvasNode,
+  expandNode,
 } from './canvasModel';
 import {
   GROUP_GAP,
@@ -14,6 +15,7 @@ import {
   MAX_GROUP_ROWS,
   applyFlowGeometryChanges,
   groupHasRunningSession,
+  lastSelectedCanvasSessionId,
   selectedSessionIdsForViewed,
   applyDropHint,
   buildCanvasFlowLookups,
@@ -121,6 +123,33 @@ describe('grouping', () => {
     expect(
       selectedSessionIdsForViewed(grouped, new Set([group.id, 'a']))
     ).toEqual(['sess-a']);
+  });
+
+  it('binds the last selected canvas session card or window for workspace handoff', () => {
+    const card = createCanvasNode('sess-card', { x: 0, y: 0 }, 'card');
+    const window = expandNode(
+      createCanvasNode('sess-window', { x: 80, y: 0 }, 'window')
+    );
+    const grouped = groupSelection(
+      [card, createCanvasNode('sess-b', { x: 40, y: 0 }, 'b')],
+      new Set(['card', 'b']),
+      'G'
+    );
+    const group = grouped.find((node) => node.kind === 'group')!;
+
+    expect(lastSelectedCanvasSessionId([card, window], new Set())).toBeNull();
+    expect(
+      lastSelectedCanvasSessionId(grouped, new Set([group.id]))
+    ).toBeNull();
+    expect(lastSelectedCanvasSessionId([card, window], new Set(['card']))).toBe(
+      'sess-card'
+    );
+    expect(
+      lastSelectedCanvasSessionId([card, window], new Set(['window']))
+    ).toBe('sess-window');
+    expect(
+      lastSelectedCanvasSessionId([card, window], new Set(['card', 'window']))
+    ).toBe('sess-window');
   });
 
   it('promotes a marquee of grouped cards onto the group without selecting siblings', () => {
@@ -611,7 +640,7 @@ describe('grouping', () => {
     });
   });
 
-  it('applies live drag and resize geometry before mouseup', () => {
+  it('applies live drag geometry and ignores observer-measured sizes', () => {
     const card = createCanvasNode('sess-a', { x: 0, y: 0 }, 'a');
     const moved = applyFlowGeometryChanges(
       [card],
@@ -634,19 +663,19 @@ describe('grouping', () => {
       width: DETAIL_CARD_WIDTH,
       height: DETAIL_CARD_HEIGHT,
     };
-    const resized = applyFlowGeometryChanges(
+    const measured = applyFlowGeometryChanges(
       [windowNode],
       [
         {
           id: canvasNodeId('b'),
           type: 'dimensions',
-          dimensions: { width: 640, height: 500 },
+          dimensions: { width: 120, height: 80 },
         },
       ]
     );
-    expect(resized.find((node) => node.id === 'b')).toMatchObject({
-      width: 640,
-      height: 500,
+    expect(measured.find((node) => node.id === 'b')).toMatchObject({
+      width: DETAIL_CARD_WIDTH,
+      height: DETAIL_CARD_HEIGHT,
     });
   });
 

@@ -111,6 +111,9 @@ describe('settings page alignment', () => {
     );
     const readme = declarationsFor('.settings-page .product-plugin-readme');
     const contents = declarationsFor('.settings-page .product-plugin-contents');
+    const configShell = declarationsFor(
+      '.settings-page .product-plugin-config-shell'
+    );
 
     expect(page.get('overflow')).toBe('hidden');
     expect(detail.get('min-height')).toBe('0');
@@ -119,6 +122,8 @@ describe('settings page alignment', () => {
     expect(readme.get('flex')).toBe('1 1 auto');
     expect(contents.get('overflow-y')).toBe('auto');
     expect(contents.get('min-height')).toBe('0');
+    expect(configShell.get('overflow-y')).toBe('auto');
+    expect(configShell.get('min-height')).toBe('0');
   });
 
   it('keeps the import track compact and accent-filled', () => {

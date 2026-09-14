@@ -42,6 +42,9 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.remote-ssh', 'fallback', t)).toBe(
       'Remote SSH'
     );
+    expect(officialPluginName('vibex.provider-switch', 'fallback', t)).toBe(
+      '供应商预置'
+    );
     expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
@@ -70,6 +73,9 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.remote-ssh', 'fallback', en)).toBe(
       'Remote SSH'
+    );
+    expect(officialPluginName('vibex.provider-switch', 'fallback', en)).toBe(
+      'Provider catalog'
     );
     expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
       'Scientific Research'

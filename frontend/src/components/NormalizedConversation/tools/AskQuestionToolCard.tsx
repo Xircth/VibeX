@@ -1,4 +1,4 @@
-import { CircleHelp, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -68,53 +68,55 @@ export function AskQuestionToolCard({
       role="group"
       aria-label={title}
       data-testid="ask-question-tool-card"
-      className="rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
+      className="ask-question-tool-card rounded-lg border border-border bg-card px-5 py-4 text-sm text-card-foreground"
     >
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted text-muted-foreground">
-          <CircleHelp className="h-3.5 w-3.5" />
+      <div className="min-w-0">
+        <span
+          ref={titleRef}
+          data-testid="ask-question-title"
+          title={title}
+          className={cn(
+            'ask-question-tool-title min-w-0 w-full font-medium text-foreground',
+            titleOverflows && 'is-overflow'
+          )}
+        >
+          {title}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              ref={titleRef}
-              data-testid="ask-question-title"
-              title={title}
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            aria-expanded={open}
+            onClick={() => setOpen((current) => !current)}
+          >
+            <ChevronRight
+              aria-hidden
               className={cn(
-                'ask-question-tool-title min-w-0 w-full font-medium text-foreground',
-                titleOverflows && 'is-overflow'
+                'h-3.5 w-3.5 transition-transform',
+                open && 'rotate-90'
               )}
-            >
-              {title}
-            </span>
-          </div>
-          <div className="mt-2">
-            <button
-              type="button"
-              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-              aria-expanded={open}
-              onClick={() => setOpen((current) => !current)}
-            >
-              <ChevronRight
-                aria-hidden
-                className={cn(
-                  'h-3.5 w-3.5 transition-transform',
-                  open && 'rotate-90'
-                )}
-              />
-              {t('askQuestion.viewDetails')}
-            </button>
-            {open ? (
-              <div className="mt-1.5">
-                <AgentQuestionCard
-                  request={resolvedRequest}
-                  mode="readonly"
-                  answers={answers}
-                />
-              </div>
-            ) : null}
-          </div>
+            />
+            {t('askQuestion.viewDetails')}
+          </button>
+          <span
+            data-testid="ask-question-kind-tag"
+            className="ask-question-kind-tag ml-auto"
+          >
+            {t('askQuestion.kindTag')}
+          </span>
         </div>
+        {open ? (
+          <div
+            data-testid="ask-question-detail-well"
+            className="ask-question-detail-well"
+          >
+            <AgentQuestionCard
+              request={resolvedRequest}
+              mode="readonly"
+              answers={answers}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

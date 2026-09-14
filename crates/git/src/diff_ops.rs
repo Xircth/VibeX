@@ -278,6 +278,22 @@ impl GitService {
         let workdir = repo.workdir()?;
         let abs_path = workdir.join(rel_path);
 
+        match std::fs::metadata(&abs_path) {
+            Ok(meta) if meta.len() as usize > MAX_INLINE_DIFF_BYTES => {
+                tracing::debug!(
+                    "Skipping large file ({}KB): {:?}",
+                    meta.len() / 1024,
+                    abs_path
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::debug!("Failed to stat file from filesystem: {:?}: {}", abs_path, e);
+                return None;
+            }
+            Ok(_) => {}
+        }
+
         let bytes = match std::fs::read(&abs_path) {
             Ok(bytes) => bytes,
             Err(e) => {

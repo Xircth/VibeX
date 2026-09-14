@@ -1,5 +1,6 @@
 use std::{
     ffi::OsString,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -215,9 +216,37 @@ fn normalize_windows_verbatim_input(path: &str) -> String {
     path.to_string()
 }
 
-fn read_utf8_text_file(path: &Path, display_path: &str) -> Result<String, AppError> {
-    let bytes = std::fs::read(path)
+fn read_file_bytes_bounded(
+    path: &Path,
+    display_path: &str,
+    limit: usize,
+) -> Result<(Vec<u8>, bool), AppError> {
+    let file = std::fs::File::open(path)
         .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", display_path, e)))?;
+    let metadata_len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let mut bytes = Vec::new();
+    file.take(limit as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", display_path, e)))?;
+    Ok((bytes, metadata_len > limit as u64))
+}
+
+fn read_utf8_text_file(path: &Path, display_path: &str) -> Result<String, AppError> {
+    read_utf8_text_file_with_limit(path, display_path, MAX_OPEN_TEXT_FILE_BYTES)
+}
+
+fn read_utf8_text_file_with_limit(
+    path: &Path,
+    display_path: &str,
+    limit: usize,
+) -> Result<String, AppError> {
+    let (bytes, truncated) = read_file_bytes_bounded(path, display_path, limit)?;
+    if truncated {
+        return Err(AppError::BadRequest(format!(
+            "File is too large to open as text: {}",
+            display_path
+        )));
+    }
 
     if bytes.contains(&0) {
         return Err(AppError::BadRequest(format!(
@@ -245,6 +274,7 @@ pub struct ReadFileResponse {
 // Constants
 
 const MAX_READ_FILE_BYTES: usize = 512 * 1024;
+const MAX_OPEN_TEXT_FILE_BYTES: usize = 32 * 1024 * 1024;
 
 const PASTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpeg", "jpg", "gif", "webp", "bmp"];
 const MAX_PASTED_IMAGE_BYTES: usize = 15 * 1024 * 1024;
@@ -541,12 +571,8 @@ pub async fn read_file_with_truncation(
     let file_path = resolve_existing_file_path(&path)?;
 
     let limit = max_bytes.unwrap_or(MAX_READ_FILE_BYTES);
-    let bytes = std::fs::read(&file_path)
-        .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", path, e)))?;
-
-    let truncated = bytes.len() > limit;
-    let slice = if truncated { &bytes[..limit] } else { &bytes };
-    let content = String::from_utf8_lossy(slice).to_string();
+    let (bytes, truncated) = read_file_bytes_bounded(&file_path, &path, limit)?;
+    let content = String::from_utf8_lossy(&bytes).to_string();
 
     Ok(ReadFileResponse { content, truncated })
 }
@@ -591,9 +617,9 @@ mod tests {
 
     use super::{
         copy_item_path, create_directory_at_path, delete_file_or_directory,
-        expand_workflow_source_home, move_item_path, read_file_content_at_path,
-        read_utf8_text_file, sanitize_file_path, save_file_content_at_path,
-        write_pasted_image_asset,
+        expand_workflow_source_home, move_item_path, read_file_bytes_bounded,
+        read_file_content_at_path, read_utf8_text_file, read_utf8_text_file_with_limit,
+        sanitize_file_path, save_file_content_at_path, write_pasted_image_asset,
     };
     use crate::error::AppError;
 
@@ -834,6 +860,37 @@ mod tests {
                 .to_string()
                 .contains("Binary file cannot be opened as text")
         );
+    }
+
+    #[test]
+    fn read_file_bytes_bounded_stops_at_the_limit() {
+        let path = temp_file_path("bounded");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&[b'a'; 64]).unwrap();
+        drop(file);
+
+        let (bytes, truncated) =
+            read_file_bytes_bounded(&path, &path.display().to_string(), 16).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(bytes.len(), 16);
+        assert!(truncated);
+        assert!(bytes.iter().all(|byte| *byte == b'a'));
+    }
+
+    #[test]
+    fn read_utf8_text_file_rejects_files_over_the_open_limit() {
+        let path = temp_file_path("too-large");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"abcdefghijklmnop").unwrap();
+        drop(file);
+
+        let error =
+            read_utf8_text_file_with_limit(&path, &path.display().to_string(), 8).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(error.to_string().contains("too large to open as text"));
     }
 
     #[tokio::test]

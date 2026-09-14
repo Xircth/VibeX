@@ -23,8 +23,10 @@ import {
 
 export function ConversationSelectionToolbar({
   rootRef,
+  conversationId,
 }: {
   rootRef: RefObject<HTMLElement | null>;
+  conversationId?: string | null;
 }) {
   const { t } = useTranslation('common');
   const portalContainer = usePortalContainer();
@@ -119,6 +121,7 @@ export function ConversationSelectionToolbar({
           requestComposerTokenInsert({
             value: formatQuoteToken(state.text),
             label: quoteTokenChipLabel(state.text),
+            conversationId,
           });
           window.getSelection()?.removeAllRanges();
           hide();

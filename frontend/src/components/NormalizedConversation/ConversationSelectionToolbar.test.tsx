@@ -32,7 +32,10 @@ describe('ConversationSelectionToolbar', () => {
         <div ref={rootRef}>
           <p>请你帮我完成这次修改</p>
         </div>
-        <ConversationSelectionToolbar rootRef={rootRef} />
+        <ConversationSelectionToolbar
+          rootRef={rootRef}
+          conversationId="conv-quote-source"
+        />
       </div>
     );
 
@@ -52,6 +55,7 @@ describe('ConversationSelectionToolbar', () => {
     expect(insertToken).toHaveBeenCalledWith({
       value: formatQuoteToken('请你帮我完成这次修改'),
       label: '@请你帮我...',
+      conversationId: 'conv-quote-source',
     });
     await waitFor(() => {
       expect(screen.queryByRole('toolbar')).toBeNull();
@@ -73,7 +77,10 @@ describe('ConversationSelectionToolbar', () => {
             Use <strong>bold</strong> and <code>code</code>
           </p>
         </div>
-        <ConversationSelectionToolbar rootRef={rootRef} />
+        <ConversationSelectionToolbar
+          rootRef={rootRef}
+          conversationId="conv-quote-source"
+        />
       </div>
     );
 
@@ -89,6 +96,7 @@ describe('ConversationSelectionToolbar', () => {
     expect(insertToken).toHaveBeenCalledWith({
       value: formatQuoteToken('Use **bold** and `code`'),
       label: '@Use ...',
+      conversationId: 'conv-quote-source',
     });
   });
 });

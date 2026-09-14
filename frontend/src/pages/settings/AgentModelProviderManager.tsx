@@ -51,6 +51,9 @@ import {
   CodexModelConfigFields,
   type CustomModelTestState,
 } from './CodexModelCatalogEditor';
+import { ProviderCatalogPicker } from './ProviderCatalogPicker';
+import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+import { useProviderCatalogList } from './useProviderCatalogList';
 
 // `model` fields hold a model id and can be picked from the detected catalog;
 // `text` fields (the custom option's display name and description) are prose.
@@ -135,6 +138,12 @@ export function AgentModelProviderManager({
   const [probes, setProbes] = useState<
     Record<string, AgentModelProviderProbeView | 'loading'>
   >({});
+  const catalogEnabled = surface === 'form' && !id;
+  const { catalog, catalogError, catalogGeneration, hasCatalogContributions } =
+    useProviderCatalogList(agentId, catalogEnabled);
+  const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
+  const [websiteUrl, setWebsiteUrl] = useState<string | null>(null);
+  const [apiKeyUrl, setApiKeyUrl] = useState<string | null>(null);
   const formDirty = Boolean(id || name || apiUrl || apiKey || model);
 
   useEffect(() => {
@@ -195,6 +204,22 @@ export function AgentModelProviderManager({
     setDetectedCatalog(null);
     setDetectionError(null);
     setCustomModelTests({});
+    setEndpointCandidates([]);
+    setWebsiteUrl(null);
+    setApiKeyUrl(null);
+  };
+
+  const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
+    setName(template.name);
+    setApiUrl(template.api_url?.trim() || '');
+    setApiKey('');
+    setModel(template.model ?? '');
+    setDetectedCatalog(null);
+    setDetectionError(null);
+    setCustomModelTests({});
+    setEndpointCandidates(template.endpoint_candidates ?? []);
+    setWebsiteUrl(template.website_url ?? null);
+    setApiKeyUrl(template.api_key_url ?? null);
   };
 
   const openCreate = () => {
@@ -738,6 +763,26 @@ export function AgentModelProviderManager({
             : t('settings:agents.providerNew')}
         </strong>
       </div>
+      {!id && hasCatalogContributions ? (
+        <ProviderCatalogPicker
+          disabled={busy}
+          generation={catalog?.generation ?? catalogGeneration}
+          showCustomTile
+          templates={catalog?.templates ?? []}
+          onSelect={(next) => {
+            if (next === 'custom') {
+              resetForm();
+              return;
+            }
+            applyCatalogTemplate(next);
+          }}
+        />
+      ) : null}
+      {catalogError ? (
+        <p className="agent-model-provider-error" role="alert">
+          {catalogError}
+        </p>
+      ) : null}
       <div className="agent-model-provider-form-grid">
         <label>
           <span>{t('settings:agents.name')}</span>
@@ -767,6 +812,35 @@ export function AgentModelProviderManager({
             }}
           />
         </label>
+        {endpointCandidates.length > 1 ? (
+          <AstryxSelect
+            disabled={busy}
+            options={endpointCandidates.map((candidate) => ({
+              value: candidate,
+              label: candidate,
+            }))}
+            value={apiUrl}
+            onChange={(value) => {
+              setApiUrl(value);
+              setDetectedCatalog(null);
+              setDetectionError(null);
+            }}
+          />
+        ) : null}
+        {websiteUrl || apiKeyUrl ? (
+          <div className="agent-model-provider-catalog-links">
+            {websiteUrl ? (
+              <a href={websiteUrl} rel="noopener noreferrer" target="_blank">
+                {t('settings:agents.providerCatalogWebsite')}
+              </a>
+            ) : null}
+            {apiKeyUrl ? (
+              <a href={apiKeyUrl} rel="noopener noreferrer" target="_blank">
+                {t('settings:agents.providerCatalogGetKey')}
+              </a>
+            ) : null}
+          </div>
+        ) : null}
         <ProviderSecretField
           key={id ?? 'create'}
           agentId={agentId}

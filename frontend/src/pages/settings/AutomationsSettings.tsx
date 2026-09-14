@@ -915,6 +915,7 @@ export function AutomationsSettings({
                   <div className="rounded-lg border border-border bg-background p-2">
                     <SessionComposerInput
                       value={draft.prompt}
+                      acceptExternalInserts={false}
                       context={{
                         projectId: draft.projectId,
                         executorProfile: draft.executorProfileId,

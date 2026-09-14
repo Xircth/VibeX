@@ -45,6 +45,7 @@ type VirtualItemPosition = {
 };
 
 const BOTTOM_SCROLL_THRESHOLD_PX = 48;
+export const CONVERSATION_OPEN_SETTLE_PASSES = 12;
 
 export function findViewportAnchorVirtualIndex(
   virtualItems: VirtualItemPosition[],
@@ -110,6 +111,26 @@ export function isConversationNearBottom(
   thresholdPx = BOTTOM_SCROLL_THRESHOLD_PX
 ): boolean {
   return getDistanceFromConversationBottom(metrics) <= thresholdPx;
+}
+
+export function conversationOpenPinState(input: {
+  settlePassesRemaining: number;
+  itemCount: number;
+  nearBottom: boolean;
+}): { pinned: boolean; settlePassesRemaining: number } {
+  if (input.settlePassesRemaining > 0) {
+    return {
+      pinned: true,
+      settlePassesRemaining:
+        input.itemCount === 0
+          ? input.settlePassesRemaining
+          : input.settlePassesRemaining - 1,
+    };
+  }
+  return {
+    pinned: input.nearBottom,
+    settlePassesRemaining: 0,
+  };
 }
 
 export function pendingAgentPermissionsFromEvents(

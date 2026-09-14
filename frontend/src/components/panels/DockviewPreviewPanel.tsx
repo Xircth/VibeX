@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type MouseEventHandler,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -139,6 +140,34 @@ function dirnamePath(filePath: string): string {
   return normalized.slice(0, index);
 }
 
+function WorkspaceImagePreviewShell({
+  src,
+  alt,
+  isPanelRoot = false,
+  onContextMenu,
+}: {
+  src: string;
+  alt: string;
+  isPanelRoot?: boolean;
+  onContextMenu?: MouseEventHandler<HTMLDivElement>;
+}) {
+  return (
+    <div
+      className="h-full min-h-0 w-full overflow-hidden bg-muted/10 p-1"
+      data-panel={isPanelRoot ? 'preview' : undefined}
+      data-testid="workspace-image-preview-shell"
+      onContextMenu={onContextMenu}
+    >
+      <ZoomableImagePreview
+        src={src}
+        alt={alt}
+        className="h-full min-h-0 w-full"
+        viewportClassName="border border-border bg-background"
+      />
+    </div>
+  );
+}
+
 function PreviewPlaceholder({
   icon,
   title,
@@ -146,7 +175,7 @@ function PreviewPlaceholder({
 }: {
   icon: ComponentType<{ className?: string }>;
   title: string;
-  description: string;
+  description?: string;
 }) {
   const Icon = icon;
 
@@ -155,7 +184,9 @@ function PreviewPlaceholder({
       <Icon className="h-10 w-10 opacity-50" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="text-xs">{description}</p>
+        {description && description !== title ? (
+          <p className="text-xs">{description}</p>
+        ) : null}
       </div>
     </div>
   );
@@ -520,9 +551,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
     if (imageSource) {
       return (
-        <div
-          className="flex h-full w-full items-center justify-center overflow-auto bg-muted/10 p-4"
-          data-panel="preview"
+        <WorkspaceImagePreviewShell
+          src={imageSource}
+          alt={displayPath ?? 'Image'}
+          isPanelRoot
           onContextMenu={(event) => {
             openSurfaceMenu(event, [
               {
@@ -541,14 +573,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               },
             ]);
           }}
-        >
-          <ZoomableImagePreview
-            src={imageSource}
-            alt={displayPath ?? 'Image'}
-            className="h-full w-full"
-            viewportClassName="border border-border bg-background shadow-sm"
-          />
-        </div>
+        />
       );
     }
 
@@ -824,11 +849,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : effectivePreviewKind === 'binary' ? (
           <PreviewPlaceholder
             icon={FileWarning}
-            title="Binary file preview is not supported"
-            description={
-              contentErrorMessage ??
-              'This asset cannot be opened as UTF-8 text in the editor preview.'
-            }
+            title={t('attachments.workspaceUnsupported')}
+            description={contentErrorMessage ?? undefined}
           />
         ) : effectivePreviewKind === 'image' ? (
           isLoadingBinaryAsset ? (
@@ -836,26 +858,20 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               fileName={resolvedDisplayPath ?? filePath}
               label={`Opening ${resolvedDisplayPath ?? filePath}`}
             />
+          ) : fileAssetSrc ? (
+            <WorkspaceImagePreviewShell
+              src={fileAssetSrc}
+              alt={resolvedDisplayPath ?? filePath}
+            />
           ) : (
-            <div className="flex h-full items-center justify-center overflow-auto bg-muted/10 p-4">
-              {fileAssetSrc ? (
-                <ZoomableImagePreview
-                  src={fileAssetSrc}
-                  alt={resolvedDisplayPath ?? filePath}
-                  className="h-full w-full"
-                  viewportClassName="border border-border bg-background shadow-sm"
-                />
-              ) : (
-                <PreviewPlaceholder
-                  icon={ImageIcon}
-                  title="Image preview is unavailable"
-                  description={
-                    binaryAssetErrorMessage ??
-                    'The image data could not be loaded for this file.'
-                  }
-                />
-              )}
-            </div>
+            <PreviewPlaceholder
+              icon={ImageIcon}
+              title="Image preview is unavailable"
+              description={
+                binaryAssetErrorMessage ??
+                'The image data could not be loaded for this file.'
+              }
+            />
           )
         ) : effectivePreviewKind === 'pdf' ? (
           isLoadingBinaryAsset ? (

@@ -8,6 +8,7 @@ import type {
 } from './backendTransport';
 
 const PROTOCOL_VERSION = '1.0';
+export const WEB_SOCKET_KEEPALIVE_MS = 15_000;
 
 export interface WebTransportOptions {
   baseUrl: string;
@@ -111,8 +112,12 @@ export class WebTransport implements BackendTransport {
   private readonly token: string;
   private socket: WebSocket | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private pingTimer: ReturnType<typeof setInterval> | undefined;
   private reconnectAttempts = 0;
+  private awaitingPong = false;
   private destroyed = false;
+  private visibilityListener: (() => void) | undefined;
+  private onlineListener: (() => void) | undefined;
   private readonly subscriptions = new Map<string, ActiveSubscription>();
 
   constructor(options: WebTransportOptions) {
@@ -214,6 +219,8 @@ export class WebTransport implements BackendTransport {
 
   destroy(): void {
     this.destroyed = true;
+    this.stopKeepalive();
+    this.detachLifecycleListeners();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -267,11 +274,14 @@ export class WebTransport implements BackendTransport {
       `vibex.token.${base64UrlEncode(this.token)}`,
     ]);
     this.socket = socket;
+    this.attachLifecycleListeners();
     socket.onopen = () => {
       if (this.socket !== socket || this.destroyed) {
         return;
       }
       this.reconnectAttempts = 0;
+      this.awaitingPong = false;
+      this.startKeepalive();
       for (const subscription of this.subscriptions.values()) {
         this.sendAttach(subscription);
       }
@@ -291,6 +301,7 @@ export class WebTransport implements BackendTransport {
       if (this.socket !== socket) {
         return;
       }
+      this.stopKeepalive();
       this.socket = undefined;
       if (!this.destroyed && this.subscriptions.size > 0) {
         this.scheduleReconnect();
@@ -312,6 +323,7 @@ export class WebTransport implements BackendTransport {
 
   private handleServerMessage(message: WireServerMessage): void {
     if (message.type === 'pong') {
+      this.awaitingPong = false;
       return;
     }
     if (message.type === 'error') {
@@ -424,6 +436,71 @@ export class WebTransport implements BackendTransport {
       }
     } catch {
       // Abort and disconnect are expected when the panel closes.
+    }
+  }
+
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.pingTimer = setInterval(() => {
+      const socket = this.socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      if (this.awaitingPong) {
+        socket.close();
+        return;
+      }
+      this.awaitingPong = true;
+      socket.send(JSON.stringify({ type: 'ping' }));
+    }, WEB_SOCKET_KEEPALIVE_MS);
+  }
+
+  private stopKeepalive(): void {
+    if (!this.pingTimer) {
+      return;
+    }
+    clearInterval(this.pingTimer);
+    this.pingTimer = undefined;
+    this.awaitingPong = false;
+  }
+
+  private attachLifecycleListeners(): void {
+    if (this.visibilityListener || typeof document === 'undefined') {
+      return;
+    }
+    this.visibilityListener = () => {
+      if (document.visibilityState === 'visible') {
+        this.probeOrReconnect();
+      }
+    };
+    this.onlineListener = () => this.probeOrReconnect();
+    document.addEventListener('visibilitychange', this.visibilityListener);
+    window.addEventListener('online', this.onlineListener);
+  }
+
+  private detachLifecycleListeners(): void {
+    if (this.visibilityListener) {
+      document.removeEventListener('visibilitychange', this.visibilityListener);
+      this.visibilityListener = undefined;
+    }
+    if (this.onlineListener) {
+      window.removeEventListener('online', this.onlineListener);
+      this.onlineListener = undefined;
+    }
+  }
+
+  private probeOrReconnect(): void {
+    if (this.destroyed || this.subscriptions.size === 0) {
+      return;
+    }
+    const socket = this.socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      this.awaitingPong = true;
+      socket.send(JSON.stringify({ type: 'ping' }));
+      return;
+    }
+    if (!socket) {
+      this.connectSocket();
     }
   }
 

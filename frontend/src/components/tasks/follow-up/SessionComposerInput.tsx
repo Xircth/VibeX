@@ -16,14 +16,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import {
-  FileText,
-  FolderOpen,
-  Image,
-  Loader2,
-  MousePointer2,
-  X,
-} from 'lucide-react';
+import { FolderOpen, Image, Loader2, MousePointer2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId } from 'shared/types';
 import {
@@ -43,15 +36,12 @@ import {
 } from './SessionComposerStructuredText';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
+import { hostFileSrc, isBrowserDisplayUrl } from '@/lib/hostAsset';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { toast } from '@/components/ui/toast';
 import { materializeMentionedHostFiles } from '@/lib/materializeHostReferences';
 import { mentionedHostFileNames } from '@/lib/savedHostSshConfig';
-import {
-  fileTreeApi,
-  type AgentLocalSkill,
-  type AgentSkillsListResult,
-} from '@/lib/api';
+import { type AgentLocalSkill, type AgentSkillsListResult } from '@/lib/api';
 import {
   configuredBackendTransport,
   type BackendTransport,
@@ -72,6 +62,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   COMPOSER_INSERT_EVENT,
+  shouldAcceptComposerInsert,
   type ComposerInsertDetail,
 } from '@/lib/composerInsert';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
@@ -82,11 +73,11 @@ import {
   readImageFilesFromNavigatorClipboard,
 } from '@/utils/clipboard';
 import { formatFileRangeRef } from '@/utils/codeSelection';
+import { AttachmentFileCard } from '@/components/NormalizedConversation/attachments/AttachmentFileCard';
 import {
+  attachmentPreviewKind,
   fileExtension,
   isAttachableFile,
-  isImageExtension,
-  isVideoExtension,
 } from '@/utils/mediaAttachments';
 import {
   FILE_REFERENCE_DRAG_MIME,
@@ -98,6 +89,12 @@ import {
   clearCurrentDraggedFileReference,
   getCurrentDraggedFileReference,
 } from '@/utils/fileReferenceDrag';
+import {
+  ANNOTATED_IMAGE_DROP_EVENT,
+  clearCurrentDraggedAnnotatedImage,
+  getCurrentDraggedAnnotatedImage,
+  subscribeAnnotatedImageDrag,
+} from '@/components/previews/imagePreviewDrag';
 import {
   agentMentionsToTypeaheadOptions,
   dollarCommandsToTypeaheadOptions,
@@ -159,6 +156,7 @@ type SessionComposerInputProps = {
   className?: string;
   context?: SessionComposerInputContext;
   messageHistory?: readonly string[];
+  acceptExternalInserts?: boolean;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onAttachImages: (files: File[]) => void;
@@ -170,12 +168,6 @@ function attachableFilesFromFileList(
   return Array.from(files ?? [])
     .filter(isAttachableFile)
     .map(prepareImageFileForUpload);
-}
-
-function attachmentPreviewKind(extension: string): 'image' | 'video' | 'file' {
-  if (isVideoExtension(extension)) return 'video';
-  if (isImageExtension(extension)) return 'image';
-  return 'file';
 }
 
 /**
@@ -258,8 +250,13 @@ function SessionComposerImageAttachment({
     image.previewUrl && !previewUrlFailed
       ? image.previewUrl
       : metadata?.proxy_url;
-  const imageUrl = fallbackImageUrl ?? primaryImageUrl;
+  const rawImageUrl = fallbackImageUrl ?? primaryImageUrl;
+  const imageUrl = isBrowserDisplayUrl(rawImageUrl) ? rawImageUrl : undefined;
   const label = metadata?.file_name ?? image.name;
+  const previewKind = attachmentPreviewKind(
+    image.name || metadata?.file_name || '',
+    metadata?.format
+  );
 
   useEffect(() => {
     setFallbackImageUrl(null);
@@ -270,9 +267,29 @@ function SessionComposerImageAttachment({
     setPreviewUrlFailed(false);
   }, [image.previewUrl]);
 
-  const previewKind = attachmentPreviewKind(
-    fileExtension(image.name) || metadata?.format || ''
-  );
+  useEffect(() => {
+    if (previewKind === 'file' || imageUrl || isLoading || !metadata?.path) {
+      return;
+    }
+
+    let cancelled = false;
+    hostFileSrc(metadata.path)
+      .then((url) => {
+        if (!cancelled) {
+          setFallbackImageUrl(url);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('Failed to load composer image fallback:', error);
+        if (!cancelled) {
+          setImageLoadFailed(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, isLoading, metadata?.path, previewKind]);
 
   const handlePreview = useCallback(() => {
     if (previewKind === 'file' || !imageUrl || imageLoadFailed) return;
@@ -306,18 +323,39 @@ function SessionComposerImageAttachment({
       return;
     }
 
-    fileTreeApi
-      .readBinaryAsset(metadata.path)
-      .then((asset) => {
-        setFallbackImageUrl(
-          `data:${asset.mime_type};base64,${asset.data_base64}`
-        );
+    hostFileSrc(metadata.path)
+      .then((url) => {
+        setFallbackImageUrl(url);
       })
       .catch((error: unknown) => {
         console.warn('Failed to load composer image fallback:', error);
         setImageLoadFailed(true);
       });
   }, [fallbackImageUrl, image.previewUrl, imageUrl, metadata?.path]);
+
+  if (previewKind === 'file') {
+    return (
+      <div
+        className="group relative"
+        data-testid="session-composer-file-attachment"
+      >
+        <AttachmentFileCard
+          name={label}
+          sizeBytes={metadata?.size_bytes}
+          modifiedAt={metadata?.updated_at}
+        />
+        <button
+          type="button"
+          className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={handleRemove}
+          disabled={disabled}
+          aria-label={`Remove ${label}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -328,20 +366,10 @@ function SessionComposerImageAttachment({
         type="button"
         className="flex h-full w-full items-center justify-center overflow-hidden outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-default"
         onClick={handlePreview}
-        disabled={previewKind === 'file' || !imageUrl || imageLoadFailed}
-        aria-label={previewKind === 'file' ? label : `Preview ${label}`}
+        disabled={!imageUrl || imageLoadFailed}
+        aria-label={`Preview ${label}`}
       >
-        {previewKind === 'file' ? (
-          <span
-            className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1 text-muted-foreground"
-            data-testid="session-composer-file-attachment"
-          >
-            <FileText className="h-5 w-5" />
-            <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
-              {fileExtension(label).toUpperCase() || label}
-            </span>
-          </span>
-        ) : imageUrl && !imageLoadFailed ? (
+        {imageUrl && !imageLoadFailed ? (
           previewKind === 'video' ? (
             <video
               src={imageUrl}
@@ -406,7 +434,7 @@ export function SessionComposerAttachmentDrawer({
       className="session-composer-attachment-drawer"
       data-testid="session-composer-attachment-drawer"
     >
-      <div className="flex flex-wrap gap-2">
+      <div className="session-composer-attachment-row">
         {images.map((image) => (
           <SessionComposerImageAttachment
             key={image.id}
@@ -861,6 +889,7 @@ export function SessionComposerInput({
   className,
   context,
   messageHistory,
+  acceptExternalInserts = true,
   onChange,
   onSubmit,
   onAttachImages,
@@ -1365,6 +1394,14 @@ export function SessionComposerInput({
   useEffect(() => {
     const onInsert = (event: Event) => {
       const detail = (event as CustomEvent<ComposerInsertDetail>).detail;
+      if (
+        !shouldAcceptComposerInsert(detail, {
+          conversationId: sessionId,
+          acceptExternalInserts,
+        })
+      ) {
+        return;
+      }
       if (!detail || detail.mode !== 'token' || !detail.text) return;
       insertStructuredTokenAtCaret({
         value: detail.text,
@@ -1375,7 +1412,7 @@ export function SessionComposerInput({
     return () => {
       window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
     };
-  }, [insertStructuredTokenAtCaret]);
+  }, [acceptExternalInserts, insertStructuredTokenAtCaret, sessionId]);
 
   // P2-4: consume a code selection requested from a file viewer, inserting a
   // `@path:start-end` reference at the caret (or end of input).
@@ -1464,13 +1501,47 @@ export function SessionComposerInput({
       handleCustomDrop as EventListener
     );
 
+    const handleAnnotatedImageDrop = (event: Event) => {
+      const file = (event as CustomEvent<File>).detail;
+      if (!(file instanceof File)) {
+        return;
+      }
+      onAttachImages([prepareImageFileForUpload(file)]);
+      clearCurrentDraggedAnnotatedImage();
+      setComposerDropActive(false);
+    };
+    dropZone.addEventListener(
+      ANNOTATED_IMAGE_DROP_EVENT,
+      handleAnnotatedImageDrop as EventListener
+    );
+
     return () => {
       dropZone.removeEventListener(
         'vibe-file-reference-drop',
         handleCustomDrop as EventListener
       );
+      dropZone.removeEventListener(
+        ANNOTATED_IMAGE_DROP_EVENT,
+        handleAnnotatedImageDrop as EventListener
+      );
     };
-  }, [insertDroppedFileReference]);
+  }, [insertDroppedFileReference, onAttachImages, setComposerDropActive]);
+
+  useEffect(() => {
+    return subscribeAnnotatedImageDrag((state) => {
+      const zone = dropZoneRef.current;
+      if (!state.isDragging) {
+        return;
+      }
+      if (!zone || !state.pointer) {
+        setComposerDropActive(false);
+        return;
+      }
+      setComposerDropActive(
+        isPointInElement(zone, state.pointer.x, state.pointer.y)
+      );
+    });
+  }, [setComposerDropActive]);
 
   useEffect(() => {
     if (disabled) {
@@ -1528,6 +1599,15 @@ export function SessionComposerInput({
         event.preventDefault();
         event.stopPropagation();
         insertDroppedFileReference(fileReference);
+        return;
+      }
+
+      const annotatedImage = getCurrentDraggedAnnotatedImage();
+      if (annotatedImage) {
+        event.preventDefault();
+        event.stopPropagation();
+        onAttachImages([prepareImageFileForUpload(annotatedImage)]);
+        clearCurrentDraggedAnnotatedImage();
         return;
       }
 

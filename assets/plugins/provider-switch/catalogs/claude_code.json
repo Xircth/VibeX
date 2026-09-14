@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "agentId": "claude_code",
+  "templates": [
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "surface": "reusable",
+      "apiUrl": "https://api.moonshot.cn/anthropic",
+      "model": "{\"main\":\"kimi-k2.5\",\"haiku\":\"kimi-k2.5\",\"sonnet\":\"kimi-k2.5\",\"opus\":\"kimi-k2.5\"}",
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "surface": "reusable",
+      "apiUrl": "https://openrouter.ai/api",
+      "model": "{\"main\":\"anthropic/claude-sonnet-4\",\"haiku\":\"anthropic/claude-haiku-4.5\",\"sonnet\":\"anthropic/claude-sonnet-4\",\"opus\":\"anthropic/claude-opus-4.1\"}",
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "surface": "reusable",
+      "apiUrl": "https://api.deepseek.com/anthropic",
+      "model": "{\"main\":\"deepseek-chat\",\"haiku\":\"deepseek-chat\",\"sonnet\":\"deepseek-chat\",\"opus\":\"deepseek-chat\"}",
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "surface": "reusable",
+      "apiUrl": "https://api.siliconflow.cn",
+      "model": "{\"main\":\"Pro/deepseek-ai/DeepSeek-V3\",\"haiku\":\"Pro/deepseek-ai/DeepSeek-V3\",\"sonnet\":\"Pro/deepseek-ai/DeepSeek-V3\",\"opus\":\"Pro/deepseek-ai/DeepSeek-V3\"}",
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner"
+    },
+    {
+      "id": "zhipu",
+      "name": "Zhipu",
+      "surface": "reusable",
+      "apiUrl": "https://open.bigmodel.cn/api/anthropic",
+      "model": "{\"main\":\"glm-4.6\",\"haiku\":\"glm-4.5-air\",\"sonnet\":\"glm-4.6\",\"opus\":\"glm-4.6\"}",
+      "websiteUrl": "https://open.bigmodel.cn",
+      "category": "community"
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen",
+      "surface": "reusable",
+      "apiUrl": "https://dashscope.aliyuncs.com/apps/anthropic",
+      "model": "{\"main\":\"qwen3-coder-plus\",\"haiku\":\"qwen3-coder-flash\",\"sonnet\":\"qwen3-coder-plus\",\"opus\":\"qwen3-coder-plus\"}",
+      "websiteUrl": "https://www.aliyun.com/product/bailian",
+      "category": "community"
+    }
+  ]
+}

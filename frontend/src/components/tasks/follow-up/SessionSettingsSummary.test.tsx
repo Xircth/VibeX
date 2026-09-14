@@ -198,6 +198,33 @@ describe('SessionSettingsSummary', () => {
     expect(onSelectConfigOption).not.toHaveBeenCalled();
   });
 
+  it('keeps advertised Max and Ultra distinct from Extra High', () => {
+    render(
+      <SessionSettingsSummary
+        options={[
+          {
+            key: 'reasoning_effort',
+            label: 'Reasoning effort',
+            category: 'thought_level',
+            value: 'ultra',
+            choices: [
+              { value: 'xhigh', label: 'Extra High' },
+              { value: 'max', label: 'Max' },
+              { value: 'ultra', label: 'Ultra' },
+            ],
+          },
+        ]}
+        pending={{}}
+        onSelectConfigOption={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('session-settings-summary')).toHaveAttribute(
+      'aria-label',
+      '本次会话: Ultra'
+    );
+  });
+
   it('keeps Agent-advertised default and high effort labels distinct', () => {
     render(
       <SessionSettingsSummary

@@ -78,6 +78,7 @@ struct ImageMetadataResponse {
     size_bytes: Option<i64>,
     format: Option<String>,
     proxy_url: Option<String>,
+    updated_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -111,6 +112,7 @@ fn metadata_for(
                 .and_then(|mime| mime.split('/').nth(1))
                 .map(ToOwned::to_owned),
             proxy_url: Some(absolute_path.to_string_lossy().to_string()),
+            updated_at: Some(image.updated_at.to_rfc3339()),
         }
     } else {
         ImageMetadataResponse {
@@ -120,6 +122,7 @@ fn metadata_for(
             size_bytes: None,
             format: None,
             proxy_url: None,
+            updated_at: None,
         }
     }
 }

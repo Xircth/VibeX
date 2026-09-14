@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "agentId": "opencode",
+  "templates": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "surface": "opencode",
+      "providerId": "deepseek",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://api.deepseek.com",
+      "models": [
+        {
+          "id": "deepseek-chat",
+          "name": "deepseek-chat"
+        }
+      ],
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "surface": "opencode",
+      "providerId": "moonshot",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "models": [
+        {
+          "id": "kimi-k2.5",
+          "name": "kimi-k2.5"
+        }
+      ],
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "surface": "opencode",
+      "providerId": "openrouter",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "models": [
+        {
+          "id": "openai/gpt-4o",
+          "name": "openai/gpt-4o"
+        }
+      ],
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "surface": "opencode",
+      "providerId": "siliconflow",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "models": [
+        {
+          "id": "Qwen/Qwen2.5-72B-Instruct",
+          "name": "Qwen/Qwen2.5-72B-Instruct"
+        }
+      ],
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner"
+    }
+  ]
+}

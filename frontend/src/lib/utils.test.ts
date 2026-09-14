@@ -52,4 +52,8 @@ describe('formatFileSize', () => {
   it('should format fractional sizes', () => {
     expect(formatFileSize(BigInt(1536))).toBe('1.5 KB');
   });
+
+  it('should format number byte counts from File.size', () => {
+    expect(formatFileSize(2048)).toBe('2.0 KB');
+  });
 });

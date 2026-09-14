@@ -29,6 +29,8 @@ pub enum GitServiceError {
     IoError(#[from] std::io::Error),
     #[error("Invalid repository: {0}")]
     InvalidRepository(String),
+    #[error("git command timed out after {seconds}s")]
+    TimedOut { seconds: u64 },
     #[error("Branch not found: {0}")]
     BranchNotFound(String),
     #[error("Merge conflicts: {message}")]
@@ -58,6 +60,7 @@ impl GitServiceError {
     pub fn from_cli(error: GitCliError) -> Self {
         match error {
             GitCliError::RebaseInProgress => Self::RebaseInProgress,
+            GitCliError::TimedOut(seconds) => Self::TimedOut { seconds },
             GitCliError::CommandFailed(message) => classify_worktree_cli_error(&message).unwrap_or(
                 Self::InvalidRepository(format!("git command failed: {message}")),
             ),
@@ -75,6 +78,7 @@ impl GitServiceError {
                 | Self::InvalidReference(_)
                 | Self::BranchNotFound(_)
                 | Self::MergeConflicts { .. }
+                | Self::TimedOut { .. }
         )
     }
 
@@ -84,6 +88,7 @@ impl GitServiceError {
             || message.contains("invalid git reference")
             || message.contains("git operation in progress")
             || message.contains("Rebase in progress")
+            || message.contains("git command timed out")
     }
 }
 
@@ -188,7 +193,7 @@ fn parse_invalid_reference(output: &str) -> Option<String> {
 
 #[cfg(test)]
 mod classify_worktree_cli_error_tests {
-    use super::{GitServiceError, classify_worktree_cli_error};
+    use super::{GitCliError, GitServiceError, classify_worktree_cli_error};
 
     #[test]
     fn classifies_already_checked_out() {
@@ -236,6 +241,19 @@ mod classify_worktree_cli_error_tests {
     #[test]
     fn ignores_unrelated_failures() {
         assert!(classify_worktree_cli_error("fatal: not a git repository").is_none());
+    }
+
+    #[test]
+    fn timeout_is_not_an_invalid_repository() {
+        let error = GitServiceError::from_cli(GitCliError::TimedOut(60));
+        assert!(error.is_user_facing());
+        match error {
+            GitServiceError::TimedOut { seconds } => assert_eq!(seconds, 60),
+            other => panic!("unexpected {other}"),
+        }
+        assert!(GitServiceError::is_user_facing_message(
+            "Invalid repository: git command failed: git command timed out after 60s"
+        ));
     }
 }
 

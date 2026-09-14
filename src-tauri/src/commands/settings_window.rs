@@ -101,7 +101,19 @@ pub async fn open_settings_window(
     let caller = window.label().to_string();
     let target = settings_window_label_for_caller(&caller);
     let title = resolve_window_title(&caller, resolve_settings_window_title(title)).await;
-    open_or_focus(&app, &target, &title, path.as_deref())
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let app_for_window = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(open_or_focus(
+            &app_for_window,
+            &target,
+            &title,
+            path.as_deref(),
+        ));
+    })
+    .map_err(|error| error.to_string())?;
+    rx.await
+        .map_err(|_| "settings window task did not run on the UI thread".to_string())?
 }
 
 #[cfg(test)]

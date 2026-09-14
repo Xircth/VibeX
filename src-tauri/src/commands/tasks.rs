@@ -52,6 +52,7 @@ pub struct ImageMetadataResponse {
     pub size_bytes: Option<i64>,
     pub format: Option<String>,
     pub proxy_url: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 fn image_metadata_response(
@@ -71,6 +72,7 @@ fn image_metadata_response(
                 .and_then(|mime| mime.split('/').nth(1))
                 .map(|value| value.to_string()),
             proxy_url: Some(absolute_path.to_string_lossy().to_string()),
+            updated_at: Some(image.updated_at.to_rfc3339()),
         }
     } else {
         ImageMetadataResponse {
@@ -80,6 +82,7 @@ fn image_metadata_response(
             size_bytes: None,
             format: None,
             proxy_url: None,
+            updated_at: None,
         }
     }
 }
@@ -287,6 +290,7 @@ pub async fn get_workspace_image_metadata(
                 size_bytes: metadata.size_bytes,
                 format: metadata.format,
                 proxy_url: Some(candidate.to_string_lossy().to_string()),
+                updated_at: metadata.updated_at,
             });
         }
     }

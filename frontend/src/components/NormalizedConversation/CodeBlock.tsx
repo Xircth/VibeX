@@ -11,6 +11,7 @@ import {
 type CodeBlockProps = {
   className?: string;
   value: string;
+  isStreaming?: boolean;
 };
 
 export function extractLanguageTag(className?: string): string | null {
@@ -58,11 +59,14 @@ export const CompactCodeBlock = memo(function CompactCodeBlock({
 export const CodeBlock = memo(function CodeBlock({
   className,
   value,
+  isStreaming = false,
 }: CodeBlockProps) {
   const [copied, triggerCopied] = useTemporaryFlag(1200);
   const languageTag = extractLanguageTag(className);
   const language = normalizeShikiLanguage(languageTag);
-  const tokens = useShikiTokens(value, language);
+  const tokens = useShikiTokens(value, language, {
+    incremental: isStreaming,
+  });
   const languageLabel = languageTag?.trim() || 'text';
 
   const handleCopy = useCallback(async () => {

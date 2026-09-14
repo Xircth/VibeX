@@ -168,6 +168,10 @@ describe('DockviewPreviewPanel', () => {
       'src',
       'data:image/png;base64,AAAA'
     );
+    const shell = screen.getByTestId('workspace-image-preview-shell');
+    expect(shell).toHaveClass('p-1');
+    expect(shell).not.toHaveClass('p-4');
+    expect(shell.className).toMatch(/min-h-0/);
     releaseImagePreviewSource(previewId);
   });
 
@@ -273,6 +277,12 @@ describe('DockviewPreviewPanel', () => {
 
     rerender(<DockviewPreviewPanel {...first} />);
     expect(await screen.findByTestId('monaco-editor')).toBeInTheDocument();
+  });
+
+  it('shows a workspace-unsupported state for office documents', async () => {
+    render(<DockviewPreviewPanel {...panelProps('letter.docx')} />);
+
+    expect(await screen.findByText('当前格式暂不支持预览')).toBeVisible();
   });
 
   it('keeps HTML as source where no local webview can serve it', async () => {

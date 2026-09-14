@@ -57,8 +57,8 @@ pub enum CefHostError {
     Initialization,
     #[error("the native browser parent handle is invalid")]
     InvalidParent,
-    #[error("CEF request context creation failed")]
-    RequestContext,
+    #[error("CEF request context creation failed for {0}")]
+    RequestContext(String),
     #[error("CEF rejected browser creation")]
     BrowserCreation,
     #[error("CEF tab is unavailable: {0}")]
@@ -458,7 +458,8 @@ impl CefSession {
         tab_id: &BrowserTabId,
     ) -> Result<RequestContext, CefHostError> {
         if matches!(profile, BrowserProfile::Global) {
-            return request_context_get_global_context().ok_or(CefHostError::RequestContext);
+            return request_context_get_global_context()
+                .ok_or_else(|| CefHostError::RequestContext("global".to_string()));
         }
         let key = match profile {
             BrowserProfile::Workspace { workspace_id } => format!("workspace:{workspace_id}"),
@@ -468,18 +469,28 @@ impl CefSession {
         if let Some(context) = self.request_contexts.get(&key) {
             return Ok(context.clone());
         }
+        let cache_path = self.config.profile_cache_path(profile);
+        if let Some(path) = cache_path.as_deref()
+            && !self.config.is_supported_disk_profile_path(path)
+        {
+            return Err(CefHostError::RequestContext(path.display().to_string()));
+        }
         let settings = RequestContextSettings {
-            cache_path: self
-                .config
-                .profile_cache_path(profile)
+            cache_path: cache_path
                 .as_deref()
                 .map(path_to_cef_string)
                 .unwrap_or_default(),
             persist_session_cookies: i32::from(!matches!(profile, BrowserProfile::Ephemeral)),
             ..Default::default()
         };
-        let context = request_context_create_context(Some(&settings), None)
-            .ok_or(CefHostError::RequestContext)?;
+        let context = request_context_create_context(Some(&settings), None).ok_or_else(|| {
+            CefHostError::RequestContext(
+                cache_path
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| key.clone()),
+            )
+        })?;
         self.request_contexts.insert(key, context.clone());
         Ok(context)
     }

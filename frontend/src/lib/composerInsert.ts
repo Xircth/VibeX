@@ -4,7 +4,21 @@ export type ComposerInsertDetail = {
   text: string;
   mode?: 'text' | 'token';
   label?: string;
+  conversationId?: string;
 };
+
+export function shouldAcceptComposerInsert(
+  detail: ComposerInsertDetail | undefined,
+  listener: {
+    conversationId?: string | null;
+    acceptExternalInserts?: boolean;
+  }
+): boolean {
+  if (!detail) return false;
+  if (listener.acceptExternalInserts === false) return false;
+  if (!detail.conversationId) return true;
+  return listener.conversationId === detail.conversationId;
+}
 
 export function requestComposerInsert(text: string): boolean {
   const trimmed = text.trim();
@@ -19,6 +33,7 @@ export function requestComposerInsert(text: string): boolean {
 export function requestComposerTokenInsert(token: {
   value: string;
   label: string;
+  conversationId?: string | null;
 }): boolean {
   if (!token.value) return false;
   const event = new CustomEvent<ComposerInsertDetail>(COMPOSER_INSERT_EVENT, {
@@ -26,6 +41,7 @@ export function requestComposerTokenInsert(token: {
       text: token.value,
       mode: 'token',
       label: token.label,
+      ...(token.conversationId ? { conversationId: token.conversationId } : {}),
     },
   });
   window.dispatchEvent(event);

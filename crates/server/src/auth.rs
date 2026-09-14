@@ -9,22 +9,15 @@ use application::Principal;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use remote_protocol::{
-    CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset, PairingChallenge,
-    PairingId, RedeemPairingRequest, RevokeDeviceResponse,
+    CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset,
+    PAIRING_TTL_DEFAULT_SECONDS, PairingChallenge, PairingId, RedeemPairingRequest,
+    RevokeDeviceResponse, resolve_pairing_ttl_seconds,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-const PAIRING_TTL_SECONDS: i64 = 5 * 60;
-const PAIRING_TTL_CHOICES: &[i64] = &[300, 900, 1800, 3600];
-
-fn resolve_pairing_ttl(requested: Option<i64>, default: i64) -> i64 {
-    requested
-        .filter(|seconds| PAIRING_TTL_CHOICES.contains(seconds))
-        .unwrap_or(default)
-}
 const DEVICE_SCOPES: &[&str] = DevicePermissionPreset::workstation_scopes();
 
 pub(crate) const ADMIN_SCOPES: &[&str] = &[
@@ -382,7 +375,7 @@ impl SqliteServerAuth {
         Self {
             pool,
             clock,
-            pairing_ttl_seconds: PAIRING_TTL_SECONDS,
+            pairing_ttl_seconds: PAIRING_TTL_DEFAULT_SECONDS,
         }
     }
 
@@ -476,7 +469,10 @@ impl ServerAuth for SqliteServerAuth {
         if !creator.allows("device.pair") {
             return Err(AuthStoreError::Forbidden);
         }
-        let ttl_seconds = resolve_pairing_ttl(request.ttl_seconds, self.pairing_ttl_seconds);
+        let ttl_seconds = match request.ttl_seconds {
+            Some(seconds) if seconds == resolve_pairing_ttl_seconds(Some(seconds)) => seconds,
+            _ => self.pairing_ttl_seconds,
+        };
         let scopes = resolve_pairing_scopes(&creator.scopes, request)?;
         let pairing_id = PairingId::new();
         let pairing_token = remote_protocol::issue_connection_code();
@@ -914,6 +910,53 @@ mod host_console_pairing_tests {
         assert!(
             (890..=910).contains(&elapsed),
             "expected ~900s ttl, got {elapsed}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pairing_ttl_defaults_to_thirty_minutes_and_honors_a_week() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        let before = Utc::now().timestamp();
+        let default_challenge = auth
+            .create_pairing(
+                &owner,
+                CreatePairingRequest {
+                    preset: Some(DevicePermissionPreset::Companion),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: None,
+                },
+            )
+            .await
+            .expect("issue default pairing");
+        let default_expires = DateTime::parse_from_rfc3339(&default_challenge.expires_at)
+            .expect("expires_at")
+            .timestamp();
+        let default_elapsed = default_expires - before;
+        assert!(
+            (1790..=1810).contains(&default_elapsed),
+            "expected ~1800s default ttl, got {default_elapsed}"
+        );
+
+        let week = 7 * 24 * 60 * 60;
+        let long_lived = auth
+            .create_pairing(
+                &owner,
+                CreatePairingRequest {
+                    preset: Some(DevicePermissionPreset::Companion),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: Some(week),
+                },
+            )
+            .await
+            .expect("issue long-lived pairing");
+        let long_expires = DateTime::parse_from_rfc3339(&long_lived.expires_at)
+            .expect("expires_at")
+            .timestamp();
+        let long_elapsed = long_expires - before;
+        assert!(
+            (week - 10..=week + 10).contains(&long_elapsed),
+            "expected ~7d ttl, got {long_elapsed}"
         );
     }
 }

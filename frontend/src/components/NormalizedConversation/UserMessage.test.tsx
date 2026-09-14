@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   formatSessionComposerCommand,
   insertPreviewElementToken,
@@ -9,6 +9,7 @@ import UserMessage from './UserMessage';
 const imageMocks = vi.hoisted(() => ({
   showPreview: vi.fn(),
   useImageMetadata: vi.fn(),
+  hostFileSrc: vi.fn(),
 }));
 
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
@@ -48,6 +49,14 @@ vi.mock('@/lib/api', () => ({
   sessionsApi: { reset: vi.fn() },
 }));
 
+vi.mock('@/lib/hostAsset', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/hostAsset')>();
+  return {
+    ...actual,
+    hostFileSrc: (...args: unknown[]) => imageMocks.hostFileSrc(...args),
+  };
+});
+
 vi.mock('@/components/dialogs', () => ({
   RestoreLogsDialog: { show: vi.fn() },
 }));
@@ -60,6 +69,8 @@ describe('UserMessage', () => {
   beforeEach(() => {
     imageMocks.showPreview.mockReset();
     imageMocks.useImageMetadata.mockReset();
+    imageMocks.hostFileSrc.mockReset();
+    imageMocks.hostFileSrc.mockResolvedValue('blob:image/png');
     imageMocks.useImageMetadata.mockReturnValue({
       data: null,
       isLoading: false,
@@ -71,6 +82,10 @@ describe('UserMessage', () => {
         disconnect() {}
       }
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders legacy timeline entries with the Astryx user-message semantics', () => {
@@ -192,5 +207,150 @@ describe('UserMessage', () => {
       format: 'png',
       sizeBytes: 123n,
     });
+  });
+
+  it('renders pdf attachments as file cards after send', () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'notes.pdf',
+        path: '/tmp/notes.pdf',
+        size_bytes: 2048n,
+        format: 'pdf',
+        proxy_url: null,
+        updated_at: '2026-09-13T04:30:00.000Z',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'See the spec.\n![notes](.vibe-images/notes.pdf)'}
+        taskAttempt={{ id: 'attempt-1' } as never}
+      />
+    );
+
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByTestId('attachment-file-card')).toHaveTextContent(
+      'notes.pdf'
+    );
+  });
+
+  it('renders the real image after metadata resolves a filesystem path', async () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'screen.png',
+        path: '/tmp/screen.png',
+        size_bytes: 123n,
+        format: 'png',
+        proxy_url: '/tmp/screen.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={{ id: 'attempt-1' } as never}
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'screen' })).toHaveAttribute(
+      'src',
+      'blob:image/png'
+    );
+    expect(imageMocks.hostFileSrc).toHaveBeenCalledWith('/tmp/screen.png');
+    expect(
+      screen.queryByRole('img', { name: 'screen' })?.getAttribute('src')
+    ).not.toMatch(/^data:/);
+  });
+
+  it('stacks file cards and expands the hovered card after 200ms', () => {
+    vi.useFakeTimers();
+    imageMocks.useImageMetadata.mockImplementation(
+      (_attemptId: string | undefined, src: string) => ({
+        data: {
+          exists: true,
+          file_name: src.endsWith('spec.docx') ? 'spec.docx' : 'notes.pdf',
+          path: src,
+          size_bytes: 2048n,
+          format: src.endsWith('docx') ? 'docx' : 'pdf',
+          proxy_url: null,
+          updated_at: '2026-09-13T04:30:00.000Z',
+        },
+        isLoading: false,
+      })
+    );
+
+    render(
+      <UserMessage
+        content={
+          'See the spec.\n![notes](.vibe-images/notes.pdf)\n![spec](.vibe-images/spec.docx)'
+        }
+        taskAttempt={{ id: 'attempt-1' } as never}
+      />
+    );
+
+    const cards = screen.getAllByTestId('attachment-file-card');
+    expect(screen.getByTestId('user-message-file-attachments')).toHaveClass(
+      'attachment-file-stack'
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toHaveAttribute('data-expanded', 'false');
+    expect(cards[1]).toHaveAttribute('data-expanded', 'false');
+
+    fireEvent.mouseEnter(cards[1]);
+    expect(cards[1]).toHaveAttribute('data-expanded', 'false');
+
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(cards[1]).toHaveAttribute('data-expanded', 'false');
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(cards[1]).toHaveAttribute('data-expanded', 'true');
+    expect(cards[0]).toHaveAttribute('data-expanded', 'false');
+    vi.useRealTimers();
+  });
+
+  it('stacks four or more images and keeps files on a separate row', () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'shot.png',
+        path: '.vibe-images/shot.png',
+        size_bytes: 10n,
+        format: 'png',
+        proxy_url: 'asset://shot.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={[
+          'Gallery',
+          '![a](.vibe-images/a.png)',
+          '![b](.vibe-images/b.png)',
+          '![c](.vibe-images/c.png)',
+          '![d](.vibe-images/d.png)',
+          '![notes](.vibe-images/notes.pdf)',
+        ].join('\n')}
+        taskAttempt={{ id: 'attempt-1' } as never}
+      />
+    );
+
+    expect(screen.getByTestId('user-message-image-attachments')).toHaveClass(
+      'attachment-image-stack'
+    );
+    expect(
+      screen.getByTestId('user-message-file-attachments')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('user-message-attachments').children
+    ).toHaveLength(2);
   });
 });

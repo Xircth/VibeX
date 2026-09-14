@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { WebTransport } from './webTransport';
+import { WEB_SOCKET_KEEPALIVE_MS, WebTransport } from './webTransport';
 
 vi.mock('@tauri-apps/api/core', () => {
   throw new Error('WebTransport must not import Tauri');
@@ -29,7 +29,11 @@ class MockWebSocket {
   }
 
   close() {
+    if (this.readyState === 3) {
+      return;
+    }
     this.readyState = 3;
+    this.onclose?.();
   }
 
   open() {
@@ -247,5 +251,40 @@ describe('WebTransport', () => {
     await first.return?.();
     await second.return?.();
     transport.destroy();
+  });
+
+  it('keeps an idle socket alive and reconnects after a missed pong', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:17891',
+      token: 'remote-secret',
+    });
+    const iterator = transport
+      .subscribe({
+        subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f51',
+        resource: 'conversation',
+        conversation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f52',
+        after_sequence: 0n,
+      })
+      [Symbol.asyncIterator]();
+    const pending = iterator.next();
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    vi.advanceTimersByTime(WEB_SOCKET_KEEPALIVE_MS);
+    expect(JSON.parse(socket.sent.at(-1) ?? '{}')).toEqual({ type: 'ping' });
+    socket.message({ type: 'pong' });
+
+    vi.advanceTimersByTime(WEB_SOCKET_KEEPALIVE_MS);
+    expect(JSON.parse(socket.sent.at(-1) ?? '{}')).toEqual({ type: 'ping' });
+    vi.advanceTimersByTime(WEB_SOCKET_KEEPALIVE_MS);
+    expect(socket.readyState).toBe(3);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    MockWebSocket.instances[1]!.open();
+
+    transport.destroy();
+    await pending;
   });
 });

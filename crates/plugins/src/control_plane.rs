@@ -2185,6 +2185,32 @@ impl PluginControlPlane {
             .publish(self.registry.active_contributions().await?)
     }
 
+    pub async fn list_provider_catalog(
+        &self,
+        agent_id: &str,
+    ) -> Result<crate::ProviderCatalogListView, PluginError> {
+        let catalog = self.contributions().await?;
+        let plugins = self.catalog().await?;
+        let mut inputs = Vec::new();
+        for plugin in &plugins {
+            if plugin.activation != crate::PluginActivation::Enabled {
+                continue;
+            }
+            for contribution in &plugin.app.provider_catalogs {
+                inputs.push(crate::CatalogListInput {
+                    plugin_id: plugin.id(),
+                    plugin_label: plugin.name.as_str(),
+                    contribution,
+                });
+            }
+        }
+        Ok(crate::aggregate_provider_catalogs(
+            agent_id,
+            catalog.generation,
+            &inputs,
+        ))
+    }
+
     pub async fn resolve_file_opener(
         &self,
         extension: Option<&str>,

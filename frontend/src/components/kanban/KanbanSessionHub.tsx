@@ -170,6 +170,7 @@ export function KanbanSessionHub({
     canUseRightPanelForSessions,
     openSessionFromList,
     placeCreatedSession,
+    replaceRightSession,
     activateExecutionSession,
     cancelMonitorSession,
     pruneSessions,
@@ -1189,6 +1190,7 @@ export function KanbanSessionHub({
               canvasApiRef.current = api;
             }}
             onWindowSessionIdsChange={setCanvasWindowSessionIds}
+            onSelectedSessionChange={replaceRightSession}
             onCreateSession={() => {
               setKanbanCanvasListVisible(true);
               handleCreatePopoverOpenChange(true);

@@ -31,7 +31,10 @@ export function KeepAliveSurface({
   return (
     <div
       className={className}
-      hidden={!active}
+      // CSS hiding keeps descendant layout effects (conversation slots)
+      // registered. React's `hidden` prop would tear those slots down on
+      // workspace tab switches and leave canvas windows without a message stream.
+      style={active ? undefined : { display: 'none' }}
       inert={!active}
       aria-hidden={!active}
     >

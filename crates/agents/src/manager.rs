@@ -75,6 +75,7 @@ use crate::{
     session_notice,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
+    usage_from_session_notification_params,
 };
 
 /// Grok applies model changes through the non-standard `session/set_model`
@@ -1087,6 +1088,8 @@ struct SessionControlState {
     grok_model_windows: HashMap<String, u64>,
     /// Last occupancy pair emitted as `AgentEvent::Usage` for this session.
     last_grok_usage: Option<(u64, u64)>,
+    /// Last model id observed on this session (`configOption` or `_meta.modelId`).
+    last_model_id: Option<String>,
     /// pi-acp prelude captured from `session/new` `_meta.piAcp.startupInfo`.
     /// The matching first `agent_message_chunk` is dropped so skill paths
     /// are not rendered as the assistant's opening words.
@@ -2590,6 +2593,9 @@ impl AgentConnectionRunner {
             let entry = controls.entry(session_id).or_default();
             entry.config_options = config_options.clone();
             entry.mode_uses_set_mode = mode_uses_set_mode;
+            if let Some(model) = current_grok_model_id(&entry.config_options) {
+                entry.last_model_id = Some(model);
+            }
             if let Some(vendor_config) = vendor_config {
                 entry.vendor_config = Some(vendor_config);
             }
@@ -3051,7 +3057,14 @@ impl AgentConnectionRunner {
                     match result {
                         Ok(response) => {
                             let usage = response.usage.as_ref().map(agent_usage_from_end_turn);
-                            if let Some(usage) = usage.clone() {
+                            if let Some(mut usage) = usage.clone() {
+                                if usage.model.is_none() {
+                                    let controls = self.session_controls.read().await;
+                                    if let Some(state) = controls.get(&session_id) {
+                                        usage.model = current_grok_model_id(&state.config_options)
+                                            .or_else(|| state.last_model_id.clone());
+                                    }
+                                }
                                 self.emit(
                                     Some(session_id),
                                     Some(prompt_id),
@@ -3996,11 +4009,19 @@ impl AcpClientBridge {
             return Ok(());
         }
         if updates.is_empty() {
-            if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref())
-                && let Ok(notification) =
+            if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref()) {
+                if let Ok(notification) =
                     serde_json::from_value::<SessionNotification>(params.clone())
-            {
-                return self.session_notification(notification).await;
+                {
+                    // `session_notification` already folds `turn_completed.usage`.
+                    // Emitting here as well would double-count the same prompt.
+                    return self.session_notification(notification).await;
+                }
+                if session_id.is_some()
+                    && let Some(usage) = usage_from_session_notification_params(&params)
+                {
+                    self.emit_end_turn_usage(session_id, usage).await;
+                }
             }
             let diagnostic = session_notice::from_session_notification_params(&params)
                 .map(|notice| session_notice::diagnostic_payload(&notice))
@@ -4075,7 +4096,8 @@ impl AcpClientBridge {
             resolve_agent_session_id(bound_session_id, *self.pending_session_id.lock().await);
         if bound_session_id.is_none()
             && session_id.is_some()
-            && is_session_transcript_update(&args.update)
+            && (is_session_transcript_update(&args.update)
+                || session_update_is_end_turn_usage(&args.update))
         {
             // The session does not exist yet, so this is `session/load` /
             // `session/resume` replaying the agent's stored transcript, not live
@@ -4229,12 +4251,29 @@ impl AcpClientBridge {
                 }
                 Some(AgentEvent::AvailableCommands { commands })
             }
-            SessionUpdate::UserMessageChunk(chunk) => Some(AgentEvent::RawAcpDiagnostic {
-                raw: serde_json::json!({
-                    "kind": "user_message_acknowledged",
-                    "preview": acp_content_preview(&chunk.content),
-                }),
-            }),
+            SessionUpdate::UserMessageChunk(chunk) => {
+                if let Some(session_id) = session_id {
+                    let model = chunk.meta.as_ref().and_then(|meta| {
+                        serde_json::to_value(meta)
+                            .ok()
+                            .and_then(|value| crate::model_id_from_meta(Some(&value)))
+                    });
+                    if let Some(model) = model {
+                        self.session_controls
+                            .write()
+                            .await
+                            .entry(session_id)
+                            .or_default()
+                            .last_model_id = Some(model);
+                    }
+                }
+                Some(AgentEvent::RawAcpDiagnostic {
+                    raw: serde_json::json!({
+                        "kind": "user_message_acknowledged",
+                        "preview": acp_content_preview(&chunk.content),
+                    }),
+                })
+            }
             SessionUpdate::CurrentModeUpdate(update) => {
                 let mode_id = update.current_mode_id.0.to_string();
                 if let Some(session_id) = session_id {
@@ -4268,21 +4307,33 @@ impl AcpClientBridge {
                     stored.config_options = update.config_options.clone();
                     stored.mode_uses_set_mode = stored.mode_uses_set_mode
                         && config_options_have_mode_category(&stored.config_options);
+                    if let Some(model) = current_grok_model_id(&stored.config_options) {
+                        stored.last_model_id = Some(model);
+                    }
                 }
                 Some(AgentEvent::SessionConfigOptions {
                     options: agent_session_config_options_from_acp(update.config_options),
                 })
             }
-            SessionUpdate::UsageUpdate(update) => Some(AgentEvent::Usage {
-                usage: agent_usage_from_acp(update),
-            }),
+            SessionUpdate::UsageUpdate(update) => {
+                let usage = agent_usage_from_acp(update);
+                Some(AgentEvent::Usage {
+                    usage: self.usage_with_session_model(session_id, usage).await,
+                })
+            }
             SessionUpdate::SessionInfoUpdate(update) => Some(AgentEvent::SessionInfoUpdated {
                 patch: session_info_patch_from_acp(update),
             }),
             other => {
                 let mut raw_notification =
                     serde_json::to_value(other).unwrap_or(serde_json::Value::Null);
-                if let Some(notice) = session_notice::from_session_update_value(&raw_notification) {
+                if let Some(usage) = crate::usage_from_session_update(&raw_notification) {
+                    Some(AgentEvent::Usage {
+                        usage: self.usage_with_session_model(session_id, usage).await,
+                    })
+                } else if let Some(notice) =
+                    session_notice::from_session_update_value(&raw_notification)
+                {
                     Some(AgentEvent::RawAcpDiagnostic {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
@@ -4356,10 +4407,12 @@ impl AcpClientBridge {
         let Some((used, size)) = grok_usage::live_usage_step(used, window, last) else {
             return;
         };
-        {
+        let model = {
             let mut controls = self.session_controls.write().await;
-            controls.entry(session_id).or_default().last_grok_usage = Some((used, size));
-        }
+            let entry = controls.entry(session_id).or_default();
+            entry.last_grok_usage = Some((used, size));
+            current_grok_model_id(&entry.config_options).or_else(|| entry.last_model_id.clone())
+        };
         send_manager_event(
             &self.event_tx,
             AgentConnectionManagerEvent {
@@ -4370,11 +4423,57 @@ impl AcpClientBridge {
                     usage: AgentUsage {
                         used,
                         limit: (size > 0).then_some(size),
+                        model,
                         ..AgentUsage::default()
                     },
                 },
             },
         );
+    }
+
+    async fn emit_end_turn_usage(&self, session_id: Option<AgentSessionId>, mut usage: AgentUsage) {
+        if let Some(session_id) = session_id {
+            let mut controls = self.session_controls.write().await;
+            let entry = controls.entry(session_id).or_default();
+            if let Some(model) = usage.model.clone() {
+                entry.last_model_id = Some(model);
+            } else {
+                usage.model = current_grok_model_id(&entry.config_options)
+                    .or_else(|| entry.last_model_id.clone());
+            }
+        }
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id,
+                prompt_id: None,
+                event: AgentEvent::Usage { usage },
+            },
+        );
+    }
+
+    async fn usage_with_session_model(
+        &self,
+        session_id: Option<AgentSessionId>,
+        mut usage: AgentUsage,
+    ) -> AgentUsage {
+        if usage.model.is_some() {
+            if let (Some(session_id), Some(model)) = (session_id, usage.model.clone()) {
+                let mut controls = self.session_controls.write().await;
+                controls.entry(session_id).or_default().last_model_id = Some(model);
+            }
+            return usage;
+        }
+        let Some(session_id) = session_id else {
+            return usage;
+        };
+        let controls = self.session_controls.read().await;
+        let state = controls.get(&session_id);
+        usage.model = state
+            .and_then(|state| current_grok_model_id(&state.config_options))
+            .or_else(|| state.and_then(|state| state.last_model_id.clone()));
+        usage
     }
 
     async fn agent_session_for_acp(&self, acp_session_id: String) -> Option<AgentSessionId> {
@@ -4475,6 +4574,12 @@ fn is_session_transcript_update(update: &SessionUpdate) -> bool {
             | SessionUpdate::ToolCallUpdate(_)
             | SessionUpdate::Plan(_)
     )
+}
+
+fn session_update_is_end_turn_usage(update: &SessionUpdate) -> bool {
+    serde_json::to_value(update)
+        .ok()
+        .is_some_and(|raw| crate::usage_from_session_update(&raw).is_some())
 }
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
@@ -4954,16 +5059,11 @@ where
 }
 
 fn agent_usage_from_end_turn(usage: &agent_client_protocol::schema::v1::Usage) -> AgentUsage {
-    AgentUsage {
-        used: 0,
-        limit: None,
-        input_tokens: Some(usage.input_tokens),
-        output_tokens: Some(usage.output_tokens),
-        cache_read_tokens: usage.cached_read_tokens,
-        cache_write_tokens: usage.cached_write_tokens,
-        cost_amount: None,
-        cost_currency: None,
-    }
+    let value = serde_json::to_value(usage).unwrap_or(serde_json::Value::Null);
+    crate::prompt_usage_from_value(&value).unwrap_or_else(|| AgentUsage {
+        model: crate::model_id_from_meta(value.get("_meta")),
+        ..AgentUsage::default()
+    })
 }
 
 fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) -> AgentUsage {
@@ -4992,6 +5092,9 @@ fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) 
         ),
         cost_amount,
         cost_currency,
+        model: meta.as_ref().and_then(|meta| {
+            crate::model_id_from_meta(Some(&serde_json::Value::Object(meta.clone())))
+        }),
     }
 }
 
@@ -5306,7 +5409,10 @@ fn classify_vendor_session_option(
     ) || vendor_token_contains_any(&[&category, &id, &label], "effort")
         || vendor_token_contains_any(&[&category, &id, &label], "thought")
         || vendor_token_contains_any(&[&category, &id, &label], "reason")
-        || matches!(id.as_str(), "xhigh" | "high" | "medium" | "low" | "minimal")
+        || matches!(
+            id.as_str(),
+            "ultra" | "max" | "xhigh" | "high" | "medium" | "low" | "minimal"
+        )
     {
         return VendorSessionOptionKind::Effort;
     }
@@ -6337,6 +6443,14 @@ mod tests {
         );
         assert_eq!(
             classify_vendor_session_option(Some("mode"), "ls", "List"),
+            VendorSessionOptionKind::Effort
+        );
+        assert_eq!(
+            classify_vendor_session_option(None, "max", "Max"),
+            VendorSessionOptionKind::Effort
+        );
+        assert_eq!(
+            classify_vendor_session_option(None, "ultra", "Ultra"),
             VendorSessionOptionKind::Effort
         );
         assert_eq!(

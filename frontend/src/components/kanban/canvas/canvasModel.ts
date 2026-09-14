@@ -230,6 +230,22 @@ export function sizeForNode(node: SessionCanvasNode): CanvasSize {
   return { width: CARD_WIDTH, height: CARD_HEIGHT };
 }
 
+export function flowNodeBox(size: CanvasSize): {
+  width: number;
+  height: number;
+  initialWidth: number;
+  initialHeight: number;
+  style: { width: number; height: number };
+} {
+  return {
+    width: size.width,
+    height: size.height,
+    initialWidth: size.width,
+    initialHeight: size.height,
+    style: { width: size.width, height: size.height },
+  };
+}
+
 export function defaultExpandedSize(): CanvasSize {
   return { width: DETAIL_CARD_WIDTH, height: DETAIL_CARD_HEIGHT };
 }

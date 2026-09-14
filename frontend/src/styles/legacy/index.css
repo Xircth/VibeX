@@ -4886,12 +4886,66 @@
   .agent-question-detail {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
   }
 
-  .agent-question-fields + .agent-question-fields {
-    padding-top: 12px;
-    border-top: 1px solid var(--border-subtle);
+  .agent-question-detail-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .agent-question-detail-pager-btn {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--surface-raised-control);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .agent-question-detail-pager-btn:hover:not(:disabled) {
+    background: var(--surface-raised-control-hover);
+  }
+
+  .agent-question-detail-pager-btn:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .agent-question-detail-pager-btn:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+  }
+
+  .ask-question-kind-tag {
+    display: inline-flex;
+    height: 20px;
+    flex: none;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--surface-control);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 550;
+    line-height: 1;
+  }
+
+  .ask-question-detail-well {
+    margin-top: 10px;
+    max-height: min(24rem, 50vh);
+    overflow-y: auto;
+    border-radius: var(--radius);
+    background: var(--surface-control);
+    padding: 14px 20px;
   }
 
   .ask-question-tool-title {
@@ -6493,6 +6547,152 @@
 
 @media (prefers-reduced-motion: reduce) {
   .settings-page .agent-model-provider-manager > summary svg {
+    transition: none;
+  }
+}
+
+.settings-page .agent-model-provider-catalog {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-page .agent-model-provider-catalog-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .agent-model-provider-catalog-search {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text-muted);
+}
+
+.settings-page .agent-model-provider-catalog-search > svg {
+  flex-shrink: 0;
+}
+
+.settings-page .agent-model-provider-catalog-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  box-shadow: none;
+  outline: none;
+}
+
+.settings-page .agent-model-provider-catalog-search input:focus-visible {
+  box-shadow: none;
+}
+
+.settings-page .agent-model-provider-catalog-sort[aria-pressed='true'] {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+
+.settings-page .agent-model-provider-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  gap: 8px;
+  max-height: 280px;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-page .agent-model-provider-catalog-tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-card-strong);
+}
+
+.settings-page .agent-model-provider-catalog-tile > button:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-page
+  .agent-model-provider-catalog-tile
+  > button:first-child:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.settings-page
+  .agent-model-provider-catalog-tile
+  > button:first-child:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: -2px;
+}
+
+.settings-page .agent-model-provider-catalog-tile strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .agent-model-provider-catalog-endpoint,
+.settings-page .agent-model-provider-catalog-source {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .agent-model-provider-catalog-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+.settings-page .agent-model-provider-catalog-links a {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.settings-page .agent-model-provider-catalog-links a:hover {
+  color: var(--text-strong);
+}
+
+.settings-page .agent-model-provider-catalog-links a:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: 2px;
+}
+
+.settings-page .agent-model-provider-catalog-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-page .agent-model-provider-catalog-tile > button:first-child {
     transition: none;
   }
 }
@@ -13225,6 +13425,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   flex-direction: column;
   margin-top: 12px;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .settings-page .product-plugin-config-shell .settings-action-bar {
@@ -13232,7 +13434,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-config {
-  overflow: hidden;
+  flex-shrink: 0;
+  overflow: visible;
   border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
@@ -13566,6 +13769,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .canvas-surface[data-canvas-panning] .canvas-minimap {
   opacity: 0;
+  pointer-events: none;
+}
+
+.canvas-surface[data-canvas-panning] .canvas-session-card .session-hub-card,
+.canvas-surface[data-canvas-panning] .canvas-session-group,
+.canvas-surface[data-canvas-panning] .canvas-session-window {
+  animation: none !important;
 }
 
 .canvas-surface .react-flow__node {
@@ -13805,6 +14015,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     var(--text-muted) 55%,
     var(--border-strong)
   );
+}
+
+.canvas-surface .canvas-group-name-input,
+.canvas-surface .canvas-group-name-input:focus,
+.canvas-surface .canvas-group-name-input:focus-visible {
+  outline: none;
+  border: 1px solid var(--text-strong);
+  box-shadow: none;
+  --tw-ring-offset-shadow: 0 0 transparent;
+  --tw-ring-shadow: 0 0 transparent;
 }
 
 .canvas-surface

@@ -189,6 +189,7 @@ export const pluginManifestSchema = {
                             "app.settings.section",
                             "host.service",
                             "provider.model.importSource",
+                            "provider.model.catalog",
                             "app.panel",
                             "app.tab",
                             "app.kanban.view",

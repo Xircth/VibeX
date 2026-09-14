@@ -937,6 +937,8 @@ const CODEX_REASONING_OPTIONS: &[(&str, &str)] = &[
     ("medium", "中"),
     ("high", "高"),
     ("xhigh", "极高"),
+    ("max", "Max"),
+    ("ultra", "Ultra"),
 ];
 const CODEX_SUMMARY_OPTIONS: &[(&str, &str)] = &[
     ("auto", "自动"),

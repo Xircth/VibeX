@@ -99,7 +99,7 @@ use db::models::{
 };
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
-    executors::{CodingAgent, SlashCommandDescription, SlashCommandKind},
+    executors::{CodingAgent, SlashCommandDescription, SlashCommandKind, codex::ReasoningEffort},
     logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
@@ -552,6 +552,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ExecutorAction>(&mut decls);
     insert_declaration::<ExecutorActionType>(&mut decls);
     insert_declaration::<CodingAgent>(&mut decls);
+    insert_declaration::<ReasoningEffort>(&mut decls);
     insert_declaration::<ActionType>(&mut decls);
     insert_declaration::<CommandCategory>(&mut decls);
     // Temporary compatibility enum while live session identity migrates to the

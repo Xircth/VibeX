@@ -7,6 +7,18 @@ export type ConversationMarkdownOptions = {
   softBreaks?: boolean;
 };
 
+type FenceSegmentKind = 'text' | 'closedFence' | 'openFence';
+
+type FenceSegment = {
+  text: string;
+  kind: FenceSegmentKind;
+};
+
+export type ConversationMarkdownPrepareCache = {
+  softBreaks: boolean;
+  parts: Array<{ source: string; kind: FenceSegmentKind; prepared: string }>;
+};
+
 function trimFilePathCandidate(value: string): string {
   return value
     .trim()
@@ -42,19 +54,17 @@ function normalizeBareImageReferences(value: string): string {
     .join('\n');
 }
 
-function splitFencedCodeSegments(
-  value: string
-): Array<{ text: string; protected: boolean }> {
-  const segments: Array<{ text: string; protected: boolean }> = [];
+function splitFencedCodeSegments(value: string): FenceSegment[] {
+  const segments: FenceSegment[] = [];
   const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
   let buffer = '';
   let inFence = false;
   let fenceChar: '`' | '~' | null = null;
   let fenceLength = 0;
 
-  const flush = (protectedSegment: boolean) => {
+  const flush = (kind: FenceSegmentKind) => {
     if (!buffer) return;
-    segments.push({ text: buffer, protected: protectedSegment });
+    segments.push({ text: buffer, kind });
     buffer = '';
   };
 
@@ -63,7 +73,7 @@ function splitFencedCodeSegments(
     const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
 
     if (!inFence && fenceMatch) {
-      flush(false);
+      flush('text');
       inFence = true;
       fenceChar = fenceMatch[1][0] as '`' | '~';
       fenceLength = fenceMatch[1].length;
@@ -79,7 +89,7 @@ function splitFencedCodeSegments(
         fenceMatch[1][0] === fenceChar &&
         fenceMatch[1].length >= fenceLength
       ) {
-        flush(true);
+        flush('closedFence');
         inFence = false;
         fenceChar = null;
         fenceLength = 0;
@@ -90,7 +100,7 @@ function splitFencedCodeSegments(
     buffer += line;
   }
 
-  flush(inFence);
+  flush(inFence ? 'openFence' : 'text');
   return segments;
 }
 
@@ -132,16 +142,6 @@ function convertTexMathDelimiters(value: string): string {
     .replace(/\\\(([\s\S]+?)\\\)/g, (_match, content: string) => {
       return `$${content}$`;
     });
-}
-
-function normalizeMathDelimiters(value: string): string {
-  return splitFencedCodeSegments(value)
-    .map((segment) =>
-      segment.protected
-        ? segment.text
-        : normalizeInlineMathSegments(segment.text)
-    )
-    .join('');
 }
 
 function markdownTableCells(line: string): string[] {
@@ -203,16 +203,6 @@ function normalizeLooseTableRowsInText(value: string): string {
   }
 
   return normalized.join('\n');
-}
-
-function normalizeLooseMarkdownTables(value: string): string {
-  return splitFencedCodeSegments(value)
-    .map((segment) =>
-      segment.protected
-        ? segment.text
-        : normalizeLooseTableRowsInText(segment.text)
-    )
-    .join('');
 }
 
 function stabilizeUnclosedFencedCode(value: string): string {
@@ -304,26 +294,70 @@ function applySoftBreaksToText(value: string): string {
 export function applySoftBreaks(value: string): string {
   return splitFencedCodeSegments(value)
     .map((segment) =>
-      segment.protected ? segment.text : applySoftBreaksToText(segment.text)
+      segment.kind === 'text'
+        ? applySoftBreaksToText(segment.text)
+        : segment.text
     )
     .join('');
+}
+
+function transformTextSegment(
+  text: string,
+  options: ConversationMarkdownOptions
+): string {
+  const withImages = normalizeBareImageReferences(text);
+  const withTables = normalizeLooseTableRowsInText(withImages);
+  const withMath = normalizeInlineMathSegments(withTables);
+  return options.softBreaks ? applySoftBreaksToText(withMath) : withMath;
+}
+
+function transformSegment(
+  segment: FenceSegment,
+  options: ConversationMarkdownOptions
+): string {
+  return segment.kind === 'text'
+    ? transformTextSegment(segment.text, options)
+    : segment.text;
+}
+
+export function prepareConversationMarkdownCached(
+  value: string,
+  options: ConversationMarkdownOptions = {},
+  cache: ConversationMarkdownPrepareCache | null = null
+): { text: string; cache: ConversationMarkdownPrepareCache } {
+  const tagged = replaceTagReferenceMarkersWithMarkdownLinks(
+    stripTagReferenceAppendix(value)
+  );
+  const segments = splitFencedCodeSegments(tagged);
+  const softBreaks = Boolean(options.softBreaks);
+  const reusableCache = cache?.softBreaks === softBreaks ? cache : null;
+  const parts = segments.map((segment, index) => {
+    const cached = reusableCache?.parts[index];
+    if (
+      cached &&
+      cached.source === segment.text &&
+      cached.kind === segment.kind
+    ) {
+      return cached;
+    }
+    return {
+      source: segment.text,
+      kind: segment.kind,
+      prepared: transformSegment(segment, options),
+    };
+  });
+
+  return {
+    text: stabilizeUnclosedFencedCode(
+      parts.map((part) => part.prepared).join('')
+    ),
+    cache: { softBreaks, parts },
+  };
 }
 
 export function prepareConversationMarkdown(
   value: string,
   options: ConversationMarkdownOptions = {}
 ): string {
-  const normalized = stabilizeUnclosedFencedCode(
-    normalizeMathDelimiters(
-      normalizeLooseMarkdownTables(
-        normalizeBareImageReferences(
-          replaceTagReferenceMarkersWithMarkdownLinks(
-            stripTagReferenceAppendix(value)
-          )
-        )
-      )
-    )
-  );
-
-  return options.softBreaks ? applySoftBreaks(normalized) : normalized;
+  return prepareConversationMarkdownCached(value, options).text;
 }

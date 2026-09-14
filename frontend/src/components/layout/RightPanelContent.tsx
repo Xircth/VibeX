@@ -8,6 +8,7 @@ import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSes
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { kanbanBindsExecutionConversation } from '@/lib/kanbanViews';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import {
@@ -172,6 +173,7 @@ export function RightPanelContent() {
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const {
+    activeViewId,
     visibleRightSession,
     activateExecutionSession,
     placeCreatedSession,
@@ -186,6 +188,10 @@ export function RightPanelContent() {
   const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';
   const rightSessionId = visibleRightSession?.sessionId ?? '';
   const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;
+  const bindExecutionConversation = kanbanBindsExecutionConversation(
+    activeViewId,
+    isWorkspaceRoute ? 'workspace' : 'kanban'
+  );
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
@@ -605,7 +611,8 @@ export function RightPanelContent() {
                   {...workspaceConversationViewProps}
                 />
               </div>
-            ) : showRightSession &&
+            ) : bindExecutionConversation &&
+              showRightSession &&
               visibleRightSession &&
               rightSessionConversationViewProps ? (
               <div className="h-full min-h-0 overflow-hidden">
@@ -613,7 +620,7 @@ export function RightPanelContent() {
                   {...rightSessionConversationViewProps}
                 />
               </div>
-            ) : isRightSessionPending ? (
+            ) : bindExecutionConversation && isRightSessionPending ? (
               <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
                 <Loader2 className="h-6 w-6 animate-spin" />
                 <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
@@ -623,11 +630,11 @@ export function RightPanelContent() {
                   </p>
                 </div>
               </div>
-            ) : (
+            ) : bindExecutionConversation ? (
               <RightPanelNewSessionPrompt
                 onCreateSession={openCreateSessionOverlay}
               />
-            )}
+            ) : null}
 
             {isCreateOverlayOpen ? (
               <CreateSessionOverlay {...overlayProps} />

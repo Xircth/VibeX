@@ -173,4 +173,19 @@ describe('Product Plugin content layout', () => {
     expect(row.get('border-bottom')).toBe('0');
     expect(copy.get('min-width')).toBe('0');
   });
+
+  it('lets a long plugin config form scroll inside the clipped detail pane', () => {
+    const body = declarationsFor('.settings-page .product-plugin-detail-body');
+    const shell = declarationsFor(
+      '.settings-page .product-plugin-config-shell'
+    );
+    const config = declarationsFor('.settings-page .product-plugin-config');
+
+    expect(body.get('overflow-y')).toBe('auto');
+    expect(body.get('min-height')).toBe('0');
+    expect(shell.get('overflow-y')).toBe('auto');
+    expect(shell.get('min-height')).toBe('0');
+    expect(config.get('overflow')).toBe('visible');
+    expect(config.get('flex-shrink')).toBe('0');
+  });
 });

@@ -264,6 +264,90 @@ fn provider_import_sources_survive_normalization() {
 }
 
 #[test]
+fn provider_catalogs_are_read_at_inspect() {
+    let root = tempfile::tempdir().expect("package root");
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.catalog","publisher":"dev.vibex","name":"Catalog","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "integrations":[
+            {
+              "id":"claude-code",
+              "kind":"provider.model.catalog",
+              "label":"Claude templates",
+              "resource":"catalogs/claude_code.json",
+              "icon":"layers"
+            }
+          ]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Catalog fixture.\n---\n# Catalog\n",
+    );
+    write(&root.path().join("config.json"), "{}");
+    write(
+        &root.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    );
+    write(
+        &root.path().join("catalogs/claude_code.json"),
+        r#"{
+          "schemaVersion":1,
+          "agentId":"claude_code",
+          "templates":[
+            {
+              "id":"openrouter",
+              "name":"OpenRouter",
+              "surface":"reusable",
+              "apiUrl":"https://openrouter.ai/api/v1",
+              "model":"anthropic/claude-sonnet-4",
+              "websiteUrl":"https://openrouter.ai",
+              "category":"community"
+            }
+          ]
+        }"#,
+    );
+
+    let package =
+        PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("catalog package");
+    assert!(
+        package.warnings.is_empty(),
+        "valid catalogs must not warn: {:?}",
+        package.warnings
+    );
+    assert_eq!(package.app.provider_catalogs.len(), 1);
+    assert_eq!(package.app.provider_catalogs[0].agent_id, "claude_code");
+    assert_eq!(package.app.provider_catalogs[0].templates.len(), 1);
+    assert_eq!(
+        package.app.provider_catalogs[0].templates[0]
+            .api_url
+            .as_deref(),
+        Some("https://openrouter.ai/api/v1")
+    );
+}
+
+#[test]
+fn a_provider_catalog_with_a_handler_is_not_published() {
+    let package = product_package(
+        r#"[
+  {"id":"poll-runs","kind":"host.service","handler":"pollRuns","intervalSeconds":60},
+  {"id":"broken","kind":"provider.model.catalog","label":"Broken","resource":"catalogs/x.json","handler":"load"}
+]"#,
+    );
+    assert!(
+        package.app.provider_catalogs.is_empty(),
+        "handler catalogs must not publish: {:?}",
+        package.app.provider_catalogs
+    );
+}
+
+#[test]
 fn a_provider_import_source_without_a_handler_warns_instead_of_publishing() {
     // A valid sibling keeps the package installable, so the assertion is about
     // the two bad entries rather than about the package being rejected wholesale.

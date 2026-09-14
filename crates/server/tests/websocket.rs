@@ -305,6 +305,58 @@ async fn websocket_delivers_the_first_events_after_an_empty_attach() {
 }
 
 #[tokio::test]
+async fn websocket_answers_protocol_ping_with_pong() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("websocket-ping-token-with-at-least-32-bytes"),
+        ApplicationCore::new(SqliteConversationRepository::new(pool)),
+    )
+    .router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut socket = connect(address, "websocket-ping-token-with-at-least-32-bytes").await;
+
+    socket
+        .send(Message::Ping(vec![b's', b't', b'a', b'y'].into()))
+        .await
+        .expect("send ping");
+    let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+        .await
+        .expect("pong timeout")
+        .expect("websocket open")
+        .expect("valid websocket frame");
+    assert!(
+        matches!(frame, Message::Pong(ref payload) if payload.as_ref() == b"stay"),
+        "expected protocol pong, got {frame:?}"
+    );
+
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&SubscriptionClientMessage::Ping)
+                .expect("ping")
+                .into(),
+        ))
+        .await
+        .expect("send app ping");
+    assert!(matches!(
+        next_server_message(&mut socket).await,
+        SubscriptionServerMessage::Pong
+    ));
+    server.abort();
+}
+
+#[tokio::test]
 async fn websocket_rejects_an_oversized_frame_before_json_processing() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
         .expect("sqlite options")

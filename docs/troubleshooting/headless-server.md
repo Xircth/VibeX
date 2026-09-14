@@ -4,7 +4,8 @@
 
 - Confirm the credential is sent only as `Authorization: Bearer ...`, or as the
   WebSocket subprotocol token.
-- A pairing secret expires after five minutes and is redeemable once. Create a
+- A pairing secret is redeemable once. The default waiting window is thirty
+  minutes; Host `pairing --ttl` can issue a longer code up to 30 days. Create a
   new pairing rather than retrying an expired/redeemed secret.
 - A revoked device is rejected on HTTP and disconnected from an existing
   WebSocket. Pair it again only after confirming the revocation was intended.

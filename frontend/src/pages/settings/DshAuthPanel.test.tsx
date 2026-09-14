@@ -1,13 +1,27 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DshProvidersView } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { DshAuthPanel } from './DshAuthPanel';
+
+const pluginControl = vi.hoisted(() => ({
+  contributionCatalog: vi.fn(),
+  providerCatalogList: vi.fn(),
+}));
+
+vi.mock('@/lib/api/plugins', () => ({
+  createPluginControlApi: () => ({
+    contributionCatalog: pluginControl.contributionCatalog,
+    providerCatalogList: pluginControl.providerCatalogList,
+    invokeContribution: async () => ({}),
+  }),
+}));
 
 vi.mock('@/features/agent-management', async () => {
   const actual = await vi.importActual<
@@ -50,6 +64,16 @@ const view: DshProvidersView = {
 
 describe('DshAuthPanel', () => {
   beforeEach(() => {
+    pluginControl.contributionCatalog.mockResolvedValue({
+      generation: 0,
+      items: [],
+    });
+    pluginControl.providerCatalogList.mockResolvedValue({
+      agent_id: 'deepseek_harness',
+      generation: 0,
+      templates: [],
+      sources: [],
+    });
     clearAllAgentSettingsDrafts();
     vi.mocked(agentManagementApi.dshProviders).mockResolvedValue(view);
     vi.mocked(agentManagementApi.authMode).mockResolvedValue({

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type {
   BundledLanguage,
   BundledTheme,
@@ -96,9 +96,46 @@ export function createPlainTokenLines(value: string): ShikiTokenLines {
   );
 }
 
+/** Complete lines are those followed by a newline. The last line stays remainder. */
+export function splitCompleteLinePrefix(value: string): {
+  prefix: string;
+  remainder: string;
+} {
+  const newlineIndex = value.lastIndexOf('\n');
+  if (newlineIndex === -1) {
+    return { prefix: '', remainder: value };
+  }
+  return {
+    prefix: value.slice(0, newlineIndex + 1),
+    remainder: value.slice(newlineIndex + 1),
+  };
+}
+
+export function reuseStableTokenLines(
+  previousValue: string,
+  previousTokens: ShikiTokenLines,
+  nextValue: string
+): { reused: ShikiTokenLines; remainder: string } | null {
+  const { prefix } = splitCompleteLinePrefix(previousValue);
+  if (!prefix || !nextValue.startsWith(prefix)) {
+    return null;
+  }
+
+  const prefixLineCount = prefix.split('\n').length - 1;
+  if (previousTokens.length < prefixLineCount) {
+    return null;
+  }
+
+  return {
+    reused: previousTokens.slice(0, prefixLineCount),
+    remainder: nextValue.slice(prefix.length),
+  };
+}
+
 export async function highlightCodeToTokens(
   value: string,
-  language: ShikiCodeLanguage
+  language: ShikiCodeLanguage,
+  options?: { cache?: boolean }
 ) {
   const cacheKey = getTokenCacheKey(value, language);
   const cachedTokens = tokenCache.get(cacheKey);
@@ -115,12 +152,24 @@ export async function highlightCodeToTokens(
     tokenizeTimeLimit: 300,
   });
 
-  writeTokenCache(cacheKey, tokens);
+  if (options?.cache !== false) {
+    writeTokenCache(cacheKey, tokens);
+  }
   return tokens;
 }
 
-export function useShikiTokens(value: string, language: ShikiCodeLanguage) {
+export function useShikiTokens(
+  value: string,
+  language: ShikiCodeLanguage,
+  options?: { incremental?: boolean }
+) {
   const cacheKey = getTokenCacheKey(value, language);
+  const incremental = Boolean(options?.incremental);
+  const previousRef = useRef<{
+    value: string;
+    language: ShikiCodeLanguage;
+    tokens: ShikiTokenLines;
+  } | null>(null);
   const [tokens, setTokens] = useState<ShikiTokenLines>(
     () => tokenCache.get(cacheKey) ?? createPlainTokenLines(value)
   );
@@ -130,6 +179,7 @@ export function useShikiTokens(value: string, language: ShikiCodeLanguage) {
     const cachedTokens = tokenCache.get(cacheKey);
 
     if (cachedTokens) {
+      previousRef.current = { value, language, tokens: cachedTokens };
       setTokens(cachedTokens);
       return () => {
         isCurrent = false;
@@ -137,15 +187,61 @@ export function useShikiTokens(value: string, language: ShikiCodeLanguage) {
     }
 
     if (!value) {
+      previousRef.current = {
+        value,
+        language,
+        tokens: createPlainTokenLines(value),
+      };
       setTokens(createPlainTokenLines(value));
       return () => {
         isCurrent = false;
       };
     }
 
-    highlightCodeToTokens(value, language)
+    if (
+      incremental &&
+      previousRef.current &&
+      previousRef.current.language === language
+    ) {
+      const reused = reuseStableTokenLines(
+        previousRef.current.value,
+        previousRef.current.tokens,
+        value
+      );
+      if (reused) {
+        const immediate = reused.remainder
+          ? [...reused.reused, ...createPlainTokenLines(reused.remainder)]
+          : reused.reused;
+        previousRef.current = { value, language, tokens: immediate };
+        setTokens(immediate);
+        if (!reused.remainder) {
+          return () => {
+            isCurrent = false;
+          };
+        }
+        highlightCodeToTokens(reused.remainder, language, { cache: false })
+          .then((remainderTokens) => {
+            if (!isCurrent) return;
+            const nextTokens = [...reused.reused, ...remainderTokens];
+            previousRef.current = { value, language, tokens: nextTokens };
+            setTokens(nextTokens);
+          })
+          .catch(() => {
+            if (isCurrent) setTokens(immediate);
+          });
+        return () => {
+          isCurrent = false;
+        };
+      }
+    }
+
+    highlightCodeToTokens(value, language, {
+      cache: !incremental,
+    })
       .then((nextTokens) => {
-        if (isCurrent) setTokens(nextTokens);
+        if (!isCurrent) return;
+        previousRef.current = { value, language, tokens: nextTokens };
+        setTokens(nextTokens);
       })
       .catch(() => {
         if (isCurrent) setTokens(createPlainTokenLines(value));
@@ -154,7 +250,7 @@ export function useShikiTokens(value: string, language: ShikiCodeLanguage) {
     return () => {
       isCurrent = false;
     };
-  }, [cacheKey, language, value]);
+  }, [cacheKey, incremental, language, value]);
 
   return tokens;
 }

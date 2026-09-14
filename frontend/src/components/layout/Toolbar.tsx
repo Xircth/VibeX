@@ -523,13 +523,18 @@ function WorkspaceTabSwitcher() {
 
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
-      startTransition(() => {
-        setActiveTab(tab);
-      });
-      if (!projectId) return;
+      if (!projectId) {
+        startTransition(() => {
+          setActiveTab(tab);
+        });
+        return;
+      }
 
       if (tab !== 'workspace') {
-        navigate(paths.projectSessions(projectId));
+        startTransition(() => {
+          setActiveTab(tab);
+          navigate(paths.projectSessions(projectId));
+        });
         return;
       }
 
@@ -541,10 +546,20 @@ function WorkspaceTabSwitcher() {
         fallbackTaskId: fallbackWorktree?.workspace.task_id ?? null,
       });
       if (immediateTarget) {
-        setActiveWorktree(immediateTarget.workspaceId, immediateTarget.taskId);
-        navigate(immediateTarget.href);
+        startTransition(() => {
+          setActiveTab(tab);
+          setActiveWorktree(
+            immediateTarget.workspaceId,
+            immediateTarget.taskId
+          );
+          navigate(immediateTarget.href);
+        });
         return;
       }
+
+      startTransition(() => {
+        setActiveTab(tab);
+      });
 
       const navigateToFallbackWorkspace = async () => {
         let targetWorkspace = fallbackWorktree?.workspace ?? null;

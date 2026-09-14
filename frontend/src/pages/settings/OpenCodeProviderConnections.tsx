@@ -35,6 +35,9 @@ import {
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 
+import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+import { useProviderCatalogList } from './useProviderCatalogList';
+
 const PROVIDER_PACKAGES = [
   ['@ai-sdk/openai-compatible', 'OpenAI Compatible'],
   ['@ai-sdk/openai', 'OpenAI'],
@@ -73,6 +76,20 @@ function matchesOpenCodeSurface(
 }
 
 type ProviderModelDraft = OpenCodeProviderModelRequest;
+
+function pluginCatalogRows(
+  templates: ProviderCatalogTemplateView[],
+  query: string
+): ProviderCatalogTemplateView[] {
+  const rows = templates.filter((template) => template.surface === 'opencode');
+  const needle = query.trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((template) =>
+    [template.name, template.provider_id, template.npm, template.base_url].some(
+      (value) => value != null && value.toLowerCase().includes(needle)
+    )
+  );
+}
 
 export function OpenCodeProviderConnections({
   agentId = 'opencode',
@@ -114,6 +131,9 @@ export function OpenCodeProviderConnections({
   const [importPreview, setImportPreview] =
     useState<AgentModelProviderImportPreviewView | null>(null);
   const [importSelected, setImportSelected] = useState<string[]>([]);
+  const pluginCatalogEnabled = surface === 'provider';
+  const { catalog: pluginCatalog, catalogError: pluginCatalogError } =
+    useProviderCatalogList(agentId, pluginCatalogEnabled);
 
   useEffect(() => {
     onDirtyChange?.(formDirty);
@@ -181,6 +201,11 @@ export function OpenCodeProviderConnections({
       .slice(0, 20);
   }, [catalog, catalogQuery, surface]);
 
+  const pluginCatalogResults = useMemo(() => {
+    if (surface !== 'provider') return [];
+    return pluginCatalogRows(pluginCatalog?.templates ?? [], catalogQuery);
+  }, [catalogQuery, pluginCatalog, surface]);
+
   const packageOptions = useMemo(() => {
     const options = new Map<string, string>(PROVIDER_PACKAGES);
     if (npm && !options.has(npm)) options.set(npm, npm);
@@ -195,6 +220,24 @@ export function OpenCodeProviderConnections({
       provider.models.map((model) => ({
         id: model.id,
         name: model.name,
+        previous_id: null,
+      }))
+    );
+  };
+
+  const adoptPluginCatalogTemplate = (
+    template: ProviderCatalogTemplateView
+  ) => {
+    setProviderId(template.provider_id?.trim() || '');
+    setName(template.name);
+    setNpm(template.npm ?? '');
+    setApi(template.api ?? '');
+    setBaseUrl(template.base_url ?? '');
+    setApiKey('');
+    setModels(
+      (template.models ?? []).map((model) => ({
+        id: model.id,
+        name: model.name?.trim() || model.id,
         previous_id: null,
       }))
     );
@@ -727,7 +770,7 @@ export function OpenCodeProviderConnections({
                 <p className="agent-provider-catalog-empty" role="alert">
                   {catalogError}
                 </p>
-              ) : catalogResults.length ? (
+              ) : catalogResults.length || pluginCatalogResults.length ? (
                 <ul className="agent-provider-catalog-list">
                   {catalogResults.map((provider) => (
                     <li key={provider.id}>
@@ -782,6 +825,42 @@ export function OpenCodeProviderConnections({
                       ) : null}
                     </li>
                   ))}
+                  {pluginCatalogResults.map((template) => (
+                    <li key={`${template.plugin_id}:${template.id}`}>
+                      <button
+                        aria-label={t('settings:agents.selectProviderAria', {
+                          name: template.name,
+                        })}
+                        type="button"
+                        onClick={() => adoptPluginCatalogTemplate(template)}
+                      >
+                        <span className="agent-provider-catalog-identity">
+                          <Database
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5"
+                          />
+                          <span>
+                            <strong>{template.name}</strong>
+                            <code>{template.provider_id}</code>
+                          </span>
+                        </span>
+                        <span className="agent-provider-catalog-meta">
+                          <span>
+                            {template.plugin_label
+                              ? `${t('settings:agents.providerCatalogSourcePlugin')} · ${template.plugin_label}`
+                              : t(
+                                  'settings:agents.providerCatalogSourcePlugin'
+                                )}
+                          </span>
+                          <span>
+                            {t('settings:agents.modelCount', {
+                              count: template.models?.length ?? 0,
+                            })}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               ) : (
                 <p className="agent-provider-catalog-empty">
@@ -789,6 +868,11 @@ export function OpenCodeProviderConnections({
                 </p>
               )}
             </div>
+            {pluginCatalogError ? (
+              <p className="agent-provider-catalog-empty" role="alert">
+                {pluginCatalogError}
+              </p>
+            ) : null}
           </div>
 
           <form

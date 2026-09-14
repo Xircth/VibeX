@@ -155,6 +155,178 @@ describe('validatePlugin product package', () => {
   });
 });
 
+describe('validatePlugin provider.model.catalog', () => {
+  it('accepts a legal catalog package', async () => {
+    const root = await catalogFixture();
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('rejects a catalog contribution without resource', async () => {
+    const root = await catalogFixture({
+      integration: { resource: undefined },
+      writeCatalog: false,
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'integration_resource_invalid' }),
+      ])
+    );
+  });
+
+  it('rejects a catalog contribution that declares handler', async () => {
+    const root = await catalogFixture({
+      integration: { handler: 'catalog.load' },
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'provider_catalog_handler_unsupported',
+        }),
+      ])
+    );
+  });
+
+  it('rejects a template that includes apiKey', async () => {
+    const root = await catalogFixture({
+      catalog: legalCatalog({
+        templates: [{ ...legalReusableTemplate(), apiKey: 'sk-secret' }],
+      }),
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'provider_catalog_secret_forbidden' }),
+      ])
+    );
+  });
+
+  it('rejects a javascript: websiteUrl', async () => {
+    const root = await catalogFixture({
+      catalog: legalCatalog({
+        templates: [
+          {
+            ...legalReusableTemplate(),
+            websiteUrl: 'javascript:alert(1)',
+          },
+        ],
+      }),
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'provider_catalog_url_invalid' }),
+      ])
+    );
+  });
+
+  it('rejects a websiteUrl that includes userinfo', async () => {
+    const root = await catalogFixture({
+      catalog: legalCatalog({
+        templates: [
+          {
+            ...legalReusableTemplate(),
+            websiteUrl: 'https://user:pass@example.com/providers',
+          },
+        ],
+      }),
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'provider_catalog_url_invalid' }),
+      ])
+    );
+  });
+
+  it('rejects an apiKeyUrl whose query includes aff=', async () => {
+    const root = await catalogFixture({
+      catalog: legalCatalog({
+        templates: [
+          {
+            ...legalReusableTemplate(),
+            apiKeyUrl: 'https://example.com/keys?aff=partner',
+          },
+        ],
+      }),
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'provider_catalog_url_invalid' }),
+      ])
+    );
+  });
+
+  it('accepts a websiteUrl whose query contains aff only as a substring', async () => {
+    const root = await catalogFixture({
+      catalog: legalCatalog({
+        templates: [
+          {
+            ...legalReusableTemplate(),
+            websiteUrl: 'https://example.com/staff?role=staff',
+          },
+        ],
+      }),
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('rejects a surface that does not match the file agentId', async () => {
+    const root = await catalogFixture({
+      catalog: {
+        schemaVersion: 1,
+        agentId: 'claude_code',
+        templates: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            surface: 'opencode',
+            providerId: 'openai',
+            baseUrl: 'https://api.openai.com/v1',
+            models: [{ id: 'gpt-4o' }],
+          },
+        ],
+      },
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'provider_catalog_surface_mismatch',
+        }),
+      ])
+    );
+  });
+});
+
 async function fixture(extra: Record<string, unknown> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-'));
   await mkdir(join(root, '.vibex-plugin'), { recursive: true });
@@ -214,5 +386,57 @@ async function fixture(extra: Record<string, unknown> = {}) {
     join(root, 'contents/skills/test/SKILL.md'),
     '---\nname: test\ndescription: Test skill.\n---\n'
   );
+  return root;
+}
+
+const CATALOG_RESOURCE = 'catalogs/claude_code.json';
+
+function legalReusableTemplate() {
+  return {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    surface: 'reusable',
+    apiUrl: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-sonnet-4',
+    websiteUrl: 'https://openrouter.ai',
+    apiKeyUrl: 'https://openrouter.ai/keys',
+    endpointCandidates: ['https://openrouter.ai/api/v1'],
+    category: 'community',
+  };
+}
+
+function legalCatalog(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 1,
+    agentId: 'claude_code',
+    templates: [legalReusableTemplate()],
+    ...overrides,
+  };
+}
+
+async function catalogFixture({
+  integration,
+  catalog,
+  writeCatalog = true,
+}: {
+  integration?: Record<string, unknown>;
+  catalog?: unknown;
+  writeCatalog?: boolean;
+} = {}) {
+  const resolved = {
+    id: 'claude-code',
+    kind: 'provider.model.catalog',
+    label: 'Claude templates',
+    resource: CATALOG_RESOURCE,
+    ...integration,
+  };
+  const root = await fixture({ integrations: [resolved] });
+  if (writeCatalog && typeof resolved.resource === 'string') {
+    await mkdir(join(root, 'catalogs'), { recursive: true });
+    await writeFile(
+      join(root, resolved.resource),
+      JSON.stringify(catalog ?? legalCatalog())
+    );
+  }
   return root;
 }

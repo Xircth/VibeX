@@ -605,17 +605,35 @@ export function getFileTreeMentionText(
   return `${path}${nodeType === 'file' ? ' ' : ''}`;
 }
 
+function parentFileTreeFolder(path: string): string {
+  const separator = path.lastIndexOf('/');
+  return separator < 0 ? '' : path.slice(0, separator);
+}
+
 export function pruneExpandedFileTreeFolders(
   expandedFolders: Set<string>,
-  folderPaths: Set<string>
+  folderPaths: Set<string>,
+  loadedDirectories: Set<string> = new Set()
 ) {
+  if (folderPaths.size === 0) {
+    return expandedFolders;
+  }
+  let changed = false;
   const next = new Set<string>();
   expandedFolders.forEach((path) => {
     if (folderPaths.has(path)) {
       next.add(path);
+      return;
     }
+    const parent = parentFileTreeFolder(path);
+    const parentHasLoaded = parent === '' || loadedDirectories.has(parent);
+    if (parentHasLoaded) {
+      changed = true;
+      return;
+    }
+    next.add(path);
   });
-  return next;
+  return changed ? next : expandedFolders;
 }
 
 export function getAreAllVisibleFileTreeFoldersExpanded(

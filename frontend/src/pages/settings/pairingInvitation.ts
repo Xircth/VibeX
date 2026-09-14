@@ -65,7 +65,10 @@ export function pairingVisibleOrigins(
   return reachable.length > 0 ? reachable : origins.slice(0, 1);
 }
 
-export const PAIRING_TTL_SECONDS = [300, 900, 1800, 3600] as const;
+export const PAIRING_TTL_SECONDS = [
+  300, 900, 1800, 3600, 21_600, 86_400, 604_800, 2_592_000,
+] as const;
+export const DEFAULT_PAIRING_TTL_SECONDS: PairingTtlSeconds = 1800;
 export type PairingTtlSeconds = (typeof PAIRING_TTL_SECONDS)[number];
 export type PairingLiveStatus = 'waiting' | 'connected' | 'failed';
 

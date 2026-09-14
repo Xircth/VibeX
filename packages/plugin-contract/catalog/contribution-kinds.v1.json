@@ -77,6 +77,11 @@
       "handler": true
     },
     {
+      "id": "provider.model.catalog",
+      "status": "ready",
+      "handler": false
+    },
+    {
       "id": "app.panel",
       "status": "ready",
       "handler": true

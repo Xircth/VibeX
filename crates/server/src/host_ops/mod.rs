@@ -933,7 +933,8 @@ impl ServerApplicationDomains {
     async fn create_project_session(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PayloadArgs<CreateProjectSessionPayload> = parse(args)?;
         let payload = args.payload;
-        let workspace = if payload.create_workspace.unwrap_or(false) {
+        let created_workspace = payload.create_workspace.unwrap_or(false);
+        let workspace = if created_workspace {
             self.create_worktree_workspace_for_project_session(
                 payload.project_id,
                 payload.name.as_deref(),
@@ -966,11 +967,13 @@ impl ServerApplicationDomains {
             self.ensure_root_workspace(payload.project_id, payload.branch.as_deref())
                 .await?
         };
-        self.deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await
-            .map_err(map_workspace_git_error)?;
+        if !created_workspace {
+            self.deployment
+                .container()
+                .ensure_container_exists(&workspace)
+                .await
+                .map_err(map_workspace_git_error)?;
+        }
         let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
         let prepared_identity = if payload.session_id.is_some() {
             let agent_id = prepared_session_agent_id(payload.executor.as_deref())?;

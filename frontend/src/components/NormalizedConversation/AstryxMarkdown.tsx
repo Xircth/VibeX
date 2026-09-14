@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -26,7 +27,10 @@ import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
-import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
+import {
+  prepareConversationMarkdownCached,
+  type ConversationMarkdownPrepareCache,
+} from '@/lib/conversation-rendering/streamdownPlugins';
 import {
   HTML_PLACEHOLDER_PATTERN,
   protectRawHtml,
@@ -183,12 +187,14 @@ type MarkdownComponentContext = {
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
+  isStreaming?: boolean;
 };
 
 function createMarkdownComponents({
   taskAttemptId,
   taskId,
   workspacePath,
+  isStreaming,
 }: MarkdownComponentContext): MarkdownProps['components'] {
   return {
     code: ({ code, language }) => {
@@ -200,7 +206,13 @@ function createMarkdownComponents({
       if (isSingleLine) {
         return <CompactCodeBlock className={className} value={code} />;
       }
-      return <CodeBlock className={className} value={code} />;
+      return (
+        <CodeBlock
+          className={className}
+          value={code}
+          isStreaming={isStreaming}
+        />
+      );
     },
     inlineCode: ({ children }) => {
       const text = flattenNodeText(children).trim();
@@ -383,8 +395,14 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   isStreaming,
   rawHtml,
 }: AstryxMarkdownProps) {
+  const prepareCacheRef = useRef<ConversationMarkdownPrepareCache | null>(null);
   const normalizedValue = useMemo(() => {
-    const prepared = prepareConversationMarkdown(value, { softBreaks });
+    const { text: prepared, cache } = prepareConversationMarkdownCached(
+      value,
+      { softBreaks },
+      prepareCacheRef.current
+    );
+    prepareCacheRef.current = cache;
     // Astryx drops link nodes with empty destinations (`[text]()`), so
     // rewrite empty targets to `#` — the link component then resolves the
     // workspace path from the link text (non-path text stays inert).
@@ -441,8 +459,9 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         taskAttemptId,
         taskId,
         workspacePath,
+        isStreaming,
       }),
-    [taskAttemptId, taskId, workspacePath]
+    [isStreaming, taskAttemptId, taskId, workspacePath]
   );
 
   return (

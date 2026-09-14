@@ -3,6 +3,7 @@ import {
   adjacentKanbanViewId,
   kanbanCarouselTranslateX,
   kanbanCarouselWidth,
+  kanbanBindsExecutionConversation,
   kanbanViewHidesSessionSlot,
   kanbanViewsForBoardStyle,
   migrateKanbanViewId,
@@ -117,6 +118,30 @@ describe('kanbanViews', () => {
     expect(kanbanViewHidesSessionSlot('plugin:sample/view')).toBe(false);
     expect(kanbanViewHidesSessionSlot('builtin:canvas')).toBe(true);
     expect(kanbanViewHidesSessionSlot('builtin:usage')).toBe(true);
+  });
+
+  it('keeps the execution conversation bound on workspace even when the kanban slot is hidden', () => {
+    expect(
+      kanbanBindsExecutionConversation('builtin:canvas', 'workspace')
+    ).toBe(true);
+    expect(kanbanBindsExecutionConversation('builtin:usage', 'workspace')).toBe(
+      true
+    );
+  });
+
+  it('unbinds the hidden kanban execution conversation on canvas and usage', () => {
+    expect(kanbanBindsExecutionConversation('builtin:canvas', 'kanban')).toBe(
+      false
+    );
+    expect(kanbanBindsExecutionConversation('builtin:usage', 'kanban')).toBe(
+      false
+    );
+    expect(kanbanBindsExecutionConversation('builtin:sessions', 'kanban')).toBe(
+      true
+    );
+    expect(kanbanBindsExecutionConversation('builtin:columns', 'kanban')).toBe(
+      true
+    );
   });
 
   it('sizes the carousel for N views', () => {

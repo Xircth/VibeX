@@ -54,11 +54,13 @@ pub fn create_tab(
 }
 
 #[tauri::command]
-pub async fn browser_create_tab(
+pub fn browser_create_tab(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, BrowserCommandState>,
     request: CreateBrowserTab,
 ) -> Result<BrowserTab, BrowserCommandError> {
+    // Sync so ns_view() and the parent handle are taken on the UI thread.
+    // An async command would run on tokio-rt-worker; AppKit/CEF CHECKs that.
     let parent_handle = crate::native_browser_parent(&window)
         .ok()
         .map(|parent| parent.as_raw());
@@ -69,7 +71,7 @@ pub async fn browser_create_tab(
 }
 
 #[tauri::command]
-pub async fn browser_apply_intent(
+pub fn browser_apply_intent(
     state: tauri::State<'_, BrowserCommandState>,
     tab_id: BrowserTabId,
     intent: BrowserIntent,
@@ -78,7 +80,7 @@ pub async fn browser_apply_intent(
 }
 
 #[tauri::command]
-pub async fn browser_close_tab(
+pub fn browser_close_tab(
     state: tauri::State<'_, BrowserCommandState>,
     tab_id: BrowserTabId,
 ) -> Result<(), BrowserCommandError> {
@@ -86,7 +88,7 @@ pub async fn browser_close_tab(
 }
 
 #[tauri::command]
-pub async fn browser_get_tab(
+pub fn browser_get_tab(
     state: tauri::State<'_, BrowserCommandState>,
     tab_id: BrowserTabId,
 ) -> Result<Option<BrowserTab>, BrowserCommandError> {

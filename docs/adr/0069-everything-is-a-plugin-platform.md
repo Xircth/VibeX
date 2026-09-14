@@ -128,6 +128,7 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
 | 会话时间线卡 | `app.timeline.card` | 已挂孔 → 稳定面 | Batch 1 |
 | 通用设置区块 | `app.settings.section` | 已挂孔 → 稳定面 | Batch 1 |
 | 供应商预设 API | `host.call: provider.presets.list / save / bind`；导入来源贡献 `provider.model.importSource` | 新增 | Batch 1 |
+| 供应商预置目录 | 贡献 `provider.model.catalog`（v1 仅 resource）+ Host 命令 `provider_catalog_list`（`plugin.read`） | 稳定面 | 与官方消费者 ProviderSwitch 同批（ADR-0079） |
 | 顶级 Tab | `app.tab`（中央 Tab 栏新增成员，与工作区 / 看板 Tab 并列） | 新增 | Batch 2（底层）/ Batch 5（进稳定面，官方浏览器 Tab） |
 | 看板视图 | `app.kanban.view`（共享看板 Tab，沿用左右箭头切换与视图记忆；全部禁用则看板 Tab 移除） | 新增 | Batch 2（底层）/ Batch 3、5（官方视图插件） |
 | 结构面板 | `app.panel`（工作区内 Dockview 面板：中央组 Tab / 左侧栏视图，声明 `defaultPosition`、图标、渲染轨） | 新增 | Batch 2 |

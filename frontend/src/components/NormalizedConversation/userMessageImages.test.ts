@@ -18,6 +18,33 @@ describe('splitDisplayContentImages', () => {
           id: '.vibe-images/screen.png:0',
           path: '.vibe-images/screen.png',
           altText: 'screen',
+          kind: 'image',
+        },
+      ],
+      files: [],
+    });
+  });
+
+  it('lifts document attachments into file cards instead of images', () => {
+    expect(
+      splitDisplayContentImages(
+        'See the spec.\n![notes](.vibe-images/notes.pdf)\n![icon](.vibe-images/icon.svg)'
+      )
+    ).toEqual({
+      text: 'See the spec.',
+      images: [],
+      files: [
+        {
+          id: '.vibe-images/notes.pdf:0',
+          path: '.vibe-images/notes.pdf',
+          altText: 'notes',
+          kind: 'file',
+        },
+        {
+          id: '.vibe-images/icon.svg:1',
+          path: '.vibe-images/icon.svg',
+          altText: 'icon',
+          kind: 'file',
         },
       ],
     });
@@ -43,8 +70,10 @@ describe('splitUserTurnContent', () => {
           id: '.vibe-images/screen.png:0',
           path: '.vibe-images/screen.png',
           altText: 'screen.png',
+          kind: 'image',
         },
       ],
+      files: [],
     });
   });
 
@@ -65,8 +94,10 @@ describe('splitUserTurnContent', () => {
           id: '.vibe-images/shot.png:0',
           path: '.vibe-images/shot.png',
           altText: 'shot.png',
+          kind: 'image',
         },
       ],
+      files: [],
     });
   });
 
@@ -91,8 +122,10 @@ describe('splitUserTurnContent', () => {
           id: '.vibe-images/screen.png:0',
           path: '.vibe-images/screen.png',
           altText: 'screen.png',
+          kind: 'image',
         },
       ],
+      files: [],
     });
   });
 
@@ -113,7 +146,34 @@ describe('splitUserTurnContent', () => {
           id: 'inline:0',
           path: '',
           altText: 'Image',
+          kind: 'image',
           sourceUrl: 'data:image/png;base64,AAAA',
+        },
+      ],
+      files: [],
+    });
+  });
+
+  it('classifies document image-blocks as file cards even when mime is image/png', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'Attached.' },
+      {
+        type: 'image',
+        data: '',
+        mime_type: 'image/png',
+        uri: '.vibe-images/notes.pdf',
+      },
+    ];
+
+    expect(splitUserTurnContent(blocks)).toEqual({
+      text: 'Attached.',
+      images: [],
+      files: [
+        {
+          id: '.vibe-images/notes.pdf:0',
+          path: '.vibe-images/notes.pdf',
+          altText: 'notes.pdf',
+          kind: 'file',
         },
       ],
     });

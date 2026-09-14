@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  attachmentPreviewKind,
   fileNameForMediaUpload,
   isAttachableFile,
   isAttachableMediaFile,
   isImageFile,
+  isRasterImageExtension,
   isVideoFile,
   mediaExtensionForMime,
   mimeForMediaExtension,
@@ -27,6 +29,26 @@ describe('mediaAttachments', () => {
         new File(['x'], 'notes.txt', { type: 'text/plain' })
       )
     ).toBe(false);
+  });
+
+  it('renders raster images inline and documents as file cards', () => {
+    expect(isRasterImageExtension('png')).toBe(true);
+    expect(isRasterImageExtension('svg')).toBe(false);
+    expect(attachmentPreviewKind('shot.png')).toBe('image');
+    expect(attachmentPreviewKind('clip.mp4')).toBe('video');
+    expect(attachmentPreviewKind('notes.md')).toBe('file');
+    expect(attachmentPreviewKind('diagram.svg')).toBe('file');
+    expect(attachmentPreviewKind('report.pdf')).toBe('file');
+    expect(attachmentPreviewKind('letter.docx')).toBe('file');
+    expect(attachmentPreviewKind('deck.pptx')).toBe('file');
+    expect(attachmentPreviewKind('data.xlsx')).toBe('file');
+    expect(
+      attachmentPreviewKind('.vibe-images/uuid.bin', 'application/pdf')
+    ).toBe('file');
+    expect(attachmentPreviewKind('', 'image/png')).toBe('image');
+    expect(attachmentPreviewKind('.vibe-images/notes.pdf', 'image/png')).toBe(
+      'file'
+    );
   });
 
   it('treats documents as attachable files', () => {

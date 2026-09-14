@@ -582,6 +582,20 @@ impl ConversationStateApplier {
                     record.created_at,
                 )
                 .await?;
+                db::models::conversation::DbConversationSummary::update_cached_model_on_connection(
+                    &mut *conn,
+                    record.conversation_id,
+                    usage.model.as_deref(),
+                )
+                .await?;
+            }
+            ConversationEvent::SessionConfigOptionsUpdated { options } => {
+                db::models::conversation::DbConversationSummary::update_cached_model_on_connection(
+                    &mut *conn,
+                    record.conversation_id,
+                    agents::model_id_from_config_options(&options).as_deref(),
+                )
+                .await?;
             }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 if let Some(turn_id) = record.turn_id {
@@ -2896,7 +2910,8 @@ mod tests {
 
     use agents::{
         AcpCapabilitySnapshot, AgentId, AgentPermissionId, AgentPermissionOption,
-        AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
+        AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse,
+        AgentSessionConfigOption, AgentSessionId,
         conversation::{
             AgentPromptCapabilities, ConversationArtifactReference, ConversationDelegation,
             ConversationDelegationResult, ConversationError, ConversationFeedbackRequest,
@@ -2910,7 +2925,7 @@ mod tests {
     use db::models::{
         conversation::{
             ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
-            CreateConversationRecord,
+            CreateConversationRecord, DbConversationSummary,
         },
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
         session::Session,
@@ -3217,6 +3232,70 @@ mod tests {
         )
         .await
         .expect("append event")
+    }
+
+    #[tokio::test]
+    async fn usage_and_config_events_cache_session_model() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::SessionConfigOptionsUpdated {
+                options: vec![AgentSessionConfigOption {
+                    key: "model".into(),
+                    label: "Model".into(),
+                    description: None,
+                    category: Some("model".into()),
+                    value: Some(serde_json::json!("grok-4.6")),
+                    choices: Vec::new(),
+                    dependency: None,
+                }],
+            },
+            None,
+        )
+        .await;
+
+        let session = DbConversationSummary::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load")
+            .expect("session");
+        assert_eq!(session.model.as_deref(), Some("grok-4.6"));
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 29_214,
+                    output_tokens: 1_652,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 56_960,
+                    context_used: Some(18_658),
+                    context_window_max: Some(500_000),
+                    cost_amount: None,
+                    cost_currency: None,
+                    model: Some("grok-4.6".into()),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let snapshot = db::models::conversation_usage::ConversationUsageSnapshotRecord::find(
+            &pool,
+            conversation_id,
+        )
+        .await
+        .expect("snapshot")
+        .expect("exists");
+        assert_eq!(snapshot.model.as_deref(), Some("grok-4.6"));
+        assert_eq!(snapshot.protocol_total_tokens, Some(87_826));
     }
 
     #[tokio::test]
@@ -6009,6 +6088,7 @@ mod tests {
                     context_window_max: Some(200_000),
                     cost_amount: None,
                     cost_currency: None,
+                    model: None,
                 },
             },
             None,
@@ -6737,6 +6817,7 @@ mod tests {
                     context_window_max: Some(200_000),
                     cost_amount: None,
                     cost_currency: None,
+                    model: None,
                 },
             },
             None,

@@ -21,12 +21,14 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::OnceLock,
+    thread,
     time::Duration,
 };
 
 use thiserror::Error;
 use utils::{
-    path::ALWAYS_SKIP_DIRS, process::new_hidden_std_command,
+    path::ALWAYS_SKIP_DIRS,
+    process::{isolate_std_process_group, new_hidden_std_command, terminate_std_child_group},
     shell::resolve_executable_path_blocking,
 };
 use wait_timeout::ChildExt;
@@ -34,6 +36,7 @@ use wait_timeout::ChildExt;
 use super::Commit;
 
 static GIT_EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
+static EMPTY_HOOKS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Error)]
 pub enum GitCliError {
@@ -41,6 +44,8 @@ pub enum GitCliError {
     NotAvailable,
     #[error("git command failed: {0}")]
     CommandFailed(String),
+    #[error("git command timed out after {0}s")]
+    TimedOut(u64),
     #[error("authentication failed: {0}")]
     AuthFailed(String),
     #[error("push rejected: {0}")]
@@ -50,17 +55,90 @@ pub enum GitCliError {
 }
 
 fn worktree_add_error_is_fatal_without_retry(error: &GitCliError) -> bool {
-    let GitCliError::CommandFailed(message) = error else {
-        return !matches!(error, GitCliError::RebaseInProgress);
-    };
-    let lowered = message.to_ascii_lowercase();
-    lowered.contains("already checked out")
-        || lowered.contains("already exists")
-        || lowered.contains("invalid reference")
-        || lowered.contains("needed a single revision")
-        || lowered.contains("unknown revision")
-        || lowered.contains("not a valid object name")
-        || lowered.contains("a branch named")
+    match error {
+        GitCliError::TimedOut(_) => true,
+        GitCliError::RebaseInProgress => false,
+        GitCliError::CommandFailed(message) => {
+            let lowered = message.to_ascii_lowercase();
+            lowered.contains("already checked out")
+                || lowered.contains("already exists")
+                || lowered.contains("invalid reference")
+                || lowered.contains("needed a single revision")
+                || lowered.contains("unknown revision")
+                || lowered.contains("not a valid object name")
+                || lowered.contains("a branch named")
+        }
+        _ => true,
+    }
+}
+
+fn empty_hooks_dir() -> &'static Path {
+    EMPTY_HOOKS_DIR.get_or_init(|| {
+        let dir = std::env::temp_dir().join("vibex-empty-git-hooks");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    })
+}
+
+fn strip_inherited_git_environment(cmd: &mut std::process::Command) {
+    let keys: Vec<OsString> = std::env::vars_os()
+        .filter_map(|(key, _)| {
+            let name = key.to_str()?;
+            if name.starts_with("GIT_") || name.eq_ignore_ascii_case("GCM_INTERACTIVE") {
+                Some(key)
+            } else {
+                None
+            }
+        })
+        .collect();
+    for key in keys {
+        cmd.env_remove(key);
+    }
+}
+
+fn timeout_for_git_args(args: &[OsString]) -> Duration {
+    let mut verbs = Vec::new();
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        let Some(text) = arg.to_str() else {
+            continue;
+        };
+        if text == "-c" || text == "-C" {
+            skip_next = true;
+            continue;
+        }
+        if text.starts_with('-') {
+            continue;
+        }
+        verbs.push(text);
+        if verbs.len() == 2 {
+            break;
+        }
+    }
+
+    match verbs.as_slice() {
+        ["clone" | "fetch" | "pull" | "push" | "ls-remote", ..] => GitCli::CLONE_TIMEOUT,
+        ["worktree", "add" | "remove" | "move"] => GitCli::CHECKOUT_TIMEOUT,
+        [
+            "checkout" | "reset" | "merge" | "rebase" | "cherry-pick" | "revert",
+            ..,
+        ]
+        | ["sparse-checkout", ..] => GitCli::CHECKOUT_TIMEOUT,
+        _ => GitCli::DEFAULT_COMMAND_TIMEOUT,
+    }
+}
+
+fn join_pipe_reader(
+    handle: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Vec<u8>, GitCliError> {
+    handle
+        .join()
+        .map_err(|_| GitCliError::CommandFailed("git output reader panicked".to_string()))?
+        .map_err(|e| GitCliError::CommandFailed(e.to_string()))
 }
 
 #[derive(Clone, Default)]
@@ -102,6 +180,7 @@ pub struct StatusDiffOptions {
 impl GitCli {
     const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
     const CLONE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+    const CHECKOUT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
     pub fn new() -> Self {
         Self {}
@@ -453,7 +532,10 @@ impl GitCli {
     }
 
     pub fn list_worktrees(&self, repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
-        let out = self.git(repo_path, ["worktree", "list", "--porcelain"])?;
+        let out = self.git(
+            repo_path,
+            ["--no-optional-locks", "worktree", "list", "--porcelain"],
+        )?;
         let mut entries = Vec::new();
         let mut current_path: Option<String> = None;
         let mut current_head: Option<String> = None;
@@ -1372,7 +1454,12 @@ impl GitCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        self.git_impl_timed(repo_path, args, envs, stdin, Self::DEFAULT_COMMAND_TIMEOUT)
+        let args: Vec<OsString> = args
+            .into_iter()
+            .map(|s| s.as_ref().to_os_string())
+            .collect();
+        let timeout = timeout_for_git_args(&args);
+        self.git_impl_timed(repo_path, args, envs, stdin, timeout)
     }
 
     fn git_impl_timed<I, S>(
@@ -1389,11 +1476,22 @@ impl GitCli {
     {
         let git = self.git_executable()?;
         let mut cmd = new_hidden_std_command(git, std::iter::empty::<&OsStr>());
-        cmd.arg("-c")
-            .arg(format!("safe.directory={}", repo_path.display()));
-        cmd.arg("-C").arg(repo_path);
+        strip_inherited_git_environment(&mut cmd);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
         cmd.env("GCM_INTERACTIVE", "Never");
+        cmd.env("GIT_PAGER", "cat");
+        cmd.env("GIT_OPTIONAL_LOCKS", "0");
+        cmd.arg("-c")
+            .arg(format!("safe.directory={}", repo_path.display()));
+        cmd.arg("-c")
+            .arg(format!("core.hooksPath={}", empty_hooks_dir().display()));
+        cmd.arg("-c").arg("core.fsmonitor=");
+        cmd.arg("-c").arg("core.useBuiltinFSMonitor=false");
+        cmd.arg("-c").arg("submodule.recurse=false");
+        cmd.arg("-c").arg("gc.auto=0");
+        cmd.arg("-C").arg(repo_path);
+        cmd.arg("--no-pager");
+        isolate_std_process_group(&mut cmd);
 
         if let Some(envs) = envs {
             for (k, v) in envs {
@@ -1425,6 +1523,25 @@ impl GitCli {
             .spawn()
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
 
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| GitCliError::CommandFailed("git stdout pipe missing".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| GitCliError::CommandFailed("git stderr pipe missing".to_string()))?;
+        let stdout_reader = thread::spawn(move || {
+            let mut pipe = stdout;
+            let mut buf = Vec::new();
+            pipe.read_to_end(&mut buf).map(|_| buf)
+        });
+        let stderr_reader = thread::spawn(move || {
+            let mut pipe = stderr;
+            let mut buf = Vec::new();
+            pipe.read_to_end(&mut buf).map(|_| buf)
+        });
+
         let stdin_write_result = if let Some(input) = stdin
             && let Some(mut child_stdin) = child.stdin.take()
         {
@@ -1433,37 +1550,21 @@ impl GitCli {
             None
         };
 
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| GitCliError::CommandFailed("git stdout pipe missing".to_string()))?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| GitCliError::CommandFailed("git stderr pipe missing".to_string()))?;
         let status = match child
             .wait_timeout(timeout)
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?
         {
             Some(status) => status,
             None => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(GitCliError::CommandFailed(format!(
-                    "git command timed out after {}s",
-                    timeout.as_secs()
-                )));
+                terminate_std_child_group(&mut child);
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(GitCliError::TimedOut(timeout.as_secs()));
             }
         };
 
-        let mut stdout_bytes = Vec::new();
-        let mut stderr_bytes = Vec::new();
-        stdout
-            .read_to_end(&mut stdout_bytes)
-            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
-        stderr
-            .read_to_end(&mut stderr_bytes)
-            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        let stdout_bytes = join_pipe_reader(stdout_reader)?;
+        let stderr_bytes = join_pipe_reader(stderr_reader)?;
 
         if !status.success() {
             return Err(GitCliError::CommandFailed(Self::format_command_output(
@@ -1590,7 +1691,28 @@ fn authenticated_https_url(clone_url: &str, token: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::authenticated_https_url;
+    use std::{fs, sync::Mutex, time::Instant};
+
+    use super::*;
+
+    static GIT_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    fn init_temp_repo() -> tempfile::TempDir {
+        let td = tempfile::TempDir::new().unwrap();
+        let git = GitCli::new();
+        git.git(td.path(), ["init"]).unwrap();
+        git.git(td.path(), ["config", "user.email", "test@example.com"])
+            .unwrap();
+        git.git(td.path(), ["config", "user.name", "Test"]).unwrap();
+        fs::write(td.path().join("README"), "seed\n").unwrap();
+        git.git(td.path(), ["add", "README"]).unwrap();
+        git.git(td.path(), ["commit", "-m", "seed"]).unwrap();
+        td
+    }
 
     #[test]
     fn https_clone_url_embeds_a_token() {
@@ -1605,6 +1727,89 @@ mod tests {
         assert_eq!(
             authenticated_https_url("git@github.com:org/repo.git", Some("secret")),
             "git@github.com:org/repo.git"
+        );
+    }
+
+    #[test]
+    fn worktree_add_uses_a_checkout_timeout() {
+        assert_eq!(
+            timeout_for_git_args(&os(&["worktree", "add", "-b", "vx/1", "/tmp/wt", "HEAD"])),
+            GitCli::CHECKOUT_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_git_args(&os(&["worktree", "list", "--porcelain"])),
+            GitCli::DEFAULT_COMMAND_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_git_args(&os(&["rev-parse", "--verify", "HEAD"])),
+            GitCli::DEFAULT_COMMAND_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_git_args(&os(&[
+                "clone",
+                "--",
+                "https://example.com/repo.git",
+                "dest"
+            ])),
+            GitCli::CLONE_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn worktree_add_timeout_is_not_retried() {
+        assert!(worktree_add_error_is_fatal_without_retry(
+            &GitCliError::TimedOut(60)
+        ));
+        assert!(!worktree_add_error_is_fatal_without_retry(
+            &GitCliError::CommandFailed("fatal: could not create worktree".into())
+        ));
+    }
+
+    #[test]
+    fn large_git_stdout_does_not_deadlock() {
+        let repo = init_temp_repo();
+        let blob = vec![b'x'; 256 * 1024];
+        fs::write(repo.path().join("big.bin"), &blob).unwrap();
+        let git = GitCli::new();
+        git.git(repo.path(), ["add", "big.bin"]).unwrap();
+        git.git(repo.path(), ["commit", "-m", "big"]).unwrap();
+
+        let started = Instant::now();
+        let out = git.git(repo.path(), ["show", "HEAD:big.bin"]).unwrap();
+        assert_eq!(out.as_bytes(), blob.as_slice());
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "git show of a 256KiB blob should not wait for the 60s command timeout"
+        );
+    }
+
+    #[test]
+    fn inherited_git_dir_does_not_override_minus_c() {
+        let _guard = GIT_ENV_LOCK.lock().unwrap();
+        let repo_a = init_temp_repo();
+        let repo_b = init_temp_repo();
+        fs::write(repo_b.path().join("from-b"), "b\n").unwrap();
+        let git = GitCli::new();
+        git.git(repo_b.path(), ["add", "from-b"]).unwrap();
+        git.git(repo_b.path(), ["commit", "-m", "b"]).unwrap();
+
+        // SAFETY: serialized by GIT_ENV_LOCK for the duration of this test.
+        unsafe {
+            std::env::set_var("GIT_DIR", repo_a.path().join(".git"));
+        }
+        let listed = git.list_worktrees(repo_b.path());
+        unsafe {
+            std::env::remove_var("GIT_DIR");
+        }
+        let entries = listed.expect("list worktrees of repo B");
+        let repo_b_canon =
+            fs::canonicalize(repo_b.path()).unwrap_or_else(|_| repo_b.path().to_path_buf());
+        assert!(
+            entries.iter().any(|entry| {
+                let path = PathBuf::from(&entry.path);
+                fs::canonicalize(&path).unwrap_or(path) == repo_b_canon
+            }),
+            "GIT_DIR pointed at repo A, but -C must still list repo B; got {entries:?}"
         );
     }
 }

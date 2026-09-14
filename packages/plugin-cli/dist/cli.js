@@ -128,6 +128,7 @@ try {
                     "hooks",
                     "host-chrome",
                     "provider-import",
+                    "provider-catalog",
                     "panel",
                     "kanban-view",
                 ],

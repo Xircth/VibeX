@@ -15,7 +15,13 @@ export const STRUCTURE_KINDS = [
     "app.settings.page",
     "app.composer.action",
 ];
-const HOST_JOURNEY_KINDS = [...CHROME_KINDS, ...STRUCTURE_KINDS];
+/** Static provider catalog templates. Host journey also asserts list/empty. */
+export const CATALOG_KINDS = ["provider.model.catalog"];
+const HOST_JOURNEY_KINDS = [
+    ...CHROME_KINDS,
+    ...STRUCTURE_KINDS,
+    ...CATALOG_KINDS,
+];
 const CHROME_KIND_SET = new Set(CHROME_KINDS);
 /** Manifest `app.*` kinds vs Host catalog snake_case keys. */
 export const MANIFEST_KIND_TO_CATALOG = {
@@ -31,6 +37,7 @@ export const MANIFEST_KIND_TO_CATALOG = {
     "app.settings.page": "settings_page",
     "app.composer.action": "composer_action",
     "provider.remote.provisioner": "remote_provisioner",
+    "provider.model.catalog": "provider_model_catalog",
 };
 export function catalogKindFor(kind) {
     return MANIFEST_KIND_TO_CATALOG[kind] ?? kind;

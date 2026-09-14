@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CONVERSATION_OPEN_SETTLE_PASSES,
+  conversationOpenPinState,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getDistanceFromConversationBottom,
@@ -66,6 +68,33 @@ describe('conversation bottom distance', () => {
         clientHeight: 400,
       })
     ).toBe(false);
+  });
+
+  it('keeps the open path pinned while the timeline is still settling', () => {
+    expect(
+      conversationOpenPinState({
+        settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES,
+        itemCount: 0,
+        nearBottom: false,
+      })
+    ).toEqual({
+      pinned: true,
+      settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES,
+    });
+    expect(
+      conversationOpenPinState({
+        settlePassesRemaining: 2,
+        itemCount: 12,
+        nearBottom: false,
+      })
+    ).toEqual({ pinned: true, settlePassesRemaining: 1 });
+    expect(
+      conversationOpenPinState({
+        settlePassesRemaining: 0,
+        itemCount: 12,
+        nearBottom: false,
+      })
+    ).toEqual({ pinned: false, settlePassesRemaining: 0 });
   });
 
   it('offsets virtual rows by the measured scroll margin', () => {

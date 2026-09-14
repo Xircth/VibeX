@@ -1935,3 +1935,52 @@ async fn clearing_claude_api_key_removes_both_credential_keys() {
     assert!(settings["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
     assert!(settings["env"].get("ANTHROPIC_API_KEY").is_none());
 }
+
+#[tokio::test]
+async fn native_config_saves_codex_max_and_ultra_reasoning_effort() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    let initial = provider.read(&codex, false).await.unwrap();
+    let field = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_reasoning_effort")
+        .unwrap();
+    let values: Vec<_> = field
+        .options
+        .iter()
+        .map(|(value, _)| value.as_str())
+        .collect();
+    assert!(
+        values.contains(&"max") && values.contains(&"ultra"),
+        "Codex reasoning options must include max and ultra, got {values:?}"
+    );
+
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_reasoning_effort".to_string(),
+                    Some("ultra".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    let config = String::from_utf8(
+        filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")].clone(),
+    )
+    .unwrap();
+    let config: toml::Value = toml::from_str(&config).unwrap();
+    assert_eq!(config["model_reasoning_effort"].as_str(), Some("ultra"));
+}

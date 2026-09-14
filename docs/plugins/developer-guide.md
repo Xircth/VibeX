@@ -43,6 +43,7 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 - `host-service` 后台定时 handler
 - `host-chrome` 六个宿主界面槽位各一条贡献
 - `provider-import` 一个模型供应商导入来源
+- `provider-catalog` 一个无密钥供应商预置目录
 - `panel` 一个 `app.panel`，带 Vite Module Federation 远程
 - `kanban-view` 一个 `app.kanban.view`，带 Vite Module Federation 远程
 
@@ -149,6 +150,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `app.settings.section` | 设置段 |
 | `host.service` | 后台周期调用 Worker handler，`intervalSeconds` 最小 5 |
 | `provider.model.importSource` | 模型供应商导入来源，出现在设置的「导入」菜单里 |
+| `provider.model.catalog` | 供应商新建表单的无密钥预置模板。静态 `resource` JSON，禁止 `handler` 与密钥字段 |
 | `app.panel` | 工作区 Dockview 面板 |
 | `app.tab` | 中央顶级 Tab |
 | `app.kanban.view` | 看板 Tab 里的一页视图 |
@@ -179,6 +181,8 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 状态栏和工具栏是**只可添加**：你能加条目，不能改动或移除 VibeX 自己的指示器。
 
 `provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。参考实现在 `assets/plugins/provider-import/`。
+
+`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方消费者是 `assets/plugins/provider-switch/`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
 
 ## CLI
 

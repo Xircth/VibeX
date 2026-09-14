@@ -516,7 +516,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   );
 
   if (turn.role === 'user') {
-    const { text, images } = splitUserTurnContent(turn.blocks);
+    const { text, images, files } = splitUserTurnContent(turn.blocks);
     const hasText = text.trim().length > 0;
     if (editing && onEditRetry) {
       return (
@@ -532,7 +532,11 @@ export const MessageTurnView = memo(function MessageTurnView({
     return (
       <div className="conv-entry-item conv-user-turn group">
         <div className="flex w-full max-w-full flex-col items-end gap-1.5">
-          <UserMessageAttachments images={images} taskAttemptId={attempt.id} />
+          <UserMessageAttachments
+            images={images}
+            files={files}
+            taskAttemptId={attempt.id}
+          />
           {hasText || onRetry || onEditRetry ? (
             <div className="conv-user-bubble-wrap">
               <UserMessageActions

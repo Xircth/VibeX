@@ -1,5 +1,9 @@
 use std::net::{IpAddr, SocketAddr};
 
+use remote_protocol::{
+    DevicePermissionPreset, PAIRING_TTL_DEFAULT_SECONDS, parse_pairing_ttl_seconds,
+};
+
 use crate::ServerConfig;
 
 const DEFAULT_PORT: u16 = 17891;
@@ -14,6 +18,12 @@ pub enum LaunchCommand {
 pub enum AgentsCommand {
     List { json: bool, refresh: bool },
     Install { agent_id: String, yes: bool },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PairingCommand {
+    pub preset: DevicePermissionPreset,
+    pub ttl_seconds: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +44,7 @@ impl ServerLaunch {
 pub enum ParsedArgs {
     Command(LaunchCommand),
     Agents(AgentsCommand),
+    Pairing(PairingCommand),
     Start(ServerLaunch),
 }
 
@@ -77,6 +88,10 @@ where
         tokens.next();
         allow_lan = true;
         reveal_console = true;
+    }
+
+    if let Some(pairing) = parse_pairing_command(&mut tokens)? {
+        return Ok(ParsedArgs::Pairing(pairing));
     }
 
     if let Some(agents) = parse_agents_command(&mut tokens)? {
@@ -151,7 +166,78 @@ pub fn usage() -> &'static str {
      vibex-server serve --port N\n  \
      vibex-server serve --rotate-token\n  \
      vibex-server list [--json] [--refresh]\n  \
-     vibex-server install <agent-id> [--yes]\n"
+     vibex-server install <agent-id> [--yes]\n  \
+     vibex-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]\n"
+}
+
+fn parse_pairing_command<I>(
+    tokens: &mut std::iter::Peekable<I>,
+) -> Result<Option<PairingCommand>, ParseError>
+where
+    I: Iterator<Item = String>,
+{
+    let Some(first) = tokens.peek() else {
+        return Ok(None);
+    };
+    if first != "pairing" {
+        return Ok(None);
+    }
+    tokens.next();
+    let mut preset = DevicePermissionPreset::Companion;
+    let mut ttl_seconds = PAIRING_TTL_DEFAULT_SECONDS;
+    while let Some(token) = tokens.next() {
+        match token.as_str() {
+            "--preset" => {
+                let value = tokens
+                    .next()
+                    .ok_or_else(|| ParseError("missing value for --preset".to_string()))?;
+                preset = DevicePermissionPreset::from_command(&value).ok_or_else(|| {
+                    ParseError(format!(
+                        "unknown pairing preset: {value} (expected companion or workstation)"
+                    ))
+                })?;
+            }
+            other if other.starts_with("--preset=") => {
+                let value = &other[9..];
+                preset = DevicePermissionPreset::from_command(value).ok_or_else(|| {
+                    ParseError(format!(
+                        "unknown pairing preset: {value} (expected companion or workstation)"
+                    ))
+                })?;
+            }
+            "--ttl" => {
+                let value = tokens
+                    .next()
+                    .ok_or_else(|| ParseError("missing value for --ttl".to_string()))?;
+                ttl_seconds = parse_pairing_ttl_seconds(&value).ok_or_else(|| {
+                    ParseError(format!(
+                        "unknown pairing ttl: {value} (expected 5m, 15m, 30m, 1h, 6h, 1d, 7d, or 30d)"
+                    ))
+                })?;
+            }
+            other if other.starts_with("--ttl=") => {
+                let value = &other[6..];
+                ttl_seconds = parse_pairing_ttl_seconds(value).ok_or_else(|| {
+                    ParseError(format!(
+                        "unknown pairing ttl: {value} (expected 5m, 15m, 30m, 1h, 6h, 1d, 7d, or 30d)"
+                    ))
+                })?;
+            }
+            "--help" | "-h" => {
+                return Err(ParseError(
+                    "Usage: vibex-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]"
+                        .to_string(),
+                ));
+            }
+            other => {
+                return Err(ParseError(format!("unknown pairing argument: {other}")));
+            }
+        }
+    }
+    Ok(Some(PairingCommand {
+        preset,
+        ttl_seconds,
+    }))
 }
 
 fn parse_agents_command<I>(
@@ -241,7 +327,9 @@ fn env_listen_port() -> Option<u16> {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use super::{AgentsCommand, LaunchCommand, ParsedArgs, parse_args};
+    use remote_protocol::DevicePermissionPreset;
+
+    use super::{AgentsCommand, LaunchCommand, PairingCommand, ParsedArgs, parse_args};
 
     #[test]
     fn serve_enables_lan_and_prints_the_console() {
@@ -318,6 +406,26 @@ mod tests {
     fn install_requires_an_agent_id() {
         let error = parse_args(["install", "--yes"]).expect_err("missing id");
         assert!(error.to_string().contains("install <agent-id>"));
+    }
+
+    #[test]
+    fn pairing_is_a_host_command_with_a_thirty_minute_default() {
+        assert_eq!(
+            parse_args(["pairing"]).expect("parse"),
+            ParsedArgs::Pairing(PairingCommand {
+                preset: DevicePermissionPreset::Companion,
+                ttl_seconds: 30 * 60,
+            })
+        );
+        assert_eq!(
+            parse_args(["pairing", "--preset", "workstation", "--ttl", "7d"]).expect("parse"),
+            ParsedArgs::Pairing(PairingCommand {
+                preset: DevicePermissionPreset::Workstation,
+                ttl_seconds: 7 * 24 * 60 * 60,
+            })
+        );
+        let error = parse_args(["pairing", "--ttl", "2h"]).expect_err("invalid ttl");
+        assert!(error.to_string().contains("unknown pairing ttl"));
     }
 
     #[test]

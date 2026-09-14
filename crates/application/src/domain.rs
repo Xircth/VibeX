@@ -137,6 +137,7 @@ domain_commands! {
     PluginProductDetail => "plugin_product_detail" / "plugin.read",
     PluginSaveConfig => "plugin_save_config" / "plugin.write",
     PluginContributionCatalog => "plugin_contribution_catalog" / "plugin.read",
+    ProviderCatalogList => "provider_catalog_list" / "plugin.read",
     PluginResolveFileOpener => "plugin_resolve_file_opener" / "plugin.read",
     PluginOpenFilePreview => "plugin_open_file_preview" / "artifact.preview",
     PluginCloseFilePreview => "plugin_close_file_preview" / "artifact.preview",

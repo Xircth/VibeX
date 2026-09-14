@@ -1,7 +1,8 @@
 use remote_protocol::{
-    CONNECTION_CODE_LEN, DevicePermissionPreset, PairingChallenge, PairingId,
-    PairingInvitationPayload, ReachabilityOrigin, is_connection_code, is_loopback_origin,
-    is_public_plaintext_http_origin, issue_connection_code, origin_allows_plaintext_http,
+    CONNECTION_CODE_LEN, DevicePermissionPreset, PAIRING_TTL_DEFAULT_SECONDS, PairingChallenge,
+    PairingId, PairingInvitationPayload, ReachabilityOrigin, is_connection_code,
+    is_loopback_origin, is_public_plaintext_http_origin, issue_connection_code,
+    origin_allows_plaintext_http, parse_pairing_ttl_seconds, resolve_pairing_ttl_seconds,
 };
 
 #[test]
@@ -39,6 +40,34 @@ fn connection_code_is_eight_unambiguous_characters() {
     assert_eq!(code.len(), CONNECTION_CODE_LEN);
     assert!(is_connection_code(&code));
     assert!(!is_connection_code("vbx_pair_secret"));
+}
+
+#[test]
+fn pairing_ttl_defaults_to_thirty_minutes_and_accepts_long_lived_choices() {
+    assert_eq!(PAIRING_TTL_DEFAULT_SECONDS, 30 * 60);
+    assert_eq!(resolve_pairing_ttl_seconds(None), 30 * 60);
+    assert_eq!(resolve_pairing_ttl_seconds(Some(900)), 900);
+    assert_eq!(
+        resolve_pairing_ttl_seconds(Some(7 * 24 * 60 * 60)),
+        7 * 24 * 60 * 60
+    );
+    assert_eq!(
+        resolve_pairing_ttl_seconds(Some(30 * 24 * 60 * 60)),
+        30 * 24 * 60 * 60
+    );
+    assert_eq!(resolve_pairing_ttl_seconds(Some(120)), 30 * 60);
+}
+
+#[test]
+fn pairing_ttl_parses_host_command_durations() {
+    assert_eq!(parse_pairing_ttl_seconds("30m"), Some(30 * 60));
+    assert_eq!(parse_pairing_ttl_seconds("7d"), Some(7 * 24 * 60 * 60));
+    assert_eq!(
+        parse_pairing_ttl_seconds("2592000"),
+        Some(30 * 24 * 60 * 60)
+    );
+    assert_eq!(parse_pairing_ttl_seconds("2h"), None);
+    assert_eq!(parse_pairing_ttl_seconds("nope"), None);
 }
 
 #[test]

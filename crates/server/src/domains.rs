@@ -142,6 +142,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
             DomainCommand::PluginSaveConfig => self.plugin_save_config(args).await,
             DomainCommand::PluginContributionCatalog => self.plugin_contribution_catalog().await,
+            DomainCommand::ProviderCatalogList => self.provider_catalog_list(args).await,
             DomainCommand::PluginResolveFileOpener => self.plugin_resolve_file_opener(args).await,
             DomainCommand::PluginOpenFilePreview => self.plugin_open_file_preview(args).await,
             DomainCommand::PluginCloseFilePreview => self.plugin_close_file_preview(args).await,
@@ -586,6 +587,43 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         serialize(catalog)
+    }
+
+    async fn provider_catalog_list(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        struct ProviderCatalogListArgs {
+            #[serde(alias = "agentId")]
+            agent_id: String,
+        }
+        let args: ProviderCatalogListArgs = parse(args)?;
+        let agent_id = AgentId::parse(&args.agent_id).map_err(|_| {
+            ApplicationError::bad_request(format!(
+                "provider_agent_unknown: `{}` is not an Agent id",
+                args.agent_id
+            ))
+        })?;
+        if matches!(agent_id.as_str(), "cursor" | "codebuddy" | "qoder") {
+            return serialize(plugins::ProviderCatalogListView {
+                agent_id: agent_id.to_string(),
+                generation: 0,
+                templates: Vec::new(),
+                sources: Vec::new(),
+            });
+        }
+        let listed = self
+            .plugin_control_plane()
+            .await
+            .map_err(|_| ApplicationError::capability_unavailable("provider_catalog_unavailable"))?
+            .list_provider_catalog(agent_id.as_str())
+            .await
+            .map_err(|error| {
+                if error.code() == "provider_catalog_unavailable" {
+                    ApplicationError::capability_unavailable(error.message())
+                } else {
+                    internal_error(error)
+                }
+            })?;
+        serialize(listed)
     }
 
     async fn plugin_resolve_file_opener(&self, args: Value) -> Result<Value, ApplicationError> {

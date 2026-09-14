@@ -64,6 +64,7 @@ import {
   expandSelectionToGroups,
   emptyGroupFootprint,
   findEmptyCanvasPlacement,
+  lastSelectedCanvasSessionId,
   selectedSessionIdsForViewed,
   planSessionGrid,
   dropHintsEqual,
@@ -116,6 +117,7 @@ import {
   parseCanvasNodeId,
   canvasWindowSlotIndex,
   displayedCanvasNodes,
+  flowNodeBox,
   openWindowSessionIds,
   preferLiveKanbanSessions,
   removeCanvasNode,
@@ -180,6 +182,10 @@ interface SessionCanvasViewProps {
   onPresentIdsChange?: (sessionIds: string[]) => void;
   onWindowSessionIdsChange?: (sessionIds: string[]) => void;
   onCreateSession?: () => void;
+  onSelectedSessionChange?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
 }
 
 function toFlowNode(
@@ -209,8 +215,7 @@ function toFlowNode(
       id: canvasNodeId(node.id),
       type: 'sessionGroup',
       position,
-      width: size.width,
-      height: size.height,
+      ...flowNodeBox(size),
       selected: selectedIds.has(node.id),
       parentId: parent ? canvasNodeId(parent.id) : undefined,
       className: cn(
@@ -240,8 +245,7 @@ function toFlowNode(
     id: canvasNodeId(node.id),
     type: node.expanded ? 'sessionDetail' : 'sessionCard',
     position,
-    width: size.width,
-    height: size.height,
+    ...flowNodeBox(size),
     selected: selectedIds.has(node.id),
     parentId: parent ? canvasNodeId(parent.id) : undefined,
     hidden: isOverflowHidden(nodes, node),
@@ -282,6 +286,7 @@ function SessionCanvasFlow({
   onPresentIdsChange,
   onWindowSessionIdsChange,
   onCreateSession,
+  onSelectedSessionChange,
 }: SessionCanvasViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { openSurfaceMenu } = useAppContextMenu();
@@ -430,6 +435,18 @@ function SessionCanvasFlow({
     return ids;
   }, [sessionsById]);
   sessionStoreRef.current.replace(sessionsById, sessionsReady);
+
+  useLayoutEffect(() => {
+    if (!onSelectedSessionChange) return;
+    const sessionId = lastSelectedCanvasSessionId(
+      documentRef.current.nodes,
+      selectedIds
+    );
+    if (!sessionId) return;
+    const session = sessionsById.get(sessionId);
+    if (!session) return;
+    onSelectedSessionChange(session.placement);
+  }, [onSelectedSessionChange, selectedIds, sessionsById]);
 
   useEffect(() => {
     const sessionIds = selectedSessionIdsForViewed(
@@ -1160,28 +1177,30 @@ function SessionCanvasFlow({
       x: center.x - footprint.width / 2,
       y: center.y - footprint.height / 2,
     };
-    let createdId: string | null = null;
+    let created: SessionCanvasNode | null = null;
     updateNodes((items) => {
       const origin = findEmptyCanvasPlacement(items, footprint, preferred);
       const next = createEmptyGroup(items, origin);
-      createdId =
+      created =
         next.find(
           (node) =>
             isGroupNode(node) && !items.some((item) => item.id === node.id)
-        )?.id ?? null;
+        ) ?? null;
       return next;
     });
-    if (createdId) {
-      setSelectedIds(new Set([createdId]));
+    if (created) {
+      setSelectedIds(new Set([created.id]));
+      const size = sizeForNode(created);
+      const focusX = created.x + size.width / 2;
+      const focusY = created.y + size.height / 2;
       window.setTimeout(() => {
-        void fitView({
-          nodes: [{ id: canvasNodeId(createdId!) }],
-          padding: 0.35,
+        void setCenter(focusX, focusY, {
           duration: 280,
+          zoom: zoomRef.current,
         });
       }, 40);
     }
-  }, [fitView, flowOriginAtCanvasCenter, updateNodes]);
+  }, [flowOriginAtCanvasCenter, setCenter, updateNodes]);
 
   const deleteSelection = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -1265,10 +1284,12 @@ function SessionCanvasFlow({
 
   const handleMove = useCallback((_event: unknown, viewport: Viewport) => {
     zoomRef.current = viewport.zoom;
+    surfaceRef.current?.setAttribute('data-canvas-panning', '');
   }, []);
 
   const handleMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
+      surfaceRef.current?.removeAttribute('data-canvas-panning');
       pendingViewport.current = viewport;
       zoomRef.current = viewport.zoom;
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
@@ -1284,6 +1305,7 @@ function SessionCanvasFlow({
 
   useEffect(
     () => () => {
+      surfaceRef.current?.removeAttribute('data-canvas-panning');
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
       saveCanvasDocument(projectId, {
         ...documentRef.current,

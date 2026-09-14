@@ -33,6 +33,7 @@ interface EntriesContextType {
   setSessionConfigOptions: (options: AgentSessionConfigOption[]) => void;
   setConversationPlanEntries: (entries: PlanEntry[]) => void;
   setConversationTurnInFlight: (inFlight: boolean) => void;
+  setConversationSteeringTurnId: (turnId: string | null) => void;
   setUserMessageHistory: (messages: string[]) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
@@ -40,6 +41,7 @@ interface EntriesContextType {
   sessionConfigOptions: AgentSessionConfigOption[];
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
+  conversationSteeringTurnId: string | null;
   userMessageHistory: string[];
 }
 
@@ -50,6 +52,7 @@ type EntriesRuntimeValue = {
   sessionConfigOptions: AgentSessionConfigOption[];
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
+  conversationSteeringTurnId: string | null;
   userMessageHistory: string[];
 };
 
@@ -60,6 +63,7 @@ const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   sessionConfigOptions: EMPTY_SESSION_CONFIG_OPTIONS,
   conversationPlanEntries: EMPTY_CONVERSATION_PLAN_ENTRIES,
   conversationTurnInFlight: false,
+  conversationSteeringTurnId: null,
   userMessageHistory: EMPTY_USER_MESSAGE_HISTORY,
 };
 
@@ -331,6 +335,30 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setConversationSteeringTurnId = useCallback(
+    (conversationSteeringTurnId: string | null) => {
+      if (
+        localValueRef.current.conversationSteeringTurnId ===
+        conversationSteeringTurnId
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        conversationSteeringTurnId,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const setUserMessageHistory = useCallback(
     (messages: string[]) => {
       if (
@@ -375,6 +403,7 @@ export const EntriesProvider = ({
       setSessionConfigOptions,
       setConversationPlanEntries,
       setConversationTurnInFlight,
+      setConversationSteeringTurnId,
       setUserMessageHistory,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
@@ -382,6 +411,7 @@ export const EntriesProvider = ({
       sessionConfigOptions: localValue.sessionConfigOptions,
       conversationPlanEntries: localValue.conversationPlanEntries,
       conversationTurnInFlight: localValue.conversationTurnInFlight,
+      conversationSteeringTurnId: localValue.conversationSteeringTurnId,
       userMessageHistory: localValue.userMessageHistory,
     }),
     [
@@ -393,6 +423,7 @@ export const EntriesProvider = ({
       setSessionConfigOptions,
       setConversationPlanEntries,
       setConversationTurnInFlight,
+      setConversationSteeringTurnId,
       setUserMessageHistory,
     ]
   );

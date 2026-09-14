@@ -125,6 +125,7 @@ export function FilePreviewPopover({
               <ZoomableImagePreview
                 src={imageSrc}
                 alt={path}
+                annotate={false}
                 className="h-[360px] w-full"
               />
             </div>

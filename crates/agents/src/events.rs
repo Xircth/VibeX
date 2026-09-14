@@ -146,6 +146,10 @@ pub struct AgentUsage {
     pub cost_amount: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_currency: Option<String>,
+    /// Agent-advertised model id for this usage sample (`_meta.modelId` or
+    /// the session's current model config option). Missing stays missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

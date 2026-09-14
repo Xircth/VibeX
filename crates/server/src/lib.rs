@@ -17,6 +17,7 @@ mod host_core;
 mod host_ops;
 mod host_runtime;
 mod host_token;
+mod pairing_cli;
 mod plugin_artifact;
 mod preview_proxy;
 mod product_mcp;
@@ -43,8 +44,8 @@ pub use chat_inbound::{
 };
 pub use chat_notify::{ChatDeliveryPublisher, notify_conversation_event};
 pub use cli::{
-    AgentsCommand, LaunchCommand, ParseError, ParsedArgs, ServerLaunch, format_host_console,
-    parse_args, usage,
+    AgentsCommand, LaunchCommand, PairingCommand, ParseError, ParsedArgs, ServerLaunch,
+    format_host_console, parse_args, usage,
 };
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
@@ -63,6 +64,9 @@ pub use host_runtime::{AutomationOwnership, HostRuntime, HostRuntimeParts};
 pub use host_token::{
     HOST_TOKEN_FILE, host_token_path, issue_host_token, read_host_token, resolve_console_token,
     write_host_token,
+};
+pub use pairing_cli::{
+    PairingCliError, format_pairing_console, issue_host_pairing, run_pairing_command,
 };
 pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,

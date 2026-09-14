@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/toast';
 import { FileTreePanel } from './FileTreePanel';
 import { fileTreeApi } from '../../lib/api';
 import { ConfirmDialog } from '@/components/dialogs';
+import { useFileTreeStore } from '@/stores/useFileTreeStore';
 
 vi.mock('@/components/ui/toast', () => ({
   toast: {
@@ -49,6 +50,14 @@ describe('FileTreePanel lazy directory loading', () => {
   }
 
   beforeEach(() => {
+    useFileTreeStore.setState({
+      rootPath: null,
+      selectedFilePath: null,
+      expandedByRoot: {},
+      lazyListingByRoot: {},
+      diffFilePath: null,
+      revealTarget: null,
+    });
     vi.mocked(toast.error).mockReset();
     vi.mocked(fileTreeApi.copyItem).mockReset();
     vi.mocked(fileTreeApi.createDirectory).mockReset();
@@ -76,6 +85,44 @@ describe('FileTreePanel lazy directory loading', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /src/i }));
+
+    await waitFor(() => {
+      expect(fileTreeApi.listDirectoryChildren).toHaveBeenCalledWith(
+        '/repo',
+        'src'
+      );
+    });
+  });
+
+  it('keeps expanded folders after the panel remounts on the same workspace', async () => {
+    const { unmount } = renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={['src']}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /src/i }));
+    await waitFor(() => {
+      expect(fileTreeApi.listDirectoryChildren).toHaveBeenCalledWith(
+        '/repo',
+        'src'
+      );
+    });
+
+    unmount();
+    vi.mocked(fileTreeApi.listDirectoryChildren).mockClear();
+
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={['src']}
+        isLoading={false}
+      />
+    );
 
     await waitFor(() => {
       expect(fileTreeApi.listDirectoryChildren).toHaveBeenCalledWith(

@@ -73,7 +73,7 @@ describe('DevicePairingPanel', () => {
 
     expect(createDevicePairing).toHaveBeenCalledWith({
       preset: 'companion',
-      ttl_seconds: 300,
+      ttl_seconds: 1800,
     });
     expect(screen.getByRole('heading', { name: '客户端访问' })).toBeVisible();
     expect(
@@ -126,7 +126,7 @@ describe('DevicePairingPanel', () => {
     );
     expect(screen.queryByText('状态')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '有效期' })).toHaveTextContent(
-      '5 分钟'
+      '30 分钟'
     );
   });
 
@@ -226,6 +226,38 @@ describe('DevicePairingPanel', () => {
       ttl_seconds: 900,
     });
     expect(await screen.findByText('连接成功')).toBeVisible();
+  });
+
+  it('issues a long-lived connection code from the Host TTL command', async () => {
+    const user = userEvent.setup();
+    const createDevicePairing = vi.fn(async () => ({
+      pairing_id: 'pair-7d',
+      pairing_token: 'K7M2NPQX',
+      connection_code: 'K7M2NPQX',
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      requested_scopes: ['conversation.read'],
+      invitation: 'vibex-pairing:{"pairing_token":"K7M2NPQX"}',
+      reachability: [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
+    }));
+
+    render(
+      <DevicePairingPanel
+        transport={{
+          environment: 'desktop',
+          call: vi.fn(),
+          createDevicePairing,
+        }}
+        hostUrls={['http://192.168.1.20:17891']}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: '生成连接码' }));
+    await user.click(screen.getByRole('combobox', { name: '有效期' }));
+    await user.click(screen.getByRole('option', { name: '7 天' }));
+
+    expect(createDevicePairing).toHaveBeenLastCalledWith({
+      preset: 'companion',
+      ttl_seconds: 604800,
+    });
   });
 
   it('asks the user to start the service before generating a code', async () => {

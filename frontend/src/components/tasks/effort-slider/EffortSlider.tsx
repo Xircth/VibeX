@@ -47,8 +47,8 @@ const EFFORT_RANKS: Record<string, number> = {
   veryhigh: 5,
   max: 6,
   maximum: 6,
-  ultra: 6,
-  ultrathink: 6,
+  ultra: 7,
+  ultrathink: 7,
 };
 
 function effortRank(choice: EffortSliderChoice): number | null {

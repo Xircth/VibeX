@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_PAIRING_TTL_SECONDS,
+  PAIRING_TTL_SECONDS,
   encodePairingInvitation,
   pairingDisplayOrigins,
   pairingLiveStatus,
   pairingVisibleOrigins,
 } from './pairingInvitation';
+
+describe('pairing TTL', () => {
+  it('defaults to thirty minutes and includes long-lived Host choices', () => {
+    expect(DEFAULT_PAIRING_TTL_SECONDS).toBe(1800);
+    expect(PAIRING_TTL_SECONDS).toEqual([
+      300, 900, 1800, 3600, 21600, 86400, 604800, 2592000,
+    ]);
+  });
+});
 
 describe('encodePairingInvitation', () => {
   it('encodes a scannable invitation without loopback or long-lived secrets', () => {

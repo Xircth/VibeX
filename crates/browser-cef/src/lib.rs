@@ -53,14 +53,24 @@ impl CefRuntimeConfig {
     }
 
     pub fn profile_cache_path(&self, profile: &BrowserProfile) -> Option<PathBuf> {
-        let profile_name = match profile {
-            BrowserProfile::Global => "global".to_string(),
-            BrowserProfile::Workspace { workspace_id } => {
-                format!("workspace-{}", encode_path_segment(workspace_id))
-            }
-            BrowserProfile::Ephemeral => return None,
-        };
-        Some(self.root_cache_path.join("profiles").join(profile_name))
+        match profile {
+            // Chrome runtime uses root_cache_path/Default when cache_path equals
+            // the user-data dir. Nested paths such as chromium/profiles/global are
+            // rejected with "Cannot create profile at path".
+            BrowserProfile::Global => Some(self.root_cache_path.clone()),
+            BrowserProfile::Workspace { workspace_id } => Some(
+                self.root_cache_path
+                    .join(format!("workspace-{}", encode_path_segment(workspace_id))),
+            ),
+            BrowserProfile::Ephemeral => None,
+        }
+    }
+
+    /// Chrome runtime only loads a disk profile from the user-data dir itself or
+    /// an immediate child of it (`cache_path.DirName() == user_data_dir`).
+    pub fn is_supported_disk_profile_path(&self, cache_path: &Path) -> bool {
+        cache_path == self.root_cache_path
+            || cache_path.parent() == Some(self.root_cache_path.as_path())
     }
 }
 

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "agentId": "antigravity",
+  "templates": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "surface": "reusable",
+      "apiUrl": "https://openrouter.ai/api",
+      "model": "google/gemini-2.5-pro",
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community"
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "surface": "reusable",
+      "apiUrl": "https://api.siliconflow.cn/v1",
+      "model": "Qwen/Qwen2.5-72B-Instruct",
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "surface": "reusable",
+      "apiUrl": "https://api.deepseek.com",
+      "model": "deepseek-chat",
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "surface": "reusable",
+      "apiUrl": "https://api.moonshot.cn/v1",
+      "model": "kimi-k2.5",
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime"
+    }
+  ]
+}

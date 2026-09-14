@@ -933,6 +933,21 @@ fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
 }
 
 #[test]
+fn codex_native_reasoning_effort_includes_max_and_ultra() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let values: Vec<_> = native_field(&catalog, "codex", "codex_reasoning_effort")
+        .options
+        .iter()
+        .map(|(value, _)| *value)
+        .collect();
+
+    assert_eq!(
+        values,
+        ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+    );
+}
+
+#[test]
 fn official_account_evidence_requires_a_live_token_not_residue() {
     let catalog = BuiltInProfileCatalog::bundled();
     let evidence = |id: &str| {

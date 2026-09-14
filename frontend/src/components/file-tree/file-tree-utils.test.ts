@@ -541,15 +541,35 @@ describe('getFileTreeMentionText', () => {
 });
 
 describe('file tree folder expansion policy', () => {
-  it('prunes expanded folders that no longer exist', () => {
+  it('prunes expanded folders that no longer exist after their parent has loaded', () => {
     expect(
       Array.from(
         pruneExpandedFileTreeFolders(
           new Set(['src', 'src/old', 'docs']),
-          new Set(['src', 'docs'])
+          new Set(['src', 'docs']),
+          new Set(['src'])
         )
       )
     ).toEqual(['src', 'docs']);
+  });
+
+  it('keeps nested expansions until the parent listing has loaded', () => {
+    const expanded = new Set(['src', 'src/lib', 'src/lib/hooks']);
+    expect(
+      pruneExpandedFileTreeFolders(expanded, new Set(['src', 'docs']))
+    ).toBe(expanded);
+  });
+
+  it('keeps expansions while the tree is still loading', () => {
+    const expanded = new Set(['src', 'src/lib']);
+    expect(pruneExpandedFileTreeFolders(expanded, new Set())).toBe(expanded);
+  });
+
+  it('keeps the same set when every expanded folder is still present', () => {
+    const expanded = new Set(['src', 'docs']);
+    expect(
+      pruneExpandedFileTreeFolders(expanded, new Set(['src', 'docs', 'bin']))
+    ).toBe(expanded);
   });
 
   it('detects whether all visible folders are expanded', () => {

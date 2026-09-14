@@ -25,6 +25,7 @@ pub enum ContributionKind {
     HostService,
     WorkflowBinding,
     ProviderImportSource,
+    ProviderCatalog,
     AppPanel,
     AppTab,
     KanbanView,
@@ -55,6 +56,7 @@ impl ContributionKind {
             Self::HostService => "host_service",
             Self::WorkflowBinding => "workflow_binding",
             Self::ProviderImportSource => "provider_import_source",
+            Self::ProviderCatalog => "provider_model_catalog",
             Self::AppPanel => "app_panel",
             Self::AppTab => "app_tab",
             Self::KanbanView => "kanban_view",
@@ -484,6 +486,25 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             }),
         }
     }));
+    templates.extend(
+        plugin
+            .app
+            .provider_catalogs
+            .iter()
+            .map(|catalog| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: catalog.id.clone(),
+                kind: ContributionKind::ProviderCatalog,
+                label: catalog.label.clone(),
+                metadata: json!({
+                    "resource": catalog.resource,
+                    "icon": catalog.icon,
+                    "agents": catalog.agents,
+                    "description": catalog.description,
+                    "templateCount": catalog.templates.len(),
+                }),
+            }),
+    );
     templates.extend(plugin.app.panels.iter().map(|panel| ContributionTemplate {
         plugin_id: plugin_id.clone(),
         id: panel.id.clone(),

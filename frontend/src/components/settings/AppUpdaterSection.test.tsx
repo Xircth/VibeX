@@ -1,5 +1,7 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { open } from '@tauri-apps/plugin-shell';
 
 import i18n from '@/i18n';
 import { AppUpdaterSection } from './AppUpdaterSection';
@@ -74,5 +76,20 @@ describe('AppUpdaterSection', () => {
     expect(notes).toContainElement(screen.getByText(/中文更新说明/));
     expect(screen.queryByText(/English notes/)).toBeNull();
     expect(screen.getByRole('button', { name: '下载并安装' })).toBeVisible();
+  });
+
+  it('opens the release page in the system browser', async () => {
+    const user = userEvent.setup();
+    render(
+      <AppUpdaterSection
+        autoUpdateEnabled
+        onAutoUpdateChange={() => undefined}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: '发布页' }));
+    expect(open).toHaveBeenCalledWith(
+      'https://github.com/Xircth/VibeX/releases/tag/v0.1.3'
+    );
   });
 });

@@ -100,6 +100,11 @@
     "collapseMessage": "Collapse message",
     "rollbackToHere": "Roll back to here"
   },
+  "attachments": {
+    "closePreview": "Close preview",
+    "kanbanUnsupported": "This format cannot be previewed on the board.",
+    "workspaceUnsupported": "This format cannot be previewed yet."
+  },
   "nextActionCard": {
     "viewDiffs": "View diffs",
     "filesChanged": "{{count}} files changed",
@@ -188,7 +193,8 @@
     "optionsLabel": "Options",
     "answerLabel": "Answer",
     "declined": "Dismissed",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "kindTag": "Questions"
   },
   "permissionRequestCard": {
     "title": "Permission Request",
@@ -288,6 +294,28 @@
     "switchToFileView": "Switch to file view",
     "switchToDiffView": "Switch to diff view",
     "pasteImageError": "Failed to paste image into the markdown file"
+  },
+  "imagePreview": {
+    "wheelToZoom": "Wheel to zoom",
+    "dragToPan": "Drag to pan",
+    "holdToInsert": "Hold to insert",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "actualSize": "1:1",
+    "actualSizeAria": "View image at actual size",
+    "fit": "Fit",
+    "fitAria": "Fit image to view",
+    "toolView": "Move",
+    "toolRect": "Rectangle",
+    "toolEllipse": "Ellipse",
+    "toolBrush": "Brush",
+    "toolText": "Text",
+    "color": "Color",
+    "strokeWidth": "Thickness",
+    "brushSize": "Size",
+    "fontSize": "Size",
+    "deleteAnnotation": "Delete mark",
+    "textPlaceholder": "Text"
   },
   "fileTool": {
     "openPreview": "Open preview",

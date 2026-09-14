@@ -216,53 +216,9 @@ impl ConversationAgentEventRecorder {
         let mut batch = RecordedConversationBatch::default();
         for mapped in records {
             let normalized_json = serde_json::to_string(&mapped.event)?;
-            let record = match ConversationEventAppender::append(
-                &self.pool,
-                AppendConversationEvent {
-                    id: Uuid::new_v4(),
-                    conversation_id: mapped.conversation_id,
-                    turn_id: mapped.turn_id,
-                    binding_id: None,
-                    connection_id: Some(&mapped.connection_id),
-                    prompt_id: None,
-                    source: mapped.source,
-                    event_kind: &mapped.event_kind,
-                    normalized_json: &normalized_json,
-                    raw_json: Some(&mapped.raw_json),
-                    idempotency_key: Some(&mapped.idempotency_key),
-                },
-            )
-            .await
-            {
-                Ok(record) => record,
-                Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
-                    ConversationEventAppender::append(
-                        &self.pool,
-                        AppendConversationEvent {
-                            id: Uuid::new_v4(),
-                            conversation_id: mapped.conversation_id,
-                            turn_id: None,
-                            binding_id: None,
-                            connection_id: Some(&mapped.connection_id),
-                            prompt_id: None,
-                            source: mapped.source,
-                            event_kind: &mapped.event_kind,
-                            normalized_json: &normalized_json,
-                            raw_json: Some(&mapped.raw_json),
-                            idempotency_key: Some(&mapped.idempotency_key),
-                        },
-                    )
-                    .await?
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        conversation_id = %mapped.conversation_id,
-                        turn_id = ?mapped.turn_id,
-                        %error,
-                        "skipped conversation event that could not be persisted"
-                    );
-                    continue;
-                }
+            let Some(record) = append_mapped_event(&self.pool, &mapped, &normalized_json).await?
+            else {
+                continue;
             };
             let durable = ConversationEventEnvelope {
                 id: record.id,
@@ -363,6 +319,70 @@ impl ConversationAgentEventRecorder {
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
         resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+    }
+}
+
+fn append_event_input<'a>(
+    mapped: &'a MappedConversationEventRecord,
+    normalized_json: &'a str,
+    turn_id: Option<Uuid>,
+) -> AppendConversationEvent<'a> {
+    AppendConversationEvent {
+        id: Uuid::new_v4(),
+        conversation_id: mapped.conversation_id,
+        turn_id,
+        binding_id: None,
+        connection_id: Some(&mapped.connection_id),
+        prompt_id: None,
+        source: mapped.source,
+        event_kind: &mapped.event_kind,
+        normalized_json,
+        raw_json: Some(&mapped.raw_json),
+        idempotency_key: Some(&mapped.idempotency_key),
+    }
+}
+
+async fn append_mapped_event(
+    pool: &SqlitePool,
+    mapped: &MappedConversationEventRecord,
+    normalized_json: &str,
+) -> Result<Option<db::models::conversation_event::ConversationEventRecord>, sqlx::Error> {
+    match ConversationEventAppender::append(
+        pool,
+        append_event_input(mapped, normalized_json, mapped.turn_id),
+    )
+    .await
+    {
+        Ok(record) => Ok(Some(record)),
+        Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
+            match ConversationEventAppender::append(
+                pool,
+                append_event_input(mapped, normalized_json, None),
+            )
+            .await
+            {
+                Ok(record) => Ok(Some(record)),
+                Err(retry) if is_foreign_key_constraint(&retry) => {
+                    tracing::warn!(
+                        conversation_id = %mapped.conversation_id,
+                        turn_id = ?mapped.turn_id,
+                        %retry,
+                        "skipped conversation event that could not be persisted"
+                    );
+                    Ok(None)
+                }
+                Err(retry) => Err(retry),
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                conversation_id = %mapped.conversation_id,
+                turn_id = ?mapped.turn_id,
+                %error,
+                "skipped conversation event that could not be persisted"
+            );
+            Ok(None)
+        }
     }
 }
 
@@ -785,6 +805,12 @@ fn map_agent_event(
                 context_window_max: usage.limit.filter(|limit| *limit > 0),
                 cost_amount: usage.cost_amount,
                 cost_currency: usage.cost_currency.clone(),
+                model: usage
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                    .map(ToOwned::to_owned),
             },
         }),
         AgentEvent::SessionModes { modes, current } => {
@@ -1109,9 +1135,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        ConversationEventCoalescer, MappedConversationEventRecord, binds_only_to_in_flight_turn,
-        conversation_event_kind, conversation_event_source, is_turn_scoped_content,
-        map_agent_event, persist_session_linked_external_id, resolve_agent_event_turn_id,
+        ConversationEventCoalescer, MappedConversationEventRecord, append_mapped_event,
+        binds_only_to_in_flight_turn, conversation_event_kind, conversation_event_source,
+        is_turn_scoped_content, map_agent_event, persist_session_linked_external_id,
+        resolve_agent_event_turn_id,
     };
 
     #[test]
@@ -1229,6 +1256,33 @@ mod tests {
                     && usage.cost_currency.as_deref() == Some("USD")
                     && usage.context_used == Some(120)
                     && usage.input_tokens == 0
+                    && usage.model.is_none()
+        ));
+    }
+
+    #[test]
+    fn shared_mapping_preserves_usage_model_and_token_breakdown() {
+        let envelope = envelope(AgentEvent::Usage {
+            usage: AgentUsage {
+                used: 18_658,
+                limit: Some(500_000),
+                input_tokens: Some(29_214),
+                output_tokens: Some(1_652),
+                cache_read_tokens: Some(56_960),
+                model: Some("grok-4.6".into()),
+                ..AgentUsage::default()
+            },
+        });
+
+        let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::UsageUpdated { usage })
+                if usage.model.as_deref() == Some("grok-4.6")
+                    && usage.input_tokens == 29_214
+                    && usage.output_tokens == 1_652
+                    && usage.cache_read_input_tokens == 56_960
+                    && usage.context_used == Some(18_658)
         ));
     }
 
@@ -1481,6 +1535,32 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    async fn setup_pool_with_foreign_keys() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect memory db");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("enable foreign keys");
+        pool
+    }
+
+    fn connection_ready_event() -> ConversationEvent {
+        ConversationEvent::AgentConnectionStatusChanged {
+            status: agents::conversation::ConversationAgentConnectionStatus::Ready,
+        }
     }
 
     async fn seed_conversation_turn(
@@ -1746,5 +1826,42 @@ mod tests {
             map_agent_event(&envelope(error), None),
             Some(ConversationEvent::AgentBindingRecoveryFailed { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn missing_conversation_rows_skip_the_event_instead_of_failing_the_batch() {
+        let pool = setup_pool_with_foreign_keys().await;
+        let mapped = mapped_record(1, connection_ready_event());
+        let normalized = serde_json::to_string(&mapped.event).expect("serialize");
+
+        let skipped = append_mapped_event(&pool, &mapped, &normalized)
+            .await
+            .expect("a missing conversation is skippable");
+        assert!(
+            skipped.is_none(),
+            "events for an unknown conversation must not abort the recorder"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_turn_rows_are_persisted_on_the_conversation() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_conversation_turn(&pool, "prompt-1", "hello").await;
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("enable foreign keys");
+
+        let mut mapped = mapped_record(1, connection_ready_event());
+        mapped.conversation_id = conversation_id;
+        mapped.turn_id = Some(Uuid::new_v4());
+        let normalized = serde_json::to_string(&mapped.event).expect("serialize");
+
+        let record = append_mapped_event(&pool, &mapped, &normalized)
+            .await
+            .expect("retry without turn")
+            .expect("event persisted");
+        assert_eq!(record.conversation_id, conversation_id);
+        assert_eq!(record.turn_id, None);
     }
 }

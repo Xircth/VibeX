@@ -104,6 +104,47 @@ impl IssuedPairingInvitation {
     }
 }
 
+/// Default connection-code lifetime. Still one-time; only the waiting window
+/// is longer than the original five-minute default.
+pub const PAIRING_TTL_DEFAULT_SECONDS: i64 = 30 * 60;
+
+/// Allowed connection-code lifetimes, including long-lived Host-issued codes.
+pub const PAIRING_TTL_CHOICES_SECONDS: &[i64] = &[
+    5 * 60,
+    15 * 60,
+    30 * 60,
+    60 * 60,
+    6 * 60 * 60,
+    24 * 60 * 60,
+    7 * 24 * 60 * 60,
+    30 * 24 * 60 * 60,
+];
+
+pub fn resolve_pairing_ttl_seconds(requested: Option<i64>) -> i64 {
+    requested
+        .filter(|seconds| PAIRING_TTL_CHOICES_SECONDS.contains(seconds))
+        .unwrap_or(PAIRING_TTL_DEFAULT_SECONDS)
+}
+
+/// Parse a Host command TTL (`30m`, `7d`, or an allowed second count).
+pub fn parse_pairing_ttl_seconds(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    let seconds = match trimmed {
+        "5m" => Some(5 * 60),
+        "15m" => Some(15 * 60),
+        "30m" => Some(30 * 60),
+        "1h" => Some(60 * 60),
+        "6h" => Some(6 * 60 * 60),
+        "1d" => Some(24 * 60 * 60),
+        "7d" => Some(7 * 24 * 60 * 60),
+        "30d" => Some(30 * 24 * 60 * 60),
+        _ => trimmed.parse::<i64>().ok(),
+    }?;
+    PAIRING_TTL_CHOICES_SECONDS
+        .contains(&seconds)
+        .then_some(seconds)
+}
+
 /// Eight-character Host console code for manual pairing. Unambiguous alphabet.
 pub const CONNECTION_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 pub const CONNECTION_CODE_LEN: usize = 8;

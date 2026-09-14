@@ -71,6 +71,12 @@ export function getSessionUiErrorMessage(
   ) {
     return i18n.t('app:sessionErrors.emptyCheckout');
   }
+  if (
+    lowered.includes('git command timed out') ||
+    (lowered.includes('invalid repository') && lowered.includes('timed out'))
+  ) {
+    return i18n.t('app:sessionErrors.worktreeTimedOut');
+  }
 
   return message || fallback;
 }

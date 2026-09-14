@@ -25,6 +25,7 @@ import { SettingsSection } from './SettingsUi';
 import {
   encodePairingInvitation,
   isLoopbackOrigin,
+  DEFAULT_PAIRING_TTL_SECONDS,
   PAIRING_TTL_SECONDS,
   pairingDisplayOrigins,
   pairingLiveStatus,
@@ -73,7 +74,9 @@ export function DevicePairingPanel({
   const [devices, setDevices] = useState<HostPairedDevice[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [addressesExpanded, setAddressesExpanded] = useState(false);
-  const [ttlSeconds, setTtlSeconds] = useState<PairingTtlSeconds>(300);
+  const [ttlSeconds, setTtlSeconds] = useState<PairingTtlSeconds>(
+    DEFAULT_PAIRING_TTL_SECONDS
+  );
   const [issuedAt, setIssuedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [devicesExpanded, setDevicesExpanded] = useState(true);
@@ -399,7 +402,7 @@ export function DevicePairingPanel({
                     >
                       <SelectTrigger
                         id="pairing-ttl"
-                        className="h-8 w-28 text-sm"
+                        className="h-8 w-32 text-sm"
                         aria-label={t('webService.pairingTtlLabel')}
                       >
                         <SelectValue />
@@ -416,6 +419,18 @@ export function DevicePairingPanel({
                         </SelectItem>
                         <SelectItem value="3600">
                           {t('webService.pairingTtl60m')}
+                        </SelectItem>
+                        <SelectItem value="21600">
+                          {t('webService.pairingTtl6h')}
+                        </SelectItem>
+                        <SelectItem value="86400">
+                          {t('webService.pairingTtl1d')}
+                        </SelectItem>
+                        <SelectItem value="604800">
+                          {t('webService.pairingTtl7d')}
+                        </SelectItem>
+                        <SelectItem value="2592000">
+                          {t('webService.pairingTtl30d')}
                         </SelectItem>
                       </SelectContent>
                     </Select>

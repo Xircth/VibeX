@@ -319,6 +319,15 @@ export function selectedSessionIdsForViewed(
   return ids;
 }
 
+/** Last selected session card/window, used to bind workspace execution. */
+export function lastSelectedCanvasSessionId(
+  nodes: readonly SessionCanvasNode[],
+  selectedIds: ReadonlySet<string>
+): string | null {
+  const sessionIds = selectedSessionIdsForViewed(nodes, selectedIds);
+  return sessionIds[sessionIds.length - 1] ?? null;
+}
+
 export function groupSessionCount(
   nodes: readonly SessionCanvasNode[],
   groupId: string
@@ -1743,11 +1752,9 @@ export function applyFlowGeometryChanges(
     const current = nodeById(next, instanceId);
     if (!current) continue;
 
+    if (change.type === 'dimensions') continue;
     if (change.type === 'position' && change.dragging === false) continue;
-    if (
-      isGroupNode(current) &&
-      (change.type === 'dimensions' || change.dragging !== true)
-    ) {
+    if (isGroupNode(current) && change.dragging !== true) {
       continue;
     }
 
@@ -1763,17 +1770,6 @@ export function applyFlowGeometryChanges(
       if (x === current.x && y === current.y) continue;
       write(
         next.map((node) => (node.id === instanceId ? { ...node, x, y } : node))
-      );
-    }
-
-    if (change.type === 'dimensions' && change.dimensions) {
-      const width = change.dimensions.width;
-      const height = change.dimensions.height;
-      if (current.width === width && current.height === height) continue;
-      write(
-        next.map((node) =>
-          node.id === instanceId ? { ...node, width, height } : node
-        )
       );
     }
   }

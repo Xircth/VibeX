@@ -22,7 +22,7 @@ import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession'
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import type {
   AgentElicitationResponse,
   AgentKind,
@@ -55,6 +55,7 @@ import { PluginTimelineCards } from '@/components/plugins/PluginTimelineCards';
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { getComposerSteeringTarget } from '@/components/tasks/follow-up/sessionComposerSteering';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
 import {
@@ -103,6 +104,8 @@ import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
+  CONVERSATION_OPEN_SETTLE_PASSES,
+  conversationOpenPinState,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getVirtualRowTranslateY,
@@ -433,6 +436,7 @@ const AgentTimelineConversation = forwardRef<
   const [scrollMargin, setScrollMargin] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
+  const openSettlePassesRef = useRef(CONVERSATION_OPEN_SETTLE_PASSES);
 
   const sessionId = attempt.session?.id ?? null;
   // Absolute workspace root for resolving clickable file paths in messages.
@@ -442,16 +446,7 @@ const AgentTimelineConversation = forwardRef<
   const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
   const conversation = useConversationTimeline(sessionId);
   const kanbanSessions = useOptionalKanbanSessionContext();
-  const { data: forkSupported = false } = useQuery({
-    queryKey: ['conversation-fork-supported', sessionId],
-    queryFn: async () => {
-      if (!sessionId) return false;
-      const detail = await conversationApi.detail(sessionId);
-      return Boolean(detail?.active_binding?.capabilities.fork_session);
-    },
-    enabled: Boolean(sessionId),
-    staleTime: 5_000,
-  });
+  const forkSupported = conversation.forkSessionSupported;
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
@@ -711,6 +706,7 @@ const AgentTimelineConversation = forwardRef<
   // legacy process stream has not caught up yet.
   const setConversationPlanEntries = entries?.setConversationPlanEntries;
   const setConversationTurnInFlight = entries?.setConversationTurnInFlight;
+  const setConversationSteeringTurnId = entries?.setConversationSteeringTurnId;
   const conversationPlanEntries = useMemo(
     () => getLatestTimelinePlanEntries(timeline),
     [timeline]
@@ -721,6 +717,20 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setConversationTurnInFlight?.(isTurnInFlight);
   }, [isTurnInFlight, setConversationTurnInFlight]);
+  useEffect(() => {
+    setConversationSteeringTurnId?.(
+      getComposerSteeringTarget({
+        isTurnInFlight,
+        steeringSupported: conversation.steeringSupported,
+        currentTurnId: conversation.currentTurnId,
+      })?.turnId ?? null
+    );
+  }, [
+    conversation.currentTurnId,
+    conversation.steeringSupported,
+    isTurnInFlight,
+    setConversationSteeringTurnId,
+  ]);
 
   const setUserMessageHistory = entries?.setUserMessageHistory;
   const composerUserMessageHistory = useMemo(
@@ -848,6 +858,7 @@ const AgentTimelineConversation = forwardRef<
   }, []);
 
   const updateAtBottomState = useCallback(() => {
+    if (openSettlePassesRef.current > 0) return;
     const container = containerRef.current;
     if (!container) return;
     const next = isConversationNearBottom(container);
@@ -935,14 +946,25 @@ const AgentTimelineConversation = forwardRef<
 
   // Stick to the bottom as the conversation grows, unless the user scrolled up.
   useLayoutEffect(() => {
+    const next = conversationOpenPinState({
+      settlePassesRemaining: openSettlePassesRef.current,
+      itemCount: timelineItems.length,
+      nearBottom: isAtBottomRef.current,
+    });
+    openSettlePassesRef.current = next.settlePassesRemaining;
     if (timelineItems.length === 0) {
-      updateAtBottomState();
+      if (isAtBottomRef.current !== next.pinned) {
+        isAtBottomRef.current = next.pinned;
+        onAtBottomChange?.(next.pinned);
+      }
       return;
     }
-    if (isAtBottomRef.current) {
+    if (next.pinned) {
+      isAtBottomRef.current = true;
+      onAtBottomChange?.(true);
       scrollToBottom('auto');
     }
-  }, [scrollToBottom, timelineItems.length, totalSize, updateAtBottomState]);
+  }, [onAtBottomChange, scrollToBottom, timelineItems.length, totalSize]);
 
   useImperativeHandle(
     ref,
@@ -990,8 +1012,9 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     isAtBottomRef.current = true;
+    openSettlePassesRef.current = CONVERSATION_OPEN_SETTLE_PASSES;
     onAtBottomChange?.(true);
   }, [onAtBottomChange, sessionId]);
 
@@ -1386,7 +1409,10 @@ const AgentTimelineConversation = forwardRef<
           }}
         />
       ) : null}
-      <ConversationSelectionToolbar rootRef={containerRef} />
+      <ConversationSelectionToolbar
+        rootRef={containerRef}
+        conversationId={sessionId}
+      />
       <PiProjectTrustBanner
         agentId={attempt.session?.agent_id ?? attempt.session?.executor}
         workingDir={workspaceRoot}

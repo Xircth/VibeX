@@ -277,7 +277,7 @@ export function SettingsLayout() {
           data-settings-content
           className={cn(
             'min-h-0 min-w-0 flex-1 p-4',
-            location.pathname === '/plugins'
+            location.pathname.startsWith('/plugins')
               ? 'flex flex-col overflow-hidden'
               : 'overflow-y-auto'
           )}

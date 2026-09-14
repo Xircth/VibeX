@@ -53,6 +53,7 @@ const INTEGRATION_KINDS = new Set([
   "app.settings.section",
   "host.service",
   "provider.model.importSource",
+  "provider.model.catalog",
   "app.panel",
   "app.tab",
   "app.kanban.view",
@@ -530,6 +531,9 @@ async function validateIntegrations(
         );
       }
     }
+    if (integration.kind === "provider.model.catalog") {
+      await validateProviderCatalog(root, integration, diagnostics);
+    }
     if (integration.kind === "app.surface") {
       const slot = String(integration.slot);
       if (slot === "conversation.timeline.card") {
@@ -676,6 +680,18 @@ function validateHostChrome(
       requireText("handler");
       requireStringArray("agents");
       break;
+    case "provider.model.catalog":
+      requireText("label");
+      requireStringArray("agents");
+      if ("handler" in integration) {
+        diagnostics.push(
+          error(
+            "provider_catalog_handler_unsupported",
+            "provider.model.catalog does not support handler; use a static resource",
+          ),
+        );
+      }
+      break;
     case "app.panel": {
       requireText("title");
       requireSurfaceEntry();
@@ -733,6 +749,373 @@ function validateHostChrome(
     default:
       break;
   }
+}
+
+const CATALOG_SECRET_KEYS = new Set([
+  "apikey",
+  "token",
+  "authorization",
+  "auth",
+]);
+const CATALOG_FORBIDDEN_FIELDS = new Set([
+  "settingsConfig",
+  "apiFormat",
+  "requiresOAuth",
+  "providerType",
+  "theme",
+  "partnerPromotionKey",
+  "isPartner",
+  "primePartner",
+  "hidden",
+  "extras",
+  "handler",
+]);
+const CATALOG_URL_FIELDS = new Set([
+  "apiUrl",
+  "websiteUrl",
+  "apiKeyUrl",
+  "baseUrl",
+]);
+const CATALOG_SURFACES = new Set(["reusable", "opencode", "dsh"]);
+const CATALOG_CATEGORIES = new Set([
+  "official",
+  "prime",
+  "partner",
+  "community",
+]);
+
+async function validateProviderCatalog(
+  root: string,
+  integration: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+) {
+  const resource = integration.resource;
+  if (typeof resource !== "string" || !isPackageRelativeResource(resource)) {
+    diagnostics.push(
+      error(
+        "integration_resource_invalid",
+        "provider.model.catalog resource must be a package-relative path",
+      ),
+    );
+    return;
+  }
+  const absolute = await safePath(root, resource, true);
+  if (!absolute) {
+    diagnostics.push(
+      error(
+        "integration_resource_invalid",
+        "provider.model.catalog resource is invalid",
+      ),
+    );
+    return;
+  }
+  let file: unknown;
+  try {
+    file = JSON.parse(await readFile(absolute, "utf8")) as unknown;
+  } catch (cause) {
+    diagnostics.push(
+      error("provider_catalog_invalid", message(cause), absolute),
+    );
+    return;
+  }
+  if (!isObject(file)) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        "Catalog resource must be a JSON object",
+        absolute,
+      ),
+    );
+    return;
+  }
+  inspectCatalogValue(file, "catalog", diagnostics);
+  if (file.schemaVersion !== 1) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        "Catalog schemaVersion must be 1",
+        absolute,
+      ),
+    );
+  }
+  if (typeof file.agentId !== "string" || !file.agentId) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        "Catalog agentId must be a non-empty string",
+        absolute,
+      ),
+    );
+  }
+  if (!Array.isArray(file.templates)) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        "Catalog templates must be an array",
+        absolute,
+      ),
+    );
+    return;
+  }
+  const agentId = typeof file.agentId === "string" ? file.agentId : "";
+  file.templates.forEach((template, index) => {
+    validateCatalogTemplate(template, index, agentId, diagnostics);
+  });
+}
+
+function validateCatalogTemplate(
+  template: unknown,
+  index: number,
+  agentId: string,
+  diagnostics: Diagnostic[],
+) {
+  const path = `templates[${index}]`;
+  if (!isObject(template)) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path} must be an object`),
+    );
+    return;
+  }
+  if (typeof template.id !== "string" || !template.id) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path}.id is required`),
+    );
+  }
+  if (typeof template.name !== "string" || !template.name) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path}.name is required`),
+    );
+  }
+  const surface = template.surface;
+  if (typeof surface !== "string" || !CATALOG_SURFACES.has(surface)) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        `${path}.surface must be reusable, opencode, or dsh`,
+      ),
+    );
+    return;
+  }
+  if (agentId) {
+    const expected = expectedCatalogSurface(agentId);
+    if (surface !== expected) {
+      diagnostics.push(
+        error(
+          "provider_catalog_surface_mismatch",
+          `${path}.surface ${surface} does not match agentId ${agentId}`,
+        ),
+      );
+    }
+  }
+  // CLI rejects unknown categories; Host list coerces them to community.
+  if (
+    template.category !== undefined &&
+    (typeof template.category !== "string" ||
+      !CATALOG_CATEGORIES.has(template.category))
+  ) {
+    diagnostics.push(
+      error(
+        "provider_catalog_invalid",
+        `${path}.category must be official, prime, partner, or community`,
+      ),
+    );
+  }
+  if (template.endpointCandidates !== undefined) {
+    if (!Array.isArray(template.endpointCandidates)) {
+      diagnostics.push(
+        error(
+          "provider_catalog_invalid",
+          `${path}.endpointCandidates must be an array`,
+        ),
+      );
+    }
+  }
+  if (surface === "reusable") {
+    if (typeof template.apiUrl !== "string" || !template.apiUrl) {
+      diagnostics.push(
+        error("provider_catalog_invalid", `${path}.apiUrl is required`),
+      );
+    }
+    if (typeof template.model !== "string" || !template.model) {
+      diagnostics.push(
+        error("provider_catalog_invalid", `${path}.model is required`),
+      );
+    }
+    return;
+  }
+  if (surface === "opencode") {
+    if (typeof template.providerId !== "string" || !template.providerId) {
+      diagnostics.push(
+        error("provider_catalog_invalid", `${path}.providerId is required`),
+      );
+    }
+    if (typeof template.baseUrl !== "string" || !template.baseUrl) {
+      diagnostics.push(
+        error("provider_catalog_invalid", `${path}.baseUrl is required`),
+      );
+    }
+    validateCatalogModels(template.models, path, diagnostics);
+    return;
+  }
+  if (typeof template.displayName !== "string" || !template.displayName) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path}.displayName is required`),
+    );
+  }
+  if (typeof template.baseUrl !== "string" || !template.baseUrl) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path}.baseUrl is required`),
+    );
+  }
+  validateCatalogModels(template.models, path, diagnostics);
+}
+
+function validateCatalogModels(
+  models: unknown,
+  path: string,
+  diagnostics: Diagnostic[],
+) {
+  if (!Array.isArray(models)) {
+    diagnostics.push(
+      error("provider_catalog_invalid", `${path}.models must be an array`),
+    );
+    return;
+  }
+  models.forEach((model, index) => {
+    if (!isObject(model) || typeof model.id !== "string" || !model.id) {
+      diagnostics.push(
+        error(
+          "provider_catalog_invalid",
+          `${path}.models[${index}].id is required`,
+        ),
+      );
+    }
+    if (
+      isObject(model) &&
+      model.name !== undefined &&
+      (typeof model.name !== "string" || !model.name)
+    ) {
+      diagnostics.push(
+        error(
+          "provider_catalog_invalid",
+          `${path}.models[${index}].name must be a non-empty string when present`,
+        ),
+      );
+    }
+  });
+}
+
+function expectedCatalogSurface(agentId: string) {
+  if (agentId === "opencode" || agentId === "mimo_code") return "opencode";
+  if (agentId === "deepseek_harness") return "dsh";
+  return "reusable";
+}
+
+function inspectCatalogValue(
+  value: unknown,
+  path: string,
+  diagnostics: Diagnostic[],
+) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      inspectCatalogValue(item, `${path}[${index}]`, diagnostics),
+    );
+    return;
+  }
+  if (!isObject(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (CATALOG_SECRET_KEYS.has(key.toLowerCase())) {
+      diagnostics.push(
+        error(
+          "provider_catalog_secret_forbidden",
+          `Catalog must not include secret field ${key}`,
+        ),
+      );
+    } else if (CATALOG_FORBIDDEN_FIELDS.has(key)) {
+      diagnostics.push(
+        error(
+          "provider_catalog_forbidden_field",
+          `Catalog must not include ${key}`,
+        ),
+      );
+    }
+    if (CATALOG_URL_FIELDS.has(key)) {
+      validateCatalogUrl(child, childPath, diagnostics);
+      continue;
+    }
+    if (key === "endpointCandidates") {
+      if (Array.isArray(child)) {
+        child.forEach((item, index) =>
+          validateCatalogUrl(item, `${childPath}[${index}]`, diagnostics),
+        );
+      }
+      continue;
+    }
+    inspectCatalogValue(child, childPath, diagnostics);
+  }
+}
+
+function validateCatalogUrl(
+  value: unknown,
+  path: string,
+  diagnostics: Diagnostic[],
+) {
+  if (typeof value !== "string" || !value) {
+    diagnostics.push(
+      error("provider_catalog_url_invalid", `${path} must be an http(s) URL`),
+    );
+    return;
+  }
+  const reason = catalogUrlError(value);
+  if (reason) {
+    diagnostics.push(
+      error("provider_catalog_url_invalid", `${path}: ${reason}`),
+    );
+  }
+}
+
+function catalogUrlError(value: string) {
+  const trimmed = value.trim();
+  if (/^javascript:/i.test(trimmed)) {
+    return "javascript: URLs are not allowed";
+  }
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return "must be an http(s) URL";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return "must be an http(s) URL";
+  }
+  if (!url.hostname) {
+    return "must be an http(s) URL";
+  }
+  if (url.username !== "" || url.password !== "") {
+    return "must not include userinfo";
+  }
+  for (const key of url.searchParams.keys()) {
+    const normalized = key.toLowerCase();
+    if (normalized === "token" || normalized === "api_key" || normalized === "aff") {
+      return "query must not contain token, api_key, or aff";
+    }
+  }
+  return null;
+}
+
+function isPackageRelativeResource(path: string) {
+  if (
+    !path ||
+    isAbsolute(path) ||
+    path.startsWith("/") ||
+    path.startsWith("\\")
+  ) {
+    return false;
+  }
+  if (/^[A-Za-z]:/.test(path)) return false;
+  const parts = path.replace(/\\/g, "/").split("/");
+  return parts.every((part) => part !== "" && part !== "..");
 }
 
 function validateRemote(

@@ -27,7 +27,10 @@ import {
   peekAgentSettingsDraft,
   retainAgentSettingsDraft,
 } from './agentSettingsDraftRetention';
+import { ProviderCatalogPicker } from './ProviderCatalogPicker';
+import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
 import { SettingsActionBar } from './SettingsUi';
+import { useProviderCatalogList } from './useProviderCatalogList';
 
 const DRAFT_KEY = 'dsh-auth';
 const AUTH_TABS = [
@@ -75,6 +78,11 @@ export function DshAuthPanel({
       : 'list'
   );
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
+  const catalogEnabled =
+    draft.mode === 'custom' && customSurface === 'form' && editingId === null;
+  const { catalog, catalogError, catalogGeneration, hasCatalogContributions } =
+    useProviderCatalogList('deepseek_harness', catalogEnabled);
 
   const official = view?.providers.find(
     (provider) => provider.id === OFFICIAL_ID
@@ -281,8 +289,27 @@ export function DshAuthPanel({
     setDraft((current) => (view ? hydrate(view, mode) : { ...current, mode }));
   };
 
+  const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
+    const models = (template.models ?? []).map((entry) => ({
+      id: entry.id,
+      name: entry.name ?? null,
+    }));
+    setEndpointCandidates(template.endpoint_candidates ?? []);
+    setDraft((current) => ({
+      ...current,
+      mode: 'custom',
+      apiKey: '',
+      displayName: template.display_name?.trim() || template.name,
+      notes: template.notes ?? '',
+      baseUrl: template.base_url?.trim() || '',
+      models,
+      model: template.default_model?.trim() || models[0]?.id || '',
+    }));
+  };
+
   const openCustomCreate = () => {
     setEditingId(null);
+    setEndpointCandidates([]);
     setDraft((current) => ({
       ...current,
       mode: 'custom',
@@ -301,6 +328,7 @@ export function DshAuthPanel({
     const provider = view.providers.find((entry) => entry.id === providerId);
     if (!provider) return;
     setEditingId(provider.id);
+    setEndpointCandidates([]);
     setDraft({
       mode: 'custom',
       apiKey: '',
@@ -536,6 +564,7 @@ export function DshAuthPanel({
                       variant="ghost"
                       className="h-8"
                       onClick={() => {
+                        setEndpointCandidates([]);
                         setCustomSurface('list');
                         if (view) setDraft(hydrate(view, 'custom'));
                       }}
@@ -552,6 +581,35 @@ export function DshAuthPanel({
                         : t('settings:agents.providerNew')}
                     </strong>
                   </div>
+                  {!editingId && hasCatalogContributions ? (
+                    <ProviderCatalogPicker
+                      disabled={saving}
+                      generation={catalog?.generation ?? catalogGeneration}
+                      showCustomTile
+                      templates={catalog?.templates ?? []}
+                      onSelect={(next) => {
+                        if (next === 'custom') {
+                          setEndpointCandidates([]);
+                          setDraft((current) => ({
+                            ...current,
+                            apiKey: '',
+                            displayName: '',
+                            notes: '',
+                            baseUrl: '',
+                            model: '',
+                            models: [],
+                          }));
+                          return;
+                        }
+                        applyCatalogTemplate(next);
+                      }}
+                    />
+                  ) : null}
+                  {catalogError ? (
+                    <p className="agent-model-provider-error" role="alert">
+                      {catalogError}
+                    </p>
+                  ) : null}
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderName')}</span>
                     <Input
@@ -595,6 +653,22 @@ export function DshAuthPanel({
                       }
                     />
                   </label>
+                  {endpointCandidates.length > 1 ? (
+                    <AstryxSelect
+                      disabled={saving}
+                      options={endpointCandidates.map((candidate) => ({
+                        value: candidate,
+                        label: candidate,
+                      }))}
+                      value={draft.baseUrl}
+                      onChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          baseUrl: value,
+                        }))
+                      }
+                    />
+                  ) : null}
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderApiKey')}</span>
                     <Input

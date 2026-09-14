@@ -26,6 +26,22 @@ describe('orderChoicesByEffort', () => {
     ]);
   });
 
+  it('ranks Ultra above Max', () => {
+    const ordered = orderChoicesByEffort([
+      choice('ultra', 'Ultra'),
+      choice('xhigh', 'Extra High'),
+      choice('max', 'Max'),
+      choice('high', 'High'),
+    ]);
+
+    expect(ordered.map((c) => c.value)).toEqual([
+      'high',
+      'xhigh',
+      'max',
+      'ultra',
+    ]);
+  });
+
   it('keeps an already ascending list stable', () => {
     const ordered = orderChoicesByEffort([
       choice('low', 'Low'),

@@ -42,6 +42,14 @@
     },
     {
       "publisher": "vibex",
+      "pluginId": "vibex.provider-switch",
+      "version": "1.0.0",
+      "summary": "在新建供应商表单中提供按 Agent 分组的预置模板。",
+      "packageDigest": "builtin:vibex.provider-switch",
+      "archive": "builtin://vibex.provider-switch"
+    },
+    {
+      "publisher": "vibex",
       "pluginId": "vibex.remote-ssh",
       "version": "1.0.2",
       "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",

@@ -19,6 +19,7 @@ mod cursor_auth;
 pub mod delegation_inject;
 pub mod distribution;
 pub mod elicitation;
+mod end_turn_usage;
 pub mod error;
 pub mod events;
 mod ext_question;
@@ -132,6 +133,10 @@ pub use delegation_inject::{
 };
 pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
+pub use end_turn_usage::{
+    model_id_from_config_options, model_id_from_meta, prompt_usage_from_value,
+    usage_from_session_notification_params, usage_from_session_update,
+};
 pub use error::{AgentError, AgentResult};
 pub use events::{
     AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
@@ -148,6 +153,7 @@ pub use fork::{
     resolve_fork_point_for_turn,
 };
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
+pub use grok_usage::grok_home_dir;
 pub use history::{
     AgentHistoryError, AgentHistorySource, HistoryPathDestination, HistoryScanEntry,
     ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,

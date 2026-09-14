@@ -679,14 +679,14 @@ function mergeOverlayBlock(
   type: 'text' | 'thinking',
   overlay: string
 ) {
-  for (let index = result.length - 1; index >= 0; index -= 1) {
-    const block = result[index];
-    if (block?.type !== type) {
-      continue;
-    }
-    result[index] = {
+  // Match the backend projector: only extend the last block when it is already
+  // this stream. Searching earlier text would glue a post-tool reply onto the
+  // first assistant message.
+  const last = result[result.length - 1];
+  if (last?.type === type) {
+    result[result.length - 1] = {
       type,
-      text: mergeOverlayText(block.text, overlay),
+      text: mergeOverlayText(last.text, overlay),
     };
     return;
   }

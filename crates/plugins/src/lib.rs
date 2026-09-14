@@ -23,6 +23,7 @@ mod package;
 mod ports;
 mod preview_host;
 mod process_preview_host;
+mod provider_catalog;
 mod provider_presets;
 mod readiness;
 mod remote_profiles;
@@ -114,6 +115,11 @@ pub use preview_host::{
     PluginPreviewHost, PluginPreviewHostError, PluginPreviewRequest, PluginPreviewSession,
 };
 pub use process_preview_host::ExternalProcessPreviewHost;
+pub use provider_catalog::{
+    CatalogListInput, ProviderCatalogContribution, ProviderCatalogListView,
+    ProviderCatalogSourceView, ProviderCatalogSurface, ProviderCatalogTemplate,
+    ProviderCatalogTemplateView, aggregate_provider_catalogs, catalog_unavailable,
+};
 pub use provider_presets::{
     PROVIDER_BIND_CONFIRMATION_TIMEOUT, ProviderBindDecision, ProviderBindPrompts,
     ProviderBindRequest, ProviderPreset, ProviderPresetDraft, ProviderPresetError,

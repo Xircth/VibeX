@@ -698,7 +698,8 @@ pub async fn create_project_session(
     payload: CreateProjectSessionPayload,
 ) -> Result<Session, AppError> {
     let pool = &state.deployment.db().pool;
-    let workspace = if payload.create_workspace.unwrap_or(false) {
+    let created_workspace = payload.create_workspace.unwrap_or(false);
+    let workspace = if created_workspace {
         create_worktree_workspace_for_project_session(
             state.inner(),
             payload.project_id,
@@ -747,12 +748,14 @@ pub async fn create_project_session(
             .await?
     };
 
-    state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await
-        .map_err(map_workspace_git_error)?;
+    if !created_workspace {
+        state
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(map_workspace_git_error)?;
+    }
 
     let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
     let prepared_identity = if payload.session_id.is_some() {

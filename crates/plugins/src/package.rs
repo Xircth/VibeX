@@ -184,6 +184,8 @@ pub struct PackageAppContributions {
     #[serde(default)]
     pub provider_import_sources: Vec<ProviderImportSourceContribution>,
     #[serde(default)]
+    pub provider_catalogs: Vec<crate::ProviderCatalogContribution>,
+    #[serde(default)]
     pub panels: Vec<AppPanelContribution>,
     #[serde(default)]
     pub tabs: Vec<AppTabContribution>,
@@ -210,6 +212,7 @@ impl PackageAppContributions {
             && self.settings_sections.is_empty()
             && self.host_services.is_empty()
             && self.provider_import_sources.is_empty()
+            && self.provider_catalogs.is_empty()
             && self.panels.is_empty()
             && self.tabs.is_empty()
             && self.kanban_views.is_empty()
@@ -826,6 +829,14 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             &source.label,
         ));
     }
+    for catalog in &app.provider_catalogs {
+        documents.push(chrome_document(
+            "provider-catalogs",
+            "provider_model_catalog",
+            &catalog.id,
+            &catalog.label,
+        ));
+    }
     for panel in &app.panels {
         documents.push(chrome_document(
             "panels",
@@ -1262,7 +1273,7 @@ impl PluginPackage {
         }
         let entrypoints = parse_entrypoints(root, object, &mut warnings);
         let permissions = parse_permissions(object, &mut warnings);
-        let app = parse_app_contributions(object, &mut warnings);
+        let app = parse_app_contributions(root, object, &mut warnings);
         if manifest_version >= 4 {
             validate_v4_contract(V4Contract {
                 object,
@@ -1515,6 +1526,7 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             | "app.settings.section"
             | "host.service"
             | "provider.model.importSource"
+            | "provider.model.catalog"
             | "app.panel"
             | "app.tab"
             | "app.kanban.view"
@@ -1996,6 +2008,7 @@ fn parse_permissions(
 }
 
 fn parse_app_contributions(
+    root: &Path,
     object: &Map<String, Value>,
     warnings: &mut Vec<PackageWarning>,
 ) -> PackageAppContributions {
@@ -2169,7 +2182,7 @@ fn parse_app_contributions(
         surfaces,
         ..PackageAppContributions::default()
     };
-    parse_v4_ui_contributions(object, warnings, &mut contributions);
+    parse_v4_ui_contributions(root, object, warnings, &mut contributions);
     contributions
 }
 
@@ -2177,6 +2190,7 @@ fn parse_app_contributions(
 /// These have no legacy `contributes` shape, so the authored `integrations`
 /// array stays their single source of truth.
 fn parse_v4_ui_contributions(
+    root: &Path,
     object: &Map<String, Value>,
     warnings: &mut Vec<PackageWarning>,
     contributions: &mut PackageAppContributions,
@@ -2238,6 +2252,32 @@ fn parse_v4_ui_contributions(
             "provider.model.importSource" => parse_provider_import_source(integration)
                 .map(|item| contributions.provider_import_sources.push(item))
                 .is_some(),
+            "provider.model.catalog" => {
+                if contributions.provider_catalogs.len()
+                    >= crate::provider_catalog::MAX_CATALOGS_PER_PLUGIN
+                {
+                    warnings.push(PackageWarning {
+                        code: "provider_catalog_truncated".to_owned(),
+                        message: format!(
+                            "ignored catalog contribution beyond {} per plugin",
+                            crate::provider_catalog::MAX_CATALOGS_PER_PLUGIN
+                        ),
+                        contribution: integration
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                    });
+                    true
+                } else {
+                    crate::provider_catalog::load_provider_catalog_contribution(
+                        root,
+                        integration,
+                        warnings,
+                    )
+                    .map(|item| contributions.provider_catalogs.push(item))
+                    .is_some()
+                }
+            }
             "app.panel" => parse_panel_contribution(integration)
                 .map(|item| {
                     contributions.surfaces.push(synthesized_surface(

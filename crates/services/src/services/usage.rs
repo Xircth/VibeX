@@ -199,11 +199,12 @@ pub struct VendorLogUsage {
     pub provider: String,
 }
 
-/// Local directories that hold Claude / Codex jsonl transcripts.
+/// Local directories that hold vendor transcripts.
 #[derive(Debug, Clone, Default)]
 pub struct VendorLogRoots {
     pub claude_projects: Option<PathBuf>,
     pub codex_sessions: Option<PathBuf>,
+    pub grok_sessions: Option<PathBuf>,
 }
 
 impl VendorLogRoots {
@@ -211,6 +212,7 @@ impl VendorLogRoots {
         Self {
             claude_projects: dirs::home_dir().map(|home| home.join(".claude").join("projects")),
             codex_sessions: dirs::home_dir().map(|home| home.join(".codex").join("sessions")),
+            grok_sessions: agents::grok_home_dir().map(|home| home.join("sessions")),
         }
     }
 }
@@ -1043,6 +1045,21 @@ pub fn scan_changed_vendor_logs(
         }
     }
 
+    match collect_grok_files(roots.grok_sessions.as_deref()) {
+        Ok(files) => {
+            scan_provider_files("grok", &files, known, parse_grok_session, &mut scan);
+            scan.successful_providers.push("grok".to_string());
+        }
+        Err(error) => {
+            scan.provider_status.push(ProjectUsageProviderStatus {
+                provider: "grok".to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
     for provider in &scan.successful_providers {
         let sessions_scanned = scan
             .updates
@@ -1136,6 +1153,189 @@ fn collect_claude_project_files(project_dir: &Path, files: &mut Vec<PathBuf>) {
         }
         files.push(path);
     }
+}
+
+fn collect_grok_files(sessions_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    let Some(sessions_dir) = sessions_dir.filter(|dir| dir.exists()) else {
+        return Ok(Vec::new());
+    };
+    let mut files = Vec::new();
+    collect_grok_session_files(sessions_dir, &mut files);
+    Ok(files)
+}
+
+fn collect_grok_session_files(root: &Path, files: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let updates = path.join("updates.jsonl");
+            if updates.is_file() {
+                files.push(updates);
+                continue;
+            }
+            collect_grok_session_files(&path, files);
+        }
+    }
+}
+
+fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
+    let session_dir = path.parent().unwrap_or(path);
+    if grok_session_is_subagent(session_dir) {
+        return Ok(None);
+    }
+
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
+    let reader = BufReader::new(file);
+    let mut usage = ProjectUsageTokenCounts::default();
+    let mut model = grok_summary_model(session_dir);
+    let mut first_timestamp = 0_i64;
+    let session_id = session_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        if line.len() > 512_000 {
+            continue;
+        }
+        let value = match serde_json::from_str::<Value>(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if first_timestamp == 0 {
+            first_timestamp = grok_line_timestamp_ms(&value).unwrap_or(0);
+        }
+        let params = value.get("params").unwrap_or(&value);
+        if model.is_none() {
+            model = grok_model_from_params(params);
+        }
+        let Some(parsed) = agents::usage_from_session_notification_params(params) else {
+            continue;
+        };
+        add_optional_i64(
+            &mut usage.input_tokens,
+            parsed.input_tokens.map(|value| value as i64),
+        );
+        add_optional_i64(
+            &mut usage.output_tokens,
+            parsed.output_tokens.map(|value| value as i64),
+        );
+        add_optional_i64(
+            &mut usage.cache_write_tokens,
+            parsed.cache_write_tokens.map(|value| value as i64),
+        );
+        add_optional_i64(
+            &mut usage.cache_read_tokens,
+            parsed.cache_read_tokens.map(|value| value as i64),
+        );
+        if model.is_none() {
+            model = parsed.model;
+        }
+    }
+
+    usage.total_tokens = match (
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_write_tokens,
+        usage.cache_read_tokens,
+    ) {
+        (None, None, None, None) => None,
+        (input, output, cache_write, cache_read) => Some(
+            input.unwrap_or(0)
+                + output.unwrap_or(0)
+                + cache_write.unwrap_or(0)
+                + cache_read.unwrap_or(0),
+        ),
+    };
+
+    if usage.total_tokens.unwrap_or(0) == 0 && model.is_none() {
+        return Ok(None);
+    }
+
+    let timestamp = if first_timestamp > 0 {
+        first_timestamp
+    } else {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64
+    };
+
+    Ok(Some(VendorLogUsage {
+        external_session_id: session_id,
+        timestamp,
+        model: model.unwrap_or_default(),
+        tokens: usage,
+        cost: None,
+        summary: grok_summary_title(session_dir),
+        provider: "grok".to_string(),
+    }))
+}
+
+fn grok_session_is_subagent(session_dir: &Path) -> bool {
+    grok_summary_json(session_dir)
+        .get("session_kind")
+        .and_then(Value::as_str)
+        == Some("subagent")
+}
+
+fn grok_summary_model(session_dir: &Path) -> Option<String> {
+    grok_summary_json(session_dir)
+        .get("current_model_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn grok_summary_title(session_dir: &Path) -> Option<String> {
+    let summary = grok_summary_json(session_dir);
+    summary
+        .get("generated_title")
+        .and_then(Value::as_str)
+        .or_else(|| summary.get("session_summary").and_then(Value::as_str))
+        .and_then(truncate_summary)
+}
+
+fn grok_summary_json(session_dir: &Path) -> Value {
+    fs::read_to_string(session_dir.join("summary.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or(Value::Null)
+}
+
+fn grok_model_from_params(params: &Value) -> Option<String> {
+    agents::model_id_from_meta(params.get("_meta")).or_else(|| {
+        params
+            .get("update")
+            .and_then(|update| agents::model_id_from_meta(update.get("_meta")))
+    })
+}
+
+fn grok_line_timestamp_ms(value: &Value) -> Option<i64> {
+    if let Some(ms) = read_timestamp_ms(value) {
+        return Some(ms);
+    }
+    let raw = value.get("timestamp")?;
+    let numeric = raw
+        .as_i64()
+        .or_else(|| raw.as_f64().map(|value| value as i64))?;
+    if numeric > 0 && numeric < 4_000_000_000 {
+        return Some(numeric * 1000);
+    }
+    Some(numeric)
 }
 
 fn collect_codex_files(sessions_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
@@ -1771,6 +1971,115 @@ mod tests {
     }
 
     #[test]
+    fn vendor_alignment_fills_missing_model_from_vendor_log() {
+        let now = 1_725_000_000_000;
+        let mut sessions = vec![attributed_session(
+            "grok-1",
+            "ws-1",
+            "/repo",
+            "grok",
+            None,
+            ProjectUsageSourcedTokens::default(),
+            None,
+            now,
+        )];
+        let vendor = vec![VendorLogUsage {
+            external_session_id: "grok-1".to_string(),
+            timestamp: now,
+            model: "grok-4.6".to_string(),
+            tokens: ProjectUsageTokenCounts {
+                input_tokens: Some(29_214),
+                output_tokens: Some(1_652),
+                cache_write_tokens: Some(0),
+                cache_read_tokens: Some(56_960),
+                total_tokens: Some(87_826),
+            },
+            cost: None,
+            summary: None,
+            provider: "grok".to_string(),
+        }];
+
+        align_vendor_usage(&mut sessions, &vendor);
+        assert_eq!(sessions[0].model.as_deref(), Some("grok-4.6"));
+        assert_eq!(
+            sessions[0]
+                .tokens
+                .vendor_log
+                .as_ref()
+                .and_then(|tokens| tokens.total_tokens),
+            Some(87_826)
+        );
+    }
+
+    #[test]
+    fn named_model_is_not_grouped_as_unprovided() {
+        let now = 1_725_000_000_000;
+        let grok_tokens = ProjectUsageSourcedTokens {
+            protocol: Some(ProjectUsageTokenCounts {
+                input_tokens: Some(29_214),
+                output_tokens: Some(1_652),
+                cache_write_tokens: Some(0),
+                cache_read_tokens: Some(56_960),
+                total_tokens: Some(87_826),
+            }),
+            vendor_log: None,
+            sources_disagree: false,
+        };
+        let sessions = vec![
+            attributed_session(
+                "grok-1",
+                "ws-1",
+                "/repo",
+                "grok",
+                Some("grok-4.6"),
+                grok_tokens,
+                None,
+                now,
+            ),
+            attributed_session(
+                "unknown-1",
+                "ws-1",
+                "/repo",
+                "cursor",
+                None,
+                ProjectUsageSourcedTokens::default(),
+                None,
+                now,
+            ),
+        ];
+
+        let result = build_project_usage_statistics(
+            "project".to_string(),
+            "project-1".to_string(),
+            "Demo".to_string(),
+            sessions,
+            Vec::new(),
+            0,
+            now,
+        );
+
+        let models: Vec<&str> = result
+            .by_model
+            .iter()
+            .map(|row| row.model.as_str())
+            .collect();
+        assert!(models.contains(&"grok-4.6"));
+        assert!(models.contains(&"unprovided"));
+        let grok = result
+            .by_model
+            .iter()
+            .find(|row| row.model == "grok-4.6")
+            .expect("grok bucket");
+        assert_eq!(
+            grok.tokens
+                .protocol
+                .as_ref()
+                .and_then(|tokens| tokens.total_tokens),
+            Some(87_826)
+        );
+    }
+
+    #[test]
     fn preferred_total_falls_back_to_vendor_log_when_protocol_is_missing() {
         let tokens = ProjectUsageSourcedTokens {
             protocol: None,
@@ -1900,6 +2209,7 @@ mod tests {
         let roots = VendorLogRoots {
             claude_projects: None,
             codex_sessions: Some(sessions_dir.clone()),
+            grok_sessions: None,
         };
         let first = scan_changed_vendor_logs(&roots, &HashMap::new());
         assert_eq!(first.updates.len(), 1);
@@ -1951,5 +2261,67 @@ mod tests {
         let cost = calculate_usage_cost(&usage, openai_cost_rates("gpt-5.4")).expect("cost");
 
         assert!((cost - 5.55).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn grok_vendor_session_sums_turn_completed_usage_and_reads_model() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_dir = dir
+            .path()
+            .join("sessions")
+            .join("%2Fproj")
+            .join("019f96d5-aaaa-bbbb-cccc-ddddeeee0001");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        std::fs::write(
+            session_dir.join("summary.json"),
+            r#"{"current_model_id":"grok-4.6","generated_title":"Fix usage"}"#,
+        )
+        .expect("summary");
+        std::fs::write(
+            session_dir.join("updates.jsonl"),
+            concat!(
+                r#"{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"},"_meta":{"modelId":"grok-4.6"}}},"timestamp":1783584019}"#,
+                "\n",
+                r#"{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"turn_completed","prompt_id":"e526ba42","stop_reason":"rate_limit","usage":{"inputTokens":86174,"outputTokens":1652,"totalTokens":87826,"cachedReadTokens":56960}}},"timestamp":1783584025}"#,
+                "\n",
+                r#"{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"turn_completed","prompt_id":"56468252","stop_reason":"end_turn","usage":{"inputTokens":198457,"outputTokens":6224,"totalTokens":204681,"cachedReadTokens":167680}}},"timestamp":1783584036}"#,
+                "\n"
+            ),
+        )
+        .expect("updates");
+
+        let parsed = parse_grok_session(&session_dir.join("updates.jsonl"))
+            .expect("parse")
+            .expect("session");
+        assert_eq!(
+            parsed.external_session_id,
+            "019f96d5-aaaa-bbbb-cccc-ddddeeee0001"
+        );
+        assert_eq!(parsed.model, "grok-4.6");
+        assert_eq!(parsed.tokens.input_tokens, Some(59_991));
+        assert_eq!(parsed.tokens.output_tokens, Some(7_876));
+        assert_eq!(parsed.tokens.cache_read_tokens, Some(224_640));
+        assert_eq!(parsed.tokens.total_tokens, Some(292_507));
+        assert_eq!(parsed.provider, "grok");
+    }
+
+    #[test]
+    fn grok_subagent_transcripts_are_not_vendor_sessions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_dir = dir.path().join("child");
+        std::fs::create_dir_all(&session_dir).expect("dir");
+        std::fs::write(
+            session_dir.join("summary.json"),
+            r#"{"session_kind":"subagent","current_model_id":"grok-4.6"}"#,
+        )
+        .expect("summary");
+        std::fs::write(
+            session_dir.join("updates.jsonl"),
+            r#"{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":10,"outputTokens":1}}},"timestamp":1783584019}"#,
+        )
+        .expect("updates");
+
+        let parsed = parse_grok_session(&session_dir.join("updates.jsonl")).expect("parse");
+        assert!(parsed.is_none());
     }
 }

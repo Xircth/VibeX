@@ -63,7 +63,7 @@ export function useSessionComposerQueue({
       // A second window can enqueue while this one is idle. Event publication is
       // the fast path; bounded polling guarantees eventual convergence if a host
       // event is missed during suspension or reconnect.
-      refetchInterval: isAttemptRunning ? 2_000 : 5_000,
+      refetchInterval: isAttemptRunning ? 15_000 : 30_000,
     });
 
   const refreshQueueStatus = useCallback(async () => {

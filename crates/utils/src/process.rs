@@ -205,6 +205,42 @@ pub fn group_spawn_no_window(
     builder.spawn()
 }
 
+/// Put a `std::process::Command` in its own process group so a later
+/// [`terminate_std_child_group`] cannot signal the VibeX process group.
+pub fn isolate_std_process_group(command: &mut std::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+    }
+}
+
+/// SIGTERM the child's process group, then SIGKILL if it is still alive.
+///
+/// Git helpers (pager, fsmonitor, credential helper) share the group. Killing
+/// only the leader with SIGKILL leaves those helpers holding `index.lock` /
+/// `config.lock`, and every later git command waits until VibeX's timeout.
+pub fn terminate_std_child_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let pid = Pid::from_raw(child.id() as i32);
+        if let Ok(pgid) = getpgid(Some(pid)) {
+            let _ = killpg(pgid, Signal::SIGTERM);
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            let _ = killpg(pgid, Signal::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<()> {
     // hit the whole process group, not just the leader
     #[cfg(unix)]

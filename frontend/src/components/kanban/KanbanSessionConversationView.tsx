@@ -31,6 +31,7 @@ import {
   ImagePreviewPresentationProvider,
   type ImagePreviewPresentation,
 } from '@/contexts/ImagePreviewPresentationContext';
+import { AttachmentPreviewProvider } from '@/components/NormalizedConversation/attachments/AttachmentPreviewOverlay';
 import {
   resolveActiveSession,
   useWorkspaceSessions,
@@ -104,6 +105,50 @@ function createPlacementContainer() {
   return container;
 }
 
+export function isConversationSlotVisible(target: HTMLElement): boolean {
+  if (!target.isConnected) {
+    return false;
+  }
+  let current: HTMLElement | null = target;
+  while (current) {
+    if (current.hidden || current.style.display === 'none') {
+      return false;
+    }
+    current = current.parentElement;
+  }
+  return true;
+}
+
+export function shouldActivateConversationSlot({
+  activeSlotId,
+  slotId,
+  isNewSlot,
+  target,
+}: {
+  activeSlotId: string | null;
+  slotId: string;
+  isNewSlot: boolean;
+  target: HTMLElement;
+}): boolean {
+  if (activeSlotId === slotId) {
+    return true;
+  }
+  if (!isNewSlot) {
+    return false;
+  }
+  return isConversationSlotVisible(target);
+}
+
+function nextConversationSlot(
+  slots: Map<string, HTMLElement>
+): [string, HTMLElement] | undefined {
+  const entries = Array.from(slots.entries());
+  const visible = [...entries]
+    .reverse()
+    .find(([, element]) => isConversationSlotVisible(element));
+  return visible ?? entries[entries.length - 1];
+}
+
 function getPlacementSessionId(
   sessionId: string | undefined,
   interactive: boolean,
@@ -161,10 +206,17 @@ export function KanbanSessionConversationPlacementProvider({
       const slotTargetChanged = record.slots.get(slotId) !== target;
       record.props = props;
       record.slots.set(slotId, target);
-      // A newly registered view (canvas window opening, monitor → right panel)
-      // takes the portal. Prop-only updates must not steal it back to an
-      // already-mounted sibling such as the right panel.
-      if (record.activeSlotId === null || isNewSlot) {
+      // Visible new views (canvas window, workspace execution) take the
+      // portal. Hidden/detached remounts — the canvas-hidden execution slot
+      // after a workspace → canvas switch — must not steal it back.
+      if (
+        shouldActivateConversationSlot({
+          activeSlotId: record.activeSlotId,
+          slotId,
+          isNewSlot,
+          target,
+        })
+      ) {
         record.activeSlotId = slotId;
       }
       if (
@@ -188,8 +240,7 @@ export function KanbanSessionConversationPlacementProvider({
 
         currentRecord.slots.delete(slotId);
         if (currentRecord.activeSlotId === slotId) {
-          const nextSlots = Array.from(currentRecord.slots.entries());
-          const nextSlot = nextSlots[nextSlots.length - 1];
+          const nextSlot = nextConversationSlot(currentRecord.slots);
           currentRecord.activeSlotId = nextSlot?.[0] ?? null;
           if (nextSlot) {
             nextSlot[1].appendChild(currentRecord.container);
@@ -519,19 +570,24 @@ function KanbanSessionConversationSurface({
 
   return (
     <ImagePreviewPresentationProvider value={imagePreviewPresentation}>
-      <div className={`relative ${className ?? ''}`}>
-        <KanbanSessionConversationContent
-          attempt={createWorkspaceWithSession(workspace, resolvedSession)}
-          taskId={taskId}
-          interactive={shouldRenderInteractiveShell}
-          sessionState={sessionState}
-          showSessionSelector={showSessionSelector}
-          onSessionCreated={onSessionCreated}
-          onSessionSelected={onSessionSelected}
-          onCreateSessionRequested={onCreateSessionRequested}
-          conversationWidthMode={conversationWidthMode}
-        />
-      </div>
+      <AttachmentPreviewProvider>
+        <div
+          className={`relative ${className ?? ''}`}
+          data-conversation-preview-host
+        >
+          <KanbanSessionConversationContent
+            attempt={createWorkspaceWithSession(workspace, resolvedSession)}
+            taskId={taskId}
+            interactive={shouldRenderInteractiveShell}
+            sessionState={sessionState}
+            showSessionSelector={showSessionSelector}
+            onSessionCreated={onSessionCreated}
+            onSessionSelected={onSessionSelected}
+            onCreateSessionRequested={onCreateSessionRequested}
+            conversationWidthMode={conversationWidthMode}
+          />
+        </div>
+      </AttachmentPreviewProvider>
     </ImagePreviewPresentationProvider>
   );
 }

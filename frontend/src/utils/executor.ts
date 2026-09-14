@@ -47,7 +47,13 @@ const CODEX_MODEL_LABELS: Record<string, string> = {
 
 export type ClaudePermissionMode = 'auto' | 'ask' | 'plan';
 export type CodexPermissionMode = 'auto' | 'ask';
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexReasoningEffort =
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max'
+  | 'ultra';
 
 export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   value: CodexReasoningEffort;
@@ -72,7 +78,17 @@ export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   {
     value: 'xhigh',
     label: 'Extra High',
-    description: 'Maximum reasoning depth for hardest problems',
+    description: 'Extra-high reasoning for harder problems',
+  },
+  {
+    value: 'max',
+    label: 'Max',
+    description: 'Highest first-class reasoning effort',
+  },
+  {
+    value: 'ultra',
+    label: 'Ultra',
+    description: 'Highest-yet first-class reasoning effort',
   },
 ];
 

@@ -3,7 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, process::ExitCode};
 use server::{
     HeadlessServer, LaunchCommand, ParsedArgs, ServerBootstrapConfig, ServerConfig, ServerLaunch,
     ServerToken, format_host_console, parse_args, read_host_token, resolve_console_token,
-    run_agents_command, usage, write_host_token,
+    run_agents_command, run_pairing_command, usage, write_host_token,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -19,6 +19,7 @@ async fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(ParsedArgs::Agents(command)) => run_agents_command(command).await,
+        Ok(ParsedArgs::Pairing(command)) => run_pairing_command(command).await,
         Ok(ParsedArgs::Start(launch)) => run(launch).await,
         Err(error) => {
             eprintln!("{error}");

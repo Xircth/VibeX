@@ -158,8 +158,13 @@ describe('SessionCanvasView', () => {
     expect(group?.width).toBe(footprint.width);
     expect(group?.height).toBe(footprint.height);
     await waitFor(() => {
-      expect(fitView).toHaveBeenCalled();
+      expect(setCenter).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.any(Number),
+        expect.objectContaining({ zoom: 1, duration: 280 })
+      );
     });
+    expect(fitView).not.toHaveBeenCalled();
   });
 
   it('opens the same create-session flow from the dock plus menu', async () => {

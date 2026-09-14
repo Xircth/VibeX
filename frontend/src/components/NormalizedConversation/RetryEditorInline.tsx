@@ -93,6 +93,7 @@ export function RetryEditorInline({
             onChange={setMessage}
             disabled={isSending}
             onSubmit={handleSubmit}
+            acceptExternalInserts={false}
             context={{
               workspaceId: attemptId,
               projectId: attempt.project_id,

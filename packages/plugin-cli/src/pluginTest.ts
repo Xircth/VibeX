@@ -13,6 +13,7 @@ import {
   hostJourneyKindsFromIntegrations,
 } from "./pluginHostJourney.js";
 import {
+  callProductHost,
   contributionCatalogOnProductHost,
   disableOnProductHost,
   doctorOnProductHost,
@@ -81,9 +82,9 @@ async function testPluginOnHost(root: string) {
     );
   }
   await enableOnProductHost(plugin.identity.id);
-  const hostKinds = hostJourneyKindsFromIntegrations(
-    await readManifestIntegrations(root),
-  );
+  const integrations = await readManifestIntegrations(root);
+  const hostKinds = hostJourneyKindsFromIntegrations(integrations);
+  const catalogAgentId = catalogAgentIdFromIntegrations(integrations);
   if (hostKinds.length > 0) {
     await waitForCatalog(
       plugin.identity.id,
@@ -91,6 +92,9 @@ async function testPluginOnHost(root: string) {
       true,
       "plugin_host_contributions_missing",
     );
+    if (catalogAgentId) {
+      await waitForProviderCatalogList(catalogAgentId, true);
+    }
     await disableOnProductHost(plugin.identity.id);
     await waitForCatalog(
       plugin.identity.id,
@@ -98,6 +102,9 @@ async function testPluginOnHost(root: string) {
       false,
       "plugin_host_contributions_lingered",
     );
+    if (catalogAgentId) {
+      await waitForProviderCatalogList(catalogAgentId, false);
+    }
     await enableOnProductHost(plugin.identity.id);
     await waitForCatalog(
       plugin.identity.id,
@@ -105,6 +112,9 @@ async function testPluginOnHost(root: string) {
       true,
       "plugin_host_contributions_missing",
     );
+    if (catalogAgentId) {
+      await waitForProviderCatalogList(catalogAgentId, true);
+    }
   }
   const skill = await firstSkillFile(root);
   if (skill) {
@@ -142,6 +152,41 @@ async function readManifestIntegrations(root: string): Promise<unknown> {
   const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
   const manifest = JSON.parse(raw) as { integrations?: unknown };
   return manifest.integrations;
+}
+
+function catalogAgentIdFromIntegrations(integrations: unknown): string | null {
+  if (!Array.isArray(integrations)) return null;
+  for (const item of integrations) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as { kind?: unknown; agents?: unknown };
+    if (record.kind !== "provider.model.catalog") continue;
+    if (Array.isArray(record.agents)) {
+      const agentId = record.agents.find(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      );
+      if (agentId) return agentId;
+    }
+    return "claude_code";
+  }
+  return null;
+}
+
+async function waitForProviderCatalogList(agentId: string, present: boolean) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const listed = await callProductHost<{ templates?: unknown[] }>(
+      "provider_catalog_list",
+      { agentId },
+    );
+    const count = Array.isArray(listed.templates) ? listed.templates.length : 0;
+    if (present ? count > 0 : count === 0) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+  }
+  throw new Error(
+    present
+      ? "plugin_host_provider_catalog_empty"
+      : "plugin_host_provider_catalog_lingered",
+  );
 }
 
 async function waitForCatalog(

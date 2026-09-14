@@ -15,6 +15,7 @@ import {
   subscribeAppUpdate,
   type AppUpdateSnapshot,
 } from '@/lib/appUpdate';
+import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import { SettingsSection } from '@/pages/settings/SettingsUi';
 
 type UpdaterState =
@@ -197,13 +198,7 @@ export function AppUpdaterSection({
               <Button
                 variant="outline"
                 className="shrink-0"
-                onClick={() =>
-                  window.open(
-                    update.releaseUrl!,
-                    '_blank',
-                    'noopener,noreferrer'
-                  )
-                }
+                onClick={() => void openInSystemBrowser(update.releaseUrl!)}
               >
                 <ExternalLink className="mr-1 h-3.5 w-3.5" />
                 {t('appUpdater.viewRelease')}

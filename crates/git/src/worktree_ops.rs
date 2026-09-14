@@ -78,9 +78,9 @@ impl GitService {
         branch_name: &str,
     ) -> Result<Option<PathBuf>, GitServiceError> {
         let git_cli = GitCli::new();
-        let worktrees = git_cli.list_worktrees(repo_path).map_err(|e| {
-            GitServiceError::InvalidRepository(format!("git worktree list failed: {e}"))
-        })?;
+        let worktrees = git_cli
+            .list_worktrees(repo_path)
+            .map_err(GitServiceError::from_cli)?;
 
         for worktree in worktrees {
             if let Some(ref branch) = worktree.branch
@@ -285,7 +285,7 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_remove(repo_path, worktree_path, force)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(GitServiceError::from_cli)?;
         Ok(())
     }
 
@@ -298,14 +298,14 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_move(repo_path, old_path, new_path)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(GitServiceError::from_cli)?;
         Ok(())
     }
 
     pub fn prune_worktrees(&self, repo_path: &Path) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_prune(repo_path)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(GitServiceError::from_cli)?;
         Ok(())
     }
 

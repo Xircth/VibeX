@@ -15,10 +15,7 @@ import type { DirectoryChildrenResponse } from '@/lib/api';
 import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
-import {
-  deriveWorkspaceRootPath,
-  deriveWorkspaceRootPathCandidates,
-} from './workspaceRootPath';
+import { deriveWorkspaceRootPathCandidates } from './workspaceRootPath';
 
 function stripWindowsExtendedPathPrefix(path: string): string {
   return path
@@ -97,19 +94,31 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const loadRequestIdRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
 
-  const workspaceRootCandidates = useMemo(
-    () =>
-      activeWorktreeId
-        ? deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
-        : [],
-    [activeWorktreeId, workspace, workspaceRepos]
-  );
+  const workspaceContainerRef = workspace?.container_ref ?? null;
+  const workspaceUsesWorktree = workspace?.use_worktree ?? false;
+  const workspaceAgentWorkingDir = workspace?.agent_working_dir ?? null;
+  const workspaceRootCandidates = useMemo(() => {
+    if (!activeWorktreeId) {
+      return [];
+    }
+    return deriveWorkspaceRootPathCandidates(
+      {
+        container_ref: workspaceContainerRef,
+        use_worktree: workspaceUsesWorktree,
+        agent_working_dir: workspaceAgentWorkingDir,
+      },
+      workspaceRepos
+    );
+  }, [
+    activeWorktreeId,
+    workspaceAgentWorkingDir,
+    workspaceContainerRef,
+    workspaceRepos,
+    workspaceUsesWorktree,
+  ]);
   const resolvedWorkspaceRootPath = useMemo(
-    () =>
-      activeWorktreeId
-        ? deriveWorkspaceRootPath(workspace, workspaceRepos)
-        : null,
-    [activeWorktreeId, workspace, workspaceRepos]
+    () => workspaceRootCandidates[0] ?? null,
+    [workspaceRootCandidates]
   );
 
   // Switch rootPath to workspace worktree path when workspace changes

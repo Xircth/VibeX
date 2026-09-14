@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ThemedTokenWithVariants } from 'shiki';
-import { getShikiTokenStyle } from './shikiHighlighter';
+import {
+  createPlainTokenLines,
+  getShikiTokenStyle,
+  reuseStableTokenLines,
+  splitCompleteLinePrefix,
+} from './shikiHighlighter';
 
 function token(
   light: { color?: string; fontStyle?: number },
@@ -45,5 +50,36 @@ describe('getShikiTokenStyle', () => {
     );
 
     expect(style.fontStyle).toBeUndefined();
+  });
+});
+
+describe('reuseStableTokenLines', () => {
+  it('keeps complete lines and leaves the growing last line as remainder', () => {
+    expect(splitCompleteLinePrefix('fn main() {\n    let x')).toEqual({
+      prefix: 'fn main() {\n',
+      remainder: '    let x',
+    });
+
+    const previous = 'fn main() {\n    let x';
+    const previousTokens = createPlainTokenLines(previous);
+    const reused = reuseStableTokenLines(
+      previous,
+      previousTokens,
+      'fn main() {\n    let x = 1\n    let y'
+    );
+
+    expect(reused?.reused).toEqual(previousTokens.slice(0, 1));
+    expect(reused?.remainder).toBe('    let x = 1\n    let y');
+  });
+
+  it('does not reuse when the next value is not a prefix continuation', () => {
+    const previous = 'const a = 1;\n';
+    expect(
+      reuseStableTokenLines(
+        previous,
+        createPlainTokenLines(previous),
+        'const b = 2;\n'
+      )
+    ).toBeNull();
   });
 });

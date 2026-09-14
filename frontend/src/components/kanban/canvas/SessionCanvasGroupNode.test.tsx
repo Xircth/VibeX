@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionCanvasGroupNode } from './SessionCanvasGroupNode';
 
@@ -86,6 +87,39 @@ describe('SessionCanvasGroupNode', () => {
 
     expect(container.querySelector('.canvas-session-group')).toHaveClass(
       'is-reviewing'
+    );
+  });
+
+  it('uses a thin dark name field while renaming', async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionCanvasGroupNode
+        id="group-1"
+        data={{
+          instanceId: 'g1',
+          name: '分组',
+          index: 1,
+          count: 0,
+          overflow: 0,
+          showAll: false,
+          collapsed: false,
+        }}
+        selected
+        type="sessionGroup"
+        dragging={false}
+        draggable
+        selectable
+        deletable
+        zIndex={1}
+        isConnectable={false}
+        positionAbsoluteX={0}
+        positionAbsoluteY={0}
+      />
+    );
+
+    await user.dblClick(screen.getByRole('button', { name: '分组' }));
+    expect(screen.getByDisplayValue('分组')).toHaveClass(
+      'canvas-group-name-input'
     );
   });
 });

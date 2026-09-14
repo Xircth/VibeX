@@ -6,6 +6,6 @@ export function useBranchStatus(attemptId?: string) {
     queryKey: ['branchStatus', attemptId],
     queryFn: () => attemptsApi.getBranchStatus(attemptId!),
     enabled: !!attemptId,
-    refetchInterval: 5000,
+    refetchInterval: 15_000,
   });
 }

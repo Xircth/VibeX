@@ -1,12 +1,15 @@
-export const IMAGE_EXTENSIONS = new Set([
+export const RASTER_IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
   'jpeg',
   'gif',
   'webp',
   'bmp',
-  'svg',
 ]);
+
+export const IMAGE_EXTENSIONS = new Set([...RASTER_IMAGE_EXTENSIONS, 'svg']);
+
+export type AttachmentPreviewKind = 'image' | 'video' | 'file';
 
 export const VIDEO_EXTENSIONS = new Set([
   'mp4',
@@ -30,6 +33,32 @@ export function fileExtension(name: string): string {
 
 export function isImageExtension(extension: string): boolean {
   return IMAGE_EXTENSIONS.has(extension.toLowerCase());
+}
+
+export function isRasterImageExtension(extension: string): boolean {
+  return RASTER_IMAGE_EXTENSIONS.has(extension.toLowerCase());
+}
+
+/**
+ * How an attached path should render. Prefer the filename: the send path
+ * stores non-images as image blocks with a generic image mime.
+ * SVG is a file card, not an inline picture.
+ */
+export function attachmentPreviewKind(
+  nameOrPath: string,
+  mimeType?: string | null
+): AttachmentPreviewKind {
+  const extension = fileExtension(nameOrPath);
+  if (extension) {
+    if (isVideoExtension(extension)) return 'video';
+    if (isRasterImageExtension(extension)) return 'image';
+    return 'file';
+  }
+
+  const mime = mimeType?.toLowerCase() ?? '';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('image/') && !mime.includes('svg')) return 'image';
+  return 'file';
 }
 
 export function isVideoExtension(extension: string): boolean {

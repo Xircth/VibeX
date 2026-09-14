@@ -52,8 +52,8 @@ import {
   getAreAllVisibleFileTreeFoldersExpanded,
   normalizeDirectoryChildrenResponse,
   pruneExpandedFileTreeFolders,
-  emptyFileTreeLazyListing,
   replaceFileTreeDirectoryListing,
+  type FileTreeLazyListing,
   resolveFileTreeAbsolutePath,
   resolveWorkspaceRootLabel,
   toggleAllFileTreeFolders,
@@ -64,7 +64,12 @@ import { formatFileTreeStructure } from './fileTreeStructure';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import '@/styles/file-tree.css';
-import type { FileTreeRevealTarget } from '@/stores/useFileTreeStore';
+import {
+  EMPTY_EXPANDED_FOLDERS,
+  EMPTY_LAZY_LISTING,
+  useFileTreeStore,
+  type FileTreeRevealTarget,
+} from '@/stores/useFileTreeStore';
 
 export type FileTreePanelProps = {
   workspacePath: string;
@@ -104,8 +109,19 @@ export function FileTreePanel({
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set()
+  const expandedFolders = useFileTreeStore(
+    (state) =>
+      state.expandedByRoot[workspacePath] ??
+      (EMPTY_EXPANDED_FOLDERS as Set<string>)
+  );
+  const setExpandedFoldersForRoot = useFileTreeStore(
+    (state) => state.setExpandedFolders
+  );
+  const setExpandedFolders = useCallback(
+    (update: Set<string> | ((previous: Set<string>) => Set<string>)) => {
+      setExpandedFoldersForRoot(workspacePath, update);
+    },
+    [setExpandedFoldersForRoot, workspacePath]
   );
   const [rootExpanded, setRootExpanded] = useState(true);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
@@ -154,7 +170,22 @@ export function FileTreePanel({
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const newFolderInputRef = useRef<HTMLInputElement | null>(null);
-  const [lazyListing, setLazyListing] = useState(emptyFileTreeLazyListing);
+  const lazyListing = useFileTreeStore(
+    (state) => state.lazyListingByRoot[workspacePath] ?? EMPTY_LAZY_LISTING
+  );
+  const setLazyListingForRoot = useFileTreeStore(
+    (state) => state.setLazyListing
+  );
+  const setLazyListing = useCallback(
+    (
+      update:
+        | FileTreeLazyListing
+        | ((previous: FileTreeLazyListing) => FileTreeLazyListing)
+    ) => {
+      setLazyListingForRoot(workspacePath, update);
+    },
+    [setLazyListingForRoot, workspacePath]
+  );
   const [loadingLazyDirectories, setLoadingLazyDirectories] = useState<
     Set<string>
   >(new Set());
@@ -243,9 +274,13 @@ export function FileTreePanel({
 
   useEffect(() => {
     setExpandedFolders((prev) =>
-      pruneExpandedFileTreeFolders(prev, folderPaths)
+      pruneExpandedFileTreeFolders(
+        prev,
+        folderPaths,
+        lazyListing.loadedDirectories
+      )
     );
-  }, [folderPaths]);
+  }, [folderPaths, lazyListing.loadedDirectories, setExpandedFolders]);
 
   useEffect(() => {
     loadedLazyDirectoriesRef.current = lazyListing.loadedDirectories;
@@ -269,14 +304,12 @@ export function FileTreePanel({
     dragMovedRef.current = false;
     setContextMenu(null);
     setCopySubmenuOpen(false);
-    setLazyListing(emptyFileTreeLazyListing());
     setLoadingLazyDirectories(new Set());
     setLazyDirectoryLoadErrors(new Map());
     setNewFileParent(null);
     setNewFileName('');
     setNewFolderParent(null);
     setNewFolderName('');
-    setRootExpanded(true);
     setDropTargetPath(null);
     setDragOverlay(null);
     dragCandidateRef.current = null;
@@ -348,8 +381,15 @@ export function FileTreePanel({
         });
       }
     },
-    [workspacePath]
+    [setLazyListing, workspacePath]
   );
+
+  useEffect(() => {
+    const expanded = useFileTreeStore.getState().expandedByRoot[workspacePath];
+    expanded?.forEach((path) => {
+      void loadLazyDirectoryChildren(path);
+    });
+  }, [loadLazyDirectoryChildren, workspacePath]);
 
   useEffect(() => {
     if (previousRefreshTokenRef.current === refreshToken) {
@@ -377,7 +417,12 @@ export function FileTreePanel({
     expandedLazyDirectories.forEach((path) => {
       void loadLazyDirectoryChildren(path, { force: true });
     });
-  }, [expandedFolders, loadLazyDirectoryChildren, refreshToken]);
+  }, [
+    expandedFolders,
+    loadLazyDirectoryChildren,
+    refreshToken,
+    setLazyListing,
+  ]);
 
   useEffect(() => {
     if (!revealTarget) {
@@ -401,7 +446,7 @@ export function FileTreePanel({
     )) {
       void loadLazyDirectoryChildren(expansionPath);
     }
-  }, [loadLazyDirectoryChildren, revealTarget]);
+  }, [loadLazyDirectoryChildren, revealTarget, setExpandedFolders]);
 
   useEffect(() => {
     if (!previewPath) {
@@ -746,7 +791,7 @@ export function FileTreePanel({
         newFileInputRef.current?.focus();
       }, 0);
     },
-    [loadLazyDirectoryChildren]
+    [loadLazyDirectoryChildren, setExpandedFolders]
   );
 
   const confirmNewFile = useCallback(async () => {
@@ -780,6 +825,7 @@ export function FileTreePanel({
     newFileParent,
     onRefreshFiles,
     resolvePath,
+    setLazyListing,
     t,
   ]);
 
@@ -804,7 +850,7 @@ export function FileTreePanel({
         newFolderInputRef.current?.focus();
       }, 0);
     },
-    [loadLazyDirectoryChildren]
+    [loadLazyDirectoryChildren, setExpandedFolders]
   );
 
   const confirmNewFolder = useCallback(async () => {
@@ -840,6 +886,7 @@ export function FileTreePanel({
     newFolderParent,
     onRefreshFiles,
     resolvePath,
+    setLazyListing,
     t,
   ]);
 
@@ -944,6 +991,7 @@ export function FileTreePanel({
       canDropIntoDirectory,
       onRefreshFiles,
       resolvePath,
+      setExpandedFolders,
     ]
   );
 

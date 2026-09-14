@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { pickAstryxOption } from './agentSettingsTestUtils';
 import {
@@ -10,7 +11,37 @@ import {
   openCodeProviderSurface,
 } from './OpenCodeProviderConnections';
 
+const pluginControl = vi.hoisted(() => ({
+  contributionCatalog: vi.fn(),
+  providerCatalogList: vi.fn(),
+}));
+
+vi.mock('@/lib/api/plugins', () => ({
+  createPluginControlApi: () => ({
+    contributionCatalog: pluginControl.contributionCatalog,
+    providerCatalogList: pluginControl.providerCatalogList,
+    invokeContribution: async () => ({}),
+  }),
+}));
+
+function emptyPluginCatalog() {
+  pluginControl.contributionCatalog.mockResolvedValue({
+    generation: 0,
+    items: [],
+  });
+  pluginControl.providerCatalogList.mockResolvedValue({
+    agent_id: 'opencode',
+    generation: 0,
+    templates: [],
+    sources: [],
+  });
+}
+
 describe('OpenCodeProviderConnections', () => {
+  beforeEach(() => {
+    emptyPluginCatalog();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -311,5 +342,188 @@ describe('OpenCodeProviderConnections', () => {
     expect(
       await screen.findByRole('button', { name: /选择 OpenRouter/ })
     ).toBeInTheDocument();
+    expect(screen.queryByText(/预置/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '按名称' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('appends plugin catalog rows after models.dev without sharing the slice window', async () => {
+    pluginControl.contributionCatalog.mockResolvedValue({
+      generation: 4,
+      items: [
+        {
+          pluginId: 'vibex.provider-switch',
+          id: 'opencode',
+          kind: 'provider_model_catalog',
+          label: 'OpenCode presets',
+          generation: 4,
+          metadata: { agents: ['opencode'] },
+        },
+      ],
+    });
+    pluginControl.providerCatalogList.mockResolvedValue({
+      agent_id: 'opencode',
+      generation: 4,
+      templates: [
+        {
+          id: 'openrouter',
+          plugin_id: 'vibex.provider-switch',
+          contribution_id: 'opencode',
+          plugin_label: 'ProviderSwitch',
+          agent_id: 'opencode',
+          name: 'OpenRouter',
+          category: 'community',
+          surface: 'opencode',
+          provider_id: 'openrouter',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'openai-compatible',
+          base_url: 'https://openrouter.ai/api/v1',
+          models: [{ id: 'openai/gpt-4o', name: 'openai/gpt-4o' }],
+        },
+        {
+          id: 'siliconflow',
+          plugin_id: 'vibex.provider-switch',
+          contribution_id: 'opencode',
+          plugin_label: 'ProviderSwitch',
+          agent_id: 'opencode',
+          name: 'SiliconFlow',
+          category: 'partner',
+          surface: 'opencode',
+          provider_id: 'siliconflow',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'openai-compatible',
+          base_url: 'https://api.siliconflow.cn/v1',
+          models: [
+            {
+              id: 'Qwen/Qwen2.5-72B-Instruct',
+              name: 'Qwen/Qwen2.5-72B-Instruct',
+            },
+          ],
+        },
+      ],
+      sources: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviders').mockResolvedValue({
+      providers: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviderCatalog').mockResolvedValue({
+      source: 'bundled',
+      providers: [
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          npm: '@ai-sdk/openai',
+          env: ['OPENAI_API_KEY'],
+          doc: null,
+          auth_kind: 'api',
+          models: [],
+        },
+        {
+          id: 'openrouter',
+          name: 'OpenRouter',
+          npm: '@ai-sdk/openai-compatible',
+          env: ['OPENROUTER_API_KEY'],
+          doc: null,
+          auth_kind: 'api',
+          models: [],
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(<OpenCodeProviderConnections surface="provider" />);
+
+    const list = await screen.findByRole('list');
+    const items = list.querySelectorAll(':scope > li');
+    expect(
+      [...items].map((item) => item.querySelector('code')?.textContent)
+    ).toEqual(['openai', 'openrouter', 'openrouter', 'siliconflow']);
+    expect(screen.getAllByText('预置 · ProviderSwitch')).toHaveLength(2);
+    expect(
+      screen.queryByRole('button', { name: '按名称' })
+    ).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索 Provider' }),
+      'siliconflow'
+    );
+    expect(
+      screen.queryByRole('button', { name: /选择 OpenAI/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '选择 SiliconFlow' })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '选择 SiliconFlow' }));
+    expect(screen.getByLabelText('Provider ID')).toHaveValue('siliconflow');
+    expect(screen.getByLabelText('API URL')).toHaveValue(
+      'https://api.siliconflow.cn/v1'
+    );
+    expect(screen.getByLabelText('API Key')).toHaveValue('');
+    expect(screen.getByLabelText('第 1 个模型 ID')).toHaveValue(
+      'Qwen/Qwen2.5-72B-Instruct'
+    );
+  });
+
+  it('does not append plugin rows on the official surface', async () => {
+    pluginControl.contributionCatalog.mockResolvedValue({
+      generation: 4,
+      items: [
+        {
+          pluginId: 'vibex.provider-switch',
+          id: 'opencode',
+          kind: 'provider_model_catalog',
+          label: 'OpenCode presets',
+          generation: 4,
+          metadata: { agents: ['opencode'] },
+        },
+      ],
+    });
+    pluginControl.providerCatalogList.mockResolvedValue({
+      agent_id: 'opencode',
+      generation: 4,
+      templates: [
+        {
+          id: 'siliconflow',
+          plugin_id: 'vibex.provider-switch',
+          contribution_id: 'opencode',
+          plugin_label: 'ProviderSwitch',
+          agent_id: 'opencode',
+          name: 'SiliconFlow',
+          category: 'partner',
+          surface: 'opencode',
+          provider_id: 'siliconflow',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'openai-compatible',
+          base_url: 'https://api.siliconflow.cn/v1',
+          models: [],
+        },
+      ],
+      sources: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviders').mockResolvedValue({
+      providers: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviderCatalog').mockResolvedValue({
+      source: 'bundled',
+      providers: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          npm: '@ai-sdk/anthropic',
+          env: ['ANTHROPIC_API_KEY'],
+          doc: null,
+          auth_kind: 'api',
+          models: [],
+        },
+      ],
+    });
+
+    render(<OpenCodeProviderConnections surface="official" />);
+
+    expect(await screen.findByText('models.dev 目录')).toBeVisible();
+    expect(screen.queryByText('SiliconFlow')).not.toBeInTheDocument();
+    expect(pluginControl.providerCatalogList).not.toHaveBeenCalled();
   });
 });

@@ -203,7 +203,8 @@
     "invalidReference": "The selected branch does not exist; the workspace/branch list may be out of date. Please refresh and select again.",
     "alreadyCheckedOut": "This branch is already checked out in another worktree. Choose a different base branch or remove the extra worktree.",
     "operationInProgress": "The repository has an unfinished merge, rebase, cherry-pick, or revert. Finish or abort it, then try again.",
-    "emptyCheckout": "The new worktree was created but has no project files. Check sparse-checkout settings and retry."
+    "emptyCheckout": "The new worktree was created but has no project files. Check sparse-checkout settings and retry.",
+    "worktreeTimedOut": "Creating the workspace timed out while checking out the repository. Please retry."
   },
   "localDeps": {
     "notInstalled": "Not installed",

@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { buildPlugin, sdkAliases } from "./build.js";
 import { inspectLinkedPackage } from "./pluginControl.js";
 import { catalogHasKinds, catalogLacksKinds, hostJourneyKindsFromIntegrations, } from "./pluginHostJourney.js";
-import { contributionCatalogOnProductHost, disableOnProductHost, doctorOnProductHost, enableOnProductHost, importLinkedOnProductHost, uninstallOnProductHost, } from "./productHost.js";
+import { callProductHost, contributionCatalogOnProductHost, disableOnProductHost, doctorOnProductHost, enableOnProductHost, importLinkedOnProductHost, uninstallOnProductHost, } from "./productHost.js";
 export async function testPlugin(root, options = {}) {
     const pluginRoot = resolve(root);
     if (options.host) {
@@ -55,13 +55,24 @@ async function testPluginOnHost(root) {
         throw new Error("No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.");
     }
     await enableOnProductHost(plugin.identity.id);
-    const hostKinds = hostJourneyKindsFromIntegrations(await readManifestIntegrations(root));
+    const integrations = await readManifestIntegrations(root);
+    const hostKinds = hostJourneyKindsFromIntegrations(integrations);
+    const catalogAgentId = catalogAgentIdFromIntegrations(integrations);
     if (hostKinds.length > 0) {
         await waitForCatalog(plugin.identity.id, hostKinds, true, "plugin_host_contributions_missing");
+        if (catalogAgentId) {
+            await waitForProviderCatalogList(catalogAgentId, true);
+        }
         await disableOnProductHost(plugin.identity.id);
         await waitForCatalog(plugin.identity.id, hostKinds, false, "plugin_host_contributions_lingered");
+        if (catalogAgentId) {
+            await waitForProviderCatalogList(catalogAgentId, false);
+        }
         await enableOnProductHost(plugin.identity.id);
         await waitForCatalog(plugin.identity.id, hostKinds, true, "plugin_host_contributions_missing");
+        if (catalogAgentId) {
+            await waitForProviderCatalogList(catalogAgentId, true);
+        }
     }
     const skill = await firstSkillFile(root);
     if (skill) {
@@ -95,6 +106,37 @@ async function readManifestIntegrations(root) {
     const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
     const manifest = JSON.parse(raw);
     return manifest.integrations;
+}
+function catalogAgentIdFromIntegrations(integrations) {
+    if (!Array.isArray(integrations))
+        return null;
+    for (const item of integrations) {
+        if (!item || typeof item !== "object")
+            continue;
+        const record = item;
+        if (record.kind !== "provider.model.catalog")
+            continue;
+        if (Array.isArray(record.agents)) {
+            const agentId = record.agents.find((value) => typeof value === "string" && value.length > 0);
+            if (agentId)
+                return agentId;
+        }
+        return "claude_code";
+    }
+    return null;
+}
+async function waitForProviderCatalogList(agentId, present) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+        const listed = await callProductHost("provider_catalog_list", { agentId });
+        const count = Array.isArray(listed.templates) ? listed.templates.length : 0;
+        if (present ? count > 0 : count === 0)
+            return;
+        await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+    }
+    throw new Error(present
+        ? "plugin_host_provider_catalog_empty"
+        : "plugin_host_provider_catalog_lingered");
 }
 async function waitForCatalog(pluginId, kinds, present, error) {
     const deadline = Date.now() + 10_000;

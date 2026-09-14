@@ -42,6 +42,30 @@ describe('getSessionUiErrorMessage', () => {
     ).toBe('仓库正在合并、变基、cherry-pick 或 revert。请完成或中止后再试。');
   });
 
+  it('maps git command timeouts away from Invalid repository', () => {
+    expect(
+      getSessionUiErrorMessage(
+        'Internal error: Invalid repository: git command failed: git command timed out after 60s',
+        '创建会话失败，请稍后重试。'
+      )
+    ).toBe('创建工作区时检出仓库超时，请稍后重试。');
+    expect(
+      getSessionUiErrorMessage(
+        'Bad request: git command timed out after 900s',
+        '创建会话失败，请稍后重试。'
+      )
+    ).toBe('创建工作区时检出仓库超时，请稍后重试。');
+  });
+
+  it('does not treat agent handshake timeouts as workspace checkout failures', () => {
+    expect(
+      getSessionUiErrorMessage(
+        'ACP session preparation timed out after 60s',
+        '创建会话失败，请稍后重试。'
+      )
+    ).toBe('ACP session preparation timed out after 60s');
+  });
+
   it('falls back to the original message when no specialized mapping exists', () => {
     expect(
       getSessionUiErrorMessage(

@@ -79,6 +79,21 @@ export function kanbanViewHidesSessionSlot(viewId: string): boolean {
   return viewId === 'builtin:canvas' || viewId === 'builtin:usage';
 }
 
+/**
+ * Whether the shared execution-area conversation should stay mounted.
+ * Workspace always binds it. Canvas / usage hide that slot, so keeping a
+ * competing view mounted would steal the message stream from canvas windows.
+ */
+export function kanbanBindsExecutionConversation(
+  viewId: string,
+  surface: 'workspace' | 'kanban'
+): boolean {
+  if (surface === 'workspace') {
+    return true;
+  }
+  return !kanbanViewHidesSessionSlot(viewId);
+}
+
 export function legacyKanbanPanelView(viewId: string): LegacyKanbanPanelView {
   switch (viewId) {
     case 'builtin:columns':

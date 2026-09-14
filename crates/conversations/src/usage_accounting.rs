@@ -6,12 +6,13 @@
 //! never written into token totals.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use agents::conversation::{ConversationEvent, ConversationUsage};
 use db::models::{
+    conversation::DbConversationSummary,
     conversation_usage::{
         ConversationUsageAttributionRow, ConversationUsageSnapshotRecord, StaleUsageEventRow,
     },
@@ -51,10 +52,6 @@ pub async fn apply_usage_updated(
 
 pub async fn catch_up_usage_snapshots(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let pending = StaleUsageEventRow::list_pending(pool).await?;
-    if pending.is_empty() {
-        return Ok(());
-    }
-
     let mut conn = pool.acquire().await?;
     for row in pending {
         let Some(usage) = usage_from_normalized_json(&row.normalized_json) else {
@@ -68,8 +65,73 @@ pub async fn catch_up_usage_snapshots(pool: &SqlitePool) -> Result<(), sqlx::Err
             row.created_at,
         )
         .await?;
+        DbConversationSummary::update_cached_model_on_connection(
+            &mut conn,
+            row.conversation_id,
+            usage.model.as_deref(),
+        )
+        .await?;
+    }
+    backfill_missing_session_models(&mut conn).await?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct SessionModelBackfillRow {
+    conversation_id: Uuid,
+    normalized_json: String,
+}
+
+/// Historical sessions often have occupancy-only `usage_updated` events and a
+/// NULL `sessions.model`. The model id usually arrived on
+/// `session_config_options_updated`; fold the latest one so the dashboard
+/// does not group those sessions as `unprovided`.
+async fn backfill_missing_session_models(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query_as::<_, SessionModelBackfillRow>(
+        r#"SELECT e.conversation_id, e.normalized_json
+           FROM conversation_events e
+           INNER JOIN sessions s ON s.id = e.conversation_id
+           WHERE s.deleted_at IS NULL
+             AND (s.model IS NULL OR trim(s.model) = '')
+             AND e.event_kind = 'session_config_options_updated'
+           ORDER BY e.conversation_id, e.sequence DESC"#,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let mut filled = HashSet::new();
+    for row in rows {
+        if !filled.insert(row.conversation_id) {
+            continue;
+        }
+        let Some(model) = model_from_normalized_json(&row.normalized_json) else {
+            filled.remove(&row.conversation_id);
+            continue;
+        };
+        DbConversationSummary::update_cached_model_on_connection(
+            conn,
+            row.conversation_id,
+            Some(&model),
+        )
+        .await?;
     }
     Ok(())
+}
+
+fn model_from_normalized_json(normalized_json: &str) -> Option<String> {
+    let event: ConversationEvent = serde_json::from_str(normalized_json).ok()?;
+    match event {
+        ConversationEvent::UsageUpdated { usage } => usage
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(ToOwned::to_owned),
+        ConversationEvent::SessionConfigOptionsUpdated { options } => {
+            agents::model_id_from_config_options(&options)
+        }
+        _ => None,
+    }
 }
 
 fn usage_from_normalized_json(normalized_json: &str) -> Option<ConversationUsage> {
@@ -93,10 +155,31 @@ fn merge_usage_snapshot(
         || usage.cache_read_input_tokens > 0;
 
     let (input, output, cache_write, cache_read, total) = if tokens_provided {
-        let input = i64::try_from(usage.input_tokens).unwrap_or(i64::MAX);
-        let output = i64::try_from(usage.output_tokens).unwrap_or(i64::MAX);
-        let cache_write = i64::try_from(usage.cache_creation_input_tokens).unwrap_or(i64::MAX);
-        let cache_read = i64::try_from(usage.cache_read_input_tokens).unwrap_or(i64::MAX);
+        let delta_input = i64::try_from(usage.input_tokens).unwrap_or(i64::MAX);
+        let delta_output = i64::try_from(usage.output_tokens).unwrap_or(i64::MAX);
+        let delta_cache_write =
+            i64::try_from(usage.cache_creation_input_tokens).unwrap_or(i64::MAX);
+        let delta_cache_read = i64::try_from(usage.cache_read_input_tokens).unwrap_or(i64::MAX);
+        let input = existing
+            .as_ref()
+            .and_then(|row| row.protocol_input_tokens)
+            .unwrap_or(0)
+            .saturating_add(delta_input);
+        let output = existing
+            .as_ref()
+            .and_then(|row| row.protocol_output_tokens)
+            .unwrap_or(0)
+            .saturating_add(delta_output);
+        let cache_write = existing
+            .as_ref()
+            .and_then(|row| row.protocol_cache_write_tokens)
+            .unwrap_or(0)
+            .saturating_add(delta_cache_write);
+        let cache_read = existing
+            .as_ref()
+            .and_then(|row| row.protocol_cache_read_tokens)
+            .unwrap_or(0)
+            .saturating_add(delta_cache_read);
         (
             Some(input),
             Some(output),
@@ -149,7 +232,13 @@ fn merge_usage_snapshot(
                 .as_ref()
                 .and_then(|row| row.protocol_cost_currency.clone())
         }),
-        model: existing.as_ref().and_then(|row| row.model.clone()),
+        model: usage
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| existing.as_ref().and_then(|row| row.model.clone())),
         last_usage_at: Some(occurred_at.to_rfc3339()),
     }
 }
@@ -351,6 +440,7 @@ mod tests {
             context_window_max: Some(200_000),
             cost_amount: None,
             cost_currency: None,
+            model: None,
         }
     }
 
@@ -383,6 +473,76 @@ mod tests {
         assert_eq!(next.protocol_total_tokens, Some(22));
         assert_eq!(next.context_used, Some(99_000));
         assert_ne!(next.protocol_total_tokens, next.context_used);
+    }
+
+    #[test]
+    fn per_prompt_token_updates_accumulate_and_keep_model() {
+        let first = merge_usage_snapshot(
+            None,
+            Uuid::nil(),
+            1,
+            &ConversationUsage {
+                input_tokens: 29_214,
+                output_tokens: 1_652,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 56_960,
+                context_used: Some(12_000),
+                context_window_max: Some(500_000),
+                cost_amount: None,
+                cost_currency: None,
+                model: Some("grok-4.6".into()),
+            },
+            Utc::now(),
+        );
+        let next = merge_usage_snapshot(
+            Some(first),
+            Uuid::nil(),
+            2,
+            &ConversationUsage {
+                input_tokens: 30_777,
+                output_tokens: 6_224,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 167_680,
+                context_used: Some(40_000),
+                context_window_max: Some(500_000),
+                cost_amount: None,
+                cost_currency: None,
+                model: Some("grok-4.6".into()),
+            },
+            Utc::now(),
+        );
+
+        assert_eq!(next.protocol_input_tokens, Some(59_991));
+        assert_eq!(next.protocol_output_tokens, Some(7_876));
+        assert_eq!(next.protocol_cache_read_tokens, Some(224_640));
+        assert_eq!(next.protocol_total_tokens, Some(292_507));
+        assert_eq!(next.model.as_deref(), Some("grok-4.6"));
+        assert_eq!(next.context_used, Some(40_000));
+    }
+
+    #[test]
+    fn occupancy_only_update_records_model_without_inventing_tokens() {
+        let next = merge_usage_snapshot(
+            None,
+            Uuid::nil(),
+            3,
+            &ConversationUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                context_used: Some(18_658),
+                context_window_max: Some(500_000),
+                cost_amount: None,
+                cost_currency: None,
+                model: Some("grok-4.6".into()),
+            },
+            Utc::now(),
+        );
+
+        assert_eq!(next.protocol_total_tokens, None);
+        assert_eq!(next.model.as_deref(), Some("grok-4.6"));
+        assert_eq!(next.context_used, Some(18_658));
     }
 
     #[test]
@@ -435,6 +595,38 @@ mod tests {
         assert_eq!(sessions[0].tokens.protocol, None);
         assert_eq!(sessions[0].context_used, Some(12_000));
         assert_eq!(sessions[0].cost, None);
+        assert_eq!(sessions[0].model, None);
+    }
+
+    #[test]
+    fn attributed_rows_prefer_snapshot_model_over_session_model() {
+        let row = ConversationUsageAttributionRow {
+            session_id: Uuid::nil(),
+            workspace_id: Uuid::from_u128(2),
+            project_id: Uuid::from_u128(3),
+            container_ref: Some("/repo".to_string()),
+            agent_id: Some("grok".to_string()),
+            model: Some("stale".to_string()),
+            external_session_id: Some("acp-1".to_string()),
+            session_name: Some("Ask".to_string()),
+            session_created_at: Utc::now(),
+            session_updated_at: Utc::now(),
+            protocol_input_tokens: Some(10),
+            protocol_output_tokens: Some(4),
+            protocol_cache_write_tokens: Some(0),
+            protocol_cache_read_tokens: Some(2),
+            protocol_total_tokens: Some(16),
+            context_used: Some(12_000),
+            context_window_max: Some(500_000),
+            protocol_cost_amount: None,
+            protocol_cost_currency: None,
+            snapshot_model: Some("grok-4.6".to_string()),
+            last_usage_at: None,
+        };
+
+        let sessions = attributed_sessions_from_rows(vec![row], 0);
+        assert_eq!(sessions[0].model.as_deref(), Some("grok-4.6"));
+        assert_eq!(sessions[0].agent_id.as_deref(), Some("grok"));
     }
 }
 
@@ -460,6 +652,10 @@ mod vendor_sync_tests {
             .await
             .unwrap();
         sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
         pool
     }
 
@@ -481,6 +677,7 @@ mod vendor_sync_tests {
         let roots = VendorLogRoots {
             claude_projects: None,
             codex_sessions: Some(sessions_dir),
+            grok_sessions: None,
         };
         let first = sync_vendor_usage_logs_with_roots(&pool, roots.clone())
             .await
@@ -516,5 +713,120 @@ mod vendor_sync_tests {
                 .map(|status| status.sessions_scanned),
             Some(1)
         );
+    }
+
+    async fn insert_session(pool: &SqlitePool, id: Uuid) {
+        sqlx::query(
+            r#"INSERT INTO sessions (id, workspace_id, status)
+               VALUES (?, ?, 'todo')"#,
+        )
+        .bind(id)
+        .bind(Uuid::new_v4())
+        .execute(pool)
+        .await
+        .expect("session");
+    }
+
+    async fn insert_event(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        sequence: i64,
+        event: ConversationEvent,
+    ) {
+        let kind = match &event {
+            ConversationEvent::UsageUpdated { .. } => "usage_updated",
+            ConversationEvent::SessionConfigOptionsUpdated { .. } => {
+                "session_config_options_updated"
+            }
+            _ => "raw_diagnostic_recorded",
+        };
+        let json = serde_json::to_string(&event).expect("json");
+        sqlx::query(
+            r#"INSERT INTO conversation_events (
+                   id, conversation_id, sequence, source, event_kind, event_version, normalized_json
+               ) VALUES (?, ?, ?, 'acp', ?, 1, ?)"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(conversation_id)
+        .bind(sequence)
+        .bind(kind)
+        .bind(json)
+        .execute(pool)
+        .await
+        .expect("event");
+    }
+
+    #[tokio::test]
+    async fn catch_up_folds_pending_usage_and_caches_model() {
+        let pool = pool().await;
+        let conversation_id = Uuid::from_u128(42);
+        insert_session(&pool, conversation_id).await;
+        insert_event(
+            &pool,
+            conversation_id,
+            1,
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 29_214,
+                    output_tokens: 1_652,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 56_960,
+                    context_used: Some(18_658),
+                    context_window_max: Some(500_000),
+                    cost_amount: None,
+                    cost_currency: None,
+                    model: Some("grok-4.6".into()),
+                },
+            },
+        )
+        .await;
+
+        catch_up_usage_snapshots(&pool).await.expect("catch up");
+
+        let snapshot = ConversationUsageSnapshotRecord::find(&pool, conversation_id)
+            .await
+            .expect("find")
+            .expect("snapshot");
+        assert_eq!(snapshot.protocol_input_tokens, Some(29_214));
+        assert_eq!(snapshot.protocol_total_tokens, Some(87_826));
+        assert_eq!(snapshot.model.as_deref(), Some("grok-4.6"));
+
+        let session = DbConversationSummary::find_by_id(&pool, conversation_id)
+            .await
+            .expect("session")
+            .expect("exists");
+        assert_eq!(session.model.as_deref(), Some("grok-4.6"));
+    }
+
+    #[tokio::test]
+    async fn catch_up_backfills_session_model_from_config_options() {
+        let pool = pool().await;
+        let conversation_id = Uuid::from_u128(43);
+        insert_session(&pool, conversation_id).await;
+        insert_event(
+            &pool,
+            conversation_id,
+            1,
+            ConversationEvent::SessionConfigOptionsUpdated {
+                options: vec![agents::AgentSessionConfigOption {
+                    key: "model".into(),
+                    label: "Model".into(),
+                    description: None,
+                    category: Some("model".into()),
+                    value: Some(serde_json::json!("grok-4.6")),
+                    choices: Vec::new(),
+                    dependency: None,
+                }],
+            },
+        )
+        .await;
+
+        catch_up_usage_snapshots(&pool).await.expect("catch up");
+
+        let session = DbConversationSummary::find_by_id(&pool, conversation_id)
+            .await
+            .expect("session")
+            .expect("exists");
+        assert_eq!(session.model.as_deref(), Some("grok-4.6"));
     }
 }

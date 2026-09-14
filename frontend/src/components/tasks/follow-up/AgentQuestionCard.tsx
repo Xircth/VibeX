@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@astryxdesign/core';
-import { Check, PenLine } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentElicitationResponse,
@@ -57,25 +57,54 @@ export function AgentQuestionCard({
 
   if (mode === 'readonly') {
     if (!hasCompletedAnswers(resolvedState)) return null;
+    const question = questions[activeIndex] ?? questions[0];
+    if (!question) return null;
     return (
       <div
         className="agent-question-detail"
         data-testid="agent-question-detail"
         data-mode="readonly"
       >
-        {questions.map((question) => (
-          <QuestionFields
-            key={question.id}
-            requestId={request.question_id}
-            question={question}
-            answer={resolvedState[question.id] ?? emptyQuestionAnswerState()}
-            readonly
-            responding={false}
-            onSelectChoice={() => undefined}
-            onToggleCustom={() => undefined}
-            onCustomText={() => undefined}
-          />
-        ))}
+        {questions.length > 1 ? (
+          <div className="agent-question-detail-pager">
+            <button
+              type="button"
+              className="agent-question-detail-pager-btn"
+              aria-label={t('questionRequestCard.previous')}
+              disabled={activeIndex === 0}
+              onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="agent-question-card-position">
+              {activeIndex + 1} / {questions.length}
+            </span>
+            <button
+              type="button"
+              className="agent-question-detail-pager-btn"
+              aria-label={t('questionRequestCard.next')}
+              disabled={activeIndex >= questions.length - 1}
+              onClick={() =>
+                setActiveIndex((index) =>
+                  Math.min(questions.length - 1, index + 1)
+                )
+              }
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+        <QuestionFields
+          key={question.id}
+          requestId={request.question_id}
+          question={question}
+          answer={resolvedState[question.id] ?? emptyQuestionAnswerState()}
+          readonly
+          responding={false}
+          onSelectChoice={() => undefined}
+          onToggleCustom={() => undefined}
+          onCustomText={() => undefined}
+        />
       </div>
     );
   }

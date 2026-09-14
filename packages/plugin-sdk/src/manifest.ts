@@ -267,6 +267,74 @@ export interface ProviderImportSourceIntegrationManifest
   description?: string;
 }
 
+/**
+ * Contributes a static no-secret template catalog for the new-provider form.
+ *
+ * Host reads `resource` at inspect time and renders templates. Selecting a
+ * template fills the Host form; it is not a saved preset until the user saves.
+ * v1 is resource-only — a `handler` is rejected.
+ */
+export interface ProviderCatalogIntegrationManifest extends IntegrationBase {
+  kind: "provider.model.catalog";
+  label: string;
+  /** Static catalog JSON, relative to the plugin root. Host reads it at inspect. */
+  resource: string;
+  icon?: ContributionIcon;
+  /** Omit = the file's agentId. Non-empty further intersects with file contents. */
+  agents?: string[];
+  description?: string;
+}
+
+export type ProviderCatalogCategory =
+  | "official"
+  | "prime"
+  | "partner"
+  | "community";
+
+export type ProviderCatalogSurface = "reusable" | "opencode" | "dsh";
+
+export interface ProviderCatalogChrome {
+  id: string;
+  name: string;
+  websiteUrl?: string;
+  apiKeyUrl?: string;
+  endpointCandidates?: string[];
+  apiKeyField?: string;
+  category?: ProviderCatalogCategory;
+}
+
+export type ProviderCatalogTemplate = ProviderCatalogChrome &
+  (
+    | {
+        surface: "reusable";
+        apiUrl: string;
+        model: string;
+      }
+    | {
+        surface: "opencode";
+        providerId: string;
+        npm?: string;
+        api?: string;
+        baseUrl: string;
+        models: Array<{ id: string; name?: string }>;
+      }
+    | {
+        surface: "dsh";
+        displayName: string;
+        baseUrl: string;
+        notes?: string;
+        api?: string;
+        defaultModel?: string;
+        models: Array<{ id: string; name?: string }>;
+      }
+  );
+
+export interface ProviderCatalogFile {
+  schemaVersion: 1;
+  agentId: string;
+  templates: ProviderCatalogTemplate[];
+}
+
 export interface RemoteModuleManifest {
   name: string;
   entry: string;
@@ -349,6 +417,7 @@ export type IntegrationManifest =
   | SettingsSectionIntegrationManifest
   | HostServiceIntegrationManifest
   | ProviderImportSourceIntegrationManifest
+  | ProviderCatalogIntegrationManifest
   | PanelIntegrationManifest
   | TabIntegrationManifest
   | KanbanViewIntegrationManifest
@@ -502,6 +571,7 @@ export const pluginManifestSchema = {
               "app.settings.section",
               "host.service",
               "provider.model.importSource",
+              "provider.model.catalog",
               "app.panel",
               "app.tab",
               "app.kanban.view",

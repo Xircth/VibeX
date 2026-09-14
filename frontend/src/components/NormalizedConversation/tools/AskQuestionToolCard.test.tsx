@@ -50,19 +50,22 @@ const QUESTIONS = [
 ];
 
 describe('AskQuestionToolCard', () => {
-  it('shows a question-mark card with a truncated title and a details toggle', () => {
+  it('shows a title row with a Questions tag and no leading icon', () => {
     render(<AskQuestionToolCard use={use(QUESTIONS)} result={null} />);
 
     expect(
       document.querySelector(
         '.lucide-circle-help, .lucide-circle-question-mark, .lucide-circle-question'
       )
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       screen.getByRole('group', { name: QUESTIONS[0]?.question })
     ).toBeInTheDocument();
     expect(screen.getByTestId('ask-question-title')).toHaveClass(
       'ask-question-tool-title'
+    );
+    expect(screen.getByTestId('ask-question-kind-tag')).toHaveTextContent(
+      'Questions'
     );
     expect(
       screen.queryByRole('button', { name: '提示词' })
@@ -75,13 +78,14 @@ describe('AskQuestionToolCard', () => {
     expect(details).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(details);
     expect(details).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('ask-question-detail-well')).toBeInTheDocument();
     expect(screen.queryByText('Local markdown')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '提交回答' })
     ).not.toBeInTheDocument();
   });
 
-  it('expands every question and greens the completed answers', () => {
+  it('pages completed answers one question at a time inside the detail well', () => {
     render(
       <AskQuestionToolCard
         use={use(QUESTIONS)}
@@ -98,16 +102,26 @@ describe('AskQuestionToolCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
 
+    const well = screen.getByTestId('ask-question-detail-well');
     const detail = screen.getByTestId('agent-question-detail');
+    expect(well.contains(detail)).toBe(true);
     expect(detail).toHaveTextContent(QUESTIONS[0]!.question);
-    expect(detail).toHaveTextContent('Add a note');
-    expect(detail).toHaveTextContent('Choose a host');
+    expect(detail).not.toHaveTextContent('Add a note');
+    expect(detail).not.toHaveTextContent('Choose a host');
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
 
     const selected = screen.getByText(/Local markdown/);
     expect(selected.closest('label')).toHaveClass('is-answered');
+
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }));
+    expect(detail).toHaveTextContent('Add a note');
+    expect(detail).not.toHaveTextContent(QUESTIONS[0]!.question);
     expect(
       screen.getByDisplayValue('Keep tests at the public UI seam.')
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }));
+    expect(detail).toHaveTextContent('Choose a host');
     expect(screen.getByText('GitLab').closest('label')).toHaveClass(
       'is-answered'
     );

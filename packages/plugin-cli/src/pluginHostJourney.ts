@@ -21,7 +21,16 @@ export const STRUCTURE_KINDS = [
 
 export type StructureKind = (typeof STRUCTURE_KINDS)[number];
 
-const HOST_JOURNEY_KINDS = [...CHROME_KINDS, ...STRUCTURE_KINDS] as const;
+/** Static provider catalog templates. Host journey also asserts list/empty. */
+export const CATALOG_KINDS = ["provider.model.catalog"] as const;
+
+export type CatalogKind = (typeof CATALOG_KINDS)[number];
+
+const HOST_JOURNEY_KINDS = [
+  ...CHROME_KINDS,
+  ...STRUCTURE_KINDS,
+  ...CATALOG_KINDS,
+] as const;
 
 export type HostJourneyKind = (typeof HOST_JOURNEY_KINDS)[number];
 
@@ -41,6 +50,7 @@ export const MANIFEST_KIND_TO_CATALOG: Record<string, string> = {
   "app.settings.page": "settings_page",
   "app.composer.action": "composer_action",
   "provider.remote.provisioner": "remote_provisioner",
+  "provider.model.catalog": "provider_model_catalog",
 };
 
 export function catalogKindFor(kind: string): string {

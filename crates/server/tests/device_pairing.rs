@@ -106,7 +106,7 @@ async fn expired_pairing_returns_a_stable_reason() {
         .await
         .expect("create pairing response");
     let challenge: PairingChallenge = json_body(create).await;
-    clock.advance(5 * 60 + 1);
+    clock.advance(30 * 60 + 1);
 
     let expired = app
         .oneshot(

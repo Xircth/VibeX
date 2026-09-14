@@ -2798,10 +2798,15 @@ impl AgentConnectionRunner {
         }
 
         let Some(selection) = find_config_override_selection(&config_options, key, value) else {
-            self.emit_override_diagnostic(
-                session_id,
-                "config_choice_not_found",
-                &format!("{key}={value}"),
+            // Preferred / last-used values the Agent no longer advertises fall
+            // back to the Agent default (ADR-0023). Emitting a conversation
+            // Warning for `reasoning_effort=low` on Grok is not actionable:
+            // the UI never offered that choice after a partial merge.
+            tracing::debug!(
+                %session_id,
+                key,
+                value = %value,
+                "session config override skipped; choice is not advertised"
             );
             return Ok(());
         };
@@ -5234,14 +5239,79 @@ fn merge_session_config_options(
 ) -> Vec<AcpSessionConfigOption> {
     let mut options = standard;
     for option in vendor {
-        if options.iter().any(|existing| {
+        if let Some(existing) = options.iter_mut().find(|existing| {
             existing.id == option.id || session_config_options_overlap(existing, &option)
         }) {
+            // Grok advertises standard `reasoning_effort` *and* vendor Low/High
+            // Effort. Dropping the vendor list removes `low` and then applying a
+            // remembered `reasoning_effort=low` (prompt enhancement / last-used)
+            // surfaces as `config_choice_not_found`.
+            merge_select_choices(existing, &option);
             continue;
         }
         options.push(option);
     }
     options
+}
+
+fn merge_select_choices(into: &mut AcpSessionConfigOption, from: &AcpSessionConfigOption) {
+    let SessionConfigKind::Select(from_select) = &from.kind else {
+        return;
+    };
+    let SessionConfigKind::Select(into_select) = &mut into.kind else {
+        return;
+    };
+    let from_choices = match &from_select.options {
+        SessionConfigSelectOptions::Ungrouped(choices) => choices,
+        SessionConfigSelectOptions::Grouped(groups) => {
+            let SessionConfigSelectOptions::Ungrouped(into_choices) = &mut into_select.options
+            else {
+                return;
+            };
+            for choice in groups.iter().flat_map(|group| group.options.iter()) {
+                push_unique_select_choice(into_choices, choice.clone());
+            }
+            return;
+        }
+        #[allow(unreachable_patterns)]
+        _ => return,
+    };
+    match &mut into_select.options {
+        SessionConfigSelectOptions::Ungrouped(into_choices) => {
+            for choice in from_choices {
+                push_unique_select_choice(into_choices, choice.clone());
+            }
+        }
+        SessionConfigSelectOptions::Grouped(groups) => {
+            for choice in from_choices {
+                if groups
+                    .iter()
+                    .flat_map(|group| group.options.iter())
+                    .any(|existing| existing.value == choice.value)
+                {
+                    continue;
+                }
+                if let Some(group) = groups.first_mut() {
+                    group.options.push(choice.clone());
+                }
+            }
+        }
+        #[allow(unreachable_patterns)]
+        _ => {}
+    }
+}
+
+fn push_unique_select_choice(
+    choices: &mut Vec<SessionConfigSelectOption>,
+    choice: SessionConfigSelectOption,
+) {
+    if choices
+        .iter()
+        .any(|existing| existing.value == choice.value)
+    {
+        return;
+    }
+    choices.push(choice);
 }
 
 fn session_config_options_overlap(
@@ -5258,12 +5328,12 @@ fn config_option_is_thought_level(option: &AcpSessionConfigOption) -> bool {
 /// Parse grok's `_meta["x.ai/sessionConfig"]` extension
 /// (`{options: [{id, category, label, description?, selected}]}`).
 ///
-/// Grok's `mode` category is reasoning effort (`xhigh` / `high` / `medium`),
-/// not ACP session permission modes. Emit it as a `thought_level` config
-/// option so the shared summary shows Model · 高 instead of hiding it behind
-/// a Mode row. Permission options stay ACP session modes so the existing
-/// bypass-permissions safety gate still applies. Effort changes are applied
-/// with `session/set_mode`; model changes use `session/set_model`.
+/// Grok's `mode` category is reasoning effort (`xhigh` / `high` / `medium` /
+/// `low`), not ACP session permission modes. Emit it as a `thought_level`
+/// config option so the shared summary shows Model · 高 instead of hiding it
+/// behind a Mode row. Permission options stay ACP session modes so the
+/// existing bypass-permissions safety gate still applies. Effort changes are
+/// applied with `session/set_mode`; model changes use `session/set_model`.
 fn vendor_session_controls_from_meta(
     meta: &serde_json::Map<String, serde_json::Value>,
 ) -> Option<VendorSessionControls> {
@@ -6543,6 +6613,68 @@ mod tests {
             "vendor 推理强度 must not sit beside the standard Reasoning Effort option"
         );
         assert_eq!(options.len(), 2);
+    }
+
+    #[test]
+    fn vendor_low_effort_is_merged_into_standard_reasoning_effort() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "xhigh", "category": "mode", "label": "Extra High Effort", "selected": false },
+                    { "id": "high", "category": "mode", "label": "High Effort", "selected": true },
+                    { "id": "medium", "category": "mode", "label": "Medium Effort", "selected": false },
+                    { "id": "low", "category": "mode", "label": "Low Effort", "selected": false }
+                ]
+            }
+        });
+        let standard_options = Some(vec![
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                "grok-4.6",
+                vec![SessionConfigSelectOption::new("grok-4.6", "Grok 4.6")],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+            AcpSessionConfigOption::select(
+                "reasoning_effort",
+                "Reasoning Effort",
+                "high",
+                vec![
+                    SessionConfigSelectOption::new("high", "High"),
+                    SessionConfigSelectOption::new("medium", "Medium"),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::ThoughtLevel)),
+        ]);
+
+        let (_, config_options, _) =
+            session_controls_with_vendor_fallback(None, standard_options, meta.as_object());
+        let options = config_options.expect("merged config");
+        let effort = options
+            .iter()
+            .find(|option| option.id.0.as_ref() == "reasoning_effort")
+            .expect("one thought_level option");
+        let SessionConfigKind::Select(select) = &effort.kind else {
+            panic!("effort option must be a select");
+        };
+        let SessionConfigSelectOptions::Ungrouped(choices) = &select.options else {
+            panic!("effort options must be ungrouped");
+        };
+        let values: Vec<_> = choices
+            .iter()
+            .map(|choice| choice.value.0.to_string())
+            .collect();
+        assert!(
+            values.contains(&"low".to_string()),
+            "Grok Low Effort must remain selectable, got {values:?}"
+        );
+        assert!(values.contains(&"xhigh".to_string()));
+        assert_eq!(
+            find_config_override_selection(&options, "reasoning_effort", &serde_json::json!("low"))
+                .map(|selection| selection.event_value),
+            Some(serde_json::json!("low"))
+        );
     }
 
     #[test]

@@ -9,8 +9,8 @@ use std::{
 };
 
 use agents::{
-    AgentContentBlock, AgentSessionControlsSnapshot, AgentSessionId, EnsureAgentSessionInput,
-    SendAgentPromptInput,
+    AgentContentBlock, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
+    EnsureAgentSessionInput, SendAgentPromptInput,
     events::{
         AgentEvent, AgentEventEnvelope, AgentSessionConfigOverride, SessionControlPreferences,
     },
@@ -134,6 +134,52 @@ fn overlay_config_overrides(
     values
 }
 
+fn catalog_accepts_override(options: &[AgentSessionConfigOption], key: &str, value: &str) -> bool {
+    let key_token = normalize_override_token(key);
+    options.iter().any(|option| {
+        if !override_key_matches_option(option, &key_token) {
+            return false;
+        }
+        if option.choices.is_empty() {
+            return option
+                .value
+                .as_ref()
+                .is_some_and(serde_json::Value::is_boolean);
+        }
+        option.choices.iter().any(|choice| {
+            choice
+                .value
+                .as_str()
+                .is_some_and(|advertised| advertised == value)
+        })
+    })
+}
+
+fn override_key_matches_option(option: &AgentSessionConfigOption, key_token: &str) -> bool {
+    let id = normalize_override_token(&option.key);
+    if id == key_token {
+        return true;
+    }
+    let thought = matches!(
+        key_token,
+        "reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel" | "effort"
+    );
+    thought
+        && (option.category.as_deref() == Some("thought_level")
+            || id.contains("reason")
+            || id.contains("thought")
+            || id.contains("effort"))
+}
+
+fn normalize_override_token(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
 async fn oneshot_session_preferences(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
@@ -181,7 +227,14 @@ async fn oneshot_session_preferences(
             Some(AgentSessionConfigOverride { key, value })
         }),
     );
-    values = overlay_config_overrides(values, explicit);
+    values = overlay_config_overrides(
+        values,
+        explicit.into_iter().filter(|item| {
+            catalog.as_ref().is_none_or(|snapshot| {
+                catalog_accepts_override(&snapshot.config_options, &item.key, &item.value)
+            })
+        }),
+    );
 
     let mode = mode_override
         .and_then(|mode| {
@@ -436,5 +489,53 @@ mod tests {
             }],
         );
         assert_eq!(values.get("effort").map(String::as_str), Some("low"));
+    }
+
+    #[test]
+    fn prompt_enhancement_low_effort_is_kept_when_grok_advertises_it() {
+        let mut effort = option("effort", "thought_level", serde_json::json!("high"));
+        effort.choices = vec![
+            agents::AgentSessionConfigChoice {
+                value: serde_json::json!("high"),
+                label: "High".into(),
+                description: None,
+            },
+            agents::AgentSessionConfigChoice {
+                value: serde_json::json!("low"),
+                label: "Low Effort".into(),
+                description: None,
+            },
+        ];
+        assert!(catalog_accepts_override(
+            &[effort],
+            "reasoning_effort",
+            "low"
+        ));
+    }
+
+    #[test]
+    fn prompt_enhancement_low_effort_is_dropped_when_not_advertised() {
+        let mut effort = option(
+            "reasoning_effort",
+            "thought_level",
+            serde_json::json!("high"),
+        );
+        effort.choices = vec![
+            agents::AgentSessionConfigChoice {
+                value: serde_json::json!("high"),
+                label: "High".into(),
+                description: None,
+            },
+            agents::AgentSessionConfigChoice {
+                value: serde_json::json!("medium"),
+                label: "Medium".into(),
+                description: None,
+            },
+        ];
+        assert!(!catalog_accepts_override(
+            &[effort],
+            "reasoning_effort",
+            "low"
+        ));
     }
 }

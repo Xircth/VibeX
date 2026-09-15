@@ -223,4 +223,16 @@ describe('Toolbar chrome layout', () => {
       /<KanbanLayoutToggles/
     );
   });
+
+  it('places the app logo on the leading edge on Windows and Linux, trailing on macOS', () => {
+    const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
+    expect(source).toContain('logoLeadsWindowChrome');
+
+    const leading = source.slice(0, source.indexOf('ml-auto'));
+    const trailing = source.slice(source.indexOf('ml-auto'));
+    expect(leading).toContain('<HomeLogoMenu');
+    expect(trailing).toContain('<HomeLogoMenu');
+    expect(leading).toContain('align="start"');
+    expect(trailing).toContain('align="end"');
+  });
 });

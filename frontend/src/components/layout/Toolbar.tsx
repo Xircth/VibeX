@@ -79,6 +79,7 @@ import {
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
+import { logoLeadsWindowChrome } from '@/utils/platform';
 import { MoreHorizontal } from 'lucide-react';
 
 function ToolbarDivider() {
@@ -346,6 +347,77 @@ export function WorkspaceLayoutToggles() {
 }
 
 const RECENT_PROJECT_MENU_LIMIT = 6;
+
+function HomeLogoMenu({
+  align,
+  tauriClient,
+  recentProjects,
+  onOpenHome,
+  onSwitchProject,
+}: {
+  align: 'start' | 'end';
+  tauriClient: boolean;
+  recentProjects: { id: string; name: string }[];
+  onOpenHome: () => void;
+  onSwitchProject: (projectId: string) => void;
+}) {
+  const { t } = useTranslation(['panels', 'common']);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('toolbar.homeOrRecentProjects')}
+          title={t('toolbar.homeOrRecentProjects')}
+        >
+          <Logo showText={false} size="toolbar" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={align}>
+        {tauriClient ? (
+          <>
+            <DropdownMenuItem onSelect={() => openLocalAppWindow()}>
+              <AppWindow className="mr-2 h-4 w-4" />
+              {t('toolbar.newAppWindow')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <DropdownMenuItem onSelect={onOpenHome}>
+          <FolderOpen className="mr-2 h-4 w-4" />
+          {t('toolbar.backToHome')}
+        </DropdownMenuItem>
+        <div className="px-2 py-1 text-[11px] text-muted-foreground">
+          {t('toolbar.recentProjects')}
+        </div>
+        {recentProjects.length > 0 ? (
+          recentProjects.map((item) => (
+            <DropdownMenuItem
+              key={item.id}
+              onSelect={() => onSwitchProject(item.id)}
+              title={item.name}
+            >
+              <FolderOpen className="mr-2 h-4 w-4" />
+              <span className="truncate">{item.name}</span>
+            </DropdownMenuItem>
+          ))
+        ) : (
+          <DropdownMenuItem disabled>
+            {t('toolbar.noRecentProjects')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem asChild>
+          <Link to="/local-projects">
+            <FolderOpen className="mr-2 h-4 w-4" />
+            Projects
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   const { data: branchStatus } = useWorkspaceBranchStatus(workspaceId);
@@ -653,6 +725,7 @@ export function Toolbar() {
   const boardStyle = useKanbanBoardStyle();
   const hasLeadingControls = isWorkspaceTab || boardStyle === 'canvas';
   const showLayoutToggles = isWorkspaceTab || boardStyle !== 'canvas';
+  const logoLeads = logoLeadsWindowChrome();
 
   const recentProjects = useMemo(
     () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
@@ -715,6 +788,18 @@ export function Toolbar() {
           data-tauri-drag-region
           className="relative z-10 flex h-9 items-center gap-0.5"
         >
+          {logoLeads ? (
+            <>
+              <HomeLogoMenu
+                align="start"
+                tauriClient={tauriClient}
+                recentProjects={recentProjects}
+                onOpenHome={handleOpenHome}
+                onSwitchProject={handleSwitchProject}
+              />
+              <ToolbarDivider />
+            </>
+          ) : null}
           {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
           <WorkspaceBranchControls
             isWorkspaceTab={isWorkspaceTab}
@@ -842,58 +927,15 @@ export function Toolbar() {
               <TooltipContent side="bottom">Settings</TooltipContent>
             </Tooltip>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={t('toolbar.homeOrRecentProjects')}
-                  title={t('toolbar.homeOrRecentProjects')}
-                >
-                  <Logo showText={false} size="toolbar" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {tauriClient ? (
-                  <>
-                    <DropdownMenuItem onSelect={() => openLocalAppWindow()}>
-                      <AppWindow className="mr-2 h-4 w-4" />
-                      {t('toolbar.newAppWindow')}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                ) : null}
-                <DropdownMenuItem onSelect={handleOpenHome}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  {t('toolbar.backToHome')}
-                </DropdownMenuItem>
-                <div className="px-2 py-1 text-[11px] text-muted-foreground">
-                  {t('toolbar.recentProjects')}
-                </div>
-                {recentProjects.length > 0 ? (
-                  recentProjects.map((item) => (
-                    <DropdownMenuItem
-                      key={item.id}
-                      onSelect={() => handleSwitchProject(item.id)}
-                      title={item.name}
-                    >
-                      <FolderOpen className="mr-2 h-4 w-4" />
-                      <span className="truncate">{item.name}</span>
-                    </DropdownMenuItem>
-                  ))
-                ) : (
-                  <DropdownMenuItem disabled>
-                    {t('toolbar.noRecentProjects')}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem asChild>
-                  <Link to="/local-projects">
-                    <FolderOpen className="mr-2 h-4 w-4" />
-                    Projects
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {logoLeads ? null : (
+              <HomeLogoMenu
+                align="end"
+                tauriClient={tauriClient}
+                recentProjects={recentProjects}
+                onOpenHome={handleOpenHome}
+                onSwitchProject={handleSwitchProject}
+              />
+            )}
           </div>
         </div>
       </div>

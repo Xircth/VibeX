@@ -47,9 +47,20 @@ foreach ($artifact in $artifacts) {
         $signArgs += @('-pwd', $env:EVSIGN_SIGN_PASSWORD)
     }
 
-    & $cliPath @signArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "EVSign failed for $($artifact.Name) with exit code $LASTEXITCODE"
+    $signed = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & $cliPath @signArgs
+        if ($LASTEXITCODE -eq 0) {
+            $signed = $true
+            break
+        }
+        Write-Host "EVSign attempt $attempt failed for $($artifact.Name) with exit code $LASTEXITCODE"
+        if ($attempt -lt 3) {
+            Start-Sleep -Seconds (10 * $attempt)
+        }
+    }
+    if (-not $signed) {
+        throw "EVSign failed for $($artifact.Name) after 3 attempts"
     }
 
     if (Test-Path "$($artifact.FullName).sig") {

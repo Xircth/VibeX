@@ -31,19 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
@@ -58,6 +46,10 @@ import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { Progress } from '@/components/ui/progress';
 import { useLocalHistoryImportJob } from '@/features/history-import/useLocalHistoryImportJob';
 import {
+  DEFAULT_LOCAL_HISTORY_SCAN_SCOPE,
+  DEFAULT_LOCAL_HISTORY_TIME_RANGE,
+  LOCAL_HISTORY_TIME_RANGE_ALL,
+  LOCAL_HISTORY_TIME_RANGE_DAYS,
   filterAndSortLocalHistoryFolders,
   folderImportableKeys,
   formatScanBytes,
@@ -104,8 +96,10 @@ export function ImportLocalSessionsDialog({
   const [scanError, setScanError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [timeRange, setTimeRange] = useState('');
-  const [scanScope, setScanScope] = useState<LocalHistoryScanScope>('existing');
+  const [timeRange, setTimeRange] = useState(DEFAULT_LOCAL_HISTORY_TIME_RANGE);
+  const [scanScope, setScanScope] = useState<LocalHistoryScanScope>(
+    DEFAULT_LOCAL_HISTORY_SCAN_SCOPE
+  );
   const [onlyImportable, setOnlyImportable] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -169,11 +163,11 @@ export function ImportLocalSessionsDialog({
     setScanError(null);
     setSearch('');
     setSearchOpen(false);
-    setTimeRange('');
-    setScanScope('existing');
+    setTimeRange(DEFAULT_LOCAL_HISTORY_TIME_RANGE);
+    setScanScope(DEFAULT_LOCAL_HISTORY_SCAN_SCOPE);
     setSelected(new Set());
     setImportResult(null);
-  }, [open, importJob.status, currentProjectId]);
+  }, [open, importJob.status]);
 
   useEffect(() => {
     if (!open || selectableAgents.length !== 1 || selectedAgentId) {
@@ -405,91 +399,65 @@ export function ImportLocalSessionsDialog({
                     data-covered={searchOpen || undefined}
                     aria-hidden={searchOpen}
                   >
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          aria-label={t('importSessions.timeRange')}
-                          disabled={controlsDisabled}
-                          tabIndex={searchOpen ? -1 : undefined}
-                        >
-                          {t('importSessions.timeRange')}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-2">
-                        <label className="import-local-filters__time">
-                          <Input
-                            type="number"
-                            min={1}
-                            step={1}
-                            inputMode="numeric"
-                            value={timeRange}
-                            onChange={(event) =>
-                              setTimeRange(event.target.value)
-                            }
-                            placeholder={t(
-                              'importSessions.timeRangePlaceholder'
-                            )}
-                            className="h-7 w-16 text-xs shadow-none focus-visible:ring-0"
-                            aria-label={t('importSessions.timeRange')}
-                            autoFocus
-                          />
-                          <span>{t('importSessions.timeRangeDays')}</span>
-                        </label>
-                      </PopoverContent>
-                    </Popover>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          aria-label={t('importSessions.scanScope')}
-                          disabled={controlsDisabled}
-                          tabIndex={searchOpen ? -1 : undefined}
-                        >
-                          {t('importSessions.scanScope')}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="start"
-                        className="min-w-[16rem]"
+                    <Select
+                      value={timeRange}
+                      onValueChange={setTimeRange}
+                      disabled={controlsDisabled}
+                    >
+                      <SelectTrigger
+                        className="h-8 w-[7.5rem] text-xs"
+                        aria-label={t('importSessions.timeRange')}
+                        tabIndex={searchOpen ? -1 : undefined}
                       >
-                        <DropdownMenuRadioGroup
-                          value={scanScope}
-                          onValueChange={(value) =>
-                            setScanScope(value as LocalHistoryScanScope)
-                          }
+                        <SelectValue
+                          placeholder={t('importSessions.timeRangeAll')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          value={LOCAL_HISTORY_TIME_RANGE_ALL}
+                          className="text-xs"
                         >
-                          <DropdownMenuRadioItem
-                            value="existing"
-                            className="items-start"
+                          {t('importSessions.timeRangeAll')}
+                        </SelectItem>
+                        {LOCAL_HISTORY_TIME_RANGE_DAYS.map((days) => (
+                          <SelectItem
+                            key={days}
+                            value={String(days)}
+                            className="text-xs"
                           >
-                            <span className="flex flex-col gap-0.5">
-                              <span>
-                                {t('importSessions.scanScopeExisting')}
-                              </span>
-                              <span className="text-[10px] leading-4 text-muted-foreground">
-                                {t('importSessions.scanScopeExistingHint')}
-                              </span>
-                            </span>
-                          </DropdownMenuRadioItem>
-                          <DropdownMenuRadioItem
-                            value="global"
-                            className="items-start"
-                          >
-                            <span className="flex flex-col gap-0.5">
-                              <span>{t('importSessions.scanScopeGlobal')}</span>
-                              <span className="text-[10px] leading-4 text-muted-foreground">
-                                {t('importSessions.scanScopeGlobalHint')}
-                              </span>
-                            </span>
-                          </DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                            {t('importSessions.timeRangeDaysCount', {
+                              count: days,
+                            })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={scanScope}
+                      onValueChange={(value) =>
+                        setScanScope(value as LocalHistoryScanScope)
+                      }
+                      disabled={controlsDisabled}
+                    >
+                      <SelectTrigger
+                        className="h-8 w-[8.5rem] text-xs"
+                        aria-label={t('importSessions.scanScope')}
+                        tabIndex={searchOpen ? -1 : undefined}
+                      >
+                        <SelectValue
+                          placeholder={t('importSessions.scanScopeGlobal')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="global" className="text-xs">
+                          {t('importSessions.scanScopeGlobal')}
+                        </SelectItem>
+                        <SelectItem value="existing" className="text-xs">
+                          {t('importSessions.scanScopeExisting')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   {searchOpen ? (
                     <div className="import-local-filters__overlay">
@@ -883,12 +851,11 @@ function ResultStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function EmptyState({ title, hint }: { title?: string; hint?: string }) {
+function EmptyState({ title }: { title?: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-8">
       <FolderPlus className="h-6 w-6 text-muted-foreground" />
       {title ? <p className="text-sm font-medium">{title}</p> : null}
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

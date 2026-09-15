@@ -21,9 +21,9 @@ pub use scan::{
     LocalHistoryImportPhase, LocalHistoryImportProgress, LocalHistoryImportResult,
     LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
     LocalHistoryScanProgress, LocalHistoryScanSession, LocalHistorySessionStatus,
-    build_local_history_scan_page, history_folder_name, history_paths_overlap,
-    load_configured_history_session, match_history_destination, merge_history_sources,
-    normalize_history_path, scan_configured_history, scan_configured_history_with_progress,
+    build_local_history_scan_page, history_folder_name, load_configured_history_session,
+    match_history_destination, merge_history_sources, normalize_history_path,
+    scan_configured_history, scan_configured_history_with_progress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -2987,6 +2987,36 @@ mod tests {
             "Previous conversation:\r\nUser:拉取当前项目仓库的最新代码到本地"
         ));
         assert!(!is_codex_hidden_user_text("再拉一次"));
+    }
+
+    #[test]
+    fn codex_title_skips_injected_previous_conversation_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout-with-host-history.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"session_meta","payload":{"id":"codex-history-1"}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Previous conversation:\nUser: earlier question\nAssistant: earlier answer\n"}]}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the login form"}]}}"#,
+                "\n",
+                r#"{"type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path,
+        })
+        .unwrap();
+
+        assert_eq!(sessions[0].title.as_deref(), Some("Fix the login form"));
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].content, "Fix the login form");
     }
 
     #[test]

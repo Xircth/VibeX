@@ -299,15 +299,6 @@ impl<'a> PathLastComponent<'a> {
     }
 }
 
-pub fn history_paths_overlap(left: &str, right: &str) -> bool {
-    let left = normalize_history_path(left);
-    let right = normalize_history_path(right);
-    if left.is_empty() || right.is_empty() {
-        return false;
-    }
-    left == right || left.starts_with(&(right.clone() + "/")) || right.starts_with(&(left + "/"))
-}
-
 pub fn match_history_destination<'a>(
     workspace_path: Option<&str>,
     destinations: &'a [HistoryPathDestination],
@@ -315,8 +306,17 @@ pub fn match_history_destination<'a>(
     let path = workspace_path.filter(|value| !value.trim().is_empty())?;
     destinations
         .iter()
-        .filter(|destination| history_paths_overlap(path, &destination.path))
+        .filter(|destination| history_destination_covers(path, &destination.path))
         .max_by_key(|destination| normalize_history_path(&destination.path).len())
+}
+
+fn history_destination_covers(session_path: &str, destination_path: &str) -> bool {
+    let session = normalize_history_path(session_path);
+    let destination = normalize_history_path(destination_path);
+    if session.is_empty() || destination.is_empty() {
+        return false;
+    }
+    session == destination || session.starts_with(&(destination + "/"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
@@ -601,12 +601,35 @@ mod tests {
 
     #[test]
     fn macos_private_prefix_and_separators_match() {
-        assert!(history_paths_overlap(
-            "/private/Users/mac/Projects/VibeX",
-            "/Users/mac/Projects/VibeX"
-        ));
-        assert!(history_paths_overlap(r"C:\Work\app", "c:/work/app/src"));
-        assert!(!history_paths_overlap("/Users/mac/a", "/Users/mac/ab"));
+        let project = Uuid::from_u128(1);
+        let workspace = Uuid::from_u128(2);
+        let unix = [HistoryPathDestination {
+            path: "/Users/mac/Projects/VibeX".into(),
+            project_id: project,
+            project_name: "VibeX".into(),
+            workspace_id: workspace,
+        }];
+        assert_eq!(
+            match_history_destination(Some("/private/Users/mac/Projects/VibeX"), &unix)
+                .map(|destination| destination.workspace_id),
+            Some(workspace)
+        );
+        assert_eq!(
+            match_history_destination(Some("/Users/mac/ab"), &unix),
+            None
+        );
+
+        let windows = [HistoryPathDestination {
+            path: r"C:\Work\app".into(),
+            project_id: project,
+            project_name: "app".into(),
+            workspace_id: workspace,
+        }];
+        assert_eq!(
+            match_history_destination(Some("c:/work/app/src"), &windows)
+                .map(|destination| destination.workspace_id),
+            Some(workspace)
+        );
     }
 
     #[test]
@@ -635,6 +658,41 @@ mod tests {
         )
         .expect("nested match");
         assert_eq!(matched.workspace_id, nested);
+    }
+
+    #[test]
+    fn nested_destination_does_not_claim_parent_session() {
+        let project = Uuid::from_u128(1);
+        let root = Uuid::from_u128(2);
+        let worktree = Uuid::from_u128(3);
+        let destinations = vec![
+            HistoryPathDestination {
+                path: "/Users/mac/Projects/VibeX".into(),
+                project_id: project,
+                project_name: "VibeX".into(),
+                workspace_id: root,
+            },
+            HistoryPathDestination {
+                path: "/Users/mac/Projects/VibeX/.worktrees/feature".into(),
+                project_id: project,
+                project_name: "VibeX".into(),
+                workspace_id: worktree,
+            },
+        ];
+
+        assert_eq!(
+            match_history_destination(Some("/Users/mac/Projects/VibeX"), &destinations)
+                .map(|destination| destination.workspace_id),
+            Some(root)
+        );
+        assert_eq!(
+            match_history_destination(
+                Some("/Users/mac/Projects/VibeX/.worktrees/feature"),
+                &destinations
+            )
+            .map(|destination| destination.workspace_id),
+            Some(worktree)
+        );
     }
 
     #[test]

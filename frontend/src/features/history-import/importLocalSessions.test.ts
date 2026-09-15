@@ -168,9 +168,10 @@ describe('importLocalSessions', () => {
     expect(formatScanBytes(1048576)).toBe('1.0 MB');
   });
 
-  it('treats blank or invalid time range as unlimited', () => {
+  it('treats blank, all, or invalid time range as unlimited', () => {
     expect(parseTimeRangeDays('')).toBeNull();
     expect(parseTimeRangeDays('  ')).toBeNull();
+    expect(parseTimeRangeDays('all')).toBeNull();
     expect(parseTimeRangeDays('0')).toBeNull();
     expect(parseTimeRangeDays('abc')).toBeNull();
     expect(parseTimeRangeDays('7')).toBe(7);

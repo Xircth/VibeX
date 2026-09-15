@@ -8,10 +8,10 @@ use agents::{
     AgentConnectionId, AgentContentBlock, AgentId, AgentKind, AgentPermissionId,
     AgentPermissionResponse, AgentPromptId, AgentSessionControlsSnapshot, AgentSessionId,
     AgentTerminalId, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
-    HistoryPathDestination, ImportedAgentMessageRole, LocalHistoryDestination,
-    LocalHistoryImportJobSnapshot, OfficialRegistryHttpFetcher, REGISTRY_REFRESH_TIMEOUT,
-    RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, SendAgentPromptInput, SystemClock, apply_component_versions,
+    ImportedAgentMessageRole, LocalHistoryImportJobSnapshot, OfficialRegistryHttpFetcher,
+    REGISTRY_REFRESH_TIMEOUT, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
+    RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput, SystemClock,
+    apply_component_versions,
     conversation::{ConversationEvent, ConversationInputBlock},
     load_configured_history_session, scan_configured_history,
     scan_configured_history_with_progress,
@@ -1093,7 +1093,6 @@ impl ServerApplicationDomains {
         .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
         .unwrap_or_default();
         let bus = crate::host::events::current_host_events();
-        let agent_id = args.agent_id.clone();
         let entries = tokio::task::spawn_blocking(move || {
             scan_configured_history_with_progress(kind, &configured_env, |progress| {
                 bus.emit("local-history-scan-progress", progress);
@@ -1102,29 +1101,11 @@ impl ServerApplicationDomains {
         .await
         .map_err(internal_error)?
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let imported = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-            r#"SELECT agent_id, external_session_id
-               FROM sessions
-               WHERE deleted_at IS NULL
-                 AND agent_id IS NOT NULL
-                 AND external_session_id IS NOT NULL"#,
+        serialize(
+            crate::host::local_history::assemble_local_history_scan_page(&self.pool, entries)
+                .await
+                .map_err(internal_error)?,
         )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(internal_error)?;
-        let imported_keys = imported
-            .into_iter()
-            .filter_map(|(agent, external)| Some((agent?, external?)))
-            .collect::<std::collections::BTreeSet<_>>();
-        serialize(agents::build_local_history_scan_page(
-            entries,
-            &imported_keys,
-            &[] as &[HistoryPathDestination],
-            Vec::<LocalHistoryDestination>::new(),
-        ))
-        .inspect(|_page| {
-            let _ = agent_id;
-        })
     }
 
     async fn agent_list_local_history(&self, args: Value) -> Result<Value, ApplicationError> {

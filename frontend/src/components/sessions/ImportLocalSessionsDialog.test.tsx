@@ -406,6 +406,14 @@ describe('ImportLocalSessionsDialog', () => {
     await waitFor(() => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
+    expect(screen.queryByText('importSessions.empty')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('importSessions.noMatches')
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'VibeX' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: 'scratch' })
+    ).toBeInTheDocument();
   });
 
   it('starts import and closes the dialog when importing in the background', async () => {
@@ -441,45 +449,31 @@ describe('ImportLocalSessionsDialog', () => {
     ).toBeEnabled();
   });
 
-  it('puts the current project and its worktrees above other folders', async () => {
-    const user = userEvent.setup();
+  it('defaults time range to all and scan scope to global', async () => {
     render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
-    await chooseCodex(user);
-    await startScan(user);
 
-    await screen.findByRole('checkbox', { name: 'VibeX' });
-    const folders = screen
-      .getAllByRole('checkbox')
-      .map((node) => node.getAttribute('aria-label'))
-      .filter(
-        (label) =>
-          label === 'VibeX' ||
-          label === 'feature' ||
-          label === 'Other' ||
-          label === 'scratch'
-      );
-    expect(folders).toEqual(['VibeX', 'feature', 'Other']);
+    expect(
+      screen.getByRole('combobox', { name: /importSessions.timeRange/i })
+    ).toHaveTextContent('importSessions.timeRangeAll');
+    expect(
+      screen.getByRole('combobox', { name: /importSessions.scanScope/i })
+    ).toHaveTextContent('importSessions.scanScopeGlobal');
   });
 
-  it('can show every folder when the scan scope is global', async () => {
+  it('shows scanned folders after start scan without changing the default ranges', async () => {
     const user = userEvent.setup();
     render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
     await chooseCodex(user);
     await startScan(user);
+
     await screen.findByRole('checkbox', { name: 'VibeX' });
-
-    await user.click(
-      screen.getByRole('button', { name: /importSessions.scanScope/i })
-    );
-    await user.click(
-      await screen.findByRole('menuitemradio', {
-        name: /importSessions.scanScopeGlobal/,
-      })
-    );
-
     expect(
       screen.getByRole('checkbox', { name: 'scratch' })
     ).toBeInTheDocument();
+    expect(screen.queryByText('importSessions.empty')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('importSessions.noMatches')
+    ).not.toBeInTheDocument();
     const folders = screen
       .getAllByRole('checkbox')
       .map((node) => node.getAttribute('aria-label'))
@@ -493,7 +487,39 @@ describe('ImportLocalSessionsDialog', () => {
     expect(folders).toEqual(['VibeX', 'feature', 'Other', 'scratch']);
   });
 
-  it('hides sessions older than the entered number of days', async () => {
+  it('can limit folders to existing VibeX projects', async () => {
+    const user = userEvent.setup();
+    render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
+    await chooseCodex(user);
+    await startScan(user);
+    await screen.findByRole('checkbox', { name: 'scratch' });
+
+    await user.click(
+      screen.getByRole('combobox', { name: /importSessions.scanScope/i })
+    );
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'importSessions.scanScopeExisting',
+      })
+    );
+
+    expect(
+      screen.queryByRole('checkbox', { name: 'scratch' })
+    ).not.toBeInTheDocument();
+    const folders = screen
+      .getAllByRole('checkbox')
+      .map((node) => node.getAttribute('aria-label'))
+      .filter(
+        (label) =>
+          label === 'VibeX' ||
+          label === 'feature' ||
+          label === 'Other' ||
+          label === 'scratch'
+      );
+    expect(folders).toEqual(['VibeX', 'feature', 'Other']);
+  });
+
+  it('hides sessions older than the selected number of days', async () => {
     const user = userEvent.setup();
     render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
     await chooseCodex(user);
@@ -508,13 +534,13 @@ describe('ImportLocalSessionsDialog', () => {
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole('button', { name: /importSessions.timeRange/i })
+      screen.getByRole('combobox', { name: /importSessions.timeRange/i })
     );
-    const days = await screen.findByRole('spinbutton', {
-      name: /importSessions.timeRange/i,
-    });
-    await user.clear(days);
-    await user.type(days, '7');
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'importSessions.timeRangeDaysCount:{"count":7}',
+      })
+    );
 
     expect(
       screen.queryByRole('checkbox', { name: 'Ancient session' })
@@ -535,10 +561,10 @@ describe('ImportLocalSessionsDialog', () => {
       screen.queryByPlaceholderText('importSessions.searchPlaceholder')
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /importSessions.timeRange/i })
+      screen.getByRole('combobox', { name: /importSessions.timeRange/i })
     ).toBeVisible();
     expect(
-      screen.getByRole('button', { name: /importSessions.scanScope/i })
+      screen.getByRole('combobox', { name: /importSessions.scanScope/i })
     ).toBeVisible();
 
     await user.click(
@@ -549,10 +575,10 @@ describe('ImportLocalSessionsDialog', () => {
       screen.getByPlaceholderText('importSessions.searchPlaceholder')
     ).toBeVisible();
     expect(
-      screen.queryByRole('button', { name: /importSessions.timeRange/i })
+      screen.queryByRole('combobox', { name: /importSessions.timeRange/i })
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: /importSessions.scanScope/i })
+      screen.queryByRole('combobox', { name: /importSessions.scanScope/i })
     ).not.toBeInTheDocument();
   });
 });

@@ -1,21 +1,17 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     future::Future,
     time::{Duration, Instant},
 };
 
 use agents::{
-    HistoryPathDestination, HistoryScanEntry, ImportedAgentSession, LocalHistoryDestination,
-    LocalHistoryImportJobSnapshot, LocalHistoryImportPhase, LocalHistoryImportProgress,
-    LocalHistoryImportResult, LocalHistoryImportSelection, LocalHistoryScanPage,
-    LocalHistoryScanProgress, build_local_history_scan_page, load_configured_history_session,
+    HistoryScanEntry, ImportedAgentSession, LocalHistoryImportJobSnapshot, LocalHistoryImportPhase,
+    LocalHistoryImportProgress, LocalHistoryImportResult, LocalHistoryImportSelection,
+    LocalHistoryScanPage, LocalHistoryScanProgress, load_configured_history_session,
     scan_configured_history_with_progress,
 };
 use api_types::{AgentId, AgentKind};
-use db::models::{
-    conversation::DbConversationSummary, project::Project, project_repo::ProjectRepo,
-    workspace::Workspace,
-};
+use db::models::{conversation::DbConversationSummary, workspace::Workspace};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use tauri::ipc::Channel;
@@ -248,14 +244,7 @@ pub(crate) async fn assemble_local_history_scan_page(
     pool: &SqlitePool,
     sessions: Vec<HistoryScanEntry>,
 ) -> Result<LocalHistoryScanPage, AppError> {
-    let imported = load_imported_history_keys(pool).await?;
-    let (destinations, project_destinations) = load_history_destinations(pool).await?;
-    Ok(build_local_history_scan_page(
-        sessions,
-        &imported,
-        &destinations,
-        project_destinations,
-    ))
+    Ok(server::assemble_local_history_scan_page(pool, sessions).await?)
 }
 
 pub(crate) async fn import_selected_local_history(
@@ -323,82 +312,6 @@ pub(crate) async fn import_selected_local_history(
     }
 
     Ok(result)
-}
-
-async fn load_imported_history_keys(
-    pool: &SqlitePool,
-) -> Result<BTreeSet<(String, String)>, AppError> {
-    let rows = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        r#"SELECT agent_id, external_session_id
-           FROM sessions
-           WHERE deleted_at IS NULL
-             AND agent_id IS NOT NULL
-             AND external_session_id IS NOT NULL"#,
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(agent_id, external_id)| Some((agent_id?, external_id?)))
-        .collect())
-}
-
-async fn load_history_destinations(
-    pool: &SqlitePool,
-) -> Result<(Vec<HistoryPathDestination>, Vec<LocalHistoryDestination>), AppError> {
-    let projects = Project::find_all(pool).await?;
-    let workspaces = Workspace::find_all_with_status(pool, Some(false), None).await?;
-    let mut destinations = Vec::new();
-    let mut project_destinations = Vec::new();
-
-    for project in &projects {
-        let repos = ProjectRepo::find_repos_for_project(pool, project.id).await?;
-        let project_workspaces = workspaces
-            .iter()
-            .filter(|workspace| workspace.project_id == project.id)
-            .collect::<Vec<_>>();
-        let Some(default_workspace) = project_workspaces.first() else {
-            continue;
-        };
-        project_destinations.push(LocalHistoryDestination {
-            project_id: project.id,
-            project_name: project.name.clone(),
-            workspace_id: default_workspace.id,
-            workspace_name: default_workspace
-                .name
-                .clone()
-                .or_else(|| Some(default_workspace.branch.clone())),
-        });
-
-        for workspace in &project_workspaces {
-            if let Some(path) = workspace
-                .container_ref
-                .as_deref()
-                .filter(|path| !path.trim().is_empty())
-            {
-                destinations.push(HistoryPathDestination {
-                    path: path.to_string(),
-                    project_id: project.id,
-                    project_name: project.name.clone(),
-                    workspace_id: workspace.id,
-                });
-            }
-        }
-        for repo in repos {
-            let path = repo.path.to_string_lossy().to_string();
-            if path.trim().is_empty() {
-                continue;
-            }
-            destinations.push(HistoryPathDestination {
-                path,
-                project_id: project.id,
-                project_name: project.name.clone(),
-                workspace_id: default_workspace.id,
-            });
-        }
-    }
-
-    Ok((destinations, project_destinations))
 }
 
 pub(crate) async fn load_selected_history_session(

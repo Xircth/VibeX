@@ -94,11 +94,16 @@ export function formatScanBytes(bytes: number | bigint): string {
 
 export type LocalHistoryScanScope = 'existing' | 'global';
 
+export const LOCAL_HISTORY_TIME_RANGE_ALL = 'all';
+export const DEFAULT_LOCAL_HISTORY_TIME_RANGE = LOCAL_HISTORY_TIME_RANGE_ALL;
+export const LOCAL_HISTORY_TIME_RANGE_DAYS = [7, 14, 30, 90] as const;
+export const DEFAULT_LOCAL_HISTORY_SCAN_SCOPE: LocalHistoryScanScope = 'global';
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function parseTimeRangeDays(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || trimmed === LOCAL_HISTORY_TIME_RANGE_ALL) {
     return null;
   }
   const days = Number.parseInt(trimmed, 10);

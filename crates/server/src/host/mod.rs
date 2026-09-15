@@ -2,6 +2,7 @@ pub mod account_flow;
 pub mod catalog;
 pub mod conversation;
 pub mod events;
+pub mod local_history;
 pub mod management;
 pub mod native;
 pub mod native_commands;

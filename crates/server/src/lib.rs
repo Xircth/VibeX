@@ -54,6 +54,7 @@ pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
 pub use host::{
     HostEvent, HostEventBus, account_flow,
     events::{HOST_EVENT_CHANNELS, TerminalBridgeRegistry, current_host_events},
+    local_history::assemble_local_history_scan_page,
     native, patch_stream_channel, patch_stream_subscribe_command,
     plugin_conversation::HostPluginConversationHost,
     provider_bind::HostProviderPresetHost,

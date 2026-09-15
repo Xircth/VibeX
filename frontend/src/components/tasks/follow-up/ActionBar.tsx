@@ -31,6 +31,7 @@ interface ActionBarProps {
   isEditable: boolean;
   isAttemptRunning: boolean;
   isQueueLoading: boolean;
+  compactContextEnabled: boolean;
   canCompactContext: boolean;
   isCompactingContext: boolean;
   isStopping: boolean;
@@ -72,6 +73,7 @@ export function ActionBar({
   isEditable,
   isAttemptRunning,
   isQueueLoading,
+  compactContextEnabled,
   canCompactContext,
   isCompactingContext,
   isStopping,
@@ -141,6 +143,7 @@ export function ActionBar({
       />
 
       <ActionBarUtilityButtons
+        compactContextEnabled={compactContextEnabled}
         canCompactContext={canCompactContext}
         isCompactingContext={isCompactingContext}
         promptEnhancementEnabled={promptEnhancementEnabled}

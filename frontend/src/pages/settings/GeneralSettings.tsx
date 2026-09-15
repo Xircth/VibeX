@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Archive,
   Bell,
   Bug,
   Code2,
@@ -305,6 +306,34 @@ export function GeneralSettings() {
                 {t('general.customPromptHint')}
               </p>
             </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Archive}
+          title={t('general.compactContextTitle')}
+          description={t('general.compactContextDescription')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label
+                htmlFor="compact-context-enabled"
+                className="cursor-pointer"
+              >
+                {t('general.enableCompactContext')}
+              </Label>
+              <p className="settings-row__description">
+                {t('general.enableCompactContextHint')}
+              </p>
+            </div>
+            <Switch
+              id="compact-context-enabled"
+              className="settings-switch"
+              checked={draft.compact_context_enabled ?? false}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({ compact_context_enabled: checked })
+              }
+            />
           </div>
         </SettingsSection>
 

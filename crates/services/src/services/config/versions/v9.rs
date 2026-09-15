@@ -119,6 +119,9 @@ pub struct Config {
     pub prompt_enhancement_session_config: std::collections::BTreeMap<String, String>,
     #[serde(default = "default_prompt_enhancement_prompt")]
     pub prompt_enhancement_prompt: Option<String>,
+    /// Opt-in: show the compact-context action in the session input box.
+    #[serde(default)]
+    pub compact_context_enabled: bool,
     #[serde(default)]
     pub default_terminal_shell: Option<String>,
     #[serde(default = "default_files_changed_default_collapsed")]
@@ -177,6 +180,7 @@ impl Config {
             prompt_enhancement_mode: None,
             prompt_enhancement_session_config: std::collections::BTreeMap::new(),
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
+            compact_context_enabled: false,
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
@@ -246,6 +250,7 @@ impl Default for Config {
             prompt_enhancement_mode: None,
             prompt_enhancement_session_config: std::collections::BTreeMap::new(),
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
+            compact_context_enabled: false,
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
@@ -332,6 +337,21 @@ mod tests {
         assert!(loaded.files_changed_default_collapsed);
         assert!(loaded.ai_message_default_collapsed);
         assert!(loaded.hide_model_thinking);
+    }
+
+    #[test]
+    fn compact_context_remains_off_by_default_and_when_absent_from_saved_config() {
+        assert!(!Config::default().compact_context_enabled);
+
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        saved
+            .as_object_mut()
+            .expect("config object")
+            .remove("compact_context_enabled");
+
+        let loaded: Config = serde_json::from_value(saved).expect("load older v9 config");
+
+        assert!(!loaded.compact_context_enabled);
     }
 
     #[test]

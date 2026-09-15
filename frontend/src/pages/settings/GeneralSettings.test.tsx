@@ -86,6 +86,7 @@ function promptEnhancementConfig(model: string): Config {
     prompt_enhancement_mode: null,
     prompt_enhancement_session_config: {},
     prompt_enhancement_prompt: null,
+    compact_context_enabled: false,
     crash_reports_enabled: false,
   } as Config;
 }
@@ -232,6 +233,25 @@ describe('GeneralSettings Agent model catalogs', () => {
           files_changed_default_collapsed: false,
           ai_message_default_collapsed: false,
         })
+      );
+    });
+  });
+
+  it('keeps compact-context opt-in and persists it when enabled', async () => {
+    const user = userEvent.setup();
+    const { updateAndSaveConfig } = renderSettings();
+
+    const toggle = await screen.findByRole('switch', {
+      name: '启用压缩上下文按钮',
+    });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ compact_context_enabled: true })
       );
     });
   });

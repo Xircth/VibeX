@@ -159,6 +159,15 @@ export function useConversationTimeline(
     }
   }, [conversationId, loadDetail, reportLoadError]);
 
+  const previousConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousConversationIdRef.current;
+    previousConversationIdRef.current = conversationId;
+    if (previous && previous !== conversationId) {
+      dispatch({ type: 'reset', conversationId: previous });
+    }
+  }, [conversationId]);
+
   useEffect(() => {
     disposedRef.current = false;
     loadDetail();

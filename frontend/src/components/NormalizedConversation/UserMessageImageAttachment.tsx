@@ -5,7 +5,9 @@ import { useImageMetadata } from '@/hooks/useImageMetadata';
 import {
   blobSrcFromDataUrl,
   hostFileSrc,
+  isBrowserDisplayUrl,
   isDirectBrowserDisplayUrl,
+  releaseHostFileSrc,
 } from '@/lib/hostAsset';
 import { cn } from '@/lib/utils';
 import { AttachmentFileCard } from './attachments/AttachmentFileCard';
@@ -41,6 +43,12 @@ function UserMessageImageAttachment({
   const imageUrl = directImageUrl ?? resolvedImageUrl ?? undefined;
   const label = image.altText || metadata?.file_name || 'Image';
   const resolvedImagePath = metadata?.path ?? image.path;
+  const filesystemAssetPath =
+    directImageUrl || rawImageUrl?.startsWith('data:')
+      ? undefined
+      : rawImageUrl && !isBrowserDisplayUrl(rawImageUrl)
+        ? rawImageUrl
+        : resolvedImagePath;
 
   useEffect(() => {
     setImageLoadFailed(false);
@@ -50,21 +58,26 @@ function UserMessageImageAttachment({
     }
 
     if (rawImageUrl?.startsWith('data:')) {
-      setResolvedImageUrl(blobSrcFromDataUrl(rawImageUrl) ?? rawImageUrl);
-      return;
+      const blobUrl = blobSrcFromDataUrl(rawImageUrl);
+      setResolvedImageUrl(blobUrl ?? rawImageUrl);
+      return () => {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+      };
     }
 
-    if (isLoading || !resolvedImagePath) {
+    if (isLoading || !filesystemAssetPath) {
       setResolvedImageUrl(null);
       return;
     }
 
     let cancelled = false;
-    hostFileSrc(resolvedImagePath)
+    hostFileSrc(filesystemAssetPath)
       .then((url) => {
-        if (!cancelled) {
-          setResolvedImageUrl(url);
+        if (cancelled) {
+          releaseHostFileSrc(filesystemAssetPath);
+          return;
         }
+        setResolvedImageUrl(url);
       })
       .catch((error: unknown) => {
         console.warn('Failed to load user message image:', error);
@@ -75,25 +88,13 @@ function UserMessageImageAttachment({
 
     return () => {
       cancelled = true;
+      releaseHostFileSrc(filesystemAssetPath);
     };
-  }, [directImageUrl, isLoading, rawImageUrl, resolvedImagePath]);
+  }, [directImageUrl, filesystemAssetPath, isLoading, rawImageUrl]);
 
   const handleImageError = useCallback(() => {
-    if (!resolvedImagePath || imageUrl?.startsWith('blob:')) {
-      setImageLoadFailed(true);
-      return;
-    }
-
-    hostFileSrc(resolvedImagePath)
-      .then((url) => {
-        setResolvedImageUrl(url);
-        setImageLoadFailed(false);
-      })
-      .catch((error: unknown) => {
-        console.warn('Failed to load user message image fallback:', error);
-        setImageLoadFailed(true);
-      });
-  }, [imageUrl, resolvedImagePath]);
+    setImageLoadFailed(true);
+  }, []);
 
   const handlePreview = useCallback(() => {
     if (!imageUrl || imageLoadFailed) return;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import DOMPurify, { type Config } from 'dompurify';
-import { hostFileSrc } from '@/lib/hostAsset';
+import { hostFileSrc, releaseHostFileSrc } from '@/lib/hostAsset';
 import { RAW_HTML_ALLOWED_TAGS } from '@/lib/conversation-rendering/rawHtml';
 import {
   isRenderableRemoteImage,
@@ -45,9 +45,10 @@ export function sanitizeRawHtml(html: string): string {
 async function buildSanitizedNodes(
   html: string,
   workspacePath?: string | null
-): Promise<ChildNode[]> {
+): Promise<{ nodes: ChildNode[]; retainedPaths: string[] }> {
   const container = document.createElement('div');
   container.innerHTML = sanitizeRawHtml(html);
+  const retainedPaths: string[] = [];
 
   // Relative image destinations from raw HTML resolve the same way markdown
   // image destinations do: against the containing markdown file's directory
@@ -58,10 +59,11 @@ async function buildSanitizedNodes(
     const localPath = resolveLocalMarkdownImagePath(src, workspacePath);
     if (localPath) {
       image.setAttribute('src', await hostFileSrc(localPath));
+      retainedPaths.push(localPath);
     }
   }
 
-  return Array.from(container.childNodes);
+  return { nodes: Array.from(container.childNodes), retainedPaths };
 }
 
 /**
@@ -90,13 +92,20 @@ export function RawHtmlElement({
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
-    void buildSanitizedNodes(html, workspacePath).then((nodes) => {
-      if (!cancelled && hostRef.current === host) {
+    const retainedPaths: string[] = [];
+    void buildSanitizedNodes(html, workspacePath).then(
+      ({ nodes, retainedPaths: loaded }) => {
+        if (cancelled || hostRef.current !== host) {
+          loaded.forEach(releaseHostFileSrc);
+          return;
+        }
+        retainedPaths.push(...loaded);
         host.replaceChildren(...nodes);
       }
-    });
+    );
     return () => {
       cancelled = true;
+      retainedPaths.forEach(releaseHostFileSrc);
     };
   }, [html, workspacePath]);
 

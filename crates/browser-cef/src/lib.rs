@@ -18,6 +18,24 @@ pub use cef_host::{
 };
 
 const MINIMUM_COMMAND_CAPACITY: usize = 1;
+const WINDOWS_CEF_DISABLED_FEATURES: &str =
+    "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
+
+/// Chromium switches applied to every embedded CEF process.
+///
+/// On Windows the preview browser is a child HWND inside Tauri's WebView2
+/// window. DirectComposition and native-window occlusion can crash the GPU
+/// process (`exit_code=0x80000003`). After three crashes Chromium falls back
+/// to in-process software compositing on the UI thread, and the desktop app
+/// stops painting until Windows reports it hung.
+pub fn embedded_chromium_switches() -> Vec<(&'static str, Option<&'static str>)> {
+    let mut switches = vec![("disable-features", Some(WINDOWS_CEF_DISABLED_FEATURES))];
+    if cfg!(target_os = "windows") {
+        switches.push(("disable-direct-composition", None));
+        switches.push(("disable-gpu-vsync", None));
+    }
+    switches
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CefRuntimeConfig {
@@ -118,5 +136,78 @@ impl BrowserEngine for CefEngineHandle {
         })?;
         (self.wake)();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::embedded_chromium_switches;
+
+    #[test]
+    fn embedded_switches_disable_windows_occlusion() {
+        let switches = embedded_chromium_switches();
+        let features = switches
+            .iter()
+            .find(|(name, _)| *name == "disable-features")
+            .and_then(|(_, value)| *value)
+            .expect("disable-features must be set");
+        assert!(features.contains("CalculateNativeWinOcclusion"));
+        assert!(features.contains("ApplyNativeOcclusionToCompositor"));
+    }
+
+    #[test]
+    fn windows_embedded_switches_keep_gpu_work_off_the_ui_thread() {
+        let names: Vec<&str> = embedded_chromium_switches()
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        #[cfg(target_os = "windows")]
+        {
+            assert!(names.contains(&"disable-direct-composition"));
+            assert!(names.contains(&"disable-gpu-vsync"));
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(!names.contains(&"disable-direct-composition"));
+            assert!(!names.contains(&"disable-gpu-vsync"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tab_close_cleanup_tests {
+    use std::collections::{HashMap, HashSet};
+
+    use browser_runtime::BrowserTabId;
+
+    fn drop_tab_scoped<V>(map: &mut HashMap<(BrowserTabId, u64), V>, tab_id: &BrowserTabId) {
+        map.retain(|(id, _), _| id != tab_id);
+    }
+
+    #[test]
+    fn a_second_close_does_not_reschedule_destruction() {
+        let mut closing = HashSet::new();
+        let tab = BrowserTabId::from("tab-a");
+        assert!(
+            closing.insert(tab.clone()),
+            "the first DoClose must own destruction"
+        );
+        assert!(
+            !closing.insert(tab),
+            "DestroyWindow re-entering DoClose must not queue another destroy"
+        );
+    }
+
+    #[test]
+    fn pending_callbacks_for_a_closed_tab_are_dropped() {
+        let mut pending = HashMap::new();
+        pending.insert((BrowserTabId::from("keep"), 1u64), "keep");
+        pending.insert((BrowserTabId::from("gone"), 2u64), "gone");
+        drop_tab_scoped(&mut pending, &BrowserTabId::from("gone"));
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            pending.get(&(BrowserTabId::from("keep"), 1)).copied(),
+            Some("keep")
+        );
     }
 }

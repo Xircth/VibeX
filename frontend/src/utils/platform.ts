@@ -69,6 +69,14 @@ export function isWindows(): boolean {
   return getHostPlatform() === 'windows';
 }
 
+export function isLinux(): boolean {
+  return getHostPlatform() === 'linux';
+}
+
+export function logoLeadsWindowChrome(): boolean {
+  return isWindows() || isLinux();
+}
+
 export function usesSolidHostChrome(): boolean {
   if (typeof document === 'undefined') {
     return false;

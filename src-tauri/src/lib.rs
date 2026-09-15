@@ -1,11 +1,7 @@
 use std::{
     cell::RefCell,
     path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-        mpsc::Receiver,
-    },
+    sync::{Arc, mpsc::Receiver},
     time::Duration,
 };
 
@@ -19,6 +15,7 @@ use tauri::{Emitter, Manager, image::Image};
 mod app_chrome;
 mod app_icon;
 mod app_windows;
+mod cef_pump;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
@@ -36,6 +33,7 @@ mod managed_artifacts;
 mod oneshot_agent;
 mod plugin_dev_server;
 mod window_chrome;
+pub mod windows_webview2;
 
 mod plugin_remote_profiles;
 mod pr_description;
@@ -46,6 +44,7 @@ mod state;
 mod tray;
 mod workflow_mcp_gateway;
 mod workspace_paths;
+use cef_pump::{CefPumpController, CefPumpWork};
 use state::AppState;
 
 const APP_ICON_LIGHT_DEFAULT_BYTES: &[u8] =
@@ -58,7 +57,7 @@ const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
 const BROWSER_EVENT: &str = "browser://event";
 const CEF_COMMAND_CAPACITY: usize = 512;
-static CEF_PUMP_GENERATION: AtomicU64 = AtomicU64::new(0);
+static CEF_PUMP: CefPumpController = CefPumpController::new();
 
 struct PendingCefHost {
     bootstrap: Option<CefBootstrap>,
@@ -80,7 +79,8 @@ thread_local! {
     static CEF_HOST: RefCell<Option<CefHost>> = const { RefCell::new(None) };
 }
 
-fn pump_cef_session() {
+pub(crate) fn pump_cef_session() {
+    CEF_PUMP.begin_pump();
     CEF_HOST.with(|slot| {
         let Ok(mut slot) = slot.try_borrow_mut() else {
             return;
@@ -307,26 +307,73 @@ fn setup_browser_runtime(
     Ok(())
 }
 
-fn schedule_cef_pump(app_handle: &tauri::AppHandle, delay_ms: i64) {
-    if delay_ms < 0 {
-        CEF_PUMP_GENERATION.fetch_add(1, Ordering::Relaxed);
+const MAIN_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
+const MAIN_WINDOW_REVEAL_POLL: Duration = Duration::from_millis(100);
+
+fn prepare_main_window(app: &tauri::App) {
+    let Some(main_window) = app.get_webview_window("main") else {
         return;
+    };
+    if let Err(error) = apply_app_icon(&main_window) {
+        tracing::warn!("Failed to apply app icon to main window: {error}");
     }
-    // Immediate work must not hop through tokio. CEF CHECKs that many APIs run
-    // on the thread that called CefInitialize; a tokio-rt-worker is not that.
-    if delay_ms == 0 {
-        let _ = app_handle.run_on_main_thread(pump_cef_session);
-        return;
-    }
-    let generation = CEF_PUMP_GENERATION.load(Ordering::Relaxed);
-    let app_handle = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
-        if CEF_PUMP_GENERATION.load(Ordering::Relaxed) != generation {
-            return;
+    window_chrome::apply_created_window_chrome(&main_window);
+
+    let app_handle = app.handle().clone();
+    main_window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            tray::hide_main_window(&app_handle);
         }
-        let _ = app_handle.run_on_main_thread(pump_cef_session);
     });
+}
+
+/// Show the main window if the frontend never paints (JS failure, hung webview).
+/// The window starts hidden so setup `block_on` cannot ghost a visible HWND.
+fn schedule_main_window_reveal(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let deadline = tokio::time::Instant::now() + MAIN_WINDOW_REVEAL_FALLBACK;
+        loop {
+            tokio::time::sleep(MAIN_WINDOW_REVEAL_POLL).await;
+            if window.is_visible().unwrap_or(false) {
+                return;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+        }
+        tracing::warn!("main window was still hidden after startup; showing as a fallback");
+        let _ = window.show();
+    });
+}
+
+fn schedule_cef_pump(app_handle: &tauri::AppHandle, delay_ms: i64) {
+    match CEF_PUMP.schedule(delay_ms) {
+        None => {}
+        Some(CefPumpWork::Immediate) => {
+            // Immediate work must not hop through tokio. CEF CHECKs that many
+            // APIs run on the thread that called CefInitialize; a
+            // tokio-rt-worker is not that. Coalescing above keeps a GPU-crash
+            // delay=0 storm from filling the UI queue and hanging the window.
+            let _ = app_handle.run_on_main_thread(pump_cef_session);
+        }
+        Some(CefPumpWork::Delayed {
+            delay_ms,
+            generation,
+        }) => {
+            let app_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                if !CEF_PUMP.delayed_is_current(generation) {
+                    return;
+                }
+                schedule_cef_pump(&app_handle, 0);
+            });
+        }
+    }
 }
 
 fn setup_unavailable_browser_runtime(app: &mut tauri::App, message: String) {
@@ -399,6 +446,7 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
+    windows_webview2::install_process_arguments();
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
@@ -436,6 +484,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         window_chrome::handle_window_event(window, event);
     })
     .setup(move |app| {
+        // Apply frameless chrome while the window is still hidden so the first
+        // show never flashes Tauri's native decorations.
+        prepare_main_window(app);
         match cef_bootstrap {
             Ok(bootstrap) => {
                 if let Err(error) = setup_browser_runtime(app, bootstrap) {
@@ -506,20 +557,27 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             Err(error) => tracing::error!(%error, "Plugin artifact HTTP failed to start"),
         }
         // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
-        // process lifecycle before the UI connects. Best-effort — a failure here
-        // must not block app launch; the worst case is a stale in-flight turn.
-        if let Err(error) = tauri::async_runtime::block_on(
-            conversation_service::ConversationSessionService::new(state.conversation_context())
-                .recover_interrupted_turns(),
-        ) {
-            tracing::error!("startup crash-recovery failed: {}", error);
-        }
-        if let Err(error) = tauri::async_runtime::block_on(
-            application::WorkflowStoreExecutionPort::new(state.deployment.db().pool.clone())
-                .reconcile_interrupted(),
-        ) {
-            tracing::error!("workflow startup reconciliation failed: {}", error);
-        }
+        // process lifecycle. Best-effort and off the UI thread — a failure here
+        // must not block app launch or hang the message pump.
+        let recovery_context = state.conversation_context();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) =
+                conversation_service::ConversationSessionService::new(recovery_context)
+                    .recover_interrupted_turns()
+                    .await
+            {
+                tracing::error!("startup crash-recovery failed: {}", error);
+            }
+        });
+        let workflow_pool = state.deployment.db().pool.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = application::WorkflowStoreExecutionPort::new(workflow_pool)
+                .reconcile_interrupted()
+                .await
+            {
+                tracing::error!("workflow startup reconciliation failed: {}", error);
+            }
+        });
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(state.conversation_context());
         tauri::async_runtime::spawn(async move {
@@ -648,26 +706,14 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // reconciliation and catch-up happen behind the owner lease.
         commands::automation::start_automation_engine(app.handle().clone());
 
-        if let Err(error) = tauri::async_runtime::block_on(
-            commands::web_service::ensure_web_service_autostart(app.handle().clone()),
-        ) {
-            tracing::warn!("Failed to autostart web service: {}", error);
-        }
-
-        if let Some(main_window) = app.get_webview_window("main") {
-            if let Err(error) = apply_app_icon(&main_window) {
-                tracing::warn!("Failed to apply app icon to main window: {}", error);
+        let web_service_handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) =
+                commands::web_service::ensure_web_service_autostart(web_service_handle).await
+            {
+                tracing::warn!("Failed to autostart web service: {}", error);
             }
-            window_chrome::apply_created_window_chrome(&main_window);
-
-            let app_handle = app.handle().clone();
-            main_window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    tray::hide_main_window(&app_handle);
-                }
-            });
-        }
+        });
 
         // System tray (P2-5). Best-effort: on Linux the tray may be absent
         // (no StatusNotifierWatcher) even on success, so log and continue.
@@ -676,6 +722,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         }
         app_chrome::install(app.handle());
         app_chrome::apply_startup_args(app.handle());
+        schedule_main_window_reveal(app);
 
         // Deep links (P2-5). macOS delivers URLs here; register the scheme at
         // runtime too so it works in dev on Linux/Windows (best-effort).

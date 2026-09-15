@@ -83,9 +83,14 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-vi.mock('@/lib/hostAsset', () => ({
-  hostFileSrc: async (path: string) => `asset://${path}`,
-}));
+vi.mock('@/lib/hostAsset', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/hostAsset')>();
+  return {
+    ...actual,
+    hostFileSrc: async (path: string) => `asset://${path}`,
+    releaseHostFileSrc: () => undefined,
+  };
+});
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
   useOptionalPanelActionsContext: () => panelActionsMock,

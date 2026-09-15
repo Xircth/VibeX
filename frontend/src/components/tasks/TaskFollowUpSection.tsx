@@ -1185,6 +1185,7 @@ export function TaskFollowUpSection({
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
             isQueueLoading={isQueueLoading}
+            compactContextEnabled={config?.compact_context_enabled ?? false}
             canCompactContext={canCompactContext}
             isCompactingContext={isCompactingContext}
             isStopping={isStopping}

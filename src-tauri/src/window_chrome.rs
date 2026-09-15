@@ -138,6 +138,10 @@ mod tests {
         assert!(conf.contains("\"titleBarStyle\": \"Overlay\""));
         assert!(conf.contains("\"hiddenTitle\": true"));
         assert!(
+            conf.contains("\"visible\": false"),
+            "main window must stay hidden until chrome is applied and the UI paints"
+        );
+        assert!(
             !conf.contains("trafficLightPosition"),
             "Tauri trafficLightPosition.y does not move the buttons"
         );

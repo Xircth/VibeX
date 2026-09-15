@@ -467,8 +467,6 @@ export function BrowserPanel({
         if (typeof data !== 'string' || data.length === 0) return;
         if (overlayOccludedRef.current && frozenPageRef.current) return;
         const url = `data:image/jpeg;base64,${data}`;
-        const image = new Image();
-        image.src = url;
         frozenPageRef.current = url;
         setFrozenPage(url);
       })

@@ -3,6 +3,7 @@ import {
   applyHostPlatformToDocument,
   getHostPlatform,
   hostPlatformFromOsType,
+  logoLeadsWindowChrome,
   terminalHostPlatform,
 } from './platform';
 
@@ -58,6 +59,17 @@ describe('getHostPlatform', () => {
     expect(getHostPlatform()).toBe('macos');
     stubPlatform('Linux x86_64');
     expect(getHostPlatform()).toBe('linux');
+  });
+});
+
+describe('logoLeadsWindowChrome', () => {
+  it('puts the app logo on the leading edge on Windows and Linux only', () => {
+    stubPlatform('Windows');
+    expect(logoLeadsWindowChrome()).toBe(true);
+    stubPlatform('Linux x86_64');
+    expect(logoLeadsWindowChrome()).toBe(true);
+    stubPlatform('MacIntel');
+    expect(logoLeadsWindowChrome()).toBe(false);
   });
 });
 

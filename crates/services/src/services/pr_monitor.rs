@@ -54,6 +54,7 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
         );
 
         let mut interval = interval(self.poll_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             interval.tick().await;

@@ -8,6 +8,7 @@ function renderUtilityButtons(
 ) {
   return render(
     <ActionBarUtilityButtons
+      compactContextEnabled={true}
       canCompactContext={true}
       isCompactingContext={false}
       promptEnhancementEnabled={true}
@@ -47,6 +48,14 @@ describe('ActionBarUtilityButtons', () => {
     expect(onCompactContext).not.toHaveBeenCalled();
   });
 
+  it('omits compact context when disabled', () => {
+    renderUtilityButtons({ compactContextEnabled: false });
+
+    expect(
+      screen.queryByRole('button', { name: '压缩上下文' })
+    ).not.toBeInTheDocument();
+  });
+
   it('omits prompt enhancement when disabled', () => {
     renderUtilityButtons({ promptEnhancementEnabled: false });
 
@@ -71,6 +80,7 @@ describe('ActionBarUtilityButtons', () => {
 
     rerender(
       <ActionBarUtilityButtons
+        compactContextEnabled={true}
         canCompactContext={true}
         isCompactingContext={false}
         promptEnhancementEnabled={true}

@@ -16,3 +16,20 @@ fn installed_windows_binaries_never_allocate_a_console() {
         );
     }
 }
+
+#[test]
+fn webview2_process_arguments_are_installed_before_tauri() {
+    let source = include_str!("../src/main.rs");
+    assert!(
+        source.contains("windows_webview2::install_process_arguments"),
+        "WebView2 occlusion flags must be set before the first environment"
+    );
+    let main_index = source
+        .find("windows_webview2::install_process_arguments")
+        .expect("install_process_arguments must exist");
+    let run_index = source.find("vibex::run").expect("tauri run must exist");
+    assert!(
+        main_index < run_index,
+        "WebView2 arguments must be installed before Tauri starts"
+    );
+}

@@ -34,6 +34,12 @@ test('desktop release version has one value across frontend, Tauri, and Cargo', 
   assert.doesNotMatch(cefStager, /Version::new\(0,\s*1,\s*0\)/);
 });
 
+test('main window stays hidden until the desktop shell is ready to paint', () => {
+  const config = readJson('src-tauri/tauri.conf.json');
+  const main = config.app.windows.find((window) => window.label === 'main');
+  assert.equal(main?.visible, false);
+});
+
 test('installed desktop identity stays distinct from the development instance', () => {
   const config = readJson('src-tauri/tauri.conf.json');
   const cefStager = read('crates/browser-cef/src/bin/stage_cef_runtime.rs');

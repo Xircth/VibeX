@@ -207,6 +207,45 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
+  it('drops the previous conversation when the session id changes', async () => {
+    detailMock.mockImplementation(async (id: string) => ({
+      ...detail(),
+      summary: { ...detail().summary, id },
+    }));
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useConversationTimeline(id),
+      { initialProps: { id: CONVERSATION_ID } }
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(listeners).toHaveLength(1));
+
+    act(() => {
+      listeners[0]?.(
+        batch(
+          [
+            { op: 'upsert', row: userRow('t1', 'q', 1n) },
+            { op: 'upsert', row: assistantRow('t1', 'hello', 2n) },
+          ],
+          2n
+        )
+      );
+    });
+    act(() => flushFrames());
+    await waitFor(() => expect(result.current.timeline).toHaveLength(2));
+
+    rerender({ id: 'conversation-2' });
+    await waitFor(() =>
+      expect(detailMock).toHaveBeenCalledWith('conversation-2')
+    );
+    await waitFor(() => expect(result.current.timeline).toHaveLength(0));
+
+    rerender({ id: CONVERSATION_ID });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline).toHaveLength(0);
+  });
+
   it('shows the optimistic user turn and loading row in the same send frame', async () => {
     detailMock.mockResolvedValue(detail());
 

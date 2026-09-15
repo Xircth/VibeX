@@ -821,7 +821,7 @@ fn parse_codex_rollout(path: &Path) -> Result<Vec<ImportedAgentSession>, AgentHi
             _ => None,
         };
         if let Some((role, content)) = parsed {
-            if role == ImportedAgentMessageRole::User && is_codex_injected_context(&content) {
+            if role == ImportedAgentMessageRole::User && is_codex_hidden_user_text(&content) {
                 return Ok(());
             }
             if messages.len() < jsonl::MAX_HISTORY_MESSAGES {
@@ -873,7 +873,25 @@ fn is_codex_display_event(payload: &serde_json::Value) -> bool {
     )
 }
 
+/// Codex desktop hides these user-role items; VibeX must not re-import them
+/// as the user's real prompt. Includes the host-history prefix VibeX used to
+/// prepend on cold start, including Windows `\r\n` copies of that blob.
+pub(crate) fn is_codex_hidden_user_text(content: &str) -> bool {
+    is_codex_injected_context(content) || is_host_history_prompt(content)
+}
+
+fn is_host_history_prompt(content: &str) -> bool {
+    normalize_history_newlines(content)
+        .trim_start()
+        .starts_with("Previous conversation:")
+}
+
+fn normalize_history_newlines(content: &str) -> String {
+    content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 fn is_codex_injected_context(content: &str) -> bool {
+    let content = normalize_history_newlines(content);
     let content = content.trim_start();
     [
         "<recommended_plugins>",
@@ -884,9 +902,26 @@ fn is_codex_injected_context(content: &str) -> bool {
         "<skills_instructions>",
         "<apps_instructions>",
         "<plugins_instructions>",
+        "Previous conversation:",
     ]
     .iter()
     .any(|prefix| content.starts_with(prefix))
+}
+
+fn codex_visible_user_content(payload: &serde_json::Value) -> Option<String> {
+    if let Some(items) = payload.get("content").and_then(serde_json::Value::as_array) {
+        let parts = items
+            .iter()
+            .filter_map(block_text)
+            .filter(|text| !is_codex_hidden_user_text(text))
+            .map(|text| normalize_history_newlines(&text))
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>();
+        return (!parts.is_empty()).then(|| parts.join("\n"));
+    }
+    let content = content_from_value(payload)?;
+    let content = normalize_history_newlines(&content);
+    (!is_codex_hidden_user_text(&content)).then_some(content)
 }
 
 fn codex_title_from_content(content: &str) -> String {
@@ -900,7 +935,15 @@ fn codex_title_from_content(content: &str) -> String {
 
 fn codex_response_item(payload: &serde_json::Value) -> Option<(ImportedAgentMessageRole, String)> {
     match payload.get("type").and_then(serde_json::Value::as_str)? {
-        "message" => Some((role_from_value(payload), content_from_value(payload)?)),
+        "message" => {
+            let role = role_from_value(payload);
+            let content = if role == ImportedAgentMessageRole::User {
+                codex_visible_user_content(payload)?
+            } else {
+                content_from_value(payload)?
+            };
+            Some((role, content))
+        }
         "function_call" => Some((
             ImportedAgentMessageRole::Tool,
             format!(
@@ -940,6 +983,9 @@ fn codex_event_message(payload: &serde_json::Value) -> Option<(ImportedAgentMess
         _ => return None,
     };
     let content = string_at_any(payload, &["message", "text", "content"])?;
+    if role == ImportedAgentMessageRole::User && is_codex_hidden_user_text(&content) {
+        return None;
+    }
     Some((role, content))
 }
 
@@ -2902,6 +2948,45 @@ mod tests {
             Some("Fix the previous-session picker")
         );
         assert_eq!(sessions[0].messages.len(), 2);
+    }
+
+    #[test]
+    fn codex_drops_host_history_user_blocks_including_windows_newlines() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout-leaked-history.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"session_meta","payload":{"id":"codex-leak-1","cwd":"/repo"}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Previous conversation:\r\nUser:拉取当前项目仓库的最新代码到本地\r\nAssistant: Warning: Model metadata for gpt-6-astra not found"},{"type":"input_text","text":"再拉一次"}]}}"#,
+                "\n",
+                r#"{"type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path,
+        })
+        .unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[0].messages[0].role, ImportedAgentMessageRole::User);
+        assert_eq!(sessions[0].messages[0].content, "再拉一次");
+        assert!(
+            !sessions[0].messages[0]
+                .content
+                .contains("Previous conversation")
+        );
+        assert!(!sessions[0].messages[0].content.contains("Assistant:"));
+        assert!(is_codex_hidden_user_text(
+            "Previous conversation:\r\nUser:拉取当前项目仓库的最新代码到本地"
+        ));
+        assert!(!is_codex_hidden_user_text("再拉一次"));
     }
 
     #[test]

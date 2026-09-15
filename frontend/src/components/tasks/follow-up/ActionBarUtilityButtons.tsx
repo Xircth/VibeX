@@ -7,6 +7,7 @@ const ENHANCE_PROMPT_LABEL = '\u63d0\u793a\u8bcd\u4f18\u5316';
 const STOP_ENHANCE_PROMPT_LABEL = '\u505c\u6b62\u63d0\u793a\u8bcd\u4f18\u5316';
 
 type ActionBarUtilityButtonsProps = {
+  compactContextEnabled: boolean;
   canCompactContext: boolean;
   isCompactingContext: boolean;
   promptEnhancementEnabled: boolean;
@@ -17,6 +18,7 @@ type ActionBarUtilityButtonsProps = {
 };
 
 export function ActionBarUtilityButtons({
+  compactContextEnabled,
   canCompactContext,
   isCompactingContext,
   promptEnhancementEnabled,
@@ -27,21 +29,23 @@ export function ActionBarUtilityButtons({
 }: ActionBarUtilityButtonsProps) {
   return (
     <>
-      <Button
-        onClick={onCompactContext}
-        disabled={!canCompactContext || isCompactingContext}
-        size="sm"
-        variant="ghost"
-        className="h-7 w-7 p-0"
-        title={COMPACT_CONTEXT_LABEL}
-        aria-label={COMPACT_CONTEXT_LABEL}
-      >
-        {isCompactingContext ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Archive className="h-3.5 w-3.5" />
-        )}
-      </Button>
+      {compactContextEnabled ? (
+        <Button
+          onClick={onCompactContext}
+          disabled={!canCompactContext || isCompactingContext}
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          title={COMPACT_CONTEXT_LABEL}
+          aria-label={COMPACT_CONTEXT_LABEL}
+        >
+          {isCompactingContext ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Archive className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      ) : null}
 
       {promptEnhancementEnabled ? (
         <Button

@@ -531,25 +531,36 @@ pub struct AgentConnectionManagerEvent {
     pub event: AgentEvent,
 }
 
+/// Historical bound for the ACP → runtime event pump. The live pump is
+/// unbounded: a bounded channel plus `block_in_place` on the ACP read loop
+/// stalled every concurrent session at "生成中" when persist was slow.
 pub const MANAGER_EVENT_BUFFER: usize = 8192;
 
+pub fn manager_event_channel() -> (
+    mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
+) {
+    mpsc::unbounded_channel()
+}
+
 fn send_manager_event(
-    tx: &mpsc::Sender<AgentConnectionManagerEvent>,
+    tx: &mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     event: AgentConnectionManagerEvent,
 ) {
-    match tx.try_send(event) {
-        Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
-        Err(mpsc::error::TrySendError::Full(event)) => {
-            let blocking = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
-                handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
-            });
-            if blocking {
-                let tx = tx.clone();
-                tokio::task::block_in_place(move || {
-                    let _ = tx.blocking_send(event);
-                });
-            }
-        }
+    if let AgentEvent::RawAcpDiagnostic { raw } = &event.event
+        && let Some(notice) = session_notice::notice_from_diagnostic_payload(raw)
+    {
+        tracing::warn!(
+            connection_id = %event.connection_id,
+            session_id = ?event.session_id,
+            title = %notice.title,
+            message = notice.message.as_deref().unwrap_or(""),
+            severity = %notice.severity,
+            "ACP session notice"
+        );
+    }
+    if tx.send(event).is_err() {
+        tracing::debug!("ACP manager event outlet closed");
     }
 }
 
@@ -558,13 +569,14 @@ struct ManagedAgentConnection {
     snapshot: ManagedAgentConnectionSnapshot,
     cmd_tx: mpsc::Sender<AgentConnectionCommand>,
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
+    session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     task: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug)]
 pub struct AgentConnectionManager {
     connections: Mutex<HashMap<AgentConnectionId, ManagedAgentConnection>>,
-    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     driver_enabled: bool,
     /// Installed once at startup. Lets the app splice a companion MCP server
     /// (the delegation companion) into each connection's `session/new`.
@@ -573,18 +585,18 @@ pub struct AgentConnectionManager {
 
 impl Default for AgentConnectionManager {
     fn default() -> Self {
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         Self::new(event_tx)
     }
 }
 
 impl AgentConnectionManager {
-    pub fn new(event_tx: mpsc::Sender<AgentConnectionManagerEvent>) -> Self {
+    pub fn new(event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>) -> Self {
         Self::new_with_driver(event_tx, true)
     }
 
     pub fn new_with_driver(
-        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         driver_enabled: bool,
     ) -> Self {
         Self {
@@ -632,6 +644,7 @@ impl AgentConnectionManager {
             self.delegation_injector.get().cloned(),
         );
         let capabilities = Arc::clone(&runner.capabilities);
+        let session_map = Arc::clone(&runner.session_map);
 
         let task = if self.driver_enabled {
             tokio::spawn(async move {
@@ -652,6 +665,7 @@ impl AgentConnectionManager {
                 snapshot: snapshot.clone(),
                 cmd_tx,
                 capabilities,
+                session_map,
                 task,
             },
         );
@@ -996,6 +1010,24 @@ impl AgentConnectionManager {
         self.connections.lock().await.contains_key(&connection_id)
     }
 
+    /// The ACP session id currently bound to this host conversation, if the
+    /// connection is still live and `session/new` / `session/resume` has completed.
+    /// An unbound mapping means the next turn must resume the stored external id
+    /// on a fresh process — not call `session/new` on a wedged connection.
+    pub async fn bound_acp_session_id(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+    ) -> Option<String> {
+        let session_map = {
+            let connections = self.connections.lock().await;
+            connections
+                .get(&connection_id)
+                .map(|connection| Arc::clone(&connection.session_map))
+        }?;
+        session_map.read().await.get(&session_id).cloned()
+    }
+
     #[cfg(test)]
     pub(crate) async fn replace_command_sender(
         &self,
@@ -1037,7 +1069,7 @@ impl AgentConnectionManager {
 #[derive(Debug, Clone)]
 struct AgentConnectionRunner {
     snapshot: ManagedAgentConnectionSnapshot,
-    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
@@ -1169,7 +1201,7 @@ fn map_steer_response(response: AcpSteerResponse) -> AgentResult<AgentSteerRecei
 impl AgentConnectionRunner {
     fn new(
         snapshot: ManagedAgentConnectionSnapshot,
-        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
         let auto_approve_mode = snapshot.auto_approve_mode;
@@ -2286,7 +2318,16 @@ impl AgentConnectionRunner {
         companion_capabilities: CompanionCapabilities,
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
-            return Ok((existing, None));
+            if existing == external_session_id {
+                return Ok((existing, None));
+            }
+            tracing::warn!(
+                session_id = %session_id.0,
+                bound = %existing,
+                requested = %external_session_id,
+                "ACP session map pointed at a different external id; restoring the conversation's stored session"
+            );
+            self.session_map.write().await.remove(&session_id);
         }
 
         if support.resume {
@@ -2700,6 +2741,11 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         reason: SessionLoadFailureReason,
     ) {
+        tracing::warn!(
+            session_id = %session_id.0,
+            ?reason,
+            "ACP session restore failed"
+        );
         self.emit(
             Some(session_id),
             None,
@@ -3200,6 +3246,22 @@ impl AgentConnectionRunner {
                                 },
                             );
                             *self.active_prompt.lock().await = None;
+                            if !acknowledged {
+                                // Leaving this process alive holds the agent's
+                                // thread-writer lock. The next `session/new` or
+                                // `session/resume` then either hangs every
+                                // conversation or attaches to another session's
+                                // context. Tear the connection down so follow-up
+                                // resumes this conversation's stored ACP id on a
+                                // fresh process.
+                                tracing::warn!(
+                                    session_id = %session_id.0,
+                                    acp_session_id = %acp_session_id,
+                                    timeout_secs = CANCEL_ACKNOWLEDGEMENT_TIMEOUT.as_secs(),
+                                    "session/cancel was not acknowledged; relaunching the agent connection"
+                                );
+                                return Err(acp::Error::internal_error());
+                            }
                             return Ok(());
                         }
                         Some(AgentConnectionCommand::Prompt {
@@ -3538,6 +3600,18 @@ impl AgentConnectionRunner {
         status_message: Option<String>,
         session_id: Option<AgentSessionId>,
     ) {
+        if matches!(
+            status,
+            AgentConnectionStatus::Connecting | AgentConnectionStatus::Recovering
+        ) {
+            tracing::warn!(
+                connection_id = %self.snapshot.connection_id,
+                session_id = ?session_id,
+                ?status,
+                message = status_message.as_deref().unwrap_or(""),
+                "ACP session reconnecting (UI notice: 会话加载异常，正在连接…)"
+            );
+        }
         let now = Utc::now();
         self.emit(
             session_id,
@@ -3608,7 +3682,7 @@ fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str)
 struct AcpClientBridge {
     connection_id: AgentConnectionId,
     agent_id: crate::AgentId,
-    event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     // Shared with the owning runner: session-notification pushes (mode / config
     // updates) must keep the stored controls authoritative for later
@@ -3634,7 +3708,7 @@ impl AcpClientBridge {
     fn new(
         connection_id: AgentConnectionId,
         agent_id: crate::AgentId,
-        event_tx: mpsc::Sender<AgentConnectionManagerEvent>,
+        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
@@ -6032,7 +6106,7 @@ mod tests {
             let agent_id = AgentId::parse(agent_id).unwrap();
             let mut launch_lock = test_launch_lock(agent_id.clone());
             launch_lock.absolute_acp_program = PathBuf::from("relative-acp");
-            let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+            let (event_tx, _event_rx) = manager_event_channel();
             let manager = AgentConnectionManager::new_with_driver(event_tx, true);
             let (_snapshot, ready_rx) = manager
                 .register_connection(AgentConnectionLaunch {
@@ -6063,7 +6137,7 @@ mod tests {
         let program = std::env::current_exe().expect("test binary path");
         let mut launch_lock = test_launch_lock(AgentId::parse("grok").unwrap());
         launch_lock.absolute_acp_program = program;
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx, true);
         let (_snapshot, ready_rx) = manager
             .register_connection(AgentConnectionLaunch {
@@ -6093,7 +6167,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_registers_and_removes_connection() {
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
 
@@ -6117,7 +6191,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_rejects_unknown_prompt_connection() {
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         let err = AgentConnectionManager::new_with_driver(event_tx, false)
             .send_prompt(
                 AgentConnectionId::new(),
@@ -6137,7 +6211,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_response_regressions_command_channel_close_returns_runtime_error() {
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
         let (_snapshot, ready_rx) = manager
@@ -6185,7 +6259,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_in_memory_resumes_session_with_external_id() {
-        let (event_tx, _event_rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+        let (event_tx, _event_rx) = manager_event_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
         let connection_id = AgentConnectionId::new();
         let session_id = AgentSessionId::new();
@@ -6278,43 +6352,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn manager_event_channel_is_bounded() {
-        let (event_tx, mut event_rx) = mpsc::channel(4);
+    async fn manager_event_channel_does_not_drop_a_burst_of_terminal_events() {
+        let (event_tx, mut event_rx) = manager_event_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx.clone(), false);
         let _ = manager;
-        for _ in 0..4 {
-            event_tx
-                .try_send(AgentConnectionManagerEvent {
-                    connection_id: AgentConnectionId::new(),
+        let connection_id = AgentConnectionId::new();
+        let prompt_id = AgentPromptId::new();
+        for index in 0..64 {
+            send_manager_event(
+                &event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id,
                     session_id: None,
                     prompt_id: None,
                     event: AgentEvent::Error {
                         error: AgentErrorEvent {
-                            message: "fill".into(),
+                            message: format!("fill-{index}"),
                             code: None,
                             raw: None,
                         },
                     },
-                })
-                .expect("capacity remains");
+                },
+            );
         }
-        assert!(
-            event_tx
-                .try_send(AgentConnectionManagerEvent {
-                    connection_id: AgentConnectionId::new(),
-                    session_id: None,
-                    prompt_id: None,
-                    event: AgentEvent::Error {
-                        error: AgentErrorEvent {
-                            message: "overflow".into(),
-                            code: None,
-                            raw: None,
-                        },
+        send_manager_event(
+            &event_tx,
+            AgentConnectionManagerEvent {
+                connection_id,
+                session_id: None,
+                prompt_id: Some(prompt_id),
+                event: AgentEvent::PromptFinished {
+                    finished: AgentPromptFinished {
+                        prompt_id,
+                        stop_reason: Some("end_turn".into()),
+                        usage: None,
                     },
-                })
-                .is_err()
+                },
+            },
         );
-        assert!(event_rx.recv().await.is_some());
+        for _ in 0..64 {
+            event_rx.recv().await.expect("burst event");
+        }
+        let terminal = event_rx
+            .recv()
+            .await
+            .expect("PromptFinished must not be dropped");
+        assert!(matches!(
+            terminal.event,
+            AgentEvent::PromptFinished { finished } if finished.prompt_id == prompt_id
+        ));
     }
 
     #[test]

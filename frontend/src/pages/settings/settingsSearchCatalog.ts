@@ -109,6 +109,8 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'general.enablePromptEnhancement',
     'general.promptEnhancementAgent',
     'general.useCustomPrompt',
+    'general.compactContextTitle',
+    'general.enableCompactContext',
     'general.sessionContinuationTitle',
     'general.enablePreviousSessionContinuation',
     'general.importLocalSessionsTitle',

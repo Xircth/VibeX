@@ -8113,7 +8113,7 @@ async fn verify_acp_handshake(
     working_dir: &Path,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<()> {
-    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
+    let (event_tx, _event_rx) = agents::manager::manager_event_channel();
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let (_snapshot, ready) = manager
@@ -8148,7 +8148,7 @@ async fn probe_acp_capabilities(
     working_dir: &Path,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<AcpCapabilitySnapshot> {
-    let (event_tx, _event_rx) = mpsc::channel(agents::manager::MANAGER_EVENT_BUFFER);
+    let (event_tx, _event_rx) = agents::manager::manager_event_channel();
     let manager = AgentConnectionManager::new(event_tx);
     let connection_id = AgentConnectionId::new();
     let (_snapshot, ready) = manager

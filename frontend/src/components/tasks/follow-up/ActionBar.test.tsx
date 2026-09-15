@@ -13,6 +13,7 @@ function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
       isEditable={true}
       isAttemptRunning={false}
       isQueueLoading={false}
+      compactContextEnabled={false}
       canCompactContext={false}
       isCompactingContext={false}
       isStopping={false}
@@ -75,7 +76,10 @@ describe('ActionBar', () => {
   });
 
   it('groups attachment and utility actions immediately before send', () => {
-    renderActionBar({ promptEnhancementEnabled: true });
+    renderActionBar({
+      compactContextEnabled: true,
+      promptEnhancementEnabled: true,
+    });
 
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -84,6 +88,17 @@ describe('ActionBar', () => {
       '提示词优化',
       '发送',
     ]);
+  });
+
+  it('omits compact context when the optional setting is off', () => {
+    renderActionBar({ promptEnhancementEnabled: true });
+
+    expect(
+      screen.queryByRole('button', { name: '压缩上下文' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '提示词优化' })
+    ).toBeInTheDocument();
   });
 
   it('uses context and attachments as queueable content while running', () => {

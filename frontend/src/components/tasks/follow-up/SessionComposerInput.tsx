@@ -36,7 +36,11 @@ import {
 } from './SessionComposerStructuredText';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
-import { hostFileSrc, isBrowserDisplayUrl } from '@/lib/hostAsset';
+import {
+  hostFileSrc,
+  isBrowserDisplayUrl,
+  releaseHostFileSrc,
+} from '@/lib/hostAsset';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { toast } from '@/components/ui/toast';
 import { materializeMentionedHostFiles } from '@/lib/materializeHostReferences';
@@ -272,12 +276,15 @@ function SessionComposerImageAttachment({
       return;
     }
 
+    const assetPath = metadata.path;
     let cancelled = false;
-    hostFileSrc(metadata.path)
+    hostFileSrc(assetPath)
       .then((url) => {
-        if (!cancelled) {
-          setFallbackImageUrl(url);
+        if (cancelled) {
+          releaseHostFileSrc(assetPath);
+          return;
         }
+        setFallbackImageUrl(url);
       })
       .catch((error: unknown) => {
         console.warn('Failed to load composer image fallback:', error);
@@ -288,6 +295,7 @@ function SessionComposerImageAttachment({
 
     return () => {
       cancelled = true;
+      releaseHostFileSrc(assetPath);
     };
   }, [imageUrl, isLoading, metadata?.path, previewKind]);
 
@@ -318,20 +326,8 @@ function SessionComposerImageAttachment({
       return;
     }
 
-    if (fallbackImageUrl || !metadata?.path) {
-      setImageLoadFailed(true);
-      return;
-    }
-
-    hostFileSrc(metadata.path)
-      .then((url) => {
-        setFallbackImageUrl(url);
-      })
-      .catch((error: unknown) => {
-        console.warn('Failed to load composer image fallback:', error);
-        setImageLoadFailed(true);
-      });
-  }, [fallbackImageUrl, image.previewUrl, imageUrl, metadata?.path]);
+    setImageLoadFailed(true);
+  }, [image.previewUrl, imageUrl]);
 
   if (previewKind === 'file') {
     return (

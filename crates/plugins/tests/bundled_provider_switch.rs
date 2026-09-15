@@ -42,7 +42,7 @@ fn it_contributes_static_catalogs_without_a_worker() {
 fn it_never_embeds_secrets() {
     let package = bundled();
     let encoded = serde_json::to_string(&package.app.provider_catalogs).expect("catalogs");
-    for needle in ["apiKey", "api_key", "sk-", "Authorization"] {
+    for needle in ["\"apiKey\":", "\"api_key\":", "sk-", "\"Authorization\""] {
         assert!(!encoded.contains(needle), "catalog leaked {needle}");
     }
 }

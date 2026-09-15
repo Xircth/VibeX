@@ -1166,7 +1166,7 @@ describe('AgentSettings', () => {
     expect(screen.getByText('定义已同步')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: '编辑定义' }));
-    expect(screen.getByLabelText('Agent ID')).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: /^Agent ID/ })).toBeDisabled();
   });
 
   it('hides read diagnostics and clears the list on mark-all-read', async () => {

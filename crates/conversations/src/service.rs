@@ -4481,13 +4481,6 @@ fn should_inject_host_history(
     !has_live_bound_acp_session && !resuming_external_session
 }
 
-fn inject_host_history_on_connect(
-    resume_external_session_id: Option<&str>,
-    has_live_connection: bool,
-) -> bool {
-    resume_external_session_id.is_none() && !has_live_connection
-}
-
 fn is_placeholder_acp_session_id(id: &str) -> bool {
     id.starts_with("vibex-new-session-")
 }
@@ -4564,11 +4557,10 @@ mod tests {
         binding_can_restore_agent_session, checkpoint_before_files, checkpoint_file_change_summary,
         checkpoint_turn_file_changes, conversation_input_blocks_with_display_text,
         diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
-        host_started_at, inject_host_history_on_connect, known_acp_session_id,
-        merge_user_prompt_overrides, prune_unreferenced_turn_lock, resume_external_session_id,
-        session_control_preferences, session_control_replay_plan,
-        should_cold_start_after_restore_failure, should_inject_host_history,
-        turn_predates_this_host,
+        host_started_at, known_acp_session_id, merge_user_prompt_overrides,
+        prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
+        session_control_replay_plan, should_cold_start_after_restore_failure,
+        should_inject_host_history, turn_predates_this_host,
     };
 
     #[test]
@@ -4969,15 +4961,15 @@ mod tests {
             "after a retired connection, 继续 must resume this conversation's ACP session"
         );
         assert!(
-            !inject_host_history_on_connect(Some("acp-a"), false),
+            !should_inject_host_history(false, true),
             "resuming this conversation's ACP session must not dump host history into a sibling context"
         );
         assert!(
-            !inject_host_history_on_connect(None, true),
+            !should_inject_host_history(true, false),
             "a live Ready connection already has this conversation's context"
         );
         assert!(
-            inject_host_history_on_connect(None, false),
+            should_inject_host_history(false, false),
             "a true cold start still needs host history"
         );
     }

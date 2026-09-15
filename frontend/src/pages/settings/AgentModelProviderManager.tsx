@@ -2103,9 +2103,9 @@ function writePiReasoning(payload: Record<string, unknown>, next: PiModelSpec) {
     return;
   }
   if (
-    Object.prototype.hasOwnProperty.call(next.raw, 'reasoning') ||
-    Object.prototype.hasOwnProperty.call(next.raw, 'thinkingLevelMap') ||
-    Object.prototype.hasOwnProperty.call(next.raw, 'thinkingLevel')
+    Object.hasOwn(next.raw, 'reasoning') ||
+    Object.hasOwn(next.raw, 'thinkingLevelMap') ||
+    Object.hasOwn(next.raw, 'thinkingLevel')
   ) {
     payload.reasoning = false;
     delete payload.thinkingLevelMap;

@@ -189,20 +189,35 @@ describe('AgentRegistryViewPanel', () => {
     );
 
     await userEvent.click(screen.getByRole('tab', { name: '手动添加' }));
-    await userEvent.type(screen.getByLabelText('Agent ID'), 'local-reviewer');
-    await userEvent.type(screen.getByLabelText('显示名称'), 'Local Reviewer');
-    await userEvent.type(screen.getByLabelText('版本'), '1.2.3');
     await userEvent.type(
-      screen.getByLabelText('软件包'),
+      screen.getByRole('textbox', { name: /^Agent ID/ }),
+      'local-reviewer'
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /^显示名称/ }),
+      'Local Reviewer'
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /^版本/ }),
+      '1.2.3'
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /^软件包/ }),
       'local-reviewer@1.2.3'
     );
-    await userEvent.clear(screen.getByLabelText('启动参数'));
+    await userEvent.clear(screen.getByRole('textbox', { name: /^启动参数/ }));
     await userEvent.type(
-      screen.getByLabelText('启动参数'),
+      screen.getByRole('textbox', { name: /^启动参数/ }),
       '--acp{enter}--strict'
     );
-    await userEvent.type(screen.getByLabelText('环境变量名称 1'), 'ACP_MODE');
-    await userEvent.type(screen.getByLabelText('环境变量值 1'), 'review');
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /^环境变量名称 1/ }),
+      'ACP_MODE'
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /^环境变量值 1/ }),
+      'review'
+    );
     await userEvent.click(screen.getByRole('button', { name: '添加并安装' }));
 
     expect(onAddUserDefinition).toHaveBeenCalledWith({

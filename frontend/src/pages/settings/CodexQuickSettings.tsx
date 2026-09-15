@@ -5,7 +5,6 @@ import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Switch } from '@/components/ui/switch';
 
 import { containsCjk, humanizeIdentifier } from './agentConfigLabels';
-import { PiProviderBuilder } from './PiProviderBuilder';
 
 export const CODEX_QUICK_FIELDS = new Set<string>([
   'codex_reasoning_effort',
@@ -114,17 +113,6 @@ function ConfigControl({
 }) {
   const { t } = useTranslation('settings');
   const inputId = `agent-config-${field.id}`;
-  if (field.id === 'pi_custom_providers') {
-    return (
-      <div id={inputId} aria-labelledby={`${inputId}-label`} role="group">
-        <PiProviderBuilder
-          value={value}
-          disabled={disabled}
-          onChange={onChange}
-        />
-      </div>
-    );
-  }
   if (field.kind === 'json') {
     return (
       <textarea
@@ -190,7 +178,7 @@ function ConfigControl({
 }
 
 function isWideField(field: AgentNativeConfigFieldView): boolean {
-  return field.kind === 'json' || field.id === 'pi_custom_providers';
+  return field.kind === 'json';
 }
 
 export function layoutConfigFields(

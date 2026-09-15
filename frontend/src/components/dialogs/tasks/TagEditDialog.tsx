@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
@@ -113,7 +114,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
-            <Label htmlFor="tag-name">
+            <Label>
               {t('tagEdit.nameLabel')}{' '}
               <span className="text-destructive">{'*'}</span>
             </Label>
@@ -122,29 +123,28 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
                 name: formData.tag_name || 'tag_name',
               })}
             </p>
-            <Input
-              id="tag-name"
+            <TextInput
+              label={t('tagEdit.nameLabel')}
+              isLabelHidden
               value={formData.tag_name}
-              onChange={(e) => {
-                const value = e.target.value;
+              onChange={(value) => {
                 setFormData({ ...formData, tag_name: value });
-
-                // Validate in real-time for spaces
-                if (value.includes(' ')) {
-                  setTagNameError(t('tagEdit.nameSpaceError'));
-                } else {
-                  setTagNameError(null);
-                }
+                setTagNameError(
+                  value.includes(' ') ? t('tagEdit.nameSpaceError') : null
+                );
               }}
               placeholder={t('tagEdit.namePlaceholder')}
-              disabled={saving}
-              autoFocus
-              aria-invalid={!!tagNameError}
-              className={tagNameError ? 'border-destructive' : undefined}
+              isDisabled={saving}
+              hasAutoFocus
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
+              status={
+                tagNameError
+                  ? { type: 'error', message: tagNameError }
+                  : undefined
+              }
             />
-            {tagNameError && (
-              <p className="text-sm text-destructive">{tagNameError}</p>
-            )}
           </div>
           <div>
             <Label htmlFor="tag-content">

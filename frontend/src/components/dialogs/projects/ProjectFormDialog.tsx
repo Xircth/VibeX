@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
 import type { CreateProject, Project } from 'shared/types';
@@ -32,11 +33,6 @@ export type ProjectFormDialogResult =
   | { status: 'saved'; project: Project }
   | { status: 'canceled' };
 
-const textInputSurfaceStyle = {
-  backgroundColor: 'var(--surface-control)',
-  borderRadius: 'var(--radius)',
-};
-
 function setReadOnly(input: HTMLInputElement | null) {
   if (input) input.readOnly = true;
 }
@@ -65,7 +61,7 @@ function ProjectPathPreview({
         width="100%"
         aria-readonly="true"
         className="[&_input]:cursor-default [&_input]:truncate [&_input]:font-mono [&_input]:text-xs [&_input]:text-muted-foreground"
-        style={textInputSurfaceStyle}
+        style={astryxTextInputSurfaceStyle}
       />
     </div>
   );
@@ -481,7 +477,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     hasAutoFocus
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={textInputSurfaceStyle}
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 
@@ -497,7 +493,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     isDisabled={isBusy}
                     width="100%"
                     className="project-form-description-field [&_textarea]:resize-none [&_textarea]:text-sm"
-                    style={textInputSurfaceStyle}
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 

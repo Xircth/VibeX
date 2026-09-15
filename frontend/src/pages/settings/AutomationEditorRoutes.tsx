@@ -12,6 +12,8 @@ import type {
   Workspace,
 } from 'shared/types';
 
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -1125,10 +1127,14 @@ function WorkflowAutomationEditor({
 
       <div className="space-y-1.5">
         <Label>{t('automations.sourceArtifact')}</Label>
-        <Input
-          className="font-mono text-[11px]"
+        <TextInput
+          label={t('automations.sourceArtifact')}
+          isLabelHidden
           value={sourcePath}
-          onChange={(event) => setSourcePath(event.target.value)}
+          onChange={setSourcePath}
+          width="100%"
+          className="[&_input]:font-mono [&_input]:text-[11px]"
+          style={astryxTextInputSurfaceStyle}
         />
       </div>
 
@@ -1319,9 +1325,14 @@ function WorkflowAutomationEditor({
 
           <div className="space-y-1.5">
             <Label>{t('automations.timezone')}</Label>
-            <Input
+            <TextInput
+              label={t('automations.timezone')}
+              isLabelHidden
               value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
+              onChange={setTimezone}
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
           </div>
         </>
@@ -1506,14 +1517,15 @@ function WorkflowAutomationEditor({
         </DialogHeader>
         <DialogContent>
           <div className="space-y-1.5">
-            <Label htmlFor="workflow-release-version">
-              {t('automations.version')}
-            </Label>
-            <Input
-              id="workflow-release-version"
-              className="font-mono"
+            <Label>{t('automations.version')}</Label>
+            <TextInput
+              label={t('automations.version')}
+              isLabelHidden
               value={publishVersion}
-              onChange={(event) => setPublishVersion(event.target.value)}
+              onChange={setPublishVersion}
+              width="100%"
+              className="[&_input]:font-mono [&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
           </div>
         </DialogContent>

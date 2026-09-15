@@ -14,9 +14,10 @@ import type {
   UserAgentDistributionKind,
 } from 'shared/types';
 
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { AstryxSelect } from '@/components/ui/astryx-select';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -163,33 +164,43 @@ export function UserAgentDefinitionEditor({
     <form className="settings-surface space-y-4 p-4" onSubmit={submit}>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Agent ID">
-          <Input
-            aria-label="Agent ID"
-            autoComplete="off"
-            disabled={Boolean(initial)}
-            pattern="[a-z0-9][a-z0-9_.-]*"
-            required
+          <TextInput
+            label="Agent ID"
+            isLabelHidden
+            isDisabled={Boolean(initial)}
+            isRequired
             value={agentId}
             placeholder="local-reviewer"
-            onChange={(event) => setAgentId(event.target.value)}
+            onChange={setAgentId}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.displayName')}>
-          <Input
-            aria-label={t('settings:agents.displayName')}
-            required
+          <TextInput
+            label={t('settings:agents.displayName')}
+            isLabelHidden
+            isRequired
             value={displayName}
             placeholder="Local Reviewer"
-            onChange={(event) => setDisplayName(event.target.value)}
+            onChange={setDisplayName}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.version')}>
-          <Input
-            aria-label={t('settings:agents.version')}
-            required
+          <TextInput
+            label={t('settings:agents.version')}
+            isLabelHidden
+            isRequired
             value={version}
             placeholder="1.2.3"
-            onChange={(event) => setVersion(event.target.value)}
+            onChange={setVersion}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.installMethod')}>
@@ -208,11 +219,15 @@ export function UserAgentDefinitionEditor({
       </div>
 
       <Field label={t('settings:agents.descriptionOptional')}>
-        <Input
-          aria-label={t('settings:agents.description')}
+        <TextInput
+          label={t('settings:agents.description')}
+          isLabelHidden
           value={description}
           placeholder={t('settings:agents.descriptionPlaceholder')}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={setDescription}
+          width="100%"
+          className="[&_input]:text-sm"
+          style={astryxTextInputSurfaceStyle}
         />
       </Field>
 
@@ -242,45 +257,60 @@ export function UserAgentDefinitionEditor({
               label={t('settings:agents.archiveUrl')}
               className="sm:col-span-2"
             >
-              <Input
-                aria-label={t('settings:agents.archiveUrl')}
-                required
-                type="url"
+              <TextInput
+                label={t('settings:agents.archiveUrl')}
+                isLabelHidden
+                isRequired
                 value={archiveUrl}
                 placeholder="https://example.com/agent.tar.gz"
-                onChange={(event) => setArchiveUrl(event.target.value)}
+                onChange={setArchiveUrl}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
             </Field>
             <Field label={t('settings:agents.archiveCommand')}>
-              <Input
-                aria-label={t('settings:agents.archiveCommand')}
-                required
+              <TextInput
+                label={t('settings:agents.archiveCommand')}
+                isLabelHidden
+                isRequired
                 value={command}
                 placeholder="./agent"
-                onChange={(event) => setCommand(event.target.value)}
+                onChange={setCommand}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
             </Field>
             <Field label={t('settings:agents.sha256Optional')}>
-              <Input
-                aria-label="SHA-256"
+              <TextInput
+                label="SHA-256"
+                isLabelHidden
                 value={sha256}
                 placeholder={t('settings:agents.sha256Placeholder')}
-                onChange={(event) => setSha256(event.target.value)}
+                onChange={setSha256}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
             </Field>
           </div>
         ) : (
           <Field label={t('settings:agents.package')}>
-            <Input
-              aria-label={t('settings:agents.package')}
-              required
+            <TextInput
+              label={t('settings:agents.package')}
+              isLabelHidden
+              isRequired
               value={packageName}
               placeholder={
                 distributionKind === 'npx'
                   ? 'local-reviewer@1.2.3'
                   : 'local-reviewer==1.2.3'
               }
-              onChange={(event) => setPackageName(event.target.value)}
+              onChange={setPackageName}
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
           </Field>
         )}
@@ -320,39 +350,41 @@ export function UserAgentDefinitionEditor({
         </div>
         {environment.map((entry, index) => (
           <div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={entry.id}>
-            <Input
-              aria-label={t('settings:agents.environmentNameAria', {
+            <TextInput
+              label={t('settings:agents.environmentNameAria', {
                 number: index + 1,
               })}
-              autoComplete="off"
+              isLabelHidden
               value={entry.name}
               placeholder={t('settings:agents.variableName')}
-              onChange={(event) =>
+              onChange={(value) =>
                 setEnvironment((rows) =>
                   rows.map((row) =>
-                    row.id === entry.id
-                      ? { ...row, name: event.target.value }
-                      : row
+                    row.id === entry.id ? { ...row, name: value } : row
                   )
                 )
               }
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
-            <Input
-              aria-label={t('settings:agents.environmentValueAria', {
+            <TextInput
+              label={t('settings:agents.environmentValueAria', {
                 number: index + 1,
               })}
-              autoComplete="off"
+              isLabelHidden
               value={entry.value}
               placeholder={t('settings:agents.value')}
-              onChange={(event) =>
+              onChange={(value) =>
                 setEnvironment((rows) =>
                   rows.map((row) =>
-                    row.id === entry.id
-                      ? { ...row, value: event.target.value }
-                      : row
+                    row.id === entry.id ? { ...row, value: value } : row
                   )
                 )
               }
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
             <Button
               aria-label={t('settings:agents.environmentDeleteAria', {
@@ -392,13 +424,15 @@ export function UserAgentDefinitionEditor({
           />
         </div>
         <Field label={t('settings:agents.customSkillsDirectory')}>
-          <Input
-            aria-label={t('settings:agents.customSkillsDirectory')}
-            autoComplete="off"
-            className="font-mono text-xs"
+          <TextInput
+            label={t('settings:agents.customSkillsDirectory')}
+            isLabelHidden
             value={skillsDirectory}
             placeholder="~/.my-agent/skills"
-            onChange={(event) => setSkillsDirectory(event.target.value)}
+            onChange={setSkillsDirectory}
+            width="100%"
+            className="[&_input]:font-mono [&_input]:text-xs"
+            style={astryxTextInputSurfaceStyle}
           />
         </Field>
       </fieldset>

@@ -11,8 +11,9 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Popover,
@@ -592,29 +593,29 @@ export function RemoteClientSettings() {
                 className="settings-manual-connect w-80"
               >
                 <div>
-                  <Label htmlFor="host-client-origin">
-                    {t('webService.manualOriginLabel')}
-                  </Label>
-                  <Input
-                    id="host-client-origin"
+                  <Label>{t('webService.manualOriginLabel')}</Label>
+                  <TextInput
+                    label={t('webService.manualOriginLabel')}
+                    isLabelHidden
                     value={manualOrigin}
-                    onChange={(event) => setManualOrigin(event.target.value)}
+                    onChange={setManualOrigin}
                     placeholder={t('webService.manualOriginPlaceholder')}
-                    className="mt-1 font-mono"
-                    autoComplete="off"
+                    width="100%"
+                    className="mt-1 [&_input]:font-mono [&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="host-client-code">
-                    {t('webService.clientCodeLabel')}
-                  </Label>
-                  <Input
-                    id="host-client-code"
+                  <Label>{t('webService.clientCodeLabel')}</Label>
+                  <TextInput
+                    label={t('webService.clientCodeLabel')}
+                    isLabelHidden
                     value={manualCode}
-                    onChange={(event) => setManualCode(event.target.value)}
+                    onChange={setManualCode}
                     placeholder={t('webService.clientCodePlaceholder')}
-                    className="mt-1 font-mono"
-                    autoComplete="off"
+                    width="100%"
+                    className="mt-1 [&_input]:font-mono [&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
                 <Button
@@ -685,13 +686,15 @@ export function RemoteClientSettings() {
                       {t('webService.clientCodeLabel')}
                     </Label>
                     <div className="flex gap-2">
-                      <Input
-                        id={`lan-token-${key}`}
+                      <TextInput
+                        label={t('webService.clientCodeLabel')}
+                        isLabelHidden
                         value={token}
-                        onChange={(event) => setToken(event.target.value)}
+                        onChange={setToken}
                         placeholder={t('webService.clientCodePlaceholder')}
-                        className="font-mono"
-                        autoComplete="off"
+                        width="100%"
+                        className="[&_input]:font-mono [&_input]:text-sm"
+                        style={astryxTextInputSurfaceStyle}
                       />
                       <Button
                         size="sm"
@@ -808,12 +811,15 @@ export function RemoteClientSettings() {
                     <div className="settings-host-row__detail">
                       <SavedHostFacts profile={profile} />
                       {asking ? (
-                        <Input
+                        <TextInput
+                          label={t('webService.clientCodeLabel')}
+                          isLabelHidden
                           value={token}
-                          onChange={(event) => setToken(event.target.value)}
+                          onChange={setToken}
                           placeholder={t('webService.clientCodePlaceholder')}
-                          className="font-mono"
-                          autoComplete="off"
+                          width="100%"
+                          className="[&_input]:font-mono [&_input]:text-sm"
+                          style={astryxTextInputSurfaceStyle}
                         />
                       ) : null}
                       <div className="flex flex-wrap justify-end gap-2">

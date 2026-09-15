@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { defineModal, getErrorMessage } from '@/lib/modals';
 import { repoApi } from '@/lib/api/repos';
 import type { Repo } from 'shared/types';
@@ -99,15 +100,20 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
             <label className="text-sm font-medium">
               {t('cloneRepo.urlLabel')}
             </label>
-            <Input
+            <TextInput
+              label={t('cloneRepo.urlLabel')}
+              isLabelHidden
               value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
+              onChange={(value) => {
+                setUrl(value);
                 setError(null);
               }}
               placeholder={t('cloneRepo.urlPlaceholder')}
-              autoFocus
-              disabled={cloning}
+              hasAutoFocus
+              isDisabled={cloning}
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
           </div>
 
@@ -116,11 +122,16 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
               {t('cloneRepo.cloneToLabel')}
             </label>
             <div className="flex gap-2">
-              <Input
+              <TextInput
+                label={t('cloneRepo.cloneToLabel')}
+                isLabelHidden
                 value={parentDir}
-                onChange={(e) => setParentDir(e.target.value)}
+                onChange={setParentDir}
                 placeholder={t('cloneRepo.parentDirPlaceholder')}
-                disabled={cloning}
+                isDisabled={cloning}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 variant="outline"

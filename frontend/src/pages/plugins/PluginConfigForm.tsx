@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -230,24 +232,34 @@ function SchemaField({
 
   const inputType =
     schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text';
+  const stringValue = value == null ? '' : String(value);
   return (
     <div className="product-plugin-config-row">
       {copy}
-      <Input
-        aria-label={label}
-        type={inputType}
-        className="product-plugin-config-control"
-        disabled={disabled}
-        value={value == null ? '' : String(value)}
-        onChange={(event) => {
-          if (inputType === 'number') {
+      {inputType === 'number' ? (
+        <Input
+          aria-label={label}
+          type="number"
+          className="product-plugin-config-control"
+          disabled={disabled}
+          value={stringValue}
+          onChange={(event) => {
             const parsed = Number(event.target.value);
             onChange(Number.isFinite(parsed) ? parsed : event.target.value);
-            return;
-          }
-          onChange(event.target.value);
-        }}
-      />
+          }}
+        />
+      ) : (
+        <TextInput
+          label={label}
+          isLabelHidden
+          value={stringValue}
+          isDisabled={disabled}
+          onChange={onChange}
+          width="100%"
+          className="product-plugin-config-control [&_input]:text-sm"
+          style={astryxTextInputSurfaceStyle}
+        />
+      )}
     </div>
   );
 }

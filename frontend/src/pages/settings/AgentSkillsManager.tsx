@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Textarea } from '@/components/ui/textarea';
 import { agentManagementErrorMessage } from '@/features/agent-management';
 import {
@@ -282,12 +283,16 @@ export function AgentSkillsManager({
               ))}
           </div>
           {scope === 'project' ? (
-            <Input
-              aria-label={t('settings:agents.skillsWorkspacePath')}
-              className="h-8 min-w-64 flex-1 font-mono text-xs"
+            <TextInput
+              label={t('settings:agents.skillsWorkspacePath')}
+              isLabelHidden
               value={workspacePath}
               placeholder={t('settings:agents.skillsWorkspacePlaceholder')}
-              onChange={(event) => setWorkspacePath(event.target.value)}
+              onChange={setWorkspacePath}
+              width="100%"
+              size="sm"
+              className="min-w-64 flex-1 [&_input]:font-mono [&_input]:text-xs"
+              style={astryxTextInputSurfaceStyle}
             />
           ) : null}
         </div>
@@ -347,13 +352,17 @@ export function AgentSkillsManager({
               </p>
             ) : (
               <div className="space-y-2.5">
-                <Input
-                  aria-label={t('settings:agents.skillsName')}
-                  className="h-8 font-mono text-xs"
-                  disabled={disabled || saving || !creating || readOnly}
+                <TextInput
+                  label={t('settings:agents.skillsName')}
+                  isLabelHidden
+                  isDisabled={disabled || saving || !creating || readOnly}
                   value={draftId}
                   placeholder="review-changes"
-                  onChange={(event) => setDraftId(event.target.value)}
+                  onChange={setDraftId}
+                  width="100%"
+                  size="sm"
+                  className="[&_input]:font-mono [&_input]:text-xs"
+                  style={astryxTextInputSurfaceStyle}
                 />
                 <Textarea
                   aria-label={t('settings:agents.skillsContent')}

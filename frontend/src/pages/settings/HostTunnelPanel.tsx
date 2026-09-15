@@ -3,8 +3,9 @@ import { ChevronDown, Copy, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { toast } from '@/components/ui/toast';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -294,12 +295,16 @@ export function HostTunnelPanel({
               </Label>
               <div className="settings-row__stack">
                 <div className="flex gap-2">
-                  <Input
-                    id="host-tunnel-address"
+                  <TextInput
+                    label={t('webService.tunnelAddress')}
+                    isLabelHidden
                     value={address}
                     placeholder="gate.example.com"
-                    disabled={busy}
-                    onChange={(event) => setAddress(event.target.value)}
+                    isDisabled={busy}
+                    onChange={setAddress}
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     type="button"
@@ -326,12 +331,16 @@ export function HostTunnelPanel({
               </Label>
               <div className="settings-row__stack">
                 <div className="flex gap-2">
-                  <Input
-                    id="host-tunnel-create-address"
+                  <TextInput
+                    label={t('webService.tunnelCreateAddress')}
+                    isLabelHidden
                     value={address}
                     placeholder="203.0.113.10"
-                    disabled={busy}
-                    onChange={(event) => setAddress(event.target.value)}
+                    isDisabled={busy}
+                    onChange={setAddress}
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     type="button"
@@ -350,12 +359,23 @@ export function HostTunnelPanel({
               {setupCommand || status.pending ? (
                 <>
                   <div className="flex min-w-0 gap-2">
-                    <Input
-                      readOnly
+                    <TextInput
+                      ref={(input) => {
+                        if (input) input.readOnly = true;
+                      }}
+                      label={t('webService.tunnelCommand')}
+                      isLabelHidden
                       value={status.pending?.command ?? setupCommand ?? ''}
-                      className="settings-command-line font-mono text-xs"
-                      aria-label={t('webService.tunnelCommand')}
-                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={() => undefined}
+                      onFocus={(event) => {
+                        const target = event.currentTarget;
+                        if (target instanceof HTMLInputElement) {
+                          target.select();
+                        }
+                      }}
+                      width="100%"
+                      className="settings-command-line [&_input]:font-mono [&_input]:text-xs"
+                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       type="button"

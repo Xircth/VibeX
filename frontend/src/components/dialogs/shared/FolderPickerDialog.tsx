@@ -1,5 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -125,8 +127,8 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
       // Don't set manual path here since home directory path varies by system
     };
 
-    const handleManualPathChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      setManualPath(e.target.value);
+    const handleManualPathChange = (value: string) => {
+      setManualPath(value);
     };
 
     const handleManualPathSubmit = () => {
@@ -175,12 +177,16 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                 <div className="text-sm font-medium">
                   {t('folderPicker.manualPathLabel')}
                 </div>
-                <div className="flex space-x-2 min-w-0">
-                  <Input
+                <div className="flex min-w-0 space-x-2">
+                  <TextInput
+                    label={t('folderPicker.manualPathLabel')}
+                    isLabelHidden
                     value={manualPath}
                     onChange={handleManualPathChange}
                     placeholder="/path/to/your/project"
-                    className="flex-1 min-w-0"
+                    width="100%"
+                    className="min-w-0 flex-1 [&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     onClick={handleManualPathSubmit}

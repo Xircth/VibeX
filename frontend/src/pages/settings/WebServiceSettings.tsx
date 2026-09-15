@@ -16,6 +16,8 @@ import type { BackendTransport } from '@/lib/backendTransport';
 import { isTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
 
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -598,18 +600,21 @@ export function WebServiceSettings({
                   </p>
                 </div>
                 <div className="flex w-full max-w-sm gap-2">
-                  <Input
+                  <TextInput
+                    label={t('webService.tokenLabel')}
+                    isLabelHidden
                     type={tokenRevealed ? 'text' : 'password'}
                     value={draft.token ?? ''}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       setDraft((previous) => ({
                         ...previous,
-                        token: event.target.value || null,
+                        token: value || null,
                       }))
                     }
                     placeholder={t('webService.tokenPlaceholder')}
-                    className="font-mono"
-                    autoComplete="off"
+                    width="100%"
+                    className="[&_input]:font-mono [&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     variant="outline"

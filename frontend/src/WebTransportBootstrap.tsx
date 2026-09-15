@@ -9,8 +9,9 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Logo } from '@/components/Logo';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { BackendTransportProvider, WebTransport } from '@/lib/transport';
 import {
   defaultHostUrl,
@@ -106,18 +107,18 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
               {t('webConnect.description')}
             </p>
           </div>
-          <label className="web-connect__field" htmlFor="web-connect-host">
+          <label className="web-connect__field">
             <span>{t('webConnect.hostLabel')}</span>
-            <Input
-              id="web-connect-host"
-              type="url"
+            <TextInput
+              label={t('webConnect.hostLabel')}
+              isLabelHidden
               value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-              autoComplete="url"
-              spellCheck={false}
-              required
+              onChange={setBaseUrl}
+              isRequired
               placeholder="http://127.0.0.1:17891"
-              className="font-mono"
+              width="100%"
+              className="[&_input]:font-mono [&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
             {hostDiffers ? (
               <span className="web-connect__hint">
@@ -125,18 +126,20 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </label>
-          <label className="web-connect__field" htmlFor="web-connect-token">
+          <label className="web-connect__field">
             <span>{t('webConnect.tokenLabel')}</span>
             <span className="web-connect__token">
-              <Input
-                id="web-connect-token"
+              <TextInput
+                label={t('webConnect.tokenLabel')}
+                isLabelHidden
                 type={tokenRevealed ? 'text' : 'password'}
                 value={token}
-                onChange={(event) => setToken(event.target.value)}
-                autoComplete="off"
-                required
-                autoFocus
-                className="font-mono"
+                onChange={setToken}
+                isRequired
+                hasAutoFocus
+                width="100%"
+                className="[&_input]:font-mono [&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 type="button"

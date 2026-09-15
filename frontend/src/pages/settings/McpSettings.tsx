@@ -27,6 +27,8 @@ import {
   TerminalSquare,
   Trash2,
 } from 'lucide-react';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -928,17 +930,22 @@ export function McpSettings() {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <Input
+                        <TextInput
+                          label={field.label}
+                          isLabelHidden
                           type={field.secret ? 'password' : 'text'}
                           value={installParamDraft[field.key] ?? ''}
-                          className="h-8 text-xs"
                           placeholder={field.placeholder ?? ''}
-                          onChange={(event) =>
+                          onChange={(value) =>
                             setInstallParamDraft((prev) => ({
                               ...prev,
-                              [field.key]: event.target.value,
+                              [field.key]: value,
                             }))
                           }
+                          width="100%"
+                          size="sm"
+                          className="[&_input]:text-xs"
+                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                       {field.description ? (
@@ -1552,11 +1559,16 @@ function DraftEditor({
         <Label className="text-xs text-muted-foreground">
           {t('mcp.serverId')}
         </Label>
-        <Input
+        <TextInput
+          label={t('mcp.serverId')}
+          isLabelHidden
           value={id}
           placeholder={t('mcp.serverIdPlaceholder')}
-          className="h-8 text-xs"
-          onChange={(event) => onIdChange(event.target.value)}
+          onChange={onIdChange}
+          width="100%"
+          size="sm"
+          className="[&_input]:text-xs"
+          style={astryxTextInputSurfaceStyle}
         />
       </div>
 

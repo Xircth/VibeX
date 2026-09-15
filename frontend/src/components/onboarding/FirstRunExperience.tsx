@@ -564,6 +564,7 @@ export function FirstRunExperience({
   useGSAP(
     () => {
       if (!visible) return;
+      const copy = '.onboarding-step-copy > *, .onboarding-step-actions';
       const media = gsap.matchMedia();
       media.add('(prefers-reduced-motion: no-preference)', () => {
         if (step !== 'intro') return;
@@ -582,13 +583,22 @@ export function FirstRunExperience({
           );
       });
       media.add('(prefers-reduced-motion: reduce)', () => {
-        gsap.set('.onboarding-step-copy > *, .onboarding-step-actions', {
+        gsap.set(copy, {
           autoAlpha: 1,
           x: 0,
           y: 0,
           scale: 1,
         });
       });
+      // Some Windows WebView2 builds match neither query. Never leave the
+      // guide copy at autoAlpha 0 waiting for an animation that will not run.
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const allow = window.matchMedia(
+        '(prefers-reduced-motion: no-preference)'
+      );
+      if (!reduce.matches && !allow.matches) {
+        gsap.set(copy, { autoAlpha: 1, x: 0, y: 0, scale: 1 });
+      }
       return () => media.revert();
     },
     { scope: rootRef, dependencies: [step, visible], revertOnUpdate: true }

@@ -3,11 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@astryxdesign/core/Badge';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -609,15 +610,17 @@ export function SessionCreationForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="session-create-name">
-          {t('sessionCreation.sessionNameLabel')}
-        </Label>
-        <Input
-          id="session-create-name"
+        <Label>{t('sessionCreation.sessionNameLabel')}</Label>
+        <TextInput
+          label={t('sessionCreation.sessionNameLabel')}
+          isLabelHidden
           value={sessionName}
-          onChange={(event) => onSessionNameChange(event.target.value)}
+          onChange={onSessionNameChange}
           placeholder={t('sessionCreation.sessionNamePlaceholder')}
-          className="h-9 text-sm"
+          width="100%"
+          size="lg"
+          className="[&_input]:text-sm"
+          style={astryxTextInputSurfaceStyle}
         />
       </div>
 

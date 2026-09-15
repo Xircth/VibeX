@@ -8,8 +8,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, getErrorMessage } from '@/lib/modals';
 import { useRenameBranch } from '@/hooks/useRenameBranch';
@@ -96,27 +97,30 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="branch-name" className="text-sm font-medium">
+              <label className="text-sm font-medium">
                 {t('editBranchName.branchNameLabel')}
               </label>
-              <Input
-                id="branch-name"
-                type="text"
+              <TextInput
+                label={t('editBranchName.branchNameLabel')}
+                isLabelHidden
                 value={branchName}
-                onChange={(e) => {
-                  setBranchName(e.target.value);
+                onChange={(value) => {
+                  setBranchName(value);
                   setError(null);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !renameMutation.isPending) {
+                onEnter={() => {
+                  if (!renameMutation.isPending) {
                     handleConfirm();
                   }
                 }}
                 placeholder={t('editBranchName.placeholder')}
-                disabled={renameMutation.isPending}
-                autoFocus
+                isDisabled={renameMutation.isPending}
+                hasAutoFocus
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
+                status={error ? { type: 'error', message: error } : undefined}
               />
-              {error && <p className="text-sm text-destructive">{error}</p>}
             </div>
           </div>
 

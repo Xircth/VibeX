@@ -6,6 +6,8 @@ import type { Project } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import { toast } from '@/components/ui/toast';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -255,23 +257,25 @@ export function WorktreeSettings() {
           <div className="space-y-4">
             <div className="settings-row settings-row--stacked">
               <div>
-                <Label htmlFor="worktree-workspace-dir">
-                  {t('versionControl.workspaceDirLabel')}
-                </Label>
+                <Label>{t('versionControl.workspaceDirLabel')}</Label>
                 <p className="settings-row__description">
                   {t('versionControl.workspaceDirDescription')}
                 </p>
               </div>
               <div className="flex gap-2">
-                <Input
-                  id="worktree-workspace-dir"
+                <TextInput
+                  label={t('versionControl.workspaceDirLabel')}
+                  isLabelHidden
                   value={worktreeDraft.workspace_dir ?? ''}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     updateWorktreeDraft({
-                      workspace_dir: event.target.value || null,
+                      workspace_dir: value || null,
                     })
                   }
                   placeholder={t('versionControl.workspaceDirPlaceholder')}
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
                 <Button
                   variant="outline"
@@ -285,25 +289,29 @@ export function WorktreeSettings() {
 
             <div className="settings-row settings-row--stacked">
               <div>
-                <Label htmlFor="worktree-branch-prefix">
-                  {t('versionControl.branchPrefixLabel')}
-                </Label>
+                <Label>{t('versionControl.branchPrefixLabel')}</Label>
                 <p className="settings-row__description">
                   {t('versionControl.branchPrefixDescription')}
                 </p>
               </div>
-              <Input
-                id="worktree-branch-prefix"
+              <TextInput
+                label={t('versionControl.branchPrefixLabel')}
+                isLabelHidden
                 value={worktreeDraft.git_branch_prefix}
-                onChange={(event) =>
+                onChange={(value) =>
                   updateWorktreeDraft({
-                    git_branch_prefix: event.target.value.trim(),
+                    git_branch_prefix: value.trim(),
                   })
                 }
                 placeholder="vibex"
-                aria-invalid={Boolean(
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
+                status={
                   worktreeDirty && worktreeBranchPrefixError
-                )}
+                    ? { type: 'error' }
+                    : undefined
+                }
               />
               {worktreeDirty && worktreeBranchPrefixError ? (
                 <p className="text-sm text-destructive">

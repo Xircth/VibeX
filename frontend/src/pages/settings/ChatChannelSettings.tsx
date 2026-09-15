@@ -12,6 +12,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -1069,14 +1071,18 @@ export function ChatChannelSettings() {
           <div className="settings-card overflow-hidden rounded-lg border">
             <div className="flex items-end justify-between gap-3 px-4 py-3">
               <div className="min-w-0 flex-1 space-y-1.5">
-                <Label htmlFor="chat-prefix" className="text-sm">
+                <Label className="text-sm">
                   {t('chatChannels.prefixLabel')}
                 </Label>
-                <Input
-                  id="chat-prefix"
+                <TextInput
+                  label={t('chatChannels.prefixLabel')}
+                  isLabelHidden
                   value={prefix}
-                  onChange={(event) => setPrefix(event.target.value)}
+                  onChange={setPrefix}
                   placeholder="/vibex"
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <Button
@@ -1235,10 +1241,15 @@ export function ChatChannelSettings() {
               </div>
             ))}
             <div className="flex gap-2 border-t border-[var(--border-subtle)] px-4 py-3">
-              <Input
+              <TextInput
+                label={t('chatChannels.addWebhook')}
+                isLabelHidden
                 value={webhookDraft}
-                onChange={(event) => setWebhookDraft(event.target.value)}
+                onChange={setWebhookDraft}
                 placeholder="https://example.com/hooks/vibex"
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 size="sm"
@@ -1315,14 +1326,16 @@ export function ChatChannelSettings() {
 
           <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="channel-name" className="text-xs">
-                {t('chatChannels.nameLabel')}
-              </Label>
-              <Input
-                id="channel-name"
+              <Label className="text-xs">{t('chatChannels.nameLabel')}</Label>
+              <TextInput
+                label={t('chatChannels.nameLabel')}
+                isLabelHidden
                 value={draft.name}
-                onChange={(event) => updateDraft({ name: event.target.value })}
+                onChange={(value) => updateDraft({ name: value })}
                 placeholder={t('chatChannels.namePlaceholder')}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
             </div>
             <div className="space-y-1.5">
@@ -1347,16 +1360,16 @@ export function ChatChannelSettings() {
 
           {draft.kind === 'telegram' ? (
             <div className="space-y-1.5">
-              <Label htmlFor="tg-chat" className="text-xs">
-                Chat ID
-              </Label>
-              <Input
-                id="tg-chat"
+              <Label className="text-xs">Chat ID</Label>
+              <TextInput
+                label="Chat ID"
+                isLabelHidden
                 value={draft.chat_id}
-                onChange={(event) =>
-                  updateDraft({ chat_id: event.target.value })
-                }
+                onChange={(value) => updateDraft({ chat_id: value })}
                 placeholder={t('chatChannels.telegramChatPlaceholder')}
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
               <div className="flex items-center justify-between pt-1">
                 <Label className="text-xs">
@@ -1397,29 +1410,31 @@ export function ChatChannelSettings() {
           {draft.kind === 'feishu' ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="fs-app" className="text-xs">
-                  App ID
-                </Label>
-                <Input
-                  id="fs-app"
+                <Label className="text-xs">App ID</Label>
+                <TextInput
+                  label="App ID"
+                  isLabelHidden
                   value={draft.app_id}
-                  onChange={(event) =>
-                    updateDraft({ app_id: event.target.value })
-                  }
+                  onChange={(value) => updateDraft({ app_id: value })}
                   placeholder="cli_xxxxxxxx"
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="fs-chat" className="text-xs">
+                <Label className="text-xs">
                   {t('chatChannels.feishuChatLabel')}
                 </Label>
-                <Input
-                  id="fs-chat"
+                <TextInput
+                  label={t('chatChannels.feishuChatLabel')}
+                  isLabelHidden
                   value={draft.chat_id}
-                  onChange={(event) =>
-                    updateDraft({ chat_id: event.target.value })
-                  }
+                  onChange={(value) => updateDraft({ chat_id: value })}
                   placeholder="oc_xxxxxxxx"
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
             </div>
@@ -1428,29 +1443,31 @@ export function ChatChannelSettings() {
           {draft.kind === 'qq' ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="qq-url" className="text-xs">
+                <Label className="text-xs">
                   {t('chatChannels.qqHttpLabel')}
                 </Label>
-                <Input
-                  id="qq-url"
+                <TextInput
+                  label={t('chatChannels.qqHttpLabel')}
+                  isLabelHidden
                   value={draft.base_url}
-                  onChange={(event) =>
-                    updateDraft({ base_url: event.target.value })
-                  }
+                  onChange={(value) => updateDraft({ base_url: value })}
                   placeholder="http://127.0.0.1:3000"
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="qq-ws" className="text-xs">
-                  {t('chatChannels.qqWsLabel')}
-                </Label>
-                <Input
-                  id="qq-ws"
+                <Label className="text-xs">{t('chatChannels.qqWsLabel')}</Label>
+                <TextInput
+                  label={t('chatChannels.qqWsLabel')}
+                  isLabelHidden
                   value={draft.ws_url}
-                  onChange={(event) =>
-                    updateDraft({ ws_url: event.target.value })
-                  }
+                  onChange={(value) => updateDraft({ ws_url: value })}
                   placeholder={t('chatChannels.qqWsPlaceholder')}
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">
@@ -1478,18 +1495,24 @@ export function ChatChannelSettings() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="qq-target" className="text-xs">
+                  <Label className="text-xs">
                     {draft.message_type === 'private'
                       ? t('chatChannels.qqTargetPrivate')
                       : t('chatChannels.qqTargetGroup')}
                   </Label>
-                  <Input
-                    id="qq-target"
-                    value={draft.target_id}
-                    onChange={(event) =>
-                      updateDraft({ target_id: event.target.value })
+                  <TextInput
+                    label={
+                      draft.message_type === 'private'
+                        ? t('chatChannels.qqTargetPrivate')
+                        : t('chatChannels.qqTargetGroup')
                     }
+                    isLabelHidden
+                    value={draft.target_id}
+                    onChange={(value) => updateDraft({ target_id: value })}
                     placeholder={t('chatChannels.qqTargetPlaceholder')}
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
               </div>
@@ -1522,16 +1545,16 @@ export function ChatChannelSettings() {
 
           {draft.kind === 'webhook' ? (
             <div className="space-y-1.5">
-              <Label htmlFor="wh-url" className="text-xs">
-                Webhook URL
-              </Label>
-              <Input
-                id="wh-url"
+              <Label className="text-xs">Webhook URL</Label>
+              <TextInput
+                label="Webhook URL"
+                isLabelHidden
                 value={draft.webhook_url}
-                onChange={(event) =>
-                  updateDraft({ webhook_url: event.target.value })
-                }
+                onChange={(value) => updateDraft({ webhook_url: value })}
                 placeholder="https://example.com/webhook"
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
             </div>
           ) : null}
@@ -1570,16 +1593,20 @@ export function ChatChannelSettings() {
               ) : null}
             </Label>
             <div className="flex gap-2">
-              <Input
-                id="channel-secret"
+              <TextInput
+                label={secret.label}
+                isLabelHidden
                 type="password"
                 value={draft.token}
-                onChange={(event) => updateDraft({ token: event.target.value })}
+                onChange={(value) => updateDraft({ token: value })}
                 placeholder={
                   editingChannel?.has_token
                     ? t('chatChannels.secretSavedPlaceholder')
                     : secret.placeholder
                 }
+                width="100%"
+                className="[&_input]:text-sm"
+                style={astryxTextInputSurfaceStyle}
               />
               {editingChannel?.has_token ? (
                 <Button

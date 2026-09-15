@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 import { Archive, ChevronDown, ChevronRight } from 'lucide-react';
 
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { attemptsApi } from '@/lib/api/attempts';
 import type { StashEntry } from 'shared/types';
 
@@ -98,11 +99,16 @@ export function GitStashSection({
       {expanded ? (
         <div className="space-y-2 px-3 pb-3">
           <div className="flex gap-2">
-            <Input
+            <TextInput
+              label={t('gitStash.notePlaceholder')}
+              isLabelHidden
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={setMessage}
               placeholder={t('gitStash.notePlaceholder')}
-              className="h-8 text-xs"
+              width="100%"
+              size="sm"
+              className="[&_input]:text-xs"
+              style={astryxTextInputSurfaceStyle}
             />
             <Button
               size="sm"

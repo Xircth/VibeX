@@ -19,6 +19,8 @@ import { DEFAULT_PR_DESCRIPTION_PROMPT, type Config } from 'shared/types';
 import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { AstryxSelect } from '@/components/ui/astryx-select';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -425,10 +427,15 @@ export function VersionControlSettings() {
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
+                <TextInput
+                  label={t('versionControl.customGitPathLabel')}
+                  isLabelHidden
                   value={customGitPath}
-                  onChange={(event) => setCustomGitPath(event.target.value)}
+                  onChange={setCustomGitPath}
                   placeholder={t('versionControl.customGitPathPlaceholder')}
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button
@@ -703,11 +710,16 @@ export function VersionControlSettings() {
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
+                <TextInput
+                  label="GitHub Host"
+                  isLabelHidden
                   value={githubHost}
-                  onChange={(event) => setGithubHost(event.target.value)}
+                  onChange={setGithubHost}
                   placeholder="github.com"
-                  disabled={githubInstalling}
+                  isDisabled={githubInstalling}
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button

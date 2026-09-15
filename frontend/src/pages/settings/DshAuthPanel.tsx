@@ -12,9 +12,11 @@ import { useTranslation } from 'react-i18next';
 import type { DshProviderModelView, DshProvidersView } from 'shared/types';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { AstryxSelect } from '@/components/ui/astryx-select';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+
 import { toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import {
@@ -483,27 +485,41 @@ export function DshAuthPanel({
                 <>
                   <label className="agent-auth-mode-field">
                     <span>API URL</span>
-                    <Input readOnly value={OFFICIAL_URL} />
+                    <TextInput
+                      ref={(input) => {
+                        if (input) input.readOnly = true;
+                      }}
+                      label="API URL"
+                      isLabelHidden
+                      value={OFFICIAL_URL}
+                      onChange={() => undefined}
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
+                    />
                   </label>
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderApiKey')}</span>
-                    <Input
-                      aria-label={t('settings:agents.dshProviderApiKey')}
-                      autoComplete="new-password"
-                      name="dsh_api_key"
+                    <TextInput
+                      label={t('settings:agents.dshProviderApiKey')}
+                      isLabelHidden
+                      type="password"
+                      htmlName="dsh_api_key"
                       placeholder={
                         official?.credential_present
                           ? t('settings:agents.credentialSavedPlaceholder')
                           : t('settings:agents.credentialPlaceholder')
                       }
-                      type="password"
                       value={draft.apiKey}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         setDraft((current) => ({
                           ...current,
-                          apiKey: event.target.value,
+                          apiKey: value,
                         }))
                       }
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <div className="dsh-auth-model-row">
@@ -523,16 +539,20 @@ export function DshAuthPanel({
                           }
                         />
                       ) : (
-                        <Input
-                          autoComplete="off"
-                          name="dsh_model"
+                        <TextInput
+                          label={t('settings:agents.dshProviderDefaultModel')}
+                          isLabelHidden
+                          htmlName="dsh_model"
                           value={draft.model}
-                          onChange={(event) =>
+                          onChange={(value) =>
                             setDraft((current) => ({
                               ...current,
-                              model: event.target.value,
+                              model: value,
                             }))
                           }
+                          width="100%"
+                          className="[&_input]:text-sm"
+                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                     </label>
@@ -612,45 +632,56 @@ export function DshAuthPanel({
                   ) : null}
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderName')}</span>
-                    <Input
-                      autoComplete="off"
-                      name="dsh_custom_name"
+                    <TextInput
+                      label={t('settings:agents.dshProviderName')}
+                      isLabelHidden
+                      htmlName="dsh_custom_name"
                       value={draft.displayName}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         setDraft((current) => ({
                           ...current,
-                          displayName: event.target.value,
+                          displayName: value,
                         }))
                       }
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderNotes')}</span>
-                    <Input
-                      autoComplete="off"
-                      name="dsh_custom_notes"
+                    <TextInput
+                      label={t('settings:agents.dshProviderNotes')}
+                      isLabelHidden
+                      htmlName="dsh_custom_notes"
                       value={draft.notes}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         setDraft((current) => ({
                           ...current,
-                          notes: event.target.value,
+                          notes: value,
                         }))
                       }
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <label className="agent-auth-mode-field">
                     <span>API URL</span>
-                    <Input
-                      autoComplete="off"
-                      name="dsh_custom_url"
-                      aria-label={t('settings:agents.dshProviderBaseUrl')}
+                    <TextInput
+                      label={t('settings:agents.dshProviderBaseUrl')}
+                      isLabelHidden
+                      htmlName="dsh_custom_url"
                       value={draft.baseUrl}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         setDraft((current) => ({
                           ...current,
-                          baseUrl: event.target.value,
+                          baseUrl: value,
                         }))
                       }
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   {endpointCandidates.length > 1 ? (
@@ -671,23 +702,26 @@ export function DshAuthPanel({
                   ) : null}
                   <label className="agent-auth-mode-field">
                     <span>{t('settings:agents.dshProviderApiKey')}</span>
-                    <Input
-                      aria-label={t('settings:agents.dshProviderApiKey')}
-                      autoComplete="new-password"
-                      name="dsh_api_key"
+                    <TextInput
+                      label={t('settings:agents.dshProviderApiKey')}
+                      isLabelHidden
+                      type="password"
+                      htmlName="dsh_api_key"
                       placeholder={
                         custom?.credential_present
                           ? t('settings:agents.credentialSavedPlaceholder')
                           : t('settings:agents.credentialPlaceholder')
                       }
-                      type="password"
                       value={draft.apiKey}
-                      onChange={(event) =>
+                      onChange={(value) =>
                         setDraft((current) => ({
                           ...current,
-                          apiKey: event.target.value,
+                          apiKey: value,
                         }))
                       }
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <div className="dsh-auth-model-row">
@@ -707,16 +741,20 @@ export function DshAuthPanel({
                           }
                         />
                       ) : (
-                        <Input
-                          autoComplete="off"
-                          name="dsh_model"
+                        <TextInput
+                          label={t('settings:agents.dshProviderDefaultModel')}
+                          isLabelHidden
+                          htmlName="dsh_model"
                           value={draft.model}
-                          onChange={(event) =>
+                          onChange={(value) =>
                             setDraft((current) => ({
                               ...current,
-                              model: event.target.value,
+                              model: value,
                             }))
                           }
+                          width="100%"
+                          className="[&_input]:text-sm"
+                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                     </label>

@@ -27,6 +27,8 @@ import {
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { SessionComposerInput } from '@/components/tasks/follow-up/SessionComposerInput';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -857,16 +859,16 @@ export function AutomationsSettings({
               >
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="automation-name">
-                      {t('automations.name')}
-                    </Label>
-                    <Input
-                      id="automation-name"
+                    <Label>{t('automations.name')}</Label>
+                    <TextInput
+                      label={t('automations.name')}
+                      isLabelHidden
                       value={draft.name}
-                      onChange={(event) =>
-                        setDraft({ ...draft, name: event.target.value })
-                      }
+                      onChange={(value) => setDraft({ ...draft, name: value })}
                       placeholder={t('automations.namePlaceholder')}
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -977,16 +979,18 @@ export function AutomationsSettings({
                   {draft.triggerKind === 'schedule' ? (
                     <div className="mt-3 space-y-3">
                       <div className="space-y-1.5">
-                        <Label htmlFor="automation-timezone">
-                          {t('automations.timezone')}
-                        </Label>
-                        <Input
-                          id="automation-timezone"
+                        <Label>{t('automations.timezone')}</Label>
+                        <TextInput
+                          label={t('automations.timezone')}
+                          isLabelHidden
                           value={draft.timezone}
-                          onChange={(event) =>
-                            setDraft({ ...draft, timezone: event.target.value })
+                          onChange={(value) =>
+                            setDraft({ ...draft, timezone: value })
                           }
                           placeholder="Area/City"
+                          width="100%"
+                          className="[&_input]:text-sm"
+                          style={astryxTextInputSurfaceStyle}
                         />
                       </div>
                       <div className="flex flex-wrap items-center gap-2">

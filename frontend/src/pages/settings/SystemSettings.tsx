@@ -14,8 +14,9 @@ import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 import { type Config } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -615,18 +616,22 @@ export function SystemSettings() {
 
             {proxyDraft.mode === 'manual' ? (
               <div className="space-y-1.5">
-                <Label htmlFor="system-proxy-url">{t('system.proxyUrl')}</Label>
-                <Input
-                  id="system-proxy-url"
+                <Label>{t('system.proxyUrl')}</Label>
+                <TextInput
+                  label={t('system.proxyUrl')}
+                  isLabelHidden
                   value={proxyDraft.proxy_url ?? ''}
                   placeholder="http://127.0.0.1:7890"
-                  disabled={proxyLoading || proxySaving}
-                  onChange={(event) =>
+                  isDisabled={proxyLoading || proxySaving}
+                  onChange={(value) =>
                     setProxyDraft((previous) => ({
                       ...previous,
-                      proxy_url: event.target.value,
+                      proxy_url: value,
                     }))
                   }
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
                 <p className="settings-row__description">
                   {t('system.proxyProtocolHint')}
@@ -704,11 +709,16 @@ export function SystemSettings() {
                 <div className="space-y-2">
                   <Label className="text-sm">{t('system.exportBackup')}</Label>
                   <div className="flex gap-2">
-                    <Input
+                    <TextInput
+                      label="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
+                      isLabelHidden
                       value={backupPath}
                       placeholder="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
-                      onChange={(event) => setBackupPath(event.target.value)}
-                      disabled={backupBusy}
+                      onChange={setBackupPath}
+                      isDisabled={backupBusy}
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       className="shrink-0"
@@ -723,25 +733,33 @@ export function SystemSettings() {
                       {t('system.export')}
                     </Button>
                   </div>
-                  <Input
+                  <TextInput
+                    label={t('system.encryptPassphrasePlaceholder')}
+                    isLabelHidden
                     type="password"
                     value={backupPassphrase}
                     placeholder={t('system.encryptPassphrasePlaceholder')}
-                    onChange={(event) =>
-                      setBackupPassphrase(event.target.value)
-                    }
-                    disabled={backupBusy}
+                    onChange={setBackupPassphrase}
+                    isDisabled={backupBusy}
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label className="text-sm">{t('system.restoreBackup')}</Label>
                   <div className="flex gap-2">
-                    <Input
+                    <TextInput
+                      label={t('system.restorePathPlaceholder')}
+                      isLabelHidden
                       value={restorePath}
                       placeholder={t('system.restorePathPlaceholder')}
-                      onChange={(event) => setRestorePath(event.target.value)}
-                      disabled={restoreBusy}
+                      onChange={setRestorePath}
+                      isDisabled={restoreBusy}
+                      width="100%"
+                      className="[&_input]:text-sm"
+                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       variant="outline"
@@ -769,14 +787,17 @@ export function SystemSettings() {
                       {t('system.restore')}
                     </Button>
                   </div>
-                  <Input
+                  <TextInput
+                    label={t('system.decryptPassphrasePlaceholder')}
+                    isLabelHidden
                     type="password"
                     value={restorePassphrase}
                     placeholder={t('system.decryptPassphrasePlaceholder')}
-                    onChange={(event) =>
-                      setRestorePassphrase(event.target.value)
-                    }
-                    disabled={restoreBusy}
+                    onChange={setRestorePassphrase}
+                    isDisabled={restoreBusy}
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 

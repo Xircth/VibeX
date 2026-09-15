@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { EditorType, type EditorConfig } from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';
-import { Input } from '@/components/ui/input';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -198,16 +199,20 @@ export function ExternalEditorPicker({
               {t('general.customEditorCommandHint')}
             </p>
           </div>
-          <Input
-            id="custom-editor-command"
+          <TextInput
+            label={t('general.customEditorCommand')}
+            isLabelHidden
             placeholder={t('general.customEditorCommandPlaceholder')}
             value={value.custom_command || ''}
-            onChange={(event) =>
+            onChange={(next) =>
               onChange({
                 ...value,
-                custom_command: event.target.value || null,
+                custom_command: next || null,
               })
             }
+            width="100%"
+            className="[&_input]:text-sm"
+            style={astryxTextInputSurfaceStyle}
           />
         </div>
       ) : null}

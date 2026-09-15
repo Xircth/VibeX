@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, Upload } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { conversationApi } from './conversationApi';
@@ -81,20 +82,28 @@ export function ConversationBundlePanel() {
           <legend className="mb-2 text-sm font-medium text-foreground">
             {t('bundle.exportGroupTitle')}
           </legend>
-          <Input
+          <TextInput
+            label={t('bundle.conversationIdPlaceholder')}
+            isLabelHidden
             value={conversationId}
-            aria-label={t('bundle.conversationIdPlaceholder')}
             placeholder={t('bundle.conversationIdPlaceholder')}
-            onChange={(event) => setConversationId(event.target.value)}
-            disabled={busy}
+            onChange={setConversationId}
+            isDisabled={busy}
+            width="100%"
+            className="[&_input]:text-sm"
+            style={astryxTextInputSurfaceStyle}
           />
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
+            <TextInput
+              label={t('bundle.destinationPathPlaceholder')}
+              isLabelHidden
               value={destinationPath}
-              aria-label={t('bundle.destinationPathPlaceholder')}
               placeholder={t('bundle.destinationPathPlaceholder')}
-              onChange={(event) => setDestinationPath(event.target.value)}
-              disabled={busy}
+              onChange={setDestinationPath}
+              isDisabled={busy}
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
             <Button
               className="shrink-0"
@@ -112,12 +121,16 @@ export function ConversationBundlePanel() {
             {t('bundle.importGroupTitle')}
           </legend>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
+            <TextInput
+              label={t('bundle.workspaceIdPlaceholder')}
+              isLabelHidden
               value={workspaceId}
-              aria-label={t('bundle.workspaceIdPlaceholder')}
               placeholder={t('bundle.workspaceIdPlaceholder')}
-              onChange={(event) => setWorkspaceId(event.target.value)}
-              disabled={busy}
+              onChange={setWorkspaceId}
+              isDisabled={busy}
+              width="100%"
+              className="[&_input]:text-sm"
+              style={astryxTextInputSurfaceStyle}
             />
             <Button
               variant="outline"

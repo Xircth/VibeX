@@ -259,6 +259,25 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ]);
   });
 
+  it('uses an Astryx text input for the optional session name', async () => {
+    renderForm('grok', vi.fn());
+
+    const input = await screen.findByRole('textbox', {
+      name: 'sessionCreation.sessionNameLabel',
+    });
+    const field = input.closest('.astryx-text-input');
+
+    expect(field).toBeTruthy();
+    expect(field).toHaveClass('[&_input]:text-sm');
+    expect(field).toHaveStyle({
+      backgroundColor: 'var(--surface-control)',
+    });
+    expect(input).toHaveAttribute(
+      'placeholder',
+      'sessionCreation.sessionNamePlaceholder'
+    );
+  });
+
   it('does not recommend switching away from a non-worktree project branch', async () => {
     renderForm('codex', vi.fn(), 'existing_workspace', false, {
       ...WORKSPACE_OPTION,

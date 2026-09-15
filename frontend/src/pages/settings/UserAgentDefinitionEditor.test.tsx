@@ -17,7 +17,10 @@ describe('UserAgentDefinitionEditor', () => {
       />
     );
 
-    await user.type(screen.getByLabelText('Agent ID'), 'local-reviewer');
+    await user.type(
+      screen.getByPlaceholderText('local-reviewer'),
+      'local-reviewer'
+    );
     await user.type(screen.getByPlaceholderText('Local Reviewer'), 'Reviewer');
     await user.type(screen.getByPlaceholderText('1.2.3'), '1.0.0');
     await user.type(

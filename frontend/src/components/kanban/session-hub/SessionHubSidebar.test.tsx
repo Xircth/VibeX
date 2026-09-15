@@ -118,24 +118,34 @@ type SidebarProps = ComponentProps<typeof SessionHubSidebar>;
 function Harness({
   sessions = [],
   archivedSessions = [],
+  groupedSessions = {},
   isArchiveView = false,
+  isDeleteMode = false,
+  selectedSessionIdSet = new Set<string>(),
   deleteSuccessMessage = null,
   deleteErrorMessage = null,
   onArchiveViewChange = vi.fn(),
   onRestoreArchivedSession = vi.fn(),
   onCreateSessionRequested = vi.fn(),
   onResizeMouseDown = vi.fn(),
+  onCancelDeleteMode = vi.fn(),
+  onDeleteSelectedSessions = vi.fn(async () => undefined),
   compactHeader = false,
 }: {
   sessions?: SidebarProps['sessions'];
   archivedSessions?: SidebarProps['archivedSessions'];
+  groupedSessions?: SidebarProps['groupedSessions'];
   isArchiveView?: boolean;
+  isDeleteMode?: boolean;
+  selectedSessionIdSet?: Set<string>;
   deleteSuccessMessage?: string | null;
   deleteErrorMessage?: string | null;
   onArchiveViewChange?: SidebarProps['onArchiveViewChange'];
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
   onCreateSessionRequested?: SidebarProps['onCreateSessionRequested'];
   onResizeMouseDown?: SidebarProps['onResizeMouseDown'];
+  onCancelDeleteMode?: SidebarProps['onCancelDeleteMode'];
+  onDeleteSelectedSessions?: SidebarProps['onDeleteSelectedSessions'];
   compactHeader?: boolean;
 }) {
   const [queryClient] = useState(
@@ -150,7 +160,7 @@ function Harness({
         isLoading={false}
         sessions={sessions}
         archivedSessions={archivedSessions}
-        groupedSessions={{}}
+        groupedSessions={groupedSessions}
         flatSessions={[]}
         workspaces={[
           {
@@ -175,8 +185,8 @@ function Harness({
         executorFilterValues={[]}
         executorFilterOptions={[]}
         expandedSections={{}}
-        isDeleteMode={false}
-        selectedSessionIdSet={new Set()}
+        isDeleteMode={isDeleteMode}
+        selectedSessionIdSet={selectedSessionIdSet}
         deleteErrorMessage={deleteErrorMessage}
         deleteSuccessMessage={deleteSuccessMessage}
         isDeletingSessions={false}
@@ -191,8 +201,8 @@ function Harness({
         onExecutorFilterValuesChange={vi.fn()}
         onResetViewState={vi.fn()}
         onToggleDeleteMode={vi.fn()}
-        onCancelDeleteMode={vi.fn()}
-        onDeleteSelectedSessions={vi.fn(async () => undefined)}
+        onCancelDeleteMode={onCancelDeleteMode}
+        onDeleteSelectedSessions={onDeleteSelectedSessions}
         onSessionClick={vi.fn()}
         onToggleSessionSelection={vi.fn()}
         onRenameSession={vi.fn(async () => undefined)}
@@ -243,6 +253,139 @@ describe('SessionHubSidebar', () => {
     await user.click(screen.getByRole('button', { name: '新增会话' }));
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('新建会话')).not.toBeInTheDocument();
+  });
+
+  it('searches session names from the far-left action and keeps cards', () => {
+    const login: SidebarProps['sessions'][number] = {
+      id: 'login',
+      placement: {
+        sessionId: 'login',
+        workspaceId: 'workspace-1',
+      },
+      workspace: {
+        id: 'workspace-1',
+        project_id: 'project-1',
+        task_id: 'task-1',
+        parent_workspace_id: null,
+        container_ref: null,
+        branch: 'main',
+        use_worktree: true,
+        agent_working_dir: null,
+        setup_completed_at: null,
+        created_at: '2026-04-15T00:00:00.000Z',
+        updated_at: '2026-04-15T00:00:00.000Z',
+        archived: false,
+        pinned: false,
+        name: 'Main',
+      },
+      task: null,
+      taskId: null,
+      name: 'Login review',
+      status: 'todo',
+      branch: 'main',
+      workspaceName: 'Main',
+      workspaceDisplayLabel: 'Main · main',
+      executor: null,
+      agentId: null,
+      updatedAt: '2026-04-15T00:00:00.000Z',
+      createdAt: '2026-04-15T00:00:00.000Z',
+      firstPrompt: 'Tighten the password prompt',
+      fullName: 'Login review',
+      shortName: 'Login',
+      taskTitle: null,
+      isCompleted: false,
+      isRunning: false,
+      isErrored: false,
+      pinnedAt: null,
+    };
+    const billing = {
+      ...login,
+      id: 'billing',
+      placement: { sessionId: 'billing', workspaceId: 'workspace-1' },
+      name: 'Billing',
+      fullName: 'Billing',
+      shortName: 'Billing',
+      firstPrompt: 'Login token',
+    };
+
+    render(
+      <Harness
+        sessions={[login, billing]}
+        groupedSessions={{ todo: [login, billing] }}
+      />
+    );
+
+    expect(
+      screen
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+        .filter(Boolean)[0]
+    ).toBe('搜索会话');
+
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索会话' }), {
+      target: { value: 'login' },
+    });
+    expect(screen.getByText('Login review')).toBeInTheDocument();
+    expect(screen.queryByText('Billing')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索会话' }), {
+      target: { value: 'password' },
+    });
+    expect(screen.queryByText('Login review')).not.toBeInTheDocument();
+    expect(screen.getByText('没有匹配的会话')).toBeInTheDocument();
+  });
+
+  it('keeps the search control first in the compact canvas header', () => {
+    render(<Harness compactHeader sessions={[]} groupedSessions={{}} />);
+
+    expect(
+      screen
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+        .filter(Boolean)[0]
+    ).toBe('搜索会话');
+    expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
+  });
+
+  it('replaces the action row with the delete area', () => {
+    const onCancelDeleteMode = vi.fn();
+    render(
+      <Harness
+        isDeleteMode
+        onCancelDeleteMode={onCancelDeleteMode}
+      />
+    );
+
+    expect(screen.getByText('选择会话')).toBeInTheDocument();
+    expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '搜索会话' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '批量删除' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '新增会话' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onCancelDeleteMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for confirmation by exposing selected delete once sessions are chosen', () => {
+    const onDeleteSelectedSessions = vi.fn(async () => undefined);
+    render(
+      <Harness
+        isDeleteMode
+        selectedSessionIdSet={new Set(['login', 'billing'])}
+        onDeleteSelectedSessions={onDeleteSelectedSessions}
+      />
+    );
+
+    expect(screen.queryByText('选择会话')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '删除选中' }));
+    expect(onDeleteSelectedSessions).toHaveBeenCalledTimes(1);
   });
 
   it('keeps delete available in archive view without a title or archive border', () => {

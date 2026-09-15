@@ -207,7 +207,7 @@
     "backToSessionList": "返回会话列表",
     "bulkDelete": "批量删除",
     "exitDeleteMode": "退出删除模式",
-    "selectSessionsToDelete": "请选择要删除的会话",
+    "selectSessionsToDelete": "选择会话",
     "selectedCount": "已选择 {{count}} 项",
     "deleteSelected": "删除选中",
     "deleting": "删除中...",

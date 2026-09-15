@@ -8,6 +8,7 @@ import {
   moveSessionInOrder,
   pinnedWorkspaceSessions,
   sessionListTitle,
+  sessionMatchesNameQuery,
   sessionMatchesQuery,
   sortWorkspaceSessions,
   toggleSessionListSort,
@@ -339,6 +340,16 @@ describe('session list sort and search', () => {
     expect(sessionMatchesQuery(login, 'password prompt')).toBe(true);
     expect(sessionMatchesQuery(login, 'codex')).toBe(false);
   });
+
+  it('matches displayed session names only', () => {
+    const login = session({
+      workspace: main,
+      name: 'Login review',
+      firstPrompt: 'Tighten the password prompt',
+    });
+    expect(sessionMatchesNameQuery(login, 'login')).toBe(true);
+    expect(sessionMatchesNameQuery(login, 'password prompt')).toBe(false);
+  });
 });
 
 describe('sessionListTitle', () => {
@@ -370,6 +381,42 @@ describe('sessionListTitle', () => {
         })
       )
     ).toBe('新会话1');
+  });
+
+  it('strips a host-history prefix from an agent-returned name', () => {
+    expect(
+      sessionListTitle(
+        session({
+          name: 'Previous conversation:User Fix login',
+          firstPrompt: 'Fix login',
+          fullName: 'Previous',
+        })
+      )
+    ).toBe('Fix login');
+  });
+
+  it('falls back to the first prompt when the agent name is only the host-history prefix', () => {
+    expect(
+      sessionListTitle(
+        session({
+          name: 'Previous conversation:User',
+          firstPrompt: 'Fix the picker',
+          fullName: 'Previous',
+        })
+      )
+    ).toBe('Fix the picker');
+  });
+
+  it('keeps a real title that only starts with previous conversation', () => {
+    expect(
+      sessionListTitle(
+        session({
+          name: 'Previous conversation notes',
+          firstPrompt: 'Fix login',
+          fullName: 'Previous',
+        })
+      )
+    ).toBe('Previous conversation notes');
   });
 });
 

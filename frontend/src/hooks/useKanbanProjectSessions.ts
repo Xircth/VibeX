@@ -6,6 +6,7 @@ import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
 import { sessionsApi } from '@/lib/api';
+import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
 import { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
 
@@ -110,7 +111,7 @@ export function buildDefaultSessionName(
   summary: SessionSummary,
   t: TFunction<['app', 'common']>
 ) {
-  const manualName = summary.name?.trim();
+  const manualName = sanitizeSessionListTitle(summary.name ?? '');
   if (manualName) {
     return {
       name: manualName,

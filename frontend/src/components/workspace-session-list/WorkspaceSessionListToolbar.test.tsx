@@ -82,6 +82,31 @@ describe('WorkspaceSessionListToolbar', () => {
     ).toBeInTheDocument();
   });
 
+  it('replaces the action row with the delete area', () => {
+    const onDeleteSelected = vi.fn();
+    const onCancelDeleteMode = vi.fn();
+    renderToolbar({
+      isDeleteMode: true,
+      selectedCount: 0,
+      onDeleteSelected,
+      onCancelDeleteMode,
+    });
+
+    expect(screen.getByText('选择会话')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '搜索会话' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '批量删除' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '新建会话' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onCancelDeleteMode).toHaveBeenCalledTimes(1);
+  });
+
   it('asks for confirmation by exposing selected delete once sessions are chosen', () => {
     const onDeleteSelected = vi.fn();
     renderToolbar({
@@ -90,6 +115,7 @@ describe('WorkspaceSessionListToolbar', () => {
       onDeleteSelected,
     });
 
+    expect(screen.queryByText('选择会话')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '删除选中' }));
     expect(onDeleteSelected).toHaveBeenCalledTimes(1);
   });

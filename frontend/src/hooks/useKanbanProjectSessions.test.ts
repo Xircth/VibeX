@@ -116,6 +116,43 @@ describe('buildDefaultSessionName', () => {
       prompt: null,
     });
   });
+
+  it('uses a sanitized agent-returned name instead of the host-history prefix', () => {
+    const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
+
+    expect(
+      buildDefaultSessionName(
+        summary({
+          name: 'Previous conversation:User Fix login',
+          display_name: 'Previous conversation:User Fix login',
+        }),
+        t
+      )
+    ).toEqual({
+      name: 'Fix login',
+      source: 'manual',
+      prompt: null,
+    });
+  });
+
+  it('falls back to the first prompt when the agent name is only the host-history prefix', () => {
+    const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
+
+    expect(
+      buildDefaultSessionName(
+        summary({
+          name: 'Previous conversation:User',
+          display_name: 'Previous conversation:User',
+          first_prompt: '修复会话标题功能并保持手动标题',
+        }),
+        t
+      )
+    ).toEqual({
+      name: '修复会话标题功能',
+      source: 'prompt',
+      prompt: '修复会话标题功能并保持手动标题',
+    });
+  });
 });
 
 describe('fallbackSessionNamesByCreationOrder', () => {

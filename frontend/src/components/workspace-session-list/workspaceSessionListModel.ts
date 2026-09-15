@@ -1,7 +1,10 @@
 import type { ExecutorProfileId } from 'shared/types';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
+
+export { sanitizeSessionListTitle };
 
 export const WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY =
   'vibex-workspace-session-groups-collapsed';
@@ -93,7 +96,7 @@ export function groupWorkspaceSessions(
 }
 
 export function sessionListTitle(session: KanbanProjectSessionRecord): string {
-  const manualName = session.name?.trim();
+  const manualName = sanitizeSessionListTitle(session.name ?? '');
   if (manualName) return manualName;
 
   const prompt = session.firstPrompt?.replace(/\s+/g, ' ').trim();
@@ -287,6 +290,18 @@ export function sessionMatchesQuery(
     session.name,
     session.firstPrompt,
   ].some((value) => value?.toLowerCase().includes(needle));
+}
+
+export function sessionMatchesNameQuery(
+  session: KanbanProjectSessionRecord,
+  query: string
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+
+  return sessionListTitle(session).toLowerCase().includes(needle);
 }
 
 export function defaultSessionListSortDirection(

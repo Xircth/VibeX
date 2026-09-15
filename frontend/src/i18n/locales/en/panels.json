@@ -207,7 +207,7 @@
     "backToSessionList": "Back to sessions",
     "bulkDelete": "Delete sessions",
     "exitDeleteMode": "Exit delete mode",
-    "selectSessionsToDelete": "Select sessions to delete",
+    "selectSessionsToDelete": "Select sessions",
     "selectedCount": "{{count}} selected",
     "deleteSelected": "Delete selected",
     "deleting": "Deleting...",

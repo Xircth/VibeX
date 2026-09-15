@@ -16,7 +16,7 @@ use agents::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
-        ConversationQuestionResponse, ConversationWorkflowRef,
+        ConversationQuestionResponse, ConversationWorkflowRef, SessionLoadFailureReason,
     },
 };
 use chrono::{DateTime, Utc};
@@ -3173,16 +3173,25 @@ impl ConversationSessionService {
         // Imported history stores the original tool session id but marks restore
         // unsupported; sending a follow-up must cold-start (`session/new`) instead
         // of failing `session/load` or pulling the original transcript into memory.
-        let has_live_connection = self
-            .runtime_connection_and_turn(input.conversation_id)
-            .await
-            .is_some();
+        let has_live_bound_acp_session = self
+            .ctx
+            .agent_runtime
+            .has_bound_acp_session(AgentSessionId(input.conversation_id))
+            .await;
+        if !has_live_bound_acp_session {
+            // A stale connection id in runtime state is not a live ACP session.
+            // Cancel that the agent never acknowledged unbinds the mapping while
+            // leaving the process (and its thread-writer lock) around. Drop it
+            // before resume so follow-up cannot `session/new` into another
+            // conversation's context.
+            self.drop_live_agent_connection(input.conversation_id).await;
+        }
         let can_restore_agent_session = restorable_binding.is_some()
             || binding_can_restore_agent_session(latest_binding.as_ref());
         let resume_external_session_id = resume_external_session_id(
             known_acp_session_id.clone(),
             can_restore_agent_session,
-            has_live_connection,
+            has_live_bound_acp_session,
         );
         let acp_session_id = resume_external_session_id
             .clone()
@@ -3239,7 +3248,17 @@ impl ConversationSessionService {
         )
         .await?;
 
-        let mut inject_host_history = resume_external_session_id.is_none();
+        // Host history is a last-resort prompt prefix for a brand-new ACP
+        // session that does not already contain this conversation. A live
+        // bound session and a successful session/load|resume already have
+        // the transcript. Prepending it as a user text block is persisted
+        // by Codex as a user message (Windows stores joined prompt parts
+        // with `\r\n`) and leaks "Previous conversation:" / User:/Assistant:
+        // into Codex desktop.
+        let mut inject_host_history = should_inject_host_history(
+            has_live_bound_acp_session,
+            resume_external_session_id.is_some(),
+        );
         let mut attempt = 1u32;
         let session = loop {
             if !self
@@ -3270,7 +3289,9 @@ impl ConversationSessionService {
                         .await
                     {
                         Ok(session) => Ok(session.0),
-                        Err(agents::AgentError::SessionLoadFailed(_)) => {
+                        Err(agents::AgentError::SessionLoadFailed(reason))
+                            if should_cold_start_after_restore_failure(&reason) =>
+                        {
                             inject_host_history = true;
                             self.ctx
                                 .agent_runtime
@@ -4438,12 +4459,26 @@ fn binding_can_restore_agent_session(binding: Option<&ConversationAgentBindingRe
 fn resume_external_session_id(
     known_id: Option<String>,
     can_restore: bool,
-    has_live_connection: bool,
+    has_live_bound_acp_session: bool,
 ) -> Option<String> {
     known_id
         .filter(|id| !id.starts_with("vibex-new-session-"))
-        .filter(|_| !has_live_connection)
+        .filter(|_| !has_live_bound_acp_session)
         .filter(|_| can_restore)
+}
+
+fn should_cold_start_after_restore_failure(reason: &SessionLoadFailureReason) -> bool {
+    matches!(
+        reason,
+        SessionLoadFailureReason::ResourceNotFound | SessionLoadFailureReason::Unsupported
+    )
+}
+
+fn should_inject_host_history(
+    has_live_bound_acp_session: bool,
+    resuming_external_session: bool,
+) -> bool {
+    !has_live_bound_acp_session && !resuming_external_session
 }
 
 fn is_placeholder_acp_session_id(id: &str) -> bool {
@@ -4498,7 +4533,7 @@ mod tests {
         AgentContentBlock, AgentId, AgentSessionConfigOverride,
         conversation::{
             AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
-            ConversationFileChange,
+            ConversationFileChange, SessionLoadFailureReason,
         },
     };
     use db::models::{
@@ -4524,7 +4559,8 @@ mod tests {
         diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
         host_started_at, known_acp_session_id, merge_user_prompt_overrides,
         prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
-        session_control_replay_plan, turn_predates_this_host,
+        session_control_replay_plan, should_cold_start_after_restore_failure,
+        should_inject_host_history, turn_predates_this_host,
     };
 
     #[test]
@@ -4885,6 +4921,26 @@ mod tests {
     }
 
     #[test]
+    fn host_history_is_not_injected_into_a_live_or_resumed_codex_session() {
+        assert!(
+            !should_inject_host_history(true, false),
+            "a live ACP session already has the transcript"
+        );
+        assert!(
+            !should_inject_host_history(false, true),
+            "session/load|resume already restores Codex history"
+        );
+        assert!(
+            !should_inject_host_history(true, true),
+            "live + resume must not prepend a user-visible history block"
+        );
+        assert!(
+            should_inject_host_history(false, false),
+            "cold start still needs host history for the model"
+        );
+    }
+
+    #[test]
     fn imported_history_follow_up_cold_starts_instead_of_resuming_the_original_session() {
         assert!(!binding_can_restore_agent_session(None));
         assert_eq!(
@@ -4899,6 +4955,39 @@ mod tests {
             resume_external_session_id(Some("acp-live-1".to_string()), true, true),
             None
         );
+    }
+
+    #[test]
+    fn stop_then_continue_resumes_stored_id_when_acp_session_is_unbound() {
+        // A live connection id without a bound ACP session (cancel never
+        // acknowledged) must resume this conversation's stored id, not skip
+        // restore and call session/new.
+        let resume_a = resume_external_session_id(Some("acp-session-a".to_string()), true, false);
+        let resume_b = resume_external_session_id(Some("acp-session-b".to_string()), true, false);
+        assert_eq!(resume_a.as_deref(), Some("acp-session-a"));
+        assert_eq!(resume_b.as_deref(), Some("acp-session-b"));
+        assert_ne!(resume_a, resume_b);
+        assert_eq!(
+            resume_external_session_id(Some("acp-session-a".to_string()), true, true),
+            None
+        );
+    }
+
+    #[test]
+    fn active_writer_restore_failures_are_retried_instead_of_session_new() {
+        assert!(!should_cold_start_after_restore_failure(
+            &SessionLoadFailureReason::Other {
+                message:
+                    "session/load failed: thread abc already has an active writer (code -32600)"
+                        .into(),
+            }
+        ));
+        assert!(should_cold_start_after_restore_failure(
+            &SessionLoadFailureReason::ResourceNotFound
+        ));
+        assert!(should_cold_start_after_restore_failure(
+            &SessionLoadFailureReason::Unsupported
+        ));
     }
 
     #[test]

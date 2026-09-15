@@ -65,6 +65,9 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
             if text.is_empty() {
                 return None;
             }
+            if role == TurnRole::User && crate::history::is_codex_hidden_user_text(&text) {
+                return None;
+            }
             (role, ContentBlock::Text { text })
         }
         "reasoning" => {
@@ -127,9 +130,12 @@ fn message_text(content: Option<&Value>) -> String {
         Some(Value::Array(items)) => items
             .iter()
             .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .filter(|text| !crate::history::is_codex_hidden_user_text(text))
             .collect::<Vec<_>>()
             .join(""),
-        Some(Value::String(text)) => text.clone(),
+        Some(Value::String(text)) if !crate::history::is_codex_hidden_user_text(text) => {
+            text.clone()
+        }
         _ => String::new(),
     }
 }
@@ -239,6 +245,23 @@ mod tests {
             ContentBlock::ToolResult { .. }
         ));
         assert!(matches!(assistant.blocks[3], ContentBlock::Text { .. }));
+    }
+
+    const LEAKED_HISTORY_FIXTURE: &str = "{\"timestamp\":\"2026-06-14T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Previous conversation:\\r\\nUser:拉取当前项目仓库的最新代码到本地\\r\\nAssistant: Warning: Model metadata for gpt-6-astra not found\"},{\"type\":\"input_text\",\"text\":\"再拉一次\"}]}}\n{\"timestamp\":\"2026-06-14T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}}\n";
+
+    #[test]
+    fn drops_host_history_prefix_from_user_messages() {
+        let detail = CodexParser.parse(LEAKED_HISTORY_FIXTURE, &ctx()).unwrap();
+        assert_eq!(detail.turns.len(), 2);
+        assert_eq!(detail.turns[0].role, TurnRole::User);
+        match &detail.turns[0].blocks[0] {
+            ContentBlock::Text { text } => {
+                assert_eq!(text, "再拉一次");
+                assert!(!text.contains("Previous conversation"));
+                assert!(!text.contains("Assistant:"));
+            }
+            other => panic!("expected user text, got {other:?}"),
+        }
     }
 
     const PLAN_FIXTURE: &str = r#"

@@ -19,6 +19,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 pub const MAX_SESSION_MESSAGES: u32 = 200;
+pub const HOST_HISTORY_PROMPT_PREFIX: &str = "Previous conversation:";
 const PER_TURN_CHARS: usize = 1_500;
 const OVERALL_CHARS: usize = 16_000;
 const MAX_TOOLS_PER_TURN: usize = 16;
@@ -285,6 +286,8 @@ pub async fn load_compact_transcript(
                             | ConversationInputBlock::Resource { .. }
                             | ConversationInputBlock::Protocol { .. } => None,
                         })
+                        .map(|text| normalize_session_newlines(&text))
+                        .filter(|text| !is_host_history_prompt(text))
                         .collect::<Vec<_>>()
                         .join("\n");
                     if !content.is_empty() {
@@ -435,12 +438,14 @@ pub fn format_host_history_prompt(
     current_user_text: &str,
 ) -> Option<String> {
     let mut items = messages.items.clone();
-    if items
-        .last()
-        .is_some_and(|item| item.role == "user" && item.text.trim() == current_user_text.trim())
-    {
+    let current = normalize_session_newlines(current_user_text);
+    let current_trimmed = current.trim();
+    if items.last().is_some_and(|item| {
+        item.role == "user" && normalize_session_newlines(&item.text).trim() == current_trimmed
+    }) {
         items.pop();
     }
+    items.retain(|item| !(item.role == "user" && is_host_history_prompt(&item.text)));
     if items.is_empty() {
         return None;
     }
@@ -451,12 +456,27 @@ pub fn format_host_history_prompt(
             "assistant" => "Assistant",
             other => other,
         };
+        let text = normalize_session_newlines(item.text.trim());
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
         body.push_str(role);
         body.push_str(": ");
-        body.push_str(item.text.trim());
+        body.push_str(text);
         body.push('\n');
     }
-    Some(body)
+    (body != "Previous conversation:\n").then_some(body)
+}
+
+pub fn is_host_history_prompt(text: &str) -> bool {
+    normalize_session_newlines(text)
+        .trim_start()
+        .starts_with(HOST_HISTORY_PROMPT_PREFIX)
+}
+
+fn normalize_session_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 fn truncate_chars(value: &str, cap: usize) -> String {
@@ -506,6 +526,7 @@ mod tests {
         assert!(prompt.contains("User: first question"));
         assert!(prompt.contains("Assistant: first answer"));
         assert!(!prompt.contains("second question"));
+        assert!(!prompt.contains('\r'));
         assert!(format_host_history_prompt(&messages, "first question").is_some());
         assert!(
             format_host_history_prompt(
@@ -523,6 +544,49 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn host_history_prompt_omits_crlf_current_user_message_and_leaked_history() {
+        let messages = SessionMessages {
+            total: 4,
+            included: 4,
+            truncated: false,
+            items: vec![
+                SessionMessageItem {
+                    role: "user".into(),
+                    text: "Previous conversation:\r\nUser: stale\r\nAssistant: stale".into(),
+                    tools: Vec::new(),
+                },
+                SessionMessageItem {
+                    role: "user".into(),
+                    text: "first\r\nquestion".into(),
+                    tools: Vec::new(),
+                },
+                SessionMessageItem {
+                    role: "assistant".into(),
+                    text: "first\r\nanswer".into(),
+                    tools: Vec::new(),
+                },
+                SessionMessageItem {
+                    role: "user".into(),
+                    text: "second\r\nquestion".into(),
+                    tools: Vec::new(),
+                },
+            ],
+        };
+        let prompt = format_host_history_prompt(&messages, "second\nquestion").expect("history");
+        assert_eq!(
+            prompt,
+            "Previous conversation:\nUser: first\nquestion\nAssistant: first\nanswer\n"
+        );
+        assert!(!prompt.contains('\r'));
+        assert!(!prompt.contains("stale"));
+        assert!(!prompt.contains("second"));
+        assert!(is_host_history_prompt(
+            "Previous conversation:\r\nUser: 拉取当前项目仓库的最新代码到本地"
+        ));
+        assert!(!is_host_history_prompt("拉取当前项目仓库的最新代码到本地"));
     }
 
     async fn pool() -> SqlitePool {

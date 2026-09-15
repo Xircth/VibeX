@@ -5,6 +5,8 @@
     {
       "id": "deepseek",
       "name": "DeepSeek",
+      "websiteUrl": "https://platform.deepseek.com",
+      "category": "community",
       "surface": "dsh",
       "displayName": "DeepSeek",
       "baseUrl": "https://api.deepseek.com",
@@ -14,13 +16,13 @@
         {
           "id": "deepseek-chat"
         }
-      ],
-      "websiteUrl": "https://platform.deepseek.com",
-      "category": "community"
+      ]
     },
     {
       "id": "moonshot",
       "name": "Moonshot",
+      "websiteUrl": "https://platform.moonshot.cn",
+      "category": "prime",
       "surface": "dsh",
       "displayName": "Moonshot",
       "baseUrl": "https://api.moonshot.cn/v1",
@@ -30,13 +32,13 @@
         {
           "id": "kimi-k2.5"
         }
-      ],
-      "websiteUrl": "https://platform.moonshot.cn",
-      "category": "prime"
+      ]
     },
     {
       "id": "openrouter",
       "name": "OpenRouter",
+      "websiteUrl": "https://openrouter.ai",
+      "category": "community",
       "surface": "dsh",
       "displayName": "OpenRouter",
       "baseUrl": "https://openrouter.ai/api/v1",
@@ -46,13 +48,13 @@
         {
           "id": "openai/gpt-4o"
         }
-      ],
-      "websiteUrl": "https://openrouter.ai",
-      "category": "community"
+      ]
     },
     {
       "id": "siliconflow",
       "name": "SiliconFlow",
+      "websiteUrl": "https://siliconflow.cn",
+      "category": "partner",
       "surface": "dsh",
       "displayName": "SiliconFlow",
       "baseUrl": "https://api.siliconflow.cn/v1",
@@ -62,9 +64,7 @@
         {
           "id": "Qwen/Qwen2.5-72B-Instruct"
         }
-      ],
-      "websiteUrl": "https://siliconflow.cn",
-      "category": "partner"
+      ]
     }
   ]
 }

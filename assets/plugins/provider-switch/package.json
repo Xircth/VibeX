@@ -1,0 +1,13 @@
+{
+  "name": "vibex.provider-switch",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-catalog": "node ./scripts/sync-catalog.mjs",
+    "validate": "node ../../../packages/plugin-cli/dist/cli.js validate",
+    "build": "node ../../../packages/plugin-cli/dist/cli.js build",
+    "test": "node ../../../packages/plugin-cli/dist/cli.js test",
+    "pack": "node ../../../packages/plugin-cli/dist/cli.js pack"
+  }
+}

@@ -3,40 +3,318 @@
   "agentId": "antigravity",
   "templates": [
     {
+      "id": "packycode",
+      "name": "PackyCode",
+      "websiteUrl": "https://www.packyapi.ai/",
+      "apiKeyUrl": "https://www.packyapi.ai/register",
+      "endpointCandidates": [
+        "https://www.packyapi.ai/",
+        "https://cf.api.fan/",
+        "https://slb-v1.api.fan/",
+        "https://www.packyapi.com/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.packyapi.ai/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "apinebula",
+      "name": "APINebula",
+      "websiteUrl": "https://apinebula.ai/",
+      "apiKeyUrl": "https://apinebula.ai/VjM74M",
+      "endpointCandidates": [
+        "https://apinebula.ai/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://apinebula.ai/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "aicodemirror",
+      "name": "AICodeMirror",
+      "websiteUrl": "https://www.aicodemirror.ai/",
+      "apiKeyUrl": "https://www.aicodemirror.ai/register",
+      "endpointCandidates": [
+        "https://api.aicodemirror.ai/api/gemini"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aicodemirror.ai/api/gemini",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "shengsuanyun",
+      "name": "Shengsuanyun",
+      "websiteUrl": "https://www.shengsuanyun.com/",
+      "apiKeyUrl": "https://www.shengsuanyun.com/",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://router.shengsuanyun.com/api",
+      "model": "google/gemini-3.6-flash"
+    },
+    {
+      "id": "aigocode",
+      "name": "AIGoCode",
+      "websiteUrl": "https://aigocode.app/",
+      "apiKeyUrl": "https://aigocode.app/invite/CC-SWITCH",
+      "endpointCandidates": [
+        "https://api.aigocode.app/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aigocode.app/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "qiniu",
+      "name": "Qiniu",
+      "websiteUrl": "https://s.qiniu.com/nMvAvy",
+      "apiKeyUrl": "https://s.qiniu.com/nMvAvy",
+      "endpointCandidates": [
+        "https://api.qnaigc.com/bypass/vertex",
+        "https://api.modelink.ai/bypass/vertex"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.qnaigc.com/bypass/vertex",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "aicoding",
+      "name": "AICoding",
+      "websiteUrl": "https://aicoding.inc/",
+      "apiKeyUrl": "https://aicoding.inc/i/CCSWITCH",
+      "endpointCandidates": [
+        "https://api.aicoding.inc/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aicoding.inc/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "subrouter",
+      "name": "SubRouter",
+      "websiteUrl": "https://subrouter.ai/",
+      "apiKeyUrl": "https://subrouter.ai/register",
+      "endpointCandidates": [
+        "https://subrouter.ai/v1beta"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://subrouter.ai/v1beta",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "apikey-fun",
+      "name": "APIKEY.FUN",
+      "websiteUrl": "https://apikey.fun/",
+      "apiKeyUrl": "https://apikey.fun/register",
+      "endpointCandidates": [
+        "https://api.apikey.fun/",
+        "https://slb.apikey.fun/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.apikey.fun/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "9527code",
+      "name": "9527CODE",
+      "websiteUrl": "https://9527.codes/",
+      "apiKeyUrl": "https://9527.codes/register",
+      "endpointCandidates": [
+        "https://9527.codes/",
+        "https://api.9527.codes/",
+        "https://cdn.9527.codes/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://9527.codes/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "code0",
+      "name": "Code0",
+      "websiteUrl": "https://code0.ai/",
+      "apiKeyUrl": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://code0.ai/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "a6api",
+      "name": "A6API",
+      "websiteUrl": "https://www.a6api.com/",
+      "apiKeyUrl": "https://a6api.com/register",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.a6api.com/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "sssaicode",
+      "name": "SSSAiCode",
+      "websiteUrl": "https://sssaicodeapi.com/",
+      "apiKeyUrl": "https://sssaicodeapi.com/register",
+      "endpointCandidates": [
+        "https://node-hk.sssaicodeapi.com/api",
+        "https://node-hk.sssaiapi.com/api",
+        "https://node-cf.sssaicodeapi.com/api"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://node-hk.sssaicodeapi.com/api",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "soleapi",
+      "name": "SoleAPI",
+      "websiteUrl": "https://soleapi.com/",
+      "apiKeyUrl": "https://soleapi.com/r/ccswitch",
+      "endpointCandidates": [
+        "https://soleapi.com/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://soleapi.com/",
+      "model": "gemini-3.8-flash"
+    },
+    {
+      "id": "etok-ai",
+      "name": "ETok.ai",
+      "websiteUrl": "https://etok.ai/",
+      "apiKeyUrl": "https://etok.ai/",
+      "endpointCandidates": [
+        "https://api.etok.ai/v1beta"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.etok.ai/v1beta",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "cubence",
+      "name": "Cubence",
+      "websiteUrl": "https://cubence.com/",
+      "apiKeyUrl": "https://cubence.com/signup",
+      "endpointCandidates": [
+        "https://api.cubence.com/v1",
+        "https://api-cf.cubence.com/v1",
+        "https://api-dmit.cubence.com/v1",
+        "https://api-bwg.cubence.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.cubence.com/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "crazyrouter",
+      "name": "CrazyRouter",
+      "websiteUrl": "https://www.crazyrouter.com/",
+      "apiKeyUrl": "https://www.crazyrouter.com/register",
+      "endpointCandidates": [
+        "https://cn.crazyrouter.com/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://cn.crazyrouter.com/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "sudocode-us",
+      "name": "SudoCode.us",
+      "websiteUrl": "https://sudocode.us/",
+      "apiKeyUrl": "https://sudocode.us/",
+      "endpointCandidates": [
+        "https://sudocode.us/",
+        "https://sudocode.run/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://sudocode.us/",
+      "model": "gemini-3.1-flash-lite"
+    },
+    {
+      "id": "xycai",
+      "name": "XycAi",
+      "websiteUrl": "https://xycai.us/",
+      "apiKeyUrl": "https://xycai.us/register",
+      "endpointCandidates": [
+        "https://apicdn.xycai.us/",
+        "https://apicdn.xyc.ai/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://apicdn.xycai.us/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "e-flowcode",
+      "name": "E-FlowCode",
+      "websiteUrl": "https://e-flowcode.cc/",
+      "apiKeyUrl": "https://e-flowcode.cc/",
+      "endpointCandidates": [
+        "https://e-flowcode.cc/"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://e-flowcode.cc/",
+      "model": "gemini-3.6-flash"
+    },
+    {
+      "id": "cherryin",
+      "name": "CherryIN",
+      "websiteUrl": "https://open.cherryin.ai/",
+      "apiKeyUrl": "https://open.cherryin.ai/console/token",
+      "endpointCandidates": [
+        "https://open.cherryin.net/"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://open.cherryin.net/",
+      "model": "google/gemini-3.6-flash"
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
+      "websiteUrl": "https://openrouter.ai/",
+      "apiKeyUrl": "https://openrouter.ai/keys",
+      "category": "community",
       "surface": "reusable",
       "apiUrl": "https://openrouter.ai/api",
-      "model": "google/gemini-2.5-pro",
-      "websiteUrl": "https://openrouter.ai",
-      "category": "community"
+      "model": "gemini-3.6-flash"
     },
     {
-      "id": "siliconflow",
-      "name": "SiliconFlow",
+      "id": "therouter",
+      "name": "TheRouter",
+      "websiteUrl": "https://therouter.ai/",
+      "apiKeyUrl": "https://dashboard.therouter.ai/",
+      "endpointCandidates": [
+        "https://api.therouter.ai/"
+      ],
+      "category": "community",
       "surface": "reusable",
-      "apiUrl": "https://api.siliconflow.cn/v1",
-      "model": "Qwen/Qwen2.5-72B-Instruct",
-      "websiteUrl": "https://siliconflow.cn",
-      "category": "partner"
+      "apiUrl": "https://api.therouter.ai/",
+      "model": "gemini-3.6-flash"
     },
     {
-      "id": "deepseek",
-      "name": "DeepSeek",
+      "id": "aicodewith",
+      "name": "AICodeWith",
+      "websiteUrl": "https://aicodewith.ai/",
+      "apiKeyUrl": "https://aicodewith.ai/login",
+      "endpointCandidates": [
+        "https://api.aicodewith.ai/gemini_cli"
+      ],
+      "category": "community",
       "surface": "reusable",
-      "apiUrl": "https://api.deepseek.com",
-      "model": "deepseek-chat",
-      "websiteUrl": "https://platform.deepseek.com",
-      "category": "community"
-    },
-    {
-      "id": "moonshot",
-      "name": "Moonshot",
-      "surface": "reusable",
-      "apiUrl": "https://api.moonshot.cn/v1",
-      "model": "kimi-k2.5",
-      "websiteUrl": "https://platform.moonshot.cn",
-      "category": "prime"
+      "apiUrl": "https://api.aicodewith.ai/gemini_cli",
+      "model": "gemini-3.1-pro-preview"
     }
   ]
 }

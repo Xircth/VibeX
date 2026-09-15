@@ -3,40 +3,810 @@
   "agentId": "codex",
   "templates": [
     {
-      "id": "openrouter",
-      "name": "OpenRouter",
+      "id": "kimi",
+      "name": "Kimi",
+      "websiteUrl": "https://platform.kimi.com/",
+      "apiKeyUrl": "https://platform.kimi.com/console/api-keys",
+      "endpointCandidates": [
+        "https://api.moonshot.cn/v1"
+      ],
+      "category": "prime",
       "surface": "reusable",
-      "apiUrl": "https://openrouter.ai/api/v1",
-      "model": "{\"default_model\":\"openai/gpt-5\",\"customs\":[],\"excluded_officials\":[]}",
-      "websiteUrl": "https://openrouter.ai",
-      "category": "community"
+      "apiUrl": "https://api.moonshot.cn/v1",
+      "model": "{\"default_model\":\"kimi-k3\",\"customs\":[{\"slug\":\"kimi-k3\",\"display_name\":\"Kimi K3\",\"context_window\":1048576,\"base\":\"kimi-k3\"},{\"slug\":\"kimi-k2.7-code\",\"display_name\":\"Kimi K2.7 Code\",\"context_window\":262144,\"base\":\"kimi-k2.7-code\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "kimi-for-coding",
+      "name": "Kimi For Coding",
+      "websiteUrl": "https://www.kimi.com/code/",
+      "apiKeyUrl": "https://www.kimi.com/code/",
+      "endpointCandidates": [
+        "https://api.kimi.com/coding/v1"
+      ],
+      "category": "prime",
+      "surface": "reusable",
+      "apiUrl": "https://api.kimi.com/coding/v1",
+      "model": "{\"default_model\":\"kimi-for-coding\",\"customs\":[{\"slug\":\"kimi-for-coding\",\"display_name\":\"Kimi For Coding\",\"context_window\":262144,\"base\":\"kimi-for-coding\"},{\"slug\":\"kimi-for-coding-highspeed\",\"display_name\":\"Kimi For Coding HighSpeed\",\"context_window\":262144,\"base\":\"kimi-for-coding-highspeed\"},{\"slug\":\"k3\",\"display_name\":\"Kimi K3\",\"context_window\":1048576,\"base\":\"k3\"},{\"slug\":\"k3-256k\",\"display_name\":\"Kimi K3 256K\",\"context_window\":262144,\"base\":\"k3-256k\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "packycode",
+      "name": "PackyCode",
+      "websiteUrl": "https://www.packyapi.ai/",
+      "apiKeyUrl": "https://www.packyapi.ai/register",
+      "endpointCandidates": [
+        "https://www.packyapi.ai/v1",
+        "https://cf.api.fan/v1",
+        "https://slb-v1.api.fan/v1",
+        "https://www.packyapi.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.packyapi.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "zetaapi",
+      "name": "ZetaAPI",
+      "websiteUrl": "https://zetaapi.ai/",
+      "apiKeyUrl": "https://zetaapi.ai/go/u117",
+      "endpointCandidates": [
+        "https://api.zetaapi.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.zetaapi.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "apinebula",
+      "name": "APINebula",
+      "websiteUrl": "https://apinebula.ai/",
+      "apiKeyUrl": "https://apinebula.ai/VjM74M",
+      "endpointCandidates": [
+        "https://apinebula.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://apinebula.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "aicodemirror",
+      "name": "AICodeMirror",
+      "websiteUrl": "https://www.aicodemirror.ai/",
+      "apiKeyUrl": "https://www.aicodemirror.ai/register",
+      "endpointCandidates": [
+        "https://api.aicodemirror.ai/api/codex/backend-api/codex"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aicodemirror.ai/api/codex/backend-api/codex",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "patewayai",
+      "name": "PatewayAI",
+      "websiteUrl": "https://pateway.ai/",
+      "apiKeyUrl": "https://pateway.ai/",
+      "endpointCandidates": [
+        "https://api.pateway.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.pateway.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "fennoai",
+      "name": "FennoAI",
+      "websiteUrl": "https://api.fenno.ai/",
+      "apiKeyUrl": "https://api.fenno.ai/register",
+      "endpointCandidates": [
+        "https://api.fenno.ai/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.fenno.ai/",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "runapi",
+      "name": "RunAPI",
+      "websiteUrl": "https://runapi.host/",
+      "apiKeyUrl": "https://runapi.host/register",
+      "endpointCandidates": [
+        "https://runapi.host/v1",
+        "https://runapi.co/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://runapi.host/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "shengsuanyun",
+      "name": "Shengsuanyun",
+      "websiteUrl": "https://www.shengsuanyun.com/",
+      "apiKeyUrl": "https://www.shengsuanyun.com/",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://router.shengsuanyun.com/api/v1",
+      "model": "{\"default_model\":\"openai/gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "aigocode",
+      "name": "AIGoCode",
+      "websiteUrl": "https://aigocode.app/",
+      "apiKeyUrl": "https://aigocode.app/invite/CC-SWITCH",
+      "endpointCandidates": [
+        "https://api.aigocode.app/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aigocode.app/",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "qiniu",
+      "name": "Qiniu",
+      "websiteUrl": "https://s.qiniu.com/nMvAvy",
+      "apiKeyUrl": "https://s.qiniu.com/nMvAvy",
+      "endpointCandidates": [
+        "https://api.qnaigc.com/bypass/openai/v1",
+        "https://api.modelink.ai/bypass/openai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.qnaigc.com/bypass/openai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "aicoding",
+      "name": "AICoding",
+      "websiteUrl": "https://aicoding.inc/",
+      "apiKeyUrl": "https://aicoding.inc/i/CCSWITCH",
+      "endpointCandidates": [
+        "https://api.aicoding.inc/"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.aicoding.inc/",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "subrouter",
+      "name": "SubRouter",
+      "websiteUrl": "https://subrouter.ai/",
+      "apiKeyUrl": "https://subrouter.ai/register",
+      "endpointCandidates": [
+        "https://subrouter.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://subrouter.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "apikey-fun",
+      "name": "APIKEY.FUN",
+      "websiteUrl": "https://apikey.fun/",
+      "apiKeyUrl": "https://apikey.fun/register",
+      "endpointCandidates": [
+        "https://api.apikey.fun/v1",
+        "https://slb.apikey.fun/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.apikey.fun/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "9527code",
+      "name": "9527CODE",
+      "websiteUrl": "https://9527.codes/",
+      "apiKeyUrl": "https://9527.codes/register",
+      "endpointCandidates": [
+        "https://9527.codes/v1",
+        "https://api.9527.codes/v1",
+        "https://cdn.9527.codes/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://9527.codes/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "code0",
+      "name": "Code0",
+      "websiteUrl": "https://code0.ai/",
+      "apiKeyUrl": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
+      "endpointCandidates": [
+        "https://code0.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://code0.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "teamorouter",
+      "name": "TeamoRouter",
+      "websiteUrl": "https://teamorouter.cn/",
+      "apiKeyUrl": "https://teamorouter.cn/",
+      "endpointCandidates": [
+        "https://api.teamorouter.cn/v1",
+        "https://api.teamorouter.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.teamorouter.cn/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "claudecn",
+      "name": "ClaudeCN",
+      "websiteUrl": "https://claudecn.top/",
+      "apiKeyUrl": "https://claudecn.ai/register",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://claudecn.top/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "agent-plan",
+      "name": "火山 Agent Plan",
+      "websiteUrl": "https://www.volcengine.com/activity/agentplan",
+      "apiKeyUrl": "https://www.volcengine.com/activity/agentplan",
+      "endpointCandidates": [
+        "https://ark.cn-beijing.volces.com/api/plan/v3"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://ark.cn-beijing.volces.com/api/plan/v3",
+      "model": "{\"default_model\":\"ark-code-latest\",\"customs\":[{\"slug\":\"ark-code-latest\",\"display_name\":\"Ark Code Latest\",\"context_window\":256000,\"base\":\"ark-code-latest\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "coding-plan",
+      "name": "火山 Coding Plan",
+      "websiteUrl": "https://www.volcengine.com/activity/codingplan",
+      "apiKeyUrl": "https://www.volcengine.com/activity/codingplan",
+      "endpointCandidates": [
+        "https://ark.cn-beijing.volces.com/api/coding/v3"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+      "model": "{\"default_model\":\"ark-code-latest\",\"customs\":[{\"slug\":\"ark-code-latest\",\"display_name\":\"Ark Code Latest\",\"context_window\":256000,\"base\":\"ark-code-latest\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "byteplus",
+      "name": "BytePlus",
+      "websiteUrl": "https://www.byteplus.com/en/product/modelark",
+      "apiKeyUrl": "https://www.byteplus.com/en/product/modelark",
+      "endpointCandidates": [
+        "https://ark.ap-southeast.bytepluses.com/api/coding/v3"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
+      "model": "{\"default_model\":\"ark-code-latest\",\"customs\":[{\"slug\":\"ark-code-latest\",\"display_name\":\"Ark Code Latest\",\"context_window\":256000,\"base\":\"ark-code-latest\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "volcengine-doubao",
+      "name": "Volcengine Doubao",
+      "websiteUrl": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+      "apiKeyUrl": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+      "endpointCandidates": [
+        "https://ark.cn-beijing.volces.com/api/v3"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "model": "{\"default_model\":\"doubao-seed-2-1-pro-260628\",\"customs\":[{\"slug\":\"doubao-seed-2-1-pro-260628\",\"display_name\":\"Doubao Seed 2.1 Pro\",\"context_window\":262144,\"base\":\"doubao-seed-2-1-pro-260628\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "a6api",
+      "name": "A6API",
+      "websiteUrl": "https://www.a6api.com/",
+      "apiKeyUrl": "https://a6api.com/register",
+      "endpointCandidates": [
+        "https://api.a6api.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.a6api.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "compshare",
+      "name": "Compshare",
+      "websiteUrl": "https://www.compshare.cn/",
+      "apiKeyUrl": "https://www.compshare.cn/coding-plan",
+      "endpointCandidates": [
+        "https://api.modelverse.cn/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.modelverse.cn/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "compshare-coding-plan",
+      "name": "Compshare Coding Plan",
+      "websiteUrl": "https://www.compshare.cn/",
+      "apiKeyUrl": "https://www.compshare.cn/coding-plan",
+      "endpointCandidates": [
+        "https://cp.compshare.cn/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://cp.compshare.cn/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "ccsub",
+      "name": "CCSub",
+      "websiteUrl": "https://www.ccsub.net/",
+      "apiKeyUrl": "https://www.ccsub.net/register",
+      "endpointCandidates": [
+        "https://www.ccsub.net/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.ccsub.net/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "sssaicode",
+      "name": "SSSAiCode",
+      "websiteUrl": "https://sssaicodeapi.com/",
+      "apiKeyUrl": "https://sssaicodeapi.com/register",
+      "endpointCandidates": [
+        "https://node-hk.sssaicodeapi.com/api/v1",
+        "https://node-hk.sssaiapi.com/api/v1",
+        "https://node-cf.sssaicodeapi.com/api/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://node-hk.sssaicodeapi.com/api/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "soleapi",
+      "name": "SoleAPI",
+      "websiteUrl": "https://soleapi.com/",
+      "apiKeyUrl": "https://soleapi.com/r/ccswitch",
+      "endpointCandidates": [
+        "https://soleapi.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://soleapi.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "micu",
+      "name": "Micu",
+      "websiteUrl": "https://www.micuapi.ai/",
+      "apiKeyUrl": "https://www.micuapi.ai/register",
+      "endpointCandidates": [
+        "https://www.micuapi.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.micuapi.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "rightcode",
+      "name": "RightCode",
+      "websiteUrl": "https://www.rightapi.ai/",
+      "apiKeyUrl": "https://www.rightapi.ai/register",
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.rightapi.ai/codex/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "etok-ai",
+      "name": "ETok.ai",
+      "websiteUrl": "https://etok.ai/",
+      "apiKeyUrl": "https://etok.ai/",
+      "endpointCandidates": [
+        "https://api.etok.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.etok.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "cubence",
+      "name": "Cubence",
+      "websiteUrl": "https://cubence.com/",
+      "apiKeyUrl": "https://cubence.com/signup",
+      "endpointCandidates": [
+        "https://api.cubence.com/v1",
+        "https://api-cf.cubence.com/v1",
+        "https://api-dmit.cubence.com/v1",
+        "https://api-bwg.cubence.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.cubence.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "crazyrouter",
+      "name": "CrazyRouter",
+      "websiteUrl": "https://www.crazyrouter.com/",
+      "apiKeyUrl": "https://www.crazyrouter.com/register",
+      "endpointCandidates": [
+        "https://cn.crazyrouter.com/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://cn.crazyrouter.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "dmxapi",
+      "name": "DMXAPI",
+      "websiteUrl": "https://www.dmxapi.cn/",
+      "endpointCandidates": [
+        "https://www.dmxapi.cn/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://www.dmxapi.cn/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "sudocode-chat",
+      "name": "SudoCode.chat",
+      "websiteUrl": "https://sudocode.chat/",
+      "apiKeyUrl": "https://sudocode.chat/sign-up",
+      "endpointCandidates": [
+        "https://api.sudocode.chat/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://api.sudocode.chat/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "sudocode-us",
+      "name": "SudoCode.us",
+      "websiteUrl": "https://sudocode.us/",
+      "apiKeyUrl": "https://sudocode.us/",
+      "endpointCandidates": [
+        "https://sudocode.us/v1",
+        "https://sudocode.run/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://sudocode.us/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "xycai",
+      "name": "XycAi",
+      "websiteUrl": "https://xycai.us/",
+      "apiKeyUrl": "https://xycai.us/register",
+      "endpointCandidates": [
+        "https://apicdn.xycai.us/v1",
+        "https://apicdn.xyc.ai/v1"
+      ],
+      "category": "partner",
+      "surface": "reusable",
+      "apiUrl": "https://apicdn.xycai.us/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "amux",
+      "name": "Amux",
+      "websiteUrl": "https://amux.ai/",
+      "apiKeyUrl": "https://amux.ai/",
+      "endpointCandidates": [
+        "https://api.amux.ai/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.amux.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "azure-openai",
+      "name": "Azure OpenAI",
+      "websiteUrl": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/codex",
+      "endpointCandidates": [
+        "https://your_resource_name.openai.azure.com/openai"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://your_resource_name.openai.azure.com/openai",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
     },
     {
       "id": "deepseek",
       "name": "DeepSeek",
+      "websiteUrl": "https://platform.deepseek.com/",
+      "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+      "endpointCandidates": [
+        "https://api.deepseek.com/"
+      ],
+      "category": "community",
       "surface": "reusable",
-      "apiUrl": "https://api.deepseek.com/v1",
-      "model": "{\"default_model\":\"deepseek-chat\",\"customs\":[],\"excluded_officials\":[]}",
-      "websiteUrl": "https://platform.deepseek.com",
-      "category": "community"
+      "apiUrl": "https://api.deepseek.com/",
+      "model": "{\"default_model\":\"deepseek-v4-flash\",\"customs\":[{\"slug\":\"deepseek-v4-flash\",\"display_name\":\"DeepSeek V4 Flash\",\"context_window\":1048576,\"base\":\"deepseek-v4-flash\"},{\"slug\":\"deepseek-v4-pro\",\"display_name\":\"DeepSeek V4 Pro\",\"context_window\":1048576,\"base\":\"deepseek-v4-pro\"}],\"excluded_officials\":[]}"
     },
     {
-      "id": "moonshot",
-      "name": "Moonshot",
+      "id": "zhipu-glm",
+      "name": "Zhipu GLM",
+      "websiteUrl": "https://open.bigmodel.cn/",
+      "apiKeyUrl": "https://www.bigmodel.cn/claude-code",
+      "endpointCandidates": [
+        "https://open.bigmodel.cn/api/v1"
+      ],
+      "category": "community",
       "surface": "reusable",
-      "apiUrl": "https://api.moonshot.cn/v1",
-      "model": "{\"default_model\":\"kimi-k2.5\",\"customs\":[],\"excluded_officials\":[]}",
-      "websiteUrl": "https://platform.moonshot.cn",
-      "category": "prime"
+      "apiUrl": "https://open.bigmodel.cn/api/v1",
+      "model": "{\"default_model\":\"glm-5.3\",\"customs\":[{\"slug\":\"glm-5.3\",\"display_name\":\"GLM-5.3\",\"context_window\":1048576,\"base\":\"glm-5.3\"},{\"slug\":\"glm-5-turbo\",\"display_name\":\"GLM-5-Turbo\",\"context_window\":204800,\"base\":\"glm-5-turbo\"}],\"excluded_officials\":[]}"
     },
     {
-      "id": "siliconflow",
-      "name": "SiliconFlow",
+      "id": "zhipu-glm-en",
+      "name": "Zhipu GLM en",
+      "websiteUrl": "https://z.ai/",
+      "apiKeyUrl": "https://z.ai/subscribe",
+      "endpointCandidates": [
+        "https://api.z.ai/api/v1"
+      ],
+      "category": "community",
       "surface": "reusable",
-      "apiUrl": "https://api.siliconflow.cn/v1",
-      "model": "{\"default_model\":\"Qwen/Qwen2.5-72B-Instruct\",\"customs\":[],\"excluded_officials\":[]}",
-      "websiteUrl": "https://siliconflow.cn",
-      "category": "partner"
+      "apiUrl": "https://api.z.ai/api/v1",
+      "model": "{\"default_model\":\"glm-5.3\",\"customs\":[{\"slug\":\"glm-5.3\",\"display_name\":\"GLM-5.3\",\"context_window\":1048576,\"base\":\"glm-5.3\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "ai",
+      "name": "千问AI平台",
+      "websiteUrl": "https://platform.qianwenai.com/",
+      "apiKeyUrl": "https://platform.qianwenai.com/home/api-keys",
+      "endpointCandidates": [
+        "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "{\"default_model\":\"qwen3.8-max\",\"customs\":[{\"slug\":\"qwen3.8-max\",\"display_name\":\"Qwen3.8 Max\",\"context_window\":983616,\"base\":\"qwen3.8-max\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "ai-token-plan",
+      "name": "千问AI平台 Token Plan",
+      "websiteUrl": "https://platform.qianwenai.com/pricing/token-plan",
+      "apiKeyUrl": "https://platform.qianwenai.com/home/api-keys",
+      "endpointCandidates": [
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "model": "{\"default_model\":\"qwen3.8-max\",\"customs\":[{\"slug\":\"qwen3.8-max\",\"display_name\":\"Qwen3.8 Max\",\"context_window\":983616,\"base\":\"qwen3.8-max\"},{\"slug\":\"qwen3.8-flash\",\"display_name\":\"Qwen3.8 Flash\",\"context_window\":983616,\"base\":\"qwen3.8-flash\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "qwencloud",
+      "name": "QwenCloud",
+      "websiteUrl": "https://home.qwencloud.com/",
+      "apiKeyUrl": "https://home.qwencloud.com/api-keys",
+      "endpointCandidates": [
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "model": "{\"default_model\":\"qwen3.8-max\",\"customs\":[{\"slug\":\"qwen3.8-max\",\"display_name\":\"Qwen3.8 Max\",\"context_window\":983616,\"base\":\"qwen3.8-max\"},{\"slug\":\"qwen3.8-flash\",\"display_name\":\"Qwen3.8 Flash\",\"context_window\":983616,\"base\":\"qwen3.8-flash\"},{\"slug\":\"qwen3.7-max\",\"display_name\":\"Qwen3.7 Max\",\"context_window\":1000000,\"base\":\"qwen3.7-max\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "qwencloud-token-plan",
+      "name": "QwenCloud Token Plan",
+      "websiteUrl": "https://www.qwencloud.com/pricing/token-plan",
+      "apiKeyUrl": "https://home.qwencloud.com/api-keys",
+      "endpointCandidates": [
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+      "model": "{\"default_model\":\"qwen3.8-max\",\"customs\":[{\"slug\":\"qwen3.8-max\",\"display_name\":\"Qwen3.8 Max\",\"context_window\":983616,\"base\":\"qwen3.8-max\"},{\"slug\":\"qwen3.8-flash\",\"display_name\":\"Qwen3.8 Flash\",\"context_window\":983616,\"base\":\"qwen3.8-flash\"},{\"slug\":\"qwen3.7-max\",\"display_name\":\"Qwen3.7 Max\",\"context_window\":1000000,\"base\":\"qwen3.7-max\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "tencent-hunyuan",
+      "name": "Tencent Hunyuan",
+      "websiteUrl": "https://cloud.tencent.com/product/tokenhub",
+      "apiKeyUrl": "https://console.cloud.tencent.com/tokenhub/apikey",
+      "endpointCandidates": [
+        "https://tokenhub.tencentmaas.com/v1",
+        "https://tokenhub.tencentmaas.cn/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://tokenhub.tencentmaas.com/v1",
+      "model": "{\"default_model\":\"hy3\",\"customs\":[{\"slug\":\"hy3\",\"display_name\":\"Hy3\",\"context_window\":256000,\"base\":\"hy3\"},{\"slug\":\"hy3-preview\",\"display_name\":\"Hy3 Preview\",\"context_window\":256000,\"base\":\"hy3-preview\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "longcat",
+      "name": "Longcat",
+      "websiteUrl": "https://longcat.chat/platform",
+      "apiKeyUrl": "https://longcat.chat/platform/api_keys",
+      "endpointCandidates": [
+        "https://api.longcat.chat/openai/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.longcat.chat/openai/v1",
+      "model": "{\"default_model\":\"LongCat-2.0\",\"customs\":[{\"slug\":\"LongCat-2.0\",\"display_name\":\"LongCat 2.0\",\"context_window\":1048576,\"base\":\"LongCat-2.0\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "websiteUrl": "https://platform.minimaxi.com/",
+      "apiKeyUrl": "https://platform.minimaxi.com/subscribe/coding-plan",
+      "endpointCandidates": [
+        "https://api.minimaxi.com/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.minimaxi.com/v1",
+      "model": "{\"default_model\":\"MiniMax-M3\",\"customs\":[{\"slug\":\"MiniMax-M3\",\"display_name\":\"MiniMax-M3\",\"context_window\":1000000,\"base\":\"MiniMax-M3\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "minimax-en",
+      "name": "MiniMax en",
+      "websiteUrl": "https://platform.minimax.io/",
+      "apiKeyUrl": "https://platform.minimax.io/subscribe/coding-plan",
+      "endpointCandidates": [
+        "https://api.minimax.io/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.minimax.io/v1",
+      "model": "{\"default_model\":\"MiniMax-M3\",\"customs\":[{\"slug\":\"MiniMax-M3\",\"display_name\":\"MiniMax-M3\",\"context_window\":1000000,\"base\":\"MiniMax-M3\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "xiaomi-mimo",
+      "name": "Xiaomi MiMo",
+      "websiteUrl": "https://platform.xiaomimimo.com/",
+      "apiKeyUrl": "https://platform.xiaomimimo.com/",
+      "endpointCandidates": [
+        "https://api.xiaomimimo.com/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.xiaomimimo.com/v1",
+      "model": "{\"default_model\":\"mimo-v2.5-pro\",\"customs\":[{\"slug\":\"mimo-v2.5-pro\",\"display_name\":\"MiMo V2.5 Pro\",\"context_window\":1048576,\"base\":\"mimo-v2.5-pro\"},{\"slug\":\"mimo-v2.5\",\"display_name\":\"MiMo V2.5\",\"context_window\":1048576,\"base\":\"mimo-v2.5\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "xiaomi-mimo-token-plan-china",
+      "name": "Xiaomi MiMo Token Plan (China)",
+      "websiteUrl": "https://platform.xiaomimimo.com/",
+      "apiKeyUrl": "https://platform.xiaomimimo.com/",
+      "endpointCandidates": [
+        "https://token-plan-cn.xiaomimimo.com/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+      "model": "{\"default_model\":\"mimo-v2.5-pro\",\"customs\":[{\"slug\":\"mimo-v2.5-pro\",\"display_name\":\"MiMo V2.5 Pro\",\"context_window\":1048576,\"base\":\"mimo-v2.5-pro\"},{\"slug\":\"mimo-v2.5\",\"display_name\":\"MiMo V2.5\",\"context_window\":1048576,\"base\":\"mimo-v2.5\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "xai-grok",
+      "name": "xAI (Grok)",
+      "websiteUrl": "https://x.ai/api",
+      "apiKeyUrl": "https://console.x.ai/",
+      "endpointCandidates": [
+        "https://api.x.ai/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.x.ai/v1",
+      "model": "{\"default_model\":\"grok-4.5\",\"customs\":[{\"slug\":\"grok-4.5\",\"display_name\":\"Grok 4.5\",\"context_window\":500000,\"base\":\"grok-4.5\"}],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "aihubmix",
+      "name": "AiHubMix",
+      "websiteUrl": "https://aihubmix.com/",
+      "endpointCandidates": [
+        "https://aihubmix.com/v1",
+        "https://api.aihubmix.com/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://aihubmix.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "cherryin",
+      "name": "CherryIN",
+      "websiteUrl": "https://open.cherryin.ai/",
+      "apiKeyUrl": "https://open.cherryin.ai/console/token",
+      "endpointCandidates": [
+        "https://open.cherryin.net/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://open.cherryin.net/v1",
+      "model": "{\"default_model\":\"openai/gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "relaxycode",
+      "name": "RelaxyCode",
+      "websiteUrl": "https://www.relaxycode.com/",
+      "apiKeyUrl": "https://www.relaxycode.com/register",
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://www.relaxycode.com/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "e-flowcode",
+      "name": "E-FlowCode",
+      "websiteUrl": "https://e-flowcode.cc/",
+      "apiKeyUrl": "https://e-flowcode.cc/",
+      "endpointCandidates": [
+        "https://e-flowcode.cc/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://e-flowcode.cc/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "pipellm",
+      "name": "PIPELLM",
+      "websiteUrl": "https://code.pipellm.ai/",
+      "apiKeyUrl": "https://code.pipellm.ai/login",
+      "endpointCandidates": [
+        "https://cc-api.pipellm.ai/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://cc-api.pipellm.ai/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "websiteUrl": "https://openrouter.ai/",
+      "apiKeyUrl": "https://openrouter.ai/keys",
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://openrouter.ai/api/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "therouter",
+      "name": "TheRouter",
+      "websiteUrl": "https://therouter.ai/",
+      "apiKeyUrl": "https://dashboard.therouter.ai/",
+      "endpointCandidates": [
+        "https://api.therouter.ai/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.therouter.ai/v1",
+      "model": "{\"default_model\":\"openai/gpt-5.3-codex\",\"customs\":[],\"excluded_officials\":[]}"
+    },
+    {
+      "id": "aicodewith",
+      "name": "AICodeWith",
+      "websiteUrl": "https://aicodewith.ai/",
+      "apiKeyUrl": "https://aicodewith.ai/login",
+      "endpointCandidates": [
+        "https://api.aicodewith.ai/chatgpt/v1"
+      ],
+      "category": "community",
+      "surface": "reusable",
+      "apiUrl": "https://api.aicodewith.ai/chatgpt/v1",
+      "model": "{\"default_model\":\"gpt-5.6-sol\",\"customs\":[],\"excluded_officials\":[]}"
     }
   ]
 }

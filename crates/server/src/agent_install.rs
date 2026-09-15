@@ -34,7 +34,6 @@ use serde::Serialize;
 use services::services::agent_registry::AgentRegistrySnapshotStore;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
-use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::AgentsCommand;

@@ -109,80 +109,13 @@ impl AppState {
             )
             .with_conversation_host(plugin_conversation_host.clone()),
         );
-        let bundled_roots = plugin_control_plane
+        plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await
             .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
-        let enabled_worker_exists = plugin_control_plane
-            .catalog()
-            .await
-            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?
-            .iter()
-            .any(|plugin| {
-                plugin.activation == plugins::PluginActivation::Enabled
-                    && plugin.entrypoints.worker.is_some()
-            });
-        let recovery_failures = match plugin_worker_runtime.resolve().await {
-            Ok(node) => {
-                let activation = plugins::BundledPluginActivation {
-                    node_executable: node.clone(),
-                    broker: plugin_capability_broker.clone(),
-                };
-                if let Err(error) = plugin_control_plane
-                    .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
-                    .await
-                {
-                    tracing::warn!(%error, "official plugin packages could not be refreshed");
-                }
-                if enabled_worker_exists {
-                    let candidate_root = app_handle
-                        .path()
-                        .app_data_dir()
-                        .map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string()))
-                        })?
-                        .join("plugins")
-                        .join("dev-candidates");
-                    plugin_control_plane
-                        .recover_enabled_workers(
-                            &node,
-                            &candidate_root,
-                            plugin_capability_broker.clone(),
-                        )
-                        .await
-                        .map_err(|error| {
-                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
-                        })?
-                } else {
-                    Vec::new()
-                }
-            }
-            Err(error) => {
-                tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
-                Vec::new()
-            }
-        };
-        for failure in recovery_failures {
-            tracing::warn!(
-                plugin_id = %failure.plugin_id,
-                code = %failure.code,
-                error = %failure.message,
-                "enabled plugin Worker could not be restored"
-            );
-        }
-        if let Ok(node) = plugin_worker_runtime.resolve().await
-            && let Ok(candidate_root) = app_handle
-                .path()
-                .app_data_dir()
-                .map(|dir| dir.join("plugins").join("dev-candidates"))
-        {
-            drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
-                plugin_control_plane.clone(),
-                node,
-                candidate_root,
-                plugin_capability_broker.clone(),
-            ));
-        }
+        // Plugin Worker Node download/probe stays off the setup path. On
+        // Windows first launch that work (and Defender scanning node.exe)
+        // otherwise freezes the window before onboarding can mount.
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
@@ -357,4 +290,98 @@ impl AppState {
             ))),
         }
     }
+
+    pub fn spawn_plugin_worker_provision(&self) {
+        let plugin_control_plane = self.plugin_control_plane.clone();
+        let plugin_worker_runtime = self.plugin_worker_runtime.clone();
+        let plugin_capability_broker = self.plugin_capability_broker.clone();
+        let app_handle = self.app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            provision_plugin_workers(
+                plugin_control_plane,
+                plugin_worker_runtime,
+                plugin_capability_broker,
+                app_handle,
+            )
+            .await;
+        });
+    }
+}
+
+async fn provision_plugin_workers(
+    plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
+    app_handle: tauri::AppHandle,
+) {
+    let bundled_roots = match plugin_control_plane
+        .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
+        .await
+    {
+        Ok(roots) => roots,
+        Err(error) => {
+            tracing::warn!(%error, "official plugin packages could not be refreshed");
+            return;
+        }
+    };
+    let enabled_worker_exists = match plugin_control_plane.catalog().await {
+        Ok(catalog) => catalog.iter().any(|plugin| {
+            plugin.activation == plugins::PluginActivation::Enabled
+                && plugin.entrypoints.worker.is_some()
+        }),
+        Err(error) => {
+            tracing::warn!(%error, "plugin catalog could not be read for Worker recovery");
+            false
+        }
+    };
+    let node = match plugin_worker_runtime.resolve().await {
+        Ok(node) => node,
+        Err(error) => {
+            tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+            return;
+        }
+    };
+    let activation = plugins::BundledPluginActivation {
+        node_executable: node.clone(),
+        broker: plugin_capability_broker.clone(),
+    };
+    if let Err(error) = plugin_control_plane
+        .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
+        .await
+    {
+        tracing::warn!(%error, "official plugin packages could not be refreshed");
+    }
+    let candidate_root = match app_handle.path().app_data_dir() {
+        Ok(dir) => dir.join("plugins").join("dev-candidates"),
+        Err(error) => {
+            tracing::warn!(%error, "plugin Worker recovery path is unavailable");
+            return;
+        }
+    };
+    if enabled_worker_exists {
+        match plugin_control_plane
+            .recover_enabled_workers(&node, &candidate_root, plugin_capability_broker.clone())
+            .await
+        {
+            Ok(failures) => {
+                for failure in failures {
+                    tracing::warn!(
+                        plugin_id = %failure.plugin_id,
+                        code = %failure.code,
+                        error = %failure.message,
+                        "enabled plugin Worker could not be restored"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "enabled plugin Workers could not be restored");
+            }
+        }
+    }
+    drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
+        plugin_control_plane,
+        node,
+        candidate_root,
+        plugin_capability_broker,
+    ));
 }

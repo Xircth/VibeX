@@ -78,6 +78,9 @@ export function logoLeadsWindowChrome(): boolean {
 }
 
 export function usesSolidHostChrome(): boolean {
+  if (isWindows()) {
+    return true;
+  }
   if (typeof document === 'undefined') {
     return false;
   }

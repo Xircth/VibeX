@@ -5,6 +5,7 @@ import {
   hostPlatformFromOsType,
   logoLeadsWindowChrome,
   terminalHostPlatform,
+  usesSolidHostChrome,
 } from './platform';
 
 const originalUserAgentData = (
@@ -87,6 +88,26 @@ describe('hostPlatformFromOsType', () => {
     stubPlatform('MacIntel');
     expect(getHostPlatform()).toBe('macos');
     expect(terminalHostPlatform('linux')).toBe('linux');
+  });
+});
+
+describe('usesSolidHostChrome', () => {
+  it('uses solid chrome on Windows even before the host-windows class is applied', () => {
+    stubPlatform('Win32');
+    document.documentElement.classList.remove('host-windows');
+    expect(usesSolidHostChrome()).toBe(true);
+  });
+
+  it('keeps Liquid Glass on macOS', () => {
+    stubPlatform('MacIntel');
+    document.documentElement.classList.remove('host-windows');
+    expect(usesSolidHostChrome()).toBe(false);
+  });
+
+  it('honors the host-windows class for tests and CSS fallbacks', () => {
+    stubPlatform('MacIntel');
+    document.documentElement.classList.add('host-windows');
+    expect(usesSolidHostChrome()).toBe(true);
   });
 });
 

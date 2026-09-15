@@ -300,10 +300,10 @@ fn setup_browser_runtime(
             runtime,
         }));
     });
-    // Bind CEF's UI thread to this thread (Tauri setup runs on the main thread).
-    // Lazily initializing from a tokio-scheduled pump can make Chromium treat a
-    // worker as TID_UI and later CHECK-fail with brk #0.
-    pump_cef_session();
+    // Do not CefInitialize during setup. WebView2's first-run user-data
+    // creation already owns this HWND; initializing Chromium here freezes
+    // the window before onboarding. The first pump still runs on the UI
+    // thread via schedule_cef_pump → run_on_main_thread.
     Ok(())
 }
 
@@ -485,7 +485,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     })
     .setup(move |app| {
         // Apply frameless chrome while the window is still hidden so the first
-        // show never flashes Tauri's native decorations.
+        // show never flashes Tauri's native decorations. Overlay titleBarStyle
+        // from tauri.conf.json is macOS-only; leaving it on Windows until
+        // AppState finishes makes the first launch unresponsive.
         prepare_main_window(app);
         match cef_bootstrap {
             Ok(bootstrap) => {
@@ -645,6 +647,8 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         });
 
         app.manage(state);
+        app.state::<state::AppState>()
+            .spawn_plugin_worker_provision();
         {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

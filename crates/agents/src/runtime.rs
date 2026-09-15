@@ -3324,7 +3324,9 @@ mod tests {
         assert_eq!(session.id, local_session_id);
         assert_eq!(session.acp_session_id, "external-acp-session");
         assert_ne!(session.id.to_string(), session.acp_session_id);
-        assert!(runtime.has_bound_acp_session(local_session_id).await);
+        // `ensure_session` records the stored external id on the snapshot.
+        // A live ACP binding only exists after session/new or session/resume.
+        assert!(!runtime.has_bound_acp_session(local_session_id).await);
     }
 
     #[tokio::test]

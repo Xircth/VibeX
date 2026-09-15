@@ -55,7 +55,9 @@ describe('dark night scene tokens', () => {
       'Astryx `theme-neutral` chrome follows the same night scene'
     );
     expect(design).not.toContain('dark-switch-checked-border: "#ffffff57"');
-    expect(design).toContain('dark-switch-checked-track: "hsl(var(--primary))"');
+    expect(design).toContain(
+      'dark-switch-checked-track: "hsl(var(--primary))"'
+    );
   });
 
   it('falls back to Pearl Ink when no accent is applied', () => {
@@ -161,7 +163,9 @@ describe('dark night scene tokens', () => {
     expect(dark.get('--color-background-popover')).toBe('#242936');
     expect(dark.get('--color-accent')).toBe('hsl(var(--primary))');
     expect(dark.get('--color-accent-muted')).toBe('hsl(var(--primary) / 0.12)');
-    expect(dark.get('--color-on-accent')).toBe('hsl(var(--primary-foreground))');
+    expect(dark.get('--color-on-accent')).toBe(
+      'hsl(var(--primary-foreground))'
+    );
     expect(dark.get('--color-text-accent')).toBe('hsl(var(--primary))');
     expect(dark.get('--color-icon-accent')).toBe('hsl(var(--primary))');
     expect(dark.get('--color-text-primary')).toBe('#e7ebef');

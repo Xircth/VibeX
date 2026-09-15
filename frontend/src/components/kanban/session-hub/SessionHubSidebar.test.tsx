@@ -350,12 +350,7 @@ describe('SessionHubSidebar', () => {
 
   it('replaces the action row with the delete area', () => {
     const onCancelDeleteMode = vi.fn();
-    render(
-      <Harness
-        isDeleteMode
-        onCancelDeleteMode={onCancelDeleteMode}
-      />
-    );
+    render(<Harness isDeleteMode onCancelDeleteMode={onCancelDeleteMode} />);
 
     expect(screen.getByText('选择会话')).toBeInTheDocument();
     expect(screen.queryByText('会话列表')).not.toBeInTheDocument();

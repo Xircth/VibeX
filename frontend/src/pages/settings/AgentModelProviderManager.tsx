@@ -2094,10 +2094,7 @@ interface PiModelSpec {
   raw: Record<string, unknown>;
 }
 
-function writePiReasoning(
-  payload: Record<string, unknown>,
-  next: PiModelSpec
-) {
+function writePiReasoning(payload: Record<string, unknown>, next: PiModelSpec) {
   if (next.reasoning.enabled) {
     payload.reasoning = true;
     payload.thinkingLevelMap = reasoningToMap(next.reasoning);

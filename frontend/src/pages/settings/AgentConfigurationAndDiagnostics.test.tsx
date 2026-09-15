@@ -615,10 +615,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
           available: true,
           settings_features: ['pi_configuration', 'reusable_model_providers'],
           path: '/tmp/.pi/agent/settings.json',
-          paths: [
-            '/tmp/.pi/agent/settings.json',
-            '/tmp/.pi/agent/models.json',
-          ],
+          paths: ['/tmp/.pi/agent/settings.json', '/tmp/.pi/agent/models.json'],
           files: [],
           applies_to_next_session: true,
           fields: [

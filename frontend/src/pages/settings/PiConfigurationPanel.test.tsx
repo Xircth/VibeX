@@ -115,8 +115,6 @@ describe('PiConfigurationPanel', () => {
     expect(list).toHaveTextContent('/Users/mac/Projects/VibeX');
     expect(list).not.toHaveTextContent('已信任');
     expect(list).toHaveTextContent('未信任');
-    expect(
-      screen.getAllByRole('button', { name: '撤销' })
-    ).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: '撤销' })).toHaveLength(2);
   });
 });

@@ -174,10 +174,10 @@ fn resolve_pi_path(raw: &str, agent_dir: &Path, cwd: &Path) -> PathBuf {
     if path.is_absolute() {
         return path;
     }
-    if raw.starts_with("~/") {
-        if let Some(home) = agent_dir.parent().and_then(Path::parent) {
-            return home.join(&raw[2..]);
-        }
+    if let Some(stripped) = raw.strip_prefix("~/")
+        && let Some(home) = agent_dir.parent().and_then(Path::parent)
+    {
+        return home.join(stripped);
     }
     if raw.starts_with(".pi/") || raw.starts_with("./") {
         return cwd.join(raw);

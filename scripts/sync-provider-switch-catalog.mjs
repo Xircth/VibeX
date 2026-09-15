@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pluginRoot = resolve(here, '..');
-const repoRoot = resolve(pluginRoot, '../../..');
+const repoRoot = resolve(here, '..');
+const pluginRoot = join(repoRoot, 'assets', 'plugins', 'provider-switch');
 const catalogsRoot = join(pluginRoot, 'catalogs');
 const require = createRequire(join(repoRoot, 'packages/plugin-cli/package.json'));
 const esbuild = require('esbuild');

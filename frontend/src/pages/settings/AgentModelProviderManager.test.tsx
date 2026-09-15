@@ -310,15 +310,21 @@ describe('AgentModelProviderManager', () => {
     await user.type(screen.getByLabelText('Provider API Key'), 'secret');
     await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
     await user.click(screen.getByRole('checkbox', { name: '声明推理能力' }));
-    await user.click(screen.getByRole('button', { name: 'high', pressed: true }));
+    await user.click(
+      screen.getByRole('button', { name: 'high', pressed: true })
+    );
     await user.click(
       screen.getByRole('button', { name: 'medium', pressed: true })
     );
-    await user.click(screen.getByRole('button', { name: 'low', pressed: true }));
+    await user.click(
+      screen.getByRole('button', { name: 'low', pressed: true })
+    );
     await user.click(
       screen.getByRole('button', { name: 'minimal', pressed: true })
     );
-    await user.click(screen.getByRole('button', { name: 'off', pressed: true }));
+    await user.click(
+      screen.getByRole('button', { name: 'off', pressed: true })
+    );
     await user.click(screen.getByRole('button', { name: '创建 Provider' }));
 
     expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();

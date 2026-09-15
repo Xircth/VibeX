@@ -262,8 +262,7 @@ impl AgentRuntime {
     #[doc(hidden)]
     pub fn new_with_driver(event_sink: Arc<dyn RuntimeEventSink>, driver_enabled: bool) -> Self {
         let (event_tx, _) = broadcast::channel(512);
-        let (manager_event_tx, manager_event_rx) =
-            mpsc::channel(crate::manager::MANAGER_EVENT_BUFFER);
+        let (manager_event_tx, manager_event_rx) = crate::manager::manager_event_channel();
         let state = Arc::new(RwLock::new(RuntimeState::default()));
         let session_locks = Arc::new(Mutex::new(HashMap::new()));
         let connection_manager = Arc::new(AgentConnectionManager::new_with_driver(
@@ -292,7 +291,7 @@ impl AgentRuntime {
         connection_manager: Arc<AgentConnectionManager>,
         event_sink: Arc<dyn RuntimeEventSink>,
         event_tx: broadcast::Sender<AgentEventEnvelope>,
-        mut manager_event_rx: mpsc::Receiver<AgentConnectionManagerEvent>,
+        mut manager_event_rx: mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
     ) {
         tokio::spawn(async move {
             while let Some(manager_event) = manager_event_rx.recv().await {
@@ -306,14 +305,18 @@ impl AgentRuntime {
                         &manager_event,
                         active_before,
                     );
-                    Self::emit_with_parts_locked(
+                    // Persist/broadcast after releasing the runtime lock. Holding
+                    // `state.write()` while the persist sink blocked deadlocked
+                    // every concurrent session's ACP read loop at "生成中".
+                    let envelope = Self::push_event_locked(
                         &mut state,
-                        &*event_sink,
-                        &event_tx,
                         manager_event.connection_id,
                         manager_event.session_id,
                         manager_event.event,
                     );
+                    drop(state);
+                    event_sink.emit(envelope.clone());
+                    let _ = event_tx.send(envelope);
                     next_prompt
                 };
 
@@ -1237,6 +1240,28 @@ impl AgentRuntime {
             .map(|session| session.snapshot.connection_id)
     }
 
+    /// True when this conversation still has a live ACP session mapping on a
+    /// live connection. A connection id in memory is not enough: cancel that
+    /// the agent never acknowledged unbinds the mapping while leaving the
+    /// process around, and the next turn must resume the stored external id
+    /// instead of calling `session/new`.
+    pub async fn has_bound_acp_session(&self, session_id: AgentSessionId) -> bool {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return false;
+        };
+        self.connection_manager
+            .bound_acp_session_id(connection_id, session_id)
+            .await
+            .is_some()
+    }
+
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;
@@ -1429,14 +1454,12 @@ impl AgentRuntime {
         );
     }
 
-    fn emit_with_parts_locked(
+    fn push_event_locked(
         state: &mut RuntimeState,
-        event_sink: &dyn RuntimeEventSink,
-        event_tx: &broadcast::Sender<AgentEventEnvelope>,
         connection_id: AgentConnectionId,
         session_id: Option<AgentSessionId>,
         event: AgentEvent,
-    ) {
+    ) -> AgentEventEnvelope {
         let workspace_id = state
             .connections
             .get(&connection_id)
@@ -1455,6 +1478,18 @@ impl AgentRuntime {
         while state.recent_events.len() > MAX_RECENT_EVENTS {
             state.recent_events.pop_front();
         }
+        envelope
+    }
+
+    fn emit_with_parts_locked(
+        state: &mut RuntimeState,
+        event_sink: &dyn RuntimeEventSink,
+        event_tx: &broadcast::Sender<AgentEventEnvelope>,
+        connection_id: AgentConnectionId,
+        session_id: Option<AgentSessionId>,
+        event: AgentEvent,
+    ) {
+        let envelope = Self::push_event_locked(state, connection_id, session_id, event);
         event_sink.emit(envelope.clone());
         let _ = event_tx.send(envelope);
     }
@@ -2880,6 +2915,164 @@ mod tests {
         assert_eq!(session.id, local_session_id);
         assert_eq!(session.acp_session_id, "external-acp-session");
         assert_ne!(session.id.to_string(), session.acp_session_id);
+        assert!(runtime.has_bound_acp_session(local_session_id).await);
+    }
+
+    #[tokio::test]
+    async fn concurrent_sessions_resume_their_own_acp_identities_after_disconnect() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = PathBuf::from("C:/shared-workspace");
+        let session_a = AgentSessionId::new();
+        let session_b = AgentSessionId::new();
+
+        let prepared_a = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
+                session_id: session_a,
+                acp_session_id: "pending-a".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        let prepared_b = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
+                session_id: session_b,
+                acp_session_id: "pending-b".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        assert_ne!(
+            prepared_a.session.connection_id,
+            prepared_b.session.connection_id
+        );
+        assert_ne!(
+            prepared_a.session.acp_session_id,
+            prepared_b.session.acp_session_id
+        );
+
+        runtime
+            .discard_connection(prepared_a.session.connection_id)
+            .await
+            .unwrap();
+        runtime
+            .discard_connection(prepared_b.session.connection_id)
+            .await
+            .unwrap();
+        assert!(!runtime.has_bound_acp_session(session_a).await);
+        assert!(!runtime.has_bound_acp_session(session_b).await);
+
+        let resumed_a = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
+                session_id: session_a,
+                external_session_id: "acp-session-a".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        let resumed_b = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir,
+                additional_directories: Vec::new(),
+                session_id: session_b,
+                external_session_id: "acp-session-b".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resumed_a.0.acp_session_id, "acp-session-a");
+        assert_eq!(resumed_b.0.acp_session_id, "acp-session-b");
+        assert_ne!(resumed_a.0.connection_id, resumed_b.0.connection_id);
+        assert!(runtime.has_bound_acp_session(session_a).await);
+        assert!(runtime.has_bound_acp_session(session_b).await);
+    }
+
+    #[tokio::test]
+    async fn manager_event_pump_delivers_prompt_finished_under_concurrent_burst() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = PathBuf::from("C:/concurrent-hang");
+        let mut sessions = Vec::new();
+        for index in 0..2 {
+            sessions.push(
+                runtime
+                    .prepare_session(EnsureAgentSessionInput {
+                        agent_id: AgentId::parse("codex").unwrap(),
+                        launch_lock: test_launch_lock(),
+                        workspace_id,
+                        working_dir: working_dir.clone(),
+                        additional_directories: Vec::new(),
+                        session_id: AgentSessionId::new(),
+                        acp_session_id: format!("pending-hang-{index}"),
+                        auto_approve_mode: AgentAutoApproveMode::Off,
+                        env: HashMap::new(),
+                        preferences: Default::default(),
+                    })
+                    .await
+                    .unwrap()
+                    .session,
+            );
+        }
+
+        let mut prompts = Vec::new();
+        for session in &sessions {
+            prompts.push(
+                runtime
+                    .send_prompt(SendAgentPromptInput {
+                        connection_id: session.connection_id,
+                        session_id: session.id,
+                        blocks: vec![AgentContentBlock::Text {
+                            text: "keep working".to_string(),
+                        }],
+                        mode_override: None,
+                        config_overrides: Vec::new(),
+                    })
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let events = sink.events.lock().unwrap().clone();
+        for prompt in &prompts {
+            assert!(
+                events.iter().any(|envelope| matches!(
+                    &envelope.event,
+                    AgentEvent::PromptStarted { snapshot } if snapshot.id == prompt.id
+                )),
+                "concurrent turns must keep producing events instead of hanging"
+            );
+        }
     }
 
     #[tokio::test]

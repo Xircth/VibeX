@@ -426,6 +426,100 @@ describe('SessionComposerInput (Astryx)', () => {
     rectSpy.mockRestore();
   });
 
+  it('shows advertised commands while the live catalog is still loading', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'pi' },
+        transport,
+        commandsLoading: true,
+        availableCommands: [
+          {
+            name: 'worktree',
+            description: 'Manage git worktrees',
+          },
+        ],
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/work');
+
+    expect(
+      await screen.findByRole('option', { name: /worktree/i })
+    ).toBeVisible();
+  });
+
+  it('lists plugin slash commands while the Agent catalog is still loading', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return {
+            plugins: [
+              {
+                id: 'pi.worktree',
+                name: 'Worktree',
+                version: '1.0.0',
+                description: null,
+                enabled: true,
+                builtin: false,
+                sourceKind: 'snapshot',
+                sourcePath: '/plugins/worktree',
+                formats: ['vibex'],
+                skills: [],
+                runtimes: [],
+                warnings: [],
+                invocations: [
+                  {
+                    id: 'worktree',
+                    label: 'Worktree',
+                    prompt: '/worktree',
+                    kind: 'command',
+                  },
+                ],
+              },
+            ],
+            runtimes: [],
+          };
+        }
+        if (command === 'plugin_contribution_catalog') {
+          return { items: [] };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'pi' },
+        transport,
+        commandsLoading: true,
+        availableCommands: [],
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/work');
+
+    expect(
+      await screen.findByRole('option', { name: /worktree/i })
+    ).toBeVisible();
+  });
+
   it('shows agent-advertised commands in slash search', async () => {
     const user = userEvent.setup();
     const transport: BackendTransport = {

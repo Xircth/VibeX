@@ -6,9 +6,24 @@ import {
   mergeComposerSlashCommands,
   pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
+  slashCatalogReady,
 } from './commandSources';
 
 describe('composer command sources', () => {
+  it('lets plugin slash commands open before the Agent catalog arrives', () => {
+    expect(slashCatalogReady(true, [])).toBe(false);
+    expect(
+      slashCatalogReady(true, [
+        {
+          name: 'summarize',
+          sourceKind: 'plugin',
+          sourceId: 'vibex.science/summarize',
+        },
+      ])
+    ).toBe(true);
+    expect(slashCatalogReady(false, [])).toBe(true);
+  });
+
   it('keeps Codex ACP skill names that already start with $', () => {
     expect(
       agentAvailableCommandsToSlashCommands([

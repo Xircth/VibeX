@@ -58,6 +58,7 @@ import {
   mergeComposerSlashCommands,
   pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
+  slashCatalogReady,
 } from '@/lib/conversation-rendering/commandSources';
 import {
   contributionMetadata,
@@ -1170,19 +1171,24 @@ export function SessionComposerInput({
 
   // --- Trigger search sources (adapted to the Astryx SearchSource contract) ---
 
-  const liveCommandsReadyRef = useRef(!commandsLoading);
-  liveCommandsReadyRef.current = !commandsLoading;
+  const liveCommandsReadyRef = useRef(
+    slashCatalogReady(commandsLoading, allSlashCommands)
+  );
+  liveCommandsReadyRef.current = slashCatalogReady(
+    commandsLoading,
+    allSlashCommands
+  );
   const allSlashCommandsRef = useRef(allSlashCommands);
   allSlashCommandsRef.current = allSlashCommands;
   const executorRef = useRef(executor);
   executorRef.current = executor;
   const liveCommandsWaitersRef = useRef<Array<() => void>>([]);
   useEffect(() => {
-    if (commandsLoading) return;
+    if (!slashCatalogReady(commandsLoading, allSlashCommands)) return;
     const waiters = liveCommandsWaitersRef.current;
     liveCommandsWaitersRef.current = [];
     waiters.forEach((resolve) => resolve());
-  }, [commandsLoading]);
+  }, [allSlashCommands, commandsLoading]);
 
   const slashSource = useMemo<SearchSource>(
     () => ({

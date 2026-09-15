@@ -140,6 +140,17 @@ export function localSkillsToDollarCommands(
   });
 }
 
+/**
+ * Slash typeahead can use plugin-contributed commands before the Agent
+ * advertises its ACP catalog. Wait only when the menu would otherwise be empty.
+ */
+export function slashCatalogReady(
+  commandsLoading: boolean,
+  commands: ComposerSlashCommand[]
+): boolean {
+  return !commandsLoading || commands.length > 0;
+}
+
 export function mergeComposerSlashCommands({
   catalogCommands,
   runtimeCommands,

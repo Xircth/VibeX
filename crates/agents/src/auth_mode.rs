@@ -523,6 +523,13 @@ pub fn apply_built_in_launch_policy(
                 "PI_ACP_ENABLE_EMBEDDED_CONTEXT".to_string(),
                 "true".to_string(),
             );
+            // pi-acp 0.0.33 hardcodes includeExtensionCommands=false. Newer
+            // adapters honor this env; VibeX also merges discovered extension
+            // commands into the ACP catalog so `/` can list them either way.
+            env.insert(
+                "PI_ACP_ENABLE_EXTENSION_COMMANDS".to_string(),
+                "true".to_string(),
+            );
             let home = env
                 .get("HOME")
                 .or_else(|| env.get("USERPROFILE"))
@@ -838,6 +845,7 @@ mod tests {
         )]);
         apply_built_in_launch_policy(&AgentId::parse("pi").unwrap(), &mut pi, &mut Vec::new());
         assert_eq!(pi["PI_ACP_ENABLE_EMBEDDED_CONTEXT"], "true");
+        assert_eq!(pi["PI_ACP_ENABLE_EXTENSION_COMMANDS"], "true");
     }
 
     #[test]
@@ -866,6 +874,7 @@ mod tests {
         );
         assert_eq!(env.get("PI_API_KEY").map(String::as_str), Some("sk-pi"));
         assert_eq!(env["PI_ACP_ENABLE_EMBEDDED_CONTEXT"], "true");
+        assert_eq!(env["PI_ACP_ENABLE_EXTENSION_COMMANDS"], "true");
     }
 
     #[test]

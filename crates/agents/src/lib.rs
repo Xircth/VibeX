@@ -47,6 +47,7 @@ pub mod npm_registry;
 pub mod operations;
 pub mod parsers;
 pub mod permissions;
+mod pi_commands;
 pub mod pi_trust;
 pub mod plan_usage;
 pub mod profiles;
@@ -163,9 +164,9 @@ pub use history::{
     LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanProgress,
     LocalHistoryScanSession, LocalHistorySessionStatus, build_local_history_scan_page,
     configured_history_sources, default_history_sources, history_folder_name,
-    history_paths_overlap, import_history_source, load_configured_history_session,
-    match_history_destination, merge_history_sources, normalize_history_path,
-    scan_configured_history, scan_configured_history_with_progress,
+    import_history_source, load_configured_history_session, match_history_destination,
+    merge_history_sources, normalize_history_path, scan_configured_history,
+    scan_configured_history_with_progress,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,

@@ -71,6 +71,7 @@ use crate::{
     grok_mcp::{self, GrokMcpTracker},
     grok_subagent::GrokSubagentTracker,
     grok_usage,
+    pi_commands::{enrich_pi_available_commands, merge_available_command_lists},
     pi_trust::{PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV, PI_TRUST_WORKSPACE_ENV},
     session_notice,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
@@ -195,17 +196,15 @@ fn acp_tool_content_preview(content: &[ToolCallContent]) -> Option<String> {
 
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_SESSION_PREP_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
 const SESSION_PREP_TIMEOUT_ENV: &str = "VIBEX_ACP_SESSION_PREP_TIMEOUT_SECS";
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
-// Opt-in prompt idle watchdog. Unset or `0` disables it: an in-flight turn
-// stays alive until the agent returns, the user cancels, or the connection
-// dies (Codeg parity — Codeg never kills a Prompting connection). A positive
-// `VIBEX_PROMPT_IDLE_TIMEOUT_SECS` fails a turn that produces no ACP traffic
-// for that long. When enabled, every inbound ACP request/notification (not
-// just session/update) refreshes the clock, and permission, elicitation, and
-// live-terminal waits are exempt.
+// Prompt idle watchdog. Unset uses `DEFAULT_PROMPT_IDLE_TIMEOUT_SECS` so a
+// silent in-flight turn cannot sit on "生成中" forever. `0` disables it.
+// Every inbound ACP request/notification refreshes the clock, and permission,
+// elicitation, and live-terminal waits are exempt.
 const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
 
 // ACP cancellation is complete when the agent answers the outstanding
@@ -215,6 +214,10 @@ const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
 // `session/update`s land on whatever Turn comes next. Wait for the acknowledgement,
 // but bounded — an agent that never answers must not wedge the connection.
 const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
+// `run_prompt` owns `cmd_rx` for the whole turn. A Disconnect sent while that
+// future is parked on cancel-ack (or a replaced/wedged sender) would otherwise
+// wait forever, and 继续 after stop would hang on "会话加载异常，正在连接…".
+const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
 
@@ -313,7 +316,14 @@ fn positive_timeout_secs(value: Option<&str>) -> Option<Duration> {
 }
 
 fn prompt_idle_timeout() -> Option<Duration> {
-    prompt_idle_timeout_from_env_value(std::env::var(PROMPT_IDLE_TIMEOUT_ENV).ok().as_deref())
+    prompt_idle_timeout_from_env(std::env::var(PROMPT_IDLE_TIMEOUT_ENV).ok().as_deref())
+}
+
+fn prompt_idle_timeout_from_env(value: Option<&str>) -> Option<Duration> {
+    match value {
+        Some(value) if !value.trim().is_empty() => prompt_idle_timeout_from_env_value(Some(value)),
+        _ => Some(Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)),
+    }
 }
 
 fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Option<Duration> {
@@ -991,10 +1001,17 @@ impl AgentConnectionManager {
             .cmd_tx
             .send(AgentConnectionCommand::Disconnect)
             .await;
-        connection
-            .task
-            .await
-            .map_err(|error| AgentError::Runtime(format!("agent connection task failed: {error}")))
+        let mut task = connection.task;
+        match tokio::time::timeout(DISCONNECT_JOIN_TIMEOUT, &mut task).await {
+            Ok(result) => result.map_err(|error| {
+                AgentError::Runtime(format!("agent connection task failed: {error}"))
+            }),
+            Err(_) => {
+                task.abort();
+                let _ = task.await;
+                Ok(())
+            }
+        }
     }
 
     pub async fn list_connections(&self) -> Vec<ManagedAgentConnectionSnapshot> {
@@ -1033,13 +1050,14 @@ impl AgentConnectionManager {
         &self,
         connection_id: AgentConnectionId,
         cmd_tx: mpsc::Sender<AgentConnectionCommand>,
-    ) {
-        self.connections
-            .lock()
-            .await
+    ) -> mpsc::Sender<AgentConnectionCommand> {
+        let mut connections = self.connections.lock().await;
+        let connection = connections
             .get_mut(&connection_id)
-            .expect("test connection must be registered")
-            .cmd_tx = cmd_tx;
+            .expect("test connection must be registered");
+        // Keep the previous sender alive so the connection task stays wedged
+        // on its original receiver instead of exiting when this is dropped.
+        std::mem::replace(&mut connection.cmd_tx, cmd_tx)
     }
 
     async fn send_command(
@@ -1151,6 +1169,13 @@ struct RunPromptRequest {
     blocks: Vec<AgentContentBlock>,
     mode_override: Option<String>,
     config_overrides: Vec<AgentSessionConfigOverride>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunPromptOutcome {
+    Settled,
+    RetireConnection,
+    Closed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
@@ -1864,6 +1889,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.grok_mcp),
             Arc::clone(&self.pending_session_id),
             self.snapshot.working_dir.clone(),
+            self.snapshot.env.clone(),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -2107,7 +2133,7 @@ impl AgentConnectionRunner {
                                     companion_capabilities,
                                 )
                                 .await?;
-                            runner
+                            match runner
                                 .run_prompt(
                                     &conn,
                                     RunPromptRequest {
@@ -2120,7 +2146,24 @@ impl AgentConnectionRunner {
                                     },
                                     &mut cmd_rx,
                                 )
-                                .await?;
+                                .await?
+                            {
+                                RunPromptOutcome::Settled => {}
+                                RunPromptOutcome::RetireConnection => {
+                                    // ADR-0071: an agent that does not ack cancel (or
+                                    // went silent) must not serve the next turn.
+                                    runner.emit_connection_status(
+                                        AgentConnectionStatus::Failed,
+                                        Some(
+                                            "agent session retired after cancel was not acknowledged"
+                                                .to_string(),
+                                        ),
+                                        Some(session_id),
+                                    );
+                                    break;
+                                }
+                                RunPromptOutcome::Closed => break,
+                            }
                         }
                         AgentConnectionCommand::Steer {
                             expected_prompt_id,
@@ -2317,17 +2360,20 @@ impl AgentConnectionRunner {
         support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
-        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
-            if existing == external_session_id {
-                return Ok((existing, None));
+        let mapped = self.session_map.read().await.get(&session_id).cloned();
+        match mapped_resume_action(mapped.as_deref(), &external_session_id) {
+            MappedResume::Reuse(existing) => return Ok((existing, None)),
+            MappedResume::LoadRequested { unbind_stale } => {
+                if unbind_stale {
+                    tracing::warn!(
+                        session_id = %session_id.0,
+                        bound = %mapped.as_deref().unwrap_or(""),
+                        requested = %external_session_id,
+                        "ACP session map pointed at a different external id; restoring the conversation's stored session"
+                    );
+                    self.session_map.write().await.remove(&session_id);
+                }
             }
-            tracing::warn!(
-                session_id = %session_id.0,
-                bound = %existing,
-                requested = %external_session_id,
-                "ACP session map pointed at a different external id; restoring the conversation's stored session"
-            );
-            self.session_map.write().await.remove(&session_id);
         }
 
         if support.resume {
@@ -2629,6 +2675,14 @@ impl AgentConnectionRunner {
             config_options.unwrap_or_default(),
             vendor_config.is_some(),
         );
+        let pi_extension_seed = (self.snapshot.agent_id.as_str() == "pi").then(|| {
+            enrich_pi_available_commands(
+                self.snapshot.agent_id.as_str(),
+                &self.snapshot.env,
+                &self.snapshot.working_dir,
+                Vec::new(),
+            )
+        });
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
@@ -2650,6 +2704,19 @@ impl AgentConnectionRunner {
                         session_notice::pi_startup_banner_from_meta(Some(meta));
                 }
             }
+            if let Some(seeded) = pi_extension_seed.filter(|commands| !commands.is_empty()) {
+                let advertised = entry.available_commands.take().unwrap_or_default();
+                entry.available_commands = Some(merge_available_command_lists(advertised, seeded));
+            }
+        }
+        if let Some(title) = acp_meta_session_title(session_meta) {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::SessionInfoUpdated {
+                    patch: serde_json::json!({ "title": title }),
+                },
+            );
         }
 
         if let Some(preferences) = self.preferred_controls.write().await.remove(&session_id)
@@ -3060,7 +3127,7 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         request: RunPromptRequest,
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
-    ) -> Result<(), acp::Error> {
+    ) -> Result<RunPromptOutcome, acp::Error> {
         let RunPromptRequest {
             acp_session_id,
             session_id,
@@ -3149,11 +3216,11 @@ impl AgentConnectionRunner {
                         }
                     }
                     *self.active_prompt.lock().await = None;
-                    return Ok(());
+                    return Ok(RunPromptOutcome::Settled);
                 }
-                // Opt-in idle watchdog. Disabled by default so a long Grok
-                // think / subagent / terminal wait is not mistaken for a hang.
-                // When enabled, `last_activity` is any inbound ACP traffic.
+                // Idle watchdog. Silent turns end instead of sitting on
+                // "生成中". Permission, elicitation, and live terminals are
+                // exempt; inbound ACP traffic refreshes `last_activity`.
                 _ = async {
                     if idle_timeout.is_some() {
                         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -3197,7 +3264,7 @@ impl AgentConnectionRunner {
                         },
                     );
                     *self.active_prompt.lock().await = None;
-                    return Ok(());
+                    return Ok(RunPromptOutcome::RetireConnection);
                 }
                 command = cmd_rx.recv() => {
                     match command {
@@ -3208,13 +3275,70 @@ impl AgentConnectionRunner {
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
                             // Hold the turn open until the agent acknowledges by
                             // answering `session/prompt`. Anything it streams in the
-                            // meantime still belongs to *this* prompt.
-                            let acknowledged = tokio::time::timeout(
-                                CANCEL_ACKNOWLEDGEMENT_TIMEOUT,
-                                &mut prompt_future,
-                            )
-                            .await
-                            .is_ok();
+                            // meantime still belongs to *this* prompt. Disconnect
+                            // must still be able to abort this wait — otherwise
+                            // `run_prompt` owns `cmd_rx` for up to 10s and the
+                            // outer loop never sees Closed.
+                            let cancel_deadline = tokio::time::sleep(CANCEL_ACKNOWLEDGEMENT_TIMEOUT);
+                            tokio::pin!(cancel_deadline);
+                            let acknowledged = loop {
+                                tokio::select! {
+                                    result = &mut prompt_future => break result.is_ok(),
+                                    _ = &mut cancel_deadline => break false,
+                                    command = cmd_rx.recv() => {
+                                        match command {
+                                            Some(AgentConnectionCommand::Disconnect) | None => {
+                                                *self.active_prompt.lock().await = None;
+                                                self.emit(
+                                                    Some(session_id),
+                                                    Some(prompt_id),
+                                                    AgentEvent::Error {
+                                                        error: AgentErrorEvent {
+                                                            message: "Agent connection closed before the turn completed.".to_string(),
+                                                            code: Some("connection_closed".to_string()),
+                                                            raw: None,
+                                                        },
+                                                    },
+                                                );
+                                                return Ok(RunPromptOutcome::Closed);
+                                            }
+                                            Some(AgentConnectionCommand::Cancel { .. }) => {}
+                                            Some(AgentConnectionCommand::Prompt {
+                                                session_id: rejected_session,
+                                                prompt_id: rejected_prompt,
+                                                ..
+                                            }) => {
+                                                self.emit(
+                                                    Some(rejected_session),
+                                                    Some(rejected_prompt),
+                                                    AgentEvent::Error {
+                                                        error: AgentErrorEvent {
+                                                            message: "The agent connection was busy with another conversation's turn. Send again.".to_string(),
+                                                            code: Some("prompt_conflict".to_string()),
+                                                            raw: Some(serde_json::json!({
+                                                                "activePromptId": prompt_id.to_string(),
+                                                                "activeSessionId": session_id.to_string(),
+                                                            })),
+                                                        },
+                                                    },
+                                                );
+                                            }
+                                            Some(other) => {
+                                                self.emit(
+                                                    Some(session_id),
+                                                    Some(prompt_id),
+                                                    AgentEvent::RawAcpDiagnostic {
+                                                        raw: serde_json::json!({
+                                                            "kind": "ignored_command_during_cancel_handshake",
+                                                            "command": format!("{other:?}"),
+                                                        }),
+                                                    },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            };
                             if !acknowledged {
                                 // The prompt is still outstanding and the agent may
                                 // keep emitting for it. Unbind the ACP session so a
@@ -3260,9 +3384,12 @@ impl AgentConnectionRunner {
                                     timeout_secs = CANCEL_ACKNOWLEDGEMENT_TIMEOUT.as_secs(),
                                     "session/cancel was not acknowledged; relaunching the agent connection"
                                 );
-                                return Err(acp::Error::internal_error());
                             }
-                            return Ok(());
+                            return Ok(if acknowledged {
+                                RunPromptOutcome::Settled
+                            } else {
+                                RunPromptOutcome::RetireConnection
+                            });
                         }
                         Some(AgentConnectionCommand::Prompt {
                             session_id: rejected_session,
@@ -3350,7 +3477,7 @@ impl AgentConnectionRunner {
                                 },
                             );
                             *self.active_prompt.lock().await = None;
-                            return Ok(());
+                            return Ok(RunPromptOutcome::Closed);
                         }
                         Some(AgentConnectionCommand::RespondPermission { permission_id, response }) => {
                             // The user acted — treat as activity so the watchdog
@@ -3701,6 +3828,7 @@ struct AcpClientBridge {
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
     working_dir: PathBuf,
+    env: HashMap<String, String>,
 }
 
 impl AcpClientBridge {
@@ -3720,6 +3848,7 @@ impl AcpClientBridge {
         grok_mcp: Arc<Mutex<GrokMcpTracker>>,
         pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
         working_dir: PathBuf,
+        env: HashMap<String, String>,
     ) -> Self {
         Self {
             connection_id,
@@ -3736,6 +3865,7 @@ impl AcpClientBridge {
             grok_mcp,
             pending_session_id,
             working_dir,
+            env,
         }
     }
 
@@ -4168,6 +4298,18 @@ impl AcpClientBridge {
         true
     }
 
+    fn enrich_available_commands(
+        &self,
+        advertised: Vec<AgentAvailableCommand>,
+    ) -> Vec<AgentAvailableCommand> {
+        enrich_pi_available_commands(
+            self.agent_id.as_str(),
+            &self.env,
+            &self.working_dir,
+            advertised,
+        )
+    }
+
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         let acp_session_id = args.session_id.0.to_string();
         let bound_session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
@@ -4319,7 +4461,9 @@ impl AcpClientBridge {
                 },
             }),
             SessionUpdate::AvailableCommandsUpdate(update) => {
-                let commands = agent_available_commands_from_acp(update.available_commands);
+                let commands = self.enrich_available_commands(agent_available_commands_from_acp(
+                    update.available_commands,
+                ));
                 if let Some(session_id) = session_id {
                     self.session_controls
                         .write()
@@ -4638,6 +4782,25 @@ fn resolve_agent_session_id(
     pending: Option<AgentSessionId>,
 ) -> Option<AgentSessionId> {
     mapped.or(pending)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MappedResume {
+    Reuse(String),
+    LoadRequested { unbind_stale: bool },
+}
+
+/// A live ACP session may be reused on resume only when it is the session the
+/// caller asked for. Returning a sibling conversation's mapped id is how
+/// "继续" after stop picked up another session's context.
+fn mapped_resume_action(mapped: Option<&str>, requested: &str) -> MappedResume {
+    match mapped {
+        Some(existing) if existing == requested => MappedResume::Reuse(existing.to_string()),
+        Some(_) => MappedResume::LoadRequested { unbind_stale: true },
+        None => MappedResume::LoadRequested {
+            unbind_stale: false,
+        },
+    }
 }
 
 /// Whether a `session/update` carries conversation transcript content (as opposed to
@@ -5095,6 +5258,27 @@ fn session_info_patch_from_acp(
     let mut value = serde_json::to_value(update).unwrap_or(serde_json::Value::Null);
     bound_meta_fields(&mut value);
     value
+}
+
+fn acp_meta_session_title(
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<String> {
+    let meta = meta?;
+    [
+        "title",
+        "generated_title",
+        "sessionTitle",
+        "customTitle",
+        "session_summary",
+    ]
+    .into_iter()
+    .find_map(|key| {
+        meta.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
 }
 
 fn bounded_optional_meta(meta: Option<impl Serialize>) -> Option<serde_json::Value> {
@@ -5976,6 +6160,35 @@ mod tests {
                 "title": "Renamed",
                 "_meta": {"source": "fixture"}
             })
+        );
+    }
+
+    #[test]
+    fn session_establishment_meta_exposes_generated_titles() {
+        let grok = serde_json::json!({
+            "generated_title": "Fix usage",
+            "availableModels": []
+        });
+        assert_eq!(
+            acp_meta_session_title(grok.as_object()).as_deref(),
+            Some("Fix usage")
+        );
+        let claude = serde_json::json!({ "sessionTitle": "Review the diff" });
+        assert_eq!(
+            acp_meta_session_title(claude.as_object()).as_deref(),
+            Some("Review the diff")
+        );
+        let windows_only = serde_json::json!({ "availableModels": [] });
+        assert_eq!(acp_meta_session_title(windows_only.as_object()), None);
+        let codex = serde_json::json!({ "title": "Tighten session naming" });
+        assert_eq!(
+            acp_meta_session_title(codex.as_object()).as_deref(),
+            Some("Tighten session naming")
+        );
+        let claude_custom = serde_json::json!({ "customTitle": "Notes probe" });
+        assert_eq!(
+            acp_meta_session_title(claude_custom.as_object()).as_deref(),
+            Some("Notes probe")
         );
     }
 
@@ -7042,6 +7255,24 @@ mod tests {
         assert_eq!(resolve_agent_session_id(None, None), None);
     }
 
+    #[test]
+    fn resume_does_not_reuse_a_mapped_acp_session_with_a_different_id() {
+        assert_eq!(
+            mapped_resume_action(Some("acp-a"), "acp-a"),
+            MappedResume::Reuse("acp-a".into())
+        );
+        assert_eq!(
+            mapped_resume_action(Some("acp-b"), "acp-a"),
+            MappedResume::LoadRequested { unbind_stale: true }
+        );
+        assert_eq!(
+            mapped_resume_action(None, "acp-a"),
+            MappedResume::LoadRequested {
+                unbind_stale: false
+            }
+        );
+    }
+
     /// Regression: `session/load` replays the agent's stored transcript as ordinary
     /// `session/update` notifications. Recording them duplicated every earlier AI
     /// message into the next turn ("用户 A - AI A - 用户 B - AI AB").
@@ -7162,6 +7393,23 @@ mod tests {
         assert_eq!(prompt_idle_timeout_from_env_value(Some("0")), None);
         assert_eq!(prompt_idle_timeout_from_env_value(Some("nope")), None);
         assert_eq!(prompt_idle_timeout_from_env_value(Some("  ")), None);
+    }
+
+    #[test]
+    fn prompt_idle_timeout_defaults_when_env_is_unset_and_can_be_disabled() {
+        assert_eq!(
+            prompt_idle_timeout_from_env(None),
+            Some(Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS))
+        );
+        assert_eq!(
+            prompt_idle_timeout_from_env(Some("")),
+            Some(Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS))
+        );
+        assert_eq!(prompt_idle_timeout_from_env(Some("0")), None);
+        assert_eq!(
+            prompt_idle_timeout_from_env(Some("30")),
+            Some(Duration::from_secs(30))
+        );
     }
 
     #[test]

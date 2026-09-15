@@ -9,6 +9,7 @@ use std::{
 use agents::{AgentId, AgentSessionId, AgentTerminalId, terminal::agent_terminal_registry};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use conversations::sanitize_agent_session_title;
 use db::models::{
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,
@@ -1974,8 +1975,7 @@ fn session_display_name(
     session
         .name
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
+        .and_then(sanitize_agent_session_title)
         .or_else(|| {
             first_prompt
                 .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))

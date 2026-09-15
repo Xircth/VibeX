@@ -433,16 +433,25 @@ pub async fn host_history_prompt(
     format_host_history_prompt(messages.as_ref()?, current_user_text)
 }
 
+const HOST_HISTORY_TITLE_PREFIX: &str = "Previous conversation";
+const AGENT_TITLE_META_KEYS: &[&str] = &[
+    "title",
+    "generated_title",
+    "sessionTitle",
+    "customTitle",
+    "session_summary",
+];
+
 pub fn format_host_history_prompt(
     messages: &SessionMessages,
-    current_user_text: &str,
+    _current_user_text: &str,
 ) -> Option<String> {
     let mut items = messages.items.clone();
-    let current = normalize_session_newlines(current_user_text);
-    let current_trimmed = current.trim();
-    if items.last().is_some_and(|item| {
-        item.role == "user" && normalize_session_newlines(&item.text).trim() == current_trimmed
-    }) {
+    // The prompt being sent is the current turn. It is never "previous
+    // conversation", even when its text does not match the transcript
+    // verbatim. Leaving it in this dump makes Codex auto-name sessions
+    // `Previous conversation:User…`.
+    if items.last().is_some_and(|item| item.role == "user") {
         items.pop();
     }
     items.retain(|item| !(item.role == "user" && is_host_history_prompt(&item.text)));
@@ -477,6 +486,56 @@ pub fn is_host_history_prompt(text: &str) -> bool {
 
 fn normalize_session_newlines(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// Prefer the Agent-returned session title. Empty or host-history dumps are
+/// treated as auto-naming failure so the first-message fallback can apply.
+pub fn agent_session_title_from_patch(patch: &Value) -> Option<String> {
+    let mut candidates = Vec::new();
+    if let Some(title) = patch.get("title").and_then(Value::as_str) {
+        candidates.push(title);
+    }
+    if let Some(meta) = patch.get("_meta") {
+        for key in AGENT_TITLE_META_KEYS {
+            if let Some(title) = meta.get(*key).and_then(Value::as_str) {
+                candidates.push(title);
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .find_map(sanitize_agent_session_title)
+}
+
+pub fn sanitize_agent_session_title(title: &str) -> Option<String> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let stripped = strip_host_history_title_prefix(trimmed);
+    let line = stripped.lines().next().unwrap_or(stripped).trim();
+    if line.is_empty() {
+        return None;
+    }
+    Some(line.to_string())
+}
+
+fn strip_host_history_title_prefix(title: &str) -> &str {
+    let Some(rest) = strip_ascii_prefix_ignore_case(title, HOST_HISTORY_TITLE_PREFIX) else {
+        return title;
+    };
+    let rest = rest.trim_start_matches([' ', '\t']);
+    if !rest.starts_with([':', '\n', '\r']) {
+        return title;
+    }
+    let rest = rest.trim_start_matches([':', ' ', '\n', '\r', '\t']);
+    let rest = strip_ascii_prefix_ignore_case(rest, "User").unwrap_or(rest);
+    rest.trim_start_matches([':', ' ', '\n', '\r', '\t'])
+}
+
+fn strip_ascii_prefix_ignore_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let (head, tail) = value.split_at_checked(prefix.len())?;
+    head.eq_ignore_ascii_case(prefix).then_some(tail)
 }
 
 fn truncate_chars(value: &str, cap: usize) -> String {
@@ -536,6 +595,22 @@ mod tests {
                     truncated: false,
                     items: vec![SessionMessageItem {
                         role: "user".into(),
+                        text: "hello world".into(),
+                        tools: Vec::new(),
+                    }],
+                },
+                "hello world with extras"
+            )
+            .is_none()
+        );
+        assert!(
+            format_host_history_prompt(
+                &SessionMessages {
+                    total: 1,
+                    included: 1,
+                    truncated: false,
+                    items: vec![SessionMessageItem {
+                        role: "user".into(),
                         text: "only".into(),
                         tools: Vec::new(),
                     }],
@@ -587,6 +662,43 @@ mod tests {
             "Previous conversation:\r\nUser: 拉取当前项目仓库的最新代码到本地"
         ));
         assert!(!is_host_history_prompt("拉取当前项目仓库的最新代码到本地"));
+    }
+
+    #[test]
+    fn agent_session_title_prefers_acp_title_and_strips_host_history_prefix() {
+        assert_eq!(
+            agent_session_title_from_patch(&json!({ "title": "Implement auth" })).as_deref(),
+            Some("Implement auth")
+        );
+        assert_eq!(
+            agent_session_title_from_patch(&json!({
+                "title": "Previous conversation:\nUser: Fix login"
+            }))
+            .as_deref(),
+            Some("Fix login")
+        );
+        assert_eq!(
+            agent_session_title_from_patch(&json!({
+                "title": "Previous conversation:User"
+            })),
+            None
+        );
+        assert_eq!(
+            agent_session_title_from_patch(&json!({
+                "title": "Previous conversation:User",
+                "_meta": { "generated_title": "Fix the picker" }
+            }))
+            .as_deref(),
+            Some("Fix the picker")
+        );
+        assert_eq!(
+            sanitize_agent_session_title("Previous work on auth").as_deref(),
+            Some("Previous work on auth")
+        );
+        assert_eq!(
+            sanitize_agent_session_title("Previous conversation notes").as_deref(),
+            Some("Previous conversation notes")
+        );
     }
 
     async fn pool() -> SqlitePool {

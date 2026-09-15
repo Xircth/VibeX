@@ -174,13 +174,9 @@ impl ConversationAgentEventRecorder {
         }
 
         if let AgentEvent::SessionInfoUpdated { patch } = &envelope.event
-            && let Some(title) = patch
-                .get("title")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|title| !title.is_empty())
+            && let Some(title) = crate::session_info::agent_session_title_from_patch(patch)
         {
-            DbConversationSummary::backfill_title(&self.pool, conversation_id, title).await?;
+            DbConversationSummary::backfill_title(&self.pool, conversation_id, &title).await?;
         }
 
         let source = conversation_event_source(&envelope.event);

@@ -63,8 +63,7 @@ fn build_session_display_name(
     session
         .name
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
+        .and_then(conversations::sanitize_agent_session_title)
         .or_else(|| {
             first_prompt
                 .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))

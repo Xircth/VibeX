@@ -295,7 +295,7 @@ impl AgentRuntime {
     ) {
         tokio::spawn(async move {
             while let Some(manager_event) = manager_event_rx.recv().await {
-                let next_prompt = {
+                let (next_prompt, envelope) = {
                     let mut state = state.write().await;
                     let active_before =
                         Self::active_prompt_for_manager_event_locked(&state, &manager_event);
@@ -308,17 +308,15 @@ impl AgentRuntime {
                     // Persist/broadcast after releasing the runtime lock. Holding
                     // `state.write()` while the persist sink blocked deadlocked
                     // every concurrent session's ACP read loop at "生成中".
-                    let envelope = Self::push_event_locked(
+                    let envelope = Self::queue_envelope_locked(
                         &mut state,
                         manager_event.connection_id,
                         manager_event.session_id,
                         manager_event.event,
                     );
-                    drop(state);
-                    event_sink.emit(envelope.clone());
-                    let _ = event_tx.send(envelope);
-                    next_prompt
+                    (next_prompt, envelope)
                 };
+                Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
 
                 if let Some((session_id, prompt_id, blocks, options)) = next_prompt {
                     let _ = connection_manager
@@ -672,25 +670,17 @@ impl AgentRuntime {
             .map(|session| session.snapshot.clone());
 
         if let Some(existing_session) = existing_session {
-            let connection = {
-                let state = self.state.read().await;
-                state
-                    .connections
-                    .get(&existing_session.connection_id)
-                    .map(|connection| connection.snapshot.clone())
-            };
-            if let Some(connection) = connection
-                && connection.agent_id == input.agent_id
-                && connection.workspace_id == input.workspace_id
-                && connection.working_dir == input.working_dir.display().to_string()
-                && connection.status == AgentConnectionStatus::Ready
-                && self
-                    .connection_manager
-                    .has_connection(existing_session.connection_id)
-                    .await
+            if self
+                .session_connection_is_reusable(&existing_session, &input)
+                .await
             {
                 return Ok(existing_session);
             }
+            // A Ready-looking leftover from cancel-without-ack is dirty: its
+            // command loop is still waiting for session/cancel and will not
+            // read the next Prompt/Resume. Drop it so 继续 can session/load
+            // this conversation's ACP id on a fresh process (ADR-0071).
+            let _ = self.disconnect(existing_session.connection_id).await;
         }
 
         // A connection serves exactly one conversation. `run_prompt` owns the
@@ -1262,6 +1252,56 @@ impl AgentRuntime {
             .is_some()
     }
 
+    /// True only when this conversation still has a Ready ACP process that can
+    /// serve the next turn. A Failed/Disconnected leftover, or a connection
+    /// whose cancel handshake has not settled, must not count: the next turn
+    /// has to `session/load` *this* conversation's ACP session instead of
+    /// `session/new` in a shared working directory.
+    pub async fn session_has_ready_connection(&self, session_id: AgentSessionId) -> bool {
+        let connection_id = {
+            let state = self.state.read().await;
+            let Some(session) = state.sessions.get(&session_id) else {
+                return false;
+            };
+            if session_has_cancelling_prompt(&state, session_id) {
+                return false;
+            }
+            let Some(connection) = state.connections.get(&session.snapshot.connection_id) else {
+                return false;
+            };
+            if connection.snapshot.status != AgentConnectionStatus::Ready {
+                return false;
+            }
+            session.snapshot.connection_id
+        };
+        self.connection_manager.has_connection(connection_id).await
+    }
+
+    async fn session_connection_is_reusable(
+        &self,
+        session: &AgentSessionSnapshot,
+        input: &EnsureAgentSessionInput,
+    ) -> bool {
+        let connection_id = {
+            let state = self.state.read().await;
+            if session_has_cancelling_prompt(&state, session.id) {
+                return false;
+            }
+            let Some(connection) = state.connections.get(&session.connection_id) else {
+                return false;
+            };
+            if connection.snapshot.status != AgentConnectionStatus::Ready
+                || connection.snapshot.agent_id != input.agent_id
+                || connection.snapshot.workspace_id != input.workspace_id
+                || connection.snapshot.working_dir != input.working_dir.display().to_string()
+            {
+                return false;
+            }
+            session.connection_id
+        };
+        self.connection_manager.has_connection(connection_id).await
+    }
+
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;
@@ -1454,7 +1494,7 @@ impl AgentRuntime {
         );
     }
 
-    fn push_event_locked(
+    fn queue_envelope_locked(
         state: &mut RuntimeState,
         connection_id: AgentConnectionId,
         session_id: Option<AgentSessionId>,
@@ -1481,6 +1521,15 @@ impl AgentRuntime {
         envelope
     }
 
+    fn dispatch_envelope(
+        event_sink: &dyn RuntimeEventSink,
+        event_tx: &broadcast::Sender<AgentEventEnvelope>,
+        envelope: AgentEventEnvelope,
+    ) {
+        event_sink.emit(envelope.clone());
+        let _ = event_tx.send(envelope);
+    }
+
     fn emit_with_parts_locked(
         state: &mut RuntimeState,
         event_sink: &dyn RuntimeEventSink,
@@ -1489,9 +1538,8 @@ impl AgentRuntime {
         session_id: Option<AgentSessionId>,
         event: AgentEvent,
     ) {
-        let envelope = Self::push_event_locked(state, connection_id, session_id, event);
-        event_sink.emit(envelope.clone());
-        let _ = event_tx.send(envelope);
+        let envelope = Self::queue_envelope_locked(state, connection_id, session_id, event);
+        Self::dispatch_envelope(event_sink, event_tx, envelope);
     }
 
     fn apply_manager_event_locked(
@@ -1689,6 +1737,12 @@ fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
         });
 
     preview_text(text)
+}
+
+fn session_has_cancelling_prompt(state: &RuntimeState, session_id: AgentSessionId) -> bool {
+    state.prompts.values().any(|prompt| {
+        prompt.session_id == session_id && matches!(prompt.status, AgentPromptStatus::Cancelling)
+    })
 }
 
 fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
@@ -2589,7 +2643,7 @@ mod tests {
         // session/new is in flight. The command send succeeds, but its reply
         // channel closes exactly like the production failure reported by the UI.
         let (closing_tx, mut closing_rx) = mpsc::channel(1);
-        runtime
+        let _ = runtime
             .connection_manager
             .replace_command_sender(failed_connection_id, closing_tx)
             .await;
@@ -2776,9 +2830,10 @@ mod tests {
             .unwrap();
 
         // Hold the connection command stream open without completing the prompt,
-        // matching a real ACP turn that is still in progress.
+        // matching a real ACP turn that is still in progress. Keep the previous
+        // sender alive so the connection task stays wedged on its receiver.
         let (holding_tx, _holding_rx) = mpsc::channel(4);
-        runtime
+        let _keep_alive = runtime
             .connection_manager
             .replace_command_sender(active_session.connection_id, holding_tx)
             .await;
@@ -2820,6 +2875,360 @@ mod tests {
         assert!(snapshot.prompts.iter().any(|prompt| {
             prompt.id == active_prompt.id && matches!(prompt.status, AgentPromptStatus::Running)
         }));
+    }
+
+    async fn test_session(
+        runtime: &AgentRuntime,
+        workspace_id: Uuid,
+        working_dir: &str,
+        acp_session_id: &str,
+    ) -> AgentSessionSnapshot {
+        runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from(working_dir),
+                additional_directories: Vec::new(),
+                session_id: AgentSessionId::new(),
+                acp_session_id: acp_session_id.to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap()
+    }
+
+    async fn prompt_text(
+        runtime: &AgentRuntime,
+        session: &AgentSessionSnapshot,
+        text: &str,
+    ) -> AgentPromptSnapshot {
+        runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: session.connection_id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: text.to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn concurrent_hanging_prompts_stay_isolated_and_cancel_settles_them() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = "C:/shared-concurrent";
+        let session_a = test_session(&runtime, workspace_id, working_dir, "acp-a").await;
+        let session_b = test_session(&runtime, workspace_id, working_dir, "acp-b").await;
+        assert_ne!(session_a.connection_id, session_b.connection_id);
+
+        let prompt_a = prompt_text(&runtime, &session_a, "task A").await;
+        let prompt_b = prompt_text(&runtime, &session_b, "task B").await;
+        let snapshot = runtime.snapshot().await;
+        assert!(snapshot.prompts.iter().any(|prompt| {
+            prompt.id == prompt_a.id && matches!(prompt.status, AgentPromptStatus::Running)
+        }));
+        assert!(snapshot.prompts.iter().any(|prompt| {
+            prompt.id == prompt_b.id && matches!(prompt.status, AgentPromptStatus::Running)
+        }));
+
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: session_a.connection_id,
+                session_id: session_a.id,
+                prompt_id: prompt_a.id,
+            })
+            .await
+            .unwrap();
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: session_b.connection_id,
+                session_id: session_b.id,
+                prompt_id: prompt_b.id,
+            })
+            .await
+            .unwrap();
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            let snapshot = runtime.snapshot().await;
+            let settled = |prompt_id| {
+                snapshot.prompts.iter().any(|prompt| {
+                    prompt.id == prompt_id
+                        && matches!(
+                            &prompt.status,
+                            AgentPromptStatus::Completed { stop_reason }
+                                if stop_reason.as_deref() == Some("cancelled")
+                        )
+                })
+            };
+            if settled(prompt_a.id) && settled(prompt_b.id) {
+                break;
+            }
+            if tokio::time::Instant::now() > deadline {
+                panic!("concurrent hanging prompts must leave 生成中 after stop");
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_then_resume_does_not_swap_sibling_session_context() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = "C:/shared-resume-isolation";
+        let session_a = test_session(&runtime, workspace_id, working_dir, "acp-a").await;
+        let session_b = test_session(&runtime, workspace_id, working_dir, "acp-b").await;
+
+        let prompt_a = prompt_text(&runtime, &session_a, "task A").await;
+        let prompt_b = prompt_text(&runtime, &session_b, "task B").await;
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: session_a.connection_id,
+                session_id: session_a.id,
+                prompt_id: prompt_a.id,
+            })
+            .await
+            .unwrap();
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: session_b.connection_id,
+                session_id: session_b.id,
+                prompt_id: prompt_b.id,
+            })
+            .await
+            .unwrap();
+
+        // Cancel-without-ack retires the dirty ACP process (ADR-0071). A leftover
+        // Failed/Disconnected connection must not be treated as live, or 继续
+        // cold-starts `session/new` in the shared workspace and can load B.
+        runtime.disconnect(session_a.connection_id).await.unwrap();
+        runtime.disconnect(session_b.connection_id).await.unwrap();
+        assert!(!runtime.session_has_ready_connection(session_a.id).await);
+        assert!(!runtime.session_has_ready_connection(session_b.id).await);
+
+        let resumed_a = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from(working_dir),
+                additional_directories: Vec::new(),
+                session_id: session_a.id,
+                external_session_id: "acp-a".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap()
+            .0;
+        let resumed_b = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from(working_dir),
+                additional_directories: Vec::new(),
+                session_id: session_b.id,
+                external_session_id: "acp-b".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(resumed_a.acp_session_id, "acp-a");
+        assert_eq!(resumed_b.acp_session_id, "acp-b");
+        assert_ne!(resumed_a.connection_id, resumed_b.connection_id);
+
+        let mut events = runtime.subscribe_events();
+        prompt_text(&runtime, &resumed_a, "继续 A").await;
+        prompt_text(&runtime, &resumed_b, "继续 B").await;
+
+        let mut chunk_a = None;
+        let mut chunk_b = None;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while chunk_a.is_none() || chunk_b.is_none() {
+            let envelope = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .expect("continue prompts must produce isolated chunks")
+                .expect("runtime event channel must stay open");
+            let AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } = envelope.event
+            else {
+                continue;
+            };
+            if envelope.session_id == Some(session_a.id) {
+                chunk_a = Some(text);
+            } else if envelope.session_id == Some(session_b.id) {
+                chunk_b = Some(text);
+            }
+        }
+        assert_eq!(chunk_a.as_deref(), Some("继续 A"));
+        assert_eq!(chunk_b.as_deref(), Some("继续 B"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn event_pump_does_not_hold_the_runtime_lock_while_persisting() {
+        struct BlockingPersistSink {
+            entered: std::sync::Mutex<bool>,
+            entered_cvar: std::sync::Condvar,
+            release: std::sync::Mutex<bool>,
+            release_cvar: std::sync::Condvar,
+        }
+
+        impl RuntimeEventSink for BlockingPersistSink {
+            fn emit(&self, envelope: AgentEventEnvelope) {
+                if !matches!(envelope.event, AgentEvent::MessageChunk { .. }) {
+                    return;
+                }
+                {
+                    let mut entered = self.entered.lock().expect("entered lock");
+                    *entered = true;
+                    self.entered_cvar.notify_one();
+                }
+                let mut release = self.release.lock().expect("release lock");
+                while !*release {
+                    release = self.release_cvar.wait(release).expect("release wait");
+                }
+            }
+        }
+
+        let sink = Arc::new(BlockingPersistSink {
+            entered: std::sync::Mutex::new(false),
+            entered_cvar: std::sync::Condvar::new(),
+            release: std::sync::Mutex::new(false),
+            release_cvar: std::sync::Condvar::new(),
+        });
+        let runtime = Arc::new(AgentRuntime::new_with_driver(
+            Arc::clone(&sink) as Arc<dyn RuntimeEventSink>,
+            false,
+        ));
+        let workspace_id = Uuid::new_v4();
+        let session = test_session(&runtime, workspace_id, "C:/pump-lock", "acp-pump").await;
+        let prompt_task = {
+            let runtime = Arc::clone(&runtime);
+            let session = session.clone();
+            tokio::spawn(async move { prompt_text(&runtime, &session, "stream").await })
+        };
+        tokio::time::timeout(Duration::from_secs(2), {
+            let sink = Arc::clone(&sink);
+            tokio::task::spawn_blocking(move || {
+                let mut entered = sink.entered.lock().expect("entered lock");
+                while !*entered {
+                    entered = sink.entered_cvar.wait(entered).expect("entered wait");
+                }
+            })
+        })
+        .await
+        .expect("persist emit must start")
+        .expect("blocking wait for persist emit");
+
+        let snapshot = tokio::time::timeout(Duration::from_millis(400), runtime.snapshot())
+            .await
+            .expect("event pump must not hold the runtime lock while persisting");
+        assert!(!snapshot.sessions.is_empty());
+
+        {
+            let mut release = sink.release.lock().expect("release lock");
+            *release = true;
+            sink.release_cvar.notify_one();
+        }
+        prompt_task.await.expect("prompt task");
+    }
+
+    #[tokio::test]
+    async fn session_has_ready_connection_is_false_after_disconnect() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session = test_session(&runtime, workspace_id, "C:/ready-check", "acp-ready").await;
+        assert!(runtime.session_has_ready_connection(session.id).await);
+        runtime.disconnect(session.connection_id).await.unwrap();
+        assert!(
+            !runtime.session_has_ready_connection(session.id).await,
+            "a retired connection must not count as live, so 继续 can resume this ACP session"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_connection_is_not_reused_so_resume_keeps_this_session_id() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = "C:/cancel-reuse";
+        let session = test_session(&runtime, workspace_id, working_dir, "acp-a").await;
+        let prompt = prompt_text(&runtime, &session, "task A").await;
+        let (holding_tx, _holding_rx) = mpsc::channel(4);
+        let _keep_alive = runtime
+            .connection_manager
+            .replace_command_sender(session.connection_id, holding_tx)
+            .await;
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: session.connection_id,
+                session_id: session.id,
+                prompt_id: prompt.id,
+            })
+            .await
+            .unwrap();
+        assert!(
+            !runtime.session_has_ready_connection(session.id).await,
+            "a cancel handshake that has not settled must not look live"
+        );
+
+        let resumed = tokio::time::timeout(
+            Duration::from_secs(2),
+            runtime.resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from(working_dir),
+                additional_directories: Vec::new(),
+                session_id: session.id,
+                external_session_id: "acp-a".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            }),
+        )
+        .await
+        .expect("resume must not wait for a dirty cancel handshake")
+        .unwrap()
+        .0;
+        assert_eq!(resumed.acp_session_id, "acp-a");
+        assert_ne!(resumed.connection_id, session.connection_id);
+
+        let continued = prompt_text(&runtime, &resumed, "继续 A").await;
+        assert!(matches!(continued.status, AgentPromptStatus::Running));
+    }
+
+    #[tokio::test]
+    async fn disconnect_aborts_a_wedged_connection_task() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session = test_session(&runtime, workspace_id, "C:/wedge", "acp-wedge").await;
+        let (holding_tx, _holding_rx) = mpsc::channel(4);
+        let _keep_alive = runtime
+            .connection_manager
+            .replace_command_sender(session.connection_id, holding_tx)
+            .await;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            runtime.disconnect(session.connection_id),
+        )
+        .await
+        .expect("disconnect must not wait forever for a wedged ACP task")
+        .unwrap();
+        assert!(!runtime.session_has_ready_connection(session.id).await);
     }
 
     #[tokio::test]

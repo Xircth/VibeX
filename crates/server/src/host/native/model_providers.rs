@@ -1165,20 +1165,18 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::Na
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            let model = object
-                .get("models")
-                .and_then(Value::as_array)
-                .and_then(|models| {
-                    models
-                        .iter()
-                        .find_map(|entry| entry.get("id").and_then(Value::as_str))
-                })
-                .unwrap_or(if active_provider.as_deref() == Some(id.as_str()) {
-                    default_model
-                } else {
-                    ""
-                })
-                .to_string();
+            let thinking_level = settings
+                .get("defaultThinkingLevel")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let model = pi_native_model_payload(
+                id,
+                object,
+                active_provider.as_deref().unwrap_or(""),
+                default_model,
+                thinking_level,
+            );
             let api_key = pi_provider_key(&auth, id, Some(provider));
             let credential_present = !api_key.is_empty();
             seen.insert(id.clone());
@@ -2002,59 +2000,23 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
                 return None;
             }
             let api_key = pi_provider_key(&auth, id, Some(provider));
-            // Every model the provider lists, not just the first. Keeping only
-            // one here is what made an imported Pi provider come back with a
-            // single model after the user had enabled several.
-            let mut model_ids: Vec<String> = Vec::new();
-            for entry in object
-                .get("models")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                // pi writes `{ "id": .. }`; cc-switch and hand-edits write the
-                // bare id.
-                let candidate = entry
-                    .as_str()
-                    .or_else(|| entry.get("id").and_then(Value::as_str))
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty());
-                if let Some(candidate) = candidate
-                    && !model_ids.iter().any(|seen| seen == candidate)
-                {
-                    model_ids.push(candidate.to_string());
-                }
-            }
-            // pi starts sessions on `defaultModel`, so it has to lead the list:
-            // `apply_pi` reads the first entry back as the default, and without
-            // this a re-apply would silently move the user off their model.
-            if default_provider == id
-                && let Some(position) = model_ids.iter().position(|model| model == default_model)
-            {
-                let default = model_ids.remove(position);
-                model_ids.insert(0, default);
-            }
-            let model_id = model_ids.first().cloned().unwrap_or_else(|| {
-                if default_provider == id {
-                    default_model.to_string()
-                } else {
-                    String::new()
-                }
-            });
-            let api = object
-                .get("api")
+            let thinking_level = settings
+                .get("defaultThinkingLevel")
                 .and_then(Value::as_str)
-                .unwrap_or("openai-responses");
-            let mut model = serde_json::json!({ "id": model_id, "api": api });
-            if !model_ids.is_empty() {
-                model["models"] = serde_json::json!(model_ids);
-            }
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
             Some(ImportDraft {
                 source_id: format!("native:{id}"),
                 name: id.clone(),
                 api_url,
                 api_key,
-                model: model.to_string(),
+                model: pi_native_model_payload(
+                    id,
+                    object,
+                    default_provider,
+                    default_model,
+                    thinking_level,
+                ),
                 skip_reason: None,
             })
         })
@@ -3464,19 +3426,6 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
         .cloned()
         .unwrap_or_else(|| pi_model_id(&provider.model));
     let api = pi_wire_api(&provider.model);
-    let native_models: Vec<Value> = if selected.is_empty() {
-        vec![serde_json::json!({ "id": model_id, "name": provider.name })]
-    } else {
-        selected
-            .iter()
-            .map(|id| {
-                serde_json::json!({
-                    "id": id,
-                    "name": provider.name
-                })
-            })
-            .collect()
-    };
     insert_string(
         settings.as_object_mut().expect("object"),
         "defaultProvider",
@@ -3487,6 +3436,7 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
         "defaultModel",
         &model_id,
     );
+    apply_pi_thinking_level(settings.as_object_mut().expect("object"), &provider.model);
     let providers = object_entry(models.as_object_mut().expect("object"), "providers")?;
     let api_key = provider.api_key.trim();
     let auth = auth.as_object_mut().expect("object");
@@ -3523,7 +3473,8 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
         Value::String(provider.api_url.clone()),
     );
     node.insert("api".to_string(), Value::String(api.to_string()));
-    node.insert("models".to_string(), Value::Array(native_models));
+    let native_models = pi_projected_models(node.get("models"), provider, &model_id);
+    node.insert("models".to_string(), native_models);
     // Pi treats a models.json provider as unconfigured unless auth.json is
     // already loaded *or* this field names an environment variable that is
     // present at process start. Bind writes the secret to auth.json; launch
@@ -3745,6 +3696,198 @@ fn pi_model_id(raw: &str) -> String {
             .to_string(),
         Value::String(model) => model,
         _ => raw.to_string(),
+    }
+}
+
+const PI_THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh"];
+
+fn apply_pi_thinking_level(settings: &mut Map<String, Value>, raw: &str) {
+    let spec = match parse_model(raw) {
+        Value::Object(object) => object,
+        _ => {
+            settings.remove("defaultThinkingLevel");
+            return;
+        }
+    };
+    if let Some(level) = spec
+        .get("thinkingLevel")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if PI_THINKING_LEVELS.contains(&level) {
+            settings.insert(
+                "defaultThinkingLevel".to_string(),
+                Value::String(level.to_string()),
+            );
+        }
+        return;
+    }
+    match spec.get("reasoning") {
+        Some(Value::Bool(true | false)) => {
+            settings.insert(
+                "defaultThinkingLevel".to_string(),
+                Value::String("off".to_string()),
+            );
+        }
+        _ => {
+            settings.remove("defaultThinkingLevel");
+        }
+    }
+}
+
+fn pi_projected_models(
+    existing: Option<&Value>,
+    provider: &StoredProvider,
+    default_id: &str,
+) -> Value {
+    let selected = provider_model_ids(&provider.model);
+    let ids = if selected.is_empty() {
+        vec![default_id.to_string()]
+    } else {
+        selected
+    };
+    let mut existing_by_id = Map::new();
+    if let Some(models) = existing.and_then(Value::as_array) {
+        for entry in models {
+            let Some(id) = entry
+                .as_str()
+                .or_else(|| entry.get("id").and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            let mut object = match entry {
+                Value::Object(object) => object.clone(),
+                _ => Map::new(),
+            };
+            object.insert("id".to_string(), Value::String(id.to_string()));
+            existing_by_id.insert(id.to_string(), Value::Object(object));
+        }
+    }
+    let spec = parse_model(&provider.model);
+    Value::Array(
+        ids.into_iter()
+            .map(|id| {
+                let mut object = existing_by_id
+                    .remove(&id)
+                    .and_then(|value| match value {
+                        Value::Object(object) => Some(object),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| {
+                        let mut object = Map::new();
+                        object.insert("id".to_string(), Value::String(id.clone()));
+                        object.insert("name".to_string(), Value::String(provider.name.clone()));
+                        object
+                    });
+                object.insert("id".to_string(), Value::String(id.clone()));
+                if id == default_id {
+                    apply_pi_model_reasoning(&mut object, &spec);
+                }
+                Value::Object(object)
+            })
+            .collect(),
+    )
+}
+
+fn pi_native_model_payload(
+    provider_id: &str,
+    object: &Map<String, Value>,
+    default_provider: &str,
+    default_model: &str,
+    default_thinking_level: Option<&str>,
+) -> String {
+    // Every model the provider lists, not just the first. Keeping only one
+    // here is what made an imported Pi provider come back with a single model
+    // after the user had enabled several.
+    let mut model_ids: Vec<String> = Vec::new();
+    for entry in object
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        // pi writes `{ "id": .. }`; cc-switch and hand-edits write the bare id.
+        let candidate = entry
+            .as_str()
+            .or_else(|| entry.get("id").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        if let Some(candidate) = candidate
+            && !model_ids.iter().any(|seen| seen == candidate)
+        {
+            model_ids.push(candidate.to_string());
+        }
+    }
+    // pi starts sessions on `defaultModel`, so it has to lead the list:
+    // `apply_pi` reads the first entry back as the default, and without this a
+    // re-apply would silently move the user off their model.
+    if default_provider == provider_id
+        && let Some(position) = model_ids.iter().position(|model| model == default_model)
+    {
+        let default = model_ids.remove(position);
+        model_ids.insert(0, default);
+    }
+    let model_id = model_ids.first().cloned().unwrap_or_else(|| {
+        if default_provider == provider_id {
+            default_model.to_string()
+        } else {
+            String::new()
+        }
+    });
+    let api = object
+        .get("api")
+        .and_then(Value::as_str)
+        .unwrap_or("openai-responses");
+    let mut model = serde_json::json!({ "id": model_id, "api": api });
+    if !model_ids.is_empty() {
+        model["models"] = serde_json::json!(model_ids);
+    }
+    if let Some(entry) = object
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(model_id.as_str()))
+    {
+        if let Some(reasoning) = entry.get("reasoning") {
+            model["reasoning"] = reasoning.clone();
+        }
+        if let Some(map) = entry.get("thinkingLevelMap") {
+            model["thinkingLevelMap"] = map.clone();
+        }
+    }
+    if default_provider == provider_id
+        && let Some(level) = default_thinking_level
+    {
+        model["thinkingLevel"] = Value::String(level.to_string());
+    }
+    model.to_string()
+}
+
+fn apply_pi_model_reasoning(model: &mut Map<String, Value>, spec: &Value) {
+    let Value::Object(spec) = spec else {
+        return;
+    };
+    match spec.get("reasoning") {
+        Some(Value::Bool(true)) => {
+            model.insert("reasoning".to_string(), Value::Bool(true));
+            match spec.get("thinkingLevelMap") {
+                Some(Value::Object(map)) => {
+                    model.insert("thinkingLevelMap".to_string(), Value::Object(map.clone()));
+                }
+                _ => {
+                    model.remove("thinkingLevelMap");
+                }
+            }
+        }
+        Some(Value::Bool(false)) => {
+            model.insert("reasoning".to_string(), Value::Bool(false));
+            model.remove("thinkingLevelMap");
+        }
+        _ => {}
     }
 }
 
@@ -5506,6 +5649,99 @@ mod tests {
         .unwrap();
         assert_eq!(restored["theme"], "dark");
         assert!(restored.get("defaultProvider").is_none());
+    }
+
+    #[tokio::test]
+    async fn pi_provider_binding_writes_reasoning_and_default_thinking_level() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let agent_dir = home.join(".pi/agent");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(&agent_dir.join("settings.json"), br#"{"theme":"dark"}"#)
+            .await
+            .unwrap();
+        tokio::fs::write(&agent_dir.join("models.json"), br#"{}"#)
+            .await
+            .unwrap();
+        tokio::fs::write(&agent_dir.join("auth.json"), br#"{}"#)
+            .await
+            .unwrap();
+        let agent_id = AgentId::parse("pi").unwrap();
+        let created = save(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Private Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://private.example/v1".to_string(),
+                api_key: Some("sk-pi".to_string()),
+                model: r#"{"id":"private-model","api":"openai-responses","reasoning":true,"thinkingLevel":"high","thinkingLevelMap":{"off":"none","high":"HIGH","xhigh":null}}"#.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        bind(
+            &store_path,
+            &home,
+            &HashMap::new(),
+            agent_id,
+            Some(created.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        let settings: Value = serde_json::from_slice(
+            &tokio::fs::read(agent_dir.join("settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let models: Value = serde_json::from_slice(
+            &tokio::fs::read(agent_dir.join("models.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["defaultThinkingLevel"], "high");
+        let model = &models["providers"]["private-gateway"]["models"][0];
+        assert_eq!(model["id"], "private-model");
+        assert_eq!(model["reasoning"], true);
+        assert_eq!(model["thinkingLevelMap"]["off"], "none");
+        assert_eq!(model["thinkingLevelMap"]["high"], "HIGH");
+        assert!(model["thinkingLevelMap"]["xhigh"].is_null());
+    }
+
+    #[tokio::test]
+    async fn pi_draft_recovers_reasoning_from_native_models() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"defaultProvider":"gateway","defaultModel":"glm-5.2","defaultThinkingLevel":"high"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"gateway":{"baseUrl":"https://gateway.example/v1","api":"openai-responses","models":[{"id":"glm-5.2","reasoning":true,"thinkingLevelMap":{"off":"none","high":"HIGH"}}]}}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(agent_dir.join("auth.json"), br#"{}"#)
+            .await
+            .unwrap();
+
+        let drafts = native_pi_drafts(&agent_dir).await.unwrap();
+        let model: Value = serde_json::from_str(&drafts[0].model).unwrap();
+        assert_eq!(model["id"], "glm-5.2");
+        assert_eq!(model["api"], "openai-responses");
+        assert_eq!(model["reasoning"], true);
+        assert_eq!(model["thinkingLevel"], "high");
+        assert_eq!(model["thinkingLevelMap"]["high"], "HIGH");
+        assert_eq!(model["models"], serde_json::json!(["glm-5.2"]));
     }
 
     #[tokio::test]

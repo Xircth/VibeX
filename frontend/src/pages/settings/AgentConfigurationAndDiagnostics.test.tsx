@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigView } from 'shared/types';
 
+import { agentManagementApi } from '@/features/agent-management';
 import { desktopApi } from '@/lib/api';
 
 import { pickAstryxOption } from './agentSettingsTestUtils';
@@ -10,6 +11,18 @@ import {
   AgentConfigurationAndDiagnostics,
   configForAuthMode,
 } from './AgentConfigurationAndDiagnostics';
+
+vi.mock('@/features/agent-management', () => ({
+  agentManagementErrorMessage: (cause: unknown, fallback: string) =>
+    cause instanceof Error ? cause.message : fallback,
+  agentManagementApi: {
+    piConfiguration: vi.fn(),
+    savePiRuntime: vi.fn(),
+    validatePiCommand: vi.fn(),
+    piTrustEntries: vi.fn(),
+    setPiProjectTrust: vi.fn(),
+  },
+}));
 
 const config: AgentNativeConfigView = {
   agent_id: 'codex',
@@ -570,5 +583,89 @@ describe('AgentConfigurationAndDiagnostics', () => {
       'anthropic_api_key',
       'haiku_model',
     ]);
+  });
+
+  it('keeps Pi Provider configuration out of configuration management', async () => {
+    vi.mocked(agentManagementApi.piConfiguration).mockResolvedValue({
+      default_provider: 'anthropic',
+      default_model: 'claude-sonnet-4',
+      thinking_level: 'medium',
+      credential_present: true,
+      auth_providers: ['anthropic'],
+      custom_providers: [],
+      runtime: {
+        mode: 'default',
+        command: '',
+        config_dir: '',
+        session_dir: '',
+        trust_workspace: true,
+      },
+    });
+    vi.mocked(agentManagementApi.piTrustEntries).mockResolvedValue([]);
+    vi.mocked(agentManagementApi.validatePiCommand).mockResolvedValue({
+      found: true,
+      resolved_path: '/usr/bin/pi',
+      version: 'pi 0.1',
+    });
+
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={{
+          agent_id: 'pi',
+          available: true,
+          settings_features: ['pi_configuration', 'reusable_model_providers'],
+          path: '/tmp/.pi/agent/settings.json',
+          paths: [
+            '/tmp/.pi/agent/settings.json',
+            '/tmp/.pi/agent/models.json',
+          ],
+          files: [],
+          applies_to_next_session: true,
+          fields: [
+            {
+              ...config.fields[1],
+              id: 'pi_custom_providers',
+              label: '自定义 Provider',
+              description: 'Pi models.json 的 providers 对象',
+              kind: 'json',
+              path: '/tmp/.pi/agent/models.json',
+              value: '{}',
+              revision: 'rev',
+              surface: 'configuration',
+            },
+            {
+              ...config.fields[1],
+              id: 'pi_theme',
+              label: '终端主题',
+              description: 'Pi 内置终端主题',
+              kind: 'select',
+              options: [
+                { value: 'dark', label: '深色' },
+                { value: 'light', label: '浅色' },
+              ],
+              path: '/tmp/.pi/agent/settings.json',
+              value: 'dark',
+              revision: 'rev',
+              surface: 'configuration',
+            },
+          ],
+        }}
+        fieldSurface="configuration"
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText('Pi Runtime')).toBeInTheDocument();
+    expect(screen.getByText('项目信任')).toBeInTheDocument();
+    expect(screen.getByLabelText('终端主题')).toBeVisible();
+    expect(screen.queryByText('自定义 Provider')).not.toBeInTheDocument();
+    expect(screen.queryByText('Provider 与模型')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '添加 Provider' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '保存 Provider' })
+    ).not.toBeInTheDocument();
   });
 });

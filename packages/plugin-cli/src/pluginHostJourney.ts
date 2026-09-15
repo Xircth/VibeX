@@ -57,6 +57,18 @@ export function catalogKindFor(kind: string): string {
   return MANIFEST_KIND_TO_CATALOG[kind] ?? kind;
 }
 
+/** Host catalog keys that mean the same contribution as a required kind. */
+const LIVE_KIND_ALIASES: Record<string, readonly string[]> = {
+  "provider.model.catalog": ["provider_model_catalog", "provider_catalog"],
+  provider_model_catalog: ["provider.model.catalog", "provider_catalog"],
+  provider_catalog: ["provider.model.catalog", "provider_model_catalog"],
+};
+
+function liveHasKind(live: Set<string>, kind: string): boolean {
+  if (live.has(kind) || live.has(catalogKindFor(kind))) return true;
+  return (LIVE_KIND_ALIASES[kind] ?? []).some((alias) => live.has(alias));
+}
+
 export function isChromeKind(kind: string): kind is ChromeKind {
   return CHROME_KIND_SET.has(kind);
 }
@@ -111,9 +123,7 @@ export function catalogHasKinds(
 ): boolean {
   if (required.length === 0) return true;
   const live = new Set(liveKindsForPlugin(items, pluginId));
-  return required.every(
-    (kind) => live.has(catalogKindFor(kind)) || live.has(kind),
-  );
+  return required.every((kind) => liveHasKind(live, kind));
 }
 
 export function catalogLacksKinds(
@@ -123,7 +133,5 @@ export function catalogLacksKinds(
 ): boolean {
   if (required.length === 0) return true;
   const live = new Set(liveKindsForPlugin(items, pluginId));
-  return required.every(
-    (kind) => !live.has(catalogKindFor(kind)) && !live.has(kind),
-  );
+  return required.every((kind) => !liveHasKind(live, kind));
 }

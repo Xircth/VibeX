@@ -27,7 +27,6 @@ import {
 } from './CodexQuickSettings';
 import { AgentSectionHeading } from './SettingsSection';
 import { PiConfigurationPanel } from './PiConfigurationPanel';
-import { PiProviderBuilder } from './PiProviderBuilder';
 import { SettingsActionBar } from './SettingsUi';
 import { containsCjk, humanizeIdentifier } from './agentConfigLabels';
 
@@ -397,13 +396,9 @@ function ConfigField({
 }) {
   const { t, i18n } = useTranslation('settings');
   const inputId = `agent-config-${field.id}`;
-  const labelId = `${inputId}-label`;
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizeIdentifier(field.id) : field.label;
-  const wide =
-    field.kind === 'json' ||
-    field.id === 'pi_custom_providers' ||
-    field.id === 'grok_custom_model_id';
+  const wide = field.kind === 'json' || field.id === 'grok_custom_model_id';
   const placeholder =
     field.secret && field.present
       ? t('agents.replaceSecretPlaceholder')
@@ -411,22 +406,10 @@ function ConfigField({
   return (
     <div className={`agent-config-field${wide ? ' is-wide' : ''}`}>
       <div className="agent-config-field-label">
-        {field.id === 'pi_custom_providers' ? (
-          <span id={labelId}>{label}</span>
-        ) : (
-          <label htmlFor={inputId}>{label}</label>
-        )}
+        <label htmlFor={inputId}>{label}</label>
       </div>
       <div className="agent-config-field-control">
-        {field.id === 'pi_custom_providers' ? (
-          <div id={inputId} aria-labelledby={labelId} role="group">
-            <PiProviderBuilder
-              value={value}
-              disabled={saving}
-              onChange={onChange}
-            />
-          </div>
-        ) : field.kind === 'json' ? (
+        {field.kind === 'json' ? (
           <textarea
             id={inputId}
             aria-label={label}

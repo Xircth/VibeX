@@ -87,3 +87,20 @@ export function toggleThinkingLevel(
     : [...levels, level];
   return PI_THINKING_LEVELS.filter((item) => next.includes(item));
 }
+
+export type PiReasoningIssue = 'empty-levels' | 'default-unlisted';
+
+export function piReasoningIssue(
+  reasoning: PiModelReasoning,
+  thinkingLevel: string
+): PiReasoningIssue | null {
+  if (!reasoning.enabled) return null;
+  if (reasoning.levels.length === 0) return 'empty-levels';
+  if (
+    thinkingLevel !== '' &&
+    !reasoning.levels.includes(thinkingLevel as PiThinkingLevel)
+  ) {
+    return 'default-unlisted';
+  }
+  return null;
+}

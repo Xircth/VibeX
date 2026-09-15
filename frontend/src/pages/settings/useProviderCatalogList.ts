@@ -15,7 +15,16 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
     () => createPluginControlApi(transport),
     [transport]
   );
-  const contributions = usePluginHostContributions('provider_model_catalog');
+  const catalogItems = usePluginHostContributions();
+  const contributions = useMemo(
+    () =>
+      catalogItems.filter(
+        (item) =>
+          item.kind === 'provider_model_catalog' ||
+          item.kind === 'provider_catalog'
+      ),
+    [catalogItems]
+  );
   const catalogGeneration = contributions.reduce(
     (highest, item) => Math.max(highest, item.generation),
     0

@@ -10,7 +10,6 @@ import { PiConfigurationPanel } from './PiConfigurationPanel';
 vi.mock('@/features/agent-management', () => ({
   agentManagementApi: {
     piConfiguration: vi.fn(),
-    savePiCredentials: vi.fn(),
     savePiRuntime: vi.fn(),
     validatePiCommand: vi.fn(),
     piTrustEntries: vi.fn(),
@@ -95,39 +94,29 @@ describe('PiConfigurationPanel', () => {
     });
   });
 
-  it('saves a custom provider with reasoning chips', async () => {
-    vi.mocked(agentManagementApi.savePiCredentials).mockResolvedValue({
-      ...configuration,
-      default_provider: 'private',
-      default_model: 'private-model',
-      thinking_level: 'high',
-    });
+  it('does not duplicate Provider configuration already owned by auth', async () => {
     render(<PiConfigurationPanel disabled={false} />);
-    expect(await screen.findByText('Provider 与模型')).toBeInTheDocument();
+    expect(await screen.findByText('Pi Runtime')).toBeInTheDocument();
+    expect(screen.queryByText('Provider 与模型')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('checkbox', { name: '声明推理能力' })
-    ).toBeChecked();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'xhigh', pressed: false })
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: '保存 Provider' })
-    );
-    expect(agentManagementApi.savePiCredentials).toHaveBeenCalledWith({
-      provider: 'private',
-      model: 'private-model',
-      thinking_level: 'high',
-      api_key: null,
-      custom_base_url: 'https://private.example/v1',
-      custom_api: 'openai-responses',
-      model_reasoning: {
-        reasoning: true,
-        thinking_level_map: {
-          off: 'none',
-          high: 'HIGH',
-          xhigh: 'xhigh',
-        },
-      },
-    });
+      screen.queryByRole('button', { name: '保存 Provider' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('lists trusted projects in a bounded container without a redundant trusted label', async () => {
+    vi.mocked(agentManagementApi.piTrustEntries).mockResolvedValue([
+      { path: '/Users/mac/Projects/VibeX', trusted: true },
+      { path: '/tmp/denied-project', trusted: false },
+    ]);
+    render(<PiConfigurationPanel disabled={false} />);
+    expect(await screen.findByText('项目信任')).toBeInTheDocument();
+    const list = screen.getByRole('list');
+    expect(list).toHaveClass('agent-model-provider-list', 'pi-trust-entries');
+    expect(list).toHaveTextContent('/Users/mac/Projects/VibeX');
+    expect(list).not.toHaveTextContent('已信任');
+    expect(list).toHaveTextContent('未信任');
+    expect(
+      screen.getAllByRole('button', { name: '撤销' })
+    ).toHaveLength(2);
   });
 });

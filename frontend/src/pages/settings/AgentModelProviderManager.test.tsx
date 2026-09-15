@@ -6,11 +6,21 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
+import { toast } from '@/components/ui/toast';
+
 import { AgentModelProviderManager } from './AgentModelProviderManager';
 import { pickAstryxOption } from './agentSettingsTestUtils';
 
 vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: vi.fn() },
+}));
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
 }));
 
 vi.mock('@/features/agent-management', () => ({
@@ -168,6 +178,190 @@ describe('AgentModelProviderManager', () => {
       api_key: 'secret',
       model: '{"id":"private-model","api":"anthropic-messages"}',
     });
+  });
+
+  it('saves Pi reasoning chips and the default thinking level on a new provider', async () => {
+    const user = userEvent.setup();
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [{ ...gateway, agent_id: 'pi' }],
+      bound_provider_id: null,
+    });
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: '模型供应商' })
+    ).toBeVisible();
+    await user.click(screen.getAllByRole('button', { name: '新建供应商' })[0]);
+    await user.type(screen.getByLabelText('Provider 名称'), 'Gateway');
+    await user.type(
+      screen.getByLabelText('Provider API URL'),
+      'https://gateway.example/v1'
+    );
+    await user.type(screen.getByLabelText('Provider API Key'), 'secret');
+    await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
+    await user.click(screen.getByRole('checkbox', { name: '声明推理能力' }));
+    await user.click(
+      screen.getByRole('button', { name: 'xhigh', pressed: false })
+    );
+    await pickAstryxOption(user, screen.getByLabelText('默认推理强度'), '高');
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
+
+    expect(
+      JSON.parse(
+        vi.mocked(agentManagementApi.saveModelProvider).mock.calls[0][0].model
+      )
+    ).toEqual({
+      id: 'private-model',
+      api: 'openai-responses',
+      reasoning: true,
+      thinkingLevel: 'high',
+      thinkingLevelMap: {
+        off: 'none',
+        xhigh: 'xhigh',
+      },
+    });
+  });
+
+  it('keeps Pi reasoning when editing an existing provider', async () => {
+    const user = userEvent.setup();
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'pi',
+          model:
+            '{"id":"private-model","api":"openai-responses","reasoning":true,"thinkingLevel":"high","thinkingLevelMap":{"off":"none","high":"HIGH","xhigh":null}}',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [{ ...gateway, agent_id: 'pi' }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'pi',
+      source: 'live',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    expect(
+      screen.getByRole('checkbox', { name: '声明推理能力' })
+    ).toBeChecked();
+    expect(
+      screen.getByRole('button', { name: 'xhigh', pressed: false })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+    expect(
+      JSON.parse(
+        vi.mocked(agentManagementApi.saveModelProvider).mock.calls[0][0].model
+      )
+    ).toEqual({
+      id: 'private-model',
+      api: 'openai-responses',
+      reasoning: true,
+      thinkingLevel: 'high',
+      thinkingLevelMap: {
+        off: 'none',
+        high: 'HIGH',
+        xhigh: null,
+      },
+    });
+  });
+
+  it('does not save a Pi provider whose advertised thinking levels are empty', async () => {
+    const user = userEvent.setup();
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [],
+      bound_provider_id: null,
+    });
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: '模型供应商' })
+    ).toBeVisible();
+    await user.click(screen.getAllByRole('button', { name: '新建供应商' })[0]);
+    await user.type(screen.getByLabelText('Provider 名称'), 'Gateway');
+    await user.type(
+      screen.getByLabelText('Provider API URL'),
+      'https://gateway.example/v1'
+    );
+    await user.type(screen.getByLabelText('Provider API Key'), 'secret');
+    await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
+    await user.click(screen.getByRole('checkbox', { name: '声明推理能力' }));
+    await user.click(screen.getByRole('button', { name: 'high', pressed: true }));
+    await user.click(
+      screen.getByRole('button', { name: 'medium', pressed: true })
+    );
+    await user.click(screen.getByRole('button', { name: 'low', pressed: true }));
+    await user.click(
+      screen.getByRole('button', { name: 'minimal', pressed: true })
+    );
+    await user.click(screen.getByRole('button', { name: 'off', pressed: true }));
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
+
+    expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith('至少选择一个强度。');
+  });
+
+  it('does not save a Pi provider whose default thinking level is unlisted', async () => {
+    const user = userEvent.setup();
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'pi',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'pi',
+          model:
+            '{"id":"private-model","api":"openai-responses","reasoning":true,"thinkingLevel":"xhigh","thinkingLevelMap":{"off":"none","high":"HIGH","xhigh":null}}',
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'pi',
+      source: 'live',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    render(
+      <AgentModelProviderManager agentId="pi" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    expect(
+      screen.getByText('默认推理强度不在该模型的列表中。')
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith(
+      '默认推理强度不在该模型的列表中。'
+    );
   });
 
   it('picks the default model from the detected models a Pi provider enabled', async () => {

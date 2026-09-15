@@ -233,6 +233,7 @@ export type PluginContributionKind =
   | 'workflow_binding'
   | 'provider_import_source'
   | 'provider_model_catalog'
+  | 'provider_catalog'
   | 'app_panel'
   | 'app_tab'
   | 'kanban_view'

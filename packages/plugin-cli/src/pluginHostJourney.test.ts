@@ -105,4 +105,20 @@ describe("live contribution catalog", () => {
       false,
     );
   });
+
+  it("accepts the installed Host snake_case catalog kind", () => {
+    const catalogItems = [
+      { pluginId: "vibex.provider-switch", kind: "provider_catalog" },
+    ];
+    expect(
+      catalogHasKinds(catalogItems, "vibex.provider-switch", [
+        "provider.model.catalog",
+      ]),
+    ).toBe(true);
+    expect(
+      catalogLacksKinds(catalogItems, "vibex.provider-switch", [
+        "provider.model.catalog",
+      ]),
+    ).toBe(false);
+  });
 });

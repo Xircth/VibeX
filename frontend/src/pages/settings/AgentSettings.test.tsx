@@ -879,6 +879,13 @@ describe('AgentSettings', () => {
 
     const configuration = screen.getByRole('region', { name: '配置管理' });
     expect(configuration).toHaveTextContent('Pi Runtime');
+    expect(configuration).toHaveTextContent('项目信任');
+    expect(configuration).not.toHaveTextContent('Provider 与模型');
+    expect(configuration).not.toHaveTextContent('保存 Provider');
+    expect(configuration).not.toHaveTextContent('自定义 Provider');
+    expect(
+      screen.queryByRole('button', { name: '添加 Provider' })
+    ).not.toBeInTheDocument();
 
     const plugins = screen.getByRole('button', { name: '插件' });
     expect(plugins).toHaveAttribute('aria-expanded', 'false');

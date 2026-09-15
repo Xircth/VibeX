@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   implicitWireValue,
   levelsFromMap,
+  NO_PI_REASONING,
+  piReasoningIssue,
   reasoningFromModel,
   reasoningToMap,
   toggleThinkingLevel,
@@ -57,5 +59,24 @@ describe('piThinking', () => {
   it('maps off to none when the wire value is implicit', () => {
     expect(implicitWireValue('off')).toBe('none');
     expect(implicitWireValue('medium')).toBe('medium');
+  });
+
+  it('does not flag a provider that never declared reasoning', () => {
+    expect(piReasoningIssue(NO_PI_REASONING, 'high')).toBeNull();
+  });
+
+  it('requires at least one thinking level once reasoning is declared', () => {
+    expect(
+      piReasoningIssue({ enabled: true, levels: [], wireValues: {} }, 'off')
+    ).toBe('empty-levels');
+  });
+
+  it('rejects a default thinking level the model does not advertise', () => {
+    expect(
+      piReasoningIssue(
+        { enabled: true, levels: ['off', 'high'], wireValues: {} },
+        'xhigh'
+      )
+    ).toBe('default-unlisted');
   });
 });

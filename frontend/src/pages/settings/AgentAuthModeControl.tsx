@@ -29,6 +29,8 @@ import type {
 } from 'shared/types';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
@@ -99,6 +101,9 @@ export function AgentAuthModeControl({
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const autoPersisted = useRef<string | null>(null);
+  const persistModeRef = useRef<
+    ((nextMode: string, nextApiKey?: string) => Promise<boolean>) | null
+  >(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,8 +112,20 @@ export function AgentAuthModeControl({
       const next = await agentManagementApi.authMode(agentId);
       setView(next);
       const kept = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
-      setMode(kept?.mode ?? next.mode);
+      const nextMode = kept?.mode ?? next.mode;
+      setMode(nextMode);
       if (kept) setApiKey(kept.apiKey);
+      const nextKind =
+        next.options.find((option) => option.value === nextMode)?.kind ??
+        kindOfMode(nextMode);
+      if (
+        accountSessionActive(authentication) &&
+        nextKind === 'subscription' &&
+        next.mode !== nextMode &&
+        !locked
+      ) {
+        await persistModeRef.current?.(nextMode);
+      }
     } catch (error) {
       const message = errorMessage(error, t('settings:agents.authLoadFailed'));
       setLoadError(message);
@@ -116,7 +133,7 @@ export function AgentAuthModeControl({
     } finally {
       setLoading(false);
     }
-  }, [agentId, t]);
+  }, [agentId, authentication, locked, t]);
 
   useEffect(() => void load(), [authentication, load]);
 
@@ -183,6 +200,7 @@ export function AgentAuthModeControl({
     },
     [agentId, locked, onChanged, t, view?.mode]
   );
+  persistModeRef.current = persistMode;
 
   useEffect(() => {
     if (!view || saving || loading) return;
@@ -237,19 +255,25 @@ export function AgentAuthModeControl({
       setApiKey('');
       return;
     }
-    if (view.credential_present && nextOption?.kind === 'subscription') {
+    const currentKind = selectedKind;
+    const nextKind = nextOption?.kind ?? kindOfMode(nextMode);
+    if (
+      shouldConfirmOfficialSubscriptionSwitch({
+        signedIn,
+        currentKind,
+        nextKind,
+      })
+    ) {
       const result = await ConfirmDialog.show({
         title: t('settings:agents.authSwitchAwayFromKeyTitle'),
-        message: t('settings:agents.authSwitchAwayFromKeyMessage', {
-          mode: t(nextOption?.label_key ?? 'settings:agents.authModeUnknown'),
-        }),
+        message: t('settings:agents.authSwitchAwayFromKeyMessage'),
         confirmText: t('settings:agents.authSwitchAwayFromKeyConfirm'),
         cancelText: t('common:cancel'),
         variant: 'destructive',
       });
       if (result !== 'confirmed') return;
     }
-    if (persistsImmediately(nextOption, nextAvailable, view.mode)) {
+    if (persistsImmediately(nextOption, nextAvailable, view.mode, signedIn)) {
       await persistMode(nextMode);
       return;
     }
@@ -379,10 +403,17 @@ export function AgentAuthModeControl({
             {panel === 'configuration' && selectedOption?.official_api_url ? (
               <label className="agent-auth-mode-field">
                 <span>API URL</span>
-                <Input
-                  aria-label="API URL"
-                  readOnly
+                <TextInput
+                  ref={(input) => {
+                    if (input) input.readOnly = true;
+                  }}
+                  label="API URL"
+                  isLabelHidden
                   value={selectedOption.official_api_url}
+                  onChange={() => undefined}
+                  width="100%"
+                  className="[&_input]:text-sm"
+                  style={astryxTextInputSurfaceStyle}
                 />
               </label>
             ) : null}
@@ -464,6 +495,7 @@ export function AgentAuthModeControl({
                   hideWhenEmpty={showCodexDeviceLogin}
                   busy={busy}
                   saved={view.mode === mode}
+                  allowUnsignedLogin
                   running={actionRunning}
                   onRunAction={onRunAction}
                 />
@@ -528,6 +560,7 @@ function AccountSessionBar({
   hideWhenEmpty = false,
   busy,
   saved,
+  allowUnsignedLogin = false,
   running,
   onRunAction,
 }: {
@@ -538,6 +571,7 @@ function AccountSessionBar({
   hideWhenEmpty?: boolean;
   busy: boolean;
   saved: boolean;
+  allowUnsignedLogin?: boolean;
   running: string | null;
   onRunAction?: (actionId: string) => void;
 }) {
@@ -569,6 +603,9 @@ function AccountSessionBar({
             const localizedLabel = t(action.label_key, {
               defaultValue: action.label,
             });
+            const modeReady =
+              saved ||
+              (allowUnsignedLogin && !signedIn && action.kind === 'login');
             return (
               <Button
                 key={action.id}
@@ -589,7 +626,7 @@ function AccountSessionBar({
                 })}
                 aria-label={localizedLabel}
                 disabled={
-                  busy || !saved || !action.available || running !== null
+                  busy || !modeReady || !action.available || running !== null
                 }
                 onClick={() => onRunAction?.(action.id)}
               >
@@ -667,20 +704,37 @@ function kindOfMode(mode: string): AgentAuthModeKind {
   return 'official_api';
 }
 
+function shouldConfirmOfficialSubscriptionSwitch({
+  signedIn,
+  currentKind,
+  nextKind,
+}: {
+  signedIn: boolean;
+  currentKind: AgentAuthModeKind;
+  nextKind: AgentAuthModeKind;
+}): boolean {
+  return (
+    signedIn &&
+    nextKind === 'subscription' &&
+    (currentKind === 'provider' || currentKind === 'official_api')
+  );
+}
+
 function persistsImmediately(
   option: AgentAuthModeOptionView | undefined,
   credentialAvailable: boolean,
-  savedMode: string
+  savedMode: string,
+  signedIn: boolean
 ): boolean {
   if (!option) return false;
+  if (option.kind === 'subscription') {
+    return signedIn;
+  }
   if (savedMode === 'model_provider') {
     return false;
   }
   if (option.kind === 'provider' || option.kind === 'official_api') {
     return false;
-  }
-  if (option.kind === 'subscription') {
-    return true;
   }
   if (!option.credential_required) return true;
   return credentialAvailable;

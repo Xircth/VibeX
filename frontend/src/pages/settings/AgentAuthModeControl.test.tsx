@@ -43,6 +43,34 @@ const claudeActions = {
   ],
 };
 
+const grokActions = {
+  agent_id: 'grok' as const,
+  actions: [
+    {
+      id: 'login',
+      label: '登录 Grok',
+      description: '运行 Grok 官方账号登录流程。',
+      label_key: 'agents.managementAction.grok.login.label',
+      description_key: 'agents.managementAction.grok.login.description',
+      kind: 'login' as const,
+      available: true,
+      unavailable_reason: null,
+      url: null,
+    },
+    {
+      id: 'logout',
+      label: '退出 Grok',
+      description: '移除 Grok 本地账号会话。',
+      label_key: 'agents.managementAction.grok.logout.label',
+      description_key: 'agents.managementAction.grok.logout.description',
+      kind: 'logout' as const,
+      available: false,
+      unavailable_reason: '当前没有可退出的账号会话。',
+      url: null,
+    },
+  ],
+};
+
 const grokOptions = [
   authOption(
     'subscription',
@@ -63,6 +91,15 @@ const grokOptions = [
     'custom',
     'provider',
     'authModeCustomEndpoint',
+    'authDescGrokCustom'
+  ),
+];
+const grokProviderOptions = [
+  ...grokOptions,
+  authOption(
+    'model_provider',
+    'provider',
+    'authModeProvider',
     'authDescGrokCustom'
   ),
 ];
@@ -146,10 +183,42 @@ const antigravityOptions = [
 describe('AgentAuthModeControl', () => {
   afterEach(() => {
     clearAllAgentSettingsDrafts();
+    vi.mocked(ConfirmDialog.show).mockReset();
     vi.restoreAllMocks();
   });
 
-  it('switches Grok to subscription immediately after confirming key cleanup', async () => {
+  it('does not prompt when opening official subscription while signed out', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="not_logged_in"
+        actions={grokActions}
+        onRunAction={vi.fn()}
+      />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+
+    expect(
+      await screen.findByRole('tab', { name: '官方订阅' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: '登录 Grok' })).toBeEnabled();
+    expect(ConfirmDialog.show).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt when switching from official API while signed out', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'grok',
       mode: 'api_key',
@@ -158,31 +227,186 @@ describe('AgentAuthModeControl', () => {
       modes: ['subscription', 'api_key', 'custom'],
       options: grokOptions,
     });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl agentId="grok" authentication="not_logged_in" />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+
+    expect(
+      await screen.findByRole('tab', { name: '官方订阅' })
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(ConfirmDialog.show).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('prompts to disable providers when a signed-in account switches to official subscription', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
     const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
       agent_id: 'grok',
       mode: 'subscription',
       credential_env: 'XAI_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'api_key', 'custom'],
-      options: grokOptions,
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
     });
     vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
     const user = userEvent.setup();
 
-    render(<AgentAuthModeControl agentId="grok" />);
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="account"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
 
     await pickAuthModeTab(user, '官方订阅');
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
     );
+    expect(ConfirmDialog.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '切换鉴权模式',
+        message: '切换为官方订阅会取消启用当前的供应商',
+        confirmText: '切换',
+      })
+    );
+  });
+
+  it('prompts from official API when the official subscription is already signed in', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_api',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: true,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: claudeOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: true,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: claudeOptions,
+    });
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl agentId="claude_code" authentication="account" />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        'claude_code',
+        'official_subscription',
+        null
+      )
+    );
+    expect(ConfirmDialog.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '切换为官方订阅会取消启用当前的供应商',
+      })
+    );
+  });
+
+  it('keeps the current tab when canceling the signed-in subscription switch', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('canceled');
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="account"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+
+    expect(await screen.findByRole('tab', { name: '供应商' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     expect(ConfirmDialog.show).toHaveBeenCalled();
-    expect(
-      screen.queryByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '保存鉴权模式' })
-    ).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('disables providers after official subscription login succeeds', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'subscription',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="not_logged_in"
+        actions={grokActions}
+        onRunAction={vi.fn()}
+      />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+    expect(save).not.toHaveBeenCalled();
+
+    rerender(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="account"
+        actions={{
+          ...grokActions,
+          actions: grokActions.actions.map((action) =>
+            action.kind === 'logout'
+              ? { ...action, available: true, unavailable_reason: null }
+              : action
+          ),
+        }}
+        onRunAction={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
+    );
+    expect(ConfirmDialog.show).not.toHaveBeenCalled();
   });
 
   it('keeps an unsaved API key mode after the panel remounts', async () => {

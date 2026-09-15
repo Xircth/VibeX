@@ -40,6 +40,8 @@ describe('SessionCanvasDock', () => {
     const { onCreateGroup, onCreateSession } = renderDock();
 
     await user.click(screen.getByRole('button', { name: '新建' }));
+    const createMenu = await screen.findByRole('menu');
+    expect(createMenu).toHaveAttribute('data-align', 'start');
     await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
     expect(onCreateGroup).toHaveBeenCalledTimes(1);
     expect(onCreateSession).not.toHaveBeenCalled();
@@ -49,6 +51,8 @@ describe('SessionCanvasDock', () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: '导入会话' }));
+    const importMenu = await screen.findByRole('menu');
+    expect(importMenu).toHaveAttribute('data-align', 'start');
     const project = await screen.findByRole('menuitem', { name: '项目导入' });
     const recent = screen.getByRole('menuitem', { name: '最近时间导入' });
     const agent = screen.getByRole('menuitem', { name: 'Agent 导入' });

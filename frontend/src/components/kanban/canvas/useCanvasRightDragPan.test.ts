@@ -27,6 +27,48 @@ describe('useCanvasRightDragPan', () => {
     surface.remove();
   });
 
+  it('claims right-button pointerdown immediately so pan is not delayed by a menu', () => {
+    const { surface, ref } = mountSurface();
+    const pane = document.createElement('div');
+    pane.className = 'react-flow__pane';
+    surface.appendChild(pane);
+    renderHook(() => useCanvasRightDragPan(ref));
+
+    const event = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    pane.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    surface.remove();
+  });
+
+  it('leaves session-list right-click free for the context menu', () => {
+    const { surface, ref } = mountSurface();
+    const list = document.createElement('aside');
+    list.className = 'session-hub-sidebar';
+    surface.appendChild(list);
+    renderHook(() => useCanvasRightDragPan(ref));
+
+    const down = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    list.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(false);
+
+    const menu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    list.dispatchEvent(menu);
+    expect(menu.defaultPrevented).toBe(false);
+    surface.remove();
+  });
+
   it('blocks middle-click autoscroll and selection-overlay pan', () => {
     const { surface, overlay, ref } = mountSurface();
     renderHook(() => useCanvasRightDragPan(ref));

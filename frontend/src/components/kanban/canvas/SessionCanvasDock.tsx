@@ -117,7 +117,7 @@ export function SessionCanvasDock({
             <Plus className="size-4" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" side="top">
+        <DropdownMenuContent align="start" side="top">
           <DropdownMenuItem onSelect={onCreateGroup}>
             <SquareDashed className="size-4 text-muted-foreground" />
             {t('hubCanvas.createEmptyGroup')}
@@ -139,7 +139,7 @@ export function SessionCanvasDock({
             <Download className="size-4" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" side="top">
+        <DropdownMenuContent align="start" side="top">
           <DropdownMenuItem onSelect={onImportByProject}>
             <Folder className="size-4 text-muted-foreground" />
             {t('hubCanvas.importByProject')}

@@ -1,13 +1,22 @@
 import { useEffect, type RefObject } from 'react';
+import { CANVAS_DROP_IGNORE_SELECTOR } from '@/components/kanban/session-hub/sessionListDrag';
 
+const RIGHT_BUTTON = 2;
 const MIDDLE_BUTTON = 1;
 const MIDDLE_CLICK_SLOP_PX = 6;
+
+function isSessionListEventTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    ? Boolean(target.closest(CANVAS_DROP_IGNORE_SELECTOR))
+    : false;
+}
 
 function isCanvasEventTarget(
   surface: HTMLElement,
   target: EventTarget | null
 ): boolean {
   if (!(target instanceof Element)) return false;
+  if (isSessionListEventTarget(target)) return false;
   if (surface.contains(target)) return true;
   return Boolean(
     target.closest(
@@ -18,7 +27,9 @@ function isCanvasEventTarget(
 
 /**
  * Right-button pan is handled by React Flow (`panOnDrag={[2]}`).
- * Block the browser menu so that pan is not interrupted on mouseup.
+ * Claim the right button on pointerdown in capture so WebView2 does not
+ * wait for a context-menu gesture, and block the menu so pan is not
+ * interrupted.
  *
  * Middle-click must be claimed in capture: d3-zoom listens to pointer
  * events, and the selection overlay still treats middle-press as a pan
@@ -37,8 +48,16 @@ export function useCanvasRightDragPan(
     let startX = 0;
     let startY = 0;
 
-    const onContextMenu = (event: MouseEvent) => {
+    const onRightPointerDown = (event: PointerEvent) => {
+      if (event.button !== RIGHT_BUTTON) return;
+      if (!isCanvasEventTarget(surface, event.target)) return;
       event.preventDefault();
+    };
+
+    const onContextMenu = (event: MouseEvent) => {
+      if (isSessionListEventTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
     };
 
     const isClick = (event: PointerEvent | MouseEvent) =>
@@ -77,14 +96,16 @@ export function useCanvasRightDragPan(
       onMiddleClick?.(event);
     };
 
-    surface.addEventListener('contextmenu', onContextMenu);
+    surface.addEventListener('pointerdown', onRightPointerDown, true);
+    surface.addEventListener('contextmenu', onContextMenu, true);
     window.addEventListener('pointerdown', beginMiddle, true);
     window.addEventListener('mousedown', beginMiddle, true);
     window.addEventListener('pointerup', finishMiddle, true);
     window.addEventListener('mouseup', finishMiddle, true);
     window.addEventListener('auxclick', onAuxClick, true);
     return () => {
-      surface.removeEventListener('contextmenu', onContextMenu);
+      surface.removeEventListener('pointerdown', onRightPointerDown, true);
+      surface.removeEventListener('contextmenu', onContextMenu, true);
       window.removeEventListener('pointerdown', beginMiddle, true);
       window.removeEventListener('mousedown', beginMiddle, true);
       window.removeEventListener('pointerup', finishMiddle, true);

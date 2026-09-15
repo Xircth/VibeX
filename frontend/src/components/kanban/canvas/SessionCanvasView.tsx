@@ -37,15 +37,7 @@ import {
   peekCanvasReveal,
   subscribeCanvasReveal,
 } from '@/lib/canvasSessionReveal';
-import {
-  sessionAttentionKind,
-  sessionListAgentKey,
-} from '@/components/kanban/session-hub/utils';
-import { useAppContextMenu } from '@/components/context-menu';
-import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
-import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
-import { sessionListTitle } from '@/components/workspace-session-list/workspaceSessionListModel';
-import { dateTimestamp } from '@/utils/date';
+import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
 import { cn } from '@/lib/utils';
 import { FloatingSessionList } from './FloatingSessionList';
 import { ImportRecentSessionsDialog } from './ImportRecentSessionsDialog';
@@ -289,7 +281,6 @@ function SessionCanvasFlow({
   onSelectedSessionChange,
 }: SessionCanvasViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
-  const { openSurfaceMenu } = useAppContextMenu();
   const queryClient = useQueryClient();
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition } = useReactFlow();
@@ -1103,44 +1094,6 @@ function SessionCanvasFlow({
     window.setTimeout(() => void fitView({ padding: 0.2, duration: 300 }), 40);
   }, [fitView, updateNodes]);
 
-  const autoArrangeBy = useCallback(
-    (key: 'name' | 'time' | 'agent') => {
-      const bySessionId = new Map(
-        sessions.map((session) => [session.id, session])
-      );
-      const compare = (left: SessionCanvasNode, right: SessionCanvasNode) => {
-        const leftSession = bySessionId.get(left.sessionId);
-        const rightSession = bySessionId.get(right.sessionId);
-        if (key === 'name') {
-          return (leftSession?.fullName ?? left.name).localeCompare(
-            rightSession?.fullName ?? right.name,
-            'zh-CN'
-          );
-        }
-        if (key === 'agent') {
-          const empty = { executor: null };
-          return (
-            sessionListAgentKey(leftSession ?? empty) ?? ''
-          ).localeCompare(
-            sessionListAgentKey(rightSession ?? empty) ?? '',
-            'zh-CN'
-          );
-        }
-        return (
-          dateTimestamp(rightSession?.updatedAt ?? 0) -
-          dateTimestamp(leftSession?.updatedAt ?? 0)
-        );
-      };
-      const moves = packLayout(documentRef.current.nodes, { compare });
-      updateNodes((items) => applyMoves(items, moves));
-      window.setTimeout(
-        () => void fitView({ padding: 0.2, duration: 300 }),
-        40
-      );
-    },
-    [fitView, sessions, updateNodes]
-  );
-
   const flowOriginAtCanvasCenter = useCallback(() => {
     const rect = surfaceRef.current?.getBoundingClientRect();
     return screenToFlowPosition(
@@ -1332,203 +1285,186 @@ function SessionCanvasFlow({
 
   return (
     <SessionCanvasViewProvider value={viewContext}>
-      <div
-        ref={surfaceRef}
-        className="canvas-surface relative h-full w-full"
-        onContextMenu={(event) => {
-          event.preventDefault();
-        }}
-      >
-        <ReactFlow
-          nodes={rfNodes}
-          edges={[]}
-          nodeTypes={NODE_TYPES}
-          nodesConnectable={false}
-          edgesReconnectable={false}
-          edgesFocusable={false}
-          connectionMode={ConnectionMode.Loose}
-          onNodesChange={handleNodesChange}
-          onNodeDragStart={handleNodeDragStart}
-          onNodeDrag={handleNodeDrag}
-          onNodeDragStop={handleNodeDragStop}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          onSelectionStart={() => {
-            marqueeSelectingRef.current = true;
-          }}
-          onSelectionEnd={() => {
-            setSelectedIds((current) =>
-              expandSelectionToGroups(documentRef.current.nodes, current)
-            );
-            window.setTimeout(() => {
-              marqueeSelectingRef.current = false;
-            }, 0);
-          }}
-          onPaneContextMenu={(event) => {
-            openSurfaceMenu(
-              event,
-              buildSessionListBlankMenu({
-                t,
-                onSort: autoArrangeBy,
-                onCreateSession: () => onCreateSession?.(),
-                onExportPack: () => {
-                  void exportProjectConversationPack(
-                    sessions.map((session) => ({
-                      id: session.id,
-                      title: sessionListTitle(session),
-                    }))
-                  );
-                },
-              })
-            );
-          }}
-          onNodeContextMenu={(event) => {
-            event.preventDefault();
-          }}
-          onSelectionContextMenu={(event) => {
-            event.preventDefault();
-          }}
-          onMove={handleMove}
-          onMoveEnd={handleMoveEnd}
-          fitView={documentState.viewport == null}
-          fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-          defaultViewport={documentState.viewport ?? undefined}
-          minZoom={CANVAS_MIN_ZOOM}
-          maxZoom={CANVAS_MAX_ZOOM}
-          elevateNodesOnSelect={false}
-          panOnDrag={[2]}
-          selectionOnDrag
-          selectionMode={SelectionMode.Partial}
-          panOnScroll
-          selectionKeyCode={null}
-          multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
-          deleteKeyCode={null}
-          zoomOnDoubleClick={false}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={BOARD_DOT_GAP}
-            size={1.5}
-            className="canvas-dots"
-          />
-          {alignGuides.length > 0 ? (
-            <ViewportPortal>
-              {alignGuides.map((guide) => {
-                const hair = 1 / Math.max(zoomRef.current, 0.01);
-                return (
-                  <div
-                    key={`${guide.axis}-${guide.at}-${guide.from}`}
-                    className="pointer-events-none absolute bg-primary/70"
-                    style={
-                      guide.axis === 'x'
-                        ? {
-                            transform: `translate(${guide.at}px, ${guide.from}px)`,
-                            width: hair,
-                            height: guide.to - guide.from,
-                          }
-                        : {
-                            transform: `translate(${guide.from}px, ${guide.at}px)`,
-                            width: guide.to - guide.from,
-                            height: hair,
-                          }
-                    }
-                  />
-                );
-              })}
-            </ViewportPortal>
-          ) : null}
-          {sessionLinks.length > 0 ? (
-            <ViewportPortal>
-              <svg
-                className="pointer-events-none absolute overflow-visible"
-                width={1}
-                height={1}
-              >
-                {sessionLinks.map((link) => {
-                  const from = nodeById(nodes, link.sourceId);
-                  const to = nodeById(nodes, link.targetId);
-                  if (!from || !to) return null;
-                  const start = linkAnchor(nodes, from);
-                  const end = linkAnchor(nodes, to);
+      <div ref={surfaceRef} className="canvas-surface relative h-full w-full">
+        <div className="h-full w-full" data-context-menu-zone="forbidden">
+          <ReactFlow
+            nodes={rfNodes}
+            edges={[]}
+            nodeTypes={NODE_TYPES}
+            nodesConnectable={false}
+            edgesReconnectable={false}
+            edgesFocusable={false}
+            connectionMode={ConnectionMode.Loose}
+            onNodesChange={handleNodesChange}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDrag={handleNodeDrag}
+            onNodeDragStop={handleNodeDragStop}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            onSelectionStart={() => {
+              marqueeSelectingRef.current = true;
+            }}
+            onSelectionEnd={() => {
+              setSelectedIds((current) =>
+                expandSelectionToGroups(documentRef.current.nodes, current)
+              );
+              window.setTimeout(() => {
+                marqueeSelectingRef.current = false;
+              }, 0);
+            }}
+            onPaneContextMenu={(event) => {
+              event.preventDefault();
+            }}
+            onNodeContextMenu={(event) => {
+              event.preventDefault();
+            }}
+            onSelectionContextMenu={(event) => {
+              event.preventDefault();
+            }}
+            onMove={handleMove}
+            onMoveEnd={handleMoveEnd}
+            fitView={documentState.viewport == null}
+            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            defaultViewport={documentState.viewport ?? undefined}
+            minZoom={CANVAS_MIN_ZOOM}
+            maxZoom={CANVAS_MAX_ZOOM}
+            elevateNodesOnSelect={false}
+            panOnDrag={[2]}
+            selectionOnDrag
+            selectionMode={SelectionMode.Partial}
+            panOnScroll
+            selectionKeyCode={null}
+            multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
+            deleteKeyCode={null}
+            zoomOnDoubleClick={false}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={BOARD_DOT_GAP}
+              size={1.5}
+              className="canvas-dots"
+            />
+            {alignGuides.length > 0 ? (
+              <ViewportPortal>
+                {alignGuides.map((guide) => {
+                  const hair = 1 / Math.max(zoomRef.current, 0.01);
                   return (
-                    <line
-                      key={link.id}
-                      className="canvas-session-link"
-                      x1={start.x}
-                      y1={start.y}
-                      x2={end.x}
-                      y2={end.y}
-                      strokeDasharray="6 4"
-                      strokeWidth={1.75}
+                    <div
+                      key={`${guide.axis}-${guide.at}-${guide.from}`}
+                      className="pointer-events-none absolute bg-primary/70"
+                      style={
+                        guide.axis === 'x'
+                          ? {
+                              transform: `translate(${guide.at}px, ${guide.from}px)`,
+                              width: hair,
+                              height: guide.to - guide.from,
+                            }
+                          : {
+                              transform: `translate(${guide.from}px, ${guide.at}px)`,
+                              width: guide.to - guide.from,
+                              height: hair,
+                            }
+                      }
                     />
                   );
                 })}
-              </svg>
-            </ViewportPortal>
-          ) : null}
-          {dropHint?.type === 'merge' ? (
-            <ViewportPortal>
+              </ViewportPortal>
+            ) : null}
+            {sessionLinks.length > 0 ? (
+              <ViewportPortal>
+                <svg
+                  className="pointer-events-none absolute overflow-visible"
+                  width={1}
+                  height={1}
+                >
+                  {sessionLinks.map((link) => {
+                    const from = nodeById(nodes, link.sourceId);
+                    const to = nodeById(nodes, link.targetId);
+                    if (!from || !to) return null;
+                    const start = linkAnchor(nodes, from);
+                    const end = linkAnchor(nodes, to);
+                    return (
+                      <line
+                        key={link.id}
+                        className="canvas-session-link"
+                        x1={start.x}
+                        y1={start.y}
+                        x2={end.x}
+                        y2={end.y}
+                        strokeDasharray="6 4"
+                        strokeWidth={1.75}
+                      />
+                    );
+                  })}
+                </svg>
+              </ViewportPortal>
+            ) : null}
+            {dropHint?.type === 'merge' ? (
+              <ViewportPortal>
+                <div
+                  className="canvas-board-units pointer-events-none absolute flex items-start justify-center rounded-xl border-2 border-dashed border-primary/70 bg-primary/5"
+                  style={{
+                    transform: `translate(${dropHint.rect.x}px, ${dropHint.rect.y}px)`,
+                    width: dropHint.rect.width,
+                    height: dropHint.rect.height,
+                  }}
+                >
+                  <span className="mt-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
+                    {t('hubCanvas.mergeIntoGroup')}
+                  </span>
+                </div>
+              </ViewportPortal>
+            ) : null}
+            <Panel position="bottom-center" data-canvas-export-skip="">
               <div
-                className="canvas-board-units pointer-events-none absolute flex items-start justify-center rounded-xl border-2 border-dashed border-primary/70 bg-primary/5"
-                style={{
-                  transform: `translate(${dropHint.rect.x}px, ${dropHint.rect.y}px)`,
-                  width: dropHint.rect.width,
-                  height: dropHint.rect.height,
-                }}
+                className="flex items-center gap-2"
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
               >
-                <span className="mt-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
-                  {t('hubCanvas.mergeIntoGroup')}
-                </span>
+                <SessionCanvasHistoryDock
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={undoCanvas}
+                  onRedo={redoCanvas}
+                />
+                <SessionCanvasDock
+                  selectedCount={selectedIds.size}
+                  selectedExpanded={selectedExpanded}
+                  selectedGroupCollapsed={
+                    selectedNodes.length === 1 &&
+                    isGroupNode(selectedNodes[0]) &&
+                    selectedNodes[0].collapsed === true
+                  }
+                  selectedIsGroup={
+                    selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
+                  }
+                  onToggleGroupCollapse={() => {
+                    const group = selectedNodes.find(isGroupNode);
+                    if (group) collapseGroup(group.id);
+                  }}
+                  onCreateGroup={createGroupAtView}
+                  onCreateSession={() => onCreateSession?.()}
+                  onImportByProject={() => setImportMode('project')}
+                  onImportByRecent={() => setImportMode('recent')}
+                  onImportByAgent={() => setImportMode('agent')}
+                  onFitView={() =>
+                    void fitView({ padding: 0.2, duration: 300 })
+                  }
+                  onAutoArrange={autoArrange}
+                  onExpandSelection={expandSelection}
+                  onCollapseSelection={collapseSelection}
+                  onDeleteSelection={deleteSelection}
+                />
               </div>
-            </ViewportPortal>
-          ) : null}
-          <Panel position="bottom-center" data-canvas-export-skip="">
-            <div
-              className="flex items-center gap-2"
-              onPointerDown={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <SessionCanvasHistoryDock
-                canUndo={canUndo}
-                canRedo={canRedo}
-                onUndo={undoCanvas}
-                onRedo={redoCanvas}
-              />
-              <SessionCanvasDock
-                selectedCount={selectedIds.size}
-                selectedExpanded={selectedExpanded}
-                selectedGroupCollapsed={
-                  selectedNodes.length === 1 &&
-                  isGroupNode(selectedNodes[0]) &&
-                  selectedNodes[0].collapsed === true
-                }
-                selectedIsGroup={
-                  selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
-                }
-                onToggleGroupCollapse={() => {
-                  const group = selectedNodes.find(isGroupNode);
-                  if (group) collapseGroup(group.id);
-                }}
-                onCreateGroup={createGroupAtView}
-                onCreateSession={() => onCreateSession?.()}
-                onImportByProject={() => setImportMode('project')}
-                onImportByRecent={() => setImportMode('recent')}
-                onImportByAgent={() => setImportMode('agent')}
-                onFitView={() => void fitView({ padding: 0.2, duration: 300 })}
-                onAutoArrange={autoArrange}
-                onExpandSelection={expandSelection}
-                onCollapseSelection={collapseSelection}
-                onDeleteSelection={deleteSelection}
-              />
-            </div>
-          </Panel>
-          <SessionCanvasViewportPanel
-            mapVisible={documentState.minimapVisible}
-            onMapVisibleChange={(visible) =>
-              persist({ ...documentRef.current, minimapVisible: visible })
-            }
-          />
-        </ReactFlow>
+            </Panel>
+            <SessionCanvasViewportPanel
+              mapVisible={documentState.minimapVisible}
+              onMapVisibleChange={(visible) =>
+                persist({ ...documentRef.current, minimapVisible: visible })
+              }
+            />
+          </ReactFlow>
+        </div>
 
         <FloatingSessionList collapsed={!listVisible} width={listWidth}>
           {list}

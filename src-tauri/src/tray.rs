@@ -17,6 +17,10 @@ pub const TRAY_ICON_ID: &str = "vibex-tray";
 
 /// Bring the main window to the foreground (unminimize + show + focus).
 pub fn show_main_window(app: &AppHandle) {
+    // Wake-from-sleep and a second launch both land here. Pump CEF first so a
+    // stalled external message pump cannot keep the restored HWND ghosted.
+    let handle = app.clone();
+    let _ = handle.run_on_main_thread(crate::pump_cef_session);
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.show();

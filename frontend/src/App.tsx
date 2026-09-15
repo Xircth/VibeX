@@ -31,6 +31,7 @@ import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
+import { revealDesktopWindowAfterPaint } from '@/lib/revealDesktopWindow';
 import { useTauriClient } from '@/lib/desktopShell';
 import { useRemoteHostReleaseUpdateToast } from '@/hooks/useRemoteHostReleaseUpdateToast';
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
@@ -114,6 +115,8 @@ function MainAppContent() {
   useRemoteHostReleaseUpdateToast();
 
   useLegacyDesignBodyClass();
+
+  useEffect(() => revealDesktopWindowAfterPaint(), []);
 
   useEffect(() => {
     if (!isTauri) return;

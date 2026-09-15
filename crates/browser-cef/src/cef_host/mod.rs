@@ -2,7 +2,7 @@
 use std::ffi::CString;
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, mpsc::Receiver},
@@ -28,11 +28,6 @@ pub type PumpScheduler = Arc<dyn Fn(i64) + Send + Sync + 'static>;
 const BROWSER_VIEW_TEARDOWN_DELAY_MS: i64 = 16;
 // ARGB for the opaque light content surface defined by DESIGN.md (#fafbfc).
 const BROWSER_CONTENT_BACKGROUND_COLOR: u32 = 0xFFFAFBFC;
-// Chrome style is the CEF default. A browser parented to Tauri's HWND must use
-// Alloy style or Chromium keeps Chrome UI chrome (status bubble) while the
-// web-contents compositor can stay blank on Windows.
-const WINDOWS_CEF_DISABLED_FEATURES: &str =
-    "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
 
 fn browser_settings() -> BrowserSettings {
     BrowserSettings {
@@ -151,10 +146,15 @@ fn apply_embedded_command_line(command_line: Option<&mut CommandLine>) {
     let Some(command_line) = command_line else {
         return;
     };
-    command_line.append_switch_with_value(
-        Some(&CefString::from("disable-features")),
-        Some(&CefString::from(WINDOWS_CEF_DISABLED_FEATURES)),
-    );
+    for (name, value) in crate::embedded_chromium_switches() {
+        match value {
+            Some(value) => command_line.append_switch_with_value(
+                Some(&CefString::from(name)),
+                Some(&CefString::from(value)),
+            ),
+            None => command_line.append_switch(Some(&CefString::from(name))),
+        }
+    }
 }
 
 fn child_window_info(parent: usize, surface: &BrowserSurface) -> WindowInfo {
@@ -275,7 +275,21 @@ struct BrowserRegistry {
     pending: HashMap<BrowserTabId, Vec<BrowserEngineCommand>>,
     pending_permissions: HashMap<(BrowserTabId, u64), PendingPermission>,
     downloads: HashMap<(BrowserTabId, u32), DownloadItemCallback>,
+    closing: HashSet<BrowserTabId>,
     next_permission_id: u64,
+}
+
+impl BrowserRegistry {
+    fn drop_tab(&mut self, tab_id: &BrowserTabId) {
+        self.browsers.remove(tab_id);
+        self.devtools.remove(tab_id);
+        self.surfaces.remove(tab_id);
+        self.zoom_levels.remove(tab_id);
+        self.pending.remove(tab_id);
+        self.closing.remove(tab_id);
+        self.pending_permissions.retain(|(id, _), _| id != tab_id);
+        self.downloads.retain(|(id, _), _| id != tab_id);
+    }
 }
 
 enum PendingPermission {
@@ -972,21 +986,25 @@ cef::wrap_life_span_handler! {
         }
 
         fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
+            let already_closing = {
+                let mut registry = self.registry.borrow_mut();
+                !registry.closing.insert(self.tab_id.clone())
+            };
             if let Some(browser) = browser {
                 let _ = native::hide_browser_view(browser);
-                schedule_browser_view_destruction(browser);
+                // DestroyWindow on the child can re-enter DoClose. A second
+                // scheduled destroy races the first and can leave the renderer
+                // process alive on Windows 23H2.
+                if !already_closing {
+                    schedule_browser_view_destruction(browser);
+                }
             }
             // Returning 0 would ask CEF to close the top-level Tauri window.
             1
         }
 
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
-            let mut registry = self.registry.borrow_mut();
-            registry.browsers.remove(&self.tab_id);
-            registry.devtools.remove(&self.tab_id);
-            registry.surfaces.remove(&self.tab_id);
-            registry.zoom_levels.remove(&self.tab_id);
-            registry.pending.remove(&self.tab_id);
+            self.registry.borrow_mut().drop_tab(&self.tab_id);
         }
     }
 }
@@ -1212,7 +1230,7 @@ mod embedded_window_tests {
     use browser_runtime::BrowserSurface;
     use cef::{RuntimeStyle, WindowInfo};
 
-    use super::{WINDOWS_CEF_DISABLED_FEATURES, child_window_info};
+    use super::child_window_info;
 
     fn surface() -> BrowserSurface {
         BrowserSurface {
@@ -1233,8 +1251,14 @@ mod embedded_window_tests {
 
     #[test]
     fn windows_command_line_disables_native_window_occlusion() {
-        assert!(WINDOWS_CEF_DISABLED_FEATURES.contains("CalculateNativeWinOcclusion"));
-        assert!(WINDOWS_CEF_DISABLED_FEATURES.contains("ApplyNativeOcclusionToCompositor"));
+        let switches = crate::embedded_chromium_switches();
+        let features = switches
+            .iter()
+            .find(|(name, _)| *name == "disable-features")
+            .and_then(|(_, value)| *value)
+            .expect("disable-features must be set");
+        assert!(features.contains("CalculateNativeWinOcclusion"));
+        assert!(features.contains("ApplyNativeOcclusionToCompositor"));
     }
 
     #[test]

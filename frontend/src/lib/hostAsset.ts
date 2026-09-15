@@ -1,7 +1,13 @@
 import { backendCall } from '@/lib/backendTransport';
 import { fileExtension, mimeForMediaExtension } from '@/utils/mediaAttachments';
 
-const blobUrls = new Map<string, string>();
+type HostFileBlob = {
+  url: string;
+  refs: number;
+};
+
+const blobUrls = new Map<string, HostFileBlob>();
+const inflight = new Map<string, Promise<string>>();
 
 export function isDirectBrowserDisplayUrl(
   url: string | null | undefined
@@ -53,8 +59,53 @@ function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export async function hostFileSrc(path: string): Promise<string> {
   const cached = blobUrls.get(path);
   if (cached) {
-    return cached;
+    cached.refs += 1;
+    return cached.url;
   }
+
+  let pending = inflight.get(path);
+  if (!pending) {
+    pending = createHostFileBlobUrl(path).finally(() => {
+      inflight.delete(path);
+    });
+    inflight.set(path, pending);
+  }
+
+  const url = await pending;
+  const entry = blobUrls.get(path);
+  if (entry) {
+    entry.refs += 1;
+    return entry.url;
+  }
+  blobUrls.set(path, { url, refs: 1 });
+  return url;
+}
+
+/** Drop one retainer. The blob is revoked when the last retainer releases. */
+export function releaseHostFileSrc(path: string): void {
+  const entry = blobUrls.get(path);
+  if (!entry) return;
+  entry.refs -= 1;
+  if (entry.refs > 0) return;
+  blobUrls.delete(path);
+  URL.revokeObjectURL(entry.url);
+}
+
+/** Test helper: drop every cached blob so cases do not leak across tests. */
+export function resetHostFileSrcCache(): void {
+  for (const entry of blobUrls.values()) {
+    URL.revokeObjectURL(entry.url);
+  }
+  blobUrls.clear();
+  inflight.clear();
+}
+
+async function createHostFileBlobUrl(path: string): Promise<string> {
+  const existing = blobUrls.get(path);
+  if (existing) {
+    return existing.url;
+  }
+
   const result = await backendCall<{
     data_base64?: string;
     base64?: string;
@@ -71,6 +122,8 @@ export async function hostFileSrc(path: string): Promise<string> {
   const url = URL.createObjectURL(
     new Blob([bytesToArrayBuffer(decodeBase64Bytes(encoded))], { type: mime })
   );
-  blobUrls.set(path, url);
-  return url;
+  if (!blobUrls.has(path)) {
+    blobUrls.set(path, { url, refs: 0 });
+  }
+  return blobUrls.get(path)?.url ?? url;
 }

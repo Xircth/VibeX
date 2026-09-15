@@ -1,9 +1,14 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImageIcon, Loader2 } from 'lucide-react';
 import type { JsonValue, NormalizedEntry } from 'shared/types';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
+import {
+  hostFileSrc,
+  isDirectBrowserDisplayUrl,
+  releaseHostFileSrc,
+} from '@/lib/hostAsset';
 import { ToolArtifact, ToolProse } from './ToolArtifact';
 import {
   ToolCardShell,
@@ -159,6 +164,36 @@ export function GeneratedImagesBlock({
     taskAttemptId,
     imagePath ?? ''
   );
+  const proxyUrl = metadata?.proxy_url ?? null;
+  const hostSrcPath =
+    proxyUrl &&
+    !isDirectBrowserDisplayUrl(proxyUrl) &&
+    !proxyUrl.startsWith('data:')
+      ? proxyUrl
+      : null;
+  const [hostSrcUrl, setHostSrcUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hostSrcPath) {
+      setHostSrcUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void hostFileSrc(hostSrcPath)
+      .then((url) => {
+        if (cancelled) {
+          releaseHostFileSrc(hostSrcPath);
+          return;
+        }
+        setHostSrcUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setHostSrcUrl(null);
+      });
+    return () => {
+      cancelled = true;
+      releaseHostFileSrc(hostSrcPath);
+    };
+  }, [hostSrcPath]);
   const openImagePreview = useOpenImagePreview();
 
   const prompt = readString(action?.arguments, ['prompt', 'description']);
@@ -171,10 +206,13 @@ export function GeneratedImagesBlock({
     (toolEntry?.status.status === 'created' ? 'generating' : 'ready');
   const error = readString(resultValue, ['error', 'message']);
   const statusText = getStatusText(status, Boolean(error), t);
-  const resolvedImageUrl = metadata?.proxy_url || imagePath;
+  const resolvedImageUrl = hostSrcUrl || proxyUrl || imagePath;
   const previewImageUrl = isDirectImageUrl(resolvedImageUrl)
     ? resolvedImageUrl
-    : metadata?.proxy_url || null;
+    : hostSrcUrl ||
+      (resolvedImageUrl && isDirectBrowserDisplayUrl(resolvedImageUrl)
+        ? resolvedImageUrl
+        : null);
   const detail = error || revisedPrompt || prompt || statusText;
   const label =
     revisedPrompt ||

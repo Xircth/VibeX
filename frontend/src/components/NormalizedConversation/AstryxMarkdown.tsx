@@ -13,7 +13,11 @@ import {
   type MarkdownProps,
 } from '@astryxdesign/core/Markdown';
 import { loadKatex } from '@/lib/katexRuntime';
-import { hostFileSrc } from '@/lib/hostAsset';
+import {
+  hostFileSrc,
+  isDirectBrowserDisplayUrl,
+  releaseHostFileSrc,
+} from '@/lib/hostAsset';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
 import {
   parseCommitReferenceUri,
@@ -100,33 +104,47 @@ function MarkdownImage({
     isVibeImage || isRenderableRemoteImage(normalizedSrc)
       ? null
       : resolveLocalMarkdownImagePath(normalizedSrc, workspacePath);
-  const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
-  const [localImageFailed, setLocalImageFailed] = useState(false);
+  const vibeFilePath =
+    isVibeImage &&
+    metadata?.proxy_url &&
+    !isDirectBrowserDisplayUrl(metadata.proxy_url)
+      ? metadata.proxy_url
+      : null;
+  const fileSrcPath = vibeFilePath ?? localImagePath;
+  const [fileSrcUrl, setFileSrcUrl] = useState<string | null>(null);
+  const [fileSrcFailed, setFileSrcFailed] = useState(false);
   useEffect(() => {
-    if (!localImagePath) {
-      setLocalImageUrl(null);
-      setLocalImageFailed(false);
+    if (!fileSrcPath) {
+      setFileSrcUrl(null);
+      setFileSrcFailed(false);
       return;
     }
     let cancelled = false;
-    setLocalImageUrl(null);
-    setLocalImageFailed(false);
-    void hostFileSrc(localImagePath)
+    setFileSrcUrl(null);
+    setFileSrcFailed(false);
+    void hostFileSrc(fileSrcPath)
       .then((url) => {
-        if (!cancelled) setLocalImageUrl(url);
+        if (cancelled) {
+          releaseHostFileSrc(fileSrcPath);
+          return;
+        }
+        setFileSrcUrl(url);
       })
       .catch(() => {
-        if (!cancelled) setLocalImageFailed(true);
+        if (!cancelled) setFileSrcFailed(true);
       });
     return () => {
       cancelled = true;
+      releaseHostFileSrc(fileSrcPath);
     };
-  }, [localImagePath]);
+  }, [fileSrcPath]);
   const imageUrl = isVibeImage
-    ? metadata?.proxy_url
+    ? isDirectBrowserDisplayUrl(metadata?.proxy_url)
+      ? metadata?.proxy_url
+      : fileSrcUrl
     : isRenderableRemoteImage(normalizedSrc)
       ? normalizedSrc
-      : localImageUrl;
+      : fileSrcUrl;
   const label = alt || metadata?.file_name || normalizedSrc || 'Image';
   const panelActions = useOptionalPanelActionsContext();
   const openImagePreview = useOpenImagePreview();
@@ -158,7 +176,7 @@ function MarkdownImage({
 
   if (
     (isVibeImage && isLoading) ||
-    (localImagePath && !localImageUrl && !localImageFailed)
+    (fileSrcPath && !fileSrcUrl && !fileSrcFailed)
   ) {
     return <span className="conv-md-image-placeholder">Loading image...</span>;
   }

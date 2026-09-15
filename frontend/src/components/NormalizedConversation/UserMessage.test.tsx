@@ -5,6 +5,7 @@ import {
   insertPreviewElementToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import UserMessage from './UserMessage';
+import { UserMessageAttachments } from './UserMessageImageAttachment';
 
 const imageMocks = vi.hoisted(() => ({
   showPreview: vi.fn(),
@@ -207,6 +208,43 @@ describe('UserMessage', () => {
       format: 'png',
       sizeBytes: 123n,
     });
+  });
+
+  it('revokes data-URL blob object URLs when the attachment unmounts', () => {
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal(
+      'URL',
+      class {
+        static createObjectURL() {
+          return 'blob:data-image';
+        }
+        static revokeObjectURL(url: string) {
+          revokeObjectURL(url);
+        }
+      }
+    );
+
+    const { unmount } = render(
+      <UserMessageAttachments
+        images={[
+          {
+            id: 'inline:0',
+            path: '',
+            altText: 'shot',
+            kind: 'image',
+            sourceUrl: `data:image/png;base64,${btoa('png')}`,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole('img', { name: 'shot' })).toHaveAttribute(
+      'src',
+      'blob:data-image'
+    );
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:data-image');
+    vi.unstubAllGlobals();
   });
 
   it('renders pdf attachments as file cards after send', () => {

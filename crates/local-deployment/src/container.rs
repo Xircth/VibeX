@@ -482,6 +482,9 @@ impl LocalContainerService {
 
             let mut cleanup_interval =
                 tokio::time::interval(tokio::time::Duration::from_secs(1800)); // 30 minutes
+            // Burst (the default) replays every tick missed during sleep and
+            // showed up as a dozen cleanup logs in one millisecond after resume.
+            cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 cleanup_interval.tick().await;
                 tracing::info!("Starting periodic workspace cleanup...");

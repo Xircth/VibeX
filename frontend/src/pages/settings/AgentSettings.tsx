@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentAuthenticationStatus,
   AgentDiagnosticView,
   AgentId,
   AgentManagementActionsView,
@@ -584,7 +585,7 @@ export function AgentSettings() {
   ]);
 
   const refreshAuthentication = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId) return null;
     authRefreshGeneration.current += 1;
     const generation = authRefreshGeneration.current;
     try {
@@ -592,43 +593,70 @@ export function AgentSettings() {
         selectedAgentId,
         'authentication'
       );
-      if (authRefreshGeneration.current !== generation) return;
+      if (authRefreshGeneration.current !== generation) return null;
       setPreflight((current) => {
         const next = current ? mergePreflightItems(current, report) : report;
         writePreflightSnapshot(next);
         return next;
       });
-      setConfig(await agentManagementApi.readConfig(selectedAgentId));
-      if (authRefreshGeneration.current !== generation) return;
-      await refreshManagement();
+      const [nextConfig, nextActions] = await Promise.all([
+        agentManagementApi.readConfig(selectedAgentId),
+        agentManagementApi.actions(selectedAgentId),
+      ]);
+      if (authRefreshGeneration.current !== generation) return null;
+      inspectCacheRef.current.config.set(selectedAgentId, nextConfig);
+      inspectCacheRef.current.actions.set(selectedAgentId, nextActions);
+      setConfig(nextConfig);
+      setActions(nextActions);
+      const agents = await refreshManagement();
+      if (authRefreshGeneration.current !== generation) return null;
+      return (
+        agents.find((agent) => agent.agent_id === selectedAgentId)
+          ?.authentication ?? null
+      );
     } catch {
-      return;
+      return null;
     }
   }, [refreshManagement, selectedAgentId]);
 
   const watchAccountFlow = useCallback(
-    async (agentId: string, expectPending: boolean) => {
+    async (
+      agentId: string,
+      expectPending: boolean,
+      expectedAction?: string
+    ) => {
       const watchId = ++authWatchGeneration.current;
       const deadline = Date.now() + 15 * 60 * 1000;
       let sawPending = false;
+      let completedAction: string | null = null;
       while (Date.now() < deadline) {
         if (authWatchGeneration.current !== watchId) return;
-        let flow;
-        try {
-          flow = await agentManagementApi.accountFlow(agentId);
-        } catch {
-          return;
+        if (!completedAction) {
+          let flow;
+          try {
+            flow = await agentManagementApi.accountFlow(agentId);
+          } catch {
+            return;
+          }
+          if (flow.status === 'pending') {
+            sawPending = true;
+          } else if (flow.status === 'succeeded') {
+            completedAction = flow.action_id ?? expectedAction ?? 'login';
+          } else if (flow.status === 'failed') {
+            toast.error(t('settings:agents.accountFlowCommandFailed'));
+            return;
+          } else if (!expectPending && !sawPending) {
+            return;
+          } else if (expectPending && flow.status === 'idle') {
+            completedAction = expectedAction ?? 'login';
+          }
         }
-        if (flow.status === 'pending') {
-          sawPending = true;
-        } else if (flow.status === 'succeeded') {
-          await refreshAuthentication();
-          return;
-        } else if (flow.status === 'failed') {
-          toast.error(t('settings:agents.accountFlowCommandFailed'));
-          return;
-        } else if (!expectPending && !sawPending) {
-          return;
+        if (completedAction) {
+          const authentication = await refreshAuthentication();
+          if (authWatchGeneration.current !== watchId) return;
+          if (accountSessionMatchesAction(completedAction, authentication)) {
+            return;
+          }
         }
         await new Promise((resolve) => {
           window.setTimeout(resolve, 1000);
@@ -673,7 +701,7 @@ export function AgentSettings() {
         setActionRunning(null);
       }
       if (actionId !== 'login' && actionId !== 'logout') return;
-      await watchAccountFlow(selectedAgentId, true);
+      await watchAccountFlow(selectedAgentId, true, actionId);
     },
     [selectedAgentId, t, watchAccountFlow]
   );
@@ -1424,6 +1452,17 @@ export function AgentSettings() {
       )}
     </div>
   );
+}
+
+function accountSessionMatchesAction(
+  actionId: string,
+  authentication: AgentAuthenticationStatus | null | undefined
+): boolean {
+  const signedIn =
+    authentication === 'account' || authentication === 'multiple_unknown';
+  if (actionId === 'logout') return !signedIn;
+  if (actionId === 'login') return signedIn;
+  return true;
 }
 
 function applyUpdateCheckToPreflight(

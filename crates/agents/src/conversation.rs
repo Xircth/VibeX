@@ -1704,6 +1704,10 @@ mod event_sourced_tests {
             ConversationTurnErrorKind::ServiceError
         );
         assert_eq!(
+            classify_turn_error(Some("connection_closed"), None),
+            ConversationTurnErrorKind::ConnectionClosed
+        );
+        assert_eq!(
             classify_turn_error(
                 Some("rpc_-32004"),
                 Some(&serde_json::json!({ "http_status": 429 }))

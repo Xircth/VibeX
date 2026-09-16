@@ -283,13 +283,41 @@ function SessionCanvasFlow({
   const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
   const listVisible = useKanbanCanvasListVisible();
-  const { fitView, setCenter, screenToFlowPosition } = useReactFlow();
+  const { fitView, setCenter, screenToFlowPosition, getViewport, setViewport } =
+    useReactFlow();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const onMiddleClickRef = useRef<(event: MouseEvent) => void>(() => {});
   const onMiddleClick = useCallback((event: MouseEvent) => {
     onMiddleClickRef.current(event);
   }, []);
-  useCanvasRightDragPan(surfaceRef, onMiddleClick);
+  const rightPanOriginRef = useRef<{
+    gestureId: number;
+    x: number;
+    y: number;
+    zoom: number;
+  } | null>(null);
+  const onRightPan = useCallback(
+    (delta: { x: number; y: number; gestureId: number }) => {
+      let origin = rightPanOriginRef.current;
+      if (origin == null || origin.gestureId !== delta.gestureId) {
+        const viewport = getViewport();
+        origin = {
+          gestureId: delta.gestureId,
+          x: viewport.x,
+          y: viewport.y,
+          zoom: viewport.zoom,
+        };
+        rightPanOriginRef.current = origin;
+      }
+      void setViewport({
+        x: origin.x + delta.x,
+        y: origin.y + delta.y,
+        zoom: origin.zoom,
+      });
+    },
+    [getViewport, setViewport]
+  );
+  useCanvasRightDragPan(surfaceRef, onMiddleClick, onRightPan);
   useCanvasMarqueeTextGuard(surfaceRef);
 
   const [documentState, setDocumentState] = useState<SessionCanvasDocument>(
@@ -1328,7 +1356,7 @@ function SessionCanvasFlow({
             minZoom={CANVAS_MIN_ZOOM}
             maxZoom={CANVAS_MAX_ZOOM}
             elevateNodesOnSelect={false}
-            panOnDrag={[2]}
+            panOnDrag={false}
             selectionOnDrag
             selectionMode={SelectionMode.Partial}
             panOnScroll

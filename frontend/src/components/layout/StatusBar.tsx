@@ -1,4 +1,3 @@
-import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { APP_NAME } from '@/lib/branding';
 import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
@@ -12,24 +11,17 @@ import {
   useAgentAcpUpdates,
   useAgentManagement,
 } from '@/features/agent-management';
-import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { PluginStatusItems } from '@/components/plugins/PluginStatusItems';
 
 export function StatusBar() {
-  const { project } = useProject();
   const { config } = useUserSystem();
   const { state: agentManagementState } = useAgentManagement();
   const updatableAgentIds = useAgentAcpUpdates(agentManagementState.agents);
-  const railVisible = useWindowProjectsStore((state) => state.railVisible);
 
   return (
     <div className="workspace-divider-top relative z-20 flex h-6 shrink-0 select-none items-center justify-between overflow-visible bg-secondary px-2 text-[11px] text-secondary-foreground">
       <div className="min-w-0 overflow-visible pr-2">
-        {railVisible ? (
-          project && <span className="truncate opacity-90">{project.name}</span>
-        ) : (
-          <ProjectWindowStatusSummary />
-        )}
+        <ProjectWindowStatusSummary />
       </div>
 
       <div className="flex items-center gap-2">

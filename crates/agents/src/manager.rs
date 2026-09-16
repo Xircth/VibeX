@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, VecDeque},
+    future::Future,
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -220,6 +222,116 @@ const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
+const CONNECTION_CLOSED_TURN_MESSAGE: &str = "Agent connection closed before the turn completed.";
+/// Stdout EOF is only a death hint. Codeg never kills a Prompting connection on
+/// a pipe stall; wait this long for the child or protocol loop to settle first.
+const STDOUT_EOF_EXIT_GRACE: Duration = Duration::from_millis(750);
+
+/// How the ACP child/stdio watch ended relative to the protocol loop.
+#[derive(Debug)]
+enum AcpProcessStop<T, E> {
+    Connection(Result<T, E>),
+    ChildExited(std::io::Result<ExitStatus>),
+    StdoutClosed,
+}
+
+/// Drive the ACP connection until it returns, the child exits, or stdout EOF.
+///
+/// `agent-client-protocol` treats a clean stdin/stdout EOF as success and does
+/// not fail outstanding `session/prompt` futures. When the child has actually
+/// exited, that death must win over a quiet `Ok(())` or the turn stays at
+/// "生成中". Stdout EOF alone is not proof of death — a duplex write error or
+/// a brief pipe stall would otherwise kill a still-Prompting agent, which is
+/// the opposite of Codeg (Codeg never kills a Prompting connection).
+async fn wait_for_acp_or_process_death<T, E>(
+    acp: impl Future<Output = Result<T, E>>,
+    child_exited: impl Future<Output = std::io::Result<ExitStatus>>,
+    stdout_closed: impl Future<Output = ()>,
+) -> AcpProcessStop<T, E> {
+    tokio::pin!(acp);
+    tokio::pin!(child_exited);
+    tokio::pin!(stdout_closed);
+    tokio::select! {
+        biased;
+        status = &mut child_exited => AcpProcessStop::ChildExited(status),
+        result = &mut acp => AcpProcessStop::Connection(result),
+        () = &mut stdout_closed => {
+            tokio::select! {
+                biased;
+                status = &mut child_exited => AcpProcessStop::ChildExited(status),
+                result = &mut acp => AcpProcessStop::Connection(result),
+                () = tokio::time::sleep(STDOUT_EOF_EXIT_GRACE) => {
+                    AcpProcessStop::StdoutClosed
+                }
+            }
+        }
+    }
+}
+
+/// Map a connection/process stop onto a host error.
+///
+/// A clean `Ok` from the protocol loop is only success when no turn is still
+/// bound. If the child died and ACP reported success on the same EOF, the
+/// in-flight prompt must fail immediately — on every platform.
+fn resolve_acp_process_stop<T, E: std::fmt::Display>(
+    stop: AcpProcessStop<T, E>,
+    prompt_in_flight: bool,
+    stderr: Option<String>,
+) -> AgentResult<T> {
+    match stop {
+        AcpProcessStop::Connection(Ok(_)) if prompt_in_flight => Err(connection_closed_error(
+            "ACP connection ended while a turn was still in progress",
+            stderr,
+        )),
+        AcpProcessStop::Connection(result) => {
+            result.map_err(|error| AgentError::Runtime(format!("ACP connection failed: {error}")))
+        }
+        AcpProcessStop::ChildExited(status) => Err(connection_closed_error(
+            format_child_exit_detail(status),
+            stderr,
+        )),
+        AcpProcessStop::StdoutClosed => Err(connection_closed_error(
+            "ACP agent closed stdout before the connection finished",
+            stderr,
+        )),
+    }
+}
+
+fn connection_closed_error(detail: impl Into<String>, stderr: Option<String>) -> AgentError {
+    let detail = detail.into();
+    AgentError::ConnectionClosed(match stderr.filter(|text| !text.is_empty()) {
+        Some(stderr) => format!("{detail}. Recent stderr: {stderr}"),
+        None => detail,
+    })
+}
+
+fn format_child_exit_detail(status: std::io::Result<ExitStatus>) -> String {
+    match status {
+        Ok(status) => format!("ACP agent process exited ({status})"),
+        Err(error) => format!("failed to wait for ACP agent process: {error}"),
+    }
+}
+
+fn turn_error_event_from_connection_failure(error: &AgentError) -> AgentErrorEvent {
+    if error.is_connection_death() {
+        AgentErrorEvent {
+            message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
+            code: Some("connection_closed".to_string()),
+            raw: Some(serde_json::json!({ "detail": error.to_string() })),
+        }
+    } else {
+        AgentErrorEvent {
+            message: error.to_string(),
+            code: Some(
+                error
+                    .turn_failure_code()
+                    .unwrap_or("internal_error")
+                    .to_string(),
+            ),
+            raw: None,
+        }
+    }
+}
 
 fn wire_mcp_offer(capabilities: &AcpCapabilitySnapshot) -> WireMcpOffer {
     WireMcpOffer {
@@ -1024,7 +1136,11 @@ impl AgentConnectionManager {
     }
 
     pub async fn has_connection(&self, connection_id: AgentConnectionId) -> bool {
-        self.connections.lock().await.contains_key(&connection_id)
+        self.connections
+            .lock()
+            .await
+            .get(&connection_id)
+            .is_some_and(|connection| !connection.task.is_finished())
     }
 
     /// The ACP session id currently bound to this host conversation, if the
@@ -1038,10 +1154,12 @@ impl AgentConnectionManager {
     ) -> Option<String> {
         let session_map = {
             let connections = self.connections.lock().await;
-            connections
-                .get(&connection_id)
-                .map(|connection| Arc::clone(&connection.session_map))
-        }?;
+            let connection = connections.get(&connection_id)?;
+            if connection.task.is_finished() {
+                return None;
+            }
+            Arc::clone(&connection.session_map)
+        };
         session_map.read().await.get(&session_id).cloned()
     }
 
@@ -1066,12 +1184,20 @@ impl AgentConnectionManager {
         command: AgentConnectionCommand,
     ) -> AgentResult<()> {
         let cmd_tx = {
-            let connections = self.connections.lock().await;
-            connections
-                .get(&connection_id)
-                .map(|connection| connection.cmd_tx.clone())
-        }
-        .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+            let mut connections = self.connections.lock().await;
+            match connections.get(&connection_id) {
+                None => {
+                    return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+                }
+                Some(connection) if connection.task.is_finished() => {
+                    connections.remove(&connection_id);
+                    return Err(AgentError::Runtime(
+                        "agent connection command channel closed".into(),
+                    ));
+                }
+                Some(connection) => connection.cmd_tx.clone(),
+            }
+        };
 
         if cmd_tx.send(command).await.is_ok() {
             return Ok(());
@@ -1274,11 +1400,12 @@ impl AgentConnectionRunner {
         // generic). `take()` makes exactly one of the two fire.
         let ready = Arc::new(Mutex::new(Some(ready_tx)));
         if let Err(error) = self.run_acp(cmd_rx, Arc::clone(&ready)).await {
-            let message = error.to_string();
+            let turn_error = turn_error_event_from_connection_failure(&error);
+            let status_message = turn_error.message.clone();
             if let Some(tx) = ready.lock().await.take() {
                 let _ = tx.send(Err(error));
             }
-            self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()), None);
+            self.emit_connection_status(AgentConnectionStatus::Failed, Some(status_message), None);
             // If a prompt was still in flight when the connection died (the agent
             // crashed, the transport dropped, or prompt setup like session/new
             // failed and propagated out of run_prompt), emit a turn-terminal Error
@@ -1295,13 +1422,7 @@ impl AgentConnectionRunner {
             self.emit(
                 failed_session_id,
                 failed_prompt_id,
-                AgentEvent::Error {
-                    error: AgentErrorEvent {
-                        message,
-                        code: Some("internal_error".to_string()),
-                        raw: None,
-                    },
-                },
+                AgentEvent::Error { error: turn_error },
             );
         }
     }
@@ -1815,6 +1936,7 @@ impl AgentConnectionRunner {
         let stderr = child.inner().stderr.take();
 
         let (mut to_acp_writer, acp_incoming_reader) = tokio::io::duplex(64 * 1024);
+        let (stdout_closed_tx, stdout_closed_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
             let mut stdout_stream = ReaderStream::new(stdout);
             while let Some(result) = stdout_stream.next().await {
@@ -1827,6 +1949,7 @@ impl AgentConnectionRunner {
                     Err(_) => break,
                 }
             }
+            let _ = stdout_closed_tx.send(());
         });
 
         let (acp_out_writer, acp_out_reader) = tokio::io::duplex(64 * 1024);
@@ -1899,11 +2022,40 @@ impl AgentConnectionRunner {
         let handshake_timed_out = Arc::new(AtomicBool::new(false));
         let handshake_timed_out_for_connection = Arc::clone(&handshake_timed_out);
 
-        let result = acp::Client
+        let acp_run = acp::Client
             .builder()
             .name("VibeX")
             .on_receive_request(
-                async move |request: AgentRequest, responder, _cx| {
+                async move |request: AgentRequest, responder, cx| {
+                    // `terminal/wait_for_exit` can wait forever (dev servers).
+                    // agent-client-protocol awaits each handler inside the
+                    // dispatch loop, so answering inline freezes session/update
+                    // and session/cancel. Codeg answers this from `cx.spawn`.
+                    if acp_request_must_run_off_dispatch_loop(&request) {
+                        let AgentRequest::WaitForTerminalExitRequest(args) = request else {
+                            return Err(acp::Error::internal_error());
+                        };
+                        let terminal_id = parse_terminal_id(&args.terminal_id)?;
+                        if !agent_terminal_registry().exists(terminal_id.into()).await {
+                            return Err(acp::Error::invalid_params());
+                        }
+                        cx.spawn(async move {
+                            let send = match wait_for_terminal_exit_response(terminal_id).await {
+                                Ok(response) => serde_json::to_value(response)
+                                    .map_err(acp::Error::into_internal_error)
+                                    .and_then(|value| responder.respond(value)),
+                                Err(error) => responder.respond_with_error(error),
+                            };
+                            if let Err(error) = send {
+                                tracing::warn!(
+                                    error = %error,
+                                    "failed to answer terminal/wait_for_exit"
+                                );
+                            }
+                            Ok(())
+                        })?;
+                        return Ok(());
+                    }
                     let response = request_bridge.handle_agent_request(request).await?;
                     let response =
                         serde_json::to_value(response).map_err(acp::Error::into_internal_error)?;
@@ -2116,6 +2268,10 @@ impl AgentConnectionRunner {
                             mode_override,
                             config_overrides,
                         } => {
+                            // Bind the turn before session/new so a crash during
+                            // prepare still fails this prompt instead of hanging
+                            // the conversation at "生成中".
+                            *runner.active_prompt.lock().await = Some((session_id, prompt_id));
                             runner
                                 .store_preferred_controls(
                                     session_id,
@@ -2125,14 +2281,32 @@ impl AgentConnectionRunner {
                                     },
                                 )
                                 .await;
-                            let acp_session_id = runner
-                                .ensure_acp_session(
-                                    &conn,
-                                    &working_dir,
-                                    session_id,
-                                    companion_capabilities,
-                                )
-                                .await?;
+                            // Prompt must not call session/new. A Conversation
+                            // already owns a thread; the host binds it with
+                            // PrepareSession (first turn) or ResumeSession
+                            // (follow-up). Creating a thread here forks Codex
+                            // into a new session B while VibeX keeps writing A.
+                            let acp_session_id = match runner
+                                .session_map
+                                .read()
+                                .await
+                                .get(&session_id)
+                                .cloned()
+                            {
+                                Some(acp_session_id) => acp_session_id,
+                                None => {
+                                    runner
+                                        .fail_active_turn(
+                                            session_id,
+                                            prompt_id,
+                                            AgentError::Runtime(
+                                                "ACP session is not bound on this connection; resume the existing thread instead of calling session/new".into(),
+                                            ),
+                                        )
+                                        .await;
+                                    continue;
+                                }
+                            };
                             match runner
                                 .run_prompt(
                                     &conn,
@@ -2146,10 +2320,10 @@ impl AgentConnectionRunner {
                                     },
                                     &mut cmd_rx,
                                 )
-                                .await?
+                                .await
                             {
-                                RunPromptOutcome::Settled => {}
-                                RunPromptOutcome::RetireConnection => {
+                                Ok(RunPromptOutcome::Settled) => {}
+                                Ok(RunPromptOutcome::RetireConnection) => {
                                     // ADR-0071: an agent that does not ack cancel (or
                                     // went silent) must not serve the next turn.
                                     runner.emit_connection_status(
@@ -2162,7 +2336,18 @@ impl AgentConnectionRunner {
                                     );
                                     break;
                                 }
-                                RunPromptOutcome::Closed => break,
+                                Ok(RunPromptOutcome::Closed) => break,
+                                Err(error) => {
+                                    runner
+                                        .fail_active_turn(
+                                            session_id,
+                                            prompt_id,
+                                            AgentError::Runtime(format!(
+                                                "ACP prompt drive failed: {error}"
+                                            )),
+                                        )
+                                        .await;
+                                }
                             }
                         }
                         AgentConnectionCommand::Steer {
@@ -2322,10 +2507,15 @@ impl AgentConnectionRunner {
                 }
 
                 Ok::<(), acp::Error>(())
-            })
-            .await;
+            });
 
-        let _ = kill_process_group(&mut child).await;
+        let stop = wait_for_acp_or_process_death(acp_run, child.wait(), async {
+            let _ = stdout_closed_rx.await;
+        })
+        .await;
+        if !matches!(stop, AcpProcessStop::ChildExited(_)) {
+            let _ = kill_process_group(&mut child).await;
+        }
         if handshake_timed_out.load(Ordering::SeqCst) {
             let stderr = stderr_buffer.lock().await.summary();
             return Err(AgentError::Runtime(format_handshake_timeout_error(
@@ -2333,7 +2523,9 @@ impl AgentConnectionRunner {
                 stderr,
             )));
         }
-        result.map_err(|error| AgentError::Runtime(format!("ACP connection failed: {error}")))
+        let prompt_in_flight = self.active_prompt.lock().await.is_some();
+        let stderr = stderr_buffer.lock().await.summary();
+        resolve_acp_process_stop(stop, prompt_in_flight, stderr)
     }
 
     async fn ensure_acp_session(
@@ -2347,6 +2539,10 @@ impl AgentConnectionRunner {
             return Ok(existing);
         }
 
+        // session/new is only for PrepareSession (a conversation that does not
+        // yet own a thread) and for fork, which creates a new Conversation.
+        // Prompt must never reach here: that would stuff a new Codex thread
+        // into an existing VibeX Conversation.
         self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await
     }
@@ -3149,14 +3345,24 @@ impl AgentConnectionRunner {
         // Start each turn with a clean streaming accumulator so snapshot dedup
         // scopes to this turn and never accretes text across turns.
         self.stream_dedup.lock().await.remove(&acp_session_id);
-        self.apply_session_overrides(
-            conn,
-            &acp_session_id,
-            session_id,
-            mode_override,
-            config_overrides,
-        )
-        .await?;
+        if let Err(error) = self
+            .apply_session_overrides(
+                conn,
+                &acp_session_id,
+                session_id,
+                mode_override,
+                config_overrides,
+            )
+            .await
+        {
+            self.fail_active_turn(
+                session_id,
+                prompt_id,
+                AgentError::Runtime(format!("ACP session overrides failed: {error}")),
+            )
+            .await;
+            return Ok(RunPromptOutcome::Settled);
+        }
         let request = PromptRequest::new(
             SessionId::new(acp_session_id.clone()),
             blocks.into_iter().map(agent_block_to_acp).collect(),
@@ -3470,7 +3676,7 @@ impl AgentConnectionRunner {
                                 Some(prompt_id),
                                 AgentEvent::Error {
                                     error: AgentErrorEvent {
-                                        message: "Agent connection closed before the turn completed.".to_string(),
+                                        message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
                                         code: Some("connection_closed".to_string()),
                                         raw: None,
                                     },
@@ -3519,6 +3725,21 @@ impl AgentConnectionRunner {
                             let _ = result_tx.send(Err(AgentError::Runtime(
                                 "cannot change session settings while a turn is in progress; the choice will apply on the next turn"
                                     .into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::PrepareSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot prepare a session while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::ResumeSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot resume a session while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::DiscardSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot discard a session while a turn is in progress".into(),
                             )));
                         }
                         Some(other) => {
@@ -3719,6 +3940,22 @@ impl AgentConnectionRunner {
                 event,
             },
         );
+    }
+
+    async fn fail_active_turn(
+        &self,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+        error: AgentError,
+    ) {
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::Error {
+                error: turn_error_event_from_connection_failure(&error),
+            },
+        );
+        *self.active_prompt.lock().await = None;
     }
 
     fn emit_connection_status(
@@ -3939,19 +4176,11 @@ impl AcpClientBridge {
                     ReleaseTerminalResponse::new(),
                 ))
             }
-            AgentRequest::WaitForTerminalExitRequest(args) => {
-                let terminal_id = parse_terminal_id(&args.terminal_id)?;
-                let exit = agent_terminal_registry()
-                    .wait_for_exit(terminal_id.into())
-                    .await
-                    .ok_or_else(acp::Error::invalid_params)?;
-                let mut exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new();
-                if let AgentTerminalExit::Code { code } = exit {
-                    exit_status = exit_status.exit_code(code as u32);
-                }
-                Ok(ClientResponse::WaitForTerminalExitResponse(
-                    WaitForTerminalExitResponse::new(exit_status),
-                ))
+            AgentRequest::WaitForTerminalExitRequest(_) => {
+                // Answered off the dispatch loop in `on_receive_request`.
+                // Reaching here would freeze the ACP connection on a
+                // never-exiting command (dev server / `npm run dev`).
+                Err(acp::Error::method_not_found())
             }
             AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
                 self.kill_terminal(args).await?,
@@ -4826,6 +5055,30 @@ fn session_update_is_end_turn_usage(update: &SessionUpdate) -> bool {
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
     uuid::Uuid::parse_str(id.0.as_ref()).map_err(|_| acp::Error::invalid_params())
+}
+
+async fn wait_for_terminal_exit_response(
+    terminal_id: uuid::Uuid,
+) -> Result<WaitForTerminalExitResponse, acp::Error> {
+    let exit = agent_terminal_registry()
+        .wait_for_exit(terminal_id.into())
+        .await
+        .ok_or_else(acp::Error::invalid_params)?;
+    let mut exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new();
+    if let AgentTerminalExit::Code { code } = exit {
+        exit_status = exit_status.exit_code(code as u32);
+    }
+    Ok(WaitForTerminalExitResponse::new(exit_status))
+}
+
+/// Requests that must not be answered inside the ACP dispatch loop.
+///
+/// agent-client-protocol waits for each `on_receive_request` handler to
+/// finish before reading the next message. `terminal/wait_for_exit` can
+/// wait forever; answering it inline freezes `session/update` and
+/// `session/cancel`. Codeg answers this from `cx.spawn`.
+fn acp_request_must_run_off_dispatch_loop(request: &AgentRequest) -> bool {
+    matches!(request, AgentRequest::WaitForTerminalExitRequest(_))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7429,6 +7682,23 @@ mod tests {
     }
 
     #[test]
+    fn wait_for_terminal_exit_must_run_off_the_dispatch_loop() {
+        let wait = AgentRequest::WaitForTerminalExitRequest(
+            agent_client_protocol::schema::v1::WaitForTerminalExitRequest::new(
+                SessionId::new("session-1"),
+                TerminalId::new("term-1"),
+            ),
+        );
+        assert!(acp_request_must_run_off_dispatch_loop(&wait));
+        assert!(!acp_request_must_run_off_dispatch_loop(
+            &AgentRequest::KillTerminalRequest(KillTerminalRequest::new(
+                SessionId::new("session-1"),
+                TerminalId::new("term-1"),
+            ))
+        ));
+    }
+
+    #[test]
     fn proxy_env_keys_include_no_proxy_both_cases() {
         // NO_PROXY/no_proxy must be forwarded to the agent child so proxy bypass
         // rules (e.g. for internal hosts) reach Codex on a proxied/China network.
@@ -7495,6 +7765,117 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("session preparation timed out"));
         assert!(message.contains("20s"));
+    }
+
+    #[tokio::test]
+    async fn process_death_wins_over_simultaneous_acp_success() {
+        let stop = wait_for_acp_or_process_death(
+            async { Ok::<(), ()>(()) },
+            std::future::pending(),
+            async {},
+        )
+        .await;
+        // Stdout EOF no longer outranks a live protocol loop: a pipe stall
+        // must not kill a Prompting connection. The quiet-Ok-while-in-flight
+        // case is still a connection_closed via resolve_acp_process_stop.
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[tokio::test]
+    async fn acp_completion_wins_when_the_process_is_still_alive() {
+        let stop = wait_for_acp_or_process_death(
+            async { Ok::<(), ()>(()) },
+            std::future::pending(),
+            std::future::pending(),
+        )
+        .await;
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_fails_a_pending_acp_connection() {
+        let stop = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_acp_or_process_death(
+                std::future::pending::<Result<(), ()>>(),
+                std::future::pending(),
+                async {},
+            ),
+        )
+        .await
+        .expect("stdout-EOF grace should settle");
+        assert!(matches!(stop, AcpProcessStop::StdoutClosed));
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_does_not_kill_a_live_protocol_loop() {
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let acp = async {
+            release_rx.await.ok();
+            Ok::<(), ()>(())
+        };
+        let wait = wait_for_acp_or_process_death(acp, std::future::pending(), async {});
+        tokio::pin!(wait);
+        tokio::select! {
+            stop = &mut wait => {
+                panic!("stdout EOF must wait for the protocol loop, got {stop:?}");
+            }
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+        let _ = release_tx.send(());
+        let stop = wait.await;
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[test]
+    fn acp_success_while_a_turn_is_in_flight_is_connection_closed() {
+        let error =
+            resolve_acp_process_stop(AcpProcessStop::Connection(Ok::<(), &str>(())), true, None)
+                .expect_err("an in-flight turn must not survive a quiet ACP shutdown");
+        assert!(error.is_connection_death());
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+    }
+
+    #[test]
+    fn acp_success_without_a_turn_is_ok() {
+        resolve_acp_process_stop(AcpProcessStop::Connection(Ok::<(), &str>(())), false, None)
+            .expect("a clean shutdown with no turn must stay success");
+    }
+
+    #[test]
+    fn process_death_turn_error_uses_connection_closed_code() {
+        let error = connection_closed_error(
+            "ACP agent process exited (exit status: 1)",
+            Some("fatal".into()),
+        );
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+        assert_eq!(
+            event.raw.as_ref().and_then(|raw| raw.get("detail")),
+            Some(&serde_json::json!(
+                "agent connection closed: ACP agent process exited (exit status: 1). Recent stderr: fatal"
+            ))
+        );
+    }
+
+    #[test]
+    fn acp_transport_failure_during_a_turn_is_connection_closed() {
+        let error = AgentError::Runtime("ACP connection failed: broken pipe".into());
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+    }
+
+    #[test]
+    fn handshake_timeout_stays_an_internal_turn_error() {
+        let error =
+            AgentError::Runtime(format_handshake_timeout_error(Duration::from_secs(5), None));
+        let event = turn_error_event_from_connection_failure(&error);
+        assert!(event.message.contains("ACP handshake timed out"));
+        assert_eq!(event.code.as_deref(), Some("internal_error"));
     }
 
     #[test]

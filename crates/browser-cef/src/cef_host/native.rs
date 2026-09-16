@@ -1,12 +1,6 @@
 use browser_runtime::BrowserSurface;
 use cef::{Browser, ImplBrowser, ImplBrowserHost, Rect};
 
-/// `SWP_NOACTIVATE` without `SWP_NOZORDER`. Keeping `SWP_NOZORDER` leaves the
-/// Chromium child under Tauri's WebView2 HWND, so Windows DWM / native-window
-/// occlusion can stop painting while hit-testing still reaches the page.
-#[cfg(any(test, target_os = "windows"))]
-pub(crate) const WINDOWS_SURFACE_POS_FLAGS: u32 = 0x0010;
-
 pub fn surface_rect(surface: &BrowserSurface) -> Rect {
     let scale = if cfg!(target_os = "macos") {
         1.0
@@ -176,69 +170,38 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        HWND_TOP, SW_HIDE, SW_SHOW, SetWindowPos, ShowWindow,
-    };
-
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
-    if handle.is_null() {
+    let handle = host.window_handle().0 as usize;
+    if handle == 0 {
         return Err("browser native window is missing".to_string());
     }
-    host.notify_move_or_resize_started();
-    let rect = surface_rect(surface);
-    unsafe {
-        if SetWindowPos(
-            handle,
-            HWND_TOP,
-            rect.x,
-            rect.y,
-            rect.width,
-            rect.height,
-            WINDOWS_SURFACE_POS_FLAGS,
-        ) == 0
-        {
-            return Err("SetWindowPos failed".to_string());
-        }
-        ShowWindow(handle, if surface.visible { SW_SHOW } else { SW_HIDE });
-    }
-    Ok(())
+    super::windows_overlay::apply_overlay_surface(handle, surface)
 }
 
 #[cfg(target_os = "windows")]
 pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
-
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
-    if handle.is_null() {
+    let handle = host.window_handle().0 as usize;
+    if handle == 0 {
         return Err("browser native window is missing".to_string());
     }
-    unsafe {
-        ShowWindow(handle, SW_HIDE);
-    }
-    Ok(())
+    super::windows_overlay::hide_overlay_for_browser(handle)
 }
 
 #[cfg(target_os = "windows")]
 pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow;
-
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
-    if handle.is_null() {
+    let handle = host.window_handle().0 as usize;
+    if handle == 0 {
         return Err("browser native window is missing".to_string());
     }
-    if unsafe { DestroyWindow(handle) } == 0 {
-        return Err("DestroyWindow failed".to_string());
-    }
-    Ok(())
+    super::windows_overlay::destroy_overlay_for_browser(handle)
 }
 
 #[cfg(target_os = "linux")]
@@ -320,15 +283,18 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod windows_surface_z_order_tests {
-    use super::WINDOWS_SURFACE_POS_FLAGS;
-
+#[cfg(all(test, target_os = "windows"))]
+mod windows_surface_tests {
     #[test]
-    fn restacks_the_chromium_child_above_webview2() {
-        const SWP_NOZORDER: u32 = 0x0004;
-        const SWP_NOACTIVATE: u32 = 0x0010;
-        assert_eq!(WINDOWS_SURFACE_POS_FLAGS, SWP_NOACTIVATE);
-        assert_eq!(WINDOWS_SURFACE_POS_FLAGS & SWP_NOZORDER, 0);
+    fn apply_surface_does_not_enter_a_modal_move_loop() {
+        let source = include_str!("native.rs");
+        let production = source
+            .split("mod windows_surface_tests")
+            .next()
+            .expect("production source");
+        assert!(
+            !production.contains("notify_move_or_resize_started"),
+            "NotifyMoveOrResizeStarted is WM_ENTERSIZEMOVE; calling it on every layout freezes the compositor"
+        );
     }
 }

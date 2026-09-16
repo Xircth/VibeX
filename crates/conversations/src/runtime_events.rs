@@ -25,7 +25,11 @@ use db::models::{
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::mpsc,
+    task::JoinHandle,
+    time::{self, Duration, MissedTickBehavior},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -370,15 +374,7 @@ async fn append_mapped_event(
                 Err(retry) => Err(retry),
             }
         }
-        Err(error) => {
-            tracing::warn!(
-                conversation_id = %mapped.conversation_id,
-                turn_id = ?mapped.turn_id,
-                %error,
-                "skipped conversation event that could not be persisted"
-            );
-            Ok(None)
-        }
+        Err(error) => Err(error),
     }
 }
 
@@ -644,20 +640,54 @@ pub enum RuntimeEventRecordError {
     Conversation(#[from] ConversationServiceError),
 }
 
+const AGENT_EVENT_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(80);
+
 /// Start the durable runtime-event bridge for a host composition root.
 pub fn start_agent_event_persistence(
     context: ConversationContext,
+    receiver: mpsc::Receiver<AgentEventEnvelope>,
+) -> JoinHandle<()> {
+    start_agent_event_persistence_with_observer(context, receiver, |_| {})
+}
+
+/// Same persist loop as [`start_agent_event_persistence`], with an observer for
+/// host-specific live fan-out (desktop/headless `agent-events`).
+pub fn start_agent_event_persistence_with_observer(
+    context: ConversationContext,
     mut receiver: mpsc::Receiver<AgentEventEnvelope>,
+    on_envelope: impl Fn(&AgentEventEnvelope) + Send + 'static,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut recorder = ConversationAgentEventRecorder::with_context(context);
-        while let Some(envelope) = receiver.recv().await {
-            if let Err(error) = recorder.record(&envelope).await {
-                tracing::warn!(
-                    sequence = envelope.sequence,
-                    %error,
-                    "failed to persist agent runtime event"
-                );
+        let mut flush_interval = time::interval(AGENT_EVENT_STREAM_FLUSH_INTERVAL);
+        flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = flush_interval.tick() => {
+                    if let Err(error) = recorder.flush_buffered().await {
+                        tracing::warn!(%error, "failed to flush conversation events");
+                    }
+                }
+                received = receiver.recv() => {
+                    match received {
+                        Some(envelope) => {
+                            if let Err(error) = recorder.record_buffered(&envelope).await {
+                                tracing::warn!(
+                                    sequence = envelope.sequence,
+                                    %error,
+                                    "failed to persist agent runtime event"
+                                );
+                            }
+                            on_envelope(&envelope);
+                        }
+                        None => {
+                            if let Err(error) = recorder.flush_buffered().await {
+                                tracing::warn!(%error, "failed to flush conversation events");
+                            }
+                            break;
+                        }
+                    }
+                }
             }
         }
     })
@@ -1467,6 +1497,23 @@ mod tests {
             Some(ConversationEvent::TurnFailed {
                 error: agents::conversation::ConversationError { code: Some(code), .. }
             }) if code == "idle_timeout"
+        ));
+    }
+
+    #[test]
+    fn connection_closed_errors_fail_the_turn_with_the_connection_closed_code() {
+        let envelope = envelope(AgentEvent::Error {
+            error: agents::events::AgentErrorEvent {
+                message: "Agent connection closed before the turn completed.".into(),
+                code: Some("connection_closed".into()),
+                raw: None,
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::TurnFailed {
+                error: agents::conversation::ConversationError { code: Some(code), .. }
+            }) if code == "connection_closed"
         ));
     }
 

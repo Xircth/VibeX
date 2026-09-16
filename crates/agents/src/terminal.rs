@@ -1066,7 +1066,7 @@ pub async fn configured_terminal_shell() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, time::Duration};
 
     use super::{
         AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
@@ -1419,6 +1419,69 @@ mod tests {
             .await
             .expect_err("empty command");
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    fn hang_request() -> AgentTerminalCreateRequest {
+        #[cfg(windows)]
+        {
+            AgentTerminalCreateRequest {
+                session_id: AgentSessionId::new(),
+                command: "ping".to_string(),
+                args: vec!["-n".to_string(), "30".to_string(), "127.0.0.1".to_string()],
+                cwd: None,
+                env: Vec::new(),
+                output_byte_limit: Some(4096),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            AgentTerminalCreateRequest {
+                session_id: AgentSessionId::new(),
+                command: "sleep".to_string(),
+                args: vec!["30".to_string()],
+                cwd: None,
+                env: Vec::new(),
+                output_byte_limit: Some(4096),
+            }
+        }
+    }
+
+    /// Codeg parity: an outstanding `wait_for_exit` on a command that never
+    /// exits must not block `terminal/output` or `terminal/kill`. Those stay
+    /// on the ACP dispatch loop; wait_for_exit is answered off it.
+    #[tokio::test]
+    async fn output_and_kill_work_while_wait_for_exit_is_outstanding() {
+        let registry = AgentTerminalRegistry::new();
+        let terminal_id = registry
+            .create_terminal(&hang_request())
+            .await
+            .expect("create hang terminal");
+
+        let wait = registry.wait_for_exit(terminal_id);
+        tokio::pin!(wait);
+        tokio::select! {
+            _ = &mut wait => panic!("wait_for_exit returned before the command was killed"),
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            registry.snapshot_output(terminal_id),
+        )
+        .await
+        .expect("terminal_output blocked behind an outstanding wait_for_exit")
+        .expect("snapshot");
+
+        tokio::time::timeout(Duration::from_secs(10), registry.kill_terminal(terminal_id))
+            .await
+            .expect("kill_terminal blocked behind an outstanding wait_for_exit");
+
+        tokio::time::timeout(Duration::from_secs(5), wait)
+            .await
+            .expect("the outstanding wait never resolved after the kill")
+            .expect("wait for exit");
+
+        registry.release_terminal(terminal_id).await;
     }
 
     #[cfg(unix)]

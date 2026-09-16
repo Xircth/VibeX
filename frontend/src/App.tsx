@@ -23,7 +23,7 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { useOpenSettings } from '@/lib/api';
+import { openSettingsSurface, useOpenSettings } from '@/lib/api';
 import { checkAppUpdate } from '@/lib/appUpdate';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
@@ -201,7 +201,8 @@ function MainAppContent() {
           {
             action: {
               label: t('shell.viewUpdate'),
-              onClick: () => navigate('/settings/system'),
+              onClick: () =>
+                openSettingsSurface(navigate, '/settings/system'),
             },
           }
         );

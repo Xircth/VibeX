@@ -15,7 +15,23 @@ use serde_json::Value;
 use super::{agent_process_command, apply_native_file_mutations, write_bytes_document};
 
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
+const PROVIDER_CATALOG_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024;
+const MAX_CATALOG_PAGES: usize = 8;
+const ERROR_BODY_MAX_CHARS: usize = 240;
+/// Anthropic-compatible protocol suffixes. Longest match first so `/api/anthropic`
+/// is stripped as a whole instead of leaving a dangling `/api`.
+const COMPAT_PROTOCOL_SUFFIXES: &[&str] = &[
+    "/api/claudecode",
+    "/api/anthropic",
+    "/apps/anthropic",
+    "/api/coding",
+    "/claudecode",
+    "/anthropic",
+    "/step_plan",
+    "/coding",
+    "/claude",
+];
 const CODEX_CATALOG_FILE: &str = "vibex-model-catalog.json";
 const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
 type CodexCatalogFiles = (bool, Option<Vec<u8>>, Option<Vec<u8>>);
@@ -86,57 +102,32 @@ pub async fn provider(
     if api_key.is_empty() {
         return Err("读取 Provider 模型需要填写 API Key".to_string());
     }
-    let url = base_url
-        .join("models")
-        .map_err(|error| format!("Provider 模型地址无效：{error}"))?;
+    let urls = model_catalog_urls(&base_url);
+    if urls.is_empty() {
+        return Err("无法从 Provider API URL 推导模型目录地址".to_string());
+    }
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(PROVIDER_CATALOG_TIMEOUT)
         .build()
         .map_err(|error| format!("创建 Provider 模型客户端失败：{error}"))?;
-    let mut request = client.get(url).bearer_auth(api_key);
-    request = if AgentKind::Antigravity.matches_id(agent_id.as_str()) {
-        request.header("x-goog-api-key", api_key)
-    } else {
-        // A reusable provider may speak OpenAI or Anthropic depending on a
-        // field the draft probe does not carry, so send both credentials —
-        // the Bearer token is already on the request.
-        request
-            .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01")
-    };
-    let response = request
-        .send()
-        .await
-        .map_err(|error| format!("读取 Provider 模型失败：{error}"))?;
-    let status = response.status();
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
-    {
-        return Err("Provider 模型响应超过 4 MiB 安全上限".to_string());
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("读取 Provider 模型响应失败：{error}"))?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_CATALOG_BYTES {
-            return Err("Provider 模型响应超过 4 MiB 安全上限".to_string());
+
+    let mut last_error = None;
+    for url in urls {
+        match fetch_provider_models(&client, &agent_id, url, api_key).await {
+            Ok(models) => {
+                return Ok(AgentModelCatalogView {
+                    agent_id,
+                    source: AgentModelCatalogSource::Live,
+                    models,
+                    default_model: None,
+                    error: None,
+                });
+            }
+            Err(error) if error.retryable => last_error = Some(error.message),
+            Err(error) => return Err(error.message),
         }
-        bytes.extend_from_slice(&chunk);
     }
-    if !status.is_success() {
-        return Err(format!("Provider 模型目录返回 HTTP {status}"));
-    }
-    let body: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Provider 模型响应不是有效 JSON：{error}"))?;
-    let models = parse_openai_models(&body);
-    Ok(AgentModelCatalogView {
-        agent_id,
-        source: AgentModelCatalogSource::Live,
-        models,
-        default_model: None,
-        error: None,
-    })
+    Err(last_error.unwrap_or_else(|| "Provider 未返回任何模型".to_string()))
 }
 
 pub async fn codex(
@@ -909,38 +900,336 @@ fn parse_cursor_models(text: &str) -> (Vec<AgentModelCatalogItemView>, Option<St
     (models, default_model)
 }
 
-fn parse_openai_models(body: &Value) -> Vec<AgentModelCatalogItemView> {
-    let entries = body
-        .get("data")
+struct ProbeError {
+    message: String,
+    retryable: bool,
+}
+
+impl ProbeError {
+    fn fatal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: false,
+        }
+    }
+
+    fn retryable(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: true,
+        }
+    }
+}
+
+async fn fetch_provider_models(
+    client: &reqwest::Client,
+    agent_id: &AgentId,
+    url: url::Url,
+    api_key: &str,
+) -> Result<Vec<AgentModelCatalogItemView>, ProbeError> {
+    let (mut body, mut models) =
+        fetch_provider_catalog_page(client, agent_id, url.clone(), api_key).await?;
+    let mut page_url = url;
+    let mut pages = 1;
+    while pages < MAX_CATALOG_PAGES {
+        let Some(after_id) = catalog_page_cursor(&body) else {
+            break;
+        };
+        let mut next = page_url.clone();
+        next.query_pairs_mut()
+            .clear()
+            .append_pair("after_id", &after_id)
+            .append_pair("after", &after_id)
+            .append_pair("limit", "1000");
+        match fetch_provider_catalog_page(client, agent_id, next.clone(), api_key).await {
+            Ok((next_body, extra)) => {
+                if extra.is_empty() {
+                    break;
+                }
+                models.extend(extra);
+                let next_cursor = catalog_page_cursor(&next_body);
+                page_url = next;
+                body = next_body;
+                pages += 1;
+                if next_cursor.as_deref() == Some(after_id.as_str()) {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(normalize_catalog_models(models))
+}
+
+async fn fetch_provider_catalog_page(
+    client: &reqwest::Client,
+    agent_id: &AgentId,
+    url: url::Url,
+    api_key: &str,
+) -> Result<(Value, Vec<AgentModelCatalogItemView>), ProbeError> {
+    let request = apply_provider_auth(client.get(url), agent_id, api_key);
+    let response = request
+        .send()
+        .await
+        .map_err(|error| ProbeError::retryable(format!("读取 Provider 模型失败：{error}")))?;
+    let (status, bytes) = read_limited_body(response).await?;
+    if is_auth_failure(status) {
+        return Err(ProbeError::fatal(http_catalog_error(status, &bytes)));
+    }
+    if !status.is_success() {
+        let message = http_catalog_error(status, &bytes);
+        return Err(if is_missing_endpoint(status) {
+            ProbeError::retryable(message)
+        } else {
+            ProbeError::fatal(message)
+        });
+    }
+    let body = parse_catalog_json(&bytes)?;
+    let Some(models) = parse_catalog_models(&body) else {
+        return Err(ProbeError::retryable(
+            "Provider 模型响应不是有效的模型目录".to_string(),
+        ));
+    };
+    Ok((body, models))
+}
+
+fn apply_provider_auth(
+    request: reqwest::RequestBuilder,
+    agent_id: &AgentId,
+    api_key: &str,
+) -> reqwest::RequestBuilder {
+    let request = request
+        .header(reqwest::header::ACCEPT, "application/json")
+        .bearer_auth(api_key);
+    if AgentKind::Antigravity.matches_id(agent_id.as_str()) {
+        request.header("x-goog-api-key", api_key)
+    } else {
+        // A reusable provider may speak OpenAI or Anthropic depending on a
+        // field the draft probe does not carry, so send both credentials —
+        // the Bearer token is already on the request.
+        request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+    }
+}
+
+async fn read_limited_body(
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Vec<u8>), ProbeError> {
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
+    {
+        return Err(ProbeError::fatal(
+            "Provider 模型响应超过 4 MiB 安全上限".to_string(),
+        ));
+    }
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            ProbeError::retryable(format!("读取 Provider 模型响应失败：{error}"))
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_CATALOG_BYTES {
+            return Err(ProbeError::fatal(
+                "Provider 模型响应超过 4 MiB 安全上限".to_string(),
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok((status, bytes))
+}
+
+fn parse_catalog_json(bytes: &[u8]) -> Result<Value, ProbeError> {
+    serde_json::from_slice(bytes).map_err(|error| {
+        let preview = String::from_utf8_lossy(bytes);
+        let message = if preview.trim_start().starts_with('<') {
+            "Provider 模型响应不是有效 JSON（收到 HTML 页面）".to_string()
+        } else {
+            format!("Provider 模型响应不是有效 JSON：{error}")
+        };
+        ProbeError::retryable(message)
+    })
+}
+
+fn http_catalog_error(status: reqwest::StatusCode, bytes: &[u8]) -> String {
+    let detail = String::from_utf8_lossy(bytes);
+    let detail = detail.trim();
+    if detail.is_empty() || detail.starts_with('<') {
+        format!("Provider 模型目录返回 HTTP {status}")
+    } else {
+        format!(
+            "Provider 模型目录返回 HTTP {status}：{}",
+            truncate_error_body(detail)
+        )
+    }
+}
+
+fn truncate_error_body(body: &str) -> String {
+    let mut truncated: String = body.chars().take(ERROR_BODY_MAX_CHARS).collect();
+    if body.chars().count() > ERROR_BODY_MAX_CHARS {
+        truncated.push('…');
+    }
+    truncated
+}
+
+fn is_auth_failure(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 401 | 403)
+}
+
+fn is_missing_endpoint(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 404 | 405)
+}
+
+fn catalog_page_cursor(body: &Value) -> Option<String> {
+    let has_more = body.get("has_more").and_then(Value::as_bool)?;
+    if !has_more {
+        return None;
+    }
+    body.get("last_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// Candidate GET URLs for a provider's model catalog.
+///
+/// Order matches cc-switch: versioned bases keep `{base}/models`; Anthropic
+/// protocol suffixes such as `/api/anthropic` try `{base}/v1/models` first,
+/// then the origin `/v1/models` fallback.
+fn model_catalog_urls(base: &url::Url) -> Vec<url::Url> {
+    let path = base.path().trim_end_matches('/');
+    let mut paths = Vec::new();
+    if path.ends_with("/models") {
+        paths.push(path.to_string());
+    } else if last_segment_is_api_version(path) {
+        paths.push(format!("{path}/models"));
+        let last = path.rsplit('/').next().unwrap_or("");
+        // `/v4/models` is the primary listing path; keep `/v4/v1/models` as a
+        // fallback. `/v1beta` is already a versioned Google path and must not
+        // grow another `/v1`.
+        if last != "v1"
+            && last.strip_prefix('v').is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        {
+            paths.push(format!("{path}/v1/models"));
+        }
+    } else {
+        paths.push(format!("{path}/v1/models"));
+        if strip_compat_suffix(path).is_none() {
+            paths.push(format!("{path}/models"));
+        }
+    }
+    if let Some(stripped) = strip_compat_suffix(path) {
+        let stripped = stripped.trim_end_matches('/');
+        paths.push(format!("{stripped}/v1/models"));
+        paths.push(format!("{stripped}/models"));
+    }
+
+    let mut urls = Vec::new();
+    for candidate in paths {
+        let normalized = if candidate.is_empty() {
+            "/".to_string()
+        } else if candidate.starts_with('/') {
+            candidate
+        } else {
+            format!("/{candidate}")
+        };
+        let mut url = base.clone();
+        url.set_path(&normalized);
+        url.set_query(None);
+        url.set_fragment(None);
+        if !urls
+            .iter()
+            .any(|existing: &url::Url| existing.as_str() == url.as_str())
+        {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+fn strip_compat_suffix(path: &str) -> Option<&str> {
+    COMPAT_PROTOCOL_SUFFIXES
+        .iter()
+        .find(|suffix| path.ends_with(*suffix))
+        .map(|suffix| &path[..path.len() - suffix.len()])
+}
+
+fn last_segment_is_api_version(path: &str) -> bool {
+    is_api_version_segment(path.rsplit('/').next().unwrap_or(""))
+}
+
+fn is_api_version_segment(segment: &str) -> bool {
+    let Some(rest) = segment.strip_prefix('v') else {
+        return false;
+    };
+    let digit_len = rest.bytes().take_while(u8::is_ascii_digit).count();
+    digit_len > 0
+        && rest[digit_len..]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic())
+}
+
+fn catalog_entries(body: &Value) -> Option<&Vec<Value>> {
+    body.get("data")
         .and_then(Value::as_array)
-        .or_else(|| body.get("models").and_then(Value::as_array));
-    let mut models = entries
+        .or_else(|| body.get("models").and_then(Value::as_array))
+        .or_else(|| body.as_array())
+}
+
+fn parse_catalog_models(body: &Value) -> Option<Vec<AgentModelCatalogItemView>> {
+    catalog_entries(body)?;
+    Some(parse_openai_models(body))
+}
+
+fn parse_openai_models(body: &Value) -> Vec<AgentModelCatalogItemView> {
+    let models = catalog_entries(body)
         .into_iter()
         .flatten()
-        .filter_map(|model| {
-            let raw_id = model
-                .get("id")
-                .or_else(|| model.get("name"))?
-                .as_str()?
-                .trim();
-            let id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
-            (!id.is_empty()).then(|| AgentModelCatalogItemView {
-                id: id.to_string(),
-                label: model
-                    .get("display_name")
-                    .or_else(|| model.get("displayName"))
-                    .and_then(Value::as_str)
-                    .unwrap_or(id)
-                    .to_string(),
-                context_window: model
-                    .get("context_window")
-                    .or_else(|| model.get("context_length"))
-                    .and_then(Value::as_u64)
-                    .and_then(|value| u32::try_from(value).ok()),
-                reasoning_levels: Vec::new(),
-            })
-        })
-        .collect::<Vec<_>>();
+        .filter_map(parse_catalog_model)
+        .collect();
+    normalize_catalog_models(models)
+}
+
+fn parse_catalog_model(model: &Value) -> Option<AgentModelCatalogItemView> {
+    let raw_id = match model {
+        Value::String(id) => id.as_str(),
+        Value::Object(_) => model
+            .get("id")
+            .or_else(|| model.get("name"))
+            .or_else(|| model.get("slug"))?
+            .as_str()?,
+        _ => return None,
+    }
+    .trim();
+    let id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
+    if id.is_empty() {
+        return None;
+    }
+    Some(AgentModelCatalogItemView {
+        id: id.to_string(),
+        label: model
+            .get("display_name")
+            .or_else(|| model.get("displayName"))
+            .and_then(Value::as_str)
+            .unwrap_or(id)
+            .to_string(),
+        context_window: model
+            .get("context_window")
+            .or_else(|| model.get("context_length"))
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok()),
+        reasoning_levels: Vec::new(),
+    })
+}
+
+fn normalize_catalog_models(
+    mut models: Vec<AgentModelCatalogItemView>,
+) -> Vec<AgentModelCatalogItemView> {
     models.sort_by(|left, right| left.id.cmp(&right.id));
     models.dedup_by(|left, right| left.id == right.id);
     models
@@ -1007,6 +1296,32 @@ mod tests {
     }
 
     #[test]
+    fn openai_parser_reads_slug_string_ids_and_top_level_arrays() {
+        let from_slug = parse_openai_models(&serde_json::json!({
+            "models": [{"slug": "glm-5.3", "display_name": "GLM-5.3"}]
+        }));
+        assert_eq!(from_slug[0].id, "glm-5.3");
+        assert_eq!(from_slug[0].label, "GLM-5.3");
+
+        let from_strings = parse_openai_models(&serde_json::json!({
+            "data": ["glm-5.3", "glm-5.2"]
+        }));
+        assert_eq!(
+            from_strings
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["glm-5.2", "glm-5.3"]
+        );
+
+        let from_array = parse_openai_models(&serde_json::json!([{"id": "only-model"}]));
+        assert_eq!(from_array[0].id, "only-model");
+        assert!(
+            parse_catalog_models(&serde_json::json!({"error": {"message": "missing"}})).is_none()
+        );
+    }
+
+    #[test]
     fn endpoint_rejects_credentials_and_non_http_schemes() {
         assert!(validate_model_endpoint("file:///tmp/models").is_err());
         assert!(validate_model_endpoint("https://user:pass@example.com/v1").is_err());
@@ -1015,6 +1330,82 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "https://example.com/v1/"
+        );
+    }
+
+    fn catalog_url_strings(base: &str) -> Vec<String> {
+        model_catalog_urls(&validate_model_endpoint(base).unwrap())
+            .into_iter()
+            .map(|url| url.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn catalog_urls_keep_versioned_openai_endpoints() {
+        assert_eq!(
+            catalog_url_strings("https://example.com/v1"),
+            vec!["https://example.com/v1/models"]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.z.ai/api/coding/paas/v4"),
+            vec![
+                "https://api.z.ai/api/coding/paas/v4/models",
+                "https://api.z.ai/api/coding/paas/v4/v1/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://generativelanguage.googleapis.com/v1beta"),
+            vec!["https://generativelanguage.googleapis.com/v1beta/models"]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.openai.com/v1/models"),
+            vec!["https://api.openai.com/v1/models"]
+        );
+    }
+
+    #[test]
+    fn catalog_urls_probe_anthropic_compat_bases_like_cc_switch() {
+        assert_eq!(
+            catalog_url_strings("https://api.z.ai/api/anthropic"),
+            vec![
+                "https://api.z.ai/api/anthropic/v1/models",
+                "https://api.z.ai/v1/models",
+                "https://api.z.ai/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.deepseek.com/anthropic"),
+            vec![
+                "https://api.deepseek.com/anthropic/v1/models",
+                "https://api.deepseek.com/v1/models",
+                "https://api.deepseek.com/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.siliconflow.cn"),
+            vec![
+                "https://api.siliconflow.cn/v1/models",
+                "https://api.siliconflow.cn/models",
+            ]
+        );
+    }
+
+    #[test]
+    fn catalog_page_cursor_follows_anthropic_has_more() {
+        assert_eq!(
+            catalog_page_cursor(&serde_json::json!({
+                "has_more": true,
+                "last_id": "page-2"
+            }))
+            .as_deref(),
+            Some("page-2")
+        );
+        assert!(
+            catalog_page_cursor(&serde_json::json!({
+                "has_more": false,
+                "last_id": "page-2"
+            }))
+            .is_none()
         );
     }
 
@@ -1149,6 +1540,178 @@ mod tests {
         assert_eq!(catalog.agent_id.as_str(), "grok");
         assert_eq!(catalog.models.len(), 1);
         assert_eq!(catalog.models[0].id, "grok-4");
+    }
+
+    #[tokio::test]
+    async fn anthropic_compat_base_probes_v1_models_not_bare_models() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /api/anthropic/v1/models HTTP/1.1"));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer draft-secret")
+            );
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("x-api-key: draft-secret")
+            );
+            assert!(request.contains("anthropic-version: 2023-06-01"));
+
+            let body = r#"{"data":[{"id":"glm-5.3","display_name":"GLM-5.3"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let catalog = provider(
+            AgentId::parse("claude_code").unwrap(),
+            &format!("http://{address}/api/anthropic"),
+            "draft-secret",
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+
+        assert_eq!(catalog.models.len(), 1);
+        assert_eq!(catalog.models[0].id, "glm-5.3");
+        assert_eq!(catalog.models[0].label, "GLM-5.3");
+    }
+
+    #[tokio::test]
+    async fn provider_catalog_skips_missing_or_non_catalog_candidates() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = vec![0_u8; 4096];
+                let read = stream.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..read]);
+                let (status, body) = if request.starts_with("GET /api/anthropic/v1/models ") {
+                    ("404 Not Found", r#"{"error":{"message":"not found"}}"#)
+                } else if request.starts_with("GET /v1/models ") {
+                    ("200 OK", r#"{"data":[{"id":"glm-5.3"}]}"#)
+                } else {
+                    panic!("unexpected request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let catalog = provider(
+            AgentId::parse("claude_code").unwrap(),
+            &format!("http://{address}/api/anthropic"),
+            "draft-secret",
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        assert_eq!(catalog.models[0].id, "glm-5.3");
+    }
+
+    #[tokio::test]
+    async fn provider_catalog_stops_on_auth_failure() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /api/anthropic/v1/models "));
+            let body = r#"{"error":{"message":"invalid api key"}}"#;
+            let response = format!(
+                "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            let second = tokio::time::timeout(Duration::from_millis(200), listener.accept()).await;
+            assert!(
+                second.is_err(),
+                "401 must not fall through to later candidates"
+            );
+        });
+
+        let error = provider(
+            AgentId::parse("claude_code").unwrap(),
+            &format!("http://{address}/api/anthropic"),
+            "draft-secret",
+        )
+        .await
+        .unwrap_err();
+        server.await.unwrap();
+        assert!(error.contains("HTTP 401"));
+        assert!(error.contains("invalid api key"));
+    }
+
+    #[tokio::test]
+    async fn provider_catalog_reports_non_json_when_every_candidate_fails() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut request = vec![0_u8; 4096];
+                let _ = stream.read(&mut request).await.unwrap();
+                let body = "<html>not json</html>";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let error = provider(
+            AgentId::parse("codex").unwrap(),
+            &format!("http://{address}/v1"),
+            "draft-secret",
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+        assert!(error.contains("不是有效 JSON"));
+        assert!(error.contains("HTML"));
     }
 
     #[tokio::test]

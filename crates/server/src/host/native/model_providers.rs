@@ -1151,6 +1151,7 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::Na
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("");
+    let default_thinking_level = settings.get("defaultThinkingLevel").and_then(Value::as_str);
     let mut providers = Vec::new();
     let mut seen = HashSet::new();
     if let Some(entries) = models.get("providers").and_then(Value::as_object) {
@@ -1165,17 +1166,12 @@ async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::Na
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            let thinking_level = settings
-                .get("defaultThinkingLevel")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
             let model = pi_native_model_payload(
                 id,
                 object,
                 active_provider.as_deref().unwrap_or(""),
                 default_model,
-                thinking_level,
+                default_thinking_level,
             );
             let api_key = pi_provider_key(&auth, id, Some(provider));
             let credential_present = !api_key.is_empty();
@@ -1982,6 +1978,7 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
         .get("defaultModel")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let default_thinking_level = settings.get("defaultThinkingLevel").and_then(Value::as_str);
     let Some(providers) = models.get("providers").and_then(Value::as_object) else {
         return Ok(Vec::new());
     };
@@ -2000,11 +1997,6 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
                 return None;
             }
             let api_key = pi_provider_key(&auth, id, Some(provider));
-            let thinking_level = settings
-                .get("defaultThinkingLevel")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
             Some(ImportDraft {
                 source_id: format!("native:{id}"),
                 name: id.clone(),
@@ -2015,7 +2007,7 @@ async fn native_pi_drafts(pi_home: &Path) -> Result<Vec<ImportDraft>, String> {
                     object,
                     default_provider,
                     default_model,
-                    thinking_level,
+                    default_thinking_level,
                 ),
                 skip_reason: None,
             })
@@ -3468,6 +3460,28 @@ async fn apply_pi(pi_home: &Path, provider: &StoredProvider) -> Result<(), super
         *node = Value::Object(Map::new());
     }
     let node = node.as_object_mut().expect("object");
+    let existing_models = pi_existing_model_objects(node);
+    let reasoning = pi_payload_reasoning(&provider.model);
+    let native_models: Vec<Value> = if selected.is_empty() {
+        vec![pi_native_model_entry(
+            &model_id,
+            &provider.name,
+            existing_models.get(&model_id),
+            reasoning.as_ref(),
+        )]
+    } else {
+        selected
+            .iter()
+            .map(|id| {
+                pi_native_model_entry(
+                    id,
+                    &provider.name,
+                    existing_models.get(id),
+                    (id == &model_id).then_some(reasoning.as_ref()).flatten(),
+                )
+            })
+            .collect()
+    };
     node.insert(
         "baseUrl".to_string(),
         Value::String(provider.api_url.clone()),
@@ -3684,6 +3698,130 @@ fn pi_native_id(provider: &StoredProvider) -> String {
     } else {
         slug
     }
+}
+
+const PI_THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh"];
+
+fn pi_existing_model_objects(node: &Map<String, Value>) -> BTreeMap<String, Map<String, Value>> {
+    let mut existing = BTreeMap::new();
+    if let Some(models) = node.get("models").and_then(Value::as_array) {
+        for entry in models {
+            let Some(object) = entry.as_object() else {
+                continue;
+            };
+            let Some(id) = object.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let id = id.trim();
+            if !id.is_empty() {
+                existing.insert(id.to_string(), object.clone());
+            }
+        }
+    }
+    existing
+}
+
+struct PiPayloadReasoning {
+    enabled: bool,
+    map: Map<String, Value>,
+}
+
+fn pi_payload_reasoning(raw: &str) -> Option<PiPayloadReasoning> {
+    let Value::Object(object) = parse_model(raw) else {
+        return None;
+    };
+    let enabled = object.get("reasoning").and_then(Value::as_bool)?;
+    let map = object
+        .get("thinkingLevelMap")
+        .or_else(|| object.get("thinking_level_map"))
+        .and_then(Value::as_object)
+        .map(|map| {
+            map.iter()
+                .filter(|(level, _)| PI_THINKING_LEVELS.contains(&level.as_str()))
+                .map(|(level, value)| match value {
+                    Value::Null => (level.clone(), Value::Null),
+                    Value::String(wire) => (level.clone(), Value::String(wire.clone())),
+                    _ => (level.clone(), Value::Null),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(PiPayloadReasoning { enabled, map })
+}
+
+fn pi_payload_thinking_level(raw: &str) -> Option<String> {
+    let Value::Object(object) = parse_model(raw) else {
+        return None;
+    };
+    object
+        .get("thinkingLevel")
+        .or_else(|| object.get("thinking_level"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && PI_THINKING_LEVELS.contains(value))
+        .map(str::to_string)
+}
+
+fn pi_native_model_entry(
+    id: &str,
+    display_name: &str,
+    existing: Option<&Map<String, Value>>,
+    reasoning: Option<&PiPayloadReasoning>,
+) -> Value {
+    let mut object = existing.cloned().unwrap_or_default();
+    object.insert("id".to_string(), Value::String(id.to_string()));
+    if !object
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty())
+    {
+        object.insert("name".to_string(), Value::String(display_name.to_string()));
+    }
+    if let Some(spec) = reasoning {
+        object.insert("reasoning".to_string(), Value::Bool(spec.enabled));
+        if spec.enabled && !spec.map.is_empty() {
+            object.insert(
+                "thinkingLevelMap".to_string(),
+                Value::Object(spec.map.clone()),
+            );
+        } else {
+            object.remove("thinkingLevelMap");
+        }
+    }
+    Value::Object(object)
+}
+
+fn pi_model_ids_from_entry(
+    object: &Map<String, Value>,
+    provider_id: &str,
+    default_provider: &str,
+    default_model: &str,
+) -> Vec<String> {
+    let mut model_ids: Vec<String> = Vec::new();
+    for entry in object
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let candidate = entry
+            .as_str()
+            .or_else(|| entry.get("id").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        if let Some(candidate) = candidate
+            && !model_ids.iter().any(|seen| seen == candidate)
+        {
+            model_ids.push(candidate.to_string());
+        }
+    }
+    if default_provider == provider_id
+        && let Some(position) = model_ids.iter().position(|model| model == default_model)
+    {
+        let default = model_ids.remove(position);
+        model_ids.insert(0, default);
+    }
+    model_ids
 }
 
 fn pi_model_id(raw: &str) -> String {
@@ -6289,5 +6427,81 @@ context_window = 200000
         // so anything else would move the user off their model on the next save.
         assert_eq!(model["id"], "b");
         assert_eq!(model["api"], "openai-responses");
+    }
+
+    #[tokio::test]
+    async fn pi_binding_writes_reasoning_and_effort_map_on_the_default_model() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"private-gateway":{"baseUrl":"https://old.example/v1","api":"openai-responses","headers":{"x-tenant":"a"},"models":[{"id":"private-model","compat":true}]}}}"#,
+        )
+        .await
+        .unwrap();
+
+        apply_pi(
+            &agent_dir,
+            &StoredProvider {
+                id: "provider-1".to_string(),
+                name: "Private Gateway".to_string(),
+                agent_id: AgentId::parse("pi").unwrap(),
+                api_url: "https://new.example/v1".to_string(),
+                api_key: "sk-fresh".to_string(),
+                model: r#"{"id":"private-model","api":"openai-responses","reasoning":true,"thinkingLevel":"high","thinkingLevelMap":{"off":"none","xhigh":null}}"#.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let settings: Value = serde_json::from_slice(
+            &tokio::fs::read(agent_dir.join("settings.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let models: Value = serde_json::from_slice(
+            &tokio::fs::read(agent_dir.join("models.json"))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["defaultThinkingLevel"], "high");
+        let entry = &models["providers"]["private-gateway"]["models"][0];
+        assert_eq!(entry["id"], "private-model");
+        assert_eq!(entry["compat"], true);
+        assert_eq!(entry["reasoning"], true);
+        assert_eq!(entry["thinkingLevelMap"]["off"], "none");
+        assert_eq!(entry["thinkingLevelMap"]["xhigh"], Value::Null);
+        assert_eq!(
+            models["providers"]["private-gateway"]["headers"]["x-tenant"],
+            "a"
+        );
+    }
+
+    #[tokio::test]
+    async fn pi_draft_reads_reasoning_from_the_default_model() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path().join(".pi/agent");
+        tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+        tokio::fs::write(
+            agent_dir.join("settings.json"),
+            br#"{"defaultProvider":"gateway","defaultModel":"a","defaultThinkingLevel":"medium"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            agent_dir.join("models.json"),
+            br#"{"providers":{"gateway":{"baseUrl":"https://gateway.example/v1","api":"openai-responses","models":[{"id":"a","reasoning":true,"thinkingLevelMap":{"off":"none"}}]}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let drafts = native_pi_drafts(&agent_dir).await.unwrap();
+        let model: Value = serde_json::from_str(&drafts[0].model).unwrap();
+        assert_eq!(model["reasoning"], true);
+        assert_eq!(model["thinkingLevelMap"]["off"], "none");
+        assert_eq!(model["thinkingLevel"], "medium");
     }
 }

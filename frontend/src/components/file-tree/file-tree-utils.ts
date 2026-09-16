@@ -185,7 +185,10 @@ export function emptyFileTreeLazyListing(): FileTreeLazyListing {
   };
 }
 
-function isDirectChildPath(parentPath: string, childPath: string) {
+export function isDirectChildPath(parentPath: string, childPath: string) {
+  if (!childPath) {
+    return false;
+  }
   if (!parentPath) {
     return !childPath.includes('/');
   }
@@ -658,6 +661,105 @@ export function toggleAllFileTreeFolders({
     visibleFolderPaths.forEach((path) => next.add(path));
   }
   return next;
+}
+
+export const FILE_TREE_EXPAND_ALL_CONCURRENCY = 4;
+
+export type FileTreeExpandAllSession = {
+  generation: number;
+  pending: string[];
+  inFlight: Set<string>;
+  seen: Set<string>;
+};
+
+export function collectDirectChildFolderPaths(
+  parentPath: string,
+  folderPaths: Iterable<string>
+) {
+  const children: string[] = [];
+  const seen = new Set<string>();
+  for (const path of folderPaths) {
+    if (!isDirectChildPath(parentPath, path) || seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+    children.push(path);
+  }
+  return children;
+}
+
+export function collectFileTreeExpandAllSeedPaths(
+  folderPaths: Iterable<string>
+) {
+  const folders = new Set(Array.from(folderPaths).filter(Boolean));
+  const seeds: string[] = [];
+  for (const path of folders) {
+    const parent = parentFileTreeFolder(path);
+    if (parent && folders.has(parent)) {
+      continue;
+    }
+    seeds.push(path);
+  }
+  return seeds;
+}
+
+export function enqueueFileTreeExpandAllPaths(
+  session: FileTreeExpandAllSession,
+  paths: Iterable<string>
+) {
+  for (const path of paths) {
+    if (!path || session.seen.has(path)) {
+      continue;
+    }
+    session.seen.add(path);
+    session.pending.push(path);
+  }
+}
+
+export function createFileTreeExpandAllSession(
+  generation: number,
+  seedFolderPaths: Iterable<string>
+): FileTreeExpandAllSession {
+  const session: FileTreeExpandAllSession = {
+    generation,
+    pending: [],
+    inFlight: new Set(),
+    seen: new Set(),
+  };
+  enqueueFileTreeExpandAllPaths(session, seedFolderPaths);
+  return session;
+}
+
+export function takeNextFileTreeExpandAllPaths(
+  session: FileTreeExpandAllSession,
+  concurrency: number
+) {
+  const batch: string[] = [];
+  const limit = Math.max(1, concurrency);
+  while (session.inFlight.size < limit && session.pending.length > 0) {
+    const path = session.pending.shift();
+    if (!path) {
+      continue;
+    }
+    session.inFlight.add(path);
+    batch.push(path);
+  }
+  return batch;
+}
+
+export function completeFileTreeExpandAllPath(
+  session: FileTreeExpandAllSession,
+  path: string,
+  childDirectories: Iterable<string>
+) {
+  session.inFlight.delete(path);
+  enqueueFileTreeExpandAllPaths(session, childDirectories);
+}
+
+export function isFileTreeExpandAllSessionIdle(
+  session: FileTreeExpandAllSession
+) {
+  return session.pending.length === 0 && session.inFlight.size === 0;
 }
 
 export function toggleFileTreeFolder(

@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, useOpenSettings } from '@/lib/api';
 import { useMemo, useCallback, useEffect, startTransition } from 'react';
@@ -7,12 +7,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  AppWindow,
-  FolderOpen,
   Settings,
   Plus,
   PanelLeft,
@@ -38,20 +35,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Logo } from '@/components/Logo';
 import {
   resolveCreateSessionHref,
   resolveWorkspaceTabNavigation,
 } from '@/lib/createSessionHref';
+import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { useProjects } from '@/hooks/useProjects';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
-import { useLocalDesktopHost, useTauriClient } from '@/lib/desktopShell';
-import { openLocalAppWindow } from '@/lib/api/appWindow';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
@@ -70,8 +65,6 @@ import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { resolveDefaultProjectWorkspace } from '@/lib/workspaceDefault';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
-import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
-import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -343,79 +336,6 @@ export function WorkspaceLayoutToggles() {
         </TooltipContent>
       </Tooltip>
     </div>
-  );
-}
-
-const RECENT_PROJECT_MENU_LIMIT = 6;
-
-function HomeLogoMenu({
-  align,
-  tauriClient,
-  recentProjects,
-  onOpenHome,
-  onSwitchProject,
-}: {
-  align: 'start' | 'end';
-  tauriClient: boolean;
-  recentProjects: { id: string; name: string }[];
-  onOpenHome: () => void;
-  onSwitchProject: (projectId: string) => void;
-}) {
-  const { t } = useTranslation(['panels', 'common']);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={t('toolbar.homeOrRecentProjects')}
-          title={t('toolbar.homeOrRecentProjects')}
-        >
-          <Logo showText={false} size="toolbar" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align={align}>
-        {tauriClient ? (
-          <>
-            <DropdownMenuItem onSelect={() => openLocalAppWindow()}>
-              <AppWindow className="mr-2 h-4 w-4" />
-              {t('toolbar.newAppWindow')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuItem onSelect={onOpenHome}>
-          <FolderOpen className="mr-2 h-4 w-4" />
-          {t('toolbar.backToHome')}
-        </DropdownMenuItem>
-        <div className="px-2 py-1 text-[11px] text-muted-foreground">
-          {t('toolbar.recentProjects')}
-        </div>
-        {recentProjects.length > 0 ? (
-          recentProjects.map((item) => (
-            <DropdownMenuItem
-              key={item.id}
-              onSelect={() => onSwitchProject(item.id)}
-              title={item.name}
-            >
-              <FolderOpen className="mr-2 h-4 w-4" />
-              <span className="truncate">{item.name}</span>
-            </DropdownMenuItem>
-          ))
-        ) : (
-          <DropdownMenuItem disabled>
-            {t('toolbar.noRecentProjects')}
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem asChild>
-          <Link to="/local-projects">
-            <FolderOpen className="mr-2 h-4 w-4" />
-            Projects
-          </Link>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -711,13 +631,10 @@ export function Toolbar() {
   const { projectId, project } = useProject();
   const { activeWorktreeId } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
-  const { projects } = useProjects();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
   const localDesktopHost = useLocalDesktopHost();
-  const tauriClient = useTauriClient();
-  const switchProject = useProjectSwitcher();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
@@ -727,10 +644,6 @@ export function Toolbar() {
   const showLayoutToggles = isWorkspaceTab || boardStyle !== 'canvas';
   const logoLeads = logoLeadsWindowChrome();
 
-  const recentProjects = useMemo(
-    () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
-    [projects]
-  );
   const toolbarItems = usePluginHostContributions('toolbar');
   const transport = useBackendTransport();
   const pluginApi = useMemo(
@@ -764,17 +677,6 @@ export function Toolbar() {
 
   const handleOpenSettings = useOpenSettings();
 
-  const handleOpenHome = useCallback(() => {
-    navigate(paths.projects());
-  }, [navigate]);
-
-  const handleSwitchProject = useCallback(
-    (nextProjectId: string) => {
-      switchProject(nextProjectId, paths.projectSessions(nextProjectId));
-    },
-    [switchProject]
-  );
-
   return (
     <TooltipProvider delayDuration={300}>
       <div className="workspace-topbar window-chrome relative w-full px-1.5">
@@ -790,13 +692,7 @@ export function Toolbar() {
         >
           {logoLeads ? (
             <>
-              <HomeLogoMenu
-                align="start"
-                tauriClient={tauriClient}
-                recentProjects={recentProjects}
-                onOpenHome={handleOpenHome}
-                onSwitchProject={handleSwitchProject}
-              />
+              <HomeLogoMenu align="start" />
               <ToolbarDivider />
             </>
           ) : null}
@@ -813,8 +709,6 @@ export function Toolbar() {
               <KanbanLayoutToggles />
             )}
             {showLayoutToggles ? <ToolbarDivider /> : null}
-            <ProjectRailToggleButton />
-            <ToolbarDivider />
             {visibleToolbar.map((item) => {
               const metadata = contributionMetadata(item);
               const title = String(metadata.title ?? item.label);
@@ -927,15 +821,7 @@ export function Toolbar() {
               <TooltipContent side="bottom">Settings</TooltipContent>
             </Tooltip>
 
-            {logoLeads ? null : (
-              <HomeLogoMenu
-                align="end"
-                tauriClient={tauriClient}
-                recentProjects={recentProjects}
-                onOpenHome={handleOpenHome}
-                onSwitchProject={handleSwitchProject}
-              />
-            )}
+            {logoLeads ? null : <HomeLogoMenu align="end" />}
           </div>
         </div>
       </div>

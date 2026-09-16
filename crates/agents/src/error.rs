@@ -28,6 +28,9 @@ pub enum AgentError {
     PiProjectTrustRequired(String),
     #[error("agent runtime error: {0}")]
     Runtime(String),
+    /// The ACP child or stdio transport died while the host still had work in flight.
+    #[error("agent connection closed: {0}")]
+    ConnectionClosed(String),
 }
 
 impl AgentError {
@@ -41,7 +44,49 @@ impl AgentError {
                 crate::SessionLoadFailureReason::Other { .. } => "session_load_failed",
             }),
             Self::PiProjectTrustRequired(_) => Some("pi_project_trust_required"),
+            Self::ConnectionClosed(_) => Some("connection_closed"),
             _ => None,
         }
+    }
+
+    pub fn is_connection_death(&self) -> bool {
+        match self {
+            Self::ConnectionClosed(_) => true,
+            Self::Runtime(message) => {
+                let message = message.to_ascii_lowercase();
+                message.contains("acp connection failed")
+                    || message.contains("command channel closed")
+                    || message.contains("acp child")
+            }
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AgentError;
+
+    #[test]
+    fn connection_closed_is_a_turn_failure_code() {
+        let error =
+            AgentError::ConnectionClosed("ACP agent process exited (exit status: 1)".into());
+        assert_eq!(error.turn_failure_code(), Some("connection_closed"));
+        assert!(error.is_connection_death());
+    }
+
+    #[test]
+    fn acp_transport_errors_count_as_connection_death() {
+        assert!(
+            AgentError::Runtime("ACP connection failed: broken pipe".into()).is_connection_death()
+        );
+        assert!(
+            AgentError::Runtime("agent connection command channel closed".into())
+                .is_connection_death()
+        );
+        assert!(
+            !AgentError::Runtime("ACP handshake timed out after 5s. No stderr captured.".into())
+                .is_connection_death()
+        );
     }
 }

@@ -11,12 +11,13 @@ import {
   ProjectRecentSessionsPopover,
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
+import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 
 const BOTTOM_STATUS_LIMIT = 6;
 
 export function ProjectWindowStatusSummary() {
   const { t } = useTranslation('statusbar');
-  const { projectId: currentProjectId } = useProject();
+  const { projectId: currentProjectId, project } = useProject();
   const { projectsById } = useProjects();
   const switchProject = useProjectSwitcher();
   const openProjectIds = useWindowProjectsStore(
@@ -102,69 +103,72 @@ export function ProjectWindowStatusSummary() {
     );
   };
 
-  if (railVisible || statusItems.length === 0) {
-    return null;
-  }
-
   return (
     <div className="relative z-20 flex items-center gap-2 overflow-visible">
-      {statusItems.map((item) => {
-        const meta = resolveProjectVisualStateMeta(item.visualState);
-        const isCurrent = item.projectId === currentProjectId;
-        const isHovered = hoveredProjectState?.projectId === item.projectId;
+      <ProjectRailToggleButton variant="capsule" />
+      {railVisible ? (
+        project ? (
+          <span className="truncate opacity-90">{project.name}</span>
+        ) : null
+      ) : (
+        statusItems.map((item) => {
+          const meta = resolveProjectVisualStateMeta(item.visualState);
+          const isCurrent = item.projectId === currentProjectId;
+          const isHovered = hoveredProjectState?.projectId === item.projectId;
 
-        return (
-          <div key={item.projectId} className="relative">
-            <button
-              type="button"
-              aria-current={isCurrent ? 'page' : undefined}
-              aria-label={t('openProject', { name: item.projectName })}
-              title={`${item.projectName}: ${meta.label}`}
-              onClick={() => handleProjectClick(item.projectId)}
-              onMouseEnter={(event) =>
-                handleProjectMouseEnter(item.projectId, event)
-              }
-              onMouseLeave={() => handleProjectMouseLeave(item.projectId)}
-              className={cn(
-                'flex cursor-pointer items-center gap-1 rounded-full',
-                'border border-border/70 bg-background/70 px-2 py-0.5 text-left',
-                'transition-colors hover:border-border hover:bg-background',
-                'focus-visible:outline-none focus-visible:ring-1',
-                'focus-visible:ring-ring',
-                isCurrent && 'border-border bg-background'
-              )}
-            >
-              {item.visualState === 'loading' ? (
-                <Loader2 className="h-3 w-3 animate-spin text-primary" />
-              ) : (
-                <span
-                  className={cn(
-                    'h-2 w-2 rounded-full',
-                    meta.dotClassName,
-                    meta.pulseClassName
-                  )}
+          return (
+            <div key={item.projectId} className="relative">
+              <button
+                type="button"
+                aria-current={isCurrent ? 'page' : undefined}
+                aria-label={t('openProject', { name: item.projectName })}
+                title={`${item.projectName}: ${meta.label}`}
+                onClick={() => handleProjectClick(item.projectId)}
+                onMouseEnter={(event) =>
+                  handleProjectMouseEnter(item.projectId, event)
+                }
+                onMouseLeave={() => handleProjectMouseLeave(item.projectId)}
+                className={cn(
+                  'flex cursor-pointer items-center gap-1 rounded-full',
+                  'border border-border/70 bg-background/70 px-2 py-0.5 text-left',
+                  'transition-colors hover:border-border hover:bg-background',
+                  'focus-visible:outline-none focus-visible:ring-1',
+                  'focus-visible:ring-ring',
+                  isCurrent && 'border-border bg-background'
+                )}
+              >
+                {item.visualState === 'loading' ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                ) : (
+                  <span
+                    className={cn(
+                      'h-2 w-2 rounded-full',
+                      meta.dotClassName,
+                      meta.pulseClassName
+                    )}
+                  />
+                )}
+                <span className="max-w-24 truncate text-[10px] opacity-90">
+                  {item.projectName}
+                </span>
+              </button>
+
+              {isHovered ? (
+                <ProjectRecentSessionsPopover
+                  projectName={item.projectName}
+                  recentSessions={item.recentSessions}
+                  align="top"
+                  style={{
+                    top: hoveredProjectState?.top,
+                    left: hoveredProjectState?.left,
+                    transform: 'translateY(-100%)',
+                  }}
                 />
-              )}
-              <span className="max-w-24 truncate text-[10px] opacity-90">
-                {item.projectName}
-              </span>
-            </button>
-
-            {isHovered ? (
-              <ProjectRecentSessionsPopover
-                projectName={item.projectName}
-                recentSessions={item.recentSessions}
-                align="top"
-                style={{
-                  top: hoveredProjectState?.top,
-                  left: hoveredProjectState?.left,
-                  transform: 'translateY(-100%)',
-                }}
-              />
-            ) : null}
-          </div>
-        );
-      })}
+              ) : null}
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }

@@ -68,7 +68,8 @@ impl From<agents::AgentError> for AppError {
             }
             agents::AgentError::PiProjectTrustRequired(message) => AppError::BadRequest(message),
             agents::AgentError::InvalidDistribution(message)
-            | agents::AgentError::Runtime(message) => AppError::Internal(message),
+            | agents::AgentError::Runtime(message)
+            | agents::AgentError::ConnectionClosed(message) => AppError::Internal(message),
         }
     }
 }

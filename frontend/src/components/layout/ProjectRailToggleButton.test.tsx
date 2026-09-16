@@ -19,7 +19,14 @@ vi.mock('liquid-glass-react', () => ({
 }));
 
 vi.mock('@/hooks/useProjects', () => ({
-  useProjects: () => ({ projects: [], isLoading: false }),
+  useProjects: () => ({
+    projects: [
+      { id: 'project-1', name: 'Alpha' },
+      { id: 'project-2', name: 'Beta' },
+      { id: 'project-3', name: 'Gamma' },
+    ],
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/contexts/ProjectContext', () => ({
@@ -54,5 +61,13 @@ describe('ProjectRailToggleButton', () => {
     expect(
       container.querySelector('.project-rail-inline-host')
     ).toBeInTheDocument();
+  });
+
+  it('renders a capsule with the total project count', () => {
+    render(<ProjectRailToggleButton variant="capsule" />);
+
+    const toggle = screen.getByRole('button', { name: 'railToggle.show' });
+    expect(toggle).toHaveClass('rounded-full');
+    expect(toggle).toHaveTextContent('3');
   });
 });

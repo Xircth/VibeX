@@ -20,6 +20,8 @@ use crate::CefRuntimeConfig;
 #[cfg(target_os = "macos")]
 mod macos;
 mod native;
+#[cfg(target_os = "windows")]
+mod windows_overlay;
 
 pub type PumpScheduler = Arc<dyn Fn(i64) + Send + Sync + 'static>;
 
@@ -157,13 +159,69 @@ fn apply_embedded_command_line(command_line: Option<&mut CommandLine>) {
     }
 }
 
-fn child_window_info(parent: usize, surface: &BrowserSurface) -> WindowInfo {
-    let mut window_info = WindowInfo::default().set_as_child(
-        native::parent_handle(parent),
-        &native::surface_rect(surface),
-    );
+fn alloy_child_window_info(parent: usize, bounds: &Rect) -> WindowInfo {
+    let mut window_info = WindowInfo::default().set_as_child(native::parent_handle(parent), bounds);
     window_info.runtime_style = RuntimeStyle::ALLOY;
     window_info
+}
+
+#[cfg(any(test, not(target_os = "windows")))]
+fn child_window_info(parent: usize, surface: &BrowserSurface) -> WindowInfo {
+    alloy_child_window_info(parent, &native::surface_rect(surface))
+}
+
+fn embedding_window_info(
+    parent: usize,
+    surface: &BrowserSurface,
+) -> Result<(WindowInfo, Option<usize>), CefHostError> {
+    #[cfg(target_os = "windows")]
+    {
+        let overlay = windows_overlay::create_overlay_host(parent, surface)
+            .map_err(CefHostError::NativeSurface)?;
+        Ok((
+            alloy_child_window_info(overlay, &windows_overlay::overlay_child_rect(surface)),
+            Some(overlay),
+        ))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok((child_window_info(parent, surface), None))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeClosePolicy {
+    return_os_close: bool,
+    destroy_native_view: bool,
+}
+
+fn native_close_policy(already_closing: bool) -> NativeClosePolicy {
+    if already_closing {
+        return NativeClosePolicy {
+            return_os_close: false,
+            destroy_native_view: false,
+        };
+    }
+    if cfg!(target_os = "windows") {
+        // Chromium is parented to an owned popup, not Tauri's WebView2 HWND.
+        // Returning 0 lets CEF post WM_CLOSE to that popup. Returning 1 and
+        // DestroyWindow-ing the child re-enters DoClose and can leave the
+        // renderer/GPU process alive until the UI thread hangs.
+        NativeClosePolicy {
+            return_os_close: true,
+            destroy_native_view: false,
+        }
+    } else {
+        NativeClosePolicy {
+            return_os_close: false,
+            destroy_native_view: true,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn sync_windows_browser_hosts() {
+    windows_overlay::sync_overlay_hosts();
 }
 
 fn remember_zoom_level(registry: &RefCell<BrowserRegistry>, command: &BrowserEngineCommand) {
@@ -277,6 +335,8 @@ struct BrowserRegistry {
     downloads: HashMap<(BrowserTabId, u32), DownloadItemCallback>,
     closing: HashSet<BrowserTabId>,
     next_permission_id: u64,
+    #[cfg(target_os = "windows")]
+    overlays: HashMap<BrowserTabId, usize>,
 }
 
 impl BrowserRegistry {
@@ -289,6 +349,10 @@ impl BrowserRegistry {
         self.closing.remove(tab_id);
         self.pending_permissions.retain(|(id, _), _| id != tab_id);
         self.downloads.retain(|(id, _), _| id != tab_id);
+        #[cfg(target_os = "windows")]
+        if let Some(hwnd) = self.overlays.remove(tab_id) {
+            windows_overlay::destroy_overlay_hwnd(hwnd);
+        }
     }
 }
 
@@ -447,11 +511,20 @@ impl CefSession {
     ) -> Result<(), CefHostError> {
         let mut request_context = self.request_context(&profile, &tab_id)?;
         let parent = parent_handle.unwrap_or(self.parent.0);
-        let window_info = child_window_info(parent, &surface);
+        let (window_info, overlay_hwnd) = embedding_window_info(parent, &surface)?;
+        #[cfg(not(target_os = "windows"))]
+        let _ = overlay_hwnd;
         let mut client =
             VibeXClient::new(tab_id.clone(), self.runtime.clone(), self.registry.clone());
         let url = CefString::from(initial_url.as_str());
-        self.registry.borrow_mut().surfaces.insert(tab_id, surface);
+        {
+            let mut registry = self.registry.borrow_mut();
+            registry.surfaces.insert(tab_id.clone(), surface);
+            #[cfg(target_os = "windows")]
+            if let Some(overlay_hwnd) = overlay_hwnd {
+                registry.overlays.insert(tab_id.clone(), overlay_hwnd);
+            }
+        }
         if browser_host_create_browser(
             Some(&window_info),
             Some(&mut client),
@@ -461,6 +534,12 @@ impl CefSession {
             Some(&mut request_context),
         ) != 1
         {
+            let mut registry = self.registry.borrow_mut();
+            registry.surfaces.remove(&tab_id);
+            #[cfg(target_os = "windows")]
+            if let Some(hwnd) = registry.overlays.remove(&tab_id) {
+                windows_overlay::destroy_overlay_hwnd(hwnd);
+            }
             return Err(CefHostError::BrowserCreation);
         }
         Ok(())
@@ -990,17 +1069,14 @@ cef::wrap_life_span_handler! {
                 let mut registry = self.registry.borrow_mut();
                 !registry.closing.insert(self.tab_id.clone())
             };
+            let policy = native_close_policy(already_closing);
             if let Some(browser) = browser {
                 let _ = native::hide_browser_view(browser);
-                // DestroyWindow on the child can re-enter DoClose. A second
-                // scheduled destroy races the first and can leave the renderer
-                // process alive on Windows 23H2.
-                if !already_closing {
+                if policy.destroy_native_view {
                     schedule_browser_view_destruction(browser);
                 }
             }
-            // Returning 0 would ask CEF to close the top-level Tauri window.
-            1
+            i32::from(!policy.return_os_close)
         }
 
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
@@ -1247,6 +1323,24 @@ mod embedded_window_tests {
     fn child_browsers_use_alloy_style_for_an_external_parent() {
         let info = child_window_info(1, &surface());
         assert_eq!(info.runtime_style, RuntimeStyle::ALLOY);
+    }
+
+    #[test]
+    fn windows_close_lets_cef_close_the_overlay_host() {
+        let first = super::native_close_policy(false);
+        let second = super::native_close_policy(true);
+        assert!(!second.return_os_close);
+        assert!(!second.destroy_native_view);
+        #[cfg(target_os = "windows")]
+        {
+            assert!(first.return_os_close);
+            assert!(!first.destroy_native_view);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(!first.return_os_close);
+            assert!(first.destroy_native_view);
+        }
     }
 
     #[test]

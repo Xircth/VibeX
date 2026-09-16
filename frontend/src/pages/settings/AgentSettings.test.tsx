@@ -1633,6 +1633,279 @@ describe('AgentSettings', () => {
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 
+  it('refreshes Grok official-subscription login status after the terminal flow finishes', async () => {
+    const user = userEvent.setup();
+    const loggedOut = {
+      agent_id: 'grok',
+      display_name: 'Grok',
+      description: 'Grok ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+      settings_features: ['authentication_mode'],
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'ready',
+      authentication: 'account',
+    };
+    api.bar.mockResolvedValue([loggedOut]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'grok',
+      available: true,
+      settings_features: ['authentication_mode'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'subscription',
+      credential_env: 'XAI_API_KEY',
+      credential_present: false,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: [
+        {
+          value: 'subscription',
+          kind: 'subscription',
+          label_key: 'agents.authModeSubscription',
+          description_key: 'agents.authDescGrokSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'api_key',
+          kind: 'official_api',
+          label_key: 'agents.authModeXaiKey',
+          description_key: 'agents.authDescGrokKey',
+          credential_env: 'XAI_API_KEY',
+          native_config_field_id: 'grok_api_key',
+          credential_required: true,
+        },
+        {
+          value: 'custom',
+          kind: 'provider',
+          label_key: 'agents.authModeCustomEndpoint',
+          description_key: 'agents.authDescGrokCustom',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'model_provider',
+          kind: 'provider',
+          label_key: 'agents.authModeProvider',
+          description_key: 'agents.authDescGrokCustom',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+      ],
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'grok',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Grok',
+          description: '使用 SuperGrok 或 X Premium+ 账号登录。',
+          label_key: 'agents.managementAction.grok.login.label',
+          description_key: 'agents.managementAction.grok.login.description',
+          kind: 'login',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+        {
+          id: 'logout',
+          label: '退出 Grok',
+          description: '移除 Grok 本地账号会话。',
+          label_key: 'agents.managementAction.grok.logout.label',
+          description_key: 'agents.managementAction.grok.logout.description',
+          kind: 'logout',
+          available: false,
+          unavailable_reason: '当前没有可退出的账号会话。',
+          url: null,
+        },
+      ],
+    });
+    api.runAction.mockImplementation(async () => {
+      api.bar.mockResolvedValue([loggedIn]);
+      api.accountFlow.mockResolvedValue({
+        agent_id: 'grok',
+        action_id: 'login',
+        status: 'succeeded',
+        exit_code: 0,
+        authentication: 'account',
+      });
+      api.actions.mockResolvedValue({
+        agent_id: 'grok',
+        actions: [
+          {
+            id: 'login',
+            label: '登录 Grok',
+            description: '使用 SuperGrok 或 X Premium+ 账号登录。',
+            label_key: 'agents.managementAction.grok.login.label',
+            description_key: 'agents.managementAction.grok.login.description',
+            kind: 'login',
+            available: false,
+            unavailable_reason: null,
+            url: null,
+          },
+          {
+            id: 'logout',
+            label: '退出 Grok',
+            description: '移除 Grok 本地账号会话。',
+            label_key: 'agents.managementAction.grok.logout.label',
+            description_key: 'agents.managementAction.grok.logout.description',
+            kind: 'logout',
+            available: true,
+            unavailable_reason: null,
+            url: null,
+          },
+        ],
+      });
+      return {
+        agent_id: 'grok',
+        action_id: 'login',
+        launched: true,
+      };
+    });
+
+    render(<AgentSettings />);
+    expect(await screen.findByText('暂未登录')).toBeVisible();
+    expect(await screen.findByText('未登录官方账号')).toBeVisible();
+    await user.click(await screen.findByRole('button', { name: '登录 Grok' }));
+    await waitFor(() =>
+      expect(api.runAction).toHaveBeenCalledWith('grok', 'login')
+    );
+    await waitFor(() => expect(api.accountFlow).toHaveBeenCalledWith('grok'));
+    await waitFor(() =>
+      expect(screen.getByText('已通过账号登录')).toBeVisible()
+    );
+    expect(screen.queryByText('未登录官方账号')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '退出 Grok' })).toBeVisible();
+    expect(api.preflight).toHaveBeenCalledWith('grok', 'authentication');
+    expect(api.actions).toHaveBeenCalledWith('grok');
+  });
+
+  it('keeps refreshing Grok login status until the account session appears', async () => {
+    const user = userEvent.setup();
+    const loggedOut = {
+      agent_id: 'grok',
+      display_name: 'Grok',
+      description: 'Grok ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+      settings_features: ['authentication_mode'],
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'ready',
+      authentication: 'account',
+    };
+    const session = { current: loggedOut };
+    api.bar.mockImplementation(async () => [session.current]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'grok',
+      available: true,
+      settings_features: ['authentication_mode'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'subscription',
+      credential_env: 'XAI_API_KEY',
+      credential_present: false,
+      modes: ['subscription', 'api_key', 'custom'],
+      options: [
+        {
+          value: 'subscription',
+          kind: 'subscription',
+          label_key: 'agents.authModeSubscription',
+          description_key: 'agents.authDescGrokSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+      ],
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'grok',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Grok',
+          description: '使用 SuperGrok 或 X Premium+ 账号登录。',
+          label_key: 'agents.managementAction.grok.login.label',
+          description_key: 'agents.managementAction.grok.login.description',
+          kind: 'login',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    });
+    api.runAction.mockImplementation(async () => {
+      api.accountFlow.mockResolvedValue({
+        agent_id: 'grok',
+        action_id: 'login',
+        status: 'succeeded',
+        exit_code: 0,
+        authentication: 'account',
+      });
+      return {
+        agent_id: 'grok',
+        action_id: 'login',
+        launched: true,
+      };
+    });
+
+    render(<AgentSettings />);
+    expect(await screen.findByText('未登录官方账号')).toBeVisible();
+    await user.click(await screen.findByRole('button', { name: '登录 Grok' }));
+    await waitFor(() =>
+      expect(api.preflight).toHaveBeenCalledWith('grok', 'authentication')
+    );
+    expect(screen.getByText('未登录官方账号')).toBeVisible();
+    session.current = loggedIn;
+    await waitFor(
+      () => expect(screen.getByText('已通过账号登录')).toBeVisible(),
+      { timeout: 4000 }
+    );
+    expect(screen.queryByText('未登录官方账号')).not.toBeInTheDocument();
+  });
+
   it('refreshes login status and preflight after enabling a Model Provider', async () => {
     const user = userEvent.setup();
     const loggedOut = {

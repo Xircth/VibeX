@@ -29,6 +29,8 @@ vi.mock('@xyflow/react', () => ({
     fitView,
     setCenter,
     screenToFlowPosition,
+    getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+    setViewport: vi.fn(),
   }),
   useStore: (
     selector: (state: {

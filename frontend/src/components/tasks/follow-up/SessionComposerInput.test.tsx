@@ -65,6 +65,37 @@ function getEditor(): HTMLDivElement {
 }
 
 describe('SessionComposerInput (Astryx)', () => {
+  it('replaces the draft through execCommand so native undo can restore it', () => {
+    const replaceValueRef: { current: ((next: string) => void) | null } = {
+      current: null,
+    };
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      writable: true,
+      value: execCommand,
+    });
+
+    try {
+      renderComposerInput({
+        value: 'original prompt',
+        replaceValueRef,
+      });
+
+      expect(replaceValueRef.current).toEqual(expect.any(Function));
+      act(() => {
+        replaceValueRef.current?.('improved prompt');
+      });
+      expect(execCommand).toHaveBeenCalledWith(
+        'insertText',
+        false,
+        'improved prompt'
+      );
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
   it('keeps wrapper padding below rather than above the caret', () => {
     renderComposerInput();
 

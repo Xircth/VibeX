@@ -16,7 +16,7 @@ use agents::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
-        ConversationQuestionResponse, ConversationWorkflowRef, SessionLoadFailureReason,
+        ConversationQuestionResponse, ConversationWorkflowRef,
     },
 };
 use chrono::{DateTime, Utc};
@@ -1426,6 +1426,38 @@ impl ConversationSessionService {
             .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
         {
+            match &result {
+                Ok(prompt) => {
+                    if let Some(connection_id) = self
+                        .ctx
+                        .agent_runtime
+                        .live_connection_id(AgentSessionId(input.conversation_id))
+                        .await
+                    {
+                        if let Err(error) = self
+                            .ctx
+                            .agent_runtime
+                            .cancel_prompt(CancelAgentPromptInput {
+                                connection_id,
+                                session_id: AgentSessionId(input.conversation_id),
+                                prompt_id: prompt.id,
+                            })
+                            .await
+                        {
+                            tracing::warn!(
+                                conversation_id = %input.conversation_id,
+                                prompt_id = %prompt.id,
+                                %error,
+                                "failed to cancel a prompt sent after the turn was stopped"
+                            );
+                            self.drop_live_agent_connection(input.conversation_id).await;
+                        }
+                    }
+                }
+                Err(_) => {
+                    self.drop_live_agent_connection(input.conversation_id).await;
+                }
+            }
             return Err(ConversationServiceError::Conflict(
                 "Turn was cancelled before the Agent handshake".to_string(),
             ));
@@ -1540,6 +1572,10 @@ impl ConversationSessionService {
                     "Conversation {conversation_id} not found"
                 ))
             })?;
+        self.reclaim_dead_in_flight_turn(conversation_id).await?;
+        let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+            .await?
+            .unwrap_or(conversation);
         if let Some(active_turn_id) = conversation.active_turn_id
             && let Some(active_turn) =
                 ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
@@ -2081,8 +2117,9 @@ impl ConversationSessionService {
     }
 
     /// Record the conversation's effective session-control selection on its binding so
-    /// a later cold `session/new` can replay it. Best-effort: failing to remember a
-    /// selection must not fail the turn or the control change that already succeeded.
+    /// a later `session/resume` (or the first `session/new` of a new conversation)
+    /// can replay it. Best-effort: failing to remember a selection must not fail
+    /// the turn or the control change that already succeeded.
     async fn remember_session_controls_selection(
         &self,
         conversation_id: Uuid,
@@ -2333,7 +2370,7 @@ impl ConversationSessionService {
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let bindings =
             ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
-        let latest_binding = bindings.first().cloned();
+        let latest_binding = bindings.last().cloned();
         let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
         let preferences = self
             .resolved_session_control_preferences(
@@ -2361,7 +2398,6 @@ impl ConversationSessionService {
                         &agent_id,
                     )
                 }),
-            can_restore_agent_session,
             false,
         );
 
@@ -2665,19 +2701,7 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
-        let snapshot = self.runtime_snapshot(conversation_id).await;
-        if let Some(connection_id) = snapshot
-            .connection_id
-            .as_deref()
-            .and_then(parse_agent_connection_id)
-            && let Err(error) = self.ctx.agent_runtime.disconnect(connection_id).await
-        {
-            tracing::warn!(
-                %conversation_id,
-                %error,
-                "failed to disconnect Agent connection while invalidating session"
-            );
-        }
+        self.drop_live_agent_connection(conversation_id).await;
         self.forget_conversation_runtime(conversation_id).await;
         self.append_event(
             conversation_id,
@@ -2740,17 +2764,16 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<bool, ConversationServiceError> {
-        let snapshot = self.runtime_snapshot(conversation_id).await;
-        if snapshot.turn_in_flight
-            && snapshot
-                .connection_id
-                .as_deref()
-                .and_then(parse_agent_connection_id)
-                .is_some()
-        {
-            return Ok(false);
-        }
+        self.reclaim_dead_in_flight_turn(conversation_id).await
+    }
 
+    /// Settle an in-flight Turn whose Agent process is gone so follow-up can
+    /// dispatch. Handshake still has a live process and no ACP mapping yet —
+    /// that is not a zombie and must not be failed.
+    async fn reclaim_dead_in_flight_turn(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<bool, ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
         let Some(conversation) = ConversationRecord::find_by_id(pool, conversation_id).await?
         else {
@@ -2762,16 +2785,85 @@ impl ConversationSessionService {
         let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
             return Ok(false);
         };
-        if !is_in_flight_turn_status(&turn.status) {
-            return Ok(false);
-        }
-        if !turn_predates_this_host(turn.created_at) {
+        if !is_zombie_in_flight_turn(
+            is_in_flight_turn_status(&turn.status),
+            self.ctx
+                .agent_runtime
+                .has_bound_acp_session(AgentSessionId(conversation_id))
+                .await,
+            self.ctx
+                .agent_runtime
+                .has_live_agent_process(AgentSessionId(conversation_id))
+                .await,
+        ) {
             return Ok(false);
         }
 
-        self.interrupt_in_flight_turn(turn.conversation_id, turn.id)
+        if turn_predates_this_host(turn.created_at) {
+            self.interrupt_in_flight_turn(turn.conversation_id, turn.id)
+                .await?;
+            return Ok(true);
+        }
+
+        self.fail_dead_in_flight_turn(turn.conversation_id, turn.id)
             .await?;
         Ok(true)
+    }
+
+    async fn fail_dead_in_flight_turn(
+        &self,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<(), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
+        for permission in permissions.into_iter().filter(|p| p.status == "pending") {
+            self.append_event(
+                conversation_id,
+                Some(turn_id),
+                "runtime",
+                ConversationEvent::PermissionResponded {
+                    permission_id: permission.permission_id.clone(),
+                    response: ConversationPermissionResponse {
+                        response: AgentPermissionResponse::Cancelled,
+                        auto: true,
+                    },
+                },
+                Some(format!(
+                    "recovery:permission-cancelled:{}",
+                    permission.permission_id
+                )),
+            )
+            .await?;
+        }
+        let agent_id = Session::find_by_id(pool, conversation_id)
+            .await?
+            .and_then(|session| session.agent_id);
+        self.append_event(
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnFailed {
+                error: ConversationError::new(
+                    "Agent connection closed before the turn completed.",
+                    Some("connection_closed".into()),
+                    None,
+                )
+                .with_cached_plan_usage(agent_id.as_ref()),
+            },
+            Some(format!("turn:{turn_id}:connection_closed")),
+        )
+        .await?;
+        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        self.drop_live_agent_connection(conversation_id).await;
+        self.update_runtime_state(conversation_id, |state| {
+            state.turn_in_flight = false;
+            state.active_turn_id = None;
+            state.active_prompt_id = None;
+            state.recovery_status = Some("connection_closed".to_string());
+        })
+        .await;
+        Ok(())
     }
 
     async fn interrupt_in_flight_turn(
@@ -2862,6 +2954,10 @@ impl ConversationSessionService {
             state.recovery_status = reason;
         })
         .await;
+        // Release the ACP child before forgetting maps. Close previously only
+        // dropped in-memory coordination, so the agent process kept running
+        // until process exit (the UI also never called this path).
+        self.drop_live_agent_connection(conversation_id).await;
         // Drop this conversation's in-memory coordination state now that it is closed.
         // Without this, both maps leaked one entry per conversation ever opened — the
         // whole codebase had no `remove` on either (架构报告 recovery). The closed
@@ -3144,7 +3240,7 @@ impl ConversationSessionService {
         let bindings =
             ConversationAgentBindingRecord::list_for_conversation(pool, input.conversation_id)
                 .await?;
-        let latest_binding = bindings.first().cloned();
+        let latest_binding = bindings.last().cloned();
         let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
         let preferences = self
             .resolved_session_control_preferences(
@@ -3168,11 +3264,12 @@ impl ConversationSessionService {
         let mcp_servers_json = serde_json::to_string(&self.ctx.host.product_mcp_server_names())
             .unwrap_or_else(|_| "[]".to_string());
 
-        // Lazy reconnect (ADR-0001): reopen after the agent process ended only
-        // reloads a live ACP session when that binding advertised load/resume.
-        // Imported history stores the original tool session id but marks restore
-        // unsupported; sending a follow-up must cold-start (`session/new`) instead
-        // of failing `session/load` or pulling the original transcript into memory.
+        // One Conversation owns one Agent thread (Codex: one Thread). Follow-up
+        // must `session/resume` that id. `session/new` is only for a conversation
+        // that does not yet have a real ACP session id. Falling back to
+        // `session/new` — including when the binding never persisted
+        // resume_supported — is a thread fork: VibeX keeps writing Conversation
+        // A while Codex APP shows a new thread B whose first prompt is this turn.
         let has_live_bound_acp_session = self
             .ctx
             .agent_runtime
@@ -3186,15 +3283,11 @@ impl ConversationSessionService {
             // conversation's context.
             self.drop_live_agent_connection(input.conversation_id).await;
         }
-        let can_restore_agent_session = restorable_binding.is_some()
-            || binding_can_restore_agent_session(latest_binding.as_ref());
-        let resume_external_session_id = resume_external_session_id(
-            known_acp_session_id.clone(),
-            can_restore_agent_session,
-            has_live_bound_acp_session,
-        );
+        let resume_external_session_id =
+            resume_external_session_id(known_acp_session_id.clone(), has_live_bound_acp_session);
         let acp_session_id = resume_external_session_id
             .clone()
+            .or_else(|| known_acp_session_id.clone())
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
 
         let binding = ConversationAgentBindingRecord::create(
@@ -3248,17 +3341,6 @@ impl ConversationSessionService {
         )
         .await?;
 
-        // Host history is a last-resort prompt prefix for a brand-new ACP
-        // session that does not already contain this conversation. A live
-        // bound session and a successful session/load|resume already have
-        // the transcript. Prepending it as a user text block is persisted
-        // by Codex as a user message (Windows stores joined prompt parts
-        // with `\r\n`) and leaks "Previous conversation:" / User:/Assistant:
-        // into Codex desktop.
-        let mut inject_host_history = should_inject_host_history(
-            has_live_bound_acp_session,
-            resume_external_session_id.is_some(),
-        );
         let mut attempt = 1u32;
         let session = loop {
             if !self
@@ -3271,8 +3353,7 @@ impl ConversationSessionService {
             }
             let connect_once = async {
                 if let Some(external_session_id) = resume_external_session_id.clone() {
-                    match self
-                        .ctx
+                    self.ctx
                         .agent_runtime
                         .resume_session(ResumeAgentSessionInput {
                             agent_id: agent_id.clone(),
@@ -3287,32 +3368,8 @@ impl ConversationSessionService {
                             preferences: preferences.clone(),
                         })
                         .await
-                    {
-                        Ok(session) => Ok(session.0),
-                        Err(agents::AgentError::SessionLoadFailed(reason))
-                            if should_cold_start_after_restore_failure(&reason) =>
-                        {
-                            inject_host_history = true;
-                            self.ctx
-                                .agent_runtime
-                                .prepare_session(EnsureAgentSessionInput {
-                                    agent_id: agent_id.clone(),
-                                    launch_lock: launch_settings.launch_lock.clone(),
-                                    workspace_id: input.workspace_id,
-                                    working_dir: PathBuf::from(working_dir),
-                                    additional_directories: additional_directories.to_vec(),
-                                    session_id: AgentSessionId(input.conversation_id),
-                                    acp_session_id: acp_session_id.clone(),
-                                    auto_approve_mode: launch_settings.auto_approve_mode,
-                                    env: launch_settings.env.clone(),
-                                    preferences: preferences.clone(),
-                                })
-                                .await
-                                .map(|prepared| prepared.session)
-                                .map_err(ConversationServiceError::from)
-                        }
-                        Err(error) => Err(error.into()),
-                    }
+                        .map(|session| session.0)
+                        .map_err(ConversationServiceError::from)
                 } else {
                     self.ctx
                         .agent_runtime
@@ -3462,22 +3519,6 @@ impl ConversationSessionService {
             &prompt_overrides.config_overrides,
         )
         .await;
-        let mut prompt_blocks = blocks;
-        if inject_host_history {
-            let current_text = prompt_blocks.iter().find_map(|block| match block {
-                AgentContentBlock::Text { text } => Some(text.as_str()),
-                _ => None,
-            });
-            if let Some(history) = crate::session_info::host_history_prompt(
-                pool,
-                input.conversation_id,
-                current_text.unwrap_or(""),
-            )
-            .await
-            {
-                prompt_blocks.insert(0, AgentContentBlock::Text { text: history });
-            }
-        }
         if !self
             .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
@@ -3492,7 +3533,7 @@ impl ConversationSessionService {
             .send_prompt(SendAgentPromptInput {
                 connection_id: session.connection_id,
                 session_id: session.id,
-                blocks: prompt_blocks,
+                blocks,
                 mode_override: prompt_overrides.mode_override,
                 config_overrides: prompt_overrides.config_overrides,
             })
@@ -3641,6 +3682,17 @@ async fn ensure_conversation_has_no_in_flight_turn(
 
 fn is_in_flight_turn_status(status: &str) -> bool {
     matches!(status, "pending" | "queued" | "running" | "blocked")
+}
+
+/// Handshake has a live process and no ACP mapping yet. A leftover running
+/// Turn with neither mapping nor process can never complete — follow-up must
+/// settle it instead of queueing behind a ghost.
+fn is_zombie_in_flight_turn(
+    turn_is_in_flight: bool,
+    has_bound_acp_session: bool,
+    has_live_agent_process: bool,
+) -> bool {
+    turn_is_in_flight && !has_bound_acp_session && !has_live_agent_process
 }
 
 fn host_started_at() -> DateTime<Utc> {
@@ -4458,45 +4510,35 @@ fn binding_can_restore_agent_session(binding: Option<&ConversationAgentBindingRe
 
 fn resume_external_session_id(
     known_id: Option<String>,
-    can_restore: bool,
     has_live_bound_acp_session: bool,
 ) -> Option<String> {
     known_id
-        .filter(|id| !id.starts_with("vibex-new-session-"))
+        .filter(|id| !is_placeholder_acp_session_id(id))
         .filter(|_| !has_live_bound_acp_session)
-        .filter(|_| can_restore)
-}
-
-fn should_cold_start_after_restore_failure(reason: &SessionLoadFailureReason) -> bool {
-    matches!(
-        reason,
-        SessionLoadFailureReason::ResourceNotFound | SessionLoadFailureReason::Unsupported
-    )
-}
-
-fn should_inject_host_history(
-    has_live_bound_acp_session: bool,
-    resuming_external_session: bool,
-) -> bool {
-    !has_live_bound_acp_session && !resuming_external_session
 }
 
 fn is_placeholder_acp_session_id(id: &str) -> bool {
     id.starts_with("vibex-new-session-")
+        || id.starts_with("prepared-")
+        || id.starts_with("pending-")
 }
 
 fn restorable_agent_binding<'a>(
     bindings: &'a [ConversationAgentBindingRecord],
     agent_id: &AgentId,
 ) -> Option<&'a ConversationAgentBindingRecord> {
-    bindings.iter().find(|binding| {
-        binding.agent_id == *agent_id
-            && (binding.load_supported || binding.resume_supported)
-            && binding
-                .acp_session_id
-                .as_deref()
-                .is_some_and(|id| !is_placeholder_acp_session_id(id))
-    })
+    // Newest binding for this agent is authoritative. After rebind/detach the
+    // latest row is a placeholder; falling back to an older real ACP id would
+    // `session/resume` the thread rebind was meant to abandon.
+    let latest_for_agent = bindings
+        .iter()
+        .rev()
+        .find(|binding| binding.agent_id == *agent_id)?;
+    latest_for_agent
+        .acp_session_id
+        .as_deref()
+        .filter(|id| !is_placeholder_acp_session_id(id))?;
+    Some(latest_for_agent)
 }
 
 fn known_acp_session_id(
@@ -4533,7 +4575,7 @@ mod tests {
         AgentContentBlock, AgentId, AgentSessionConfigOverride,
         conversation::{
             AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
-            ConversationFileChange, SessionLoadFailureReason,
+            ConversationFileChange,
         },
     };
     use db::models::{
@@ -4557,10 +4599,9 @@ mod tests {
         binding_can_restore_agent_session, checkpoint_before_files, checkpoint_file_change_summary,
         checkpoint_turn_file_changes, conversation_input_blocks_with_display_text,
         diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
-        host_started_at, known_acp_session_id, merge_user_prompt_overrides,
-        prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
-        session_control_replay_plan, should_cold_start_after_restore_failure,
-        should_inject_host_history, turn_predates_this_host,
+        host_started_at, is_zombie_in_flight_turn, known_acp_session_id,
+        merge_user_prompt_overrides, prune_unreferenced_turn_lock, resume_external_session_id,
+        session_control_preferences, session_control_replay_plan, turn_predates_this_host,
     };
 
     #[test]
@@ -4921,56 +4962,92 @@ mod tests {
     }
 
     #[test]
-    fn host_history_is_not_injected_into_a_live_or_resumed_codex_session() {
-        assert!(
-            !should_inject_host_history(true, false),
-            "a live ACP session already has the transcript"
+    fn stored_thread_id_is_resumed_even_when_the_binding_never_advertised_restore() {
+        // 0.2.6 still forked Codex threads because resume was gated on
+        // resume_supported/load_supported. Old bindings often stored the
+        // real thread id with both flags false, so follow-up called
+        // session/new and Codex APP showed a new thread B.
+        assert_eq!(
+            resume_external_session_id(Some("codex-thread-a".to_string()), false).as_deref(),
+            Some("codex-thread-a")
         );
-        assert!(
-            !should_inject_host_history(false, true),
-            "session/load|resume already restores Codex history"
+        assert_eq!(
+            resume_external_session_id(Some("claude-original-session".to_string()), false)
+                .as_deref(),
+            Some("claude-original-session")
         );
-        assert!(
-            !should_inject_host_history(true, true),
-            "live + resume must not prepend a user-visible history block"
-        );
-        assert!(
-            should_inject_host_history(false, false),
-            "cold start still needs host history for the model"
-        );
+        assert!(!binding_can_restore_agent_session(None));
     }
 
     #[test]
-    fn imported_history_follow_up_cold_starts_instead_of_resuming_the_original_session() {
-        assert!(!binding_can_restore_agent_session(None));
+    fn placeholder_and_live_sessions_do_not_call_session_resume() {
         assert_eq!(
-            resume_external_session_id(Some("claude-original-session".to_string()), false, false,),
+            resume_external_session_id(Some("vibex-new-session-abc".to_string()), false),
             None
         );
         assert_eq!(
-            resume_external_session_id(Some("acp-live-1".to_string()), true, false).as_deref(),
-            Some("acp-live-1")
-        );
-        assert_eq!(
-            resume_external_session_id(Some("acp-live-1".to_string()), true, true),
+            resume_external_session_id(Some("pending-abc".to_string()), false),
             None
         );
         assert_eq!(
-            resume_external_session_id(Some("acp-a".to_string()), true, false).as_deref(),
-            Some("acp-a"),
-            "after a retired connection, 继续 must resume this conversation's ACP session"
+            resume_external_session_id(Some("prepared-abc".to_string()), false),
+            None
         );
-        assert!(
-            !should_inject_host_history(false, true),
-            "resuming this conversation's ACP session must not dump host history into a sibling context"
+        assert_eq!(
+            resume_external_session_id(Some("acp-live-1".to_string()), true),
+            None
         );
-        assert!(
-            !should_inject_host_history(true, false),
-            "a live Ready connection already has this conversation's context"
+    }
+
+    fn sample_binding(
+        agent_id: AgentId,
+        acp_session_id: &str,
+        resume_supported: bool,
+    ) -> ConversationAgentBindingRecord {
+        ConversationAgentBindingRecord {
+            id: Uuid::new_v4(),
+            conversation_id: Uuid::new_v4(),
+            agent_id,
+            working_dir: "/tmp".to_string(),
+            acp_session_id: Some(acp_session_id.to_string()),
+            acp_protocol_version: None,
+            runtime_version: None,
+            acp_version: None,
+            load_supported: resume_supported,
+            resume_supported,
+            close_supported: false,
+            terminal_supported: false,
+            additional_directories_supported: false,
+            prompt_capabilities_json: "{}".to_string(),
+            session_capabilities_json: "{}".to_string(),
+            client_capabilities_json: "{}".to_string(),
+            mcp_servers_json: "[]".to_string(),
+            modes_json: "[]".to_string(),
+            config_options_json: "[]".to_string(),
+            current_mode: None,
+            config_selection_json: "{}".to_string(),
+            status: "ready".to_string(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn restorable_binding_uses_the_newest_real_id_and_ignores_older_threads() {
+        let codex = AgentId::parse("codex").unwrap();
+        let older = sample_binding(codex.clone(), "thread-old", true);
+        let newer = sample_binding(codex.clone(), "thread-new", false);
+        assert_eq!(
+            super::restorable_agent_binding(&[older.clone(), newer], &codex)
+                .and_then(|binding| binding.acp_session_id.clone())
+                .as_deref(),
+            Some("thread-new")
         );
+
+        let rebound = sample_binding(codex.clone(), "vibex-new-session-rebound", false);
         assert!(
-            should_inject_host_history(false, false),
-            "a true cold start still needs host history"
+            super::restorable_agent_binding(&[older, rebound], &codex).is_none(),
+            "a rebind placeholder must not resume the abandoned older thread"
         );
     }
 
@@ -4979,32 +5056,32 @@ mod tests {
         // A live connection id without a bound ACP session (cancel never
         // acknowledged) must resume this conversation's stored id, not skip
         // restore and call session/new.
-        let resume_a = resume_external_session_id(Some("acp-session-a".to_string()), true, false);
-        let resume_b = resume_external_session_id(Some("acp-session-b".to_string()), true, false);
+        let resume_a = resume_external_session_id(Some("acp-session-a".to_string()), false);
+        let resume_b = resume_external_session_id(Some("acp-session-b".to_string()), false);
         assert_eq!(resume_a.as_deref(), Some("acp-session-a"));
         assert_eq!(resume_b.as_deref(), Some("acp-session-b"));
         assert_ne!(resume_a, resume_b);
         assert_eq!(
-            resume_external_session_id(Some("acp-session-a".to_string()), true, true),
+            resume_external_session_id(Some("acp-session-a".to_string()), true),
             None
         );
     }
 
     #[test]
-    fn active_writer_restore_failures_are_retried_instead_of_session_new() {
-        assert!(!should_cold_start_after_restore_failure(
-            &SessionLoadFailureReason::Other {
-                message:
-                    "session/load failed: thread abc already has an active writer (code -32600)"
-                        .into(),
-            }
-        ));
-        assert!(should_cold_start_after_restore_failure(
-            &SessionLoadFailureReason::ResourceNotFound
-        ));
-        assert!(should_cold_start_after_restore_failure(
-            &SessionLoadFailureReason::Unsupported
-        ));
+    fn zombie_in_flight_turn_is_only_the_dead_process_case() {
+        assert!(
+            is_zombie_in_flight_turn(true, false, false),
+            "a running turn with no process cannot complete"
+        );
+        assert!(
+            !is_zombie_in_flight_turn(true, false, true),
+            "handshake still has a live process before session/resume binds"
+        );
+        assert!(
+            !is_zombie_in_flight_turn(true, true, true),
+            "a bound live session is generating, not a zombie"
+        );
+        assert!(!is_zombie_in_flight_turn(false, false, false));
     }
 
     #[test]

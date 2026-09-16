@@ -2,8 +2,13 @@
 //!
 //! CEF's external message pump is bound to Tauri's Windows event loop. A GPU
 //! process crash (or a burst of browser commands) can request delay=0 work
-//! thousands of times. Queueing each request as its own `run_on_main_thread`
-//! task starves `WM_PAINT` / input and Windows reports the app as hung.
+//! thousands of times. Queueing each request as its own UI-thread task starves
+//! `WM_PAINT` / input and Windows reports the app as hung.
+//!
+//! Immediate pumps must be *posted* to the native loop. Tauri runs
+//! `run_on_main_thread` inline when already on the UI thread, and CEF calls
+//! this callback from inside `CefDoMessageLoopWork`. A nested pump cannot
+//! borrow the session and used to drop the follow-up, freezing the page.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 

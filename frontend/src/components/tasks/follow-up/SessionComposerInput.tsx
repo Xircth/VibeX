@@ -12,6 +12,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type MutableRefObject,
   type PointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -134,6 +135,7 @@ import {
   isPointInElement,
   relativePathInsideRoot,
 } from './composerHostFileDrop';
+import { replaceComposerValueWithUndo } from './replaceComposerValueWithUndo';
 
 export type SessionComposerImage = {
   id: string;
@@ -162,6 +164,7 @@ type SessionComposerInputProps = {
   context?: SessionComposerInputContext;
   messageHistory?: readonly string[];
   acceptExternalInserts?: boolean;
+  replaceValueRef?: MutableRefObject<((next: string) => void) | null>;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onAttachImages: (files: File[]) => void;
@@ -887,6 +890,7 @@ export function SessionComposerInput({
   context,
   messageHistory,
   acceptExternalInserts = true,
+  replaceValueRef,
   onChange,
   onSubmit,
   onAttachImages,
@@ -1046,6 +1050,18 @@ export function SessionComposerInput({
       );
     }
   }, [agentMentions.candidates, agentMentions.capability, value]);
+
+  useEffect(() => {
+    if (!replaceValueRef) return;
+    replaceValueRef.current = (next: string) => {
+      const editor = getSessionComposerEditable(composerRootRef.current);
+      if (editor && replaceComposerValueWithUndo(editor, next)) return;
+      onChange(next);
+    };
+    return () => {
+      replaceValueRef.current = null;
+    };
+  }, [onChange, replaceValueRef]);
 
   useEffect(() => {
     const anchor = activeHoverToken?.anchor;

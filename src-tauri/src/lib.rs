@@ -80,11 +80,14 @@ thread_local! {
 }
 
 pub(crate) fn pump_cef_session() {
-    CEF_PUMP.begin_pump();
     CEF_HOST.with(|slot| {
         let Ok(mut slot) = slot.try_borrow_mut() else {
+            // Nested call from CefDoMessageLoopWork. Leave the coalesced
+            // delay=0 request queued; the outer pump's follow-up post
+            // will drain it after the native message loop runs.
             return;
         };
+        CEF_PUMP.begin_pump();
         let Some(host) = slot.take() else {
             return;
         };
@@ -354,11 +357,20 @@ fn schedule_cef_pump(app_handle: &tauri::AppHandle, delay_ms: i64) {
     match CEF_PUMP.schedule(delay_ms) {
         None => {}
         Some(CefPumpWork::Immediate) => {
-            // Immediate work must not hop through tokio. CEF CHECKs that many
-            // APIs run on the thread that called CefInitialize; a
-            // tokio-rt-worker is not that. Coalescing above keeps a GPU-crash
-            // delay=0 storm from filling the UI queue and hanging the window.
-            let _ = app_handle.run_on_main_thread(pump_cef_session);
+            // Tauri's `run_on_main_thread` executes the task inline when it is
+            // already on the UI thread (`send_user_message`). CEF calls
+            // OnScheduleMessagePumpWork(0) from inside CefDoMessageLoopWork, so
+            // posting that way re-enters the pump, `try_borrow_mut` fails, and
+            // the page freezes. Hop to a worker first so the pump is Posted
+            // onto the native loop instead of running nested. The pump itself
+            // still runs on the thread that called CefInitialize.
+            let app_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = app_handle.run_on_main_thread(pump_cef_session) {
+                    CEF_PUMP.begin_pump();
+                    tracing::error!(%error, "failed to queue the Chromium message pump");
+                }
+            });
         }
         Some(CefPumpWork::Delayed {
             delay_ms,
@@ -886,5 +898,43 @@ mod tests {
         install_rustls_crypto_provider();
 
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn cef_pump_does_not_clear_coalescing_before_owning_the_session() {
+        let source = include_str!("lib.rs");
+        let start = source
+            .find("pub(crate) fn pump_cef_session")
+            .expect("pump_cef_session");
+        let body = source[start..]
+            .split("fn into_session")
+            .next()
+            .expect("pump body");
+        let borrow = body.find("try_borrow_mut").expect("try_borrow_mut");
+        let begin = body.find("begin_pump").expect("begin_pump");
+        assert!(
+            borrow < begin,
+            "clearing the coalescing flag before the session borrow drops nested delay=0 work"
+        );
+    }
+
+    #[test]
+    fn cef_immediate_pump_is_posted_instead_of_run_inline() {
+        let source = include_str!("lib.rs");
+        let start = source
+            .find("fn schedule_cef_pump")
+            .expect("schedule_cef_pump");
+        let body = source[start..]
+            .split("fn setup_unavailable_browser_runtime")
+            .next()
+            .expect("schedule body");
+        assert!(
+            body.contains("async_runtime::spawn"),
+            "immediate pumps must hop off the UI thread so Tauri posts them"
+        );
+        assert!(
+            body.contains("run_on_main_thread(pump_cef_session)"),
+            "the pump itself must still run on the CefInitialize thread"
+        );
     }
 }

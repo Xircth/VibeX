@@ -255,15 +255,109 @@ function assertCaptionMargin(rgba, width, height, margin, label) {
   }
 }
 
-test('Windows ICO frames are the same inset squircle', () => {
+function markBbox(rgba, width, height) {
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  let found = false;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const [red, green, blue, alpha] = pixel(rgba, width, x, y);
+      if (alpha <= 16 || red + green + blue < 40) continue;
+      found = true;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  assert.ok(found, 'icon mark was not found');
+  return { width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
+function assertWindowsSquircleBuffer(data, expectedSize, label) {
+  const { width, height, rgba } = decodePngRgba(data, label);
+  assert.equal(width, expectedSize, `${label} width`);
+  assert.equal(height, expectedSize, `${label} height`);
+
+  const corners = [
+    [0, 0],
+    [width - 1, 0],
+    [0, height - 1],
+    [width - 1, height - 1],
+  ];
+  for (const [x, y] of corners) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `${label} corner ${x},${y} must be transparent`
+    );
+  }
+
+  const canvasEdge = [
+    [Math.floor(width / 2), 0],
+    [Math.floor(width / 2), height - 1],
+    [0, Math.floor(height / 2)],
+    [width - 1, Math.floor(height / 2)],
+  ];
+  for (const [x, y] of canvasEdge) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      0,
+      `${label} canvas edge ${x},${y} must be inset`
+    );
+  }
+
+  const inner = Math.round(width * 0.25);
+  const innerSamples = [
+    [Math.floor(width / 2), inner],
+    [Math.floor(width / 2), height - 1 - inner],
+    [inner, Math.floor(height / 2)],
+    [width - 1 - inner, Math.floor(height / 2)],
+  ];
+  for (const [x, y] of innerSamples) {
+    assert.equal(
+      pixel(rgba, width, x, y)[3],
+      255,
+      `${label} inner ${x},${y} must be opaque`
+    );
+  }
+
+  const center = pixel(
+    rgba,
+    width,
+    Math.floor(width / 2),
+    Math.floor(height / 2)
+  );
+  assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
+  assert.equal(center[3], 255);
+}
+
+test('Windows ICO frames are inset squircles with fuller mark fill', () => {
   const icoPath = path.join(__dirname, '..', 'src-tauri', 'icons', 'icon.ico');
   for (const size of [32, 48, 128, 256]) {
-    assertSquircleBuffer(
+    assertWindowsSquircleBuffer(
       extractIcoPng(icoPath, size),
       size,
       `icon.ico ${size}x${size}`
     );
   }
+});
+
+test('Windows ICO mark is larger than the macOS/Linux PNG mark', () => {
+  const iconsDir = path.join(__dirname, '..', 'src-tauri', 'icons');
+  const png = readPngRgba(path.join(iconsDir, '128x128@2x.png'));
+  const ico = decodePngRgba(
+    extractIcoPng(path.join(iconsDir, 'icon.ico'), 256),
+    'icon.ico 256x256'
+  );
+  const pngMark = markBbox(png.rgba, png.width, png.height);
+  const icoMark = markBbox(ico.rgba, ico.width, ico.height);
+  assert.ok(
+    icoMark.width / pngMark.width > 1.1,
+    `Windows ICO mark ${icoMark.width} should be ~85/70 of PNG mark ${pngMark.width}`
+  );
 });
 
 test('Windows caption ICO sizes keep a DWM-safe transparent margin', () => {
@@ -290,11 +384,16 @@ test('Windows caption ICO sizes keep a DWM-safe transparent margin', () => {
   }
 });
 
-test('Windows Store logos are the same inset squircle', () => {
+test('Windows Store logos are inset squircles with fuller mark fill', () => {
   const iconsDir = path.join(__dirname, '..', 'src-tauri', 'icons');
-  assertSquircleIcon(path.join(iconsDir, 'Square44x44Logo.png'), 44);
-  assertSquircleIcon(path.join(iconsDir, 'Square150x150Logo.png'), 150);
-  assertSquircleIcon(path.join(iconsDir, 'StoreLogo.png'), 50);
+  for (const [name, size] of [
+    ['Square44x44Logo.png', 44],
+    ['Square150x150Logo.png', 150],
+    ['StoreLogo.png', 50],
+  ]) {
+    const filePath = path.join(iconsDir, name);
+    assertWindowsSquircleBuffer(fs.readFileSync(filePath), size, filePath);
+  }
 });
 
 test('Windows ICO includes the desktop icon sizes', () => {
@@ -314,6 +413,15 @@ test('Windows ICO includes the desktop icon sizes', () => {
   ]) {
     assert.ok(sizes.includes(required), `icon.ico missing ${required}`);
   }
+});
+
+test('Windows icon generator uses a fuller content scale than macOS', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, 'generate-app-icons.py'),
+    'utf8'
+  );
+  assert.match(source, /CONTENT_SCALE = 0\.70/);
+  assert.match(source, /WINDOWS_CONTENT_SCALE = 0\.85/);
 });
 
 test('macOS ICNS includes the standard 1x and 2x slots', () => {

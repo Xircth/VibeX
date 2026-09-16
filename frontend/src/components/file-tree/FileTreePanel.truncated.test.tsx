@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from '@/components/ui/toast';
 
 import { FileTreePanel } from './FileTreePanel';
+import { FILE_TREE_EXPAND_ALL_CONCURRENCY } from './file-tree-utils';
 import { fileTreeApi } from '../../lib/api';
 import { ConfirmDialog } from '@/components/dialogs';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
+import type { DirectoryChildrenResponse } from '../../lib/api';
 
 vi.mock('@/components/ui/toast', () => ({
   toast: {
@@ -245,5 +247,221 @@ describe('FileTreePanel lazy directory loading', () => {
       expect(fileTreeApi.trashItem).toHaveBeenCalledWith('/repo/index.ts');
       expect(toast.error).toHaveBeenCalledWith('删除失败');
     });
+  });
+
+  it('keeps the workspace root expanded and ignores root collapse clicks', () => {
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={['src', 'docs']}
+        isLoading={false}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /src/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /docs/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'repo' }));
+
+    expect(screen.getByRole('button', { name: /src/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /docs/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'repo' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+  });
+
+  it('expands all folders in bounded batches and then loads nested directories', async () => {
+    const folders = ['assets', 'crates', 'docs', 'frontend', 'scripts', 'src'];
+    let activeLoads = 0;
+    let maxActiveLoads = 0;
+    const pending = new Map<
+      string,
+      {
+        resolve: (value: DirectoryChildrenResponse) => void;
+      }
+    >();
+
+    vi.mocked(fileTreeApi.listDirectoryChildren).mockImplementation(
+      (_root, path) => {
+        activeLoads += 1;
+        maxActiveLoads = Math.max(maxActiveLoads, activeLoads);
+        return new Promise<DirectoryChildrenResponse>((resolve) => {
+          pending.set(path, {
+            resolve: (value) => {
+              pending.delete(path);
+              activeLoads -= 1;
+              resolve(value);
+            },
+          });
+        });
+      }
+    );
+
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={folders}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '展开所有文件夹' }));
+
+    await waitFor(() => {
+      expect(pending.size).toBe(FILE_TREE_EXPAND_ALL_CONCURRENCY);
+    });
+    expect(maxActiveLoads).toBeLessThanOrEqual(
+      FILE_TREE_EXPAND_ALL_CONCURRENCY
+    );
+    expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    expect(screen.queryByText('加载失败，点击重试')).not.toBeInTheDocument();
+
+    const firstBatch = Array.from(pending.keys());
+    const nestedParent = firstBatch[0]!;
+    for (const path of firstBatch) {
+      pending.get(path)!.resolve({
+        files: path === nestedParent ? [] : [`${path}/readme.md`],
+        directories: path === nestedParent ? [`${path}/nested`] : [],
+        gitignored_files: [],
+        gitignored_directories: [],
+        truncated: false,
+      });
+    }
+
+    await waitFor(() => {
+      expect(pending.has(`${nestedParent}/nested`)).toBe(true);
+    });
+    expect(maxActiveLoads).toBeLessThanOrEqual(
+      FILE_TREE_EXPAND_ALL_CONCURRENCY
+    );
+
+    pending.get(`${nestedParent}/nested`)!.resolve({
+      files: [`${nestedParent}/nested/deep.ts`],
+      directories: [],
+      gitignored_files: [],
+      gitignored_directories: [],
+      truncated: false,
+    });
+
+    for (const path of folders) {
+      pending.get(path)?.resolve({
+        files: [`${path}/readme.md`],
+        directories: [],
+        gitignored_files: [],
+        gitignored_directories: [],
+        truncated: false,
+      });
+    }
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /deep\.ts/i })
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    expect(maxActiveLoads).toBeLessThanOrEqual(
+      FILE_TREE_EXPAND_ALL_CONCURRENCY
+    );
+  });
+
+  it('keeps already visible children while expand-all loads the rest', async () => {
+    const pending = new Map<
+      string,
+      (value: DirectoryChildrenResponse) => void
+    >();
+    vi.mocked(fileTreeApi.listDirectoryChildren).mockImplementation(
+      (_root, path) =>
+        new Promise<DirectoryChildrenResponse>((resolve) => {
+          pending.set(path, resolve);
+        })
+    );
+
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={['assets/logo.png']}
+        directories={['assets', 'src']}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /assets/i }));
+    expect(
+      screen.getByRole('button', { name: /logo\.png/i })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开所有文件夹' }));
+
+    await waitFor(() => {
+      expect(pending.has('src')).toBe(true);
+    });
+    expect(
+      screen.getByRole('button', { name: /logo\.png/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+
+    pending.get('src')?.({
+      files: ['src/index.ts'],
+      directories: [],
+      gitignored_files: [],
+      gitignored_directories: [],
+      truncated: false,
+    });
+    pending.get('assets')?.({
+      files: ['assets/logo.png'],
+      directories: [],
+      gitignored_files: [],
+      gitignored_directories: [],
+      truncated: false,
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /index\.ts/i })
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole('button', { name: /logo\.png/i })
+    ).toBeInTheDocument();
+  });
+
+  it('shows a retry control when expand-all fails and recovers after retry', async () => {
+    vi.mocked(fileTreeApi.listDirectoryChildren)
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({
+        files: ['src/index.ts'],
+        directories: [],
+        gitignored_files: [],
+        gitignored_directories: [],
+        truncated: false,
+      });
+
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={['src']}
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '展开所有文件夹' }));
+
+    const retryButton = await screen.findByRole('button', {
+      name: '加载失败，点击重试',
+    });
+    expect(retryButton).toHaveAttribute('title', 'network down');
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /index\.ts/i })
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText('加载失败，点击重试')).not.toBeInTheDocument();
   });
 });

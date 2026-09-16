@@ -57,6 +57,7 @@ pub use relation::{
 pub use runtime_events::{
     ConversationAgentEventRecorder, RecordedConversationBatch, RecordedConversationCompletion,
     RuntimeEventRecordError, start_agent_event_persistence,
+    start_agent_event_persistence_with_observer,
 };
 pub use scoped_control::{
     ScopedConversationControl, ScopedConversationControlError, ScopedConversationWait,

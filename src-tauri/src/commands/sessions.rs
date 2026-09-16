@@ -935,6 +935,17 @@ pub async fn delete_session(
         return Err(AppError::Conflict("会话仍在执行，无法删除".to_string()));
     }
 
+    if let Err(error) = conversations::ConversationSessionService::new(state.conversation_context())
+        .close_conversation(session_id, Some("deleted".to_string()))
+        .await
+    {
+        tracing::warn!(
+            %session_id,
+            %error,
+            "failed to close conversation runtime before delete"
+        );
+    }
+
     Scratch::delete_all_by_id(pool, session_id).await?;
 
     let deleted_rows = Session::delete(pool, session_id).await?;

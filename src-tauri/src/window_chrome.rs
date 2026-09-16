@@ -60,6 +60,15 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         }
         _ => {}
     }
+    #[cfg(windows)]
+    match event {
+        tauri::WindowEvent::Moved(_)
+        | tauri::WindowEvent::Resized(_)
+        | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+            browser_cef::sync_windows_browser_hosts();
+        }
+        _ => {}
+    }
 }
 
 #[cfg(target_os = "macos")]

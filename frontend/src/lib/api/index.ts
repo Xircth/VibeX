@@ -51,7 +51,11 @@ export {
   hostClientApi,
   chatChannelApi,
 } from './config';
-export { settingsWindowApi, useOpenSettings } from './settingsWindow';
+export {
+  settingsWindowApi,
+  useOpenSettings,
+  openSettingsSurface,
+} from './settingsWindow';
 export { appWindowApi, openLocalAppWindow } from './appWindow';
 export type {
   ClaudeSettings,

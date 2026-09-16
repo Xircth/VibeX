@@ -13,12 +13,15 @@ export const settingsWindowApi = {
   },
 };
 
-export function openSettingsSurface(navigate: (path: string) => void): void {
+export function openSettingsSurface(
+  navigate: (path: string) => void,
+  path?: string
+): void {
   if (isTauriClient()) {
-    void settingsWindowApi.open();
+    void settingsWindowApi.open(path);
     return;
   }
-  navigate('/settings');
+  navigate(path ?? '/settings');
 }
 
 export function useOpenSettings(): () => void {

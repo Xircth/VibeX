@@ -1,6 +1,7 @@
 import { Outlet, useSearchParams, useLocation } from 'react-router-dom';
 
 import { Navbar } from '@/components/layout/Navbar';
+import { StatusBar } from '@/components/layout/StatusBar';
 
 export function NormalLayout() {
   const [searchParams] = useSearchParams();
@@ -18,6 +19,7 @@ export function NormalLayout() {
         <div className="flex-1 overflow-auto">
           <Outlet />
         </div>
+        <StatusBar />
       </div>
     </>
   );

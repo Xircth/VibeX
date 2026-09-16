@@ -8,12 +8,10 @@ function renderRunningControls(
 ) {
   return render(
     <ActionBarRunningControls
-      isQueueLoading={false}
       isCompactingContext={false}
       isStopping={false}
       hasQueueableContent={true}
       sessionId="session-1"
-      onQueueMessage={vi.fn()}
       onStopExecution={vi.fn()}
       {...props}
     />
@@ -21,13 +19,11 @@ function renderRunningControls(
 }
 
 describe('ActionBarRunningControls', () => {
-  it('queues another message whenever running content is available', () => {
-    const onQueueMessage = vi.fn();
-    renderRunningControls({ onQueueMessage });
+  it('does not show a queue action while a turn is running', () => {
+    renderRunningControls();
 
-    fireEvent.click(screen.getByRole('button', { name: '队列' }));
-
-    expect(onQueueMessage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '队列' })).toBeNull();
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
   });
 
   it('offers native insert only when a native channel is live', () => {
@@ -40,13 +36,11 @@ describe('ActionBarRunningControls', () => {
 
     rerender(
       <ActionBarRunningControls
-        isQueueLoading={false}
         isCompactingContext={false}
         isStopping={false}
         steeringChannel="native"
         hasQueueableContent={true}
         sessionId="session-1"
-        onQueueMessage={vi.fn()}
         onSteer={onSteer}
         onStopExecution={vi.fn()}
       />
@@ -64,35 +58,14 @@ describe('ActionBarRunningControls', () => {
     ).toBeEnabled();
   });
 
-  it('disables queueing without a session id or queueable content', () => {
-    const onQueueMessage = vi.fn();
+  it('hides steer controls while compacting but keeps stop available', () => {
     renderRunningControls({
-      sessionId: undefined,
-      hasQueueableContent: false,
-      onQueueMessage,
+      isCompactingContext: true,
+      steeringChannel: 'native',
+      onSteer: vi.fn(),
     });
 
-    const queueButton = screen.getByRole('button', { name: '队列' });
-    expect(queueButton).toBeDisabled();
-
-    fireEvent.click(queueButton);
-    expect(onQueueMessage).not.toHaveBeenCalled();
-  });
-
-  it('shows the queue loading state', () => {
-    renderRunningControls({ isQueueLoading: true });
-
-    expect(
-      screen
-        .getByRole('button', { name: '队列' })
-        .querySelector('.animate-spin')
-    ).toBeInTheDocument();
-  });
-
-  it('hides queue controls while compacting but keeps stop available', () => {
-    renderRunningControls({ isCompactingContext: true });
-
-    expect(screen.queryByRole('button', { name: '队列' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '插入当前回合' })).toBeNull();
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
   });
 
@@ -112,12 +85,10 @@ describe('ActionBarRunningControls', () => {
 
     rerender(
       <ActionBarRunningControls
-        isQueueLoading={false}
         isCompactingContext={false}
         isStopping={true}
         hasQueueableContent={true}
         sessionId="session-1"
-        onQueueMessage={vi.fn()}
         onStopExecution={onStopExecution}
       />
     );

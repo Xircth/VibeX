@@ -11,6 +11,8 @@ use browser_runtime::{BrowserEngine, BrowserEngineCommand, BrowserError, Browser
 
 #[cfg(feature = "cef-host")]
 mod cef_host;
+#[cfg(all(feature = "cef-host", target_os = "windows"))]
+pub use cef_host::sync_windows_browser_hosts;
 #[cfg(feature = "cef-host")]
 pub use cef_host::{
     CefBootstrap, CefHostError, CefProcess, CefSession, NativeBrowserParent, PumpScheduler,
@@ -23,18 +25,13 @@ const WINDOWS_CEF_DISABLED_FEATURES: &str =
 
 /// Chromium switches applied to every embedded CEF process.
 ///
-/// On Windows the preview browser is a child HWND inside Tauri's WebView2
-/// window. DirectComposition and native-window occlusion can crash the GPU
-/// process (`exit_code=0x80000003`). After three crashes Chromium falls back
-/// to in-process software compositing on the UI thread, and the desktop app
-/// stops painting until Windows reports it hung.
+/// Native-window occlusion is disabled on every platform because Chromium can
+/// otherwise stop presenting a still-visible view. Windows no longer parents
+/// the page into Tauri's WebView2 HWND (that path crashed the GPU process and
+/// fell back to in-process software compositing on the UI thread). Direct
+/// composition stays enabled so GPU work remains in CEF's GPU process.
 pub fn embedded_chromium_switches() -> Vec<(&'static str, Option<&'static str>)> {
-    let mut switches = vec![("disable-features", Some(WINDOWS_CEF_DISABLED_FEATURES))];
-    if cfg!(target_os = "windows") {
-        switches.push(("disable-direct-composition", None));
-        switches.push(("disable-gpu-vsync", None));
-    }
-    switches
+    vec![("disable-features", Some(WINDOWS_CEF_DISABLED_FEATURES))]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,21 +153,15 @@ mod tests {
     }
 
     #[test]
-    fn windows_embedded_switches_keep_gpu_work_off_the_ui_thread() {
+    fn embedded_switches_do_not_force_in_process_compositing() {
         let names: Vec<&str> = embedded_chromium_switches()
             .iter()
             .map(|(name, _)| *name)
             .collect();
-        #[cfg(target_os = "windows")]
-        {
-            assert!(names.contains(&"disable-direct-composition"));
-            assert!(names.contains(&"disable-gpu-vsync"));
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            assert!(!names.contains(&"disable-direct-composition"));
-            assert!(!names.contains(&"disable-gpu-vsync"));
-        }
+        assert!(!names.contains(&"disable-direct-composition"));
+        assert!(!names.contains(&"disable-gpu-vsync"));
+        assert!(!names.contains(&"in-process-gpu"));
+        assert!(!names.contains(&"disable-gpu"));
     }
 }
 

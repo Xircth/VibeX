@@ -41,6 +41,25 @@
   max-width: 82%;
 }
 
+/* Invisible bridge under the bubble so the pointer can reach the
+   absolutely positioned action rail without dropping :hover. It only
+   captures once the wrap is already hovered, so idle messages stay
+   inert. */
+.conv-user-bubble-wrap::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 1;
+  width: 88px;
+  height: 32px;
+  pointer-events: none;
+}
+
+.conv-user-bubble-wrap:hover::after {
+  pointer-events: auto;
+}
+
 .conv-user-actions {
   position: absolute;
   right: 0;
@@ -51,19 +70,25 @@
   gap: 2px;
   padding-top: 4px;
   opacity: 0;
+  visibility: hidden;
   transform: translateY(-2px);
   pointer-events: none;
   transition:
     opacity 160ms ease,
-    transform 160ms ease;
+    transform 160ms ease,
+    visibility 0s linear 220ms,
+    pointer-events 0s linear 220ms;
 }
 
 .conv-user-turn:hover .conv-user-actions,
 .conv-user-bubble-wrap:hover .conv-user-actions,
+.conv-user-actions:hover,
 .conv-user-actions:focus-within {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
   pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .conv-user-action-btn {

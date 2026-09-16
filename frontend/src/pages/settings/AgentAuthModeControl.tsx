@@ -41,6 +41,10 @@ import {
 import { cn } from '@/lib/utils';
 
 import {
+  peekAgentAuthKindTab,
+  rememberAgentAuthKindTab,
+} from './agentAuthKindTab';
+import {
   clearAgentSettingsDraft,
   peekAgentSettingsDraft,
   retainAgentSettingsDraft,
@@ -112,7 +116,11 @@ export function AgentAuthModeControl({
       const next = await agentManagementApi.authMode(agentId);
       setView(next);
       const kept = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
-      const nextMode = kept?.mode ?? next.mode;
+      const rememberedMode = modeMatchingAuthKind(
+        next,
+        peekAgentAuthKindTab(agentId)
+      );
+      const nextMode = kept?.mode ?? rememberedMode ?? next.mode;
       setMode(nextMode);
       if (kept) setApiKey(kept.apiKey);
       const nextKind =
@@ -178,6 +186,7 @@ export function AgentAuthModeControl({
       if (locked) return false;
       setSaving(true);
       setMode(nextMode);
+      rememberAgentAuthKindTab(agentId, kindOfMode(nextMode));
       try {
         const next = await agentManagementApi.setAuthMode(
           agentId,
@@ -185,7 +194,9 @@ export function AgentAuthModeControl({
           nextApiKey.trim() || null
         );
         setView(next);
-        setMode(next.mode);
+        // Keep the mode the user asked for so a bound provider cannot
+        // immediately snap the tab away from an explicit choice.
+        setMode(nextMode);
         setApiKey('');
         clearAgentSettingsDraft(authDraftKey(agentId));
       } catch (error) {
@@ -241,8 +252,12 @@ export function AgentAuthModeControl({
     await selectMode(next.value);
   };
 
-  const selectMode = async (nextMode: string) => {
-    if (!view || nextMode === mode || saving || locked) return;
+  const selectMode = async (nextMode: string): Promise<boolean> => {
+    if (!view || saving || locked) return false;
+    if (nextMode === mode) {
+      rememberAgentAuthKindTab(agentId, kindOfMode(nextMode));
+      return true;
+    }
     const nextOption = view.options.find((option) => option.value === nextMode);
     const nextAvailable = credentialIsAvailable(
       view,
@@ -253,7 +268,8 @@ export function AgentAuthModeControl({
     if (nextMode === view.mode) {
       setMode(nextMode);
       setApiKey('');
-      return;
+      rememberAgentAuthKindTab(agentId, kindOfMode(nextMode));
+      return true;
     }
     const currentKind = selectedKind;
     const nextKind = nextOption?.kind ?? kindOfMode(nextMode);
@@ -271,16 +287,17 @@ export function AgentAuthModeControl({
         cancelText: t('common:cancel'),
         variant: 'destructive',
       });
-      if (result !== 'confirmed') return;
+      if (result !== 'confirmed') return false;
     }
     if (persistsImmediately(nextOption, nextAvailable, view.mode, signedIn)) {
-      await persistMode(nextMode);
-      return;
+      return persistMode(nextMode);
     }
     setMode(nextMode);
     if (!nextOption?.credential_required || nextOption.native_config_field_id) {
       setApiKey('');
     }
+    rememberAgentAuthKindTab(agentId, kindOfMode(nextMode));
+    return true;
   };
 
   const saveCredential = async () => {
@@ -720,6 +737,20 @@ function shouldConfirmOfficialSubscriptionSwitch({
   );
 }
 
+function modeMatchingAuthKind(
+  view: AgentAuthModeView,
+  kind: AgentAuthModeKind | null
+): string | null {
+  if (!kind) return null;
+  const options = view.options.filter((option) => option.kind === kind);
+  if (options.length === 0) return null;
+  return (
+    options.find((option) => option.value === view.mode)?.value ??
+    options[0]?.value ??
+    null
+  );
+}
+
 function persistsImmediately(
   option: AgentAuthModeOptionView | undefined,
   credentialAvailable: boolean,
@@ -727,6 +758,9 @@ function persistsImmediately(
   signedIn: boolean
 ): boolean {
   if (!option) return false;
+  // Official subscription is the active source once confirmed. Persist even
+  // when leaving a bound Model Provider; otherwise the tab stays a draft and
+  // the next auth reload snaps back to `model_provider`.
   if (option.kind === 'subscription') {
     return signedIn;
   }

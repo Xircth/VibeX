@@ -484,7 +484,6 @@ export function TaskFollowUpSection({
     beginEditQueue,
     editingInput,
     moveQueue,
-    isQueueLoading,
     isQueued,
     queueIndicatorState,
   } = useSessionComposerQueue({
@@ -911,8 +910,7 @@ export function TaskFollowUpSection({
     hasExecutorProfile: Boolean(effectiveExecutorProfile?.executor),
   });
 
-  const { handleQueueMessage, handleComposerSubmit } =
-    useSessionComposerSubmitActions({
+  const { handleComposerSubmit } = useSessionComposerSubmitActions({
       localMessage,
       conflictResolutionInstructions,
       reviewMarkdown,
@@ -943,6 +941,20 @@ export function TaskFollowUpSection({
     setLocalMessage,
     setFollowUpMessage,
   });
+  const composerReplaceValueRef = useRef<((next: string) => void) | null>(
+    null
+  );
+  const applyEnhancedPrompt = useCallback(
+    (prompt: string) => {
+      const replaceValue = composerReplaceValueRef.current;
+      if (replaceValue) {
+        replaceValue(prompt);
+        return;
+      }
+      handleEditorChange(prompt);
+    },
+    [handleEditorChange]
+  );
 
   const getPreviewInsertionMessage = useCallback(
     () => localMessage,
@@ -983,7 +995,7 @@ export function TaskFollowUpSection({
       sessionId,
       workspaceId,
       contextMessages: promptEnhancementContext,
-      applyEnhancedPrompt: handleEditorChange,
+      applyEnhancedPrompt,
       setFollowUpError,
     });
 
@@ -1153,6 +1165,7 @@ export function TaskFollowUpSection({
             <SessionComposerInput
               value={localMessage}
               onChange={handleEditorChange}
+              replaceValueRef={composerReplaceValueRef}
               disabled={!isEditable}
               messageHistory={userMessageHistory}
               context={{
@@ -1184,7 +1197,6 @@ export function TaskFollowUpSection({
             onSelectConfigOption={handleSelectConfigOption}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
-            isQueueLoading={isQueueLoading}
             compactContextEnabled={config?.compact_context_enabled ?? false}
             canCompactContext={canCompactContext}
             isCompactingContext={isCompactingContext}
@@ -1208,7 +1220,6 @@ export function TaskFollowUpSection({
             reviewMarkdown={reviewMarkdown}
             comments={comments}
             onCompactContext={handleCompactContext}
-            onQueueMessage={handleQueueMessage}
             onSteer={handleSteer}
             onStopExecution={stopExecution}
             onSendFollowUp={onSendFollowUp}

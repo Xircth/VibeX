@@ -14,7 +14,7 @@ use agents::conversation::{
     cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 use db::models::{
-    conversation::ConversationAgentBindingRecord,
+    conversation::{ConversationAgentBindingRecord, ConversationRecord},
     conversation_event::{
         AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
         find_conversation_event_by_idempotency, insert_conversation_event,
@@ -426,12 +426,24 @@ impl ConversationStateApplier {
                         None,
                     )
                     .await?;
+                    ConversationRecord::clear_active_turn_if_on_connection(
+                        &mut *conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
                 }
             }
             ConversationEvent::TurnFailed { error } => {
                 if let Some(turn_id) = record.turn_id {
                     let error_json = json_string(&error)?;
                     ConversationTurnRecord::mark_failed(&mut *conn, turn_id, &error_json).await?;
+                    ConversationRecord::clear_active_turn_if_on_connection(
+                        &mut *conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
                 }
             }
             ConversationEvent::TurnCancelled { reason } => {
@@ -444,6 +456,12 @@ impl ConversationStateApplier {
                         reason_json.as_deref(),
                     )
                     .await?;
+                    ConversationRecord::clear_active_turn_if_on_connection(
+                        &mut *conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
                 }
             }
             ConversationEvent::TurnInterrupted { reason } => {
@@ -454,6 +472,12 @@ impl ConversationStateApplier {
                         &mut *conn,
                         turn_id,
                         reason_json.as_deref(),
+                    )
+                    .await?;
+                    ConversationRecord::clear_active_turn_if_on_connection(
+                        &mut *conn,
+                        record.conversation_id,
+                        turn_id,
                     )
                     .await?;
                 }

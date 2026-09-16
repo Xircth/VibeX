@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_ENABLED_PI_THINKING_LEVELS,
   implicitWireValue,
   levelsFromMap,
   NO_PI_REASONING,
   piReasoningIssue,
   reasoningFromModel,
   reasoningToMap,
+  thinkingLevelMapFromUnknown,
   toggleThinkingLevel,
 } from './piThinking';
 
@@ -78,5 +80,26 @@ describe('piThinking', () => {
         'xhigh'
       )
     ).toBe('default-unlisted');
+  });
+
+  it('defaults new reasoning declarations to every level except xhigh', () => {
+    expect(DEFAULT_ENABLED_PI_THINKING_LEVELS).toEqual([
+      'off',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+    ]);
+  });
+
+  it('reads camelCase and snake_case thinking maps', () => {
+    expect(
+      thinkingLevelMapFromUnknown({
+        off: 'none',
+        xhigh: null,
+        ignored: 'nope',
+      })
+    ).toEqual({ off: 'none', xhigh: null });
+    expect(thinkingLevelMapFromUnknown(null)).toBeUndefined();
   });
 });

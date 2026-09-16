@@ -6,8 +6,8 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NativeTitleTooltipHost } from './NativeTitleTooltipHost';
-import { NATIVE_TITLE_SHOW_DELAY_MS } from './nativeTitleTooltip';
+import { NativeTitleTooltipHost } from './native-title-tooltip-host';
+import { NATIVE_TITLE_SHOW_DELAY_MS } from './native-title-tooltip';
 
 describe('NativeTitleTooltipHost', () => {
   beforeEach(() => {

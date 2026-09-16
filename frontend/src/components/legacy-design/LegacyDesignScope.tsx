@@ -4,7 +4,7 @@ import NiceModal from '@ebay/nice-modal-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/ThemeProvider';
 import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
-import { NativeTitleTooltipHost } from '@/components/ui/NativeTitleTooltipHost';
+import { NativeTitleTooltipHost } from '@/components/ui/native-title-tooltip-host';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 // Astryx CSS cascade: reset → component styles → theme token overrides.
 import '@astryxdesign/core/reset.css';

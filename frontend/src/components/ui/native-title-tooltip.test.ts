@@ -4,7 +4,7 @@ import {
   positionHoverTooltip,
   restoreNativeTitle,
   suppressNativeTitle,
-} from './nativeTitleTooltip';
+} from './native-title-tooltip';
 
 describe('native title tooltip helpers', () => {
   it('ignores empty titles, the document root, and tooltip chrome', () => {

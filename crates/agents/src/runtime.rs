@@ -1015,6 +1015,20 @@ impl AgentRuntime {
             // read the next Prompt/Resume. Drop it so 继续 can session/load
             // this conversation's ACP id on a fresh process (ADR-0071).
             let _ = self.disconnect(existing_session.connection_id).await;
+            // The old process will never ack session/cancel. Finalize those
+            // prompts so the rebound connection can start a new turn instead
+            // of queuing behind a Cancelling prompt that never settles.
+            {
+                let mut state = self.state.write().await;
+                fail_connection_sessions_locked(
+                    &mut state,
+                    existing_session.connection_id,
+                    "ACP connection replaced before the previous turn settled".to_string(),
+                );
+                if let Some(session) = state.sessions.get_mut(&input.session_id) {
+                    session.snapshot.status = AgentSessionStatus::Ready;
+                }
+            }
         }
 
         // A connection serves exactly one conversation. `run_prompt` owns the
@@ -4245,9 +4259,9 @@ mod tests {
 
         assert_eq!(session.id, local_session_id);
         assert_ne!(session.id.to_string(), session.acp_session_id);
-        // `ensure_session` records the stored external id on the snapshot.
-        // A live ACP binding only exists after session/new or session/resume.
-        assert!(!runtime.has_bound_acp_session(local_session_id).await);
+        // `prepare_session` completes session/new or session/resume, so the
+        // host conversation is bound to the resulting ACP id.
+        assert!(runtime.has_bound_acp_session(local_session_id).await);
     }
 
     #[tokio::test]

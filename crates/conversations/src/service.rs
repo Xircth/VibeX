@@ -1433,8 +1433,7 @@ impl ConversationSessionService {
                         .agent_runtime
                         .live_connection_id(AgentSessionId(input.conversation_id))
                         .await
-                    {
-                        if let Err(error) = self
+                        && let Err(error) = self
                             .ctx
                             .agent_runtime
                             .cancel_prompt(CancelAgentPromptInput {
@@ -1443,15 +1442,14 @@ impl ConversationSessionService {
                                 prompt_id: prompt.id,
                             })
                             .await
-                        {
-                            tracing::warn!(
-                                conversation_id = %input.conversation_id,
-                                prompt_id = %prompt.id,
-                                %error,
-                                "failed to cancel a prompt sent after the turn was stopped"
-                            );
-                            self.drop_live_agent_connection(input.conversation_id).await;
-                        }
+                    {
+                        tracing::warn!(
+                            conversation_id = %input.conversation_id,
+                            prompt_id = %prompt.id,
+                            %error,
+                            "failed to cancel a prompt sent after the turn was stopped"
+                        );
+                        self.drop_live_agent_connection(input.conversation_id).await;
                     }
                 }
                 Err(_) => {

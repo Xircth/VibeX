@@ -8,7 +8,7 @@ import {
   positionHoverTooltip,
   restoreNativeTitle,
   suppressNativeTitle,
-} from './nativeTitleTooltip';
+} from './native-title-tooltip';
 
 type TooltipState = {
   text: string;

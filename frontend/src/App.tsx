@@ -201,8 +201,7 @@ function MainAppContent() {
           {
             action: {
               label: t('shell.viewUpdate'),
-              onClick: () =>
-                openSettingsSurface(navigate, '/settings/system'),
+              onClick: () => openSettingsSurface(navigate, '/settings/system'),
             },
           }
         );

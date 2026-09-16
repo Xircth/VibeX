@@ -3837,8 +3837,6 @@ fn pi_model_id(raw: &str) -> String {
     }
 }
 
-const PI_THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh"];
-
 fn apply_pi_thinking_level(settings: &mut Map<String, Value>, raw: &str) {
     let spec = match parse_model(raw) {
         Value::Object(object) => object,

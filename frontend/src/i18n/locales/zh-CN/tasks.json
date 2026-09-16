@@ -282,10 +282,7 @@
     "loadingSessions": "正在加载会话...",
     "archiveEmpty": "归档区暂无会话。",
     "noSessions": "暂无会话，点击上方“新增”即可创建。",
-    "noFilterMatch": "没有符合当前筛选或排序条件的会话。",
-    "search": "搜索会话",
-    "searchPlaceholder": "搜索会话名称",
-    "searchEmpty": "没有匹配的会话"
+    "noFilterMatch": "没有符合当前筛选或排序条件的会话。"
   },
   "importSessions": {
     "title": "导入本地对话",

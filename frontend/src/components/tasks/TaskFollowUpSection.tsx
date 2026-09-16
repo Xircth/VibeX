@@ -911,28 +911,28 @@ export function TaskFollowUpSection({
   });
 
   const { handleComposerSubmit } = useSessionComposerSubmitActions({
-      localMessage,
-      conflictResolutionInstructions,
-      reviewMarkdown,
-      attachedImagePaths,
-      effectiveExecutorProfile,
-      isAttemptRunning: isComposerExecutionRunning,
-      isQueued,
-      isEditingQueued: Boolean(editingInput),
-      clearStopping,
-      cancelDebouncedSave,
-      saveToScratch,
-      queueMessage,
-      onAfterQueueCleanup: () => {
-        setLocalMessage('');
-        setAttachedImages((prev) => {
-          const cleanup = clearComposerImageAttachments(prev);
-          cleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
-          return cleanup.attachments;
-        });
-      },
-      onSubmitFollowUp,
-    });
+    localMessage,
+    conflictResolutionInstructions,
+    reviewMarkdown,
+    attachedImagePaths,
+    effectiveExecutorProfile,
+    isAttemptRunning: isComposerExecutionRunning,
+    isQueued,
+    isEditingQueued: Boolean(editingInput),
+    clearStopping,
+    cancelDebouncedSave,
+    saveToScratch,
+    queueMessage,
+    onAfterQueueCleanup: () => {
+      setLocalMessage('');
+      setAttachedImages((prev) => {
+        const cleanup = clearComposerImageAttachments(prev);
+        cleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
+        return cleanup.attachments;
+      });
+    },
+    onSubmitFollowUp,
+  });
 
   const { handleEditorChange } = useSessionComposerEditorChange({
     sessionId,
@@ -941,9 +941,7 @@ export function TaskFollowUpSection({
     setLocalMessage,
     setFollowUpMessage,
   });
-  const composerReplaceValueRef = useRef<((next: string) => void) | null>(
-    null
-  );
+  const composerReplaceValueRef = useRef<((next: string) => void) | null>(null);
   const applyEnhancedPrompt = useCallback(
     (prompt: string) => {
       const replaceValue = composerReplaceValueRef.current;

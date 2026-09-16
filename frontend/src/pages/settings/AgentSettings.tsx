@@ -619,6 +619,10 @@ export function AgentSettings() {
     }
   }, [refreshManagement, selectedAgentId]);
 
+  const notifyAuthenticationChanged = useCallback(() => {
+    void refreshAuthentication();
+  }, [refreshAuthentication]);
+
   const watchAccountFlow = useCallback(
     async (
       agentId: string,
@@ -1113,7 +1117,7 @@ export function AgentSettings() {
         <DshAuthPanel
           locked={agentLocked}
           onDirtyChange={setDshProviderDirty}
-          onChanged={refreshAuthentication}
+          onChanged={notifyAuthenticationChanged}
         />
       </AgentLockedSurface>
     ) : selectedAgent && hasAuthenticationMode ? (
@@ -1172,7 +1176,7 @@ export function AgentSettings() {
                 agentId={selectedAgent.agent_id}
                 surface="provider"
                 onDirtyChange={setOpenCodeProviderDirty}
-                onChanged={refreshAuthentication}
+                onChanged={notifyAuthenticationChanged}
               />
             ) : liveConfig?.settings_features.includes(
                 'reusable_model_providers'
@@ -1185,25 +1189,25 @@ export function AgentSettings() {
                 disabled={savingConfig || agentLocked}
                 embedded
                 onDirtyChange={setModelProviderDirty}
-                onChanged={refreshAuthentication}
+                onChanged={notifyAuthenticationChanged}
               />
             ) : undefined
           }
-          onChanged={refreshAuthentication}
+          onChanged={notifyAuthenticationChanged}
           onDirtyChange={setAuthModeDirty}
-          onAuthenticated={refreshAuthentication}
+          onAuthenticated={notifyAuthenticationChanged}
           onRunAction={(actionId) => void runManagementAction(actionId)}
           accountExtra={
             selectedAgent.agent_id === 'opencode' ? (
               <OpenCodeSubscriptionPanel
                 onDirtyChange={setOpenCodeProviderDirty}
-                onChanged={refreshAuthentication}
+                onChanged={notifyAuthenticationChanged}
               />
             ) : selectedAgent.agent_id === 'qoder' ? (
               <QoderLaunchTokenField
                 locked={agentLocked}
                 onDirtyChange={setAuthModeDirty}
-                onChanged={refreshAuthentication}
+                onChanged={notifyAuthenticationChanged}
               />
             ) : undefined
           }

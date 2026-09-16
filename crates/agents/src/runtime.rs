@@ -385,7 +385,7 @@ impl AgentRuntime {
                 {
                     let mut state = state.write().await;
                     fail_prompt_locked(&mut state, session_id, prompt_id, error.to_string());
-                    let envelope = Self::push_event_locked(
+                    let envelope = Self::queue_envelope_locked(
                         &mut state,
                         manager_event.connection_id,
                         Some(session_id),
@@ -671,7 +671,7 @@ impl AgentRuntime {
     ) {
         let mut state = state.write().await;
         fail_prompt_locked(&mut state, session_id, prompt_id, message.to_string());
-        let envelope = Self::push_event_locked(
+        let envelope = Self::queue_envelope_locked(
             &mut state,
             connection_id,
             Some(session_id),
@@ -2899,7 +2899,7 @@ mod tests {
             create_running_prompt(&runtime, "already streamed").await;
         {
             let mut state = runtime.state.write().await;
-            AgentRuntime::push_event_locked(
+            AgentRuntime::queue_envelope_locked(
                 &mut state,
                 connection.id,
                 Some(session.id),
@@ -2936,7 +2936,7 @@ mod tests {
         let (connection, session, prompt) = create_running_prompt(&runtime, "thinking").await;
         {
             let mut state = runtime.state.write().await;
-            AgentRuntime::push_event_locked(
+            AgentRuntime::queue_envelope_locked(
                 &mut state,
                 connection.id,
                 Some(session.id),

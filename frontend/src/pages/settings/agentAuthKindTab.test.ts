@@ -28,10 +28,10 @@ describe('agentAuthKindTab', () => {
   it('writes the per-agent tab map to localStorage', () => {
     rememberAgentAuthKindTab('codex', 'official_api');
 
-    expect(JSON.parse(localStorage.getItem('vibex:agent-auth-kind-tab')!)).toEqual(
-      {
-        codex: 'official_api',
-      }
-    );
+    expect(
+      JSON.parse(localStorage.getItem('vibex:agent-auth-kind-tab')!)
+    ).toEqual({
+      codex: 'official_api',
+    });
   });
 });

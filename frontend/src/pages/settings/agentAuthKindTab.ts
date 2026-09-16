@@ -13,8 +13,7 @@ let memoryFallback: AuthKindTabMap = {};
 
 function isAuthKind(value: unknown): value is AgentAuthModeKind {
   return (
-    typeof value === 'string' &&
-    AUTH_KINDS.includes(value as AgentAuthModeKind)
+    typeof value === 'string' && AUTH_KINDS.includes(value as AgentAuthModeKind)
   );
 }
 

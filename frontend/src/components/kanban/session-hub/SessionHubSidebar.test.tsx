@@ -278,9 +278,9 @@ describe('SessionHubSidebar', () => {
     expect(
       container.querySelector('.session-hub-sidebar-header')
     ).not.toHaveClass('flex-col');
-    expect(
-      container.querySelector('.session-hub-sidebar-header')
-    ).toHaveClass('justify-between');
+    expect(container.querySelector('.session-hub-sidebar-header')).toHaveClass(
+      'justify-between'
+    );
     expect(
       container.querySelector('.session-hub-sidebar-actions')
     ).not.toHaveClass('flex-wrap');

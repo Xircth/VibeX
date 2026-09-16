@@ -876,7 +876,8 @@ describe('AgentAuthModeControl', () => {
               label: '退出 Grok',
               description: '移除 Grok 本地账号会话。',
               label_key: 'agents.managementAction.grok.logout.label',
-              description_key: 'agents.managementAction.grok.logout.description',
+              description_key:
+                'agents.managementAction.grok.logout.description',
               kind: 'logout',
               available: true,
               unavailable_reason: null,
@@ -899,10 +900,9 @@ describe('AgentAuthModeControl', () => {
       expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
     );
     expect(ConfirmDialog.show).toHaveBeenCalled();
-    expect(await screen.findByRole('tab', { name: '官方订阅' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
+    expect(
+      await screen.findByRole('tab', { name: '官方订阅' })
+    ).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: '供应商' })).toHaveAttribute(
       'aria-selected',
       'false'

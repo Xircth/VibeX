@@ -30,7 +30,7 @@ pub fn open_local_app_window(app: &tauri::AppHandle) -> Result<String, AppError>
             "local app window labels must use the app- prefix".to_string(),
         ));
     }
-    let builder = crate::window_chrome::apply_app_window_chrome(
+    let mut builder = crate::window_chrome::apply_app_window_chrome(
         tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("/".into()))
             .title("VibeX")
             .inner_size(1400.0, 900.0)
@@ -38,6 +38,9 @@ pub fn open_local_app_window(app: &tauri::AppHandle) -> Result<String, AppError>
             .resizable(true)
             .center(),
     );
+    if let Some(data_directory) = app_webview_data_directory(&label) {
+        builder = builder.data_directory(data_directory);
+    }
 
     let builder = builder
         .icon(crate::load_app_icon().map_err(AppError::Internal)?)

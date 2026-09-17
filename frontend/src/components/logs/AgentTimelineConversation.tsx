@@ -1395,6 +1395,8 @@ const AgentTimelineConversation = forwardRef<
     latestTurnError,
     latestTurnErrorRow,
     reconnectNoticeRow,
+    searchParams,
+    setSearchParams,
     userOrdinalByKey,
   ]);
 

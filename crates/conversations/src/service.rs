@@ -1632,13 +1632,12 @@ impl ConversationSessionService {
             .agent_runtime
             .has_bound_acp_session(runtime_session_id)
             .await
+            && let Err(error) = self.ensure_session_controls_locked(conversation_id).await
         {
-            if let Err(error) = self.ensure_session_controls_locked(conversation_id).await {
-                inputs
-                    .release_claim(conversation_id, input_id, claim_token)
-                    .await?;
-                return Err(error);
-            }
+            inputs
+                .release_claim(conversation_id, input_id, claim_token)
+                .await?;
+            return Err(error);
         }
         if !self
             .ctx

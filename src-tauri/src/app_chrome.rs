@@ -94,7 +94,7 @@ pub fn install(app: &AppHandle) {
         tracing::warn!("Failed to install dock menu: {error}");
     }
     #[cfg(target_os = "windows")]
-    if let Err(error) = windows_jumplist::install() {
+    if let Err(error) = windows_jumplist::install(&app.config().identifier) {
         tracing::warn!("Failed to install taskbar jump list: {error}");
     }
 }
@@ -262,7 +262,15 @@ mod windows_jumplist {
         LABEL_NEW_WINDOW, LABEL_OPEN_SETTINGS, LAUNCH_ARG_NEW_WINDOW, LAUNCH_ARG_OPEN_SETTINGS,
     };
 
-    pub fn install() -> windows::core::Result<()> {
+    // FMTID_SummaryInformation / PIDSI_TITLE. Jump list tasks are rejected
+    // with E_INVALIDARG (0x80070057) unless each IShellLink has PKEY_Title.
+    const PKEY_TITLE: windows::Win32::Foundation::PROPERTYKEY =
+        windows::Win32::Foundation::PROPERTYKEY {
+            fmtid: windows::core::GUID::from_u128(0xf29f85e0_4ff9_1068_ab91_08002b27b3d9),
+            pid: 2,
+        };
+
+    pub fn install(app_id: &str) -> windows::core::Result<()> {
         use windows::{
             Win32::{
                 System::Com::{
@@ -272,7 +280,6 @@ mod windows_jumplist {
                 UI::Shell::{
                     Common::{IObjectArray, IObjectCollection},
                     DestinationList, EnumerableObjectCollection, ICustomDestinationList,
-                    IShellLinkW, ShellLink,
                 },
             },
             core::Interface,
@@ -282,7 +289,8 @@ mod windows_jumplist {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let dest: ICustomDestinationList =
                 CoCreateInstance(&DestinationList, None, CLSCTX_INPROC_SERVER)?;
-            dest.SetAppID(windows::core::w!("com.vibex.app"))?;
+            let app_id_wide: Vec<u16> = app_id.encode_utf16().chain(std::iter::once(0)).collect();
+            dest.SetAppID(windows::core::PCWSTR(app_id_wide.as_ptr()))?;
             let mut min_slots = 0u32;
             let _removed: IObjectArray = dest.BeginList(&mut min_slots)?;
 
@@ -309,8 +317,10 @@ mod windows_jumplist {
     ) -> windows::core::Result<windows::Win32::UI::Shell::IShellLinkW> {
         use windows::{
             Win32::{
-                System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
-                UI::Shell::{IShellLinkW, ShellLink},
+                System::Com::{
+                    CLSCTX_INPROC_SERVER, CoCreateInstance, StructuredStorage::PROPVARIANT,
+                },
+                UI::Shell::{IShellLinkW, PropertiesSystem::IPropertyStore, ShellLink},
             },
             core::Interface,
         };
@@ -327,6 +337,10 @@ mod windows_jumplist {
             link.SetArguments(windows::core::PCWSTR(args_wide.as_ptr()))?;
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             link.SetDescription(windows::core::PCWSTR(title_wide.as_ptr()))?;
+            let store: IPropertyStore = link.cast()?;
+            let title_value = PROPVARIANT::from(title);
+            store.SetValue(&PKEY_TITLE, &title_value)?;
+            store.Commit()?;
             Ok(link)
         }
     }

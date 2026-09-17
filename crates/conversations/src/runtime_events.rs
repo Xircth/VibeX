@@ -363,25 +363,33 @@ async fn append_mapped_event(
     .await
     {
         Ok(record) => Ok(Some(record)),
-        Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
-            match ConversationEventAppender::append(
-                pool,
-                append_event_input(mapped, normalized_json, None),
-            )
-            .await
-            {
-                Ok(record) => Ok(Some(record)),
-                Err(retry) if is_foreign_key_constraint(&retry) => {
-                    tracing::warn!(
-                        conversation_id = %mapped.conversation_id,
-                        turn_id = ?mapped.turn_id,
-                        %retry,
-                        "skipped conversation event that could not be persisted"
-                    );
-                    Ok(None)
+        Err(error) if is_foreign_key_constraint(&error) => {
+            if mapped.turn_id.is_some() {
+                match ConversationEventAppender::append(
+                    pool,
+                    append_event_input(mapped, normalized_json, None),
+                )
+                .await
+                {
+                    Ok(record) => return Ok(Some(record)),
+                    Err(retry) if is_foreign_key_constraint(&retry) => {
+                        tracing::debug!(
+                            conversation_id = %mapped.conversation_id,
+                            turn_id = ?mapped.turn_id,
+                            %retry,
+                            "skipped conversation event that could not be persisted"
+                        );
+                        return Ok(None);
+                    }
+                    Err(retry) => return Err(retry),
                 }
-                Err(retry) => Err(retry),
             }
+            tracing::debug!(
+                conversation_id = %mapped.conversation_id,
+                %error,
+                "skipped conversation event that could not be persisted"
+            );
+            Ok(None)
         }
         Err(error) => Err(error),
     }
@@ -1901,6 +1909,18 @@ mod tests {
         assert!(
             skipped.is_none(),
             "events for an unknown conversation must not abort the recorder"
+        );
+
+        let mut connect_event = mapped_record(2, connection_ready_event());
+        connect_event.turn_id = None;
+        let connect_normalized =
+            serde_json::to_string(&connect_event.event).expect("serialize");
+        let skipped_connect = append_mapped_event(&pool, &connect_event, &connect_normalized)
+            .await
+            .expect("connect-time events without a turn are skippable");
+        assert!(
+            skipped_connect.is_none(),
+            "bind/status events for an unknown conversation must not abort the recorder"
         );
     }
 

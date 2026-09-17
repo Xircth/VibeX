@@ -6,9 +6,11 @@ use std::{
     thread,
 };
 
+#[cfg(not(windows))]
+use agents::is_bash_like_posix_shell;
 use agents::{
     HostTerminalSnapshot, TerminalOutputChunk, TerminalOutputRx, TerminalOutputTx,
-    classify_shell_family, is_bash_like_posix_shell, shell_flavor::ShellFamily,
+    classify_shell_family, shell_flavor::ShellFamily,
 };
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use thiserror::Error;

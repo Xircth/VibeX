@@ -28,6 +28,8 @@ pub enum AgentError {
     AcpSessionNotBound,
     #[error("{0}")]
     PiProjectTrustRequired(String),
+    #[error("{0}")]
+    NotInstalled(String),
     #[error("agent runtime error: {0}")]
     Runtime(String),
     /// The ACP child or stdio transport died while the host still had work in flight.
@@ -42,6 +44,7 @@ impl AgentError {
             Self::SessionLoadFailed(reason) => Some(reason.code()),
             Self::AcpSessionNotBound => Some("acp_session_not_bound"),
             Self::PiProjectTrustRequired(_) => Some("pi_project_trust_required"),
+            Self::NotInstalled(_) => Some("agent_not_installed"),
             Self::ConnectionClosed(_) => Some("connection_closed"),
             _ => None,
         }
@@ -70,6 +73,14 @@ mod tests {
         assert_eq!(
             AgentError::AcpSessionNotBound.turn_failure_code(),
             Some("acp_session_not_bound")
+        );
+    }
+
+    #[test]
+    fn not_installed_is_a_turn_failure_code() {
+        assert_eq!(
+            AgentError::NotInstalled("Pi is not installed".into()).turn_failure_code(),
+            Some("agent_not_installed")
         );
     }
 

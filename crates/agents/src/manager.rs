@@ -510,12 +510,11 @@ fn classify_session_load_failure_fragments(
     if message.contains("already has an active writer") {
         return Some(SessionLoadFailureReason::SessionBusy);
     }
-    const UNRECOVERABLE: &[&str] = &[
-        "process exited",
-        "session has ended",
-        "Session not found",
-    ];
-    if UNRECOVERABLE.iter().any(|fragment| message.contains(fragment)) {
+    const UNRECOVERABLE: &[&str] = &["process exited", "session has ended", "Session not found"];
+    if UNRECOVERABLE
+        .iter()
+        .any(|fragment| message.contains(fragment))
+    {
         return Some(SessionLoadFailureReason::SessionUnavailable);
     }
     None
@@ -632,15 +631,6 @@ fn map_acp_session_error(context: &str, error: acp::Error) -> AgentError {
         -32000 => AgentError::AuthenticationRequired(error.to_string()),
         -32002 => AgentError::SessionLoadFailed(SessionLoadFailureReason::ResourceNotFound),
         _ => AgentError::Runtime(format!("{context}: {error}")),
-    }
-}
-
-fn map_session_restore_error(error: acp::Error) -> AgentError {
-    match classify_session_load_error(&error) {
-        SessionLoadFailureReason::AuthenticationRequired { message } => {
-            AgentError::AuthenticationRequired(message)
-        }
-        reason => AgentError::SessionLoadFailed(reason),
     }
 }
 
@@ -1661,8 +1651,8 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     let existing = self.session_map.read().await.get(&session_id).cloned();
-                    let acp_session_id = if let Some(existing) = existing
-                        .filter(|id| crate::is_restorable_acp_session_id(id))
+                    let acp_session_id = if let Some(existing) =
+                        existing.filter(|id| crate::is_restorable_acp_session_id(id))
                     {
                         self.emit_session_bind_ready(session_id, existing.clone());
                         existing
@@ -1695,12 +1685,12 @@ impl AgentConnectionRunner {
                     preferences: _,
                     result_tx,
                 } => {
-                    let acp_session_id = if crate::is_restorable_acp_session_id(&external_session_id)
-                    {
-                        external_session_id
-                    } else {
-                        format!("inmem-{}", session_id.0)
-                    };
+                    let acp_session_id =
+                        if crate::is_restorable_acp_session_id(&external_session_id) {
+                            external_session_id
+                        } else {
+                            format!("inmem-{}", session_id.0)
+                        };
                     self.session_map
                         .write()
                         .await
@@ -1743,8 +1733,12 @@ impl AgentConnectionRunner {
                         .cloned()
                         .filter(|id| crate::is_restorable_acp_session_id(id));
                     if bound.is_none() {
-                        self.fail_active_turn(session_id, prompt_id, AgentError::AcpSessionNotBound)
-                            .await;
+                        self.fail_active_turn(
+                            session_id,
+                            prompt_id,
+                            AgentError::AcpSessionNotBound,
+                        )
+                        .await;
                         continue;
                     }
                     let text = blocks
@@ -2058,7 +2052,7 @@ impl AgentConnectionRunner {
         }
         if self.snapshot.agent_id.as_str() == "pi" {
             if let Some(message) = crate::pi_trust::launch_preflight(&self.snapshot.env) {
-                return Err(AgentError::Runtime(message));
+                return Err(AgentError::NotInstalled(message));
             }
             let home = self
                 .snapshot
@@ -3023,8 +3017,7 @@ impl AgentConnectionRunner {
         attempted_load: bool,
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
         let a_level = classify_session_load_error(&error);
-        let classified =
-            classified_load_failure_reason(&a_level, &error.to_string(), failed_sid);
+        let classified = classified_load_failure_reason(&a_level, &error.to_string(), failed_sid);
         let action = decide_session_load_failure(
             &self.snapshot.agent_id,
             &a_level,
@@ -3207,6 +3200,10 @@ impl AgentConnectionRunner {
             "bound",
             self.handshake_started.elapsed().as_millis(),
         );
+        // Resume/load emit Recovering for the UI notice. Bind success must
+        // restore Ready, otherwise session_controls_snapshot treats the live
+        // connection as missing and the composer shows a stale NotFound.
+        self.emit_connection_status(AgentConnectionStatus::Ready, None, Some(session_id));
         self.emit(
             Some(session_id),
             None,
@@ -4353,14 +4350,26 @@ impl AgentConnectionRunner {
         if let AgentEvent::Error { error } = &event {
             let session = session_id.map(|id| id.to_string());
             let prompt = prompt_id.map(|id| id.to_string());
-            tracing::error!(
-                agent_id = %self.snapshot.agent_id.as_str(),
-                session_id = session.as_deref().unwrap_or("-"),
-                prompt_id = prompt.as_deref().unwrap_or("-"),
-                code = error.code.as_deref().unwrap_or("unknown"),
-                "{}",
-                error.message
-            );
+            let code = error.code.as_deref().unwrap_or("unknown");
+            if code == "agent_not_installed" {
+                tracing::debug!(
+                    agent_id = %self.snapshot.agent_id.as_str(),
+                    session_id = session.as_deref().unwrap_or("-"),
+                    prompt_id = prompt.as_deref().unwrap_or("-"),
+                    code,
+                    "{}",
+                    error.message
+                );
+            } else {
+                tracing::error!(
+                    agent_id = %self.snapshot.agent_id.as_str(),
+                    session_id = session.as_deref().unwrap_or("-"),
+                    prompt_id = prompt.as_deref().unwrap_or("-"),
+                    code,
+                    "{}",
+                    error.message
+                );
+            }
         }
         send_manager_event(
             &self.event_tx,
@@ -8396,7 +8405,9 @@ mod tests {
             classify_session_load_failure_fragments("Session not found", "sid"),
             Some(SessionLoadFailureReason::SessionUnavailable)
         ));
-        assert!(classify_session_load_failure_fragments("Authentication required", "sid").is_none());
+        assert!(
+            classify_session_load_failure_fragments("Authentication required", "sid").is_none()
+        );
         assert!(classify_session_load_failure_fragments("Method not found", "sid").is_none());
     }
 

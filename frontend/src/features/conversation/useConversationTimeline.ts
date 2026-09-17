@@ -8,6 +8,7 @@ import type {
   MessageTurn,
   TimelineRow,
 } from 'shared/types';
+import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from './conversationApi';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
 import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
@@ -36,6 +37,11 @@ function conversationLoadError(error: unknown): string | null {
     return null;
   }
   return getInvokeErrorMessage(error);
+}
+
+function isStaleAgentConnectionError(error: unknown): boolean {
+  const message = getInvokeErrorMessage(error) ?? '';
+  return /agent connection `.+` was not found/i.test(message);
 }
 
 export type UseConversationTimelineResult = {
@@ -201,6 +207,27 @@ export function useConversationTimeline(
   }, [conversationId]);
 
   useEffect(() => {
+    if (!conversationId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listenToAgentEvents((envelope) => {
+      if (!active || envelope.session_id !== conversationId) return;
+      if (envelope.event.kind !== 'session_bind_ready') return;
+      setSessionBindReady(true);
+    }).then((unsubscribe) => {
+      if (!active) {
+        unsubscribe();
+        return;
+      }
+      unlisten = unsubscribe;
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [conversationId]);
+
+  useEffect(() => {
     if (!isActive || !conversationId) return;
     const entry = stateRef.current.byConversationId[conversationId];
     const skipInFlightWait = canSkipInFlightHistoryWait(
@@ -215,27 +242,36 @@ export function useConversationTimeline(
     );
     if (hasUnclearedLoadFailure) return;
 
-    let cancelled = false;
-    setSessionBindReady(false);
+    const requestedConversationId = conversationId;
     void conversationApi
-      .ensureSessionControls(conversationId, { reload: false })
+      .ensureSessionControls(requestedConversationId, { reload: false })
       .then((controls) => {
-        if (cancelled) return;
+        if (
+          disposedRef.current ||
+          previousConversationIdRef.current !== requestedConversationId
+        ) {
+          return;
+        }
         dispatch({
           type: 'session_controls_hydrated',
-          conversationId,
+          conversationId: requestedConversationId,
           controls,
         });
         setSessionBindReady(true);
       })
       .catch((error: unknown) => {
-        if (cancelled) return;
+        if (
+          disposedRef.current ||
+          previousConversationIdRef.current !== requestedConversationId
+        ) {
+          return;
+        }
+        if (isStaleAgentConnectionError(error)) {
+          return;
+        }
         setSessionBindReady(false);
-        reportLoadError(error, conversationId);
+        reportLoadError(error, requestedConversationId);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [conversationId, hasDetail, isActive, reportLoadError]);
 
   useEffect(() => {

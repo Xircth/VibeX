@@ -1541,28 +1541,45 @@ impl AgentRuntime {
         &self,
         session_id: AgentSessionId,
     ) -> AgentResult<AgentSessionControlsSnapshot> {
-        let (connection_id, controls, ready) = {
+        let (connection_id, controls, live) = {
             let state = self.state.read().await;
             let session = state
                 .sessions
                 .get(&session_id)
                 .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))?;
-            let ready = state
+            let live = state
                 .connections
                 .get(&session.snapshot.connection_id)
                 .is_some_and(|connection| {
-                    connection.snapshot.status == AgentConnectionStatus::Ready
+                    matches!(
+                        connection.snapshot.status,
+                        AgentConnectionStatus::Ready
+                            | AgentConnectionStatus::Connecting
+                            | AgentConnectionStatus::Recovering
+                    )
                 });
             (
                 session.snapshot.connection_id,
                 session.controls.clone(),
-                ready,
+                live,
             )
         };
-        if !ready || !self.connection_manager.has_connection(connection_id).await {
+        if !live || !self.connection_manager.has_connection(connection_id).await {
             return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
         }
         Ok(controls)
+    }
+
+    pub async fn retained_session_controls(
+        &self,
+        session_id: AgentSessionId,
+    ) -> Option<AgentSessionControlsSnapshot> {
+        self.state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|session| session.controls.clone())
     }
 
     /// Fork the live ACP session behind `session_id` (P1-4). Returns the new
@@ -1686,20 +1703,33 @@ impl AgentRuntime {
 
         let now = Utc::now();
         let mut state = self.state.write().await;
+        let session_connection_id = state
+            .sessions
+            .get(&input.session_id)
+            .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?
+            .snapshot
+            .connection_id;
+        let connection_id = if state.connections.contains_key(&session_connection_id) {
+            session_connection_id
+        } else if state.connections.contains_key(&input.connection_id) {
+            input.connection_id
+        } else {
+            return Err(AgentError::ConnectionNotFound(
+                session_connection_id.to_string(),
+            ));
+        };
         let workspace_id = state
             .connections
-            .get(&input.connection_id)
+            .get(&connection_id)
             .map(|connection| connection.snapshot.workspace_id)
-            .ok_or_else(|| AgentError::ConnectionNotFound(input.connection_id.to_string()))?;
+            .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
         let prompt_id = AgentPromptId::new();
         let transition = {
             let session = state
                 .sessions
                 .get_mut(&input.session_id)
                 .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
-            if session.snapshot.connection_id != input.connection_id {
-                return Err(AgentError::SessionNotFound(input.session_id.to_string()));
-            }
+            session.snapshot.connection_id = connection_id;
             let transition = session.queue.submit(prompt_id);
             session.snapshot.active_prompt_id = session.queue.active();
             session.snapshot.queued_prompt_ids = session.queue.queued();
@@ -1723,7 +1753,7 @@ impl AgentRuntime {
         };
 
         let SendAgentPromptInput {
-            connection_id,
+            connection_id: _,
             session_id,
             blocks,
             mode_override,
@@ -1893,8 +1923,12 @@ impl AgentRuntime {
             let Some(connection) = state.connections.get(&session.connection_id) else {
                 return false;
             };
-            if connection.snapshot.status != AgentConnectionStatus::Ready
-                || connection.snapshot.agent_id != input.agent_id
+            if !matches!(
+                connection.snapshot.status,
+                AgentConnectionStatus::Ready
+                    | AgentConnectionStatus::Connecting
+                    | AgentConnectionStatus::Recovering
+            ) || connection.snapshot.agent_id != input.agent_id
                 || connection.snapshot.workspace_id != input.workspace_id
                 || connection.snapshot.working_dir != input.working_dir.display().to_string()
             {
@@ -4320,7 +4354,7 @@ mod tests {
                 working_dir: PathBuf::from("C:/failed-connection"),
                 additional_directories: Vec::new(),
                 session_id,
-                acp_session_id: "external-session".to_string(),
+                acp_session_id: String::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
                 preferences: Default::default(),
@@ -4339,6 +4373,46 @@ mod tests {
             .status = AgentConnectionStatus::Failed;
 
         assert!(runtime.session_controls_snapshot(session_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn session_controls_snapshot_keeps_a_recovering_connection() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+        let prepared = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from("C:/recovering-connection"),
+                additional_directories: Vec::new(),
+                session_id,
+                acp_session_id: String::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        runtime
+            .state
+            .write()
+            .await
+            .connections
+            .get_mut(&prepared.session.connection_id)
+            .expect("connection")
+            .snapshot
+            .status = AgentConnectionStatus::Recovering;
+
+        assert_eq!(
+            runtime
+                .session_controls_snapshot(session_id)
+                .await
+                .expect("recovering bind still has controls"),
+            prepared.controls
+        );
     }
 
     #[tokio::test]

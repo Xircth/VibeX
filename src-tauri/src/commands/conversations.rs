@@ -369,7 +369,7 @@ pub async fn conversation_touch(
     ConversationSessionService::new(state.conversation_context())
         .touch_session(id)
         .await
-        .map_err(Into::into)?;
+        .map_err(AppError::from)?;
     let idle_timeout_secs = agents::idle_timeout_from_env()
         .map(|timeout| timeout.as_secs())
         .unwrap_or(0);

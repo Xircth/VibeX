@@ -322,8 +322,6 @@ impl ProcessProbe for CommandProcessProbe {
 
 #[cfg(windows)]
 fn hide_process_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }

@@ -1,5 +1,7 @@
+#[cfg(not(windows))]
+use std::collections::HashSet;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,

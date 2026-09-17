@@ -13,18 +13,17 @@ use agents::{
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
     SendAgentPromptInput, SessionControlPreferences, SessionLaunchLock, SteerAgentPromptInput,
     conversation::{
-        AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
-        ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
-        ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
-        ConversationQuestionResponse, ConversationWorkflowRef,
+        ConversationAgentConnectionStatus, ConversationError, ConversationEvent,
+        ConversationEventEnvelope, ConversationFileChange, ConversationFileChangeSummary,
+        ConversationInputBlock, ConversationPermissionResponse, ConversationQuestionResponse,
+        ConversationWorkflowRef,
     },
 };
 use chrono::{DateTime, Utc};
 use db::models::{
     agent_management::SessionDefaultRepository,
     conversation::{
-        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
-        CreateConversationRecord,
+        BindingStatus, ConversationAgentBindingRecord, ConversationRecord, CreateConversationRecord,
     },
     conversation_event::AppendConversationEvent,
     conversation_side_effects::ConversationPermissionRecord,
@@ -103,7 +102,8 @@ impl From<agents::AgentError> for ConversationServiceError {
             agents::AgentError::ConnectionNotFound(_)
             | agents::AgentError::SessionNotFound(_)
             | agents::AgentError::PromptNotFound(_) => Self::NotFound(e.to_string()),
-            agents::AgentError::PiProjectTrustRequired(message) => Self::BadRequest(message),
+            agents::AgentError::PiProjectTrustRequired(message)
+            | agents::AgentError::NotInstalled(message) => Self::BadRequest(message),
             _ => Self::Internal(e.to_string()),
         }
     }
@@ -2335,6 +2335,8 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         reload: bool,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
         if reload {
             self.drop_live_agent_connection(conversation_id).await;
         }
@@ -2515,11 +2517,27 @@ impl ConversationSessionService {
         )
         .await;
 
-        let controls = self
+        let controls = match self
             .ctx
             .agent_runtime
             .session_controls_snapshot(runtime_session_id)
-            .await?;
+            .await
+        {
+            Ok(controls) => controls,
+            Err(agents::AgentError::ConnectionNotFound(connection_id)) => {
+                tracing::warn!(
+                    %conversation_id,
+                    %connection_id,
+                    "session controls snapshot missed a live bind; using retained controls"
+                );
+                self.ctx
+                    .agent_runtime
+                    .retained_session_controls(runtime_session_id)
+                    .await
+                    .unwrap_or_default()
+            }
+            Err(error) => return Err(error.into()),
+        };
         self.ctx
             .agent_runtime
             .commit_prepared_session(runtime_session_id)
@@ -2531,17 +2549,11 @@ impl ConversationSessionService {
             state.connection_status = Some("ready".to_string());
         })
         .await;
-        let should_record_recovery = restore_strategy
+        let should_record_recovery = restore_strategy.as_ref().is_some_and(|strategy| {
+            matches!(strategy, agents::SessionRecoveryStrategy::CreatedNewSession)
+        }) || latest_binding
             .as_ref()
-            .is_some_and(|strategy| {
-                matches!(
-                    strategy,
-                    agents::SessionRecoveryStrategy::CreatedNewSession
-                )
-            })
-            || latest_binding
-                .as_ref()
-                .is_some_and(|binding| binding.status == "failed");
+            .is_some_and(|binding| binding.status == "failed");
         if should_record_recovery {
             let strategy = restore_strategy.unwrap_or(if restored_existing_session {
                 agents::SessionRecoveryStrategy::Resumed
@@ -3164,69 +3176,6 @@ impl ConversationSessionService {
             state.connection_status = Some("closed".to_string());
         })
         .await;
-    }
-
-    async fn emit_session_connecting(
-        &self,
-        conversation_id: Uuid,
-        turn_id: Option<Uuid>,
-    ) -> Result<(), ConversationServiceError> {
-        self.append_event(
-            conversation_id,
-            turn_id,
-            "runtime",
-            ConversationEvent::AgentConnectionStatusChanged {
-                status: ConversationAgentConnectionStatus::Connecting,
-            },
-            Some(format!(
-                "session:{conversation_id}:connecting:{}",
-                turn_id.unwrap_or(conversation_id)
-            )),
-        )
-        .await?;
-        Ok(())
-    }
-
-    async fn emit_session_connect_retry(
-        &self,
-        conversation_id: Uuid,
-        turn_id: Option<Uuid>,
-        attempt: u32,
-        max: u32,
-        error: &ConversationServiceError,
-    ) -> Result<(), ConversationServiceError> {
-        self.append_event(
-            conversation_id,
-            turn_id,
-            "runtime",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: agents::SESSION_RECONNECT_PROGRESS_KIND.to_string(),
-                payload: Some(serde_json::json!({
-                    "kind": agents::SESSION_RECONNECT_PROGRESS_KIND,
-                    "attempt": attempt,
-                    "max": max,
-                })),
-            },
-            Some(format!(
-                "session:{conversation_id}:reconnect:{attempt}:{max}"
-            )),
-        )
-        .await?;
-        self.append_event(
-            conversation_id,
-            turn_id,
-            "runtime",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: agents::SESSION_CONNECT_ERROR_KIND.to_string(),
-                payload: Some(serde_json::json!({
-                    "kind": agents::SESSION_CONNECT_ERROR_KIND,
-                    "message": error.to_string(),
-                })),
-            },
-            Some(format!("session:{conversation_id}:connect-error:{attempt}")),
-        )
-        .await?;
-        Ok(())
     }
 
     async fn forget_conversation_runtime(&self, conversation_id: Uuid) {
@@ -4324,41 +4273,8 @@ fn agent_prompt_overrides_from_profile(
     AgentPromptOverrides::default()
 }
 
-const SESSION_CONNECT_ATTEMPTS: u32 = 10;
-#[allow(dead_code)]
-const SESSION_CONNECT_NOTICE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
-
-fn is_retryable_session_error(error: &ConversationServiceError) -> bool {
-    match error {
-        ConversationServiceError::AuthenticationRequired(_)
-        | ConversationServiceError::BadRequest(_)
-        | ConversationServiceError::Conflict(_) => false,
-        ConversationServiceError::SessionUnavailable { code, .. } => {
-            matches!(*code, "session_load_failed")
-        }
-        ConversationServiceError::NotFound(_) => true,
-        ConversationServiceError::Internal(message) => {
-            let message = message.to_ascii_lowercase();
-            message.contains("connection closed")
-                || message.contains("command channel closed")
-                || message.contains("session preparation")
-                || message.contains("handshake")
-                || message.contains("timed out")
-        }
-    }
-}
-
-fn session_connect_backoff(attempt: u32) -> std::time::Duration {
-    let shift = attempt.saturating_sub(1).min(4);
-    std::time::Duration::from_millis(250 * (1u64 << shift))
-}
-
 fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
     Uuid::parse_str(value).ok().map(AgentConnectionId)
-}
-
-fn binding_can_restore_agent_session(binding: Option<&ConversationAgentBindingRecord>) -> bool {
-    binding.is_some_and(|binding| binding.resume_supported || binding.load_supported)
 }
 
 fn resume_external_session_id(
@@ -4447,12 +4363,12 @@ mod tests {
 
     use super::{
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
-        binding_can_restore_agent_session, checkpoint_before_files, checkpoint_file_change_summary,
-        checkpoint_turn_file_changes, conversation_input_blocks_with_display_text,
-        diff_to_conversation_file_change, ensure_conversation_has_no_in_flight_turn,
-        host_started_at, is_zombie_in_flight_turn, known_acp_session_id,
-        merge_user_prompt_overrides, prune_unreferenced_turn_lock, resume_external_session_id,
-        session_control_preferences, session_control_replay_plan, turn_predates_this_host,
+        checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
+        conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
+        ensure_conversation_has_no_in_flight_turn, host_started_at, is_zombie_in_flight_turn,
+        known_acp_session_id, merge_user_prompt_overrides, prune_unreferenced_turn_lock,
+        resume_external_session_id, session_control_preferences, session_control_replay_plan,
+        turn_predates_this_host,
     };
 
     #[test]
@@ -4827,7 +4743,6 @@ mod tests {
                 .as_deref(),
             Some("claude-original-session")
         );
-        assert!(!binding_can_restore_agent_session(None));
     }
 
     #[test]
@@ -4992,37 +4907,6 @@ mod tests {
                 if text == "visible request"
         ));
         assert_eq!(blocks.len(), 2);
-    }
-
-    #[test]
-    fn session_connect_retries_only_transient_failures() {
-        assert!(super::is_retryable_session_error(
-            &ConversationServiceError::Internal(
-                "agent connection closed before ACP session preparation completed".into()
-            )
-        ));
-        assert!(super::is_retryable_session_error(
-            &ConversationServiceError::Internal(
-                "ACP session preparation timed out after 60s".into()
-            )
-        ));
-        assert!(super::is_retryable_session_error(
-            &ConversationServiceError::Internal("ACP handshake timed out after 60s".into())
-        ));
-        assert!(super::is_retryable_session_error(
-            &ConversationServiceError::SessionUnavailable {
-                code: "session_load_failed",
-                message: "session/load failed".into(),
-            }
-        ));
-        assert!(!super::is_retryable_session_error(
-            &ConversationServiceError::AuthenticationRequired("401".into())
-        ));
-        assert!(!super::is_retryable_session_error(
-            &ConversationServiceError::Internal(
-                "Internal error: Failed to authenticate. API Error: 401".into()
-            )
-        ));
     }
 
     #[test]

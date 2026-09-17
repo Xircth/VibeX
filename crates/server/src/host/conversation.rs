@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use agents::{
     AgentAvailableCommand, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
-    idle_timeout_from_env,
     conversation::{
         AcpCapabilitySnapshot, ConversationBundlePayload, ConversationEvent, ConversationRowPage,
         ConversationSessionModes, ConversationTimeline, ConversationTimelineRow, MessageTurn,
@@ -161,10 +160,7 @@ impl ServerApplicationDomains {
         serialize(snapshot)
     }
 
-    pub(crate) async fn conversation_touch(
-        &self,
-        args: Value,
-    ) -> Result<Value, ApplicationError> {
+    pub(crate) async fn conversation_touch(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ConversationIdArgs = parse(args)?;
         let id = parse_uuid(&args.conversation_id)?;
         conversations::ConversationSessionService::new(self.conversations.clone())

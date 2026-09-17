@@ -81,7 +81,8 @@ impl From<agents::AgentError> for AppError {
             agents::AgentError::AcpSessionNotBound => AppError::BadRequest(
                 "ACP session is not bound on this connection".to_string(),
             ),
-            agents::AgentError::PiProjectTrustRequired(message) => AppError::BadRequest(message),
+            agents::AgentError::PiProjectTrustRequired(message)
+            | agents::AgentError::NotInstalled(message) => AppError::BadRequest(message),
             agents::AgentError::InvalidDistribution(message)
             | agents::AgentError::Runtime(message)
             | agents::AgentError::ConnectionClosed(message) => AppError::Internal(message),
